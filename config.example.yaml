@@ -1,0 +1,109 @@
+agent:
+  name: "coddy-agent"
+  version: "0.1.0"
+
+models:
+  default: "openai/gpt-4o"
+  agent_mode: "openai/gpt-4o"
+  plan_mode: "openai/gpt-4o"
+
+  definitions:
+    - id: "openai/gpt-4o"
+      provider: "openai"
+      model: "gpt-4o"
+      api_key: "${OPENAI_API_KEY}"
+      max_tokens: 8192
+      temperature: 0.2
+
+    # Anthropic example
+    # - id: "anthropic/claude-3-5-sonnet"
+    #   provider: "anthropic"
+    #   model: "claude-3-5-sonnet-20241022"
+    #   api_key: "${ANTHROPIC_API_KEY}"
+    #   max_tokens: 8192
+    #   temperature: 0.2
+
+    # Local Ollama example
+    # - id: "local/qwen"
+    #   provider: "ollama"
+    #   model: "qwen2.5-coder:14b"
+    #   base_url: "http://localhost:11434"
+    #   max_tokens: 4096
+    #   temperature: 0.1
+
+    # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
+    # - id: "deepseek/coder"
+    #   provider: "openai_compatible"
+    #   model: "deepseek-coder-v2"
+    #   api_key: "${DEEPSEEK_API_KEY}"
+    #   base_url: "https://api.deepseek.com/v1"
+    #   max_tokens: 8192
+    #   temperature: 0.1
+
+react:
+  max_turns: 30
+  max_tokens_per_turn: 200000
+
+prompts:
+  # Override built-in prompts with custom files (Go text/template format).
+  # Available variables: {{.CWD}}, {{.ExtraInstructions}}
+  agent_file: ""   # path to custom agent.md, empty = use built-in
+  plan_file: ""    # path to custom plan.md, empty = use built-in
+
+  # Append extra instructions to the built-in prompt.
+  # Useful for project-specific rules without replacing the whole prompt.
+  agent_extra: ""
+  plan_extra: ""
+
+skills:
+  # install_dir is where `coddy-agent install-skill` places skills.
+  # Defaults to ~/.config/coddy-agent/skills
+  install_dir: "~/.config/coddy-agent/skills"
+
+  # dirs is the list of directories scanned for skills and cursor rules.
+  # Searched in order - later entries take lower priority.
+  # The install_dir is always prepended automatically.
+  dirs:
+    - "~/.config/coddy-agent/skills"  # agent-specific global skills (default install target)
+    - "~/.cursor/skills"
+    - "~/.cursor/skills-cursor"
+    - "${WORKSPACE}/.cursor/rules"
+    - "${WORKSPACE}/.cursor/skills"
+
+mcp_servers: []
+  # Example: filesystem MCP server
+  # - name: "filesystem"
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
+  #   env: []
+
+  # Example: GitHub MCP server
+  # - name: "github"
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
+  #       value: "${GITHUB_TOKEN}"
+
+tools:
+  require_permission_for_commands: true
+  require_permission_for_writes: false
+  restrict_to_cwd: true
+
+  # Commands that never require user permission.
+  # Supports exact match and prefix match (prefix + space + any args).
+  # Use "*" to allow all commands without asking (disables permission for commands entirely).
+  command_allowlist:
+    - "go build"
+    - "go test"
+    - "go vet"
+    - "go fmt"
+    - "go mod tidy"
+    - "make"
+    - "git status"
+    - "git diff"
+    - "git log"
+
+log:
+  level: "info"
+  file: ""

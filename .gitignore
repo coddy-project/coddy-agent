@@ -1,0 +1,33 @@
+# Binaries
+coddy
+coddy-agent
+rpa-agent
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Go build cache
+/vendor/
+
+# Config with secrets (use config.example.yaml as template)
+config.yaml
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

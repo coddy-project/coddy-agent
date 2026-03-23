@@ -1,0 +1,193 @@
+package tools_test
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+)
+
+func makeEnv(t *testing.T) *tools.Env {
+	t.Helper()
+	return &tools.Env{
+		CWD:           t.TempDir(),
+		RestrictToCWD: true,
+	}
+}
+
+func TestReadFile(t *testing.T) {
+	env := makeEnv(t)
+	content := "hello, world\nline 2\n"
+	path := filepath.Join(env.CWD, "test.txt")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "test.txt"})
+	result, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	if err != nil {
+		t.Fatalf("read_file: %v", err)
+	}
+	if result != content {
+		t.Errorf("expected %q, got %q", content, result)
+	}
+}
+
+func TestReadFileLines(t *testing.T) {
+	env := makeEnv(t)
+	content := "line1\nline2\nline3\nline4\n"
+	path := filepath.Join(env.CWD, "test.txt")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{
+		"path":       "test.txt",
+		"start_line": 2,
+		"end_line":   3,
+	})
+	result, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	if err != nil {
+		t.Fatalf("read_file with lines: %v", err)
+	}
+	if !strings.Contains(result, "line2") || !strings.Contains(result, "line3") {
+		t.Errorf("unexpected result: %q", result)
+	}
+	if strings.Contains(result, "line1") || strings.Contains(result, "line4") {
+		t.Errorf("should not contain out-of-range lines: %q", result)
+	}
+}
+
+func TestWriteFile(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"path":    "output.txt",
+		"content": "new file content",
+	})
+	result, err := reg.Execute(context.Background(), "write_file", string(args), env)
+	if err != nil {
+		t.Fatalf("write_file: %v", err)
+	}
+	if !strings.Contains(result, "output.txt") {
+		t.Errorf("unexpected result: %q", result)
+	}
+
+	data, err := os.ReadFile(filepath.Join(env.CWD, "output.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "new file content" {
+		t.Errorf("file content mismatch: %q", string(data))
+	}
+}
+
+func TestWriteFileCreatesDirectories(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+
+	args, _ := json.Marshal(map[string]interface{}{
+		"path":    "subdir/nested/file.txt",
+		"content": "nested content",
+	})
+	_, err := reg.Execute(context.Background(), "write_file", string(args), env)
+	if err != nil {
+		t.Fatalf("write_file nested: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(env.CWD, "subdir/nested/file.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "nested content" {
+		t.Errorf("nested file content mismatch: %q", string(data))
+	}
+}
+
+func TestReadFileOutsideCWD(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+
+	args, _ := json.Marshal(map[string]interface{}{"path": "/etc/passwd"})
+	_, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	if err == nil {
+		t.Error("expected error when reading outside CWD")
+	}
+}
+
+func TestListDir(t *testing.T) {
+	env := makeEnv(t)
+
+	// Create some files.
+	if err := os.WriteFile(filepath.Join(env.CWD, "a.go"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(env.CWD, "b.go"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(env.CWD, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{})
+	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	if err != nil {
+		t.Fatalf("list_dir: %v", err)
+	}
+	if !strings.Contains(result, "a.go") || !strings.Contains(result, "b.go") {
+		t.Errorf("missing files in list_dir output: %q", result)
+	}
+	if !strings.Contains(result, "subdir/") {
+		t.Errorf("missing subdir in list_dir output: %q", result)
+	}
+}
+
+func TestApplyDiff(t *testing.T) {
+	env := makeEnv(t)
+
+	original := "line1\nline2\nline3\n"
+	path := filepath.Join(env.CWD, "file.txt")
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// A simple diff that replaces line2 with newline2.
+	diff := `@@ -2,1 +2,1 @@
+-line2
++newline2
+`
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{
+		"path": "file.txt",
+		"diff": diff,
+	})
+	_, err := reg.Execute(context.Background(), "apply_diff", string(args), env)
+	if err != nil {
+		t.Fatalf("apply_diff: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "newline2") {
+		t.Errorf("diff not applied: %q", string(data))
+	}
+}
+
+func TestUnknownTool(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+	_, err := reg.Execute(context.Background(), "nonexistent_tool", "{}", env)
+	if err == nil {
+		t.Error("expected error for unknown tool")
+	}
+}
