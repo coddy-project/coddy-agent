@@ -176,12 +176,31 @@ func New(cfg Config) (AppModel, error) {
 	if cfg.SessionID != "" {
 		if stored, err := cfg.Store.Load(cfg.SessionID); err == nil {
 			m.state = createStateFromStored(stored)
+			// toolCallIdx maps tool call ID to its index in m.chat for linking results.
+			toolCallIdx := make(map[string]int)
 			for _, msg := range stored.Messages {
 				switch msg.Role {
 				case llm.RoleUser:
 					m.chat = append(m.chat, chatEntry{role: "user", content: msg.Content})
 				case llm.RoleAssistant:
-					m.chat = append(m.chat, chatEntry{role: "agent", content: msg.Content})
+					if msg.Content != "" {
+						m.chat = append(m.chat, chatEntry{role: "agent", content: msg.Content})
+					}
+					for _, tc := range msg.ToolCalls {
+						idx := len(m.chat)
+						m.chat = append(m.chat, chatEntry{
+							role:     "tool",
+							toolID:   tc.ID,
+							toolName: tc.Name,
+							toolArgs: tc.InputJSON,
+							status:   "completed",
+						})
+						toolCallIdx[tc.ID] = idx
+					}
+				case llm.RoleTool:
+					if i, ok := toolCallIdx[msg.ToolCallID]; ok {
+						m.chat[i].toolOutput = msg.Content
+					}
 				}
 			}
 			m.showWelcome = false
@@ -776,11 +795,12 @@ func (m AppModel) recalcLayout() AppModel {
 		return m
 	}
 
-	headerH := 0
 	statusH := 1
 	// inputH = textarea rows (3); left-border-only style adds no top/bottom lines.
 	inputH := 3
-	chatH := m.height - headerH - statusH - inputH - 2
+	// Each "\n" separator between sections is a line transition, not an extra visual line,
+	// so the correct formula is simply height minus the fixed-height sections.
+	chatH := m.height - statusH - inputH
 	if chatH < 3 {
 		chatH = 3
 	}
