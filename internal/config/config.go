@@ -87,23 +87,23 @@ func applyDefaults(cfg *Config) {
 	if cfg.Models.Default == "" && len(cfg.Models.Defs) == 0 {
 		// Try to build a default from environment.
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-			cfg.Models.Default = "openai/gpt-4o"
+			cfg.Models.Default = "openai/gpt-5.4"
 			cfg.Models.Defs = []ModelDefinition{{
-				ID:          "openai/gpt-4o",
+				ID:          "openai/gpt-5.4",
 				Provider:    "openai",
-				Model:       "gpt-4o",
+				Model:       "gpt-5.4",
 				APIKey:      key,
-				MaxTokens:   8192,
+				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
 		} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-			cfg.Models.Default = "anthropic/claude-3-5-sonnet"
+			cfg.Models.Default = "anthropic/claude-sonnet-4-6"
 			cfg.Models.Defs = []ModelDefinition{{
-				ID:          "anthropic/claude-3-5-sonnet",
+				ID:          "anthropic/claude-sonnet-4-6",
 				Provider:    "anthropic",
-				Model:       "claude-3-5-sonnet-20241022",
+				Model:       "claude-sonnet-4-6",
 				APIKey:      key,
-				MaxTokens:   8192,
+				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
 		}
