@@ -26,8 +26,35 @@ Or build from source:
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-go build -o coddy ./cmd/coddy
+make build
+# or manually:
+go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
 ```
+
+### Terminal UI
+
+Just run `coddy` in any project directory to start the interactive terminal UI:
+
+```bash
+coddy
+```
+
+The TUI opens full-screen with a chat interface similar to OpenCode. Your session is automatically saved when you exit (`ctrl+c`) and can be resumed later:
+
+```bash
+coddy -s tui_1234567890   # resume a saved session
+```
+
+**Key bindings:**
+
+| Key | Action |
+|-----|--------|
+| `tab` / `ctrl+i` | Switch mode (agent / plan) |
+| `alt+m` | Switch model from the list in config |
+| `ctrl+p` | Command palette with search |
+| `ctrl+x` | Toggle input on/off |
+| `esc` | Cancel the running agent |
+| `ctrl+c` | Save session and exit |
 
 ### Configuration
 
@@ -204,13 +231,27 @@ See [Architecture docs](docs/architecture.md) for full details.
 ```bash
 # Run tests
 go test ./...
+make test
 
-# Run with debug logging
+# Build binary (with git version embedded)
+make build
+
+# Run with debug logging (ACP mode)
 coddy acp --log-level debug
 
 # Test with a simple ACP client
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
+
+### Building separate binaries
+
+The TUI package (`internal/tui`) is decoupled from the ACP server layer. You can:
+
+- Build full binary (TUI + ACP + skills CLI): `go build ./cmd/coddy/`
+- Use only ACP server in your own `main.go` without importing `internal/tui`
+- Use only the TUI without the ACP server by not calling `runACP()`
+
+The `internal/version` package uses `-ldflags` build-time injection with a `"dev"` fallback, so no extra tooling is required for development builds.
 
 ## License
 

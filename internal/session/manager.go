@@ -21,7 +21,7 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
 	cfg        *config.Config
-	server     *acp.Server
+	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	runner     AgentRunner
 	log        *slog.Logger
@@ -31,7 +31,7 @@ type Manager struct {
 }
 
 // NewManager creates a session manager.
-func NewManager(cfg *config.Config, server *acp.Server, runner AgentRunner, log *slog.Logger) *Manager {
+func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger) *Manager {
 	skillsDirs := make([]string, len(cfg.Skills.Dirs))
 	copy(skillsDirs, cfg.Skills.Dirs)
 
@@ -45,8 +45,8 @@ func NewManager(cfg *config.Config, server *acp.Server, runner AgentRunner, log 
 	}
 }
 
-// SetServer injects the ACP server (used when server and manager are constructed together).
-func (m *Manager) SetServer(server *acp.Server) {
+// SetServer injects the update sender (used when server and manager are constructed together).
+func (m *Manager) SetServer(server acp.UpdateSender) {
 	m.server = server
 }
 

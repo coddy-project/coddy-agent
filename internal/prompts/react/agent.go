@@ -34,13 +34,13 @@ type SessionState interface {
 type Agent struct {
 	cfg      *config.Config
 	state    SessionState
-	server   *acp.Server
+	server   acp.UpdateSender
 	log      *slog.Logger
 	registry *tools.Registry
 }
 
 // NewAgent creates an Agent for a prompt turn.
-func NewAgent(cfg *config.Config, state SessionState, server *acp.Server, log *slog.Logger) *Agent {
+func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
 	return &Agent{
 		cfg:      cfg,
 		state:    state,
@@ -126,11 +126,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 					Content:       acp.ContentBlock{Type: "text", Text: chunk.TextDelta},
 				})
 			}
-			if chunk.ToolCall != nil {
+			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
 				_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
 					SessionUpdate: acp.UpdateTypeToolCall,
 					ToolCallID:    chunk.ToolCall.ID,
-					Title:         fmt.Sprintf("Calling: %s", chunk.ToolCall.Name),
+					Title:         chunk.ToolCall.Name, // plain name, no "Calling: " prefix
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
@@ -198,11 +198,14 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string) (string, error) {
-	// Mark as in_progress.
+	// Mark as in_progress, include raw InputJSON so the TUI can display args.
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
 		ToolCallID:    tc.ID,
 		Status:        "in_progress",
+		Content: []acp.ToolCallResultItem{
+			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
+		},
 	})
 
 	// Check if tool requires permission.
