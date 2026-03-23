@@ -18,6 +18,8 @@ var (
 	colorTool      = lipgloss.AdaptiveColor{Light: "#880088", Dark: "#cc88ff"}
 	colorModeAgent = lipgloss.AdaptiveColor{Light: "#006600", Dark: "#44bb44"}
 	colorModePlan  = lipgloss.AdaptiveColor{Light: "#cc6600", Dark: "#ff8c00"}
+	// colorInputBg is the background for the user message box (slightly lighter than terminal bg).
+	colorInputBg = lipgloss.AdaptiveColor{Light: "#e0e0e0", Dark: "#1e1e1e"}
 )
 
 // Styles used throughout the TUI.
@@ -113,8 +115,13 @@ var (
 			Foreground(colorSubtle)
 
 	styleHint = lipgloss.NewStyle().
-			Foreground(colorSubtle).
-			Italic(true)
+		Foreground(colorSubtle).
+		Italic(true)
+
+	// styleAgentFooter renders "mode · model · Xs" below agent responses.
+	styleAgentFooter = lipgloss.NewStyle().
+				Foreground(colorSubtle).
+				Italic(true)
 
 	styleSessionID = lipgloss.NewStyle().
 			Foreground(colorSubtle)
@@ -150,8 +157,15 @@ var (
 			Foreground(colorBorder)
 
 	styleCurrentPathBase = lipgloss.NewStyle().
-				Foreground(colorSubtle).
-				Italic(true)
+			Foreground(colorSubtle).
+			Italic(true)
+
+	// Scrollbar styles
+	styleScrollTrack = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#2a2a2a"})
+
+	styleScrollThumb = lipgloss.NewStyle().
+				Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#666666"})
 )
 
 // logo returns the multi-line ASCII art logo for coddy.

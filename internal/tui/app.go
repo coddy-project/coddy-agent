@@ -30,6 +30,11 @@ type chatEntry struct {
 	role    string // "user", "agent", "tool", "error"
 	content string // for user/agent entries
 
+	// Agent-specific: populated when the agent finishes the response.
+	agentMode  string        // mode used when generating (e.g. "agent", "plan")
+	agentModel string        // model ID used
+	elapsed    time.Duration // generation time (0 = still running)
+
 	// Tool-specific fields (role == "tool")
 	toolID     string // tool call ID for matching status updates
 	toolName   string // function name e.g. "run_command"
@@ -86,7 +91,8 @@ type AppModel struct {
 	chat      []chatEntry
 	streamBuf string // accumulated streaming text; plain string avoids Builder-copy panic
 
-	agentRunning bool
+	agentRunning   bool
+	agentStartedAt time.Time // records when the current agent run started
 
 	// focusedToolIdx is the m.chat index of the keyboard-focused tool entry (-1 = none).
 	focusedToolIdx int
@@ -546,6 +552,7 @@ func (m AppModel) submitInput() (tea.Model, tea.Cmd) {
 	m.chat = append(m.chat, chatEntry{role: "user", content: text})
 	m.streamBuf = ""
 	m.agentRunning = true
+	m.agentStartedAt = time.Now()
 	m.refreshViewport()
 
 	return m, m.agentCmd(text)
@@ -644,12 +651,24 @@ func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m AppModel) handleAgentDone(msg AgentDoneMsg) (tea.Model, tea.Cmd) {
+	elapsed := time.Since(m.agentStartedAt)
 	m.agentRunning = false
 	m.runner.setCancel(nil)
 
 	if msg.Err != nil {
 		m.chat = append(m.chat, chatEntry{role: "error", content: msg.Err.Error()})
 	}
+
+	// Stamp timing/context onto the last agent entry.
+	for i := len(m.chat) - 1; i >= 0; i-- {
+		if m.chat[i].role == "agent" {
+			m.chat[i].elapsed = elapsed
+			m.chat[i].agentMode = m.state.GetMode()
+			m.chat[i].agentModel = m.modelID
+			break
+		}
+	}
+
 	m.streamBuf = ""
 	m.refreshViewport()
 	m.textarea.Focus()
@@ -721,7 +740,7 @@ func (m AppModel) recalcLayout() AppModel {
 		chatH = 3
 	}
 
-	m.viewport.Width = m.width
+	m.viewport.Width = m.width - 1 // 1 col reserved for the scrollbar
 	m.viewport.Height = chatH
 
 	inputW := m.width - 2
@@ -731,8 +750,8 @@ func (m AppModel) recalcLayout() AppModel {
 	m.textarea.SetWidth(inputW)
 	m.textarea.SetHeight(3)
 
-	// Recreate the markdown renderer so code blocks wrap at the new width.
-	mdWidth := m.width - 4
+	// Recreate markdown renderer to match viewport width (which now excludes scrollbar column).
+	mdWidth := m.viewport.Width - 2
 	if mdWidth < 20 {
 		mdWidth = 20
 	}
@@ -740,6 +759,50 @@ func (m AppModel) recalcLayout() AppModel {
 
 	m.refreshViewport()
 	return m
+}
+
+// renderScrollbar builds a single-column scrollbar string of `height` lines.
+func (m AppModel) renderScrollbar(height int) string {
+	total := m.viewport.TotalLineCount()
+	if total <= height || height <= 0 {
+		// Content fits - render an empty column
+		return strings.Repeat(" \n", height)
+	}
+
+	thumbH := height * height / total
+	if thumbH < 1 {
+		thumbH = 1
+	}
+	thumbOffset := int(m.viewport.ScrollPercent() * float64(height-thumbH))
+
+	var lines []string
+	for i := 0; i < height; i++ {
+		if i >= thumbOffset && i < thumbOffset+thumbH {
+			lines = append(lines, styleScrollThumb.Render("▐"))
+		} else {
+			lines = append(lines, styleScrollTrack.Render("│"))
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderChatWithScrollbar renders the viewport and appends a 1-char scrollbar column.
+func (m AppModel) renderChatWithScrollbar() string {
+	vpView := m.viewport.View()
+	vpLines := strings.Split(vpView, "\n")
+	scrollLines := strings.Split(m.renderScrollbar(len(vpLines)), "\n")
+
+	var b strings.Builder
+	for i, line := range vpLines {
+		b.WriteString(line)
+		if i < len(scrollLines) {
+			b.WriteString(scrollLines[i])
+		}
+		if i < len(vpLines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // View implements tea.Model.
@@ -755,7 +818,7 @@ func (m AppModel) View() string {
 	if m.showWelcome && len(m.chat) == 0 {
 		b.WriteString(m.renderWelcome())
 	} else {
-		b.WriteString(m.viewport.View())
+		b.WriteString(m.renderChatWithScrollbar())
 	}
 	b.WriteString("\n")
 
@@ -774,6 +837,10 @@ func (m AppModel) View() string {
 }
 
 func (m AppModel) renderHeader() string {
+	return styleHeader.Render("coddy")
+}
+
+func (m AppModel) renderStatusBar() string {
 	mode := m.state.GetMode()
 	var modeStyle lipgloss.Style
 	if mode == string(session.ModePlan) {
@@ -781,35 +848,29 @@ func (m AppModel) renderHeader() string {
 	} else {
 		modeStyle = styleModeAgent
 	}
+	modeTag := modeStyle.Render("[" + mode + "]")
 
-	left := styleHeader.Render("coddy") + "  " + modeStyle.Render("["+mode+"]")
-	right := lipgloss.NewStyle().Foreground(colorSubtle).Render(m.modelID)
-
-	gap := m.width - visibleWidth(stripAnsi(left)) - visibleWidth(right) - 2
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + right
-}
-
-func (m AppModel) renderStatusBar() string {
 	var hints string
 	switch {
 	case m.agentRunning:
-		hints = styleDone.Render("thinking...") + "  esc to cancel"
+		hints = modeTag + "  " + styleDone.Render("thinking...") + "  esc cancel"
 	case m.inputOff:
-		hints = styleWarn.Render("[input off]") + "  ctrl+x enable  tab tool  space expand  arrows scroll"
+		hints = modeTag + "  " + styleWarn.Render("input off") + "  ctrl+x enable  tab tool  space expand  arrows scroll"
 	default:
-		hints = "tab mode  ctrl+m model  ctrl+p commands  ctrl+x input"
+		hints = modeTag + "  tab mode  ctrl+m model  ctrl+p commands  ctrl+x input"
 	}
 
 	hints = styleStatusBar.Render(hints)
-	ver := styleVersion.Render(m.appVer)
-	gap := m.width - visibleWidth(stripAnsi(hints)) - visibleWidth(ver) - 2
+
+	// Right side: model name + version
+	right := lipgloss.NewStyle().Foreground(colorSubtle).Render(m.modelID) +
+		"  " + styleVersion.Render(m.appVer)
+
+	gap := m.width - visibleWidth(stripAnsi(hints)) - visibleWidth(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
-	return hints + strings.Repeat(" ", gap) + ver
+	return hints + strings.Repeat(" ", gap) + right
 }
 
 func (m AppModel) renderInput() string {
@@ -838,17 +899,20 @@ func (m AppModel) renderChat() string {
 }
 
 func (m AppModel) renderEntry(idx int, e chatEntry) string {
-	w := m.width - 2
+	// Content width = viewport width (scrollbar already deducted).
+	w := m.viewport.Width
 	if w < 10 {
 		w = 10
 	}
 	switch e.role {
 	case "user":
-		return styleUserLabel.Render("You") + "\n" + wrapText(styleUserMessage.Render(e.content), w) + "\n"
+		return m.renderUserMessage(e, w)
 
 	case "agent":
 		body := m.renderMarkdown(e.content)
-		return styleAgentLabel.Render("coddy") + "\n" + body
+		header := styleAgentLabel.Render("coddy") + "\n"
+		footer := m.renderAgentFooter(e)
+		return header + body + footer
 
 	case "tool":
 		return m.renderToolEntry(idx, e)
@@ -859,60 +923,172 @@ func (m AppModel) renderEntry(idx int, e chatEntry) string {
 	return e.content + "\n"
 }
 
-// renderToolEntry renders a collapsible tool call entry.
-// Collapsed: [+] tool_name:\n      > command
-// Expanded:  [-] tool_name:\n      > command\n\n      output...
+// renderUserMessage renders a user message in a grey box with blue left border,
+// similar to the input field styling.
+func (m AppModel) renderUserMessage(e chatEntry, w int) string {
+	// Box inner width: w - leftBorder(1) - leftPad(2) - rightPad(2)
+	innerW := w - 5
+	if innerW < 4 {
+		innerW = 4
+	}
+	box := lipgloss.NewStyle().
+		BorderStyle(lipgloss.ThickBorder()).
+		BorderLeft(true).
+		BorderForeground(colorUser).
+		Background(colorInputBg).
+		Foreground(colorFg).
+		PaddingLeft(2).
+		PaddingRight(2).
+		Width(innerW).
+		Render(e.content)
+	return box + "\n"
+}
+
+// renderAgentFooter renders the "mode · model · time" line after an agent response.
+func (m AppModel) renderAgentFooter(e chatEntry) string {
+	if e.elapsed == 0 {
+		return ""
+	}
+	secs := fmt.Sprintf("%.1fs", e.elapsed.Seconds())
+	line := e.agentMode + " · " + e.agentModel + " · " + secs
+	return styleAgentFooter.Render(line) + "\n"
+}
+
+// renderToolEntry renders a tool call entry in OpenCode box style.
+//
+// Pending/in_progress: header + small status box
+// Completed/failed collapsed: header + preview box with "enter to expand" footer
+// Completed/failed expanded: header + raw output (no box)
 func (m AppModel) renderToolEntry(idx int, e chatEntry) string {
 	isFocused := idx == m.focusedToolIdx
 
-	// Choose the expand/collapse toggle icon
-	openClose := "+"
-	if e.expanded {
-		openClose = "-"
-	}
-
-	// Choose style based on status
-	var s lipgloss.Style
+	// Label style based on status
+	var labelStyle lipgloss.Style
 	switch e.status {
 	case "completed":
-		s = styleToolDone
+		labelStyle = styleToolDone
 	case "failed":
-		s = styleToolFailed
+		labelStyle = styleToolFailed
 	case "in_progress":
-		s = styleToolCall
+		labelStyle = styleToolCall
 	default:
-		s = styleToolPending
+		labelStyle = styleToolPending
 	}
 	if isFocused {
-		s = styleToolFocused
+		labelStyle = styleToolFocused
 	}
 
 	name := e.toolName
 	if name == "" {
 		name = "tool"
 	}
-	header := s.Render(fmt.Sprintf("  [%s] %s:", openClose, name))
 
 	var b strings.Builder
-	b.WriteString(header + "\n")
 
-	// Show the command / args summary (always visible, even collapsed)
+	// Header line: "  run_command:  > git status"
+	header := "  " + name + ":"
 	if e.toolArgs != "" {
-		summary := toolCallSummary(e.toolName, e.toolArgs)
-		if summary != "" {
-			b.WriteString(styleToolArgs.Render("      "+summary) + "\n")
+		if summary := toolCallSummary(e.toolName, e.toolArgs); summary != "" {
+			header += "  " + summary
+		}
+	}
+	b.WriteString(labelStyle.Render(header) + "\n\n")
+
+	// Box dimensions.
+	// viewport.Width already accounts for the scrollbar column.
+	// Box total visual width = indent(2) + border(2) + padding(2) + content = m.viewport.Width
+	// So contentW = m.viewport.Width - 2(indent) - 2(border) - 2(padding) = m.viewport.Width - 6
+	vpW := m.viewport.Width
+	if vpW < 14 {
+		vpW = 14
+	}
+	const boxIndent = 2
+	contentW := vpW - boxIndent - 4 // 4 = border(2) + padding(2)
+	if contentW < 10 {
+		contentW = 10
+	}
+
+	borderColor := colorBorder
+	if isFocused {
+		borderColor = colorHighlight
+	}
+
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Width(contentW).
+		Padding(0, 1)
+
+	var boxContent string
+
+	switch {
+	case e.expanded && (e.status == "completed" || e.status == "failed"):
+		// Expanded: raw indented output, no box
+		if e.toolOutput != "" {
+			lines := strings.Split(strings.TrimRight(e.toolOutput, "\n"), "\n")
+			for _, l := range lines {
+				b.WriteString(styleToolOutput.Render("    "+truncateLine(l, contentW+2)) + "\n")
+			}
+		}
+		return b.String()
+
+	case e.status == "completed" || e.status == "failed":
+		// Collapsed with output: preview box
+		var previewLines []string
+		if e.toolOutput != "" {
+			rawLines := strings.Split(strings.TrimRight(e.toolOutput, "\n"), "\n")
+			const maxPreview = 3
+			for i, l := range rawLines {
+				if i >= maxPreview {
+					previewLines = append(previewLines, styleHint.Render("..."))
+					break
+				}
+				previewLines = append(previewLines, truncateLine(stripAnsi(l), contentW-2))
+			}
+		}
+		hint := "enter to expand"
+		if isFocused {
+			hint = "↵ expand"
+		}
+		if len(previewLines) > 0 {
+			boxContent = strings.Join(previewLines, "\n") + "\n\n" + styleHint.Render(hint)
+		} else {
+			boxContent = styleHint.Render(hint)
+		}
+
+	default:
+		// Pending or in_progress: minimal status box
+		switch e.status {
+		case "in_progress":
+			boxContent = styleToolCall.Render("running...")
+		default:
+			boxContent = styleToolPending.Render("waiting...")
 		}
 	}
 
-	// Show the output only when expanded
-	if e.expanded && e.toolOutput != "" {
-		b.WriteString("\n")
-		for _, line := range strings.Split(strings.TrimRight(e.toolOutput, "\n"), "\n") {
-			b.WriteString(styleToolOutput.Render("      "+line) + "\n")
+	// Render box with left indent
+	rendered := boxStyle.Render(boxContent)
+	for i, line := range strings.Split(rendered, "\n") {
+		if i > 0 {
+			b.WriteString("\n")
 		}
+		b.WriteString(strings.Repeat(" ", boxIndent) + line)
 	}
+	b.WriteString("\n")
 
 	return b.String()
+}
+
+// truncateLine shortens a plain-text line to maxW runes, adding "..." if needed.
+func truncateLine(s string, maxW int) string {
+	runes := []rune(s)
+	if len(runes) <= maxW {
+		return s
+	}
+	if maxW < 4 {
+		return "..."
+	}
+	return string(runes[:maxW-3]) + "..."
 }
 
 // toolCallSummary returns a short human-readable line describing the tool args.
@@ -926,7 +1102,7 @@ func toolCallSummary(toolName, argsJSON string) string {
 			Command string `json:"command"`
 		}
 		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Command != "" {
-			return "> " + a.Command
+			return a.Command
 		}
 	case "read_file", "write_file", "apply_diff", "create_file":
 		var a struct {
@@ -1004,7 +1180,7 @@ func (m AppModel) renderWelcome() string {
 	if padH < 0 {
 		padH = 0
 	}
-	b.WriteString(strings.Repeat(" ", padH) + hint + "\n")
+	b.WriteString(strings.Repeat(" ", padH) + hint)
 
 	dir := styleCurrentPath.Render(m.cwd)
 	padD := (m.width - visibleWidth(dir)) / 2
