@@ -237,6 +237,7 @@ const (
 	UpdateTypeToolCall          = "tool_call"
 	UpdateTypeToolCallUpdate    = "tool_call_update"
 	UpdateTypeCurrentModeUpdate = "current_mode_update"
+	UpdateTypeTokenUsage        = "token_usage"
 )
 
 // PlanUpdate sends the agent's execution plan to the client.
@@ -285,6 +286,14 @@ type ToolCallResultItem struct {
 type ModeUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "current_mode_update"
 	ModeID        string `json:"modeId"`
+}
+
+// TokenUsageUpdate reports token consumption for the current turn.
+type TokenUsageUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "token_usage"
+	InputTokens   int    `json:"inputTokens"`
+	OutputTokens  int    `json:"outputTokens"`
+	TotalTokens   int    `json:"totalTokens"`
 }
 
 // ---- ACP session/request_permission ----

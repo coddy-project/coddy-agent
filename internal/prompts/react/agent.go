@@ -28,6 +28,8 @@ type SessionState interface {
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
+	GetPlan() []acp.PlanEntry
+	SetPlan([]acp.PlanEntry)
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -83,10 +85,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
 
-	// Send initial plan.
-	initialPlan := a.buildInitialPlan(userText, mode)
-	if err := a.sendPlan(a.state.GetID(), initialPlan); err != nil {
-		a.log.Warn("failed to send plan", "error", err)
+	// Restore existing plan to the TUI if one was set by create_todo_list in a previous turn.
+	if existing := a.state.GetPlan(); len(existing) > 0 {
+		if err := a.sendPlan(a.state.GetID(), existing); err != nil {
+			a.log.Warn("failed to restore plan", "error", err)
+		}
 	}
 
 	// Build the full message list starting with system prompt.
@@ -103,7 +106,13 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		RequirePermissionForCommands: a.cfg.Tools.RequirePermissionForCommands,
 		RequirePermissionForWrites:   a.cfg.Tools.RequirePermissionForWrites,
 		CommandAllowlist:             a.cfg.Tools.CommandAllowlist,
+		SessionID:                    a.state.GetID(),
+		Sender:                       a.server,
+		GetPlan:                      a.state.GetPlan,
+		SetPlan:                      a.state.SetPlan,
 	}
+
+	var totalInputTokens, totalOutputTokens int
 
 	// ReAct loop.
 	for turn := 0; turn < maxTurns; turn++ {
@@ -143,6 +152,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 		}
+
+		// Accumulate and broadcast token usage after each LLM call.
+		totalInputTokens += response.InputTokens
+		totalOutputTokens += response.OutputTokens
+		_ = a.server.SendSessionUpdate(sessionID, acp.TokenUsageUpdate{
+			SessionUpdate: acp.UpdateTypeTokenUsage,
+			InputTokens:   response.InputTokens,
+			OutputTokens:  response.OutputTokens,
+			TotalTokens:   totalInputTokens + totalOutputTokens,
+		})
 
 		// Append assistant message to history.
 		assistantMsg := llm.Message{
@@ -355,29 +374,6 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
 	msgs = append(msgs, history...)
 	return msgs
-}
-
-// buildInitialPlan generates a simple plan based on the user's request.
-func (a *Agent) buildInitialPlan(userText, mode string) []acp.PlanEntry {
-	// A basic static plan - a production implementation would have the LLM generate this.
-	entries := []acp.PlanEntry{
-		{Content: "Analyze the request", Priority: "high", Status: "pending"},
-	}
-	if mode == "plan" {
-		entries = append(entries,
-			acp.PlanEntry{Content: "Read relevant files", Priority: "high", Status: "pending"},
-			acp.PlanEntry{Content: "Create implementation plan", Priority: "high", Status: "pending"},
-			acp.PlanEntry{Content: "Write documentation", Priority: "medium", Status: "pending"},
-		)
-	} else {
-		entries = append(entries,
-			acp.PlanEntry{Content: "Read relevant files", Priority: "high", Status: "pending"},
-			acp.PlanEntry{Content: "Implement changes", Priority: "high", Status: "pending"},
-			acp.PlanEntry{Content: "Verify the result", Priority: "medium", Status: "pending"},
-		)
-	}
-	_ = userText // could be used to customize the plan
-	return entries
 }
 
 // sendPlan sends the plan update to the client.

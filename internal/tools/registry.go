@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -42,6 +43,21 @@ type Env struct {
 	// CommandAllowlist contains command prefixes/exact commands that never
 	// require permission. Checked via CommandAllowed().
 	CommandAllowlist []string
+
+	// SessionID is the current session identifier (used by plan tools).
+	SessionID string
+
+	// Sender allows tools to send session updates (e.g. PlanUpdate).
+	// May be nil - tools must nil-check before use.
+	Sender acp.UpdateSender
+
+	// GetPlan returns the current plan entries from session state.
+	// May be nil if plan support is not wired up.
+	GetPlan func() []acp.PlanEntry
+
+	// SetPlan replaces the plan entries in session state.
+	// May be nil if plan support is not wired up.
+	SetPlan func([]acp.PlanEntry)
 }
 
 // CommandAllowed returns true if the given shell command matches an entry
@@ -91,6 +107,8 @@ func NewRegistry() *Registry {
 	r.register(runCommandTool())
 	r.register(applyDiffTool())
 	r.register(switchToAgentModeTool())
+	r.register(createTodoListTool())
+	r.register(updateTodoItemTool())
 	return r
 }
 

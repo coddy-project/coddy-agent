@@ -106,6 +106,16 @@ type AppModel struct {
 	showWelcome bool
 
 	log *slog.Logger
+
+	// Sidebar: plan and token tracking.
+	planEntries        []acp.PlanEntry
+	sidebarScroll      int // lines scrolled in the sidebar
+	totalInputTokens   int
+	totalOutputTokens  int
+
+	// Derived layout widths (set by recalcLayout).
+	leftWidth   int
+	sidebarWidth int
 }
 
 // Config holds options for creating the TUI.
@@ -143,6 +153,7 @@ func New(cfg Config) (AppModel, error) {
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 0
+	ta.Prompt = "" // remove default "> " prompt that creates a second vertical bar
 
 	vp := viewport.New(80, 20)
 
@@ -241,7 +252,7 @@ func printSessionHint(m AppModel) {
 		return
 	}
 	id := m.state.ID
-	fmt.Printf("Continue: coddy -s %s\n\n", id)
+	fmt.Printf("Continue: coddy -s %s\n", id)
 }
 
 // Init implements tea.Model.
@@ -300,6 +311,20 @@ func (m AppModel) updateKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch msg.Runes[0] {
 		case 'm':
 			m.modal = modalState{kind: modalModels}
+			return m, nil
+		}
+	}
+
+	// Sidebar scroll: ctrl+up / ctrl+down.
+	if m.sidebarWidth > 0 {
+		switch msg.String() {
+		case "ctrl+up":
+			if m.sidebarScroll > 0 {
+				m.sidebarScroll--
+			}
+			return m, nil
+		case "ctrl+down":
+			m.sidebarScroll++
 			return m, nil
 		}
 	}
@@ -647,6 +672,18 @@ func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if entries, ok := extractPlanUpdate(msg.Update); ok {
+		m.planEntries = entries
+		m.sidebarScroll = 0
+		return m, nil
+	}
+
+	if inputTok, outputTok, ok := extractTokenUsage(msg.Update); ok {
+		m.totalInputTokens += inputTok
+		m.totalOutputTokens += outputTok
+		return m, nil
+	}
+
 	return m, nil
 }
 
@@ -683,6 +720,10 @@ func (m AppModel) doNewSession() (tea.Model, tea.Cmd) {
 	m.streamBuf = ""
 	m.agentRunning = false
 	m.showWelcome = true
+	m.planEntries = nil
+	m.sidebarScroll = 0
+	m.totalInputTokens = 0
+	m.totalOutputTokens = 0
 	m.refreshViewport()
 	return m, nil
 }
@@ -727,28 +768,51 @@ func (m *AppModel) refreshViewportInPlace() {
 	m.viewport.SetContent(m.renderChat())
 }
 
+// minSidebarWidth is the minimum terminal width needed to show the sidebar.
+const minSidebarWidth = 60
+
 func (m AppModel) recalcLayout() AppModel {
 	if m.width == 0 || m.height == 0 {
 		return m
 	}
 
-	headerH := 1
+	headerH := 0
 	statusH := 1
-	inputH := 5
+	// inputH = textarea rows (3); left-border-only style adds no top/bottom lines.
+	inputH := 3
 	chatH := m.height - headerH - statusH - inputH - 2
 	if chatH < 3 {
 		chatH = 3
 	}
 
-	m.viewport.Width = m.width - 1 // 1 col reserved for the scrollbar
+	// Decide sidebar width: 1/5 of total width when terminal is wide enough.
+	if m.width >= minSidebarWidth {
+		m.sidebarWidth = m.width / 5
+		if m.sidebarWidth < 15 {
+			m.sidebarWidth = 15
+		}
+	} else {
+		m.sidebarWidth = 0
+	}
+	m.leftWidth = m.width - m.sidebarWidth
+
+	// Chat viewport occupies the left panel minus the scrollbar column.
+	m.viewport.Width = m.leftWidth - 1
 	m.viewport.Height = chatH
 
-	inputW := m.width - 2
+	// Input spans the left panel only when sidebar is present; full width otherwise.
+	// NormalBorder left(1) + PaddingLeft(1) = 2 chars overhead.
+	var inputW int
+	if m.sidebarWidth > 0 {
+		inputW = m.leftWidth - 2
+	} else {
+		inputW = m.width - 2
+	}
 	if inputW < 10 {
 		inputW = 10
 	}
 	m.textarea.SetWidth(inputW)
-	m.textarea.SetHeight(3)
+	m.textarea.SetHeight(inputH)
 
 	// Recreate markdown renderer to match viewport width (which now excludes scrollbar column).
 	mdWidth := m.viewport.Width - 2
@@ -811,29 +875,129 @@ func (m AppModel) View() string {
 		return "Loading..."
 	}
 
-	var b strings.Builder
-	b.WriteString(m.renderHeader())
-	b.WriteString("\n")
+	if m.sidebarWidth > 0 {
+		// Full-height split: left panel (chat+input+status) | right sidebar.
+		var left strings.Builder
+		if m.showWelcome && len(m.chat) == 0 {
+			left.WriteString(m.renderWelcome())
+		} else {
+			left.WriteString(m.renderChatWithScrollbar())
+		}
+		left.WriteString("\n")
+		left.WriteString(m.renderInput())
+		left.WriteString("\n")
+		left.WriteString(m.renderStatusBar())
 
+		base := lipgloss.JoinHorizontal(lipgloss.Top, left.String(), m.renderSidebar())
+		if m.modal.kind != modalNone {
+			base = m.renderWithModal(base)
+		}
+		return base
+	}
+
+	// No sidebar: single-column layout.
+	var b strings.Builder
 	if m.showWelcome && len(m.chat) == 0 {
 		b.WriteString(m.renderWelcome())
 	} else {
 		b.WriteString(m.renderChatWithScrollbar())
 	}
 	b.WriteString("\n")
-
 	b.WriteString(m.renderInput())
 	b.WriteString("\n")
-
 	b.WriteString(m.renderStatusBar())
 
 	base := b.String()
-
 	if m.modal.kind != modalNone {
 		base = m.renderWithModal(base)
 	}
-
 	return base
+}
+
+// renderSidebar builds the right-side panel with token stats and the plan.
+// The panel spans the full terminal height (m.height) so it covers chat+input+status.
+func (m AppModel) renderSidebar() string {
+	h := m.height
+	w := m.sidebarWidth
+	innerW := w - 2 // border(1) + padding(1)
+	if innerW < 5 {
+		innerW = 5
+	}
+
+	var lines []string
+
+	// --- Token usage section ---
+	lines = append(lines, styleSidebarTitle.Render("Tokens"))
+	inTok := fmt.Sprintf("in  %d", m.totalInputTokens)
+	outTok := fmt.Sprintf("out %d", m.totalOutputTokens)
+	total := m.totalInputTokens + m.totalOutputTokens
+	totTok := fmt.Sprintf("tot %d", total)
+	lines = append(lines,
+		styleSidebarTokenValue.Render(truncateLine(inTok, innerW)),
+		styleSidebarTokenValue.Render(truncateLine(outTok, innerW)),
+		styleSidebarTokenValue.Render(truncateLine(totTok, innerW)),
+	)
+
+	// Divider
+	lines = append(lines, styleDivider.Render(strings.Repeat("-", innerW)))
+
+	// --- Plan section ---
+	lines = append(lines, styleSidebarSection.Render("Plan"))
+
+	if len(m.planEntries) == 0 {
+		lines = append(lines, styleSidebarScrollHint.Render("no plan yet"))
+	} else {
+		for i, e := range m.planEntries {
+			checkbox := "[ ]"
+			var itemStyle lipgloss.Style
+			switch e.Status {
+			case "completed":
+				checkbox = "[x]"
+				itemStyle = stylePlanItemCompleted
+			case "in_progress":
+				checkbox = "[>]"
+				itemStyle = stylePlanItemInProgress
+			case "failed":
+				checkbox = "[!]"
+				itemStyle = stylePlanItemFailed
+			case "cancelled":
+				checkbox = "[-]"
+				itemStyle = stylePlanItemPending
+			default:
+				itemStyle = stylePlanItemPending
+			}
+			prefix := fmt.Sprintf("%d %s ", i+1, checkbox)
+			content := prefix + e.Content
+			lines = append(lines, itemStyle.Render(truncateLine(content, innerW)))
+		}
+	}
+
+	// Apply scroll offset.
+	contentLines := lines
+	scrollable := len(contentLines) > h
+	if m.sidebarScroll > 0 && m.sidebarScroll < len(contentLines) {
+		contentLines = contentLines[m.sidebarScroll:]
+	}
+
+	// Pad or trim to exactly h lines.
+	for len(contentLines) < h {
+		contentLines = append(contentLines, "")
+	}
+	visible := contentLines
+	if len(visible) > h {
+		visible = visible[:h]
+		// Show scroll hint on last visible line if there's more content.
+		visible[h-1] = styleSidebarScrollHint.Render("-- more --")
+	}
+	if scrollable && m.sidebarScroll > 0 && len(visible) > 0 {
+		visible[0] = styleSidebarScrollHint.Render("-- more --")
+	}
+
+	content := strings.Join(visible, "\n")
+	return styleSidebarBorder.
+		Width(innerW).
+		Height(h).
+		Render(content)
 }
 
 func (m AppModel) renderHeader() string {
@@ -866,7 +1030,11 @@ func (m AppModel) renderStatusBar() string {
 	right := lipgloss.NewStyle().Foreground(colorSubtle).Render(m.modelID) +
 		"  " + styleVersion.Render(m.appVer)
 
-	gap := m.width - visibleWidth(stripAnsi(hints)) - visibleWidth(right) - 2
+	statusW := m.width
+	if m.sidebarWidth > 0 {
+		statusW = m.leftWidth
+	}
+	gap := statusW - visibleWidth(stripAnsi(hints)) - visibleWidth(right) - 2
 	if gap < 1 {
 		gap = 1
 	}
@@ -874,14 +1042,20 @@ func (m AppModel) renderStatusBar() string {
 }
 
 func (m AppModel) renderInput() string {
+	panelW := m.width
+	if m.sidebarWidth > 0 {
+		panelW = m.leftWidth
+	}
 	if m.inputOff {
-		return styleInputBorder.Render(styleHint.Render("input disabled (ctrl+x to enable)"))
+		// Width() in lipgloss includes padding but not border.
+		// Total visual = border(1) + Width = panelW, so Width = panelW - 1.
+		contentW := panelW - 1
+		if contentW < 10 {
+			contentW = 10
+		}
+		return styleInputBorder.Width(contentW).Render(styleHint.Render("input disabled (ctrl+x to enable)"))
 	}
-	st := styleInputBorderFocused
-	if m.agentRunning {
-		st = styleInputBorder
-	}
-	return st.Render(m.textarea.View())
+	return styleInputBorder.Render(m.textarea.View())
 }
 
 func (m AppModel) renderChat() string {
@@ -923,23 +1097,22 @@ func (m AppModel) renderEntry(idx int, e chatEntry) string {
 	return e.content + "\n"
 }
 
-// renderUserMessage renders a user message in a grey box with blue left border,
-// similar to the input field styling.
+// renderUserMessage renders a user message with a blue left border,
+// matching the input field style.
 func (m AppModel) renderUserMessage(e chatEntry, w int) string {
-	// Box inner width: w - leftBorder(1) - leftPad(2) - rightPad(2)
-	innerW := w - 5
-	if innerW < 4 {
-		innerW = 4
+	// Width includes left padding (1). Left border takes 1 char outside Width.
+	// Total visual = 1(border) + w-1(Width) = w.
+	contentW := w - 1
+	if contentW < 4 {
+		contentW = 4
 	}
 	box := lipgloss.NewStyle().
-		BorderStyle(lipgloss.ThickBorder()).
+		BorderStyle(lipgloss.NormalBorder()).
 		BorderLeft(true).
-		BorderForeground(colorUser).
-		Background(colorInputBg).
+		BorderForeground(colorSubtle).
 		Foreground(colorFg).
-		PaddingLeft(2).
-		PaddingRight(2).
-		Width(innerW).
+		PaddingLeft(1).
+		Width(contentW).
 		Render(e.content)
 	return box + "\n"
 }
@@ -950,7 +1123,7 @@ func (m AppModel) renderAgentFooter(e chatEntry) string {
 		return ""
 	}
 	secs := fmt.Sprintf("%.1fs", e.elapsed.Seconds())
-	line := e.agentMode + " · " + e.agentModel + " · " + secs
+	line := "  " + e.agentMode + " · " + e.agentModel + " · " + secs
 	return styleAgentFooter.Render(line) + "\n"
 }
 

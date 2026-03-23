@@ -151,7 +151,7 @@ func renderPermissionModal(params acp.PermissionRequestParams, selected int) str
 }
 
 // centerOverlay places the overlay string centered within width x height.
-// It returns a new string with the overlay merged into the base.
+// ANSI escape codes in overlay lines are preserved so modal highlighting works.
 func centerOverlay(base, overlay string, width, height int) string {
 	overlayLines := strings.Split(overlay, "\n")
 	oh := len(overlayLines)
@@ -176,27 +176,14 @@ func centerOverlay(base, overlay string, width, height int) string {
 		baseLines = append(baseLines, "")
 	}
 
+	indent := strings.Repeat(" ", left)
 	for i, ol := range overlayLines {
 		row := top + i
 		if row >= len(baseLines) {
 			break
 		}
-		bl := baseLines[row]
-		plain := stripAnsi(bl)
-		runes := []rune(plain)
-
-		for len(runes) < left+len([]rune(stripAnsi(ol))) {
-			runes = append(runes, ' ')
-		}
-
-		olRunes := []rune(stripAnsi(ol))
-		for j, r := range olRunes {
-			if left+j < len(runes) {
-				runes[left+j] = r
-			}
-		}
-		baseLines[row] = strings.Repeat(" ", left) + string(olRunes)
-		_ = runes
+		// Preserve ANSI codes so modal item highlighting is visible.
+		baseLines[row] = indent + ol
 	}
 
 	return strings.Join(baseLines, "\n")

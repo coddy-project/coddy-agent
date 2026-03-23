@@ -5,6 +5,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -39,6 +40,9 @@ type State struct {
 
 	// Skills are the loaded and active skills/rules.
 	Skills []*skills.Skill
+
+	// Plan holds the current todo list entries.
+	Plan []acp.PlanEntry
 
 	// cancel cancels the active prompt turn.
 	cancel context.CancelFunc
@@ -96,6 +100,22 @@ func (s *State) GetMessages() []llm.Message {
 	msgs := make([]llm.Message, len(s.Messages))
 	copy(msgs, s.Messages)
 	return msgs
+}
+
+// GetPlan returns a copy of the current plan entries.
+func (s *State) GetPlan() []acp.PlanEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]acp.PlanEntry, len(s.Plan))
+	copy(result, s.Plan)
+	return result
+}
+
+// SetPlan replaces the current plan entries.
+func (s *State) SetPlan(entries []acp.PlanEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Plan = entries
 }
 
 // SetCancel stores a cancel function for the active prompt turn.

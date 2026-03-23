@@ -199,6 +199,12 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		params.Tools = oaiTools
 	}
 
+	// Request usage statistics in the streaming response.
+	// Without this the usage chunk is omitted and token counts stay at zero.
+	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+		IncludeUsage: openai.Bool(true),
+	}
+
 	return params
 }
 

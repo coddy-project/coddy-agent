@@ -82,11 +82,20 @@ type Env struct {
     RequirePermissionForCommands bool     // force permission for run_command
     RequirePermissionForWrites   bool     // force permission for write_file
     CommandAllowlist             []string // commands that skip permission checks
+
+    // Plan/todo support (always populated by the ReAct agent):
+    SessionID string                      // current session ID
+    Sender    acp.UpdateSender            // sends updates to TUI/ACP client
+    GetPlan   func() []acp.PlanEntry      // read current todo list
+    SetPlan   func([]acp.PlanEntry)       // replace todo list
 }
 ```
 
 Use `env.CWD` as the base for relative paths. Use `resolvePath(path, env.CWD)` (package-private
 helper) to convert user-supplied paths to absolute paths.
+
+If your tool wants to update the plan sidebar, call `sendPlanUpdate(env, entries)` — a
+package-private helper in `internal/tools/todo.go` that nil-checks `Sender` before sending.
 
 ---
 
@@ -394,6 +403,74 @@ Before submitting a new tool, verify:
 - [ ] `Execute` returns `(errorMessage, nil)` for runtime failures so the LLM can see them
 - [ ] The tool constructor is registered in `NewRegistry()`
 - [ ] `go build ./...` and `go test ./...` pass
+
+---
+
+## Built-in Plan / Todo Tools
+
+Two tools are built into the agent to support task tracking. The TUI renders a dedicated sidebar
+panel (right 1/5 of the screen) that shows the current plan and token usage. Both tools are
+available in **both** `agent` and `plan` modes.
+
+### `create_todo_list`
+
+Creates or replaces the current todo list from a markdown checklist.
+
+```
+Arguments:
+  items  (string, required)  Markdown checklist, one item per line.
+                             Supported: "- [ ] task", "- [x] done", "* [ ] task"
+```
+
+Example agent call:
+
+```json
+{
+  "items": "- [ ] Read existing code\n- [ ] Write tests\n- [ ] Implement feature\n- [ ] Update docs"
+}
+```
+
+The tool:
+1. Parses the checklist into plan entries (checked items get status `completed`)
+2. Stores the plan in session state (persists across turns)
+3. Sends a `PlanUpdate` via `acp.UpdateSender` so the TUI sidebar refreshes immediately
+4. Returns a confirmation string to the LLM
+
+### `update_todo_item`
+
+Updates the status of a single plan entry by zero-based index.
+
+```
+Arguments:
+  index   (integer, required)  Zero-based position in the list
+  status  (string, required)   One of: pending, in_progress, completed, failed, cancelled
+```
+
+Example agent call:
+
+```json
+{ "index": 0, "status": "in_progress" }
+```
+
+### TUI Sidebar
+
+When the terminal is at least 60 columns wide, the TUI splits into two vertical panels:
+
+- Left (4/5): chat viewport, input field, header, status bar - as usual
+- Right (1/5): token statistics + plan checklist
+
+Token stats show per-turn and cumulative input/output tokens. The plan checklist uses visual
+indicators:
+
+| Symbol | Status |
+|--------|--------|
+| `[ ]` | pending |
+| `[>]` | in_progress |
+| `[x]` | completed |
+| `[!]` | failed |
+| `[-]` | cancelled |
+
+Scroll the sidebar with `Ctrl+Up` / `Ctrl+Down`.
 
 ---
 

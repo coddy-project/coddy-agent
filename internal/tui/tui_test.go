@@ -318,6 +318,119 @@ func TestCommandsModalSearch(t *testing.T) {
 	}
 }
 
+func TestPlanUpdateStoresPlanEntries(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.width = 120
+	m.height = 40
+	m = m.recalcLayout()
+
+	entries := []acp.PlanEntry{
+		{Content: "step one", Status: "pending"},
+		{Content: "step two", Status: "completed"},
+	}
+	msg := AgentUpdateMsg{
+		SessionID: m.state.ID,
+		Update: acp.PlanUpdate{
+			SessionUpdate: acp.UpdateTypePlan,
+			Entries:       entries,
+		},
+	}
+
+	updated, _ := m.Update(msg)
+	m2 := updated.(AppModel)
+
+	if len(m2.planEntries) != 2 {
+		t.Fatalf("expected 2 plan entries, got %d", len(m2.planEntries))
+	}
+	if m2.planEntries[0].Content != "step one" {
+		t.Errorf("entry[0] content = %q, want 'step one'", m2.planEntries[0].Content)
+	}
+	if m2.planEntries[1].Status != "completed" {
+		t.Errorf("entry[1] status = %q, want 'completed'", m2.planEntries[1].Status)
+	}
+}
+
+func TestTokenUsageAccumulates(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+
+	sendUsage := func(m AppModel, in, out int) AppModel {
+		msg := AgentUpdateMsg{
+			SessionID: m.state.ID,
+			Update: acp.TokenUsageUpdate{
+				SessionUpdate: acp.UpdateTypeTokenUsage,
+				InputTokens:   in,
+				OutputTokens:  out,
+				TotalTokens:   in + out,
+			},
+		}
+		updated, _ := m.Update(msg)
+		return updated.(AppModel)
+	}
+
+	m = sendUsage(m, 100, 50)
+	m = sendUsage(m, 200, 80)
+
+	if m.totalInputTokens != 300 {
+		t.Errorf("totalInputTokens = %d, want 300", m.totalInputTokens)
+	}
+	if m.totalOutputTokens != 130 {
+		t.Errorf("totalOutputTokens = %d, want 130", m.totalOutputTokens)
+	}
+}
+
+func TestNewSessionResetsSidebar(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.planEntries = []acp.PlanEntry{{Content: "old task", Status: "pending"}}
+	m.totalInputTokens = 500
+	m.totalOutputTokens = 200
+	m.sidebarScroll = 3
+
+	m2, _ := m.doNewSession()
+	m3 := m2.(AppModel)
+
+	if len(m3.planEntries) != 0 {
+		t.Errorf("planEntries should be empty after new session, got %d", len(m3.planEntries))
+	}
+	if m3.totalInputTokens != 0 || m3.totalOutputTokens != 0 {
+		t.Errorf("token counters should be zero after new session")
+	}
+	if m3.sidebarScroll != 0 {
+		t.Errorf("sidebarScroll should be zero after new session, got %d", m3.sidebarScroll)
+	}
+}
+
+func TestSidebarRenderedWhenWide(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.width = 120
+	m.height = 40
+	m = m.recalcLayout()
+
+	if m.sidebarWidth == 0 {
+		t.Fatal("sidebarWidth should be non-zero for width=120")
+	}
+	// Sidebar rendering should not panic and return non-empty content.
+	sidebar := m.renderSidebar()
+	if sidebar == "" {
+		t.Error("renderSidebar returned empty string")
+	}
+}
+
+func TestSidebarHiddenWhenNarrow(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.width = 40
+	m.height = 24
+	m = m.recalcLayout()
+
+	if m.sidebarWidth != 0 {
+		t.Errorf("sidebarWidth should be 0 for narrow terminal (width=40), got %d", m.sidebarWidth)
+	}
+}
+
 func TestPermissionModalReply(t *testing.T) {
 	cfg := makeTestConfig(t)
 	m, _ := New(cfg)

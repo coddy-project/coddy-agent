@@ -77,6 +77,8 @@ func parseUpdateType(update interface{}) string {
 		return v.SessionUpdate
 	case acp.PlanUpdate:
 		return v.SessionUpdate
+	case acp.TokenUsageUpdate:
+		return v.SessionUpdate
 	default:
 		// Fallback: marshal and read discriminator field.
 		data, err := json.Marshal(v)
@@ -139,6 +141,22 @@ func extractToolCallStatusFull(update interface{}) (id, status, content string, 
 		return u.ToolCallID, u.Status, text, true
 	}
 	return "", "", "", false
+}
+
+// extractPlanUpdate returns plan entries from a PlanUpdate message.
+func extractPlanUpdate(update interface{}) ([]acp.PlanEntry, bool) {
+	if u, ok := update.(acp.PlanUpdate); ok {
+		return u.Entries, true
+	}
+	return nil, false
+}
+
+// extractTokenUsage returns token counts from a TokenUsageUpdate message.
+func extractTokenUsage(update interface{}) (input, output int, ok bool) {
+	if u, ok2 := update.(acp.TokenUsageUpdate); ok2 {
+		return u.InputTokens, u.OutputTokens, true
+	}
+	return 0, 0, false
 }
 
 // Ensure Dispatcher implements acp.UpdateSender at compile time.

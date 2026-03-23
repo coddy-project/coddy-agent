@@ -49,17 +49,15 @@ var (
 			Foreground(colorModePlan).
 			Bold(true)
 
+	// Input uses a single gray left border in all states.
+	// Cursor position inside the textarea indicates focus - no color change needed.
 	styleInputBorder = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorBorder).
-				PaddingLeft(1).
-				PaddingRight(1)
+			BorderStyle(lipgloss.NormalBorder()).
+			BorderLeft(true).
+			BorderForeground(colorSubtle).
+			PaddingLeft(1)
 
-	styleInputBorderFocused = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorAccent).
-				PaddingLeft(1).
-				PaddingRight(1)
+	styleInputBorderFocused = styleInputBorder
 
 	styleUserMessage = lipgloss.NewStyle().
 				Foreground(colorUser).
@@ -162,10 +160,45 @@ var (
 
 	// Scrollbar styles
 	styleScrollTrack = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#2a2a2a"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#2a2a2a"})
 
 	styleScrollThumb = lipgloss.NewStyle().
-				Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#666666"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#666666", Dark: "#666666"})
+
+	// Sidebar styles
+	styleSidebarBorder = lipgloss.NewStyle().
+				BorderStyle(lipgloss.NormalBorder()).
+				BorderLeft(true).
+				BorderForeground(lipgloss.AdaptiveColor{Light: "#cccccc", Dark: "#2a2a2a"}).
+				PaddingLeft(1)
+
+	styleSidebarTitle = lipgloss.NewStyle().
+				Foreground(colorAccent).
+				Bold(true)
+
+	styleSidebarSection = lipgloss.NewStyle().
+				Foreground(colorSubtle).
+				Bold(true)
+
+	styleSidebarTokenValue = lipgloss.NewStyle().
+				Foreground(colorFg)
+
+	stylePlanItemPending = lipgloss.NewStyle().
+				Foreground(colorSubtle)
+
+	stylePlanItemInProgress = lipgloss.NewStyle().
+				Foreground(colorHighlight).
+				Bold(true)
+
+	stylePlanItemCompleted = lipgloss.NewStyle().
+				Foreground(colorSuccess)
+
+	stylePlanItemFailed = lipgloss.NewStyle().
+				Foreground(colorError)
+
+	styleSidebarScrollHint = lipgloss.NewStyle().
+				Foreground(colorSubtle).
+				Italic(true)
 )
 
 // logo returns the multi-line ASCII art logo for coddy.
