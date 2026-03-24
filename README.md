@@ -26,25 +26,32 @@ Or build and install manually from source:
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-make build
 make install
 ```
 
-It copies it to the appropriate location:
+`make install` builds the binary and copies it to the appropriate location:
 - root - `/usr/local/bin/coddy`
 - regular user - `~/.local/bin/coddy`
 
 To only build without installing:
 
+```bash
+make build
+# or manually:
+go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
+```
+
 ### Terminal UI
 
-Just run `coddy` in any project directory to start the interactive terminal UI:
+![Coddy TUI demo](assets/demo.gif)
+
+Run `coddy` in any project directory to open the interactive terminal UI:
 
 ```bash
 coddy
 ```
 
-The TUI opens full-screen with a chat interface similar to OpenCode. Your session is automatically saved when you exit (`ctrl+c`) and can be resumed later:
+The TUI opens full-screen with a chat interface. Your session is automatically saved on exit (`ctrl+c`) and can be resumed later:
 
 ```bash
 coddy -s tui_1234567890   # resume a saved session
@@ -54,9 +61,9 @@ coddy -s tui_1234567890   # resume a saved session
 
 | Key | Action |
 |-----|--------|
-| `tab` / `ctrl+i` | Switch mode (agent / plan) |
-| `alt+m` | Switch model from the list in config |
+| `tab` | Switch mode (agent / plan) |
 | `ctrl+p` | Command palette with search |
+| `ctrl+m` | Switch model from the list in config |
 | `ctrl+x` | Toggle input on/off |
 | `esc` | Cancel the running agent |
 | `ctrl+c` | Save session and exit |

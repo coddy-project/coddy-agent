@@ -3,6 +3,9 @@
 VERSION := $(shell git describe --tags --always 2>/dev/null || echo "dev")
 LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
 
+record:
+	~/go/bin/vhs assets/demo.tape 2>&1
+
 # Build the full binary (TUI + ACP).
 build:
 	go build -ldflags "$(LDFLAGS)" -o coddy ./cmd/coddy/
