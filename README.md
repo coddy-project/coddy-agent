@@ -21,15 +21,20 @@ or any other ACP client.
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-Or build from source:
+Or build and install manually from source:
 
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
 make build
-# or manually:
-go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
+make install
 ```
+
+It copies it to the appropriate location:
+- root - `/usr/local/bin/coddy`
+- regular user - `~/.local/bin/coddy`
+
+To only build without installing:
 
 ### Terminal UI
 

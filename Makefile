@@ -7,9 +7,13 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 build:
 	go build -ldflags "$(LDFLAGS)" -o coddy ./cmd/coddy/
 
-# Install to GOPATH/bin.
-install:
-	go install -ldflags "$(LDFLAGS)" ./cmd/coddy/
+# Install binary: /usr/local/bin for root, ~/.local/bin for regular users.
+INSTALL_DIR := $(if $(filter 0,$(shell id -u)),/usr/local/bin,$(HOME)/.local/bin)
+
+install: build
+	@mkdir -p $(INSTALL_DIR)
+	cp coddy $(INSTALL_DIR)/coddy
+	@echo "Installed to $(INSTALL_DIR)/coddy"
 
 # Run all tests.
 test:
