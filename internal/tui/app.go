@@ -29,6 +29,8 @@ import (
 type chatEntry struct {
 	role    string // "user", "agent", "tool", "error"
 	content string // for user/agent entries
+	// reasoning is streamed separately from the visible answer on models that expose it (e.g. reasoning_content).
+	reasoning string
 
 	// Agent-specific: populated when the agent finishes the response.
 	agentMode  string        // mode used when generating (e.g. "agent", "plan")
@@ -636,13 +638,83 @@ func (m AppModel) agentCmd(prompt string) tea.Cmd {
 	}
 }
 
+// findStreamingAgentIdxForReasoning picks the assistant row that should receive reasoning deltas.
+func (m AppModel) findStreamingAgentIdxForReasoning() int {
+	n := len(m.chat)
+	if n == 0 {
+		return -1
+	}
+	if m.chat[n-1].role == "agent" {
+		return n - 1
+	}
+	if m.chat[n-1].role == "tool" {
+		for i := n - 1; i >= 0; i-- {
+			if m.chat[i].role == "agent" {
+				if m.chat[i].content == "" {
+					return i
+				}
+				return -1
+			}
+			if m.chat[i].role != "tool" {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+// findStreamingAgentIdxForText picks the assistant row for visible answer text.
+// Rows with content still empty before trailing tool entries are placeholders (tools after user).
+func (m AppModel) findStreamingAgentIdxForText() int {
+	n := len(m.chat)
+	if n == 0 {
+		return -1
+	}
+	if m.chat[n-1].role == "agent" {
+		return n - 1
+	}
+	if m.chat[n-1].role == "tool" {
+		for i := n - 1; i >= 0; i-- {
+			if m.chat[i].role == "agent" {
+				if m.chat[i].content == "" {
+					return i
+				}
+				return -1
+			}
+			if m.chat[i].role != "tool" {
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
 func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
-	if delta, ok := extractTextDelta(msg.Update); ok && delta != "" {
-		m.streamBuf += delta
-		if len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "agent" {
-			m.chat[len(m.chat)-1].content = m.streamBuf
-		} else {
+	if text, isReasoning, ok := extractAgentMessageChunk(msg.Update); ok && text != "" {
+		if isReasoning {
+			idx := m.findStreamingAgentIdxForReasoning()
+			if idx < 0 {
+				m.chat = append(m.chat, chatEntry{role: "agent", reasoning: text})
+			} else {
+				m.chat[idx].reasoning += text
+			}
+			m.refreshViewport()
+			return m, nil
+		}
+
+		idx := m.findStreamingAgentIdxForText()
+		if idx < 0 {
+			if len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "tool" {
+				m.streamBuf = ""
+			}
+			m.streamBuf += text
 			m.chat = append(m.chat, chatEntry{role: "agent", content: m.streamBuf})
+		} else {
+			if m.chat[idx].content == "" && len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "tool" {
+				m.streamBuf = ""
+			}
+			m.streamBuf += text
+			m.chat[idx].content = m.streamBuf
 		}
 		m.refreshViewport()
 		return m, nil
@@ -654,6 +726,14 @@ func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if id, title, _, ok := extractToolCall(msg.Update); ok {
+		if len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "user" {
+			m.chat = append(m.chat, chatEntry{role: "agent"})
+		}
+		for i := range m.chat {
+			if m.chat[i].role == "tool" && m.chat[i].toolID == id {
+				return m, nil
+			}
+		}
 		name := title
 		if strings.HasPrefix(name, "Calling: ") {
 			name = strings.TrimPrefix(name, "Calling: ")
@@ -1103,10 +1183,15 @@ func (m AppModel) renderEntry(idx int, e chatEntry) string {
 		return m.renderUserMessage(e, w)
 
 	case "agent":
-		body := m.renderMarkdown(e.content)
+		var body strings.Builder
+		if e.reasoning != "" {
+			body.WriteString(styleReasoning.Render(m.renderMarkdown(e.reasoning)))
+			body.WriteString("\n")
+		}
+		body.WriteString(m.renderMarkdown(e.content))
 		header := styleAgentLabel.Render("coddy") + "\n"
 		footer := m.renderAgentFooter(e)
-		return header + body + footer
+		return header + body.String() + footer
 
 	case "tool":
 		return m.renderToolEntry(idx, e)

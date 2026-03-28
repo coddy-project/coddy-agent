@@ -49,11 +49,12 @@ type Response struct {
 
 // StreamChunk is a single chunk streamed from the LLM.
 type StreamChunk struct {
-	TextDelta    string
-	ToolCall     *ToolCall
-	StopReason   string
-	InputTokens  int
-	OutputTokens int
+	TextDelta      string
+	ReasoningDelta string
+	ToolCall       *ToolCall
+	StopReason     string
+	InputTokens    int
+	OutputTokens   int
 }
 
 // Provider is the interface all LLM backends must implement.

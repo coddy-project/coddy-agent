@@ -31,7 +31,7 @@ func agentChunk(sessionID, text string) AgentUpdateMsg {
 		SessionID: sessionID,
 		Update: acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-			Content:       acp.ContentBlock{Type: "text", Text: text},
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: text},
 		},
 	}
 }
@@ -182,6 +182,63 @@ func TestAgentUpdateAppendsText(t *testing.T) {
 	last := m2.chat[len(m2.chat)-1]
 	if last.content != "hello from agent" {
 		t.Errorf("unexpected content: %q", last.content)
+	}
+}
+
+func TestMultiTurnTextAfterToolStartsNewBubble(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.width = 80
+	m.height = 24
+	m.chat = []chatEntry{
+		{role: "user", content: "q"},
+		{role: "agent", content: "hello"},
+		{role: "tool", toolID: "1", toolName: "x", status: "completed"},
+	}
+	m.streamBuf = "hello"
+
+	updated, _ := m.Update(AgentUpdateMsg{
+		SessionID: m.state.ID,
+		Update: acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "world"},
+		},
+	})
+	m2 := updated.(AppModel)
+
+	if len(m2.chat) != 4 {
+		t.Fatalf("expected 4 chat entries, got %d", len(m2.chat))
+	}
+	if m2.chat[3].role != "agent" || m2.chat[3].content != "world" {
+		t.Errorf("new assistant bubble should only contain second-turn text, got %+v", m2.chat[3])
+	}
+}
+
+func TestPlaceholderAgentBeforeToolGetsFirstText(t *testing.T) {
+	cfg := makeTestConfig(t)
+	m, _ := New(cfg)
+	m.width = 80
+	m.height = 24
+	m.chat = []chatEntry{
+		{role: "user", content: "q"},
+		{role: "agent"},
+		{role: "tool", toolID: "1", toolName: "x", status: "pending"},
+	}
+
+	updated, _ := m.Update(AgentUpdateMsg{
+		SessionID: m.state.ID,
+		Update: acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "done"},
+		},
+	})
+	m2 := updated.(AppModel)
+
+	if len(m2.chat) != 3 {
+		t.Fatalf("expected 3 chat entries, got %d", len(m2.chat))
+	}
+	if m2.chat[1].role != "agent" || m2.chat[1].content != "done" {
+		t.Errorf("placeholder assistant should be filled, got %+v", m2.chat[1])
 	}
 }
 

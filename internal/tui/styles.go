@@ -74,6 +74,11 @@ var (
 			Foreground(colorAgent).
 			Bold(true)
 
+	// styleReasoning renders model-internal reasoning (when the API streams it separately).
+	styleReasoning = lipgloss.NewStyle().
+			Foreground(colorSubtle).
+			Italic(true)
+
 	styleToolCall = lipgloss.NewStyle().
 			Foreground(colorTool).
 			Italic(true)

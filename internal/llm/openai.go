@@ -7,6 +7,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/tidwall/gjson"
 )
 
 // openAIProvider implements Provider using the OpenAI API (or compatible).
@@ -76,6 +77,17 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		if delta.Content != "" {
 			fullContent += delta.Content
 			onChunk(StreamChunk{TextDelta: delta.Content})
+		}
+
+		raw := delta.RawJSON()
+		if raw != "" {
+			r := gjson.Get(raw, "reasoning_content").String()
+			if r == "" {
+				r = gjson.Get(raw, "thinking").String()
+			}
+			if r != "" {
+				onChunk(StreamChunk{ReasoningDelta: r})
+			}
 		}
 
 		for _, tc := range delta.ToolCalls {
