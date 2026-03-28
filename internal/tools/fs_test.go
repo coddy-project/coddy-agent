@@ -150,6 +150,65 @@ func TestListDir(t *testing.T) {
 	}
 }
 
+func TestListDirHiddenDefault(t *testing.T) {
+	env := makeEnv(t)
+	if err := os.WriteFile(filepath.Join(env.CWD, "visible.txt"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(env.CWD, ".hidden.txt"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(env.CWD, ".hiddendir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{})
+	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	if err != nil {
+		t.Fatalf("list_dir: %v", err)
+	}
+	if !strings.Contains(result, "visible.txt") {
+		t.Errorf("expected visible file: %q", result)
+	}
+	if strings.Contains(result, ".hidden.txt") || strings.Contains(result, ".hiddendir/") {
+		t.Errorf("did not expect hidden entries by default: %q", result)
+	}
+
+	args, _ = json.Marshal(map[string]interface{}{"show_hidden": true})
+	result, err = reg.Execute(context.Background(), "list_dir", string(args), env)
+	if err != nil {
+		t.Fatalf("list_dir show_hidden: %v", err)
+	}
+	if !strings.Contains(result, ".hidden.txt") || !strings.Contains(result, ".hiddendir/") {
+		t.Errorf("expected hidden file and dir when show_hidden: %q", result)
+	}
+}
+
+func TestListDirRecursiveSkipsHiddenSubtree(t *testing.T) {
+	env := makeEnv(t)
+	sub := filepath.Join(env.CWD, "outer")
+	if err := os.MkdirAll(filepath.Join(sub, ".git", "objects"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "ok.txt"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "outer", "recursive": true})
+	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	if err != nil {
+		t.Fatalf("list_dir: %v", err)
+	}
+	if strings.Contains(result, ".git/") {
+		t.Errorf("did not expect .git in non-show_hidden recursive listing: %q", result)
+	}
+	if !strings.Contains(result, "ok.txt") {
+		t.Errorf("expected ok.txt: %q", result)
+	}
+}
+
 func TestApplyDiff(t *testing.T) {
 	env := makeEnv(t)
 

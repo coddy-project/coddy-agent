@@ -168,6 +168,10 @@ func listDirTool() *Tool {
 						"type":        "boolean",
 						"description": "Include all subdirectories recursively (default: false)",
 					},
+					"show_hidden": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Include dotfiles and dot-directories (names starting with '.', default: false)",
+					},
 				},
 			},
 		},
@@ -177,8 +181,26 @@ func listDirTool() *Tool {
 }
 
 type listDirArgs struct {
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive"`
+	Path        string `json:"path"`
+	Recursive   bool   `json:"recursive"`
+	ShowHidden  bool   `json:"show_hidden"`
+}
+
+// relPathHasHiddenSegment reports whether rel contains a path segment that is a Unix-style
+// hidden name (starts with '.', excluding "." and "..").
+func relPathHasHiddenSegment(rel string) bool {
+	if rel == "" || rel == "." {
+		return false
+	}
+	for _, seg := range strings.Split(rel, string(filepath.Separator)) {
+		if seg == "" || seg == "." || seg == ".." {
+			continue
+		}
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
 }
 
 func executeListDir(_ context.Context, argsJSON string, env *Env) (string, error) {
@@ -204,8 +226,14 @@ func executeListDir(_ context.Context, argsJSON string, env *Env) (string, error
 			if err != nil {
 				return nil // skip errors
 			}
-			rel, _ := filepath.Rel(dirPath, p)
-			if rel == "." {
+			rel, relErr := filepath.Rel(dirPath, p)
+			if relErr != nil || rel == "." {
+				return nil
+			}
+			if !args.ShowHidden && relPathHasHiddenSegment(rel) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			if info.IsDir() {
@@ -219,6 +247,9 @@ func executeListDir(_ context.Context, argsJSON string, env *Env) (string, error
 		des, readErr := os.ReadDir(dirPath)
 		err = readErr
 		for _, de := range des {
+			if !args.ShowHidden && strings.HasPrefix(de.Name(), ".") {
+				continue
+			}
 			if de.IsDir() {
 				entries = append(entries, de.Name()+"/")
 			} else {
