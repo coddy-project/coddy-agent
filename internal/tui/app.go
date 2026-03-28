@@ -1306,12 +1306,20 @@ func toolCallSummary(toolName, argsJSON string) string {
 		}
 	case "list_dir":
 		var a struct {
-			Path      string `json:"path"`
-			Recursive bool   `json:"recursive"`
+			Path        string `json:"path"`
+			Recursive   bool   `json:"recursive"`
+			ShowHidden  bool   `json:"show_hidden"`
 		}
 		if json.Unmarshal([]byte(argsJSON), &a) == nil && a.Path != "" {
+			var parts []string
 			if a.Recursive {
-				return a.Path + "  (recursive)"
+				parts = append(parts, "recursive")
+			}
+			if a.ShowHidden {
+				parts = append(parts, "hidden")
+			}
+			if len(parts) > 0 {
+				return a.Path + "  (" + strings.Join(parts, ", ") + ")"
 			}
 			return a.Path
 		}
@@ -1360,13 +1368,6 @@ func (m AppModel) renderWelcome() string {
 		b.WriteString(strings.Repeat(" ", pad) + line + "\n")
 	}
 	b.WriteString("\n")
-
-	sid := styleSessionID.Render("Session   " + m.state.ID)
-	padSid := (m.width - visibleWidth(sid)) / 2
-	if padSid < 0 {
-		padSid = 0
-	}
-	b.WriteString(strings.Repeat(" ", padSid) + sid + "\n")
 
 	hint := styleHint.Render("Continue: coddy -s " + m.state.ID)
 	padH := (m.width - visibleWidth(hint)) / 2
