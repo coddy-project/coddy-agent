@@ -187,7 +187,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				continue
 			}
 
-			result, execErr := a.executeToolCall(ctx, tc, env, mode)
+			result, execErr := a.executeToolCall(ctx, tc, env, mode, registry)
 			toolResult := result
 			if execErr != nil {
 				toolResult = fmt.Sprintf("Error: %v", execErr)
@@ -267,7 +267,7 @@ func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 }
 
 // executeToolCall runs a single tool call and returns the result string.
-func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode string) (string, error) {
+func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode string, registry *tools.Registry) (string, error) {
 	a.log.Debug("executing tool", "name", tc.Name, "session", a.state.GetID())
 
 	// Determine if permission is required.
@@ -329,7 +329,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		})
 	}
 
-	result, err := tools.NewRegistry().Execute(ctx, tc.Name, tc.InputJSON, env)
+	result, err := registry.Execute(ctx, tc.Name, tc.InputJSON, env)
 
 	// Notify client of completion.
 	status := "completed"
