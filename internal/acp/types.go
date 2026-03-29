@@ -336,6 +336,12 @@ type ContentBlock struct {
 	Resource *Resource `json:"resource,omitempty"`
 }
 
+// Content block type values for agent_message_chunk (MessageChunkUpdate).
+const (
+	ContentTypeText      = "text"
+	ContentTypeReasoning = "reasoning"
+)
+
 // Resource is a file or other resource referenced in a content block.
 type Resource struct {
 	URI      string `json:"uri"`

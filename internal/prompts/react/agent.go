@@ -129,10 +129,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			if ctx.Err() != nil {
 				return
 			}
+			if chunk.ReasoningDelta != "" {
+				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
+					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+					Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: chunk.ReasoningDelta},
+				})
+			}
 			if chunk.TextDelta != "" {
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
-					Content:       acp.ContentBlock{Type: "text", Text: chunk.TextDelta},
+					Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: chunk.TextDelta},
 				})
 			}
 			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {

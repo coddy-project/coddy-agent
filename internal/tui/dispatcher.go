@@ -99,12 +99,23 @@ func parseUpdateType(update interface{}) string {
 	return ""
 }
 
-// extractTextDelta returns the text delta from an agent_message_chunk update.
-func extractTextDelta(update interface{}) (string, bool) {
-	if u, ok := update.(acp.MessageChunkUpdate); ok && u.SessionUpdate == acp.UpdateTypeAgentMessageChunk {
-		return u.Content.Text, true
+// extractAgentMessageChunk returns text from an agent_message_chunk and whether it is reasoning.
+func extractAgentMessageChunk(update interface{}) (text string, isReasoning bool, ok bool) {
+	u, ok2 := update.(acp.MessageChunkUpdate)
+	if !ok2 || u.SessionUpdate != acp.UpdateTypeAgentMessageChunk {
+		return "", false, false
 	}
-	return "", false
+	if u.Content.Text == "" {
+		return "", false, false
+	}
+	switch u.Content.Type {
+	case acp.ContentTypeReasoning:
+		return u.Content.Text, true, true
+	case acp.ContentTypeText, "":
+		return u.Content.Text, false, true
+	default:
+		return u.Content.Text, false, true
+	}
 }
 
 // extractModeID returns the new mode from a current_mode_update.
