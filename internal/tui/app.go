@@ -92,8 +92,9 @@ type AppModel struct {
 	textarea textarea.Model
 	inputOff bool
 
-	chat      []chatEntry
-	streamBuf string // accumulated streaming text; plain string avoids Builder-copy panic
+	chat               []chatEntry
+	streamBuf          string // accumulated streaming text; plain string avoids Builder-copy panic
+	pendingAgentContent string // agent text absorbed before tool calls, flushed after
 
 	agentRunning   bool
 	agentStartedAt time.Time // records when the current agent run started
@@ -720,6 +721,10 @@ func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
 			if len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "tool" {
 				m.streamBuf = ""
 			}
+			if m.pendingAgentContent != "" {
+				m.streamBuf = m.pendingAgentContent
+				m.pendingAgentContent = ""
+			}
 			m.streamBuf += text
 			m.chat = append(m.chat, chatEntry{role: "agent", content: m.streamBuf})
 		} else {
@@ -739,14 +744,28 @@ func (m AppModel) handleAgentUpdate(msg AgentUpdateMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if id, title, _, ok := extractToolCall(msg.Update); ok {
-		if len(m.chat) > 0 && m.chat[len(m.chat)-1].role == "user" {
-			m.chat = append(m.chat, chatEntry{role: "agent"})
-		}
 		for i := range m.chat {
 			if m.chat[i].role == "tool" && m.chat[i].toolID == id {
 				return m, nil
 			}
 		}
+
+		// Absorb any agent text that was streamed before tool calls
+		// (same LLM response) so it appears after the tools, not before.
+		for i := len(m.chat) - 1; i >= 0; i-- {
+			if m.chat[i].role == "agent" {
+				if m.chat[i].content != "" {
+					m.pendingAgentContent += m.chat[i].content
+					m.chat = append(m.chat[:i], m.chat[i+1:]...)
+					m.streamBuf = ""
+				}
+				break
+			}
+			if m.chat[i].role != "tool" {
+				break
+			}
+		}
+
 		name := title
 		if strings.HasPrefix(name, "Calling: ") {
 			name = strings.TrimPrefix(name, "Calling: ")
@@ -803,6 +822,12 @@ func (m AppModel) handleAgentDone(msg AgentDoneMsg) (tea.Model, tea.Cmd) {
 	elapsed := time.Since(m.agentStartedAt)
 	m.agentRunning = false
 	m.runner.setCancel(nil)
+
+	// Flush any absorbed agent text that was never followed by more text chunks.
+	if m.pendingAgentContent != "" {
+		m.chat = append(m.chat, chatEntry{role: "agent", content: m.pendingAgentContent})
+		m.pendingAgentContent = ""
+	}
 
 	if msg.Err != nil {
 		m.chat = append(m.chat, chatEntry{role: "error", content: msg.Err.Error()})
@@ -888,7 +913,7 @@ func (m AppModel) recalcLayout() AppModel {
 		return m
 	}
 
-	statusH := 3 // line 1: mode+hints, line 2: empty, line 3: cwd path
+	statusH := 2 // line 1: mode+hints, line 2: cwd path
 	inputH := 5  // border(2) + content(3), no vertical padding
 
 	// Decide sidebar width: 1/5 of total width when terminal is wide enough.
@@ -921,11 +946,11 @@ func (m AppModel) recalcLayout() AppModel {
 		chatH = 3
 	}
 
-	// Chat viewport occupies the left panel minus the scrollbar column.
-	m.viewport.Width = m.leftWidth - 1
+	// Chat viewport occupies the full left panel width; scrollbar overlays the last column.
+	m.viewport.Width = m.leftWidth
 	m.viewport.Height = chatH
 
-	// Recreate markdown renderer to match viewport width (which now excludes scrollbar column).
+	// Markdown renderer width leaves room for border/padding.
 	mdWidth := m.viewport.Width - 2
 	if mdWidth < 20 {
 		mdWidth = 20
@@ -936,48 +961,9 @@ func (m AppModel) recalcLayout() AppModel {
 	return m
 }
 
-// renderScrollbar builds a single-column scrollbar string of `height` lines.
-func (m AppModel) renderScrollbar(height int) string {
-	total := m.viewport.TotalLineCount()
-	if total <= height || height <= 0 {
-		// Content fits - render an empty column
-		return strings.Repeat(" \n", height)
-	}
-
-	thumbH := height * height / total
-	if thumbH < 1 {
-		thumbH = 1
-	}
-	thumbOffset := int(m.viewport.ScrollPercent() * float64(height-thumbH))
-
-	var lines []string
-	for i := 0; i < height; i++ {
-		if i >= thumbOffset && i < thumbOffset+thumbH {
-			lines = append(lines, styleScrollThumb.Render("▐"))
-		} else {
-			lines = append(lines, styleScrollTrack.Render("│"))
-		}
-	}
-	return strings.Join(lines, "\n")
-}
-
-// renderChatWithScrollbar renders the viewport and appends a 1-char scrollbar column.
-func (m AppModel) renderChatWithScrollbar() string {
-	vpView := m.viewport.View()
-	vpLines := strings.Split(vpView, "\n")
-	scrollLines := strings.Split(m.renderScrollbar(len(vpLines)), "\n")
-
-	var b strings.Builder
-	for i, line := range vpLines {
-		b.WriteString(line)
-		if i < len(scrollLines) {
-			b.WriteString(scrollLines[i])
-		}
-		if i < len(vpLines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
+// renderChatView renders the viewport content.
+func (m AppModel) renderChatView() string {
+	return m.viewport.View()
 }
 
 // View implements tea.Model.
@@ -992,7 +978,7 @@ func (m AppModel) View() string {
 		if m.showWelcome && len(m.chat) == 0 {
 			left.WriteString(m.renderWelcome())
 		} else {
-			left.WriteString(m.renderChatWithScrollbar())
+			left.WriteString(m.renderChatView())
 		}
 		left.WriteString("\n")
 		left.WriteString(m.renderInput())
@@ -1011,7 +997,7 @@ func (m AppModel) View() string {
 	if m.showWelcome && len(m.chat) == 0 {
 		b.WriteString(m.renderWelcome())
 	} else {
-		b.WriteString(m.renderChatWithScrollbar())
+		b.WriteString(m.renderChatView())
 	}
 	b.WriteString("\n")
 	b.WriteString(m.renderInput())
@@ -1148,14 +1134,14 @@ func (m AppModel) renderStatusBar() string {
 	}
 	line1 := hints + strings.Repeat(" ", gap) + right
 
-	// Third line: absolute cwd path with optional git branch (left-aligned).
+	// Second line: absolute cwd path with optional git branch (aligned with mode tag).
 	cwdLabel := m.cwd
 	if m.gitBranch != "" {
 		cwdLabel += ":" + m.gitBranch
 	}
-	line3 := styleCurrentPath.Render(cwdLabel)
+	line2 := " " + styleCurrentPath.Render(cwdLabel)
 
-	return line1 + "\n\n" + line3
+	return line1 + "\n" + line2
 }
 
 func (m AppModel) renderInput() string {
@@ -1264,8 +1250,8 @@ func (m AppModel) renderToolEntry(idx int, e chatEntry) string {
 
 	var b strings.Builder
 
-	// Header line: "run_command:  > git status"
-	header := name + ":"
+	// Header line aligned with content inside bordered boxes (border + padding = 2 chars).
+	header := "  " + name + ":"
 	if e.toolArgs != "" {
 		if summary := toolCallSummary(e.toolName, e.toolArgs); summary != "" {
 			header += "  " + summary
