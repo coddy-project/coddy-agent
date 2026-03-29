@@ -4,12 +4,15 @@ Output assets/demo.gif
 Require coddy
 
 Set Shell bash
-Set FontSize 14
-Set Width 1200
-Set Height 700
+Set FontSize 16
+Set Width 1600
+Set Height 900
+Set LineHeight 1.25
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 80ms
 Set Padding 20
+Set Framerate 30
+Set CursorBlink false
 
 # Open the TUI
 Type "coddy"
