@@ -37,9 +37,9 @@ func NewSessionStore(dir string) (*SessionStore, error) {
 func DefaultSessionDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".", ".coddy", "sessions")
+		return filepath.Join(".", ".coddy-agent", "sessions")
 	}
-	return filepath.Join(home, ".local", "share", "coddy", "sessions")
+	return filepath.Join(home, ".local", "share", "coddy-agent", "sessions")
 }
 
 // Save persists a session to disk.
