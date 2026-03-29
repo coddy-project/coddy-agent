@@ -49,15 +49,11 @@ var (
 			Foreground(colorModePlan).
 			Bold(true)
 
-	// Input uses a single gray left border in all states.
-	// Cursor position inside the textarea indicates focus - no color change needed.
+	// Input uses a rounded gray border with horizontal padding only.
 	styleInputBorder = lipgloss.NewStyle().
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderLeft(true).
+			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorSubtle).
-			PaddingLeft(1)
-
-	styleInputBorderFocused = styleInputBorder
+			Padding(0, 1)
 
 	styleUserMessage = lipgloss.NewStyle().
 				Foreground(colorUser).

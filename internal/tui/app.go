@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -71,13 +72,14 @@ func (r *agentRunner) stop() {
 // AppModel is the bubbletea model for the TUI application.
 type AppModel struct {
 	// Config and session.
-	cfg      *config.Config
-	state    *session.State
-	store    *SessionStore
-	cwd      string
-	appVer   string
-	modelID  string
-	modelIDs []string
+	cfg       *config.Config
+	state     *session.State
+	store     *SessionStore
+	cwd       string
+	gitBranch string
+	appVer    string
+	modelID   string
+	modelIDs  []string
 
 	// Shared mutable agent runner (pointer so copies share state).
 	runner *agentRunner
@@ -163,6 +165,7 @@ func New(cfg Config) (AppModel, error) {
 		cfg:            cfg.AppConfig,
 		store:          cfg.Store,
 		cwd:            cfg.CWD,
+		gitBranch:      detectGitBranch(cfg.CWD),
 		appVer:         version.Get(),
 		modelID:        modelID,
 		modelIDs:       modelIDs,
@@ -214,6 +217,16 @@ func New(cfg Config) (AppModel, error) {
 	}
 
 	return m, nil
+}
+
+func detectGitBranch(cwd string) string {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = cwd
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func createFreshState(cwd string) *session.State {
@@ -823,7 +836,7 @@ func (m AppModel) doNewSession() (tea.Model, tea.Cmd) {
 	m.sidebarScroll = 0
 	m.totalInputTokens = 0
 	m.totalOutputTokens = 0
-	m.refreshViewport()
+	m = m.recalcLayout()
 	return m, nil
 }
 
@@ -875,15 +888,8 @@ func (m AppModel) recalcLayout() AppModel {
 		return m
 	}
 
-	statusH := 1
-	// inputH = textarea rows (3); left-border-only style adds no top/bottom lines.
-	inputH := 3
-	// Each "\n" separator between sections is a line transition, not an extra visual line,
-	// so the correct formula is simply height minus the fixed-height sections.
-	chatH := m.height - statusH - inputH
-	if chatH < 3 {
-		chatH = 3
-	}
+	statusH := 3 // line 1: mode+hints, line 2: empty, line 3: cwd path
+	inputH := 5  // border(2) + content(3), no vertical padding
 
 	// Decide sidebar width: 1/5 of total width when terminal is wide enough.
 	if m.width >= minSidebarWidth {
@@ -896,23 +902,28 @@ func (m AppModel) recalcLayout() AppModel {
 	}
 	m.leftWidth = m.width - m.sidebarWidth
 
-	// Chat viewport occupies the left panel minus the scrollbar column.
-	m.viewport.Width = m.leftWidth - 1
-	m.viewport.Height = chatH
-
-	// Input spans the left panel only when sidebar is present; full width otherwise.
-	// NormalBorder left(1) + PaddingLeft(1) = 2 chars overhead.
-	var inputW int
+	var panelW int
 	if m.sidebarWidth > 0 {
-		inputW = m.leftWidth - 2
+		panelW = m.leftWidth
 	} else {
-		inputW = m.width - 2
+		panelW = m.width
 	}
+
+	m.textarea.SetHeight(3)
+	inputW := panelW - 4 // border(2) + padding(2)
 	if inputW < 10 {
 		inputW = 10
 	}
 	m.textarea.SetWidth(inputW)
-	m.textarea.SetHeight(inputH)
+
+	chatH := m.height - statusH - inputH
+	if chatH < 3 {
+		chatH = 3
+	}
+
+	// Chat viewport occupies the left panel minus the scrollbar column.
+	m.viewport.Width = m.leftWidth - 1
+	m.viewport.Height = chatH
 
 	// Recreate markdown renderer to match viewport width (which now excludes scrollbar column).
 	mdWidth := m.viewport.Width - 2
@@ -1038,8 +1049,7 @@ func (m AppModel) renderSidebar() string {
 		styleSidebarTokenValue.Render(truncateLine(totTok, innerW)),
 	)
 
-	// Divider
-	lines = append(lines, styleDivider.Render(strings.Repeat("-", innerW)))
+	lines = append(lines, styleDivider.Render(strings.Repeat("─", innerW-1)))
 
 	// --- Plan section ---
 	lines = append(lines, styleSidebarSection.Render("Plan"))
@@ -1096,7 +1106,6 @@ func (m AppModel) renderSidebar() string {
 	content := strings.Join(visible, "\n")
 	return styleSidebarBorder.
 		Width(innerW).
-		Height(h).
 		Render(content)
 }
 
@@ -1126,7 +1135,6 @@ func (m AppModel) renderStatusBar() string {
 
 	hints = styleStatusBar.Render(hints)
 
-	// Right side: model name + version
 	right := lipgloss.NewStyle().Foreground(colorSubtle).Render(m.modelID) +
 		"  " + styleVersion.Render(m.appVer)
 
@@ -1138,18 +1146,25 @@ func (m AppModel) renderStatusBar() string {
 	if gap < 1 {
 		gap = 1
 	}
-	return hints + strings.Repeat(" ", gap) + right
+	line1 := hints + strings.Repeat(" ", gap) + right
+
+	// Third line: absolute cwd path with optional git branch (left-aligned).
+	cwdLabel := m.cwd
+	if m.gitBranch != "" {
+		cwdLabel += ":" + m.gitBranch
+	}
+	line3 := styleCurrentPath.Render(cwdLabel)
+
+	return line1 + "\n\n" + line3
 }
 
 func (m AppModel) renderInput() string {
-	panelW := m.width
-	if m.sidebarWidth > 0 {
-		panelW = m.leftWidth
-	}
 	if m.inputOff {
-		// Width() in lipgloss includes padding but not border.
-		// Total visual = border(1) + Width = panelW, so Width = panelW - 1.
-		contentW := panelW - 1
+		panelW := m.width
+		if m.sidebarWidth > 0 {
+			panelW = m.leftWidth
+		}
+		contentW := panelW - 4
 		if contentW < 10 {
 			contentW = 10
 		}
@@ -1173,14 +1188,9 @@ func (m AppModel) renderChat() string {
 }
 
 func (m AppModel) renderEntry(idx int, e chatEntry) string {
-	// Content width = viewport width (scrollbar already deducted).
-	w := m.viewport.Width
-	if w < 10 {
-		w = 10
-	}
 	switch e.role {
 	case "user":
-		return m.renderUserMessage(e, w)
+		return m.renderUserMessage(e)
 
 	case "agent":
 		var body strings.Builder
@@ -1189,9 +1199,8 @@ func (m AppModel) renderEntry(idx int, e chatEntry) string {
 			body.WriteString("\n")
 		}
 		body.WriteString(m.renderMarkdown(e.content))
-		header := styleAgentLabel.Render("coddy") + "\n"
 		footer := m.renderAgentFooter(e)
-		return header + body.String() + footer
+		return body.String() + footer
 
 	case "tool":
 		return m.renderToolEntry(idx, e)
@@ -1202,24 +1211,16 @@ func (m AppModel) renderEntry(idx int, e chatEntry) string {
 	return e.content + "\n"
 }
 
-// renderUserMessage renders a user message with a blue left border,
-// matching the input field style.
-func (m AppModel) renderUserMessage(e chatEntry, w int) string {
-	// Width includes left padding (1). Left border takes 1 char outside Width.
-	// Total visual = 1(border) + w-1(Width) = w.
-	contentW := w - 1
+// renderUserMessage renders a user message in a rounded border matching the input field.
+func (m AppModel) renderUserMessage(e chatEntry) string {
+	// Use viewport width (which already deducts the scrollbar column)
+	// minus border(2) + padding(2) = same content width as textarea.
+	contentW := m.viewport.Width - 4
 	if contentW < 4 {
 		contentW = 4
 	}
-	box := lipgloss.NewStyle().
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderLeft(true).
-		BorderForeground(colorSubtle).
-		Foreground(colorFg).
-		PaddingLeft(1).
-		Width(contentW).
-		Render(e.content)
-	return box + "\n"
+	text := lipgloss.NewStyle().Foreground(colorFg).Width(contentW).Render(e.content)
+	return styleInputBorder.Render(text) + "\n"
 }
 
 // renderAgentFooter renders the "mode · model · time" line after an agent response.
@@ -1263,25 +1264,17 @@ func (m AppModel) renderToolEntry(idx int, e chatEntry) string {
 
 	var b strings.Builder
 
-	// Header line: "  run_command:  > git status"
-	header := "  " + name + ":"
+	// Header line: "run_command:  > git status"
+	header := name + ":"
 	if e.toolArgs != "" {
 		if summary := toolCallSummary(e.toolName, e.toolArgs); summary != "" {
 			header += "  " + summary
 		}
 	}
-	b.WriteString(labelStyle.Render(header) + "\n\n")
+	b.WriteString(labelStyle.Render(header) + "\n")
 
-	// Box dimensions.
-	// viewport.Width already accounts for the scrollbar column.
-	// Box total visual width = indent(2) + border(2) + padding(2) + content = m.viewport.Width
-	// So contentW = m.viewport.Width - 2(indent) - 2(border) - 2(padding) = m.viewport.Width - 6
-	vpW := m.viewport.Width
-	if vpW < 14 {
-		vpW = 14
-	}
-	const boxIndent = 2
-	contentW := vpW - boxIndent - 4 // 4 = border(2) + padding(2)
+	// Box width matches the input field: viewport.Width - 4 (border + padding).
+	contentW := m.viewport.Width - 4
 	if contentW < 10 {
 		contentW = 10
 	}
@@ -1301,11 +1294,11 @@ func (m AppModel) renderToolEntry(idx int, e chatEntry) string {
 
 	switch {
 	case e.expanded && (e.status == "completed" || e.status == "failed"):
-		// Expanded: raw indented output, no box
+		// Expanded: raw output, no box
 		if e.toolOutput != "" {
 			lines := strings.Split(strings.TrimRight(e.toolOutput, "\n"), "\n")
 			for _, l := range lines {
-				b.WriteString(styleToolOutput.Render("    "+truncateLine(l, contentW+2)) + "\n")
+				b.WriteString(styleToolOutput.Render("  "+truncateLine(l, contentW)) + "\n")
 			}
 		}
 		return b.String()
@@ -1344,14 +1337,7 @@ func (m AppModel) renderToolEntry(idx int, e chatEntry) string {
 		}
 	}
 
-	// Render box with left indent
-	rendered := boxStyle.Render(boxContent)
-	for i, line := range strings.Split(rendered, "\n") {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(strings.Repeat(" ", boxIndent) + line)
-	}
+	b.WriteString(boxStyle.Render(boxContent))
 	b.WriteString("\n")
 
 	return b.String()
@@ -1428,53 +1414,61 @@ func toolCallSummary(toolName, argsJSON string) string {
 }
 
 func (m AppModel) renderWelcome() string {
-	var b strings.Builder
 	vHeight := m.viewport.Height
 	if vHeight < 1 {
 		vHeight = 20
 	}
 
+	centerW := m.width
+	if m.sidebarWidth > 0 {
+		centerW = m.leftWidth
+	}
+
 	logoStr := logo()
 	logoLines := strings.Split(logoStr, "\n")
-	contentH := len(logoLines) + 4
+	// logo + blank + resume hint + exit hint
+	contentH := len(logoLines) + 3
 	topPad := (vHeight - contentH) / 2
 	if topPad < 0 {
 		topPad = 0
 	}
 
+	var lines []string
+
 	for i := 0; i < topPad; i++ {
-		b.WriteString("\n")
+		lines = append(lines, "")
 	}
 	for _, line := range logoLines {
-		pad := (m.width - visibleWidth(stripAnsi(line))) / 2
+		pad := (centerW - visibleWidth(stripAnsi(line))) / 2
 		if pad < 0 {
 			pad = 0
 		}
-		b.WriteString(strings.Repeat(" ", pad) + line + "\n")
+		lines = append(lines, strings.Repeat(" ", pad)+line)
 	}
-	b.WriteString("\n")
+	lines = append(lines, "") // blank line
 
-	hint := styleHint.Render("Continue: coddy -s " + m.state.ID)
-	padH := (m.width - visibleWidth(hint)) / 2
-	if padH < 0 {
-		padH = 0
+	resumeHint := styleHint.Render("Resume: coddy -s " + m.state.ID)
+	padR := (centerW - visibleWidth(resumeHint)) / 2
+	if padR < 0 {
+		padR = 0
 	}
-	b.WriteString(strings.Repeat(" ", padH) + hint)
+	lines = append(lines, strings.Repeat(" ", padR)+resumeHint)
 
-	dir := styleCurrentPath.Render(m.cwd)
-	padD := (m.width - visibleWidth(dir)) / 2
-	if padD < 0 {
-		padD = 0
+	exitHint := styleHint.Render("Exit: ctrl+c")
+	padE := (centerW - visibleWidth(exitHint)) / 2
+	if padE < 0 {
+		padE = 0
 	}
-	b.WriteString(strings.Repeat(" ", padD) + dir + "\n")
+	lines = append(lines, strings.Repeat(" ", padE)+exitHint)
 
-	rendered := b.String()
-	lines := strings.Count(rendered, "\n")
-	for i := lines; i < vHeight; i++ {
-		b.WriteString("\n")
+	for len(lines) < vHeight {
+		lines = append(lines, "")
+	}
+	if len(lines) > vHeight {
+		lines = lines[:vHeight]
 	}
 
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
 func (m AppModel) renderWithModal(base string) string {
@@ -1546,6 +1540,10 @@ func (m AppModel) renderMarkdown(content string) string {
 	}
 	rendered, err := m.mdRenderer.Render(content)
 	if err != nil {
+		return styleAgentMessage.Render(content) + "\n"
+	}
+	rendered = strings.TrimLeft(rendered, "\n")
+	if rendered == "" {
 		return styleAgentMessage.Render(content) + "\n"
 	}
 	return rendered
