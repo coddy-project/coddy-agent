@@ -7,6 +7,7 @@ models:
   agent_mode: "openai/gpt-4o"
   plan_mode: "openai/gpt-4o"
 
+  # Listed models are exposed to ACP clients as the session "model" selector (Session Config Options).
   definitions:
     - id: "openai/gpt-4o"
       provider: "openai"

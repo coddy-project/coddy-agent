@@ -129,7 +129,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	m.log.Info("session created", "id", id, "cwd", params.CWD, "mode", state.Mode)
 
 	return &acp.SessionNewResult{
-		SessionID: id,
+		SessionID:     id,
+		ConfigOptions: BuildACPConfigOptions(m.cfg, state),
 		Modes: &acp.ModeState{
 			CurrentModeID: string(state.Mode),
 			AvailableModes: []acp.SessionMode{
@@ -188,8 +189,64 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 		m.log.Warn("failed to send mode update", "error", err)
 	}
 
+	m.sendConfigOptionUpdate(params.SessionID, state)
+
 	m.log.Info("mode changed", "session", params.SessionID, "mode", params.ModeID)
 	return nil
+}
+
+// HandleSessionSetConfigOption implements session/set_config_option (ACP Session Config Options).
+func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	state := m.getSession(params.SessionID)
+	if state == nil {
+		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+	}
+
+	switch params.ConfigID {
+	case "mode":
+		if params.Value != string(ModeAgent) && params.Value != string(ModePlan) {
+			return nil, fmt.Errorf("invalid mode value: %q", params.Value)
+		}
+		state.SetMode(params.Value)
+		if err := m.server.SendSessionUpdate(params.SessionID, acp.ModeUpdate{
+			SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
+			ModeID:        params.Value,
+		}); err != nil {
+			m.log.Warn("failed to send mode update", "error", err)
+		}
+	case "model":
+		if len(m.cfg.Models.Defs) == 0 {
+			return nil, fmt.Errorf("no models configured")
+		}
+		found := false
+		for i := range m.cfg.Models.Defs {
+			if m.cfg.Models.Defs[i].ID == params.Value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("unknown model value: %q", params.Value)
+		}
+		state.SetSelectedModelID(params.Value)
+	default:
+		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
+	}
+
+	opts := BuildACPConfigOptions(m.cfg, state)
+	m.sendConfigOptionUpdate(params.SessionID, state)
+
+	return &acp.SessionSetConfigOptionResult{ConfigOptions: opts}, nil
+}
+
+func (m *Manager) sendConfigOptionUpdate(sessionID string, state *State) {
+	opts := BuildACPConfigOptions(m.cfg, state)
+	if err := m.server.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
+		SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
+		ConfigOptions: opts,
+	}); err != nil {
+		m.log.Warn("failed to send config option update", "error", err)
+	}
 }
 
 func (m *Manager) HandleSessionCancel(params acp.SessionCancelParams) {

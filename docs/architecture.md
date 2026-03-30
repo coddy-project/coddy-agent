@@ -62,22 +62,24 @@ editor (Cursor, Zed, VS Code via extension, etc.).
 Implements the JSON-RPC 2.0 server that speaks the ACP protocol over stdio.
 Handles:
 - `initialize` - version negotiation, capability exchange
-- `session/new` - create session, connect MCP servers
+- `session/new` - create session, connect MCP servers, return modes and Session Config Options (model + mode selectors)
 - `session/load` - restore previous session (optional)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent` and `plan` modes
+- `session/set_mode` - switch between `agent` and `plan` modes (legacy, kept in sync with config options)
+- `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
 - Current operating mode (`agent` / `plan`)
+- Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
 - Active context (skills + cursor rules loaded)
 
-### ReAct Agent Loop (`internal/react`)
+### ReAct Agent Loop (`internal/prompts/react`)
 
 The core reasoning engine:
 1. Builds system prompt from: base instructions + current mode + active skills
@@ -149,8 +151,8 @@ YAML-based configuration. Location (in priority order):
 - Suitable for: design docs, specs, architecture planning
 
 Mode switching:
-- Client calls `session/set_mode` with `agent` or `plan`
-- Agent sends `current_mode_update` notification when mode changes
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent` or `plan`
+- Agent sends `current_mode_update` and `config_option_update` when mode changes
 - Agent can self-switch from `plan` to `agent` after creating a plan (with permission)
 
 ## Directory Structure
