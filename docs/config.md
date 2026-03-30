@@ -25,7 +25,8 @@ models:
   agent_mode: "openai/gpt-4o"
   plan_mode: "anthropic/claude-3-5-sonnet"
 
-  # Model definitions
+  # Each entry in definitions appears as a selectable model in ACP clients (Session Config Options).
+  # The session uses agent_mode / plan_mode / default until the user picks another model in the client.
   definitions:
     - id: "openai/gpt-4o"
       provider: "openai"

@@ -9,11 +9,11 @@ import (
 
 // mockHandler implements acp.Handler for testing.
 type mockHandler struct {
-	initResult  *acp.InitializeResult
-	newResult   *acp.SessionNewResult
+	initResult   *acp.InitializeResult
+	newResult    *acp.SessionNewResult
 	promptResult *acp.SessionPromptResult
-	modeError   error
-	cancelledID string
+	modeError    error
+	cancelledID  string
 }
 
 func (m *mockHandler) HandleInitialize(_ context.Context, _ acp.InitializeParams) (*acp.InitializeResult, error) {
@@ -48,10 +48,13 @@ func (m *mockHandler) HandleSessionSetMode(_ context.Context, _ acp.SessionSetMo
 	return m.modeError
 }
 
+func (m *mockHandler) HandleSessionSetConfigOption(_ context.Context, _ acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error) {
+	return &acp.SessionSetConfigOptionResult{ConfigOptions: nil}, nil
+}
+
 func (m *mockHandler) HandleSessionCancel(params acp.SessionCancelParams) {
 	m.cancelledID = params.SessionID
 }
-
 
 func TestServerInitialize(t *testing.T) {
 	handler := &mockHandler{}

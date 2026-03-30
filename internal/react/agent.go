@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
@@ -26,6 +27,7 @@ type SessionState interface {
 	GetCWD() string
 	GetMode() string
 	SetMode(mode string)
+	EffectiveModelID(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
@@ -173,10 +175,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				systemPrompt = a.buildSystemPrompt(mode, activeSkills)
 
 				if a.server != nil {
-					_ = a.server.SendSessionUpdate(a.state.GetID(), map[string]interface{}{
-						"sessionUpdate": acp.UpdateTypeCurrentModeUpdate,
-						"modeId":        "agent",
+					_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ModeUpdate{
+						SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
+						ModeID:        "agent",
 					})
+					if st, ok := a.state.(*session.State); ok {
+						_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ConfigOptionUpdate{
+							SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
+							ConfigOptions: session.BuildACPConfigOptions(a.cfg, st),
+						})
+					}
 				}
 
 				a.state.AddMessage(llm.Message{
@@ -206,7 +214,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 // buildProvider constructs the LLM provider for the given mode.
 func (a *Agent) buildProvider(mode string) (llm.Provider, error) {
-	modelID := a.cfg.ModelForMode(mode)
+	modelID := a.state.EffectiveModelID(a.cfg)
 	if modelID == "" {
 		return nil, fmt.Errorf("no model configured for mode %q - set models.default or models.%s_mode in config", mode, mode)
 	}

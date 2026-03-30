@@ -62,8 +62,8 @@ const (
 
 // InitializeParams are the parameters for the initialize method.
 type InitializeParams struct {
-	ProtocolVersion    int               `json:"protocolVersion"`
-	ClientCapabilities ClientCapabilities `json:"clientCapabilities"`
+	ProtocolVersion    int                 `json:"protocolVersion"`
+	ClientCapabilities ClientCapabilities  `json:"clientCapabilities"`
 	ClientInfo         *ImplementationInfo `json:"clientInfo,omitempty"`
 }
 
@@ -81,17 +81,17 @@ type FSCapabilities struct {
 
 // InitializeResult is returned in response to initialize.
 type InitializeResult struct {
-	ProtocolVersion    int               `json:"protocolVersion"`
-	AgentCapabilities  AgentCapabilities `json:"agentCapabilities"`
-	AgentInfo          ImplementationInfo `json:"agentInfo"`
-	AuthMethods        []string          `json:"authMethods"`
+	ProtocolVersion   int                `json:"protocolVersion"`
+	AgentCapabilities AgentCapabilities  `json:"agentCapabilities"`
+	AgentInfo         ImplementationInfo `json:"agentInfo"`
+	AuthMethods       []string           `json:"authMethods"`
 }
 
 // AgentCapabilities describes what this agent supports.
 type AgentCapabilities struct {
-	LoadSession       bool               `json:"loadSession,omitempty"`
+	LoadSession        bool                `json:"loadSession,omitempty"`
 	PromptCapabilities *PromptCapabilities `json:"promptCapabilities,omitempty"`
-	MCPCapabilities   *MCPCapabilities   `json:"mcpCapabilities,omitempty"`
+	MCPCapabilities    *MCPCapabilities    `json:"mcpCapabilities,omitempty"`
 }
 
 // PromptCapabilities lists supported prompt content types.
@@ -124,8 +124,27 @@ type SessionNewParams struct {
 
 // SessionNewResult is returned by session/new.
 type SessionNewResult struct {
-	SessionID string      `json:"sessionId"`
-	Modes     *ModeState  `json:"modes,omitempty"`
+	SessionID     string         `json:"sessionId"`
+	Modes         *ModeState     `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+}
+
+// ConfigOption is a session-level configuration selector (Session Config Options in ACP).
+type ConfigOption struct {
+	ID           string              `json:"id"`
+	Name         string              `json:"name"`
+	Description  string              `json:"description,omitempty"`
+	Category     string              `json:"category,omitempty"`
+	Type         string              `json:"type,omitempty"` // "select"
+	CurrentValue string              `json:"currentValue"`
+	Options      []ConfigOptionValue `json:"options"`
+}
+
+// ConfigOptionValue is one selectable value for a config option.
+type ConfigOptionValue struct {
+	Value       string `json:"value"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // MCPServer represents an MCP server configuration.
@@ -195,11 +214,11 @@ type SessionPromptResult struct {
 type StopReason string
 
 const (
-	StopReasonEndTurn    StopReason = "end_turn"
-	StopReasonMaxTokens  StopReason = "max_tokens"
-	StopReasonMaxTurns   StopReason = "max_turns"
-	StopReasonRefused    StopReason = "agent_refused"
-	StopReasonCancelled  StopReason = "cancelled"
+	StopReasonEndTurn   StopReason = "end_turn"
+	StopReasonMaxTokens StopReason = "max_tokens"
+	StopReasonMaxTurns  StopReason = "max_turns"
+	StopReasonRefused   StopReason = "agent_refused"
+	StopReasonCancelled StopReason = "cancelled"
 )
 
 // ---- ACP session/cancel ----
@@ -217,6 +236,18 @@ type SessionSetModeParams struct {
 	ModeID    string `json:"modeId"`
 }
 
+// SessionSetConfigOptionParams are the parameters for session/set_config_option.
+type SessionSetConfigOptionParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
+}
+
+// SessionSetConfigOptionResult is returned by session/set_config_option.
+type SessionSetConfigOptionResult struct {
+	ConfigOptions []ConfigOption `json:"configOptions"`
+}
+
 // ---- ACP session/update ----
 
 // SessionUpdateParams wraps a session update notification.
@@ -231,13 +262,14 @@ type SessionUpdate map[string]interface{}
 
 // Update type constants for the "sessionUpdate" discriminator field.
 const (
-	UpdateTypePlan              = "plan"
-	UpdateTypeAgentMessageChunk = "agent_message_chunk"
-	UpdateTypeUserMessageChunk  = "user_message_chunk"
-	UpdateTypeToolCall          = "tool_call"
-	UpdateTypeToolCallUpdate    = "tool_call_update"
-	UpdateTypeCurrentModeUpdate = "current_mode_update"
-	UpdateTypeTokenUsage        = "token_usage"
+	UpdateTypePlan               = "plan"
+	UpdateTypeAgentMessageChunk  = "agent_message_chunk"
+	UpdateTypeUserMessageChunk   = "user_message_chunk"
+	UpdateTypeToolCall           = "tool_call"
+	UpdateTypeToolCallUpdate     = "tool_call_update"
+	UpdateTypeCurrentModeUpdate  = "current_mode_update"
+	UpdateTypeConfigOptionUpdate = "config_option_update"
+	UpdateTypeTokenUsage         = "token_usage"
 )
 
 // PlanUpdate sends the agent's execution plan to the client.
@@ -286,6 +318,12 @@ type ToolCallResultItem struct {
 type ModeUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "current_mode_update"
 	ModeID        string `json:"modeId"`
+}
+
+// ConfigOptionUpdate sends the full session configuration options state to the client.
+type ConfigOptionUpdate struct {
+	SessionUpdate string         `json:"sessionUpdate"` // "config_option_update"
+	ConfigOptions []ConfigOption `json:"configOptions"`
 }
 
 // TokenUsageUpdate reports token consumption for the current turn.

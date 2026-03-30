@@ -152,9 +152,49 @@ Create a new conversation session.
 ```
 
 **Response result:**
+
+Coddy returns both **Session Config Options** (preferred by modern ACP clients) and the legacy **`modes`** field for compatibility. Clients that support `configOptions` should use them for mode and model selection.
+
 ```json
 {
   "sessionId": "sess_abc123def456",
+  "configOptions": [
+    {
+      "id": "mode",
+      "name": "Session mode",
+      "description": "Agent runs tools; Plan focuses on design without execution.",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "agent",
+      "options": [
+        {
+          "value": "agent",
+          "name": "Agent",
+          "description": "Execute tasks with full tool access"
+        },
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Plan and design without code execution"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "description": "LLM used for this session.",
+      "category": "model",
+      "type": "select",
+      "currentValue": "openai/gpt-4o",
+      "options": [
+        {
+          "value": "openai/gpt-4o",
+          "name": "gpt-4o",
+          "description": "openai"
+        }
+      ]
+    }
+  ],
   "modes": {
     "currentModeId": "agent",
     "availableModes": [
@@ -172,6 +212,8 @@ Create a new conversation session.
   }
 }
 ```
+
+The `model` option is present only when `models.definitions` in the agent config is non-empty. The effective default model follows `models.default`, `models.agent_mode`, and `models.plan_mode` as described in [Configuration](config.md).
 
 ### `session/prompt`
 
@@ -215,7 +257,7 @@ Cancel an ongoing prompt turn (notification).
 
 ### `session/set_mode`
 
-Switch between agent modes.
+Switch between agent modes (legacy API). Prefer `session/set_config_option` with `configId` `mode` when the client supports Session Config Options.
 
 **Request params:**
 ```json
@@ -226,6 +268,31 @@ Switch between agent modes.
 ```
 
 **Response result:** `null`
+
+When the mode changes, the agent also sends a `session/update` with `config_option_update` so clients using config options stay in sync (for example, the displayed default model may change if no session model override is set).
+
+### `session/set_config_option`
+
+Change a session configuration option (ACP Session Config Options). Used for **mode** and **model** when the client exposes selectors.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "configId": "model",
+  "value": "anthropic/claude-3-5-sonnet"
+}
+```
+
+**Response result:** full `configOptions` array with updated `currentValue` fields:
+
+```json
+{
+  "configOptions": [ ... ]
+}
+```
+
+Unknown `configId` or a `value` not listed under that option yields a JSON-RPC error (invalid params).
 
 ## Notifications (Agent -> Client)
 
@@ -292,6 +359,34 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 {
   "sessionUpdate": "current_mode_update",
   "modeId": "agent"
+}
+```
+
+### `config_option_update` - Session config options changed
+
+Sent after `session/set_config_option`, after `session/set_mode` (so UI stays aligned), or when the agent switches mode internally (for example via `switch_to_agent_mode`).
+
+```json
+{
+  "sessionUpdate": "config_option_update",
+  "configOptions": [
+    {
+      "id": "mode",
+      "name": "Session mode",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "agent",
+      "options": [ ... ]
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "openai/gpt-4o",
+      "options": [ ... ]
+    }
+  ]
 }
 ```
 

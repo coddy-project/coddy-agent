@@ -23,6 +23,7 @@ type Handler interface {
 	HandleSessionLoad(ctx context.Context, params SessionLoadParams) error
 	HandleSessionPrompt(ctx context.Context, params SessionPromptParams) (*SessionPromptResult, error)
 	HandleSessionSetMode(ctx context.Context, params SessionSetModeParams) error
+	HandleSessionSetConfigOption(ctx context.Context, params SessionSetConfigOptionParams) (*SessionSetConfigOptionResult, error)
 	HandleSessionCancel(params SessionCancelParams)
 }
 
@@ -254,6 +255,17 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
 		}
 		return nil, nil
+
+	case "session/set_config_option":
+		var p SessionSetConfigOptionParams
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		result, err := s.handler.HandleSessionSetConfigOption(ctx, p)
+		if err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		return result, nil
 
 	default:
 		return nil, &RPCError{Code: ErrMethodNotFound, Message: fmt.Sprintf("method not found: %s", method)}

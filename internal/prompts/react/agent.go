@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
@@ -24,6 +25,7 @@ type SessionState interface {
 	GetCWD() string
 	GetMode() string
 	SetMode(mode string)
+	EffectiveModelID(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
@@ -285,6 +287,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
 				ModeID:        "agent",
 			})
+			if st, ok := a.state.(*session.State); ok {
+				_ = a.server.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
+					SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
+					ConfigOptions: session.BuildACPConfigOptions(a.cfg, st),
+				})
+			}
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,
@@ -392,7 +400,7 @@ func (a *Agent) sendPlan(sessionID string, entries []acp.PlanEntry) error {
 
 // getProvider creates the LLM provider for the given mode.
 func (a *Agent) getProvider(mode string) (llm.Provider, error) {
-	modelID := a.cfg.ModelForMode(mode)
+	modelID := a.state.EffectiveModelID(a.cfg)
 	if modelID == "" {
 		return nil, fmt.Errorf("no model configured")
 	}

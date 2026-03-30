@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -31,6 +32,10 @@ type State struct {
 
 	// Mode is the current operating mode.
 	Mode Mode
+
+	// SelectedModelID overrides models.agent_mode / models.plan_mode / models.default for LLM
+	// when non-empty. Empty means use config defaults for the current mode.
+	SelectedModelID string
 
 	// Messages is the conversation history.
 	Messages []llm.Message
@@ -84,6 +89,47 @@ func (s *State) GetMode() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return string(s.Mode)
+}
+
+// GetSelectedModelID returns the session model override, or empty if defaults apply.
+func (s *State) GetSelectedModelID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SelectedModelID
+}
+
+// SetSelectedModelID sets the session model override (empty to use config defaults per mode).
+func (s *State) SetSelectedModelID(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SelectedModelID = id
+}
+
+// EffectiveModelID returns the model id used for LLM calls for this session.
+func (s *State) EffectiveModelID(cfg *config.Config) string {
+	s.mu.RLock()
+	sel := s.SelectedModelID
+	mode := string(s.Mode)
+	s.mu.RUnlock()
+	if sel != "" {
+		return normalizeModelID(cfg, sel)
+	}
+	return normalizeModelID(cfg, cfg.ModelForMode(mode))
+}
+
+func normalizeModelID(cfg *config.Config, id string) string {
+	if id == "" {
+		return ""
+	}
+	for i := range cfg.Models.Defs {
+		if cfg.Models.Defs[i].ID == id {
+			return id
+		}
+	}
+	if len(cfg.Models.Defs) > 0 {
+		return cfg.Models.Defs[0].ID
+	}
+	return id
 }
 
 // AddMessage appends a message to the conversation history.

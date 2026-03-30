@@ -75,6 +75,8 @@ func parseUpdateType(update interface{}) string {
 		return v.SessionUpdate
 	case acp.ModeUpdate:
 		return v.SessionUpdate
+	case acp.ConfigOptionUpdate:
+		return v.SessionUpdate
 	case acp.PlanUpdate:
 		return v.SessionUpdate
 	case acp.TokenUsageUpdate:
