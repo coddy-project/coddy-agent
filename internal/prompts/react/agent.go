@@ -239,16 +239,22 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
 
-	// Command execution requires permission unless the command is in the allowlist.
-	if tc.Name == "run_command" && env.RequirePermissionForCommands {
-		if !env.CommandAllowed(extractCommand(tc.InputJSON)) {
-			requiresPerm = true
+	if tc.Name == "run_command" {
+		if env.RequirePermissionForCommands {
+			if !env.CommandAllowed(extractCommand(tc.InputJSON)) {
+				requiresPerm = true
+			} else {
+				requiresPerm = false
+			}
 		} else {
 			requiresPerm = false
 		}
+	} else if (tc.Name == "write_file" || tc.Name == "apply_diff") && env.RequirePermissionForWrites {
+		requiresPerm = true
 	}
-	// Write permission check.
-	if (tc.Name == "write_file" || tc.Name == "apply_diff") && env.RequirePermissionForWrites {
+
+	// Outside CWD when restrict_to_cwd is false - still require explicit approval.
+	if !env.RestrictToCWD && tools.ToolPathsEscapeCWD(tc.Name, tc.InputJSON, env.CWD) {
 		requiresPerm = true
 	}
 

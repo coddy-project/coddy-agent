@@ -52,7 +52,7 @@ func executeReadFile(_ context.Context, argsJSON string, env *Env) (string, erro
 		return "", err
 	}
 
-	path := resolvePath(args.Path, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 	if env.RestrictToCWD {
 		if err := checkInsideCWD(path, env.CWD); err != nil {
 			return "", err
@@ -110,7 +110,7 @@ func executeWriteFile(_ context.Context, argsJSON string, env *Env) (string, err
 		return "", err
 	}
 
-	path := resolvePath(args.Path, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 	if env.RestrictToCWD {
 		if err := checkInsideCWD(path, env.CWD); err != nil {
 			return "", err
@@ -211,7 +211,7 @@ func executeListDir(_ context.Context, argsJSON string, env *Env) (string, error
 
 	dirPath := env.CWD
 	if args.Path != "" {
-		dirPath = resolvePath(args.Path, env.CWD)
+		dirPath = ResolvePath(args.Path, env.CWD)
 	}
 
 	if env.RestrictToCWD {
@@ -302,7 +302,7 @@ func executeApplyDiff(_ context.Context, argsJSON string, env *Env) (string, err
 		return "", err
 	}
 
-	path := resolvePath(args.Path, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 	if env.RestrictToCWD {
 		if err := checkInsideCWD(path, env.CWD); err != nil {
 			return "", err
@@ -355,12 +355,17 @@ func switchToAgentModeTool() *Tool {
 
 // ---- helpers ----
 
-// resolvePath returns an absolute path, resolving relative to cwd.
-func resolvePath(path, cwd string) string {
+// ResolvePath returns an absolute path, resolving relative to cwd.
+func ResolvePath(path, cwd string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}
 	return filepath.Join(cwd, path)
+}
+
+// PathEscapesCWD reports whether path resolves outside cwd (not under cwd).
+func PathEscapesCWD(path, cwd string) bool {
+	return checkInsideCWD(path, cwd) != nil
 }
 
 // checkInsideCWD returns an error if path escapes the cwd.

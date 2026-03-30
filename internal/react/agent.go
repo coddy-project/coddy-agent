@@ -291,6 +291,10 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = true
 	}
 
+	if !env.RestrictToCWD && tools.ToolPathsEscapeCWD(tc.Name, tc.InputJSON, env.CWD) {
+		requiresPerm = true
+	}
+
 	// Notify client about the pending tool call.
 	if a.server != nil {
 		_ = a.server.SendSessionUpdate(a.state.GetID(), map[string]interface{}{

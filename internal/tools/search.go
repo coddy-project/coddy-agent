@@ -64,7 +64,7 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *Env) (string,
 
 	searchPath := env.CWD
 	if args.Path != "" {
-		searchPath = resolvePath(args.Path, env.CWD)
+		searchPath = ResolvePath(args.Path, env.CWD)
 	}
 	if env.RestrictToCWD {
 		if err := checkInsideCWD(searchPath, env.CWD); err != nil {

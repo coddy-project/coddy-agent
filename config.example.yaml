@@ -87,8 +87,11 @@ mcp_servers: []
   #       value: "${GITHUB_TOKEN}"
 
 tools:
+  # When true, run_command asks permission unless the command matches command_allowlist below.
   require_permission_for_commands: true
   require_permission_for_writes: false
+  # When true, file tools reject paths outside cwd. When false, those paths are allowed
+  # only after the user approves a permission prompt for that path.
   restrict_to_cwd: true
 
   # Commands that never require user permission.
