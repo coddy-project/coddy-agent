@@ -19,10 +19,6 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadFromFile(t *testing.T) {
 	content := `
-agent:
-  name: "test-agent"
-  version: "1.0.0"
-
 models:
   default: "openai/gpt-4o"
   definitions:
@@ -54,9 +50,6 @@ log:
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.Agent.Name != "test-agent" {
-		t.Errorf("expected name %q, got %q", "test-agent", cfg.Agent.Name)
-	}
 	if cfg.Models.Default != "openai/gpt-4o" {
 		t.Errorf("expected default model %q, got %q", "openai/gpt-4o", cfg.Models.Default)
 	}
@@ -128,6 +121,22 @@ func TestExpandWorkspace(t *testing.T) {
 	result := config.ExpandWorkspace("${WORKSPACE}/.cursor/rules", "/home/user/project")
 	if result != "/home/user/project/.cursor/rules" {
 		t.Errorf("unexpected result: %q", result)
+	}
+}
+
+func TestResolvedPromptsDirEmpty(t *testing.T) {
+	p := config.PromptsConfig{}
+	if got := p.ResolvedPromptsDir("/tmp/ws"); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+}
+
+func TestResolvedPromptsDirWorkspace(t *testing.T) {
+	p := config.PromptsConfig{Dir: "${WORKSPACE}/prompts"}
+	got := p.ResolvedPromptsDir("/project/root")
+	want := filepath.Clean("/project/root/prompts")
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
 	}
 }
 

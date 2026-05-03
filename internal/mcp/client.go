@@ -27,11 +27,11 @@ type ToolInfo struct {
 
 // Client connects to a single MCP server and exposes its tools.
 type Client struct {
-	name    string
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  *bufio.Reader
-	log     *slog.Logger
+	name   string
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout *bufio.Reader
+	log    *slog.Logger
 
 	nextID  atomic.Int64
 	pending map[interface{}]chan json.RawMessage

@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
 // AgentRunner is a function that runs the ReAct loop for a prompt turn.
@@ -68,7 +69,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 		AgentInfo: acp.ImplementationInfo{
 			Name:    acp.AgentName,
 			Title:   acp.AgentTitle,
-			Version: acp.AgentVersion,
+			Version: version.Get(),
 		},
 		AuthMethods: []string{},
 	}, nil

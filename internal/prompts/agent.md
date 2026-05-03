@@ -32,8 +32,19 @@ You have full tool access. Your job is to complete tasks end-to-end.
 - Always check command output for errors
 - Use relative paths when possible
 
-{{if .ExtraInstructions}}
-### Additional instructions
+{{if .Skills}}
+{{.Skills}}
 
-{{.ExtraInstructions}}
+{{end}}
+{{if .Tools}}
+## Available tools
+
+{{.Tools}}
+
+{{end}}
+{{if .Memory}}
+## Session memory
+
+{{.Memory}}
+
 {{end}}

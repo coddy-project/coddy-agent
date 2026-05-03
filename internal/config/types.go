@@ -3,20 +3,13 @@ package config
 
 // Config is the root configuration struct.
 type Config struct {
-	Agent      AgentConfig      `yaml:"agent"`
-	Models     ModelsConfig     `yaml:"models"`
-	React      ReactConfig      `yaml:"react"`
-	Prompts    PromptsConfig    `yaml:"prompts"`
-	Skills     SkillsConfig     `yaml:"skills"`
+	Models     ModelsConfig      `yaml:"models"`
+	React      ReactConfig       `yaml:"react"`
+	Prompts    PromptsConfig     `yaml:"prompts"`
+	Skills     SkillsConfig      `yaml:"skills"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
-	Tools      ToolsConfig      `yaml:"tools"`
-	Log        LogConfig        `yaml:"log"`
-}
-
-// AgentConfig contains agent metadata.
-type AgentConfig struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
+	Tools      ToolsConfig       `yaml:"tools"`
+	Log        LogConfig         `yaml:"log"`
 }
 
 // ModelsConfig defines model selection and definitions.
@@ -44,21 +37,11 @@ type ReactConfig struct {
 	MaxTokensPerTurn int `yaml:"max_tokens_per_turn"`
 }
 
-// PromptsConfig allows overriding built-in system prompts.
+// PromptsConfig selects a directory of system prompt templates.
 type PromptsConfig struct {
-	// AgentFile is a path to a custom agent mode prompt template (.md).
-	// If empty, the built-in agent.md is used.
-	AgentFile string `yaml:"agent_file"`
-
-	// PlanFile is a path to a custom plan mode prompt template (.md).
-	// If empty, the built-in plan.md is used.
-	PlanFile string `yaml:"plan_file"`
-
-	// AgentExtra is appended to the agent prompt after rendering.
-	AgentExtra string `yaml:"agent_extra"`
-
-	// PlanExtra is appended to the plan prompt after rendering.
-	PlanExtra string `yaml:"plan_extra"`
+	// Dir is a directory containing agent.md and plan.md (Go text/template).
+	// If empty or whitespace, embedded built-in templates are used.
+	Dir string `yaml:"dir"`
 }
 
 // SkillsConfig controls where skills and rules are loaded from.
@@ -67,7 +50,7 @@ type SkillsConfig struct {
 	// Searched in order - project-level dirs take priority over global ones.
 	Dirs []string `yaml:"dirs"`
 
-	// InstallDir is the directory where `coddy-agent install-skill` places new skills.
+	// InstallDir is used by `coddy skills install` / `coddy skills uninstall`.
 	// Defaults to ~/.config/coddy-agent/skills if empty.
 	InstallDir string `yaml:"install_dir"`
 
@@ -77,12 +60,12 @@ type SkillsConfig struct {
 
 // MCPServerConfig defines an MCP server to connect to.
 type MCPServerConfig struct {
-	Type    string            `yaml:"type"`
-	Name    string            `yaml:"name"`
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args"`
-	Env     []EnvVarConfig    `yaml:"env"`
-	URL     string            `yaml:"url"`
+	Type    string             `yaml:"type"`
+	Name    string             `yaml:"name"`
+	Command string             `yaml:"command"`
+	Args    []string           `yaml:"args"`
+	Env     []EnvVarConfig     `yaml:"env"`
+	URL     string             `yaml:"url"`
 	Headers []HTTPHeaderConfig `yaml:"headers"`
 }
 

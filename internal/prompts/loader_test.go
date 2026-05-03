@@ -22,6 +22,9 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if !strings.Contains(result, "Mode: Agent") {
 		t.Error("agent prompt should mention Mode: Agent")
 	}
+	if strings.Contains(result, "## Available tools") {
+		t.Error("tools section should be omitted when .Tools is empty")
+	}
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
@@ -42,57 +45,68 @@ func TestRenderPlanPrompt(t *testing.T) {
 	}
 }
 
-func TestRenderWithExtraInstructions(t *testing.T) {
+func TestRenderWithSkillsToolsMemory(t *testing.T) {
 	result, err := prompts.Render("agent", "", prompts.TemplateData{
-		CWD:               "/project",
-		ExtraInstructions: "Always use tabs for indentation.",
+		CWD:    "/project",
+		Skills: "## Active Rules\n\nstub",
+		Tools:  "- `read_file`: read",
+		Memory: "User prefers pytest.",
 	})
 	if err != nil {
-		t.Fatalf("Render with extra: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(result, "Always use tabs for indentation.") {
-		t.Error("should contain extra instructions")
+	for _, want := range []string{"stub", "`read_file`", "pytest", "Session memory"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("expected %q in result", want)
+		}
 	}
 }
 
-func TestRenderEmptyExtraInstructions(t *testing.T) {
+func TestRenderEmptyOptionalSections(t *testing.T) {
 	result, err := prompts.Render("agent", "", prompts.TemplateData{
-		CWD:               "/project",
-		ExtraInstructions: "",
+		CWD: "/project",
 	})
 	if err != nil {
-		t.Fatalf("Render empty extra: %v", err)
+		t.Fatalf("Render: %v", err)
 	}
-	if strings.Contains(result, "Additional instructions") {
-		t.Error("should not contain 'Additional instructions' section when extra is empty")
+	if strings.Contains(result, "## Active Rules and Skills") {
+		t.Error("should not emit skills heading when Skills data is empty")
+	}
+	if strings.Contains(result, "## Available tools") {
+		t.Error("should not emit tools section when Tools data is empty")
+	}
+	if strings.Contains(result, "Session memory") {
+		t.Error("should not emit memory section when Memory is empty")
 	}
 }
 
-func TestRenderCustomFile(t *testing.T) {
-	customContent := "Custom prompt for {{.CWD}}. Mode: custom."
+func TestRenderCustomPromptDir(t *testing.T) {
+	customContent := "Custom for {{.CWD}}.\nSkills: {{.Skills}}\n"
 	tmp := t.TempDir()
-	path := filepath.Join(tmp, "custom.md")
+	path := filepath.Join(tmp, "agent.md")
 	if err := os.WriteFile(path, []byte(customContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := prompts.Render("agent", path, prompts.TemplateData{
-		CWD: "/my/project",
+	result, err := prompts.Render("agent", tmp, prompts.TemplateData{
+		CWD:    "/my/project",
+		Skills: "S1",
 	})
 	if err != nil {
-		t.Fatalf("Render custom file: %v", err)
+		t.Fatalf("Render custom dir: %v", err)
 	}
-	if !strings.Contains(result, "Custom prompt for /my/project") {
+	if !strings.Contains(result, "Custom for /my/project") || !strings.Contains(result, "S1") {
 		t.Errorf("unexpected result: %q", result)
 	}
 }
 
-func TestRenderCustomFileMissing(t *testing.T) {
-	_, err := prompts.Render("agent", "/nonexistent/prompt.md", prompts.TemplateData{
+func TestRenderCustomDirMissingAgentFile(t *testing.T) {
+	tmp := t.TempDir()
+	_, err := prompts.Render("agent", tmp, prompts.TemplateData{
 		CWD: "/project",
 	})
 	if err == nil {
-		t.Error("expected error for missing custom file")
+		t.Error("expected error when agent.md is missing in prompts dir")
 	}
 }
 
@@ -103,7 +117,7 @@ func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
 	if agent != unknown {
-		t.Error("unknown mode should fall back to agent prompt")
+		t.Error("unknown mode should use agent prompt file semantics")
 	}
 }
 
@@ -114,6 +128,9 @@ func TestDefaultSource(t *testing.T) {
 	}
 	if !strings.Contains(agentSrc, "{{.CWD}}") {
 		t.Error("agent source should contain {{.CWD}} template variable")
+	}
+	if !strings.Contains(agentSrc, "{{.Skills}}") {
+		t.Error("agent source should contain {{.Skills}}")
 	}
 
 	planSrc := prompts.DefaultSource("plan")
@@ -126,8 +143,7 @@ func TestDefaultSource(t *testing.T) {
 }
 
 func TestRenderWithFallbackNoPanic(t *testing.T) {
-	// Should never panic, even with broken custom file.
-	result := prompts.RenderWithFallback("agent", "/nonexistent.md", prompts.TemplateData{CWD: "/p"})
+	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", prompts.TemplateData{CWD: "/p"})
 	if result == "" {
 		t.Error("RenderWithFallback should return non-empty string even on error")
 	}

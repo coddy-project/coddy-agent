@@ -93,7 +93,7 @@ func writeFileTool() *Tool {
 				"required": []string{"path", "content"},
 			},
 		},
-		AllowedInPlanMode: false, // restricted in plan mode (only text/md files)
+		AllowedInPlanMode:  false, // restricted in plan mode (only text/md files)
 		RequiresPermission: false,
 		Execute:            executeWriteFile,
 	}
@@ -181,9 +181,9 @@ func listDirTool() *Tool {
 }
 
 type listDirArgs struct {
-	Path        string `json:"path"`
-	Recursive   bool   `json:"recursive"`
-	ShowHidden  bool   `json:"show_hidden"`
+	Path       string `json:"path"`
+	Recursive  bool   `json:"recursive"`
+	ShowHidden bool   `json:"show_hidden"`
 }
 
 // relPathHasHiddenSegment reports whether rel contains a path segment that is a Unix-style

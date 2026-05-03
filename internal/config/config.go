@@ -59,12 +59,6 @@ func defaults() *Config {
 }
 
 func applyDefaults(cfg *Config) {
-	if cfg.Agent.Name == "" {
-		cfg.Agent.Name = "coddy-agent"
-	}
-	if cfg.Agent.Version == "" {
-		cfg.Agent.Version = "0.1.0"
-	}
 	if cfg.React.MaxTurns == 0 {
 		cfg.React.MaxTurns = 30
 	}
@@ -144,6 +138,19 @@ func (c *Config) ModelForMode(mode string) string {
 // ExpandWorkspace resolves ${WORKSPACE} in a string to the given cwd.
 func ExpandWorkspace(s, cwd string) string {
 	return strings.ReplaceAll(s, "${WORKSPACE}", cwd)
+}
+
+// ResolvedPromptsDir returns the prompts directory with ~ and ${WORKSPACE}
+// expanded for the given session working directory.
+// Empty config Dir means callers should pass "" to prompts.Render (embedded defaults).
+func (p PromptsConfig) ResolvedPromptsDir(sessionCWD string) string {
+	d := strings.TrimSpace(p.Dir)
+	if d == "" {
+		return ""
+	}
+	d = expandHome(d)
+	d = ExpandWorkspace(d, sessionCWD)
+	return filepath.Clean(d)
 }
 
 // expandHome expands a leading ~ to the user's home directory.

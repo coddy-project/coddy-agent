@@ -10,12 +10,9 @@ The agent searches for `config.yaml` in the following order:
 
 ## Full Configuration Schema
 
-```yaml
-# Agent metadata
-agent:
-  name: "coddy-agent"
-  version: "0.1.0"
+Agent name, title, and build version are not configurable here. They are fixed in the binary and reported during ACP `initialize` (`internal/acp` and `internal/version`).
 
+```yaml
 # LLM model configuration
 models:
   # Default model used when no mode-specific override is set
@@ -62,6 +59,12 @@ models:
 react:
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
+
+# System prompt templates (agent.md and plan.md)
+prompts:
+  # Empty = use embedded defaults. Otherwise a directory containing those two files.
+  # Go text/template variables: {{.CWD}}, {{.Skills}}, {{.Tools}}, {{.Memory}}
+  dir: ""
 
 # Skills and Cursor rules directories
 skills:

@@ -32,6 +32,7 @@ type SessionState interface {
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
+	GetAgentMemory() string
 }
 
 // Agent is the ReAct agent that drives the LLM + tool loop.
@@ -97,9 +98,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CommandAllowlist:             a.cfg.Tools.CommandAllowlist,
 	}
 
-	// Build initial messages from existing history + new user prompt.
+	toolDefs := registry.ToolsForMode(mode)
+
 	activeSkills := a.state.GetSkills()
-	systemPrompt := a.buildSystemPrompt(mode, activeSkills)
+	systemPrompt := a.buildSystemPrompt(mode, activeSkills, toolDefs)
 
 	userContent := contentBlocksToText(prompt)
 	a.state.AddMessage(llm.Message{Role: llm.RoleUser, Content: userContent})
@@ -111,8 +113,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			"content":       acp.ContentBlock{Type: "text", Text: userContent},
 		})
 	}
-
-	toolDefs := registry.ToolsForMode(mode)
 
 	maxTurns := a.cfg.React.MaxTurns
 	if maxTurns <= 0 {
@@ -172,7 +172,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				mode = "agent"
 				toolDefs = registry.ToolsForMode(mode)
 				activeSkills = a.state.GetSkills()
-				systemPrompt = a.buildSystemPrompt(mode, activeSkills)
+				systemPrompt = a.buildSystemPrompt(mode, activeSkills, toolDefs)
 
 				if a.server != nil {
 					_ = a.server.SendSessionUpdate(a.state.GetID(), acp.ModeUpdate{
@@ -228,38 +228,14 @@ func (a *Agent) buildProvider(mode string) (llm.Provider, error) {
 }
 
 // buildSystemPrompt constructs the full system prompt for the given mode.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill) string {
-	var customFile, extra string
-	switch mode {
-	case "plan":
-		customFile = a.cfg.Prompts.PlanFile
-		extra = a.cfg.Prompts.PlanExtra
-	default:
-		customFile = a.cfg.Prompts.AgentFile
-		extra = a.cfg.Prompts.AgentExtra
-	}
-
-	base := prompts.RenderWithFallback(mode, customFile, prompts.TemplateData{
-		CWD:               a.state.GetCWD(),
-		ExtraInstructions: extra,
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
+	promptsDir := a.cfg.Prompts.ResolvedPromptsDir(a.state.GetCWD())
+	return prompts.RenderWithFallback(mode, promptsDir, prompts.TemplateData{
+		CWD:    a.state.GetCWD(),
+		Skills: skills.BuildSystemPromptSection(activeSkills),
+		Tools:  tools.FormatDefinitionsForPrompt(toolDefs),
+		Memory: strings.TrimSpace(a.state.GetAgentMemory()),
 	})
-
-	if len(activeSkills) == 0 {
-		return base
-	}
-
-	var sb strings.Builder
-	sb.WriteString(base)
-	sb.WriteString("\n\n---\n\n## Active Skills & Rules\n\n")
-	for _, s := range activeSkills {
-		sb.WriteString("### ")
-		sb.WriteString(s.Name)
-		sb.WriteString("\n\n")
-		sb.WriteString(s.Content)
-		sb.WriteString("\n\n")
-	}
-
-	return strings.TrimSpace(sb.String())
 }
 
 // buildMessages assembles the full message list for an LLM call.

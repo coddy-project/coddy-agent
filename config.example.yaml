@@ -1,7 +1,3 @@
-agent:
-  name: "coddy-agent"
-  version: "0.1.0"
-
 models:
   default: "openai/gpt-4o"
   agent_mode: "openai/gpt-4o"
@@ -46,18 +42,13 @@ react:
   max_tokens_per_turn: 200000
 
 prompts:
-  # Override built-in prompts with custom files (Go text/template format).
-  # Available variables: {{.CWD}}, {{.ExtraInstructions}}
-  agent_file: ""   # path to custom agent.md, empty = use built-in
-  plan_file: ""    # path to custom plan.md, empty = use built-in
-
-  # Append extra instructions to the built-in prompt.
-  # Useful for project-specific rules without replacing the whole prompt.
-  agent_extra: ""
-  plan_extra: ""
+  # Directory containing agent.md and plan.md (Go text/template).
+  # Leave empty to use built-in templates. Paths support ~ and ${WORKSPACE}.
+  # In templates: {{.CWD}}, {{.Skills}}, {{.Tools}}, {{.Memory}}
+  dir: ""
 
 skills:
-  # install_dir is where `coddy-agent install-skill` places skills.
+  # install_dir is used by coddy skills install / coddy skills uninstall.
   # Defaults to ~/.config/coddy-agent/skills
   install_dir: "~/.config/coddy-agent/skills"
 

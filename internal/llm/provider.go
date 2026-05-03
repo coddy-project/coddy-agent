@@ -23,8 +23,8 @@ type Message struct {
 
 // ToolCall represents a tool invocation requested by the LLM.
 type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
 	InputJSON string `json:"input"` // raw JSON arguments
 }
 

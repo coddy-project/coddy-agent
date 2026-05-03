@@ -9,9 +9,6 @@ const AgentName = "coddy-agent"
 // AgentTitle is the human-readable agent name.
 const AgentTitle = "Coddy Agent"
 
-// AgentVersion is the agent's semantic version.
-const AgentVersion = "0.1.0"
-
 // ---- JSON-RPC 2.0 base types ----
 
 // Request represents an incoming JSON-RPC request.

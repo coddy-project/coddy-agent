@@ -71,7 +71,7 @@ When processing a `session/prompt`, the agent:
 1. Collects all skill/rule files from configured directories
 2. Filters based on `globs` matching files mentioned in the prompt context
 3. Includes all `alwaysApply: true` rules
-4. Builds a combined system prompt prefix with all applicable rules
+4. Injects applicable rules into the system prompt template via the `Skills` field (see prompts in `docs/config.md`)
 
 ## Example Rule File
 
@@ -124,3 +124,11 @@ skills:
     - "~/my-custom-skills"
     - "/shared/team-skills"
 ```
+
+## CLI helpers
+
+When using the `coddy` binary, the `skills` package backs these commands (see your CLI help for exact flags):
+
+- `coddy skills list` - print skills resolved from configured directories
+- `coddy skills install <path-or-url>` - copy or download into `skills.install_dir`
+- `coddy skills uninstall <name>` - remove the directory `<install_dir>/<name>` only (`<name>` is one path segment)

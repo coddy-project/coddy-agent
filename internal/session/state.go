@@ -49,6 +49,9 @@ type State struct {
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
 
+	// AgentMemory is optional session notes included in the system prompt template (.Memory).
+	AgentMemory string
+
 	// cancel cancels the active prompt turn.
 	cancel context.CancelFunc
 }
@@ -146,6 +149,20 @@ func (s *State) GetMessages() []llm.Message {
 	msgs := make([]llm.Message, len(s.Messages))
 	copy(msgs, s.Messages)
 	return msgs
+}
+
+// GetAgentMemory returns session memory text for prompt templates.
+func (s *State) GetAgentMemory() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.AgentMemory
+}
+
+// SetAgentMemory sets session notes included in rendered system prompts.
+func (s *State) SetAgentMemory(text string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AgentMemory = text
 }
 
 // GetPlan returns a copy of the current plan entries.

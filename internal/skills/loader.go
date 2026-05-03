@@ -1,4 +1,5 @@
-// Package skills loads cursor rules and skill files from the filesystem.
+// Package skills loads skill and cursor rule files, formats them for prompts,
+// and implements CLI helpers (install, uninstall, list).
 package skills
 
 import (
@@ -281,4 +282,9 @@ func expandPath(path, cwd string) string {
 		}
 	}
 	return path
+}
+
+// ExpandConfiguredPath resolves ${WORKSPACE} and ~ the same way as skill loading.
+func ExpandConfiguredPath(path, cwd string) string {
+	return expandPath(path, cwd)
 }

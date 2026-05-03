@@ -30,6 +30,7 @@ type SessionState interface {
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
+	GetAgentMemory() string
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
 }
@@ -68,18 +69,14 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := skills.FilterForContext(a.state.GetSkills(), contextFiles)
 
-	// Build system prompt.
-	systemPrompt := a.buildSystemPrompt(mode, activeSkills)
-
-	// Build tool definitions for this mode.
 	toolDefs := a.registry.ToolsForMode(mode)
-
-	// Add MCP server tools.
 	for _, mcpClient := range a.state.GetMCPClients() {
 		for _, t := range mcpClient.Tools() {
 			toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
 		}
 	}
+
+	systemPrompt := a.buildSystemPrompt(mode, activeSkills, toolDefs)
 
 	// Get or create LLM provider.
 	provider, err := a.getProvider(mode)
@@ -359,32 +356,14 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill) string {
-	var customFile, extra string
-	switch mode {
-	case "plan":
-		customFile = a.cfg.Prompts.PlanFile
-		extra = a.cfg.Prompts.PlanExtra
-	default:
-		customFile = a.cfg.Prompts.AgentFile
-		extra = a.cfg.Prompts.AgentExtra
-	}
-
-	base := prompts.RenderWithFallback(mode, customFile, prompts.TemplateData{
-		CWD:               a.state.GetCWD(),
-		ExtraInstructions: extra,
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
+	promptsDir := a.cfg.Prompts.ResolvedPromptsDir(a.state.GetCWD())
+	return prompts.RenderWithFallback(mode, promptsDir, prompts.TemplateData{
+		CWD:    a.state.GetCWD(),
+		Skills: skills.BuildSystemPromptSection(activeSkills),
+		Tools:  tools.FormatDefinitionsForPrompt(toolDefs),
+		Memory: strings.TrimSpace(a.state.GetAgentMemory()),
 	})
-
-	skillsSection := skills.BuildSystemPromptSection(activeSkills)
-	if skillsSection == "" {
-		return base
-	}
-
-	var b strings.Builder
-	b.WriteString(base)
-	b.WriteString("\n\n")
-	b.WriteString(skillsSection)
-	return b.String()
 }
 
 // buildMessages constructs the message slice to send to the LLM.

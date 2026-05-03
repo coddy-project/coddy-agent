@@ -82,7 +82,7 @@ Maintains the state for each conversation session:
 ### ReAct Agent Loop (`internal/prompts/react`)
 
 The core reasoning engine:
-1. Builds system prompt from: base instructions + current mode + active skills
+1. Renders system prompt markdown (embedded or prompts.dir): base text plus template data (CWD, skills, tools list, optional session memory), then sends to the LLM
 2. Sends prompt to LLM provider with available tools
 3. Parses LLM response: extracts thoughts + tool calls
 4. Executes tools (with permission checks via ACP)

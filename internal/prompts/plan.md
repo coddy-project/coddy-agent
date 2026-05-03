@@ -35,8 +35,19 @@ Structure your plans as markdown with:
 - A numbered list of concrete implementation steps
 - Notes on potential risks or things to verify
 
-{{if .ExtraInstructions}}
-### Additional instructions
+{{if .Skills}}
+{{.Skills}}
 
-{{.ExtraInstructions}}
+{{end}}
+{{if .Tools}}
+## Available tools
+
+{{.Tools}}
+
+{{end}}
+{{if .Memory}}
+## Session memory
+
+{{.Memory}}
+
 {{end}}

@@ -41,7 +41,7 @@ make build
 go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
 ```
 
-The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured; use `coddy acp --help` for CLI flags such as `--log-level`.
+The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`.
 
 ### Configuration
 
@@ -223,16 +223,14 @@ make test
 # Build binary (with git version embedded)
 make build
 
+coddy -v    # same as --version
+
 # Run with debug logging (ACP mode)
 coddy acp --log-level debug
 
 # Test with a simple ACP client
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
-
-### Version string in builds
-
-The `internal/version` package uses `-ldflags` build-time injection with a `"dev"` fallback, so no extra tooling is required for development builds.
 
 ## License
 
