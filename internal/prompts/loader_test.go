@@ -25,6 +25,9 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if strings.Contains(result, "## Available tools") {
 		t.Error("tools section should be omitted when .Tools is empty")
 	}
+	if strings.Contains(result, "### Current todo checklist") {
+		t.Error("todo checklist section should be omitted when .TodoList is empty")
+	}
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
@@ -42,6 +45,9 @@ func TestRenderPlanPrompt(t *testing.T) {
 	}
 	if !strings.Contains(result, "switch the session") {
 		t.Error("plan prompt should instruct switching to agent mode in the client")
+	}
+	if !strings.Contains(result, "todo plan tools") {
+		t.Error("plan prompt should mention todo plan tools for checklists")
 	}
 }
 
@@ -77,6 +83,28 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 	}
 	if strings.Contains(result, "Session memory") {
 		t.Error("should not emit memory section when Memory is empty")
+	}
+	if strings.Contains(result, "### Current todo checklist") {
+		t.Error("should not emit todo checklist heading when TodoList is empty")
+	}
+}
+
+func TestRenderTodoListWhenNonempty(t *testing.T) {
+	todoMd := "- [ ] alpha\n- [x] beta"
+	a, err := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd})
+	if err != nil {
+		t.Fatalf("Render agent: %v", err)
+	}
+	if !strings.Contains(a, "### Current todo checklist") || !strings.Contains(a, "- [ ] alpha") || !strings.Contains(a, "- [x] beta") {
+		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
+	}
+
+	p, err := prompts.Render("plan", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd})
+	if err != nil {
+		t.Fatalf("Render plan: %v", err)
+	}
+	if !strings.Contains(p, "### Current todo checklist") || !strings.Contains(p, todoMd) {
+		t.Errorf("expected injected todo markdown in plan prompt, got excerpt: %.200s", p)
 	}
 }
 
@@ -131,6 +159,9 @@ func TestDefaultSource(t *testing.T) {
 	}
 	if !strings.Contains(agentSrc, "{{.Skills}}") {
 		t.Error("agent source should contain {{.Skills}}")
+	}
+	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
+		t.Error("agent source should conditionalize TodoList injection")
 	}
 
 	planSrc := prompts.DefaultSource("plan")

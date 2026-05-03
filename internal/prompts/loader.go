@@ -4,12 +4,13 @@
 //
 // Template variables available in .md files:
 //
-//	{{.CWD}}    - session working directory
-//	{{.Skills}} - active skills/rules (markdown), built by the agent
-//	{{.Tools}}  - readable list of tools available in the current mode (markdown)
-//	{{.Memory}} - session agent memory notes (may be empty)
+//	{{.CWD}}     - session working directory
+//	{{.Skills}}  - active skills/rules (markdown), built by the agent
+//	{{.Tools}}   - readable list of tools available in the current mode (markdown)
+//	{{.Memory}}  - session agent memory notes (may be empty)
+//	{{.TodoList}} - current session todo checklist as markdown (may be empty)
 //
-// Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory) when sections are optional.
+// Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections are optional.
 package prompts
 
 import (
@@ -39,6 +40,9 @@ type TemplateData struct {
 
 	// Memory is session-scoped notes injected into the prompt (may be empty).
 	Memory string
+
+	// TodoList is the current session checklist as markdown lines (may be empty).
+	TodoList string
 }
 
 // Embedded default prompt template files.

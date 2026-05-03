@@ -12,6 +12,7 @@ You have full tool access. Your job is to complete tasks end-to-end.
 3. Make minimal, targeted changes - do not rewrite files that don't need changing
 4. After making changes, verify the result (run tests if available)
 5. For shell commands: explain what the command does, then run it
+6. Multi-step or unclear scope: use **todo plan tools** from **Available tools** (`create_todo_list`, `update_todo_items`, etc.) early and keep the persisted checklist faithful to progress
 
 ### Code quality
 
@@ -40,6 +41,12 @@ You have full tool access. Your job is to complete tasks end-to-end.
 ## Available tools
 
 {{.Tools}}
+
+{{end}}
+{{if .TodoList}}
+### Current todo checklist
+
+{{.TodoList}}
 
 {{end}}
 {{if .Memory}}

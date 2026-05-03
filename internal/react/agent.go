@@ -17,6 +17,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
 // SessionState is the interface react.Agent needs from a session.
@@ -78,8 +79,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 	}
 
-	systemPrompt := a.buildSystemPrompt(mode, activeSkills, toolDefs)
-
 	// Get or create LLM provider.
 	provider, err := a.getProvider(mode)
 	if err != nil {
@@ -93,8 +92,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 	}
 
-	// Build the full message list starting with system prompt.
-	messages := a.buildMessages(systemPrompt)
+	// Build the full message list starting with system prompt (refreshed each ReAct turn).
+	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs))
 
 	maxTurns := a.cfg.React.MaxTurns
 	if maxTurns <= 0 {
@@ -128,6 +127,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
+		}
+
+		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
+		// state after tools like create_todo_list / update_todo_items in the same user turn.
+		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs)
 		}
 
 		// Call LLM and stream response.
@@ -348,11 +353,13 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
 func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
 	promptsDir := a.cfg.Prompts.ResolvedPromptsDir(a.state.GetCWD())
+	todoMD := strings.TrimSpace(todo.FormatTodoMarkdown(a.state.GetPlan()))
 	return prompts.RenderWithFallback(mode, promptsDir, prompts.TemplateData{
-		CWD:    a.state.GetCWD(),
-		Skills: skills.BuildSystemPromptSection(activeSkills),
-		Tools:  tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory: strings.TrimSpace(a.state.GetAgentMemory()),
+		CWD:      a.state.GetCWD(),
+		Skills:   skills.BuildSystemPromptSection(activeSkills),
+		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
+		Memory:   strings.TrimSpace(a.state.GetAgentMemory()),
+		TodoList: todoMD,
 	})
 }
 
