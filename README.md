@@ -46,7 +46,7 @@ make build
 go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" -o coddy ./cmd/coddy/
 ```
 
-Optional **long-term memory** copilot (separate LLM passes, extra code). Default `make build` does not compile it. Use `make build-memory` to produce `build/coddy-memory` (or `go build -tags memory ...`). Details live in `external/memory/README.md`.
+**Long-term memory** copilot lives in `external/memory/` and is always linked into `build/coddy`. Turn it on or off at runtime with `memory.enabled` in `config.yaml` (see `external/memory/README.md`).
 
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
@@ -200,6 +200,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 ## Examples (ACP over stdio)
 
 [**`examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py`**](examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py) is a newline-delimited JSON-RPC harness against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+
+[**`examples/acp_memory_copilot_e2e_demo.py`**](examples/acp_memory_copilot_e2e_demo.py) drives **`build/coddy`** from **`make build`**, an isolated **`CODDY_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$CODDY_HOME/memory`**. See the script docstring for flags.
 
 ## Persistent sessions
 

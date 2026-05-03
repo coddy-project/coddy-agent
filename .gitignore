@@ -14,6 +14,7 @@ rpa-agent
 
 # Go build cache
 /vendor/
+__pycache__/
 
 # Config with secrets (use config.example.yaml as template)
 config.yaml

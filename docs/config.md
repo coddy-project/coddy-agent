@@ -73,7 +73,7 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills and rules (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until create_todo_list / updates)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall (memory build tag only)
+  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
   # Built-in templates order: Tools, Skills, optional TodoList block, Memory (session notes plus optional recall), trailing Current UTC time.
@@ -87,9 +87,8 @@ sessions:
   # Empty = default $CODDY_HOME/sessions. Supports ${CODDY_HOME} and ~ in path.
   dir: ""
 
-# Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go).
-# Requires a binary built with -tags memory (see Makefile target build-memory). When memory.enabled is true
-# in a plain build, config load fails with an explicit error.
+# Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
+# Implementation is always linked; enable at runtime with memory.enabled.
 memory:
   enabled: false
   model: "" # optional models[] selector; empty uses agent.model / session override

@@ -1,3 +1,4 @@
+# api_key must be the provider secret string (often starts with sk-...), never a web page URL.
 providers:
   - name: openai
     type: openai
@@ -96,7 +97,7 @@ tools:
     - "git diff"
     - "git log"
 
-# Long-term memory copilot (only when the binary is built with -tags memory, see Makefile build-memory).
+# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
 # Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.
 # memory:

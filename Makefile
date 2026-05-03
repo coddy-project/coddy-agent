@@ -1,4 +1,10 @@
-.PHONY: build build-memory build-acp test lint clean install print-version
+.PHONY: build build-acp test lint clean install print-version
+
+# ---- Build options (extend when you add optional Go build tags) ----
+#   TAGS   optional extra `go build -tags` values (space-separated). Example: make build TAGS=integration
+#   Long-term memory lives in external/memory and is always linked into coddy. Turn it on or off at
+#   runtime with memory.enabled in config.yaml (no separate memory binary).
+#   VERSION / LDFLAGS   embedded version string (see print-version).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
 # else abbreviated commit (only if this is a git checkout), else "dev".
@@ -10,22 +16,21 @@ VERSION := $(shell \
 	else echo dev; fi)
 LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(VERSION)
 
+TAGS ?=
 BUILD_DIR := build
 BINARY := $(BUILD_DIR)/coddy
-BINARY_MEMORY := $(BUILD_DIR)/coddy-memory
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
 
-# Build the coddy CLI (skills commands + ACP entrypoint).
+ifneq ($(strip $(TAGS)),)
+GO_TAGS_FLAG := -tags "$(strip $(TAGS))"
+endif
+
+# Build the coddy CLI (skills commands + ACP entrypoint; includes external/memory).
 build:
 	@mkdir -p $(BUILD_DIR)
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/coddy/
-
-# Same as build but links the long-term memory copilot (larger binary, extra LLM calls when memory.enabled).
-build-memory:
-	@mkdir -p $(BUILD_DIR)
-	go build -tags memory -ldflags "$(LDFLAGS)" -o $(BINARY_MEMORY) ./cmd/coddy/
+	go build $(GO_TAGS_FLAG) -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/coddy/
 
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:

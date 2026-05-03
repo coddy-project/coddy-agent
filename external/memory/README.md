@@ -1,13 +1,10 @@
 # Long-term memory (Memory Copilot)
 
-This package is linked **only** when you build with the Go tag `memory`. A plain `make build` omits it so the default binary stays smaller and never runs extra LLM passes for memory.
+Implementation for Coddy lives in this directory (`external/memory`) and is **always linked** into the main `coddy` binary. Use **`memory.enabled`** in `config.yaml` to turn behavior on or off at runtime. There is no separate memory-only build.
 
 ## Build
 
-- Default agent: `make build` → `build/coddy`
-- With memory: `make build-memory` → `build/coddy-memory` (same as `go build -tags memory ...`)
-
-If `memory.enabled: true` in `config.yaml` but the binary was built **without** `-tags memory`, configuration loading **fails** with a clear error telling you to rebuild with the tag.
+`make build` produces `build/coddy` (see the Makefile header for optional **`TAGS`** and other build notes).
 
 ## Behaviour
 
@@ -31,7 +28,7 @@ Supported file extensions: `.md` and `.txt`. `coddy_memory_search` ranks files b
 
 See `config.example.yaml` and `docs/config.md`. Fields:
 
-- `enabled` - master switch (only meaningful in a `-tags memory` binary).
+- `enabled` - master switch at runtime.
 - `model` - optional selector from `models[]` for copilot calls; empty uses the active session / `agent.model`.
 - `dir`, `recall_max_turns`, `persist_max_turns`, `copilot_max_tokens`, `max_search_hits` - see the example config comments.
 
@@ -45,8 +42,4 @@ Each user turn with memory enabled adds at least one recall LLM call when any me
 - `tools.go` - tool schemas and execution.
 - `copilot.go` - recall loop with `llm.Complete` and persist after the judge.
 
-Runtime wiring: `internal/agent/memory_turn_memory.go` (tag `memory`) and `internal/agent/memory_turn_stub.go` (default build).
-
-Whether the feature is compiled in is reported by `config.MemoryFeatureCompiled()` (`internal/config/memory_compiled_*.go`).
-
-
+Runtime wiring: `internal/agent/memory_hooks.go` imports this package.

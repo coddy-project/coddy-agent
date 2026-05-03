@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// MemoryConfig controls the optional long-term memory copilot (build tag memory).
+// MemoryConfig controls the optional long-term memory copilot (implementation in external/memory).
 type MemoryConfig struct {
 	Enabled bool `yaml:"enabled"`
 
@@ -58,9 +58,6 @@ func (m *MemoryConfig) ApplyDefaults() {
 func (m *MemoryConfig) Validate(cfg *Config) error {
 	if !m.Enabled {
 		return nil
-	}
-	if !MemoryFeatureCompiled() {
-		return fmt.Errorf("memory.enabled is true but this binary was built without long-term memory support; rebuild with -tags memory (see Makefile target build-memory)")
 	}
 	if m.Model != "" && cfg.FindModelEntry(m.Model) == nil {
 		return fmt.Errorf("memory.model %q not found in models list", m.Model)
