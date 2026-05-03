@@ -1,6 +1,6 @@
-// Package react implements the ReAct (Reasoning + Acting) agent loop.
+// Package agent implements the ReAct (Reasoning + Acting) loop for a session turn.
 // System prompts are rendered via internal/prompts (embedded templates or prompts.dir).
-package react
+package agent
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
-// SessionState is the interface react.Agent needs from a session.
+// SessionState is the interface Agent needs from a session.
 // It is implemented by session.State without requiring a direct import.
 type SessionState interface {
 	GetID() string
@@ -96,7 +96,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the full message list starting with system prompt (refreshed each ReAct turn).
 	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs))
 
-	maxTurns := a.cfg.React.MaxTurns
+	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = 30
 	}

@@ -88,8 +88,8 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Prompts.Validate(); err != nil {
 		return fmt.Errorf("prompts: %w", err)
 	}
-	if err := cfg.React.Validate(); err != nil {
-		return fmt.Errorf("react: %w", err)
+	if err := cfg.Agent.Validate(); err != nil {
+		return fmt.Errorf("agent: %w", err)
 	}
 	if err := cfg.Skills.Validate(); err != nil {
 		return fmt.Errorf("skills: %w", err)
@@ -100,7 +100,7 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Sessions.Validate(); err != nil {
 		return fmt.Errorf("sessions: %w", err)
 	}
-	if err := cfg.ValidateModelsProvidersAndReact(); err != nil {
+	if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
 		return err
 	}
 	return nil
@@ -109,7 +109,7 @@ func validateSubconfigs(cfg *Config) error {
 func applyDefaults(cfg *Config) {
 	p := cfg.Paths
 
-	cfg.React.ApplyDefaults()
+	cfg.Agent.ApplyDefaults()
 	if cfg.Logger.Level == "" {
 		cfg.Logger.Level = LogLevelInfo
 	}
@@ -138,7 +138,7 @@ func applyDefaults(cfg *Config) {
 				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
-			cfg.React.Model = "openai/gpt-5.4"
+			cfg.Agent.Model = "openai/gpt-5.4"
 		} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
 			cfg.Providers = []ProviderConfig{{Name: "anthropic", Type: "anthropic", APIKey: key}}
 			cfg.Models = []ModelEntry{{
@@ -148,7 +148,7 @@ func applyDefaults(cfg *Config) {
 				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
-			cfg.React.Model = "anthropic/claude-sonnet-4-6"
+			cfg.Agent.Model = "anthropic/claude-sonnet-4-6"
 		}
 	}
 }

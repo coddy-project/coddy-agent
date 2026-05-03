@@ -34,7 +34,7 @@ type State struct {
 	// Mode is the current operating mode.
 	Mode Mode
 
-	// SelectedModelID overrides react.model for LLM calls when non-empty.
+	// SelectedModelID overrides agent.model for LLM calls when non-empty.
 	// when non-empty. Empty means use config defaults for the current mode.
 	SelectedModelID string
 
@@ -148,7 +148,7 @@ func (s *State) EffectiveModelID(cfg *config.Config) string {
 	if sel != "" {
 		return normalizeModelID(cfg, sel)
 	}
-	return normalizeModelID(cfg, strings.TrimSpace(cfg.React.Model))
+	return normalizeModelID(cfg, strings.TrimSpace(cfg.Agent.Model))
 }
 
 func normalizeModelID(cfg *config.Config, id string) string {

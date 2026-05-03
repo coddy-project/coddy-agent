@@ -32,7 +32,7 @@ func testConfig() *config.Config {
 			{ID: "m2", Provider: "p2", Model: "gpt-4o-mini"},
 			{ID: "m3", Provider: "p3", Model: "claude-3"},
 		},
-		React: config.React{Model: "m1"},
+		Agent: config.Agent{Model: "m1"},
 	}
 }
 
@@ -191,7 +191,7 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	if modeCur != "plan" {
 		t.Fatalf("expected mode plan, got %q", modeCur)
 	}
-	// No explicit model override: effective model stays react.model (m1).
+	// No explicit model override: effective model stays agent.model (m1).
 	if modelCur != "m1" {
 		t.Fatalf("expected effective model m1 for plan mode without override, got %q", modelCur)
 	}

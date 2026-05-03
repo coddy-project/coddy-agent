@@ -65,8 +65,8 @@ models:
     max_tokens: 8192
     temperature: 0.1
 
-# ReAct loop settings (Go: config.React, internal/config/react.go)
-react:
+# ReAct loop settings (Go: config.Agent, internal/config/agent.go)
+agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
@@ -168,7 +168,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (OpenAI-compatible base URL, Ollama host without **`/v1`**, etc.).
-- **`models`**: **`id`** (session selector and **`react.model`** value), **`provider`** (references **`providers[].name`**), **`model`** (API model id; omit to default to **`id`**), **`max_tokens`**, **`temperature`**.
+- **`models`**: **`id`** (session selector and **`agent.model`** value), **`provider`** (references **`providers[].name`**), **`model`** (API model id; omit to default to **`id`**), **`max_tokens`**, **`temperature`**.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

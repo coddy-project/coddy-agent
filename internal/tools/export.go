@@ -7,7 +7,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
-// Re-export tooling types used by react, session wiring, and tests.
+// Re-export tooling types used by agent, session wiring, and tests.
 type (
 	Tool     = tooling.Tool
 	Env      = tooling.Env

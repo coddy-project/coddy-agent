@@ -161,7 +161,7 @@ models:
     max_tokens: 8192
     temperature: 0.2
 
-react:
+agent:
   model: "openai/gpt-4o"
   max_turns: 30
 

@@ -86,9 +86,9 @@ Maintains the state for each conversation session:
 - Active context (skills + cursor rules loaded)
 - In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
 
-### ReAct Agent Loop (`internal/react`)
+### ReAct Agent Loop (`internal/agent`)
 
-The core reasoning engine (**`agent.go`**):
+The core reasoning engine (**`react.go`**):
 
 1. Loads mode-appropriate tool definitions (built-ins plus MCP) and filters by **`ToolsForMode`**.
 2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown (that order in stock templates), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
@@ -111,7 +111,7 @@ Supported providers:
 The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`, `Env`,
 `Registry`, JSON `ParseArgs`, `ToolsForMode`). The **`internal/tools`** package is the
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
-call sites such as **`internal/react`** keep importing **`tools`** only.
+call sites such as **`internal/agent`** keep importing **`tools`** only.
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 
@@ -180,8 +180,8 @@ coddy-agent/
 ├── internal/
 │   ├── acp/                     # JSON-RPC ACP server (stdio)
 │   ├── session/                 # lifecycle, persistence, state
-│   ├── react/
-│   │   └── agent.go             # ReAct loop (system prompt + tools + MCP)
+│   ├── agent/
+│   │   └── react.go             # ReAct loop (system prompt + tools + MCP)
 │   ├── prompts/
 │   │   ├── loader.go             # TemplateData, Render, embedded agent.md / plan.md
 │   │   ├── agent.md

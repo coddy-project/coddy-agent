@@ -267,7 +267,7 @@ def main() -> None:
     # High-level briefing only: specifics of tools and numbering are inferred from prompts and tool definitions.
     prompt = f"""All work MUST stay inside this directory tree: {work}
 
-Treat the directory as EMPTY except whatever you create. Do not crawl the host repository upstream of this cwd, no mega find/globs, keep total tool chatter modest so you remain inside react max_turn turn budget.
+Treat the directory as EMPTY except whatever you create. Do not crawl the host repository upstream of this cwd, no mega find/globs, keep total tool chatter modest so you remain inside agent max_turn turn budget.
 
 Fully autonomously (no clarification questions):
 

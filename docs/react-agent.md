@@ -4,7 +4,7 @@
 
 Coddy is modeled as **harness plus execution engine**. This document specifies that engine -
 
-- the **ReAct loop** in `internal/react` that turns prompts and tools into streamed turns,
+- the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
 - default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
 
 The same harness may use a narrower tool surface or different clients (automation, not only IDEs).

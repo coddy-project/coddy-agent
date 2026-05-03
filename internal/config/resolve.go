@@ -60,8 +60,8 @@ func (c *Config) ResolveLLM(modelID string) (*ResolvedLLM, error) {
 	}, nil
 }
 
-// ValidateModelsProvidersAndReact checks providers, models, and react.model references.
-func (c *Config) ValidateModelsProvidersAndReact() error {
+// ValidateModelsProvidersAndAgent checks providers, models, and agent.model references.
+func (c *Config) ValidateModelsProvidersAndAgent() error {
 	seenProv := make(map[string]struct{}, len(c.Providers))
 	for i := range c.Providers {
 		c.Providers[i].Normalize()
@@ -90,12 +90,12 @@ func (c *Config) ValidateModelsProvidersAndReact() error {
 	}
 
 	if len(c.Models) > 0 {
-		rm := strings.TrimSpace(c.React.Model)
+		rm := strings.TrimSpace(c.Agent.Model)
 		if rm == "" {
-			return fmt.Errorf("react.model is required when models are configured")
+			return fmt.Errorf("agent.model is required when models are configured")
 		}
 		if c.FindModelEntry(rm) == nil {
-			return fmt.Errorf("react.model %q: not found in models list", rm)
+			return fmt.Errorf("agent.model %q: not found in models list", rm)
 		}
 	}
 	return nil

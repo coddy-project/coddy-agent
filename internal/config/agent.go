@@ -4,12 +4,12 @@ import "fmt"
 
 // Defaults for the ReAct loop when YAML omits zero values.
 const (
-	ReactDefaultMaxTurns         = 30
-	ReactDefaultMaxTokensPerTurn = 200000
+	AgentDefaultMaxTurns         = 30
+	AgentDefaultMaxTokensPerTurn = 200000
 )
 
-// React is the YAML react section (key react).
-type React struct {
+// Agent is the YAML agent section (key agent) for ReAct loop settings.
+type Agent struct {
 	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
 	Model            string `yaml:"model"`
 	MaxTurns         int    `yaml:"max_turns"`
@@ -17,22 +17,22 @@ type React struct {
 }
 
 // ApplyDefaults sets MaxTurns and MaxTokensPerTurn when they are zero.
-func (c *React) ApplyDefaults() {
+func (c *Agent) ApplyDefaults() {
 	if c.MaxTurns == 0 {
-		c.MaxTurns = ReactDefaultMaxTurns
+		c.MaxTurns = AgentDefaultMaxTurns
 	}
 	if c.MaxTokensPerTurn == 0 {
-		c.MaxTokensPerTurn = ReactDefaultMaxTokensPerTurn
+		c.MaxTokensPerTurn = AgentDefaultMaxTokensPerTurn
 	}
 }
 
 // Validate checks bounds after defaults.
-func (c *React) Validate() error {
+func (c *Agent) Validate() error {
 	if c.MaxTurns < 0 {
-		return fmt.Errorf("react.max_turns: must be >= 0")
+		return fmt.Errorf("agent.max_turns: must be >= 0")
 	}
 	if c.MaxTokensPerTurn < 0 {
-		return fmt.Errorf("react.max_tokens_per_turn: must be >= 0")
+		return fmt.Errorf("agent.max_tokens_per_turn: must be >= 0")
 	}
 	return nil
 }

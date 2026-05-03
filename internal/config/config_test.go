@@ -65,7 +65,7 @@ models:
     max_tokens: 4096
     temperature: 0.1
 
-react:
+agent:
   model: "openai/gpt-4o"
   max_turns: 7
 
@@ -106,14 +106,14 @@ logger:
 	if len(cfg.Models) != 1 || cfg.Models[0].ID != "openai/gpt-4o" {
 		t.Errorf("models: got %+v", cfg.Models)
 	}
-	if cfg.React.Model != "openai/gpt-4o" {
-		t.Errorf("react.model: got %q", cfg.React.Model)
+	if cfg.Agent.Model != "openai/gpt-4o" {
+		t.Errorf("agent.model: got %q", cfg.Agent.Model)
 	}
-	if cfg.React.MaxTurns != 7 {
-		t.Errorf("react.max_turns: got %d want 7", cfg.React.MaxTurns)
+	if cfg.Agent.MaxTurns != 7 {
+		t.Errorf("agent.max_turns: got %d want 7", cfg.Agent.MaxTurns)
 	}
-	if cfg.React.MaxTokensPerTurn != config.ReactDefaultMaxTokensPerTurn {
-		t.Errorf("react.max_tokens_per_turn default: got %d", cfg.React.MaxTokensPerTurn)
+	if cfg.Agent.MaxTokensPerTurn != config.AgentDefaultMaxTokensPerTurn {
+		t.Errorf("agent.max_tokens_per_turn default: got %d", cfg.Agent.MaxTokensPerTurn)
 	}
 
 	wantPrompts := filepath.Clean("/tmp/coddy-e2e-prompts")
@@ -162,8 +162,8 @@ func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.React.MaxTurns != config.ReactDefaultMaxTurns {
-		t.Fatalf("react defaults: max_turns=%d", cfg.React.MaxTurns)
+	if cfg.Agent.MaxTurns != config.AgentDefaultMaxTurns {
+		t.Fatalf("agent defaults: max_turns=%d", cfg.Agent.MaxTurns)
 	}
 	if cfg.Logger.Level != config.LogLevelInfo {
 		t.Fatalf("logger default level: %q", cfg.Logger.Level)
@@ -190,7 +190,7 @@ models:
     max_tokens: 4096
     temperature: 0.1
 
-react:
+agent:
   model: "openai/gpt-4o"
 
 logger:
@@ -231,7 +231,7 @@ models:
     max_tokens: 4096
     temperature: 0.1
 
-react:
+agent:
   model: "openai/gpt-4o"
 
 logger:
@@ -265,7 +265,7 @@ models:
     provider: openai
     model: "gpt-4o"
 
-react:
+agent:
   model: "test"
 `
 	tmp := t.TempDir()

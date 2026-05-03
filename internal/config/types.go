@@ -7,7 +7,7 @@ type Config struct {
 
 	Providers  []ProviderConfig  `yaml:"providers"`
 	Models     []ModelEntry      `yaml:"models"`
-	React      React             `yaml:"react"`
+	Agent      Agent             `yaml:"agent"`
 	Prompts    Prompts           `yaml:"prompts"`
 	Skills     Skills            `yaml:"skills"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`

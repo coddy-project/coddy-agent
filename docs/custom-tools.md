@@ -17,7 +17,7 @@ If you want to add tools without modifying the agent source, use
 User prompt
     │
     ▼
-ReAct loop (internal/react/agent.go)
+ReAct loop (internal/agent/react.go)
     │
     ├── builds tools.Registry  ←  NewRegistry() + MCP tools
     │
