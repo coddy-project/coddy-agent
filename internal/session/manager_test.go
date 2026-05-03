@@ -3,6 +3,7 @@ package session_test
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -37,9 +38,38 @@ func noopRunner(context.Context, *session.State, []acp.ContentBlock) (string, er
 	return string(acp.StopReasonEndTurn), nil
 }
 
+func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
+	defaultDir := t.TempDir()
+	want, err := filepath.Abs(defaultDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gotCWD string
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+		gotCWD = st.GetCWD()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultDir)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: ""})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	if _, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
+	}); err != nil {
+		t.Fatalf("HandleSessionPrompt: %v", err)
+	}
+	if gotCWD != want {
+		t.Fatalf("session cwd %q, want %q", gotCWD, want)
+	}
+}
+
 func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default())
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -85,7 +115,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 
 func TestManagerSetConfigOptionModel(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default())
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -117,7 +147,7 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default())
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -152,7 +182,7 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default())
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {

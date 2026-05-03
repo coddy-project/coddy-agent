@@ -8,6 +8,8 @@ The agent searches for `config.yaml` in the following order:
 2. `$XDG_CONFIG_HOME/coddy-agent/config.yaml` (default: `~/.config/coddy-agent/config.yaml`)
 3. `./config.yaml` in the current working directory
 
+The `coddy acp` subcommand additionally accepts `--cwd` for the filesystem directory used when the ACP client omits `cwd` in `session/new`. Omitting `--cwd` uses the process working directory when the binary starts.
+
 ## Full Configuration Schema
 
 Agent name, title, and build version are not configurable here. They are fixed in the binary and reported during ACP `initialize` (`internal/acp` and `internal/version`).

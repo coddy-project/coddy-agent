@@ -3,10 +3,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -51,6 +54,10 @@ func main() {
 		printUsage(os.Stderr)
 		os.Exit(1)
 	}
+	if args[0] == "-h" || args[0] == "--help" {
+		printUsage(os.Stdout)
+		os.Exit(0)
+	}
 
 	var err error
 	switch args[0] {
@@ -71,12 +78,21 @@ func main() {
 
 func printUsage(w *os.File) {
 	fmt.Fprintf(w, `Usage:
+  %[1]s -h | --help
   %[1]s -v | --version
   %[1]s acp [flags]
   %[1]s skills list
   %[1]s skills install <path-or-github-or-url>
   %[1]s skills uninstall <name>
 `, os.Args[0])
+}
+
+func resolveACPSessionDefaultCWD(flag string) (string, error) {
+	raw := strings.TrimSpace(flag)
+	if raw != "" {
+		return filepath.Abs(raw)
+	}
+	return os.Getwd()
 }
 
 func parseLogLevel(s string) slog.Level {
@@ -97,12 +113,21 @@ func runACP(args []string) error {
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (default: search ~/.config/coddy-agent/config.yaml and ./config.yaml)")
 	logLevel := fs.String("log-level", "info", "debug, info, warn, error")
-	registerCursor := fs.Bool("register-cursor", false, "register Cursor to use this binary as ACP agent (not implemented)")
+	acpCWD := fs.String("cwd", "", "default session working directory when the client sends an empty cwd (default: process current directory)")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "Usage of acp:\n")
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
-	if *registerCursor {
-		return fmt.Errorf("acp --register-cursor is not implemented yet")
+
+	defaultSessionCWD, err := resolveACPSessionDefaultCWD(*acpCWD)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -120,7 +145,7 @@ func runACP(args []string) error {
 		agent := promptreact.NewAgent(cfg, st, ref, log)
 		return agent.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log)
+	mgr := session.NewManager(cfg, ref, runner, log, defaultSessionCWD)
 	srv = acp.NewServer(mgr, log)
 	mgr.SetServer(srv)
 

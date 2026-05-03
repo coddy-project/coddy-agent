@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -26,13 +27,16 @@ type Manager struct {
 	skillsLoad *skills.Loader
 	runner     AgentRunner
 	log        *slog.Logger
+	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
+	defaultCWD string
 
 	sessions map[string]*State
 	mu       sync.RWMutex
 }
 
-// NewManager creates a session manager.
-func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger) *Manager {
+// NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
+// ACP client omits cwd; may be empty if every session supplies a non-empty cwd.
+func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string) *Manager {
 	skillsDirs := make([]string, len(cfg.Skills.Dirs))
 	copy(skillsDirs, cfg.Skills.Dirs)
 
@@ -42,6 +46,7 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		runner:     runner,
 		skillsLoad: skills.NewLoader(skillsDirs, cfg.Skills.ExtraFiles),
 		log:        log,
+		defaultCWD: defaultCWD,
 		sessions:   make(map[string]*State),
 	}
 }
@@ -78,25 +83,30 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewParams) (*acp.SessionNewResult, error) {
 	id := newSessionID()
 
-	loadedSkills, err := m.skillsLoad.LoadAll(params.CWD)
+	cwd, err := EffectiveSessionCWD(params.CWD, m.defaultCWD)
+	if err != nil {
+		return nil, fmt.Errorf("session/new: %w", err)
+	}
+
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
 
 	state := &State{
 		ID:     id,
-		CWD:    params.CWD,
+		CWD:    cwd,
 		Mode:   ModeAgent,
 		Skills: loadedSkills,
 	}
 
 	// Also add project-level skills from CWD.
 	projectSkillsDirs := []string{
-		params.CWD + "/.cursor/rules",
-		params.CWD + "/.cursor/skills",
+		filepath.Join(cwd, ".cursor", "rules"),
+		filepath.Join(cwd, ".cursor", "skills"),
 	}
 	projectLoader := skills.NewLoader(projectSkillsDirs, nil)
-	projectSkills, _ := projectLoader.LoadAll(params.CWD)
+	projectSkills, _ := projectLoader.LoadAll(cwd)
 	state.Skills = append(projectSkills, state.Skills...)
 
 	// Connect global MCP servers from config.
@@ -127,7 +137,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	m.sessions[id] = state
 	m.mu.Unlock()
 
-	m.log.Info("session created", "id", id, "cwd", params.CWD, "mode", state.Mode)
+	m.log.Info("session created", "id", id, "cwd", cwd, "mode", state.Mode)
 
 	return &acp.SessionNewResult{
 		SessionID:     id,

@@ -41,7 +41,9 @@ make build
 go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
 ```
 
-The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`.
+The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--cwd`, and `--config`.
+
+`--cwd` sets the filesystem working directory used when `session/new` sends an empty `cwd` field. If you omit `--cwd`, the agent uses the process current directory (`os.Getwd()` at startup). Editors that pass a workspace path in `session/new` continue to use that path.
 
 ### Configuration
 
@@ -58,39 +60,6 @@ Set your API keys:
 export OPENAI_API_KEY="sk-..."
 # or
 export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-### Connect to Cursor
-
-Add to your Cursor `settings.json`:
-
-```json
-{
-  "cursor.agent.command": "/path/to/coddy",
-  "cursor.agent.args": []
-}
-```
-
-Or register via the ACP CLI:
-
-```bash
-coddy acp --register-cursor
-```
-
-### Connect to Zed
-
-Add to your Zed `settings.json`:
-
-```json
-{
-  "assistant": {
-    "version": "2",
-    "provider": {
-      "name": "acp",
-      "command": "/path/to/coddy"
-    }
-  }
-}
 ```
 
 ## Operating Modes
@@ -198,8 +167,8 @@ ACP Client (Cursor/Zed)
     Session Manager
         |
     ReAct Agent Loop
-   /    |    \
-LLM  Tools  MCP Clients
+ /      |       |      \
+LLM   Tools    Skills    MCP
 ```
 
 See [Architecture docs](docs/architecture.md) for full details.
