@@ -100,4 +100,10 @@ tools:
 
 log:
   level: "info"
-  file: ""
+  # outputs: ["stderr"]          # default when omitted
+  # outputs: ["stdout", "file"] # example: tee to console and file
+  # file: "${CODDY_HOME}/coddy.log"  # required when outputs includes "file"
+  format: "text"
+  rotation:
+    max_size_mb: 0
+    max_files: 0

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -61,6 +62,42 @@ log:
 	}
 	if cfg.Log.Level != "debug" {
 		t.Errorf("expected log level %q, got %q", "debug", cfg.Log.Level)
+	}
+}
+
+func TestLegacyLogFileAddsOutputs(t *testing.T) {
+	content := `
+models:
+  default: "openai/gpt-4o"
+  definitions:
+    - id: "openai/gpt-4o"
+      provider: "openai"
+      model: "gpt-4o"
+      api_key: "k"
+      max_tokens: 4096
+      temperature: 0.1
+
+log:
+  level: "info"
+  file: "/tmp/coddy-legacy.log"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Log.Outputs) != 2 {
+		t.Fatalf("expected 2 outputs, got %v", cfg.Log.Outputs)
+	}
+	if cfg.Log.Outputs[0] != logger.OutputStderr || cfg.Log.Outputs[1] != logger.OutputFile {
+		t.Fatalf("unexpected outputs: %v", cfg.Log.Outputs)
+	}
+	if cfg.Log.File != "/tmp/coddy-legacy.log" {
+		t.Fatalf("file: %q", cfg.Log.File)
 	}
 }
 

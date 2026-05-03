@@ -1,6 +1,10 @@
 // Package config handles loading and validating agent configuration.
 package config
 
+import (
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+)
+
 // Config is the root configuration struct.
 type Config struct {
 	// Paths is set by LoadFromCLI / LoadWithPaths from CODDY_HOME, CODDY_CWD, and config path resolution.
@@ -12,7 +16,7 @@ type Config struct {
 	Skills     SkillsConfig      `yaml:"skills"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
 	Tools      ToolsConfig       `yaml:"tools"`
-	Log        LogConfig         `yaml:"log"`
+	Log        logger.Config `yaml:"log"`
 
 	// SessionsDir overrides the directory for persisted session bundles. Empty means <Paths.Home>/sessions.
 	SessionsDir string `yaml:"sessions_dir"`
@@ -94,10 +98,4 @@ type ToolsConfig struct {
 	// Supports exact match and prefix match (e.g. "go test" matches "go test ./...").
 	// Examples: ["go build", "go test", "make", "npm run", "git status"]
 	CommandAllowlist []string `yaml:"command_allowlist"`
-}
-
-// LogConfig controls logging behavior.
-type LogConfig struct {
-	Level string `yaml:"level"`
-	File  string `yaml:"file"`
 }

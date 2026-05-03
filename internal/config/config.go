@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -85,7 +86,11 @@ func applyDefaults(cfg *Config) {
 		cfg.React.MaxTokensPerTurn = 200000
 	}
 	if cfg.Log.Level == "" {
-		cfg.Log.Level = "info"
+		cfg.Log.Level = logger.LevelInfo
+	}
+	// Legacy: log.file without outputs used to be stored but unused; route to stderr + file.
+	if strings.TrimSpace(cfg.Log.File) != "" && len(cfg.Log.Outputs) == 0 {
+		cfg.Log.Outputs = []string{logger.OutputStderr, logger.OutputFile}
 	}
 
 	if strings.TrimSpace(cfg.SessionsDir) != "" {

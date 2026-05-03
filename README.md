@@ -48,7 +48,7 @@ go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Ver
 
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
-The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--home`, `--cwd`, and `--config`.
+The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--log-output`, `--log-file`, `--log-format`, `--home`, `--cwd`, and `--config`.
 
 ### Paths (`CODDY_HOME`, `CODDY_CWD`)
 
@@ -224,7 +224,7 @@ make build
 
 coddy -v    # same as --version
 
-# Run with debug logging (ACP mode)
+# Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
 coddy acp --log-level debug
 
 # Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp-jsonrpc-session/)

@@ -120,8 +120,20 @@ tools:
 # Logging
 log:
   level: "info"           # debug | info | warn | error
-  file: ""                # empty = stderr only
+  # Where records go: any combination of stdout, stderr, file. Omitted or empty = stderr only.
+  outputs: []
+  # Path for the file sink; required when outputs includes file.
+  file: ""
+  # text (default) or json
+  format: "text"
+  rotation:
+    max_size_mb: 0        # 0 = no size-based rotation
+    max_files: 0          # rotated backups to keep when max_size_mb > 0
 ```
+
+ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
+
+If the older two-field style had **`file`** set but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
 
 ## Environment Variable References
 

@@ -6,13 +6,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/react"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -90,24 +90,14 @@ func printUsage(w *os.File) {
 `, os.Args[0])
 }
 
-func parseLogLevel(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
 func runACP(args []string) error {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)")
-	logLevel := fs.String("log-level", "info", "debug, info, warn, error")
+	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
+	logOutput := fs.String("log-output", "", "stdout|stderr|file|both (default from config)")
+	logFile := fs.String("log-file", "", "log file path when output includes file (default from config)")
+	logFormat := fs.String("log-format", "", "text|json (default from config)")
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions_dir or ~/.coddy/sessions)")
@@ -142,9 +132,18 @@ func runACP(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: parseLogLevel(*logLevel),
-	}))
+	cfg.Log.Apply(logger.CLIOverrides{
+		Level:  strings.TrimSpace(*logLevel),
+		Output: strings.TrimSpace(*logOutput),
+		File:   strings.TrimSpace(*logFile),
+		Format: strings.TrimSpace(*logFormat),
+	})
+	log, logCloser, err := logger.New(cfg.Log)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	defer func() { _ = logCloser.Close() }()
+
 	log.Info("starting ACP server", "version", version.Get())
 
 	var store *session.FileStore
