@@ -8,10 +8,10 @@ Verifies the memory subsystem behaves like an internal voice (not main-agent too
   $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
 - Optional prune step: user text nudges the recall copilot to remove a disposable global note; file must disappear.
 
-Environment (required for real LLM calls):
+Environment (required for real LLM calls, use one of):
 
-- RPA_API_KEY (or OPENAI_API_KEY if you swap provider in generated config)
-- Optional RPA_API_BASE (default https://api.rpa.icu/v1)
+- RPA_API_KEY for provider `rpa` / model `rpa/gpt-oss:120b` (optional RPA_API_BASE, default https://api.rpa.icu/v1)
+- or OPENAI_API_KEY for provider `openai` / model `openai/gpt-4o-mini`
 
 Environment (paths):
 
@@ -184,17 +184,13 @@ def assert_memory_binary(binary: str) -> None:
         sys.exit(2)
 
 
-def write_isolated_config(path: Path, api_base: str) -> None:
-    key = os.environ.get("RPA_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-    if not key.strip():
-        print(
-            "ERROR: set RPA_API_KEY (or OPENAI_API_KEY if you edit this script to another provider).",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    os.environ["RPA_API_KEY"] = key
-    os.environ["RPA_API_BASE"] = api_base
-    text = f"""providers:
+def write_isolated_config(path: Path, rpa_api_base: str) -> None:
+    rpa_key = os.environ.get("RPA_API_KEY", "https://t.me/evilfreelancer").strip()
+    oai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if rpa_key:
+        os.environ["RPA_API_KEY"] = rpa_key
+        os.environ["RPA_API_BASE"] = rpa_api_base
+        text = f"""providers:
   - name: rpa
     type: openai_compatible
     api_base: "${{RPA_API_BASE}}"
@@ -222,6 +218,39 @@ logger:
   level: warn
   format: text
 """
+    elif oai_key:
+        text = """providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+
+models:
+  - model: "openai/gpt-4o-mini"
+    max_tokens: 8192
+    temperature: 0.2
+
+agent:
+  model: "openai/gpt-4o-mini"
+  max_turns: 24
+
+memory:
+  enabled: true
+
+tools:
+  require_permission_for_commands: false
+  require_permission_for_writes: false
+  restrict_to_cwd: true
+
+logger:
+  level: warn
+  format: text
+"""
+    else:
+        print(
+            "ERROR: set RPA_API_KEY or OPENAI_API_KEY for live LLM calls.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     path.write_text(text, encoding="utf-8")
 
 
