@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
@@ -33,6 +34,7 @@ type SessionState interface {
 	GetAgentMemory() string
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
+	GetPersistedSessionDir() string
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -99,6 +101,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		maxTurns = 30
 	}
 
+	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
+
 	toolEnv := &tools.Env{
 		CWD:                          a.state.GetCWD(),
 		RestrictToCWD:                a.cfg.Tools.RestrictToCWD,
@@ -106,9 +110,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		RequirePermissionForWrites:   a.cfg.Tools.RequirePermissionForWrites,
 		CommandAllowlist:             a.cfg.Tools.CommandAllowlist,
 		SessionID:                    a.state.GetID(),
-		Sender:                       a.server,
-		GetPlan:                      a.state.GetPlan,
-		SetPlan:                      a.state.SetPlan,
+		SessionDir:                   sd,
+		ArchiveActiveMarkdown: func() error {
+			if sd == "" {
+				return nil
+			}
+			return session.ArchiveActiveTodo(sd)
+		},
+		Sender:  a.server,
+		GetPlan: a.state.GetPlan,
+		SetPlan: a.state.SetPlan,
 	}
 
 	var totalInputTokens, totalOutputTokens int

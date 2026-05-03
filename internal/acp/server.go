@@ -20,7 +20,8 @@ import (
 type Handler interface {
 	HandleInitialize(ctx context.Context, params InitializeParams) (*InitializeResult, error)
 	HandleSessionNew(ctx context.Context, params SessionNewParams) (*SessionNewResult, error)
-	HandleSessionLoad(ctx context.Context, params SessionLoadParams) error
+	HandleSessionLoad(ctx context.Context, params SessionLoadParams) (*SessionLoadResult, error)
+	HandleSessionList(ctx context.Context, params SessionListParams) (*SessionListResult, error)
 	HandleSessionPrompt(ctx context.Context, params SessionPromptParams) (*SessionPromptResult, error)
 	HandleSessionSetMode(ctx context.Context, params SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params SessionSetConfigOptionParams) (*SessionSetConfigOptionResult, error)
@@ -230,10 +231,22 @@ func (s *Server) dispatch(ctx context.Context, method string, params json.RawMes
 		if err := unmarshalParams(params, &p); err != nil {
 			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
 		}
-		if err := s.handler.HandleSessionLoad(ctx, p); err != nil {
+		loadRes, err := s.handler.HandleSessionLoad(ctx, p)
+		if err != nil {
 			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
 		}
-		return nil, nil
+		return loadRes, nil
+
+	case "session/list":
+		var p SessionListParams
+		if err := unmarshalParams(params, &p); err != nil {
+			return nil, &RPCError{Code: ErrInvalidParams, Message: err.Error()}
+		}
+		listRes, err := s.handler.HandleSessionList(ctx, p)
+		if err != nil {
+			return nil, &RPCError{Code: ErrInternalError, Message: err.Error()}
+		}
+		return listRes, nil
 
 	case "session/prompt":
 		var p SessionPromptParams

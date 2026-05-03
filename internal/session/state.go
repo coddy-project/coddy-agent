@@ -52,6 +52,12 @@ type State struct {
 	// AgentMemory is optional session notes included in the system prompt template (.Memory).
 	AgentMemory string
 
+	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
+	SessionDir string
+
+	// persist is invoked after persisted fields change (set by Manager; may be nil).
+	persist func()
+
 	// cancel cancels the active prompt turn.
 	cancel context.CancelFunc
 }
@@ -64,6 +70,13 @@ func (s *State) GetID() string {
 // GetCWD returns the session working directory.
 func (s *State) GetCWD() string {
 	return s.CWD
+}
+
+// GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
+func (s *State) GetPersistedSessionDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SessionDir
 }
 
 // GetSkills returns the loaded skills.
@@ -80,11 +93,28 @@ func (s *State) GetMCPClients() []*mcp.Client {
 	return s.MCPClients
 }
 
+// SetPersistHook registers a callback after state that is written to disk changes.
+func (s *State) SetPersistHook(fn func()) {
+	s.mu.Lock()
+	s.persist = fn
+	s.mu.Unlock()
+}
+
+func (s *State) touchPersist() {
+	s.mu.RLock()
+	fn := s.persist
+	s.mu.RUnlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 // SetMode updates the session mode (accepts string for interface compatibility).
 func (s *State) SetMode(mode string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Mode = Mode(mode)
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // GetMode returns the current mode as a string.
@@ -104,8 +134,9 @@ func (s *State) GetSelectedModelID() string {
 // SetSelectedModelID sets the session model override (empty to use config defaults per mode).
 func (s *State) SetSelectedModelID(id string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.SelectedModelID = id
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
@@ -138,8 +169,9 @@ func normalizeModelID(cfg *config.Config, id string) string {
 // AddMessage appends a message to the conversation history.
 func (s *State) AddMessage(msg llm.Message) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Messages = append(s.Messages, msg)
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // GetMessages returns a copy of the message history.
@@ -161,8 +193,9 @@ func (s *State) GetAgentMemory() string {
 // SetAgentMemory sets session notes included in rendered system prompts.
 func (s *State) SetAgentMemory(text string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.AgentMemory = text
+	s.mu.Unlock()
+	s.touchPersist()
 }
 
 // GetPlan returns a copy of the current plan entries.
@@ -177,8 +210,39 @@ func (s *State) GetPlan() []acp.PlanEntry {
 // SetPlan replaces the current plan entries.
 func (s *State) SetPlan(entries []acp.PlanEntry) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Plan = entries
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// SetPlanWithoutPersist assigns the plan without touching disk (bootstrap from snapshot).
+func (s *State) SetPlanWithoutPersist(entries []acp.PlanEntry) {
+	s.mu.Lock()
+	s.Plan = entries
+	s.mu.Unlock()
+}
+
+// ReplaceMessagesWithoutPersist replaces conversation history without persisting (bootstrap).
+func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
+	s.mu.Lock()
+	s.Messages = msgs
+	s.mu.Unlock()
+}
+
+// RestoreMetaWithoutPersist restores mode and model/memory fields from disk (no persistence callback).
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, agentMemory string) {
+	s.mu.Lock()
+	s.Mode = mode
+	s.SelectedModelID = selectedModelID
+	s.AgentMemory = agentMemory
+	s.mu.Unlock()
+}
+
+// ReplaceSkills replaces loaded skills without touching disk (used when rebuilding session).
+func (s *State) ReplaceSkills(sk []*skills.Skill) {
+	s.mu.Lock()
+	s.Skills = sk
+	s.mu.Unlock()
 }
 
 // SetCancel stores a cancel function for the active prompt turn.

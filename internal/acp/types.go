@@ -84,11 +84,20 @@ type InitializeResult struct {
 	AuthMethods       []string           `json:"authMethods"`
 }
 
+// SessionCaps is advertised during initialize (sessionCapabilities in ACP).
+type SessionCaps struct{}
+
+// MarshalJSON emits {"list":{}} when list support is enabled.
+func (SessionCaps) MarshalJSON() ([]byte, error) {
+	return []byte(`{"list":{}}`), nil
+}
+
 // AgentCapabilities describes what this agent supports.
 type AgentCapabilities struct {
-	LoadSession        bool                `json:"loadSession,omitempty"`
-	PromptCapabilities *PromptCapabilities `json:"promptCapabilities,omitempty"`
-	MCPCapabilities    *MCPCapabilities    `json:"mcpCapabilities,omitempty"`
+	LoadSession         bool                `json:"loadSession,omitempty"`
+	SessionCapabilities *SessionCaps        `json:"sessionCapabilities,omitempty"`
+	PromptCapabilities  *PromptCapabilities `json:"promptCapabilities,omitempty"`
+	MCPCapabilities     *MCPCapabilities    `json:"mcpCapabilities,omitempty"`
 }
 
 // PromptCapabilities lists supported prompt content types.
@@ -192,6 +201,34 @@ type SessionLoadParams struct {
 	SessionID  string      `json:"sessionId"`
 	CWD        string      `json:"cwd"`
 	MCPServers []MCPServer `json:"mcpServers,omitempty"`
+}
+
+// SessionLoadResult is returned by session/load after restoring state.
+type SessionLoadResult struct {
+	Modes         *ModeState     `json:"modes,omitempty"`
+	ConfigOptions []ConfigOption `json:"configOptions,omitempty"`
+}
+
+// ---- ACP session/list ----
+
+// SessionListParams are parameters for session/list.
+type SessionListParams struct {
+	Cursor *string `json:"cursor,omitempty"`
+	CWD    *string `json:"cwd,omitempty"`
+}
+
+// SessionListInfo is one row returned from session/list.
+type SessionListInfo struct {
+	SessionID string  `json:"sessionId"`
+	CWD       string  `json:"cwd"`
+	Title     *string `json:"title,omitempty"`
+	UpdatedAt *string `json:"updatedAt,omitempty"`
+}
+
+// SessionListResult is the response payload for session/list.
+type SessionListResult struct {
+	Sessions   []SessionListInfo `json:"sessions"`
+	NextCursor *string           `json:"nextCursor,omitempty"`
 }
 
 // ---- ACP session/prompt ----

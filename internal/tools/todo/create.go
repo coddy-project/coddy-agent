@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
@@ -49,6 +50,17 @@ func execCreateTodoList(_ context.Context, argsJSON string, env *tooling.Env) (s
 	entries := ParseTodoMarkdown(args.Items)
 	if len(entries) == 0 {
 		return "", fmt.Errorf("no valid todo items found in the provided markdown")
+	}
+
+	var prev []acp.PlanEntry
+	if env.GetPlan != nil {
+		prev = env.GetPlan()
+	}
+	if PlanHasIncompleteItems(prev) {
+		return "", fmt.Errorf("create_todo_list: complete or clear the current todo list before creating a new one (incomplete items remain)")
+	}
+	if len(prev) > 0 && env.ArchiveActiveMarkdown != nil {
+		_ = env.ArchiveActiveMarkdown()
 	}
 
 	if env.SetPlan != nil {

@@ -27,6 +27,13 @@ type Env struct {
 	// SessionID is the current session identifier (used by plan tools).
 	SessionID string
 
+	// SessionDir is the persisted session bundle (<sessionsRoot>/<id>/) when disk persistence is on.
+	SessionDir string
+
+	// ArchiveActiveMarkdown moves todos/active.md to todos/archive before starting a replacement list.
+	// Optional; wired by the runner when persistence is enabled.
+	ArchiveActiveMarkdown func() error
+
 	// Sender allows tools to send session updates (e.g. PlanUpdate).
 	// May be nil - tools must nil-check before use.
 	Sender acp.UpdateSender

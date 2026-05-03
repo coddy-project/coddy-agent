@@ -8,7 +8,7 @@ The agent searches for `config.yaml` in the following order:
 2. `$XDG_CONFIG_HOME/coddy-agent/config.yaml` (default: `~/.config/coddy-agent/config.yaml`)
 3. `./config.yaml` in the current working directory
 
-The `coddy acp` subcommand additionally accepts `--cwd` for the filesystem directory used when the ACP client omits `cwd` in `session/new`. Omitting `--cwd` uses the process working directory when the binary starts.
+The `coddy acp` subcommand additionally accepts `--cwd` for the filesystem directory used when the ACP client omits `cwd` in `session/new`. Omitting `--cwd` uses the process working directory when the binary starts. See also `--sessions-dir`, `--session-id`, and `--disable-session` (no disk session bundles, e.g. cron) in the README.
 
 ## Full Configuration Schema
 

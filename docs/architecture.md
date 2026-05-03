@@ -63,7 +63,8 @@ Implements the JSON-RPC 2.0 server that speaks the ACP protocol over stdio.
 Handles:
 - `initialize` - version negotiation, capability exchange
 - `session/new` - create session, connect MCP servers, return modes and Session Config Options (model + mode selectors)
-- `session/load` - restore previous session (optional)
+- `session/load` - restore a persisted bundle from disk (`$HOME/coddy-agent/sessions` by default), replay history via `session/update`
+- `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
 - `session/set_mode` - switch between `agent` and `plan` modes (legacy, kept in sync with config options)

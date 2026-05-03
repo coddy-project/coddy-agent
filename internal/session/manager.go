@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -29,6 +30,10 @@ type Manager struct {
 	log        *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
+	store      *FileStore
+
+	// preferredNewSessionID, when non-empty before session/new is handled, selects the id for the next new session (--session-id).
+	preferredNewSessionID string
 
 	sessions map[string]*State
 	mu       sync.RWMutex
@@ -36,7 +41,8 @@ type Manager struct {
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
 // ACP client omits cwd; may be empty if every session supplies a non-empty cwd.
-func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string) *Manager {
+// store may be nil to disable persistence.
+func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string, store *FileStore) *Manager {
 	skillsDirs := make([]string, len(cfg.Skills.Dirs))
 	copy(skillsDirs, cfg.Skills.Dirs)
 
@@ -47,8 +53,14 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		skillsLoad: skills.NewLoader(skillsDirs, cfg.Skills.ExtraFiles),
 		log:        log,
 		defaultCWD: defaultCWD,
+		store:      store,
 		sessions:   make(map[string]*State),
 	}
+}
+
+// SetPreferredSessionID pins the identifier used for the next session/new invocation (typically from --session-id).
+func (m *Manager) SetPreferredSessionID(id string) {
+	m.preferredNewSessionID = strings.TrimSpace(id)
 }
 
 // SetServer injects the update sender (used when server and manager are constructed together).
@@ -56,21 +68,48 @@ func (m *Manager) SetServer(server acp.UpdateSender) {
 	m.server = server
 }
 
+func (m *Manager) makePersist(st *State) func() {
+	return func() {
+		if m.store == nil || st == nil || strings.TrimSpace(st.SessionDir) == "" {
+			return
+		}
+		if err := m.store.Save(st); err != nil {
+			m.log.Warn("persist session", "id", st.ID, "error", err)
+		}
+	}
+}
+
+func (m *Manager) sessionResultModes(st *State) *acp.ModeState {
+	return &acp.ModeState{
+		CurrentModeID: string(st.Mode),
+		AvailableModes: []acp.SessionMode{
+			{ID: "agent", Name: "Agent", Description: "Execute tasks with full tool access"},
+			{ID: "plan", Name: "Plan", Description: "Plan and design without code execution"},
+		},
+	}
+}
+
 // ---- acp.Handler implementation ----
 
 func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParams) (*acp.InitializeResult, error) {
 	m.log.Info("initialize", "client", params.ClientInfo, "protocolVersion", params.ProtocolVersion, "agentVersion", version.Get())
-	return &acp.InitializeResult{
-		ProtocolVersion: acp.ProtocolVersion,
-		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession: true,
-			PromptCapabilities: &acp.PromptCapabilities{
-				EmbeddedContext: true,
-			},
-			MCPCapabilities: &acp.MCPCapabilities{
-				HTTP: false,
-			},
+
+	caps := acp.AgentCapabilities{
+		LoadSession: m.store != nil,
+		PromptCapabilities: &acp.PromptCapabilities{
+			EmbeddedContext: true,
 		},
+		MCPCapabilities: &acp.MCPCapabilities{
+			HTTP: false,
+		},
+	}
+	if m.store != nil {
+		caps.SessionCapabilities = &acp.SessionCaps{}
+	}
+
+	return &acp.InitializeResult{
+		ProtocolVersion:   acp.ProtocolVersion,
+		AgentCapabilities: caps,
 		AgentInfo: acp.ImplementationInfo{
 			Name:    acp.AgentName,
 			Title:   acp.AgentTitle,
@@ -81,26 +120,101 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 }
 
 func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewParams) (*acp.SessionNewResult, error) {
-	id := newSessionID()
+	preferredConsumed := ""
+	if strings.TrimSpace(m.preferredNewSessionID) != "" {
+		preferredConsumed = strings.TrimSpace(m.preferredNewSessionID)
+		m.preferredNewSessionID = ""
+	}
+
+	var id string
+	if preferredConsumed != "" {
+		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
+			return nil, fmt.Errorf("session/new: %w", err)
+		}
+		id = preferredConsumed
+	} else {
+		id = newSessionID()
+	}
+
+	m.mu.RLock()
+	_, occupied := m.sessions[id]
+	m.mu.RUnlock()
+	if occupied {
+		return nil, fmt.Errorf("session/new: session id already active: %s", id)
+	}
+
+	// CLI --session-id with an existing snapshot is treated as reopening disk state.
+	if m.store != nil && preferredConsumed != "" {
+		if _, err := m.store.ReadSnapshot(id); err == nil {
+			loadResult, err := m.loadSessionFromDisk(ctx, acp.SessionLoadParams{
+				SessionID:  id,
+				CWD:        params.CWD,
+				MCPServers: params.MCPServers,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
+			}
+			_ = loadResult
+			st := m.getSession(id)
+			return &acp.SessionNewResult{
+				SessionID:     id,
+				ConfigOptions: BuildACPConfigOptions(m.cfg, st),
+				Modes:         m.sessionResultModes(st),
+			}, nil
+		}
+	}
 
 	cwd, err := EffectiveSessionCWD(params.CWD, m.defaultCWD)
 	if err != nil {
 		return nil, fmt.Errorf("session/new: %w", err)
 	}
 
+	var sessionDir string
+	if m.store != nil {
+		sessionDir, err = m.store.EnsureLayout(id)
+		if err != nil {
+			return nil, fmt.Errorf("session/new: layout: %w", err)
+		}
+	}
+
+	state, err := m.buildFreshState(ctx, id, cwd, sessionDir, params.MCPServers)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	m.sessions[id] = state
+	m.mu.Unlock()
+
+	if m.store != nil {
+		if err := m.store.Save(state); err != nil {
+			m.log.Warn("initial session save", "error", err)
+		}
+	}
+
+	m.log.Info("session created", "id", id, "cwd", cwd, "mode", state.Mode)
+
+	return &acp.SessionNewResult{
+		SessionID:     id,
+		ConfigOptions: BuildACPConfigOptions(m.cfg, state),
+		Modes:         m.sessionResultModes(state),
+	}, nil
+}
+
+func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
 	loadedSkills, err := m.skillsLoad.LoadAll(cwd)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
 
 	state := &State{
-		ID:     id,
-		CWD:    cwd,
-		Mode:   ModeAgent,
-		Skills: loadedSkills,
+		ID:         id,
+		CWD:        cwd,
+		Mode:       ModeAgent,
+		Skills:     loadedSkills,
+		SessionDir: sessionDir,
 	}
 
-	// Also add project-level skills from CWD.
 	projectSkillsDirs := []string{
 		filepath.Join(cwd, ".cursor", "rules"),
 		filepath.Join(cwd, ".cursor", "skills"),
@@ -109,15 +223,15 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	projectSkills, _ := projectLoader.LoadAll(cwd)
 	state.Skills = append(projectSkills, state.Skills...)
 
-	// Connect global MCP servers from config.
+	state.SetPersistHook(m.makePersist(state))
+
 	for _, srv := range m.cfg.MCPServers {
 		if err := m.connectMCPServer(ctx, state, srv); err != nil {
 			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
 		}
 	}
 
-	// Connect per-session MCP servers from client.
-	for _, srv := range params.MCPServers {
+	for _, srv := range mcpServers {
 		cfgSrv := config.MCPServerConfig{
 			Type:    srv.Type,
 			Name:    srv.Name,
@@ -133,33 +247,152 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		}
 	}
 
+	return state, nil
+}
+
+func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+	if m.store == nil {
+		return nil, fmt.Errorf("session/load: persistence is disabled")
+	}
+	if err := ValidateFolderSessionID(params.SessionID); err != nil {
+		return nil, fmt.Errorf("session/load: %w", err)
+	}
+
+	snap, err := m.store.ReadSnapshot(params.SessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	fallback := snap.Meta.CWD
+	if strings.TrimSpace(fallback) == "" {
+		fallback = m.defaultCWD
+	}
+
+	cwd, err := EffectiveSessionCWD(params.CWD, fallback)
+	if err != nil {
+		return nil, fmt.Errorf("session/load cwd: %w", err)
+	}
+
 	m.mu.Lock()
-	m.sessions[id] = state
+	if prev, ok := m.sessions[params.SessionID]; ok {
+		prev.CloseAll()
+		delete(m.sessions, params.SessionID)
+	}
 	m.mu.Unlock()
 
-	m.log.Info("session created", "id", id, "cwd", cwd, "mode", state.Mode)
+	st := &State{
+		ID:         params.SessionID,
+		CWD:        cwd,
+		SessionDir: snap.Dir,
+	}
 
-	return &acp.SessionNewResult{
-		SessionID:     id,
-		ConfigOptions: BuildACPConfigOptions(m.cfg, state),
-		Modes: &acp.ModeState{
-			CurrentModeID: string(state.Mode),
-			AvailableModes: []acp.SessionMode{
-				{ID: "agent", Name: "Agent", Description: "Execute tasks with full tool access"},
-				{ID: "plan", Name: "Plan", Description: "Plan and design without code execution"},
-			},
-		},
+	mode := Mode(snap.Meta.Mode)
+	if mode != ModeAgent && mode != ModePlan {
+		mode = ModeAgent
+	}
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.AgentMemory)
+	st.ReplaceMessagesWithoutPersist(snap.Messages)
+	st.SetPlanWithoutPersist(snap.Plan)
+
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd)
+	if err != nil {
+		m.log.Warn("failed to load skills on session load", "error", err)
+	}
+	projectSkillsDirs := []string{
+		filepath.Join(cwd, ".cursor", "rules"),
+		filepath.Join(cwd, ".cursor", "skills"),
+	}
+	projectLoader := skills.NewLoader(projectSkillsDirs, nil)
+	projectSkills, _ := projectLoader.LoadAll(cwd)
+	loadedSkills = append(projectSkills, loadedSkills...)
+	st.ReplaceSkills(loadedSkills)
+
+	st.SetPersistHook(m.makePersist(st))
+
+	for _, srv := range m.cfg.MCPServers {
+		if err := m.connectMCPServer(ctx, st, srv); err != nil {
+			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
+		}
+	}
+
+	for _, srv := range params.MCPServers {
+		cfgSrv := config.MCPServerConfig{
+			Type:    srv.Type,
+			Name:    srv.Name,
+			Command: srv.Command,
+			Args:    srv.Args,
+			URL:     srv.URL,
+		}
+		for _, e := range srv.Env {
+			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
+		}
+		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
+			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
+		}
+	}
+
+	m.mu.Lock()
+	m.sessions[params.SessionID] = st
+	m.mu.Unlock()
+
+	if err := m.replayConversation(params.SessionID, snap.Messages); err != nil {
+		m.log.Warn("replay conversation", "error", err)
+	}
+
+	if len(st.GetPlan()) > 0 && m.server != nil {
+		_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
+			SessionUpdate: acp.UpdateTypePlan,
+			Entries:       st.GetPlan(),
+		})
+	}
+
+	if err := m.store.Save(st); err != nil {
+		m.log.Warn("session load save", "error", err)
+	}
+
+	m.log.Info("session loaded", "id", params.SessionID, "cwd", cwd)
+
+	return &acp.SessionLoadResult{
+		Modes:         m.sessionResultModes(st),
+		ConfigOptions: BuildACPConfigOptions(m.cfg, st),
 	}, nil
 }
 
-func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) error {
-	// For simplicity, session load creates a fresh session with the given ID.
-	// A full implementation would restore conversation history from storage.
-	_, err := m.HandleSessionNew(ctx, acp.SessionNewParams{
-		CWD:        params.CWD,
-		MCPServers: params.MCPServers,
-	})
-	return err
+func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+	return m.loadSessionFromDisk(ctx, params)
+}
+
+func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListParams) (*acp.SessionListResult, error) {
+	if m.store == nil || m.store.Root == "" {
+		return &acp.SessionListResult{Sessions: []acp.SessionListInfo{}}, nil
+	}
+	cwdFilter := ""
+	if params.CWD != nil {
+		cwdFilter = strings.TrimSpace(*params.CWD)
+	}
+	rows, err := m.store.ListSnapshots(cwdFilter)
+	if err != nil {
+		return nil, fmt.Errorf("session/list: %w", err)
+	}
+
+	out := make([]acp.SessionListInfo, 0, len(rows))
+	for _, r := range rows {
+		ent := acp.SessionListInfo{
+			SessionID: r.SessionID,
+			CWD:       r.CWD,
+		}
+		if strings.TrimSpace(r.Title) != "" {
+			t := r.Title
+			ent.Title = &t
+		}
+		if strings.TrimSpace(r.UpdatedAt) != "" {
+			u := r.UpdatedAt
+			ent.UpdatedAt = &u
+		}
+		out = append(out, ent)
+	}
+
+	return &acp.SessionListResult{Sessions: out}, nil
 }
 
 func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPromptParams) (*acp.SessionPromptResult, error) {

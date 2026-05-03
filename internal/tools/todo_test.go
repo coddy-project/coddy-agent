@@ -94,6 +94,19 @@ func TestCreateTodoListStoresPlan(t *testing.T) {
 	}
 }
 
+func TestCreateTodoListRejectsWhenIncomplete(t *testing.T) {
+	sender := &mockSender{}
+	plan := []acp.PlanEntry{
+		{Content: "doing", Status: "in_progress"},
+	}
+	env := todoTestEnv(sender, &plan)
+	r := NewRegistry()
+	_, err := r.Execute(context.Background(), "create_todo_list", `{"items":"- [ ] new"}`, env)
+	if err == nil || !strings.Contains(err.Error(), "incomplete items remain") {
+		t.Fatalf("expected incomplete-list error, got %v", err)
+	}
+}
+
 func TestCreateTodoListEmptyItemsError(t *testing.T) {
 	sender := &mockSender{}
 	env := makeEnvWithPlan(sender)
@@ -321,4 +334,3 @@ func todoTestEnv(sender *mockSender, plan *[]acp.PlanEntry) *Env {
 		SetPlan:   func(entries []acp.PlanEntry) { *plan = entries },
 	}
 }
-

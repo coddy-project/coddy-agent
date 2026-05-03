@@ -113,6 +113,9 @@ Negotiate protocol version and exchange capabilities.
   "protocolVersion": 1,
   "agentCapabilities": {
     "loadSession": true,
+    "sessionCapabilities": {
+      "list": {}
+    },
     "promptCapabilities": {
       "image": false,
       "audio": false,
@@ -214,6 +217,38 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
 ```
 
 The `model` option is present only when `models.definitions` in the agent config is non-empty. The effective default model follows `models.default`, `models.agent_mode`, and `models.plan_mode` as described in [Configuration](config.md).
+
+### `session/load`
+
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
+
+**Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
+
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "cwd": "/home/user/project",
+  "mcpServers": []
+}
+```
+
+**Response result:** `modes` and `configOptions` like `session/new`.
+
+### `session/list`
+
+Lists persisted sessions found under the configured sessions root (see README). Optional `cwd` filters by the stored working directory. The response includes `sessionId`, `cwd`, `title`, and `updatedAt` per entry.
+
+### Disk layout (Coddy)
+
+When persistence is enabled (`coddy acp` defaults to `$HOME/coddy-agent/sessions`), each bundle is `<root>/<sessionId>/` with:
+
+- `session.json` - id, cwd, mode, model override, agent memory, derived title, timestamps
+- `messages.json` - LLM message history (roles user, assistant, tool)
+- `assets/` - reserved for future session-scoped files
+- `todos/active.md` - current todo checklist synced from plan tools
+- `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
+
+CLI flag **`coddy acp --disable-session`** disables this layout entirely (`loadSession` and `session/list` are not advertised).
 
 ### `session/prompt`
 

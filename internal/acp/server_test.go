@@ -33,8 +33,12 @@ func (m *mockHandler) HandleSessionNew(_ context.Context, _ acp.SessionNewParams
 	return &acp.SessionNewResult{SessionID: "test-session"}, nil
 }
 
-func (m *mockHandler) HandleSessionLoad(_ context.Context, _ acp.SessionLoadParams) error {
-	return nil
+func (m *mockHandler) HandleSessionLoad(_ context.Context, _ acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+	return &acp.SessionLoadResult{}, nil
+}
+
+func (m *mockHandler) HandleSessionList(_ context.Context, _ acp.SessionListParams) (*acp.SessionListResult, error) {
+	return &acp.SessionListResult{Sessions: nil}, nil
 }
 
 func (m *mockHandler) HandleSessionPrompt(_ context.Context, _ acp.SessionPromptParams) (*acp.SessionPromptResult, error) {

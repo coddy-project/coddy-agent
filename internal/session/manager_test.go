@@ -8,6 +8,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -38,6 +39,21 @@ func noopRunner(context.Context, *session.State, []acp.ContentBlock) (string, er
 	return string(acp.StopReasonEndTurn), nil
 }
 
+func TestInitializeWithoutPersistenceOmitsLoadAndList(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "/tmp", nil)
+	res, err := m.HandleInitialize(context.Background(), acp.InitializeParams{ProtocolVersion: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AgentCapabilities.LoadSession {
+		t.Fatal("expected LoadSession false without store")
+	}
+	if res.AgentCapabilities.SessionCapabilities != nil {
+		t.Fatal("expected SessionCapabilities omitted without store")
+	}
+}
+
 func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 	defaultDir := t.TempDir()
 	want, err := filepath.Abs(defaultDir)
@@ -50,7 +66,7 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 		return string(acp.StopReasonEndTurn), nil
 	}
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultDir)
+	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultDir, nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: ""})
 	if err != nil {
@@ -69,7 +85,7 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 
 func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -115,7 +131,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 
 func TestManagerSetConfigOptionModel(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -147,7 +163,7 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -182,7 +198,7 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "")
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -196,5 +212,64 @@ func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown model id")
+	}
+}
+
+func TestManagerPersistMessagesAndReload(t *testing.T) {
+	root := t.TempDir()
+	store := &session.FileStore{Root: root}
+	cfg := testConfig()
+
+	persistRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "u"})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "a"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+
+	m1 := session.NewManager(cfg, noopSender{}, persistRunner, slog.Default(), "/tmp", store)
+	ctx := context.Background()
+	res1, err := m1.HandleSessionNew(ctx, acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := res1.SessionID
+	if _, err := m1.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: id,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "ignored-by-test-runner"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := store.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) != 2 {
+		t.Fatalf("expected 2 persisted messages after prompt, got %d", len(snap.Messages))
+	}
+
+	var afterReload int
+	peekRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+		afterReload = len(st.GetMessages())
+		return string(acp.StopReasonEndTurn), nil
+	}
+
+	m2 := session.NewManager(cfg, noopSender{}, peekRunner, slog.Default(), "/tmp", store)
+	if _, err := m2.HandleSessionLoad(ctx, acp.SessionLoadParams{
+		SessionID:  id,
+		CWD:        "/tmp",
+		MCPServers: nil,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m2.HandleSessionPrompt(ctx, acp.SessionPromptParams{
+		SessionID: id,
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "check"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if afterReload != 2 {
+		t.Fatalf("session/load should restore 2 persisted messages before turn runs, got %d", afterReload)
 	}
 }
