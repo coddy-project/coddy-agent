@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version
+.PHONY: build build-memory build-acp test lint clean install print-version
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
 # else abbreviated commit (only if this is a git checkout), else "dev".
@@ -12,6 +12,7 @@ LDFLAGS := -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(V
 
 BUILD_DIR := build
 BINARY := $(BUILD_DIR)/coddy
+BINARY_MEMORY := $(BUILD_DIR)/coddy-memory
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -20,6 +21,11 @@ BINARY := $(BUILD_DIR)/coddy
 build:
 	@mkdir -p $(BUILD_DIR)
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/coddy/
+
+# Same as build but links the long-term memory copilot (larger binary, extra LLM calls when memory.enabled).
+build-memory:
+	@mkdir -p $(BUILD_DIR)
+	go build -tags memory -ldflags "$(LDFLAGS)" -o $(BINARY_MEMORY) ./cmd/coddy/
 
 # Print the same version string embedded by `make build` (for manual go build -ldflags).
 print-version:

@@ -46,6 +46,8 @@ make build
 go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" -o coddy ./cmd/coddy/
 ```
 
+Optional **long-term memory** copilot (separate LLM passes, extra code). Default `make build` does not compile it. Use `make build-memory` to produce `build/coddy-memory` (or `go build -tags memory ...`). Details live in `external/memory/README.md`.
+
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
 The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--log-output`, `--log-file`, `--log-format`, `--home`, `--cwd`, and `--config`.

@@ -14,4 +14,5 @@ type Config struct {
 	Tools      Tools             `yaml:"tools"`
 	Logger     Logger            `yaml:"logger"`
 	Sessions   Sessions          `yaml:"sessions"`
+	Memory     MemoryConfig      `yaml:"memory"`
 }

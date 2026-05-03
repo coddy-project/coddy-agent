@@ -96,6 +96,18 @@ tools:
     - "git diff"
     - "git log"
 
+# Long-term memory copilot (only when the binary is built with -tags memory, see Makefile build-memory).
+# Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
+# same {{.Memory}} section as session notes; main agent never sees memory_* tools.
+# memory:
+#   enabled: false
+#   model: "" # optional selector from models[]; empty uses the active agent model
+#   dir: "" # default ${CODDY_HOME}/memory when empty
+#   recall_max_turns: 6
+#   persist_max_turns: 4
+#   copilot_max_tokens: 4096
+#   max_search_hits: 8
+
 logger:
   level: "info"
   # outputs: ["stderr"]          # default when omitted

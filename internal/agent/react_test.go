@@ -56,3 +56,16 @@ func TestExtractCommand(t *testing.T) {
 		t.Fatalf("invalid json: got %q", g)
 	}
 }
+
+func TestFormatMergedMemory(t *testing.T) {
+	if g := formatMergedMemory("", "facts"); g != "facts" {
+		t.Fatalf("got %q", g)
+	}
+	if g := formatMergedMemory("note", ""); g != "Session notes:\nnote" {
+		t.Fatalf("got %q", g)
+	}
+	want := "facts\n\nSession notes:\nnote"
+	if g := formatMergedMemory("note", "facts"); g != want {
+		t.Fatalf("got %q want %q", g, want)
+	}
+}

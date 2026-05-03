@@ -34,6 +34,9 @@ type SessionState interface {
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
+	GetMemoryCopilotBlock() string
+	SetMemoryCopilotBlock(text string)
+	ClearMemoryCopilotBlock()
 	GetPlan() []acp.PlanEntry
 	SetPlan([]acp.PlanEntry)
 	GetPersistedSessionDir() string
@@ -64,8 +67,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	mode := a.state.GetMode()
 
 	// Build the user message from prompt content blocks.
+	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 	a.state.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText})
+	a.runMemoryRecall(ctx, userText)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -196,6 +201,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 		// If no tool calls, we're done.
 		if len(response.ToolCalls) == 0 {
+			a.runMemoryPersist(ctx, userText, response.Content)
 			stopReason := response.StopReason
 			if stopReason == "" || stopReason == "end_turn" {
 				return string(acp.StopReasonEndTurn), nil
@@ -355,14 +361,26 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	todoMD := strings.TrimSpace(todo.FormatTodoMarkdown(a.state.GetPlan()))
+	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
 	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
 		CWD:      a.state.GetCWD(),
 		Skills:   skills.BuildSystemPromptSection(activeSkills),
 		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory:   strings.TrimSpace(a.state.GetAgentMemory()),
+		Memory:   mem,
 		TodoList: todoMD,
 		UTCNow:   time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func formatMergedMemory(sessionNotes, recall string) string {
+	var parts []string
+	if recall != "" {
+		parts = append(parts, recall)
+	}
+	if sessionNotes != "" {
+		parts = append(parts, "Session notes:\n"+sessionNotes)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // buildMessages constructs the message slice to send to the LLM.

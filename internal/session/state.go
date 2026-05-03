@@ -53,6 +53,9 @@ type State struct {
 	// AgentMemory is optional session notes included in the system prompt template (.Memory).
 	AgentMemory string
 
+	// MemoryCopilotBlock is per-turn text from the memory copilot (not persisted to session.json).
+	MemoryCopilotBlock string
+
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
@@ -196,6 +199,27 @@ func (s *State) SetAgentMemory(text string) {
 	s.AgentMemory = text
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// GetMemoryCopilotBlock returns ephemeral recall text for the current user turn.
+func (s *State) GetMemoryCopilotBlock() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.MemoryCopilotBlock
+}
+
+// SetMemoryCopilotBlock sets recall text for this turn only (no disk persist).
+func (s *State) SetMemoryCopilotBlock(text string) {
+	s.mu.Lock()
+	s.MemoryCopilotBlock = text
+	s.mu.Unlock()
+}
+
+// ClearMemoryCopilotBlock clears recall text before a new user turn.
+func (s *State) ClearMemoryCopilotBlock() {
+	s.mu.Lock()
+	s.MemoryCopilotBlock = ""
+	s.mu.Unlock()
 }
 
 // GetPlan returns a copy of the current plan entries.
