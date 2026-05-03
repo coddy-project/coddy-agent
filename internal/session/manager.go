@@ -59,7 +59,7 @@ func (m *Manager) SetServer(server acp.UpdateSender) {
 // ---- acp.Handler implementation ----
 
 func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParams) (*acp.InitializeResult, error) {
-	m.log.Info("initialize", "client", params.ClientInfo, "version", params.ProtocolVersion)
+	m.log.Info("initialize", "client", params.ClientInfo, "protocolVersion", params.ProtocolVersion, "agentVersion", version.Get())
 	return &acp.InitializeResult{
 		ProtocolVersion: acp.ProtocolVersion,
 		AgentCapabilities: acp.AgentCapabilities{

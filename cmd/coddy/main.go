@@ -138,6 +138,7 @@ func runACP(args []string) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: parseLogLevel(*logLevel),
 	}))
+	log.Info("starting ACP server", "version", version.Get())
 
 	var srv *acp.Server
 	ref := &serverRef{p: &srv}
