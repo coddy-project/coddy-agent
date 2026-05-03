@@ -61,10 +61,10 @@ var defaultPlanPrompt string
 
 // Render renders the prompt template for the given mode with the provided data.
 // promptsDir must be empty to use built-in templates; otherwise it is a directory that
-// contains agent.md and/or plan.md (see file names for each mode).
+// contains the files named agentFile and planFile (for example agent.md and plan.md).
 // mode must be "agent" or "plan". Unknown modes use the agent template file.
-func Render(mode, promptsDir string, data TemplateData) (string, error) {
-	src, err := loadSource(mode, promptsDir)
+func Render(mode, promptsDir, agentFile, planFile string, data TemplateData) (string, error) {
+	src, err := loadSource(mode, promptsDir, agentFile, planFile)
 	if err != nil {
 		return "", err
 	}
@@ -83,8 +83,8 @@ func Render(mode, promptsDir string, data TemplateData) (string, error) {
 }
 
 // RenderWithFallback renders the prompt and returns a safe default on error.
-func RenderWithFallback(mode, promptsDir string, data TemplateData) string {
-	s, err := Render(mode, promptsDir, data)
+func RenderWithFallback(mode, promptsDir, agentFile, planFile string, data TemplateData) string {
+	s, err := Render(mode, promptsDir, agentFile, planFile, data)
 	if err != nil {
 		return fallbackPrompt(mode, data.CWD)
 	}
@@ -110,13 +110,21 @@ func fileNameForMode(mode string) string {
 }
 
 // loadSource returns the template source: files from promptsDir when set, built-in otherwise.
-func loadSource(mode, promptsDir string) (string, error) {
+func loadSource(mode, promptsDir, agentFile, planFile string) (string, error) {
 	dir := strings.TrimSpace(promptsDir)
 	if dir == "" {
 		return DefaultSource(mode), nil
 	}
 
-	path := filepath.Join(dir, fileNameForMode(mode))
+	fn := strings.TrimSpace(agentFile)
+	if mode == "plan" {
+		fn = strings.TrimSpace(planFile)
+	}
+	if fn == "" {
+		fn = fileNameForMode(mode)
+	}
+
+	path := filepath.Join(dir, fn)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read prompt file %q: %w", path, err)

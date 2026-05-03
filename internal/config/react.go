@@ -10,8 +10,10 @@ const (
 
 // React is the YAML react section (key react).
 type React struct {
-	MaxTurns         int `yaml:"max_turns"`
-	MaxTokensPerTurn int `yaml:"max_tokens_per_turn"`
+	// Model is the models[].id used for LLM calls until the session overrides the model in the client.
+	Model            string `yaml:"model"`
+	MaxTurns         int    `yaml:"max_turns"`
+	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
 }
 
 // ApplyDefaults sets MaxTurns and MaxTokensPerTurn when they are zero.

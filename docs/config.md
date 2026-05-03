@@ -17,56 +17,63 @@ The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **
 Agent name, title, and build version are not configurable here. They are fixed in the binary and reported during ACP `initialize` (`internal/acp` and `internal/version`).
 
 ```yaml
-# LLM model configuration (Go: config.ModelsConfig, internal/config/models.go)
+# LLM backends (Go: []config.ProviderConfig, internal/config/providers.go)
+providers:
+  - name: "openai"
+    type: "openai"
+    api_key: "${OPENAI_API_KEY}"
+    # api_base: ""                    # optional override for OpenAI-compatible base URL
+
+  - name: "anthropic"
+    type: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}"
+
+  - name: "local"
+    type: "ollama"
+    api_base: "http://localhost:11434"
+    api_key: ""
+
+  - name: "deepseek"
+    type: "openai_compatible"
+    api_base: "https://api.deepseek.com/v1"
+    api_key: "${DEEPSEEK_API_KEY}"
+
+# Logical models (Go: []config.ModelEntry, internal/config/models.go).
+# Each id appears as a selectable model in ACP clients. provider must match providers[].name.
 models:
-  # Default model used when no mode-specific override is set
-  default: "openai/gpt-4o"
+  - id: "openai/gpt-4o"
+    provider: "openai"
+    model: "gpt-4o"
+    max_tokens: 8192
+    temperature: 0.2
 
-  # Per-mode model overrides
-  agent_mode: "openai/gpt-4o"
-  plan_mode: "anthropic/claude-3-5-sonnet"
+  - id: "anthropic/claude-3-5-sonnet"
+    provider: "anthropic"
+    model: "claude-3-5-sonnet-20241022"
+    max_tokens: 8192
+    temperature: 0.2
 
-  # Each entry in definitions appears as a selectable model in ACP clients (Session Config Options).
-  # The session uses agent_mode / plan_mode / default until the user picks another model in the client.
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "${OPENAI_API_KEY}"      # env var reference
-      max_tokens: 8192
-      temperature: 0.2
-      base_url: ""                      # optional, for OpenAI-compatible APIs
+  - id: "local/qwen"
+    provider: "local"
+    model: "qwen2.5-coder:14b"
+    max_tokens: 4096
+    temperature: 0.1
 
-    - id: "anthropic/claude-3-5-sonnet"
-      provider: "anthropic"
-      model: "claude-3-5-sonnet-20241022"
-      api_key: "${ANTHROPIC_API_KEY}"
-      max_tokens: 8192
-      temperature: 0.2
-
-    - id: "local/qwen"
-      provider: "ollama"
-      model: "qwen2.5-coder:14b"
-      base_url: "http://localhost:11434"
-      max_tokens: 4096
-      temperature: 0.1
-
-    - id: "custom/deepseek"
-      provider: "openai_compatible"
-      model: "deepseek-coder-v2"
-      api_key: "${DEEPSEEK_API_KEY}"
-      base_url: "https://api.deepseek.com/v1"
-      max_tokens: 8192
-      temperature: 0.1
+  - id: "custom/deepseek"
+    provider: "deepseek"
+    model: "deepseek-coder-v2"
+    max_tokens: 8192
+    temperature: 0.1
 
 # ReAct loop settings (Go: config.React, internal/config/react.go)
 react:
+  model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
 
-# System prompt templates (agent.md and plan.md)
+# System prompt templates
 prompts:
-  # Empty = use embedded defaults. Otherwise a directory containing those two files.
+  # Empty dir = use embedded defaults. Otherwise a directory containing the files named below.
   #
   # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is config.Prompts in internal/config/prompts.go.
   #   {{.CWD}}      - session working directory
@@ -79,6 +86,8 @@ prompts:
   # Built-in templates order: Tools, Skills, optional TodoList block, Memory, trailing Current UTC time. The checklist section is emitted
   # only when the session plan is non-empty.
   dir: ""
+  agent_prompt: "agent.md"     # optional; default agent.md
+  plan_prompt: "plan.md"       # optional; default plan.md
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
@@ -154,22 +163,29 @@ Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expand
 
 ## Model Provider Reference
 
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`openai_compatible`**, **`anthropic`**, **`ollama`**.
+
+YAML split:
+
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (OpenAI-compatible base URL, Ollama host without **`/v1`**, etc.).
+- **`models`**: **`id`** (session selector and **`react.model`** value), **`provider`** (references **`providers[].name`**), **`model`** (API model id; omit to default to **`id`**), **`max_tokens`**, **`temperature`**.
+
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
 
-Required fields: `api_key`, `model`
+Provider needs **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.
 
 ### `anthropic`
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`
 
-Required fields: `api_key`, `model`
+Provider needs **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.
 
 ### `ollama`
 Local Ollama instance. Supports any model installed via `ollama pull`.
 
-Required fields: `model`, `base_url` (default: `http://localhost:11434`)
+Provider **`api_base`**: host root, for example **`http://localhost:11434`** (default inside the client if empty). Model entry sets the Ollama model name in **`model`**.
 
 ### `openai_compatible`
-Any API with OpenAI-compatible endpoints (DeepSeek, Together, Groq, LM Studio, etc.)
+Any API with OpenAI-compatible chat endpoints (DeepSeek, Together, Groq, LM Studio, etc.)
 
-Required fields: `api_key`, `model`, `base_url`
+Provider needs **`api_base`** (for example **`https://api.deepseek.com/v1`**) and **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.

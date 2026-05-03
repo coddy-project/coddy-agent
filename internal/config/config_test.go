@@ -53,17 +53,20 @@ func TestLoadFromYAML_EndToEnd(t *testing.T) {
 	t.Setenv(config.EnvCODDYHome, home)
 
 	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "test-key"
+
 models:
-  default: "openai/gpt-4o"
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "test-key"
-      max_tokens: 4096
-      temperature: 0.1
+  - id: "openai/gpt-4o"
+    provider: openai
+    model: "gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
 
 react:
+  model: "openai/gpt-4o"
   max_turns: 7
 
 prompts:
@@ -100,8 +103,11 @@ logger:
 		t.Fatal("expected Paths.ConfigPath set")
 	}
 
-	if cfg.Models.Default != "openai/gpt-4o" {
-		t.Errorf("models.default: got %q", cfg.Models.Default)
+	if len(cfg.Models) != 1 || cfg.Models[0].ID != "openai/gpt-4o" {
+		t.Errorf("models: got %+v", cfg.Models)
+	}
+	if cfg.React.Model != "openai/gpt-4o" {
+		t.Errorf("react.model: got %q", cfg.React.Model)
 	}
 	if cfg.React.MaxTurns != 7 {
 		t.Errorf("react.max_turns: got %d want 7", cfg.React.MaxTurns)
@@ -172,15 +178,20 @@ func TestLoadFromCLIWhenConfigMissing_AppliesDefaults(t *testing.T) {
 
 func TestLoadLegacyLoggerFileAddsOutputs(t *testing.T) {
 	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
 models:
-  default: "openai/gpt-4o"
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "k"
-      max_tokens: 4096
-      temperature: 0.1
+  - id: "openai/gpt-4o"
+    provider: openai
+    model: "gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+react:
+  model: "openai/gpt-4o"
 
 logger:
   level: "info"
@@ -208,15 +219,21 @@ logger:
 
 func TestLoadRejectsInvalidLogger(t *testing.T) {
 	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+
 models:
-  default: "openai/gpt-4o"
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "k"
-      max_tokens: 4096
-      temperature: 0.1
+  - id: "openai/gpt-4o"
+    provider: openai
+    model: "gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+react:
+  model: "openai/gpt-4o"
+
 logger:
   level: "not-a-real-level"
 `
@@ -238,12 +255,18 @@ func TestEnvVarExpansionInYAML(t *testing.T) {
 	t.Setenv("TEST_API_KEY", "secret-key-123")
 
 	content := `
+providers:
+  - name: openai
+    type: openai
+    api_key: "${TEST_API_KEY}"
+
 models:
-  definitions:
-    - id: "test"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "${TEST_API_KEY}"
+  - id: "test"
+    provider: openai
+    model: "gpt-4o"
+
+react:
+  model: "test"
 `
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
@@ -255,47 +278,14 @@ models:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cfg.Models.Defs) == 0 {
+	if len(cfg.Providers) != 1 || cfg.Providers[0].APIKey != "secret-key-123" {
+		t.Errorf("provider api_key: got %+v", cfg.Providers)
+	}
+	if len(cfg.Models) == 0 {
 		t.Fatal("expected model definitions")
 	}
-	if cfg.Models.Defs[0].APIKey != "secret-key-123" {
-		t.Errorf("api_key: got %q", cfg.Models.Defs[0].APIKey)
-	}
-}
-
-func TestModelSelectionHelpers(t *testing.T) {
-	cfg := &config.Config{
-		Models: config.ModelsConfig{
-			Default: "openai/gpt-4o",
-			Defs: []config.ModelDefinition{
-				{ID: "openai/gpt-4o", Provider: "openai", Model: "gpt-4o"},
-				{ID: "local/qwen", Provider: "ollama", Model: "qwen2.5-coder"},
-			},
-			AgentMode: "openai/gpt-4o",
-			PlanMode:  "anthropic/claude-3-5",
-		},
-	}
-
-	def, err := cfg.FindModelDef("openai/gpt-4o")
-	if err != nil || def.Provider != "openai" {
-		t.Fatalf("FindModelDef openai: %v %+v", err, def)
-	}
-	def, err = cfg.FindModelDef("local/qwen")
-	if err != nil || def.Model != "qwen2.5-coder" {
-		t.Fatalf("FindModelDef qwen: %v %+v", err, def)
-	}
-	if _, err := cfg.FindModelDef("nonexistent"); err == nil {
-		t.Fatal("expected error for missing model")
-	}
-
-	if got := cfg.ModelForMode("agent"); got != "openai/gpt-4o" {
-		t.Errorf("ModelForMode agent: %q", got)
-	}
-	if got := cfg.ModelForMode("plan"); got != "anthropic/claude-3-5" {
-		t.Errorf("ModelForMode plan: %q", got)
-	}
-	if got := cfg.ModelForMode("unknown"); got != "openai/gpt-4o" {
-		t.Errorf("ModelForMode unknown: %q", got)
+	if cfg.Models[0].ID != "test" {
+		t.Errorf("model id: got %q", cfg.Models[0].ID)
 	}
 }
 

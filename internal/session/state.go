@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -33,7 +34,7 @@ type State struct {
 	// Mode is the current operating mode.
 	Mode Mode
 
-	// SelectedModelID overrides models.agent_mode / models.plan_mode / models.default for LLM
+	// SelectedModelID overrides react.model for LLM calls when non-empty.
 	// when non-empty. Empty means use config defaults for the current mode.
 	SelectedModelID string
 
@@ -143,25 +144,24 @@ func (s *State) SetSelectedModelID(id string) {
 func (s *State) EffectiveModelID(cfg *config.Config) string {
 	s.mu.RLock()
 	sel := s.SelectedModelID
-	mode := string(s.Mode)
 	s.mu.RUnlock()
 	if sel != "" {
 		return normalizeModelID(cfg, sel)
 	}
-	return normalizeModelID(cfg, cfg.ModelForMode(mode))
+	return normalizeModelID(cfg, strings.TrimSpace(cfg.React.Model))
 }
 
 func normalizeModelID(cfg *config.Config, id string) string {
 	if id == "" {
 		return ""
 	}
-	for i := range cfg.Models.Defs {
-		if cfg.Models.Defs[i].ID == id {
+	for i := range cfg.Models {
+		if cfg.Models[i].ID == id {
 			return id
 		}
 	}
-	if len(cfg.Models.Defs) > 0 {
-		return cfg.Models.Defs[0].ID
+	if len(cfg.Models) > 0 {
+		return cfg.Models[0].ID
 	}
 	return id
 }

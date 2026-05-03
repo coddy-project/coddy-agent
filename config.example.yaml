@@ -1,43 +1,40 @@
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+
+  # Local Ollama (OpenAI-compatible)
+  # - name: local
+  #   type: ollama
+  #   api_base: "http://localhost:11434"
+  #   api_key: ""
+
+  # Anthropic
+  # - name: anthropic
+  #   type: anthropic
+  #   api_key: "${ANTHROPIC_API_KEY}"
+
+  # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
+  # - name: deepseek
+  #   type: openai_compatible
+  #   api_base: "https://api.deepseek.com/v1"
+  #   api_key: "${DEEPSEEK_API_KEY}"
+
 models:
-  default: "openai/gpt-4o"
-  agent_mode: "openai/gpt-4o"
-  plan_mode: "openai/gpt-4o"
+  - id: "openai/gpt-4o"
+    provider: openai
+    model: "gpt-4o"
+    max_tokens: 8192
+    temperature: 0.2
 
-  # Listed models are exposed to ACP clients as the session "model" selector (Session Config Options).
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "${OPENAI_API_KEY}"
-      max_tokens: 8192
-      temperature: 0.2
-
-    # Anthropic example
-    # - id: "anthropic/claude-3-5-sonnet"
-    #   provider: "anthropic"
-    #   model: "claude-3-5-sonnet-20241022"
-    #   api_key: "${ANTHROPIC_API_KEY}"
-    #   max_tokens: 8192
-    #   temperature: 0.2
-
-    # Local Ollama example
-    # - id: "local/qwen"
-    #   provider: "ollama"
-    #   model: "qwen2.5-coder:14b"
-    #   base_url: "http://localhost:11434"
-    #   max_tokens: 4096
-    #   temperature: 0.1
-
-    # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
-    # - id: "deepseek/coder"
-    #   provider: "openai_compatible"
-    #   model: "deepseek-coder-v2"
-    #   api_key: "${DEEPSEEK_API_KEY}"
-    #   base_url: "https://api.deepseek.com/v1"
-    #   max_tokens: 8192
-    #   temperature: 0.1
+  # - id: "gpt-oss:120b"
+  #   provider: local
+  #   model: "gpt-oss:120b"
+  #   max_tokens: 8192
+  #   temperature: 0.2
 
 react:
+  model: "openai/gpt-4o"
   max_turns: 30
   max_tokens_per_turn: 200000
 
@@ -47,11 +44,14 @@ sessions:
   dir: ""
 
 prompts:
-  # Directory containing agent.md and plan.md (Go text/template).
+  # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).
   # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
   # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/config.md)
   dir: ""
+  # File names inside prompts.dir (defaults: agent.md, plan.md)
+  # agent_prompt: "agent.md"
+  # plan_prompt: "plan.md"
 
 skills:
   # install_dir is used by coddy skills install / coddy skills uninstall.

@@ -91,7 +91,7 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`agent.go`**):
 
 1. Loads mode-appropriate tool definitions (built-ins plus MCP) and filters by **`ToolsForMode`**.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded **`agent.md`** / **`plan.md`** or files under **`prompts.dir`**. Template data includes **`CWD`**, tools markdown, skills markdown (that order in stock templates), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown (that order in stock templates), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.

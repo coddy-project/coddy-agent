@@ -12,8 +12,13 @@ import (
 // Deterministic clock value for built-in template tests (RFC3339 UTC).
 const fixtureUTC = "2038-01-19T03:14:07Z"
 
+const (
+	defaultAgentTplFile = "agent.md"
+	defaultPlanTplFile  = "plan.md"
+)
+
 func TestRenderAgentPrompt(t *testing.T) {
-	result, err := prompts.Render("agent", "", prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/home/user/project",
 		UTCNow: fixtureUTC,
 	})
@@ -38,7 +43,7 @@ func TestRenderAgentPrompt(t *testing.T) {
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
-	result, err := prompts.Render("plan", "", prompts.TemplateData{
+	result, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/tmp/workspace",
 		UTCNow: fixtureUTC,
 	})
@@ -63,7 +68,7 @@ func TestRenderPlanPrompt(t *testing.T) {
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
-	result, err := prompts.Render("agent", "", prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Rules\n\nstub",
 		Tools:  "- `read_file`: read",
@@ -81,7 +86,7 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 }
 
 func TestRenderEmptyOptionalSections(t *testing.T) {
-	result, err := prompts.Render("agent", "", prompts.TemplateData{
+	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		UTCNow: fixtureUTC,
 	})
@@ -104,7 +109,7 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 
 func TestRenderTodoListWhenNonempty(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+	a, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
 	}
@@ -112,12 +117,28 @@ func TestRenderTodoListWhenNonempty(t *testing.T) {
 		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
 	}
 
-	p, err := prompts.Render("plan", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
+	p, err := prompts.Render("plan", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render plan: %v", err)
 	}
 	if !strings.Contains(p, "### Current todo checklist") || !strings.Contains(p, todoMd) {
 		t.Errorf("expected injected todo markdown in plan prompt, got excerpt: %.200s", p)
+	}
+}
+
+func TestRenderUsesCustomTemplateFilenames(t *testing.T) {
+	customAgent := "my-agent.tpl"
+	body := "Hello {{.CWD}}\n"
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, customAgent), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := prompts.Render("agent", tmp, customAgent, "ignored-plan.tpl", prompts.TemplateData{CWD: "/x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Hello /x" {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -129,7 +150,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := prompts.Render("agent", tmp, prompts.TemplateData{
+	result, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/my/project",
 		Skills: "S1",
 	})
@@ -143,7 +164,7 @@ func TestRenderCustomPromptDir(t *testing.T) {
 
 func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 	tmp := t.TempDir()
-	_, err := prompts.Render("agent", tmp, prompts.TemplateData{
+	_, err := prompts.Render("agent", tmp, defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD: "/project",
 	})
 	if err == nil {
@@ -152,8 +173,8 @@ func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 }
 
 func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
-	agent, _ := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
-	unknown, err := prompts.Render("unknown_mode", "", prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	agent, _ := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	unknown, err := prompts.Render("unknown_mode", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
@@ -190,7 +211,7 @@ func TestDefaultSource(t *testing.T) {
 }
 
 func TestRenderWithFallbackNoPanic(t *testing.T) {
-	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", prompts.TemplateData{CWD: "/p"})
+	result := prompts.RenderWithFallback("agent", "/nonexistent/prompt-dir", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/p"})
 	if result == "" {
 		t.Error("RenderWithFallback should return non-empty string even on error")
 	}

@@ -100,6 +100,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Sessions.Validate(); err != nil {
 		return fmt.Errorf("sessions: %w", err)
 	}
+	if err := cfg.ValidateModelsProvidersAndReact(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -125,27 +128,27 @@ func applyDefaults(cfg *Config) {
 		return ExpandCODDYHomeOnly(s, p)
 	})
 
-	if cfg.Models.Default == "" && len(cfg.Models.Defs) == 0 {
+	if len(cfg.Providers) == 0 && len(cfg.Models) == 0 {
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-			cfg.Models.Default = "openai/gpt-5.4"
-			cfg.Models.Defs = []ModelDefinition{{
+			cfg.Providers = []ProviderConfig{{Name: "openai", Type: "openai", APIKey: key}}
+			cfg.Models = []ModelEntry{{
 				ID:          "openai/gpt-5.4",
 				Provider:    "openai",
 				Model:       "gpt-5.4",
-				APIKey:      key,
 				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
+			cfg.React.Model = "openai/gpt-5.4"
 		} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-			cfg.Models.Default = "anthropic/claude-sonnet-4-6"
-			cfg.Models.Defs = []ModelDefinition{{
+			cfg.Providers = []ProviderConfig{{Name: "anthropic", Type: "anthropic", APIKey: key}}
+			cfg.Models = []ModelEntry{{
 				ID:          "anthropic/claude-sonnet-4-6",
 				Provider:    "anthropic",
 				Model:       "claude-sonnet-4-6",
-				APIKey:      key,
 				MaxTokens:   16384,
 				Temperature: 0.2,
 			}}
+			cfg.React.Model = "anthropic/claude-sonnet-4-6"
 		}
 	}
 }
@@ -163,37 +166,6 @@ func (c *Config) ResolvedSessionsRoot() string {
 		return filepath.Join(".coddy", "sessions")
 	}
 	return filepath.Join(home, ".coddy", "sessions")
-}
-
-// FindModelDef returns the model definition for a given model ID.
-func (c *Config) FindModelDef(id string) (*ModelDefinition, error) {
-	for i := range c.Models.Defs {
-		if c.Models.Defs[i].ID == id {
-			return &c.Models.Defs[i], nil
-		}
-	}
-	return nil, fmt.Errorf("model %q not found in config", id)
-}
-
-// ModelForMode returns the model ID to use for the given mode.
-func (c *Config) ModelForMode(mode string) string {
-	switch mode {
-	case "agent":
-		if c.Models.AgentMode != "" {
-			return c.Models.AgentMode
-		}
-	case "plan":
-		if c.Models.PlanMode != "" {
-			return c.Models.PlanMode
-		}
-	}
-	if c.Models.Default != "" {
-		return c.Models.Default
-	}
-	if len(c.Models.Defs) > 0 {
-		return c.Models.Defs[0].ID
-	}
-	return ""
 }
 
 // ExpandCWD replaces ${CWD} in s, then expands ~, using the given session or process cwd.

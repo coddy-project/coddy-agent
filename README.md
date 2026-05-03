@@ -149,18 +149,20 @@ Full configuration reference in [docs/config.md](docs/config.md).
 Key settings:
 
 ```yaml
-models:
-  default: "openai/gpt-4o"
-  agent_mode: "openai/gpt-4o"
-  plan_mode: "anthropic/claude-3-5-sonnet"
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
 
-  definitions:
-    - id: "openai/gpt-4o"
-      provider: "openai"
-      model: "gpt-4o"
-      api_key: "${OPENAI_API_KEY}"
+models:
+  - id: "openai/gpt-4o"
+    provider: openai
+    model: "gpt-4o"
+    max_tokens: 8192
+    temperature: 0.2
 
 react:
+  model: "openai/gpt-4o"
   max_turns: 30
 
 tools:
@@ -210,7 +212,7 @@ Use **`coddy acp --disable-session`** to avoid writing any bundle (in-memory onl
 
 The todo tools keep the active checklist mirrored to `todos/active.md`. Creating a **new** list while items are incomplete is rejected until you finish items or run **`clean_todo_list`**; replacing an **all-completed** list archives the prior `active.md` into **`todos/archive/`**.
 
-When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the embedded (or **`prompts.dir`**) **`agent.md` / `plan.md`** templates (`{{if .TodoList}}` … `{{end}}`). That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, Coddy refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the system prompt template (embedded defaults, or files under **`prompts.dir`** using **`prompts.agent_prompt`** and **`prompts.plan_prompt`**, which default to **`agent.md`** and **`plan.md`**) via `{{if .TodoList}}` … `{{end}}`. That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, Coddy refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 

@@ -26,7 +26,7 @@ type Manager struct {
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	runner     AgentRunner
-	log *slog.Logger
+	log        *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -443,12 +443,12 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 			m.log.Warn("failed to send mode update", "error", err)
 		}
 	case "model":
-		if len(m.cfg.Models.Defs) == 0 {
+		if len(m.cfg.Models) == 0 {
 			return nil, fmt.Errorf("no models configured")
 		}
 		found := false
-		for i := range m.cfg.Models.Defs {
-			if m.cfg.Models.Defs[i].ID == params.Value {
+		for i := range m.cfg.Models {
+			if m.cfg.Models[i].ID == params.Value {
 				found = true
 				break
 			}

@@ -22,16 +22,17 @@ func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams
 
 func testConfig() *config.Config {
 	return &config.Config{
-		Models: config.ModelsConfig{
-			Default:   "m1",
-			AgentMode: "m1",
-			PlanMode:  "m2",
-			Defs: []config.ModelDefinition{
-				{ID: "m1", Provider: "openai", Model: "gpt-4o"},
-				{ID: "m2", Provider: "openai", Model: "gpt-4o-mini"},
-				{ID: "m3", Provider: "anthropic", Model: "claude-3"},
-			},
+		Providers: []config.ProviderConfig{
+			{Name: "p1", Type: "openai", APIKey: "k"},
+			{Name: "p2", Type: "openai", APIKey: "k"},
+			{Name: "p3", Type: "anthropic", APIKey: "k"},
 		},
+		Models: []config.ModelEntry{
+			{ID: "m1", Provider: "p1", Model: "gpt-4o"},
+			{ID: "m2", Provider: "p2", Model: "gpt-4o-mini"},
+			{ID: "m3", Provider: "p3", Model: "claude-3"},
+		},
+		React: config.React{Model: "m1"},
 	}
 }
 
@@ -190,9 +191,9 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	if modeCur != "plan" {
 		t.Fatalf("expected mode plan, got %q", modeCur)
 	}
-	// No explicit model override: effective model follows plan_mode (m2).
-	if modelCur != "m2" {
-		t.Fatalf("expected effective model m2 for plan mode without override, got %q", modelCur)
+	// No explicit model override: effective model stays react.model (m1).
+	if modelCur != "m1" {
+		t.Fatalf("expected effective model m1 for plan mode without override, got %q", modelCur)
 	}
 }
 

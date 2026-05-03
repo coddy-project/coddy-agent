@@ -224,7 +224,7 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
 }
 ```
 
-The `model` option is present only when `models.definitions` in the agent config is non-empty. The effective default model follows `models.default`, `models.agent_mode`, and `models.plan_mode` as described in [Configuration](config.md).
+The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `react.model` until the user picks another model in the client, as described in [Configuration](config.md).
 
 ### `session/load`
 

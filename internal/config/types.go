@@ -5,7 +5,8 @@ package config
 type Config struct {
 	Paths Paths `yaml:"-"`
 
-	Models     ModelsConfig      `yaml:"models"`
+	Providers  []ProviderConfig  `yaml:"providers"`
+	Models     []ModelEntry      `yaml:"models"`
 	React      React             `yaml:"react"`
 	Prompts    Prompts           `yaml:"prompts"`
 	Skills     Skills            `yaml:"skills"`

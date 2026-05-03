@@ -355,7 +355,7 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	todoMD := strings.TrimSpace(todo.FormatTodoMarkdown(a.state.GetPlan()))
-	return prompts.RenderWithFallback(mode, promptsDir, prompts.TemplateData{
+	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
 		CWD:      a.state.GetCWD(),
 		Skills:   skills.BuildSystemPromptSection(activeSkills),
 		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
@@ -389,12 +389,12 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 		return nil, fmt.Errorf("no model configured")
 	}
 
-	def, err := a.cfg.FindModelDef(modelID)
+	rm, err := a.cfg.ResolveLLM(modelID)
 	if err != nil {
 		return nil, err
 	}
 
-	return llm.NewProvider(def.Provider, def.Model, def.APIKey, def.BaseURL, def.MaxTokens, def.Temperature)
+	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, rm.MaxTokens, rm.Temperature)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.
