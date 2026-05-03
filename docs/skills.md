@@ -8,9 +8,9 @@ system prompt when relevant.
 
 ## Supported File Types
 
-### 1. Cursor Rules (`.cursor/rules/*.md` or `.cursor/rules/*.mdc`)
+### 1. Cursor Rules (`.md` or `.mdc`)
 
-Standard Cursor rule files. Located in the project's `.cursor/rules/` directory.
+Standard Cursor rule files. Place them under any configured skill directory (for example `.skills/` in the project tree).
 
 Format:
 ```markdown
@@ -51,18 +51,16 @@ Skills are discovered by searching for `SKILL.md` files in the configured skill 
 
 ### 3. Plain Markdown Rules
 
-Simple markdown files placed in `.cursor/rules/` without frontmatter are treated as
-always-apply rules.
+Simple markdown files without frontmatter are treated as always-apply rules.
 
 ## Loading Priority
 
-Skills and rules are loaded from multiple sources, in priority order (first wins):
+Directories are scanned in config order (see `skills.dirs` in `docs/config.md`). Built-in defaults when `dirs` is empty are:
 
-1. Files in `${WORKSPACE}/.cursor/rules/` - project-level rules
-2. Files in `${WORKSPACE}/.cursor/skills/` - project-level skills
-3. Files in `~/.cursor/skills/` - user-level global skills
-4. Files in `~/.cursor/skills-cursor/` - cursor-specific skills
-5. Extra files specified in `config.yaml` under `skills.extra_files`
+1. **`${CODDY_HOME}/skills/`** - installed skills (agent home)
+2. **`${CWD}/.skills/`** - project skills (session working directory, same idea as **`CODDY_CWD`** when the client leaves `cwd` empty)
+3. **`~/.cursor/skills/`**
+4. **`~/.claude/skills/`**
 
 ## How Rules Are Applied
 
@@ -75,7 +73,7 @@ When processing a `session/prompt`, the agent:
 
 ## Example Rule File
 
-`.cursor/rules/go-standards.md`:
+`.skills/go-standards.md`:
 ```markdown
 ---
 description: "Go coding standards for this project"

@@ -90,14 +90,6 @@ func printUsage(w *os.File) {
 `, os.Args[0])
 }
 
-func resolveACPSessionDefaultCWD(flag string) (string, error) {
-	raw := strings.TrimSpace(flag)
-	if raw != "" {
-		return filepath.Abs(raw)
-	}
-	return os.Getwd()
-}
-
 func parseLogLevel(s string) slog.Level {
 	switch s {
 	case "debug":
@@ -114,10 +106,11 @@ func parseLogLevel(s string) slog.Level {
 func runACP(args []string) error {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	cfgPath := fs.String("config", "", "path to config.yaml (default: search ~/.config/coddy-agent/config.yaml and ./config.yaml)")
+	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)")
 	logLevel := fs.String("log-level", "info", "debug, info, warn, error")
-	acpCWD := fs.String("cwd", "", "default session working directory when the client sends an empty cwd (default: process current directory)")
-	sessionsRoot := fs.String("sessions-dir", "", "sessions root directory (empty uses $HOME/coddy-agent/sessions)")
+	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
+	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
+	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions_dir or ~/.coddy/sessions)")
 	disableSession := fs.Bool("disable-session", false, "do not write sessions to disk (in-memory only; use for cron and one-shot runs; session/load and session/list unavailable)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	fs.Usage = func() {
@@ -131,12 +124,20 @@ func runACP(args []string) error {
 		return err
 	}
 
-	defaultSessionCWD, err := resolveACPSessionDefaultCWD(*acpCWD)
+	cli := config.CLIPaths{
+		Home:   strings.TrimSpace(*homeDir),
+		CWD:    strings.TrimSpace(*acpCWD),
+		Config: strings.TrimSpace(*cfgPath),
+	}
+	paths, err := config.Resolve(cli)
 	if err != nil {
 		return err
 	}
+	if err := ensureCoddyHomeLayout(paths.Home); err != nil {
+		return err
+	}
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := config.LoadFromCLI(cli)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -150,7 +151,7 @@ func runACP(args []string) error {
 	if *disableSession {
 		log.Info("session persistence disabled", "reason", "disable-session flag")
 	} else {
-		store, err = openSessionStore(*sessionsRoot)
+		store, err = openSessionStore(*sessionsRoot, cfg)
 		if err != nil {
 			return err
 		}
@@ -165,7 +166,7 @@ func runACP(args []string) error {
 		agent := react.NewAgent(cfg, st, ref, log)
 		return agent.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, defaultSessionCWD, store)
+	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)
@@ -179,7 +180,20 @@ func runACP(args []string) error {
 	return srv.Run(ctx, os.Stdin)
 }
 
-func openSessionStore(flagValue string) (*session.FileStore, error) {
+func ensureCoddyHomeLayout(home string) error {
+	if strings.TrimSpace(home) == "" {
+		return nil
+	}
+	for _, name := range []string{"sessions", "skills"} {
+		p := filepath.Join(home, name)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
+func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore, error) {
 	raw := strings.TrimSpace(flagValue)
 	if raw != "" {
 		root, err := filepath.Abs(raw)
@@ -192,13 +206,9 @@ func openSessionStore(flagValue string) (*session.FileStore, error) {
 		return &session.FileStore{Root: root}, nil
 	}
 
-	root, err := session.DefaultCoddySessionsRoot()
-	if err != nil {
-		slog.Warn("session persistence unavailable (no HOME)", "error", err)
-		return nil, nil
-	}
+	root := cfg.ResolvedSessionsRoot()
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("sessions default root mkdir: %w", err)
+		return nil, fmt.Errorf("sessions root mkdir: %w", err)
 	}
 	return &session.FileStore{Root: root}, nil
 }
@@ -211,7 +221,7 @@ func runSessions(args []string) error {
 	case "list":
 		fs := flag.NewFlagSet("sessions list", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
-		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses default $HOME/coddy-agent/sessions)")
+		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config or ~/.coddy/sessions)")
 		cwdFilter := fs.String("cwd", "", "only list sessions saved with this cwd (absolute)")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -219,7 +229,11 @@ func runSessions(args []string) error {
 			}
 			return err
 		}
-		store, err := openSessionStore(*rootFlag)
+		cfg, err := config.LoadFromCLI(config.CLIPaths{})
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		store, err := openSessionStore(*rootFlag, cfg)
 		if err != nil {
 			return err
 		}
@@ -247,7 +261,7 @@ func runSkills(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: %s skills list|install|uninstall ...", os.Args[0])
 	}
-	cfg, err := config.Load("")
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

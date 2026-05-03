@@ -37,27 +37,22 @@ type Skill struct {
 type Loader struct {
 	// Dirs is the list of directories to search for skills.
 	Dirs []string
-
-	// ExtraFiles are specific skill files to always load.
-	ExtraFiles []string
 }
 
 // NewLoader creates a Loader with the given directories.
-func NewLoader(dirs, extraFiles []string) *Loader {
-	return &Loader{
-		Dirs:       dirs,
-		ExtraFiles: extraFiles,
-	}
+func NewLoader(dirs []string) *Loader {
+	return &Loader{Dirs: dirs}
 }
 
 // LoadAll discovers and loads all skills from configured directories.
-func (l *Loader) LoadAll(cwd string) ([]*Skill, error) {
+// cwd is the session working directory (${CWD}). agentHome is CODDY_HOME (${CODDY_HOME}).
+func (l *Loader) LoadAll(cwd, agentHome string) ([]*Skill, error) {
 	var skills []*Skill
 	seen := make(map[string]bool)
 
 	// Load from directories in order.
 	for _, dir := range l.Dirs {
-		expanded := expandPath(dir, cwd)
+		expanded := expandPath(dir, cwd, agentHome)
 		found, err := loadFromDir(expanded)
 		if err != nil {
 			// Skip directories that don't exist.
@@ -69,20 +64,6 @@ func (l *Loader) LoadAll(cwd string) ([]*Skill, error) {
 				skills = append(skills, s)
 			}
 		}
-	}
-
-	// Load extra files.
-	for _, f := range l.ExtraFiles {
-		expanded := expandPath(f, cwd)
-		if seen[expanded] {
-			continue
-		}
-		s, err := loadFile(expanded)
-		if err != nil {
-			continue
-		}
-		seen[expanded] = true
-		skills = append(skills, s)
 	}
 
 	return skills, nil
@@ -272,9 +253,12 @@ func matchesAny(pattern string, files []string) bool {
 	return false
 }
 
-// expandPath resolves ${WORKSPACE} and ~ in a path.
-func expandPath(path, cwd string) string {
-	path = strings.ReplaceAll(path, "${WORKSPACE}", cwd)
+// expandPath resolves ${CODDY_HOME}, ${CWD}, and ~ in a path.
+func expandPath(path, cwd, agentHome string) string {
+	if agentHome != "" {
+		path = strings.ReplaceAll(path, "${CODDY_HOME}", agentHome)
+	}
+	path = strings.ReplaceAll(path, "${CWD}", cwd)
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
 		if err == nil {
@@ -284,7 +268,7 @@ func expandPath(path, cwd string) string {
 	return path
 }
 
-// ExpandConfiguredPath resolves ${WORKSPACE} and ~ the same way as skill loading.
-func ExpandConfiguredPath(path, cwd string) string {
-	return expandPath(path, cwd)
+// ExpandConfiguredPath resolves ${CODDY_HOME}, ${CWD}, and ~ the same way as skill loading.
+func ExpandConfiguredPath(path, cwd, agentHome string) string {
+	return expandPath(path, cwd, agentHome)
 }

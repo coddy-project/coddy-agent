@@ -117,9 +117,9 @@ func TestModelForMode(t *testing.T) {
 	}
 }
 
-func TestExpandWorkspace(t *testing.T) {
-	result := config.ExpandWorkspace("${WORKSPACE}/.cursor/rules", "/home/user/project")
-	if result != "/home/user/project/.cursor/rules" {
+func TestExpandCWD(t *testing.T) {
+	result := config.ExpandCWD("${CWD}/.skills", "/home/user/project")
+	if result != "/home/user/project/.skills" {
 		t.Errorf("unexpected result: %q", result)
 	}
 }
@@ -131,8 +131,8 @@ func TestResolvedPromptsDirEmpty(t *testing.T) {
 	}
 }
 
-func TestResolvedPromptsDirWorkspace(t *testing.T) {
-	p := config.PromptsConfig{Dir: "${WORKSPACE}/prompts"}
+func TestResolvedPromptsDirCWD(t *testing.T) {
+	p := config.PromptsConfig{Dir: "${CWD}/prompts"}
 	got := p.ResolvedPromptsDir("/project/root")
 	want := filepath.Clean("/project/root/prompts")
 	if got != want {

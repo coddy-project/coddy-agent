@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,56 +10,74 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultSearchPaths are the locations searched for config.yaml.
+// DefaultSearchPaths are legacy fallbacks when <Home>/config.yaml is missing.
 var DefaultSearchPaths = []string{
+	"~/.coddy/config.yaml",
 	"~/.config/coddy-agent/config.yaml",
 	"./config.yaml",
 }
 
-// Load reads config from the given path, or searches default locations.
-// After loading, environment variable references (${VAR}) are resolved.
-func Load(path string) (*Config, error) {
-	if path != "" {
-		return loadFile(path)
+// LoadFromCLI resolves paths, searches legacy config locations when needed, and loads YAML.
+func LoadFromCLI(cli CLIPaths) (*Config, error) {
+	paths, err := Resolve(cli)
+	if err != nil {
+		return nil, err
 	}
-
-	for _, p := range DefaultSearchPaths {
-		expanded := expandHome(p)
-		if _, err := os.Stat(expanded); err == nil {
-			return loadFile(expanded)
+	explicitConfig := strings.TrimSpace(cli.Config) != ""
+	if !explicitConfig {
+		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
+			for _, try := range DefaultSearchPaths {
+				candidate := filepath.Clean(ExpandPathVars(strings.TrimSpace(try), paths))
+				if _, err := os.Stat(candidate); err == nil {
+					paths.ConfigPath = candidate
+					break
+				}
+			}
 		}
 	}
-
-	// No config found - return sensible defaults.
-	return defaults(), nil
+	return readConfigFile(paths, explicitConfig)
 }
 
-func loadFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+// Load reads config from the given path, or searches default locations.
+// If path is non-empty, that file must exist. If path is empty, resolution uses env and ~/.coddy/config.yaml.
+func Load(path string) (*Config, error) {
+	return LoadFromCLI(CLIPaths{Config: strings.TrimSpace(path)})
+}
+
+// LoadWithPaths loads YAML from paths.ConfigPath (explicit path semantics: file must exist).
+func LoadWithPaths(paths Paths) (*Config, error) {
+	return readConfigFile(paths, true)
+}
+
+func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
+	data, err := os.ReadFile(paths.ConfigPath)
 	if err != nil {
-		return nil, fmt.Errorf("read config %s: %w", path, err)
+		if explicitFile {
+			return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			cfg := &Config{Paths: paths}
+			applyDefaults(cfg)
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
 	}
 
-	// Expand environment variables in the raw YAML before parsing.
-	expanded := os.ExpandEnv(string(data))
+	expanded := os.ExpandEnv(ExpandPathVars(string(data), paths))
 
 	var cfg Config
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+		return nil, fmt.Errorf("parse config %s: %w", paths.ConfigPath, err)
 	}
+	cfg.Paths = paths
 
 	applyDefaults(&cfg)
 	return &cfg, nil
 }
 
-// defaults returns a minimal working configuration.
-func defaults() *Config {
-	cfg := &Config{}
-	applyDefaults(cfg)
-	return cfg
-}
-
 func applyDefaults(cfg *Config) {
+	p := cfg.Paths
+
 	if cfg.React.MaxTurns == 0 {
 		cfg.React.MaxTurns = 30
 	}
@@ -68,18 +87,35 @@ func applyDefaults(cfg *Config) {
 	if cfg.Log.Level == "" {
 		cfg.Log.Level = "info"
 	}
+
+	if strings.TrimSpace(cfg.SessionsDir) != "" {
+		cfg.SessionsDir = filepath.Clean(ExpandCODDYHomeOnly(cfg.SessionsDir, p))
+	}
+
+	if cfg.Skills.InstallDir == "" {
+		if p.Home != "" {
+			cfg.Skills.InstallDir = filepath.Join(p.Home, "skills")
+		} else {
+			cfg.Skills.InstallDir = expandHome("~/.coddy/skills")
+		}
+	} else {
+		cfg.Skills.InstallDir = filepath.Clean(ExpandCODDYHomeOnly(cfg.Skills.InstallDir, p))
+	}
+
 	if len(cfg.Skills.Dirs) == 0 {
 		cfg.Skills.Dirs = []string{
-			"~/.config/coddy-agent/skills", // agent-specific global skills
+			"${CODDY_HOME}/skills",
+			"${CWD}/.skills",
 			"~/.cursor/skills",
-			"~/.cursor/skills-cursor",
+			"~/.claude/skills",
+		}
+	} else {
+		for i := range cfg.Skills.Dirs {
+			cfg.Skills.Dirs[i] = ExpandCODDYHomeOnly(cfg.Skills.Dirs[i], p)
 		}
 	}
-	if cfg.Skills.InstallDir == "" {
-		cfg.Skills.InstallDir = "~/.config/coddy-agent/skills"
-	}
+
 	if cfg.Models.Default == "" && len(cfg.Models.Defs) == 0 {
-		// Try to build a default from environment.
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
 			cfg.Models.Default = "openai/gpt-5.4"
 			cfg.Models.Defs = []ModelDefinition{{
@@ -102,6 +138,21 @@ func applyDefaults(cfg *Config) {
 			}}
 		}
 	}
+}
+
+// ResolvedSessionsRoot returns the filesystem root for persisted sessions.
+func (c *Config) ResolvedSessionsRoot() string {
+	if strings.TrimSpace(c.SessionsDir) != "" {
+		return filepath.Clean(c.SessionsDir)
+	}
+	if c.Paths.Home != "" {
+		return filepath.Join(c.Paths.Home, "sessions")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".coddy", "sessions")
+	}
+	return filepath.Join(home, ".coddy", "sessions")
 }
 
 // FindModelDef returns the model definition for a given model ID.
@@ -135,22 +186,20 @@ func (c *Config) ModelForMode(mode string) string {
 	return ""
 }
 
-// ExpandWorkspace resolves ${WORKSPACE} in a string to the given cwd.
-func ExpandWorkspace(s, cwd string) string {
-	return strings.ReplaceAll(s, "${WORKSPACE}", cwd)
+// ExpandCWD replaces ${CWD} in s, then expands ~, using the given session or process cwd.
+func ExpandCWD(s, cwd string) string {
+	s = strings.ReplaceAll(s, "${CWD}", cwd)
+	return expandHome(s)
 }
 
-// ResolvedPromptsDir returns the prompts directory with ~ and ${WORKSPACE}
-// expanded for the given session working directory.
+// ResolvedPromptsDir returns the prompts directory with ~ and ${CWD} expanded for the given session cwd.
 // Empty config Dir means callers should pass "" to prompts.Render (embedded defaults).
 func (p PromptsConfig) ResolvedPromptsDir(sessionCWD string) string {
 	d := strings.TrimSpace(p.Dir)
 	if d == "" {
 		return ""
 	}
-	d = expandHome(d)
-	d = ExpandWorkspace(d, sessionCWD)
-	return filepath.Clean(d)
+	return filepath.Clean(ExpandCWD(d, sessionCWD))
 }
 
 // expandHome expands a leading ~ to the user's home directory.

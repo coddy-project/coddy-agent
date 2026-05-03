@@ -143,22 +143,15 @@ Connects to external MCP servers specified in `session/new`. Supports:
 
 Tools from MCP servers are merged into the tools registry for the session.
 
-### Skills & Cursor Rules Loader (`internal/skills`)
+### Skills loader (`internal/skills`)
 
-Reads `.cursor/rules/` and skill files from:
-1. Global skills directory (`~/.cursor/skills/`)
-2. Project-level `.cursor/rules/` in the working directory
-3. Custom skills paths from `config.yaml`
+Loads `SKILL.md` and markdown rules from configured `skills.dirs` (see `docs/skills.md`). Default order is **`${CODDY_HOME}/skills`**, **`${CWD}/.skills`**, **`~/.cursor/skills`**, **`~/.claude/skills`**.
 
-Each skill/rule file is parsed as Markdown and injected into the system prompt
-when relevant (based on glob patterns in the skill's `glob` frontmatter field).
+Each file is parsed as Markdown and injected into the system prompt when relevant (based on glob patterns in frontmatter).
 
 ### Config (`internal/config`)
 
-YAML-based configuration. Location (in priority order):
-1. Path specified by `--config` flag
-2. `~/.config/coddy-agent/config.yaml`
-3. `./config.yaml` in current directory
+YAML-based configuration. Resolution uses **`CODDY_HOME`**, **`CODDY_CWD`**, **`CODDY_CONFIG`**, and CLI flags (see `docs/config.md` and `README.md`).
 
 ## Session Modes
 

@@ -3,6 +3,9 @@ package config
 
 // Config is the root configuration struct.
 type Config struct {
+	// Paths is set by LoadFromCLI / LoadWithPaths from CODDY_HOME, CODDY_CWD, and config path resolution.
+	Paths Paths `yaml:"-"`
+
 	Models     ModelsConfig      `yaml:"models"`
 	React      ReactConfig       `yaml:"react"`
 	Prompts    PromptsConfig     `yaml:"prompts"`
@@ -10,6 +13,9 @@ type Config struct {
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
 	Tools      ToolsConfig       `yaml:"tools"`
 	Log        LogConfig         `yaml:"log"`
+
+	// SessionsDir overrides the directory for persisted session bundles. Empty means <Paths.Home>/sessions.
+	SessionsDir string `yaml:"sessions_dir"`
 }
 
 // ModelsConfig defines model selection and definitions.
@@ -46,16 +52,12 @@ type PromptsConfig struct {
 
 // SkillsConfig controls where skills and rules are loaded from.
 type SkillsConfig struct {
-	// Dirs is the list of directories the agent scans for skills and cursor rules.
-	// Searched in order - project-level dirs take priority over global ones.
+	// Dirs lists directories scanned for SKILL.md and markdown rules. Order is search order.
 	Dirs []string `yaml:"dirs"`
 
 	// InstallDir is used by `coddy skills install` / `coddy skills uninstall`.
-	// Defaults to ~/.config/coddy-agent/skills if empty.
+	// Defaults to $CODDY_HOME/skills when empty.
 	InstallDir string `yaml:"install_dir"`
-
-	// ExtraFiles are specific skill files to always load regardless of Dirs.
-	ExtraFiles []string `yaml:"extra_files"`
 }
 
 // MCPServerConfig defines an MCP server to connect to.

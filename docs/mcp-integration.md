@@ -79,7 +79,7 @@ MCP tool calls follow the same permission model as built-in tools:
 mcp_servers:
   - name: "filesystem"
     command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "${WORKSPACE}"]
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]   # session cwd when the server starts
 ```
 
 ### GitHub

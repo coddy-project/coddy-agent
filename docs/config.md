@@ -1,14 +1,16 @@
 # Configuration Reference
 
-## Config File Location
+## Config File Location and Paths
 
-The agent searches for `config.yaml` in the following order:
+Resolved locations use environment variables and flags (see README). In short:
 
-1. Path provided by `--config /path/to/config.yaml` flag
-2. `$XDG_CONFIG_HOME/coddy-agent/config.yaml` (default: `~/.config/coddy-agent/config.yaml`)
-3. `./config.yaml` in the current working directory
+- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, and `skills/`.
+- **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
+- **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 
-The `coddy acp` subcommand additionally accepts `--cwd` for the filesystem directory used when the ACP client omits `cwd` in `session/new`. Omitting `--cwd` uses the process working directory when the binary starts. See also `--sessions-dir`, `--session-id`, and `--disable-session` (no disk session bundles, e.g. cron) in the README.
+If no **`--config`** is given, the loader reads **`$CODDY_HOME/config.yaml`** when that file exists. Otherwise it falls back in order to **`~/.coddy/config.yaml`**, **`~/.config/coddy-agent/config.yaml`**, then **`./config.yaml`**. If none exist, built-in defaults apply (no error).
+
+The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, **`--session-id`**, and **`--disable-session`**. Optional **`sessions_dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 
 ## Full Configuration Schema
 
@@ -78,18 +80,16 @@ prompts:
   # only when the session plan is non-empty.
   dir: ""
 
-# Skills and Cursor rules directories
+# Skills directories
 skills:
-  # Directories to search for skill files (SKILL.md)
-  # Searched in order - first match wins for glob patterns
+  # Directories to search for skill files (SKILL.md, rules as .md)
+  # Searched in order. When omitted, defaults are
+  # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs:
+    - "${CODDY_HOME}/skills"
+    - "${CWD}/.skills"
     - "~/.cursor/skills"
-    - "~/.cursor/skills-cursor"
-    - "${WORKSPACE}/.cursor/rules"   # WORKSPACE = session cwd
-    - "${WORKSPACE}/.cursor/skills"
-
-  # Explicitly include specific skill files regardless of path
-  extra_files: []
+    - "~/.claude/skills"
 
 # MCP servers available to all sessions (merged with per-session servers from client)
 mcp_servers:
@@ -128,8 +128,12 @@ log:
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
 The agent resolves these at startup.
 
-Special variables:
-- `${WORKSPACE}` - replaced with the session working directory at runtime
+Special variables in YAML (before parse) and in path strings:
+
+- **`${CODDY_HOME}`** - resolved `CODDY_HOME` directory
+- **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
+
+Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expanded using the process **`CODDY_CWD`** and **`CODDY_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
 
 ## Model Provider Reference
 

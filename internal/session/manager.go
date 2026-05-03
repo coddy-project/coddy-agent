@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -27,7 +26,7 @@ type Manager struct {
 	server     acp.UpdateSender
 	skillsLoad *skills.Loader
 	runner     AgentRunner
-	log        *slog.Logger
+	log *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -50,7 +49,7 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		cfg:        cfg,
 		server:     server,
 		runner:     runner,
-		skillsLoad: skills.NewLoader(skillsDirs, cfg.Skills.ExtraFiles),
+		skillsLoad: skills.NewLoader(skillsDirs),
 		log:        log,
 		defaultCWD: defaultCWD,
 		store:      store,
@@ -202,7 +201,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 }
 
 func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd)
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
@@ -214,14 +213,6 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 		Skills:     loadedSkills,
 		SessionDir: sessionDir,
 	}
-
-	projectSkillsDirs := []string{
-		filepath.Join(cwd, ".cursor", "rules"),
-		filepath.Join(cwd, ".cursor", "skills"),
-	}
-	projectLoader := skills.NewLoader(projectSkillsDirs, nil)
-	projectSkills, _ := projectLoader.LoadAll(cwd)
-	state.Skills = append(projectSkills, state.Skills...)
 
 	state.SetPersistHook(m.makePersist(state))
 
@@ -294,17 +285,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd)
+	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
 	if err != nil {
 		m.log.Warn("failed to load skills on session load", "error", err)
 	}
-	projectSkillsDirs := []string{
-		filepath.Join(cwd, ".cursor", "rules"),
-		filepath.Join(cwd, ".cursor", "skills"),
-	}
-	projectLoader := skills.NewLoader(projectSkillsDirs, nil)
-	projectSkills, _ := projectLoader.LoadAll(cwd)
-	loadedSkills = append(projectSkills, loadedSkills...)
 	st.ReplaceSkills(loadedSkills)
 
 	st.SetPersistHook(m.makePersist(st))
@@ -515,12 +499,17 @@ func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config
 		return fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}
 
+	cwd := state.GetCWD()
+	args := make([]string, len(srv.Args))
+	for i, a := range srv.Args {
+		args[i] = config.ExpandCWD(a, cwd)
+	}
 	env := make([]string, len(srv.Env))
 	for i, e := range srv.Env {
-		env[i] = e.Name + "=" + e.Value
+		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
 	}
 
-	client, err := mcp.NewStdioClient(ctx, srv.Name, srv.Command, srv.Args, env, m.log)
+	client, err := mcp.NewStdioClient(ctx, srv.Name, srv.Command, args, env, m.log)
 	if err != nil {
 		return err
 	}

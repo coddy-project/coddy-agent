@@ -48,16 +48,17 @@ func List(cfg *config.Config) error {
 	installDir := resolveInstallDir(cfg)
 	dirs = append([]string{installDir}, dirs...)
 
-	loader := NewLoader(dirs, cfg.Skills.ExtraFiles)
-	loaded, err := loader.LoadAll(".")
+	loader := NewLoader(dirs)
+	home := cfg.Paths.Home
+	loaded, err := loader.LoadAll(".", home)
 	if err != nil {
 		return err
 	}
 
 	cwd := "."
-	installExpanded := filepath.Clean(ExpandConfiguredPath(installDir, cwd))
+	installExpanded := filepath.Clean(ExpandConfiguredPath(installDir, cwd, home))
 
-	printSkillsInstallAndSearchRoots(installExpanded, dirs, cfg.Skills.ExtraFiles, cwd)
+	printSkillsInstallAndSearchRoots(installExpanded, dirs, cwd, home)
 
 	if len(loaded) == 0 {
 		fmt.Println("No skills found.")
@@ -126,26 +127,23 @@ func stdoutCols() int {
 	return n
 }
 
-func printSkillsInstallAndSearchRoots(installExpanded string, skillDirs []string, extraFiles []string, cwd string) {
+func printSkillsInstallAndSearchRoots(installExpanded string, skillDirs []string, cwd, home string) {
 	fmt.Println("Skills install dir:")
 	fmt.Printf("  %s\n\n", installExpanded)
-	printSkillSearchRoots(skillDirs, extraFiles, cwd)
+	printSkillSearchRoots(skillDirs, cwd, home)
 	fmt.Println()
 }
 
-func printSkillSearchRoots(skillDirs []string, extraFiles []string, cwd string) {
+func printSkillSearchRoots(skillDirs []string, cwd, home string) {
 	fmt.Println("Search roots:")
 	seen := make(map[string]bool)
 	for _, d := range skillDirs {
-		p := filepath.Clean(ExpandConfiguredPath(d, cwd))
+		p := filepath.Clean(ExpandConfiguredPath(d, cwd, home))
 		if seen[p] {
 			continue
 		}
 		seen[p] = true
 		fmt.Printf("  %s\n", p)
-	}
-	for _, f := range extraFiles {
-		fmt.Printf("  %s  (extra file)\n", filepath.Clean(ExpandConfiguredPath(f, cwd)))
 	}
 }
 
@@ -386,15 +384,18 @@ func copyDir(src, dst string) error {
 }
 
 func resolveInstallDir(cfg *config.Config) string {
-	dir := cfg.Skills.InstallDir
-	if dir == "" {
-		dir = "~/.config/coddy-agent/skills"
-	}
-	if strings.HasPrefix(dir, "~/") {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			dir = filepath.Join(home, dir[2:])
+	dir := strings.TrimSpace(cfg.Skills.InstallDir)
+	home := cfg.Paths.Home
+	if home == "" {
+		if h, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(h, ".coddy")
 		}
 	}
-	return dir
+	if dir == "" {
+		if home != "" {
+			return filepath.Join(home, "skills")
+		}
+		return ".coddy/skills"
+	}
+	return filepath.Clean(ExpandConfiguredPath(dir, ".", home))
 }

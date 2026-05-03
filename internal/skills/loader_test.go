@@ -28,8 +28,8 @@ Use fmt.Errorf for error wrapping.
 		t.Fatal(err)
 	}
 
-	loader := skills.NewLoader([]string{tmp}, nil)
-	loaded, err := loader.LoadAll(tmp)
+	loader := skills.NewLoader([]string{tmp})
+	loaded, err := loader.LoadAll(tmp, "")
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
@@ -62,8 +62,8 @@ func TestLoadSkillNoFrontmatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loader := skills.NewLoader([]string{tmp}, nil)
-	loaded, err := loader.LoadAll(tmp)
+	loader := skills.NewLoader([]string{tmp})
+	loaded, err := loader.LoadAll(tmp, "")
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
@@ -90,8 +90,8 @@ func TestLoadSKILLFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loader := skills.NewLoader([]string{tmp}, nil)
-	loaded, err := loader.LoadAll(tmp)
+	loader := skills.NewLoader([]string{tmp})
+	loaded, err := loader.LoadAll(tmp, "")
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
@@ -175,9 +175,29 @@ func TestBuildSystemPromptSection(t *testing.T) {
 	}
 }
 
+func TestLoadAllExpandsCODDYHome(t *testing.T) {
+	home := t.TempDir()
+	skillRoot := filepath.Join(home, "skills")
+	if err := os.MkdirAll(skillRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# In Home\n\nBody."
+	if err := os.WriteFile(filepath.Join(skillRoot, "rule.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loader := skills.NewLoader([]string{"${CODDY_HOME}/skills"})
+	loaded, err := loader.LoadAll("/tmp", home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("got %d skills", len(loaded))
+	}
+}
+
 func TestLoadFromNonexistentDir(t *testing.T) {
-	loader := skills.NewLoader([]string{"/nonexistent/path"}, nil)
-	loaded, err := loader.LoadAll("/tmp")
+	loader := skills.NewLoader([]string{"/nonexistent/path"})
+	loaded, err := loader.LoadAll("/tmp", "")
 	// Should not error, just return empty.
 	if err != nil {
 		t.Fatalf("expected no error for nonexistent dir, got: %v", err)

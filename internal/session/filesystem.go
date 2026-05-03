@@ -24,15 +24,6 @@ const (
 	messagesLayout    = 1
 )
 
-// DefaultCoddySessionsRoot returns $HOME/coddy-agent/sessions.
-func DefaultCoddySessionsRoot() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("user home: %w", err)
-	}
-	return filepath.Join(home, "coddy-agent", "sessions"), nil
-}
-
 // FileStore persists session state under Root/<sessionId>/.
 type FileStore struct {
 	Root string

@@ -48,15 +48,20 @@ go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Ver
 
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
-The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--cwd`, and `--config`.
+The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--home`, `--cwd`, and `--config`.
 
-`--cwd` sets the filesystem working directory used when `session/new` sends an empty `cwd` field. If you omit `--cwd`, the agent uses the process current directory (`os.Getwd()` at startup). Editors that pass a workspace path in `session/new` continue to use that path.
+### Paths (`CODDY_HOME`, `CODDY_CWD`)
+
+- **`CODDY_HOME`** (or **`coddy acp --home`**) is the agent state directory. Default **`~/.coddy`**. The process creates **`sessions/`** and **`skills/`** under it. Config defaults to **`$CODDY_HOME/config.yaml`**.
+- **`CODDY_CWD`** (or **`coddy acp --cwd`**) is the default session working directory when `session/new` sends an empty **`cwd`**. Default is the process current directory at startup. Editors that pass a path in **`session/new`** use that path instead.
 
 ### Configuration
 
-Copy the example config and edit it:
+Copy the example config and edit it (either layout works):
 
 ```bash
+mkdir -p ~/.coddy && cp config.example.yaml ~/.coddy/config.yaml
+# legacy location still searched if ~/.coddy/config.yaml is missing
 mkdir -p ~/.config/coddy-agent
 cp config.example.yaml ~/.config/coddy-agent/config.yaml
 ```
@@ -96,12 +101,12 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Cursor Rules and Skills
 
-The agent reads skill files and cursor rules from:
+By default the agent reads skill files and rules from (see **`skills`** in **`docs/config.md`**):
 
-1. `{project}/.cursor/rules/` - project-specific rules
-2. `{project}/.cursor/skills/` - project-specific skills
-3. `~/.cursor/skills/` - global user skills
-4. `~/.cursor/skills-cursor/` - cursor-specific skills
+1. **`$CODDY_HOME/skills/`** (installed skills)
+2. **`${CWD}/.skills/`** (session working directory)
+3. **`~/.cursor/skills/`**
+4. **`~/.claude/skills/`**
 
 Rules support the standard Cursor frontmatter format:
 
@@ -195,7 +200,7 @@ Python harnesses under [**`examples/acp-jsonrpc-session/`**](examples/acp-jsonrp
 
 ## Persistent sessions
 
-By default, `coddy acp` stores each session bundle under **`$HOME/coddy-agent/sessions/<sessionId>/`** with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir /path/to/sessions`**. If `$HOME` is unavailable, persistence is skipped and logged.
+By default, `coddy acp` stores each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`** or **`sessions_dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
 Use **`coddy acp --disable-session`** to avoid writing any bundle (in-memory only, e.g. cron or one-shot). The agent does not advertise **`session/load`** or **`session/list`** in that mode.
 
