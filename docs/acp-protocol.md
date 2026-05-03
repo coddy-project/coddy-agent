@@ -63,22 +63,31 @@ stderr -> agent logs (not protocol messages)
 }
 ```
 
+## Stdio clients (Coddy-specific)
+
+Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference scripts live in **`examples/acp-jsonrpc-session/`**.
+
+1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
+2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** in between by writing a client response with the same **`id`**.
+3. **Stdout buffering** - When stdout is not a TTY, output can be block-buffered. Wrap the binary with **`stdbuf -oL -eL`** (or equivalent) so lines appear as they are written.
+4. **Concurrent request handlers** - Outstanding requests are dispatched asynchronously. Do not send a second RPC until you have consumed the response for the previous one if your client assumes strict ordering.
+
 ## Protocol Flow
 
 ```
 Client                          Agent
   |                               |
   |-------- initialize ---------->|
-  |<------- initialize resp -------|
+  |<------- initialize resp ------|
   |                               |
   |-------- session/new --------->|
-  |<------- session/new resp ------|
+  |<------- session/new resp -----|
   |                               |
   |-------- session/prompt ------>|
-  |<------- session/update --------|  (notifications: plan, chunks, tool_calls)
-  |<------- session/update --------|
-  |<------- session/update --------|
-  |<------- session/prompt resp ---|  (stopReason: end_turn)
+  |<------- session/update -------|  (notifications: plan, chunks, tool_calls)
+  |<------- session/update -------|
+  |<------- session/update -------|
+  |<------- session/prompt resp --|  (stopReason: end_turn)
   |                               |
 ```
 

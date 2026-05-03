@@ -9,9 +9,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 )
 
+// Deterministic clock value for built-in template tests (RFC3339 UTC).
+const fixtureUTC = "2038-01-19T03:14:07Z"
+
 func TestRenderAgentPrompt(t *testing.T) {
 	result, err := prompts.Render("agent", "", prompts.TemplateData{
-		CWD: "/home/user/project",
+		CWD:    "/home/user/project",
+		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
@@ -28,11 +32,15 @@ func TestRenderAgentPrompt(t *testing.T) {
 	if strings.Contains(result, "### Current todo checklist") {
 		t.Error("todo checklist section should be omitted when .TodoList is empty")
 	}
+	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
+		t.Error("agent prompt should end with Current UTC time section")
+	}
 }
 
 func TestRenderPlanPrompt(t *testing.T) {
 	result, err := prompts.Render("plan", "", prompts.TemplateData{
-		CWD: "/tmp/workspace",
+		CWD:    "/tmp/workspace",
+		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render plan: %v", err)
@@ -49,6 +57,9 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "todo plan tools") {
 		t.Error("plan prompt should mention todo plan tools for checklists")
 	}
+	if !strings.Contains(result, "## Current UTC time") || !strings.Contains(result, fixtureUTC) {
+		t.Error("plan prompt should end with Current UTC time section")
+	}
 }
 
 func TestRenderWithSkillsToolsMemory(t *testing.T) {
@@ -57,6 +68,7 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 		Skills: "## Active Rules\n\nstub",
 		Tools:  "- `read_file`: read",
 		Memory: "User prefers pytest.",
+		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -70,7 +82,8 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 
 func TestRenderEmptyOptionalSections(t *testing.T) {
 	result, err := prompts.Render("agent", "", prompts.TemplateData{
-		CWD: "/project",
+		CWD:    "/project",
+		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -91,7 +104,7 @@ func TestRenderEmptyOptionalSections(t *testing.T) {
 
 func TestRenderTodoListWhenNonempty(t *testing.T) {
 	todoMd := "- [ ] alpha\n- [x] beta"
-	a, err := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd})
+	a, err := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render agent: %v", err)
 	}
@@ -99,7 +112,7 @@ func TestRenderTodoListWhenNonempty(t *testing.T) {
 		t.Errorf("expected injected todo markdown in agent prompt, got excerpt: %.200s", a)
 	}
 
-	p, err := prompts.Render("plan", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd})
+	p, err := prompts.Render("plan", "", prompts.TemplateData{CWD: "/p", TodoList: todoMd, UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render plan: %v", err)
 	}
@@ -139,8 +152,8 @@ func TestRenderCustomDirMissingAgentFile(t *testing.T) {
 }
 
 func TestRenderUnknownModeFallsBackToAgent(t *testing.T) {
-	agent, _ := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p"})
-	unknown, err := prompts.Render("unknown_mode", "", prompts.TemplateData{CWD: "/p"})
+	agent, _ := prompts.Render("agent", "", prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
+	unknown, err := prompts.Render("unknown_mode", "", prompts.TemplateData{CWD: "/p", UTCNow: fixtureUTC})
 	if err != nil {
 		t.Fatalf("Render unknown mode: %v", err)
 	}
@@ -162,6 +175,9 @@ func TestDefaultSource(t *testing.T) {
 	}
 	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
 		t.Error("agent source should conditionalize TodoList injection")
+	}
+	if !strings.Contains(agentSrc, "{{.UTCNow}}") {
+		t.Error("agent source should expose UTCNow for clock grounding")
 	}
 
 	planSrc := prompts.DefaultSource("plan")

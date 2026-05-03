@@ -4,13 +4,15 @@
 //
 // Template variables available in .md files:
 //
-//	{{.CWD}}     - session working directory
-//	{{.Skills}}  - active skills/rules (markdown), built by the agent
-//	{{.Tools}}   - readable list of tools available in the current mode (markdown)
-//	{{.Memory}}  - session agent memory notes (may be empty)
-//	{{.TodoList}} - current session todo checklist as markdown (may be empty)
+//	{{.CWD}}      - session working directory
+//	{{.Tools}}    - readable list of tools available in the current mode (markdown)
+//	{{.Skills}}   - active skills/rules (markdown), built by the agent
+//	{{.Memory}}   - session agent memory notes (may be empty)
+//	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
+//	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
 //
-// Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections are optional.
+// Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections should be omitted when empty.
+// The ReAct runner refreshes the rendered system prompt before each LLM call while handling one session prompt.
 package prompts
 
 import (
@@ -20,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+	"time"
 )
 
 const (
@@ -43,6 +46,9 @@ type TemplateData struct {
 
 	// TodoList is the current session checklist as markdown lines (may be empty).
 	TodoList string
+
+	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
+	UTCNow string
 }
 
 // Embedded default prompt template files.
@@ -119,5 +125,7 @@ func loadSource(mode, promptsDir string) (string, error) {
 }
 
 func fallbackPrompt(mode, cwd string) string {
-	return fmt.Sprintf("You are an AI coding assistant in %s mode.\nWorking directory: %s\n", mode, cwd)
+	return fmt.Sprintf(
+		"You are an AI coding assistant in %s mode.\nWorking directory: %s\n\n## Current UTC time\n\n%s\n",
+		mode, cwd, time.Now().UTC().Format(time.RFC3339))
 }

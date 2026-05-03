@@ -184,6 +184,10 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Skills & Rules](docs/skills.md) - cursor rules and skills guide
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 
+## Examples (ACP over stdio)
+
+Python harnesses under [**`examples/acp-jsonrpc-session/`**](examples/acp-jsonrpc-session/) show newline-delimited JSON-RPC against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use them as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+
 ## Persistent sessions
 
 By default, `coddy acp` stores each session bundle under **`$HOME/coddy-agent/sessions/<sessionId>/`** with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir /path/to/sessions`**. If `$HOME` is unavailable, persistence is skipped and logged.
@@ -195,6 +199,8 @@ Use **`coddy acp --disable-session`** to avoid writing any bundle (in-memory onl
 - **`session/load`** restores history and notifies the client; **`session/list`** lists bundles for ACP-aware clients.
 
 The todo tools keep the active checklist mirrored to `todos/active.md`. Creating a **new** list while items are incomplete is rejected until you finish items or run **`clean_todo_list`**; replacing an **all-completed** list archives the prior `active.md` into **`todos/archive/`**.
+
+When the persisted plan is **non-empty**, the agent injects **`### Current todo checklist`** plus rendered markdown checklist lines into the embedded (or **`prompts.dir`**) **`agent.md` / `plan.md`** templates (`{{if .TodoList}}` … `{{end}}`). That block is omitted when there is nothing to track. Before **each** LLM call inside one **`session/prompt`** turn, Coddy refreshes that system message so a todo list created or updated earlier in the same ReAct episode stays visible immediately.
 
 ## Development
 
@@ -211,7 +217,7 @@ coddy -v    # same as --version
 # Run with debug logging (ACP mode)
 coddy acp --log-level debug
 
-# Test with a simple ACP client
+# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp-jsonrpc-session/)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
 

@@ -33,14 +33,14 @@ You have full tool access. Your job is to complete tasks end-to-end.
 - Always check command output for errors
 - Use relative paths when possible
 
-{{if .Skills}}
-{{.Skills}}
-
-{{end}}
 {{if .Tools}}
 ## Available tools
 
 {{.Tools}}
+
+{{end}}
+{{if .Skills}}
+{{.Skills}}
 
 {{end}}
 {{if .TodoList}}
@@ -55,3 +55,8 @@ You have full tool access. Your job is to complete tasks end-to-end.
 {{.Memory}}
 
 {{end}}
+
+## Current UTC time
+
+{{.UTCNow}}
+

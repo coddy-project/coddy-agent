@@ -79,16 +79,18 @@ Maintains the state for each conversation session:
 - Connected MCP server clients
 - Working directory
 - Active context (skills + cursor rules loaded)
+- In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
 
 ### ReAct Agent Loop (`internal/react`)
 
-The core reasoning engine:
-1. Renders system prompt markdown (embedded or prompts.dir): base text plus template data (CWD, skills, tools list, optional session memory), then sends to the LLM
-2. Sends prompt to LLM provider with available tools
-3. Parses LLM response: extracts thoughts + tool calls
-4. Executes tools (with permission checks via ACP)
-5. Feeds results back to LLM
-6. Repeats until LLM produces a final answer
+The core reasoning engine (**`agent.go`**):
+
+1. Loads mode-appropriate tool definitions (built-ins plus MCP) and filters by **`ToolsForMode`**.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded **`agent.md`** / **`plan.md`** or files under **`prompts.dir`**. Template data includes **`CWD`**, tools markdown, skills markdown (that order in stock templates), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
+3. Prepends that system message to the session message list and appends the newest user turn.
+4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
+5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
+6. Loops until there are no tool calls, **`max_turns`** is exceeded, or cancellation.
 
 ### LLM Provider (`internal/llm`)
 
@@ -175,47 +177,26 @@ Mode switching:
 
 ```
 coddy-agent/
-├── cmd/
-│   └── agent/
-│       └── main.go              # entry point, CLI flags
+├── cmd/coddy/
+│   └── main.go                  # CLI entry (acp, sessions, skills)
 ├── internal/
-│   ├── acp/
-│   │   ├── server.go            # JSON-RPC server loop (stdio)
-│   │   ├── types.go             # all ACP protocol types
-│   │   └── handlers.go          # method handlers
-│   ├── session/
-│   │   ├── manager.go           # session lifecycle
-│   │   └── state.go             # session state struct
+│   ├── acp/                     # JSON-RPC ACP server (stdio)
+│   ├── session/                 # lifecycle, persistence, state
 │   ├── react/
-│   │   ├── agent.go             # ReAct agent (main loop)
-│   │   ├── mode.go              # mode-specific behavior
-│   │   └── prompt_builder.go    # system prompt construction
+│   │   └── agent.go             # ReAct loop (system prompt + tools + MCP)
+│   ├── prompts/
+│   │   ├── loader.go             # TemplateData, Render, embedded agent.md / plan.md
+│   │   ├── agent.md
+│   │   └── plan.md
 │   ├── config/
-│   │   ├── config.go            # config loading + validation
-│   │   └── types.go             # config structs
 │   ├── llm/
-│   │   ├── provider.go          # Provider interface
-│   │   ├── openai.go            # OpenAI implementation
-│   │   ├── anthropic.go         # Anthropic implementation
-│   │   └── ollama.go            # Ollama implementation
-│   ├── tools/
-│   │   ├── registry.go          # tool registration + dispatch
-│   │   ├── fs.go                # file system tools
-│   │   ├── search.go            # search tools
-│   │   └── terminal.go          # command execution tool
+│   ├── tooling/                 # Tool, Registry, ToolsForMode, Env
+│   ├── tools/                   # builtins (fs/, shell/, todo/), NewRegistry
 │   ├── mcp/
-│   │   ├── client.go            # MCP stdio/http client
-│   │   └── types.go             # MCP types
 │   └── skills/
-│       ├── loader.go            # skill/rule file loader
-│       └── types.go             # skill types
-├── docs/
-│   ├── architecture.md          # this file
-│   ├── acp-protocol.md          # ACP protocol reference
-│   ├── config.md                # config file reference
-│   ├── skills.md                # skills and cursor rules guide
-│   └── mcp-integration.md       # MCP server integration guide
-├── config.example.yaml          # example configuration
+├── examples/acp-jsonrpc-session/ # stdio JSON-RPC demos (manual + e2e)
+├── docs/                        # this tree and guides
+├── config.example.yaml
 ├── go.mod
 ├── go.sum
 └── README.md

@@ -65,7 +65,17 @@ react:
 # System prompt templates (agent.md and plan.md)
 prompts:
   # Empty = use embedded defaults. Otherwise a directory containing those two files.
-  # Go text/template variables: {{.CWD}}, {{.Skills}}, {{.Tools}}, {{.Memory}}
+  #
+  # Go text/template data (see internal/prompts/loader.go):
+  #   {{.CWD}}      - session working directory
+  #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
+  #   {{.Skills}}   - markdown block for active skills and rules (omit section when empty via {{if .Skills}})
+  #   {{.TodoList}} - current session todo checklist as markdown lines (empty until create_todo_list / updates)
+  #   {{.Memory}}   - session agent memory string
+  #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
+  #
+  # Built-in templates order: Tools, Skills, optional TodoList block, Memory, trailing Current UTC time. The checklist section is emitted
+  # only when the session plan is non-empty.
   dir: ""
 
 # Skills and Cursor rules directories

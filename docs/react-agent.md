@@ -13,21 +13,38 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
+Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+
+Rendered order matches the markdown files roughly as follows:
+
 ```
-[Base Instructions]
-You are an AI coding assistant operating in {mode} mode.
-Your task is to help with code generation and text file editing.
-Working directory: {cwd}
+[Intro + Mode + How to work / How to plan]
+Working directory: {{.CWD}}
 
-[Available Tools]
-{tool_list with descriptions and parameters}
+{{if .Tools}}
+## Available tools
+{{.Tools}}
+{{end}}
 
-[Active Skills/Rules]
-{injected skill content}
+{{if .Skills}} ... active rules/skills markdown ... {{end}}
 
-[Mode-specific Instructions]
-{agent_mode_instructions | plan_mode_instructions}
+{{if .TodoList}}
+### Current todo checklist
+{{.TodoList}}
+{{end}}
+
+{{if .Memory}}
+## Session memory
+{{.Memory}}
+{{end}}
+
+## Current UTC time
+{{.UTCNow}}
 ```
+
+The **`TodoList`** body is markdown from **`internal/tools/todo.FormatTodoMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
+
+Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
 ### Tool Calling via Function Calling API
 
@@ -60,10 +77,10 @@ messages: [
 ### Loop Steps
 
 ```
-1. BUILD_PROMPT
-   - Load applicable skills/rules for current context
-   - Build system prompt (base + mode + skills + tools)
-   - Append user message to history
+1. BUILD_MESSAGES
+   - Load applicable skills/rules for current context (context files from prompt)
+   - Build system prompt (template + TemplateData incl. TodoList snapshot)
+   - Prepend system to session history (user turn already persisted on Run entry)
 
 2. LLM_CALL
    - Send messages + tool definitions to LLM provider
@@ -74,19 +91,22 @@ messages: [
    - For each tool_call: send session/update(tool_call, status=pending)
 
 4. EXECUTE_TOOLS (if any tool calls)
-   - For each tool_call in parallel (or sequential, configurable):
+   - For each tool_call sequentially inside one assistant message:
      a. Send session/update(tool_call_update, status=in_progress)
      b. If requires permission: session/request_permission -> wait for response
      c. Execute tool (built-in or MCP)
      d. Send session/update(tool_call_update, status=completed|failed, content=result)
      e. Append tool result to conversation history
 
-5. CHECK_COMPLETION
+5. REFRESH_SYSTEM
+   - Next loop iteration repeats from step 2 after rewriting messages[0] with a fresh **`Render`** (same session state, potentially new Plan rows)
+
+6. CHECK_COMPLETION
    - If no tool calls in last response -> DONE (stopReason: end_turn)
    - If turn_count >= max_turns -> DONE (stopReason: max_turns)
    - Otherwise -> back to step 2
 
-6. FINAL_RESPONSE
+7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```
 
@@ -94,32 +114,29 @@ messages: [
 
 ### Agent Mode
 
-System prompt addition:
-```
-You are in AGENT mode. You have full access to all tools including file operations
-and command execution. Complete the task end-to-end, using tools as needed.
-Always explain what you are doing before each tool call.
-```
+Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`create_todo_list`**, **`update_todo_item`**, **`done_todo_item`**, **`get_todo_list`**, etc., as surfaced in **`Tools`**.
 
-Available tools:
+Representative builtins (excluding MCP-namespaced tools):
+
 - `read_file`, `write_file`, `list_dir`, `search_files`
-- `run_command` (requires permission)
-- `apply_diff`
-- All MCP server tools
+- `run_command`, `apply_diff`
+- Filesystem mutations: **`mkdir`**, **`rm`**, **`rmdir`**, **`touch`**, **`mv`** (subset may require permission paths)
+- Session checklist: **`create_todo_list`**, **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**, **`get_todo_list`**, **`clean_todo_list`**
+- All MCP server tools (names **`serverName__toolName`**)
+
+Plan mode forbids **`write_file`** entirely; **`write_text_file`** is **`PlanOnly`** and hidden from **`agent`**.
 
 ### Plan Mode
 
-System prompt addition:
-```
-You are in PLAN mode. Your goal is to plan and document, NOT to execute code.
-You may read files to understand the codebase. You may write or edit text and
-markdown files. Do NOT execute commands or make code changes.
-When ready to implement, tell the user to switch the session to **agent** mode in the client tool strip or session settings.
-```
+Embedded **`plan.md`** restricts execution (no shell, no edits to arbitrary code suffixes).
 
-Available tools:
-- `read_file`, `list_dir`, `search_files` (read-only)
-- `write_text_file` (.txt / .md / .mdx only in plan mode)
+Representative builtins:
+
+- `read_file`, `list_dir`, `search_files`
+- **`write_text_file`** (only **`.txt`**, **`.md`**, **`.mdx`** destinations)
+- Full todo toolchain above (**`AllowedInPlanMode`** on each todo tool)
+
+When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
 
 ## Built-in Tools Specification
 
@@ -205,7 +222,9 @@ Available tools:
 
 ## Plan Update Format
 
-When the agent starts processing, it sends a plan via `session/update`:
+Clients receive `session/update` notifications whose **`sessionUpdate`** field equals **`plan`**, carrying structured **`entries`**. Todolist tooling also persists the active checklist under **`todos/active.md`** in the bundle when session persistence is on (mirrors **`FormatTodoMarkdown`** / **`ParseTodoMarkdown`**).
+
+Example payload:
 
 ```json
 {

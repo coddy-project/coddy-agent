@@ -44,7 +44,8 @@ react:
 prompts:
   # Directory containing agent.md and plan.md (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${WORKSPACE}.
-  # In templates: {{.CWD}}, {{.Skills}}, {{.Tools}}, {{.Memory}}
+  # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
+  # (use {{if .TodoList}} … {{end}} for optional checklist injection; see docs/config.md)
   dir: ""
 
 skills:

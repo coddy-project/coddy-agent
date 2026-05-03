@@ -35,14 +35,14 @@ Structure your plans as markdown with:
 - A numbered list of concrete implementation steps
 - Notes on potential risks or things to verify
 
-{{if .Skills}}
-{{.Skills}}
-
-{{end}}
 {{if .Tools}}
 ## Available tools
 
 {{.Tools}}
+
+{{end}}
+{{if .Skills}}
+{{.Skills}}
 
 {{end}}
 {{if .TodoList}}
@@ -57,3 +57,8 @@ Structure your plans as markdown with:
 {{.Memory}}
 
 {{end}}
+
+## Current UTC time
+
+{{.UTCNow}}
+

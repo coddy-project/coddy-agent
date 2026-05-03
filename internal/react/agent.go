@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -360,6 +361,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		Tools:    tools.FormatDefinitionsForPrompt(toolDefs),
 		Memory:   strings.TrimSpace(a.state.GetAgentMemory()),
 		TodoList: todoMD,
+		UTCNow:   time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
