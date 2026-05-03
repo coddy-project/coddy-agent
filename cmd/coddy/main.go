@@ -13,7 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	promptreact "github.com/EvilFreelancer/coddy-agent/internal/prompts/react"
+	"github.com/EvilFreelancer/coddy-agent/internal/react"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -143,7 +143,7 @@ func runACP(args []string) error {
 	var srv *acp.Server
 	ref := &serverRef{p: &srv}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock) (string, error) {
-		agent := promptreact.NewAgent(cfg, st, ref, log)
+		agent := react.NewAgent(cfg, st, ref, log)
 		return agent.Run(ctx, prompt)
 	}
 	mgr := session.NewManager(cfg, ref, runner, log, defaultSessionCWD)

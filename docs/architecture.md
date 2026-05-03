@@ -79,7 +79,7 @@ Maintains the state for each conversation session:
 - Working directory
 - Active context (skills + cursor rules loaded)
 
-### ReAct Agent Loop (`internal/prompts/react`)
+### ReAct Agent Loop (`internal/react`)
 
 The core reasoning engine:
 1. Renders system prompt markdown (embedded or prompts.dir): base text plus template data (CWD, skills, tools list, optional session memory), then sends to the LLM
