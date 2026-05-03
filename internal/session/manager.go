@@ -448,7 +448,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 		}
 		found := false
 		for i := range m.cfg.Models {
-			if m.cfg.Models[i].ID == params.Value {
+			if m.cfg.Models[i].Model == params.Value {
 				found = true
 				break
 			}

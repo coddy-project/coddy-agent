@@ -150,19 +150,18 @@ Key settings:
 
 ```yaml
 providers:
-  - name: openai
+  - name: local
     type: openai
     api_key: "${OPENAI_API_KEY}"
+    api_base: "${OPENAI_API_BASE}"
 
 models:
-  - id: "openai/gpt-4o"
-    provider: openai
-    model: "gpt-4o"
+  - model: "local/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
 
 agent:
-  model: "openai/gpt-4o"
+  model: "local/gpt-4o"
   max_turns: 30
 
 tools:
@@ -198,7 +197,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Examples (ACP over stdio)
 
-Python harnesses under [**`examples/acp-jsonrpc-session/`**](examples/acp-jsonrpc-session/) show newline-delimited JSON-RPC against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use them as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+[**`examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py`**](examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py) is a newline-delimited JSON-RPC harness against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
 
 ## Persistent sessions
 
@@ -229,7 +228,7 @@ coddy -v    # same as --version
 # Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
 coddy acp --log-level debug
 
-# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp-jsonrpc-session/)
+# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
 

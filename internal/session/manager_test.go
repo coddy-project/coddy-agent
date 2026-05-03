@@ -28,11 +28,11 @@ func testConfig() *config.Config {
 			{Name: "p3", Type: "anthropic", APIKey: "k"},
 		},
 		Models: []config.ModelEntry{
-			{ID: "m1", Provider: "p1", Model: "gpt-4o"},
-			{ID: "m2", Provider: "p2", Model: "gpt-4o-mini"},
-			{ID: "m3", Provider: "p3", Model: "claude-3"},
+			{Model: "p1/gpt-4o"},
+			{Model: "p2/gpt-4o-mini"},
+			{Model: "p3/claude-3"},
 		},
-		Agent: config.Agent{Model: "m1"},
+		Agent: config.Agent{Model: "p1/gpt-4o"},
 	}
 }
 
@@ -125,8 +125,8 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	if len(modelOpt.Options) != 3 {
 		t.Fatalf("expected 3 model choices, got %d", len(modelOpt.Options))
 	}
-	if modelOpt.CurrentValue != "m1" {
-		t.Fatalf("expected default model m1 for agent mode, got %q", modelOpt.CurrentValue)
+	if modelOpt.CurrentValue != "p1/gpt-4o" {
+		t.Fatalf("expected default model p1/gpt-4o for agent mode, got %q", modelOpt.CurrentValue)
 	}
 }
 
@@ -142,7 +142,7 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 		SessionID: res.SessionID,
 		ConfigID:  "model",
-		Value:     "m3",
+		Value:     "p3/claude-3",
 	})
 	if err != nil {
 		t.Fatalf("HandleSessionSetConfigOption: %v", err)
@@ -157,8 +157,8 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 			break
 		}
 	}
-	if current != "m3" {
-		t.Fatalf("expected model m3 after set, got %q", current)
+	if current != "p3/claude-3" {
+		t.Fatalf("expected model p3/claude-3 after set, got %q", current)
 	}
 }
 
@@ -191,9 +191,9 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	if modeCur != "plan" {
 		t.Fatalf("expected mode plan, got %q", modeCur)
 	}
-	// No explicit model override: effective model stays agent.model (m1).
-	if modelCur != "m1" {
-		t.Fatalf("expected effective model m1 for plan mode without override, got %q", modelCur)
+	// No explicit model override: effective model stays agent.model (p1/gpt-4o).
+	if modelCur != "p1/gpt-4o" {
+		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
 	}
 }
 

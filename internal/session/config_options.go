@@ -32,16 +32,13 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 
 	opts := make([]acp.ConfigOptionValue, 0, len(cfg.Models))
 	for _, d := range cfg.Models {
-		name := d.APIModel()
-		if name == "" {
-			name = d.ID
-		}
+		name := d.Model
 		desc := ""
-		if p := cfg.FindProvider(d.Provider); p != nil {
+		if p := cfg.FindProvider(d.ProviderName()); p != nil {
 			desc = p.Type
 		}
 		opts = append(opts, acp.ConfigOptionValue{
-			Value:       d.ID,
+			Value:       d.Model,
 			Name:        name,
 			Description: desc,
 		})

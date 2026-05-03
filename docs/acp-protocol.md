@@ -64,7 +64,7 @@ stderr -> agent logs (not protocol messages)
 
 ## Stdio clients (Coddy-specific)
 
-Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference scripts live in **`examples/acp-jsonrpc-session/`**.
+Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py`**.
 
 1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
 2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** in between by writing a client response with the same **`id`**.
@@ -224,7 +224,7 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
 }
 ```
 
-The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](config.md).
+The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](config.md). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
 
 ### `session/load`
 

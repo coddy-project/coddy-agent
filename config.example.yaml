@@ -21,15 +21,11 @@ providers:
   #   api_key: "${DEEPSEEK_API_KEY}"
 
 models:
-  - id: "openai/gpt-4o"
-    provider: openai
-    model: "gpt-4o"
+  - model: "openai/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
 
-  # - id: "gpt-oss:120b"
-  #   provider: local
-  #   model: "gpt-oss:120b"
+  # - model: "local/gpt-oss:120b"
   #   max_tokens: 8192
   #   temperature: 0.2
 

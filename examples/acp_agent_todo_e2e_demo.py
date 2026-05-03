@@ -10,7 +10,7 @@ Verifies:
 - filesystem side effect from a write-class tool invocation
 - non-trivial synthesized text persisted under cwd (combined size heuristic)
 
-Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID (same family as sibling scripts).
+Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID.
 
 Flags: WORK_DIR (--work-dir), --keep-session, --keep-work-dir, --min-completed-items (default 4).
 """

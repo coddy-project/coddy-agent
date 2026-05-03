@@ -156,12 +156,12 @@ func normalizeModelID(cfg *config.Config, id string) string {
 		return ""
 	}
 	for i := range cfg.Models {
-		if cfg.Models[i].ID == id {
+		if cfg.Models[i].Model == id {
 			return id
 		}
 	}
 	if len(cfg.Models) > 0 {
-		return cfg.Models[0].ID
+		return cfg.Models[0].Model
 	}
 	return id
 }

@@ -39,29 +39,22 @@ providers:
     api_key: "${DEEPSEEK_API_KEY}"
 
 # Logical models (Go: []config.ModelEntry, internal/config/models.go).
-# Each id appears as a selectable model in ACP clients. provider must match providers[].name.
+# Each model value is "provider_name/api_model_id". The first path segment must match providers[].name.
+# The same string is the ACP model selector and agent.model default.
 models:
-  - id: "openai/gpt-4o"
-    provider: "openai"
-    model: "gpt-4o"
+  - model: "openai/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
 
-  - id: "anthropic/claude-3-5-sonnet"
-    provider: "anthropic"
-    model: "claude-3-5-sonnet-20241022"
+  - model: "anthropic/claude-3-5-sonnet-20241022"
     max_tokens: 8192
     temperature: 0.2
 
-  - id: "local/qwen"
-    provider: "local"
-    model: "qwen2.5-coder:14b"
+  - model: "local/qwen2.5-coder:14b"
     max_tokens: 4096
     temperature: 0.1
 
-  - id: "custom/deepseek"
-    provider: "deepseek"
-    model: "deepseek-coder-v2"
+  - model: "deepseek/deepseek-coder-v2"
     max_tokens: 8192
     temperature: 0.1
 
@@ -168,24 +161,24 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (OpenAI-compatible base URL, Ollama host without **`/v1`**, etc.).
-- **`models`**: **`id`** (session selector and **`agent.model`** value), **`provider`** (references **`providers[].name`**), **`model`** (API model id; omit to default to **`id`**), **`max_tokens`**, **`temperature`**.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
 
-Provider needs **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.
+Provider needs **`api_key`**. The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-4o`**. Also set **`max_tokens`**, **`temperature`**.
 
 ### `anthropic`
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`
 
-Provider needs **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.
+Provider needs **`api_key`**. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
 
 ### `ollama`
 Local Ollama instance. Supports any model installed via `ollama pull`.
 
-Provider **`api_base`**: host root, for example **`http://localhost:11434`** (default inside the client if empty). Model entry sets the Ollama model name in **`model`**.
+Provider **`api_base`**: host root, for example **`http://localhost:11434`** (default inside the client if empty). Use **`models[].model`** like **`local/qwen2.5-coder:14b`** where **`local`** is the provider **`name`**.
 
 ### `openai_compatible`
 Any API with OpenAI-compatible chat endpoints (DeepSeek, Together, Groq, LM Studio, etc.)
 
-Provider needs **`api_base`** (for example **`https://api.deepseek.com/v1`**) and **`api_key`**. Model entry sets **`model`**, **`max_tokens`**, **`temperature`**.
+Provider needs **`api_base`** (for example **`https://api.deepseek.com/v1`**) and **`api_key`**. Use **`models[].model`** like **`deepseek/deepseek-coder`**, plus **`max_tokens`**, **`temperature`**.

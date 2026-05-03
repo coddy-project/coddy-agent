@@ -192,7 +192,7 @@ coddy-agent/
 │   ├── tools/                   # builtins (fs/, shell/, todo/), NewRegistry
 │   ├── mcp/
 │   └── skills/
-├── examples/acp-jsonrpc-session/ # stdio JSON-RPC demos (manual + e2e)
+├── examples/                    # stdio JSON-RPC E2E harness
 ├── docs/                        # this tree and guides
 ├── config.example.yaml
 ├── go.mod

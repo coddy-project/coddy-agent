@@ -26,10 +26,11 @@ func (c *Config) FindProvider(name string) *ProviderConfig {
 	return nil
 }
 
-// FindModelEntry returns the model entry with the given id, or nil.
-func (c *Config) FindModelEntry(id string) *ModelEntry {
+// FindModelEntry returns the model entry whose Model selector equals ref, or nil.
+func (c *Config) FindModelEntry(ref string) *ModelEntry {
+	want := strings.TrimSpace(ref)
 	for i := range c.Models {
-		if c.Models[i].ID == id {
+		if c.Models[i].Model == want {
 			return &c.Models[i]
 		}
 	}
@@ -37,18 +38,19 @@ func (c *Config) FindModelEntry(id string) *ModelEntry {
 }
 
 // ResolveLLM merges provider and model configuration for use with internal/llm.
-func (c *Config) ResolveLLM(modelID string) (*ResolvedLLM, error) {
-	id := strings.TrimSpace(modelID)
-	if id == "" {
-		return nil, fmt.Errorf("model id is empty")
+func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
+	ref := strings.TrimSpace(modelRef)
+	if ref == "" {
+		return nil, fmt.Errorf("model is empty")
 	}
-	entry := c.FindModelEntry(id)
+	entry := c.FindModelEntry(ref)
 	if entry == nil {
-		return nil, fmt.Errorf("model %q not found in config", modelID)
+		return nil, fmt.Errorf("model %q not found in config", modelRef)
 	}
-	prov := c.FindProvider(entry.Provider)
+	provName := entry.ProviderName()
+	prov := c.FindProvider(provName)
 	if prov == nil {
-		return nil, fmt.Errorf("model %q: provider %q not found", id, entry.Provider)
+		return nil, fmt.Errorf("model %q: provider %q not found", ref, provName)
 	}
 	return &ResolvedLLM{
 		ProviderType: prov.Type,
@@ -80,12 +82,13 @@ func (c *Config) ValidateModelsProvidersAndAgent() error {
 		if err := c.Models[i].Validate(); err != nil {
 			return err
 		}
-		if _, dup := seenModel[c.Models[i].ID]; dup {
-			return fmt.Errorf("models: duplicate id %q", c.Models[i].ID)
+		if _, dup := seenModel[c.Models[i].Model]; dup {
+			return fmt.Errorf("models: duplicate model %q", c.Models[i].Model)
 		}
-		seenModel[c.Models[i].ID] = struct{}{}
-		if c.FindProvider(c.Models[i].Provider) == nil {
-			return fmt.Errorf("models[%s]: unknown provider %q", c.Models[i].ID, c.Models[i].Provider)
+		seenModel[c.Models[i].Model] = struct{}{}
+		pn := c.Models[i].ProviderName()
+		if c.FindProvider(pn) == nil {
+			return fmt.Errorf("models[%s]: unknown provider %q", c.Models[i].Model, pn)
 		}
 	}
 

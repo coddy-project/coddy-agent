@@ -54,19 +54,17 @@ func TestLoadFromYAML_EndToEnd(t *testing.T) {
 
 	content := `
 providers:
-  - name: openai
+  - name: local
     type: openai
     api_key: "test-key"
 
 models:
-  - id: "openai/gpt-4o"
-    provider: openai
-    model: "gpt-4o"
+  - model: "local/gpt-4o"
     max_tokens: 4096
     temperature: 0.1
 
 agent:
-  model: "openai/gpt-4o"
+  model: "local/gpt-4o"
   max_turns: 7
 
 prompts:
@@ -103,10 +101,10 @@ logger:
 		t.Fatal("expected Paths.ConfigPath set")
 	}
 
-	if len(cfg.Models) != 1 || cfg.Models[0].ID != "openai/gpt-4o" {
+	if len(cfg.Models) != 1 || cfg.Models[0].Model != "local/gpt-4o" {
 		t.Errorf("models: got %+v", cfg.Models)
 	}
-	if cfg.Agent.Model != "openai/gpt-4o" {
+	if cfg.Agent.Model != "local/gpt-4o" {
 		t.Errorf("agent.model: got %q", cfg.Agent.Model)
 	}
 	if cfg.Agent.MaxTurns != 7 {
@@ -184,9 +182,7 @@ providers:
     api_key: "k"
 
 models:
-  - id: "openai/gpt-4o"
-    provider: openai
-    model: "gpt-4o"
+  - model: "openai/gpt-4o"
     max_tokens: 4096
     temperature: 0.1
 
@@ -225,9 +221,7 @@ providers:
     api_key: "k"
 
 models:
-  - id: "openai/gpt-4o"
-    provider: openai
-    model: "gpt-4o"
+  - model: "openai/gpt-4o"
     max_tokens: 4096
     temperature: 0.1
 
@@ -261,12 +255,10 @@ providers:
     api_key: "${TEST_API_KEY}"
 
 models:
-  - id: "test"
-    provider: openai
-    model: "gpt-4o"
+  - model: "openai/gpt-4o"
 
 agent:
-  model: "test"
+  model: "openai/gpt-4o"
 `
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "config.yaml")
@@ -284,8 +276,8 @@ agent:
 	if len(cfg.Models) == 0 {
 		t.Fatal("expected model definitions")
 	}
-	if cfg.Models[0].ID != "test" {
-		t.Errorf("model id: got %q", cfg.Models[0].ID)
+	if cfg.Models[0].Model != "openai/gpt-4o" {
+		t.Errorf("model: got %q", cfg.Models[0].Model)
 	}
 }
 
