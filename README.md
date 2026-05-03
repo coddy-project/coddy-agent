@@ -83,11 +83,11 @@ Planning and documentation mode. Restricted tools:
 - Write/edit text and markdown files
 - Search codebase
 
-The agent can propose switching to `agent` mode when ready to implement.
+When the plan is ready, switch to **agent** mode yourself for full tools and implementation.
 
 Best for: architecture planning, writing specs, design documents, code review.
 
-Switch modes in your editor's mode selector, or the agent will offer to switch automatically.
+Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Cursor Rules and Skills
 

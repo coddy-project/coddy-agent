@@ -100,16 +100,32 @@ Supported providers:
 
 ### Tools Registry (`internal/tools`)
 
-Built-in tools available to the agent:
-- `read_file` - read a file from the working directory
-- `write_file` - write/create a file
-- `list_dir` - list directory contents
-- `search_files` - search file content (ripgrep-based)
-- `run_command` - execute shell command (requires permission)
-- `apply_diff` - apply unified diff to a file
+The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`, `Env`,
+`Registry`, JSON `ParseArgs`, `ToolsForMode`). The **`internal/tools`** package is the
+composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
+call sites such as **`internal/react`** keep importing **`tools`** only.
 
-In `plan` mode, only file-read and text-write tools are available.
-In `agent` mode, all tools including `run_command` are available.
+Built-in implementations are grouped in subfolders under **`internal/tools/`**:
+
+- **`internal/tools/fs`** - path helpers (`paths.go` with `ResolvePath`, `CheckInsideCWD`,
+  `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`readfile.go`, **`writefile.go`** registers both
+  **`write_file`** and **`write_text_file`**), **`ls.go`** (**`list_dir`**), **`find.go`** (**`search_files`**),
+  **`patch.go`** (**`apply_diff`**), **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
+- **`internal/tools/shell`** - **`run_command`**
+- **`internal/tools/todo`** - todo/plan list (**`create_todo_list`**, **`get_todo_list`**,
+  **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**,
+  **`clean_todo_list`**)
+
+Agents see:
+
+- **`read_file`**, **`list_dir`**, **`search_files`**, **`create_todo_list`**, **`get_todo_list`**,
+  **`update_todo_item`**, **`delete_todo_item`**, **`done_todo_item`**, **`undone_todo_item`**,
+  **`clean_todo_list`**, and **`write_text_file`** when in **`plan`**
+  mode (**`write_text_file`** allows only `.txt` / `.md` / `.mdx` and is omitted from **`agent`**).
+- **`write_file`** and the rest (including **`mkdir`**, **`rm`**, **`mv`**, etc.) plus
+  **`run_command`** when in **`agent`** mode.
+
+`run_command`, optional write paths, and out-of-tree paths still go through **`session/request_permission`** as before.
 
 ### MCP Client (`internal/mcp`)
 
@@ -153,7 +169,6 @@ YAML-based configuration. Location (in priority order):
 Mode switching:
 - Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent` or `plan`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
-- Agent can self-switch from `plan` to `agent` after creating a plan (with permission)
 
 ## Directory Structure
 

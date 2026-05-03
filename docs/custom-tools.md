@@ -202,7 +202,6 @@ func NewRegistry() *Registry {
     r.register(searchFilesTool())
     r.register(runCommandTool())
     r.register(applyDiffTool())
-    r.register(switchToAgentModeTool())
     r.register(fetchURLTool())  // <-- add here
     return r
 }

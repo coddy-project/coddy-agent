@@ -40,8 +40,8 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "Mode: Plan") {
 		t.Error("plan prompt should mention Mode: Plan")
 	}
-	if !strings.Contains(result, "switch_to_agent_mode") {
-		t.Error("plan prompt should mention switch_to_agent_mode tool")
+	if !strings.Contains(result, "switch the session") {
+		t.Error("plan prompt should instruct switching to agent mode in the client")
 	}
 }
 

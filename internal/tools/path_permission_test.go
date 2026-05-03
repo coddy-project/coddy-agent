@@ -25,6 +25,10 @@ func TestToolPathsEscapeCWD(t *testing.T) {
 		{"search_files", `{"pattern":"foo","path":"src"}`, false},
 		{"search_files", `{"pattern":"foo","path":"/usr"}`, true},
 		{"run_command", `{"command":"rm -rf /"}`, false},
+		{"mkdir", `{"path":"../evil"}`, true},
+		{"mv", `{"src":"a","dst":"../out"}`, true},
+		{"mv", `{"src":"../a","dst":"b"}`, true},
+		{"mv", `{"src":"a","dst":"b"}`, false},
 	}
 	for _, tt := range tests {
 		got := tools.ToolPathsEscapeCWD(tt.tool, tt.argsJSON, cwd)

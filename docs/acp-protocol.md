@@ -364,7 +364,7 @@ Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancel
 
 ### `config_option_update` - Session config options changed
 
-Sent after `session/set_config_option`, after `session/set_mode` (so UI stays aligned), or when the agent switches mode internally (for example via `switch_to_agent_mode`).
+Sent after `session/set_config_option`, after `session/set_mode`, or whenever the agent updates session config options to match runtime state (so UI stays aligned).
 
 ```json
 {

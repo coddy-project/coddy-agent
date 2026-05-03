@@ -14,7 +14,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
@@ -247,7 +246,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		} else {
 			requiresPerm = false
 		}
-	} else if (tc.Name == "write_file" || tc.Name == "apply_diff") && env.RequirePermissionForWrites {
+	} else if filesystemWriteTool(tc.Name) && env.RequirePermissionForWrites {
 		requiresPerm = true
 	}
 
@@ -282,27 +281,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Status:        "cancelled",
 			})
 			return "permission denied by user", nil
-		}
-
-		// Handle switch_to_agent_mode.
-		if tc.Name == "switch_to_agent_mode" && permResult.OptionID != "reject" {
-			a.state.SetMode("agent")
-			_ = a.server.SendSessionUpdate(sessionID, acp.ModeUpdate{
-				SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-				ModeID:        "agent",
-			})
-			if st, ok := a.state.(*session.State); ok {
-				_ = a.server.SendSessionUpdate(sessionID, acp.ConfigOptionUpdate{
-					SessionUpdate: acp.UpdateTypeConfigOptionUpdate,
-					ConfigOptions: session.BuildACPConfigOptions(a.cfg, st),
-				})
-			}
-			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-				SessionUpdate: acp.UpdateTypeToolCallUpdate,
-				ToolCallID:    tc.ID,
-				Status:        "completed",
-			})
-			return "switched to agent mode", nil
 		}
 	}
 
@@ -434,18 +412,26 @@ func toolKind(name string) string {
 	switch {
 	case name == "read_file" || name == "list_dir":
 		return "read"
-	case name == "write_file" || name == "write_text_file" || name == "apply_diff":
+	case name == "write_file" || name == "write_text_file" || name == "apply_diff" ||
+		name == "mkdir" || name == "rmdir" || name == "touch" || name == "rm" || name == "mv":
 		return "write"
 	case name == "run_command":
 		return "run_command"
-	case name == "switch_to_agent_mode":
-		return "switch_mode"
 	default:
 		return "other"
 	}
 }
 
 // extractCommand parses the "command" field from run_command JSON args.
+func filesystemWriteTool(name string) bool {
+	switch name {
+	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm", "mv":
+		return true
+	default:
+		return false
+	}
+}
+
 func extractCommand(argsJSON string) string {
 	var args struct {
 		Command string `json:"command"`

@@ -1,4 +1,4 @@
-package tools
+package shell
 
 import (
 	"bytes"
@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// runCommandTool returns the run_command built-in tool.
-func runCommandTool() *Tool {
-	return &Tool{
+// RunCommandTool returns the run_command built-in tool.
+func RunCommandTool() *tooling.Tool {
+	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "run_command",
 			Description: "Execute a shell command in the working directory. Returns combined stdout and stderr output.",
@@ -42,8 +43,8 @@ type runCommandArgs struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 
-func executeRunCommand(ctx context.Context, argsJSON string, env *Env) (string, error) {
-	args, err := parseArgs[runCommandArgs](argsJSON)
+func executeRunCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+	args, err := tooling.ParseArgs[runCommandArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +68,6 @@ func executeRunCommand(ctx context.Context, argsJSON string, env *Env) (string, 
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("command timed out after %d seconds", timeout)
 		}
-		// Return exit error with output so LLM can see the failure.
 		return fmt.Sprintf("command failed: %v\n%s", err, out.String()), nil
 	}
 

@@ -250,3 +250,80 @@ func TestUnknownTool(t *testing.T) {
 		t.Error("expected error for unknown tool")
 	}
 }
+
+func TestMkdir(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "a/b/c", "parents": true})
+	if _, err := reg.Execute(context.Background(), "mkdir", string(args), env); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(env.CWD, "a", "b", "c"))
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("expected directory: %v", err)
+	}
+}
+
+func TestTouchCreatesFile(t *testing.T) {
+	env := makeEnv(t)
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "hello.txt"})
+	if _, err := reg.Execute(context.Background(), "touch", string(args), env); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	fi, err := os.Stat(filepath.Join(env.CWD, "hello.txt"))
+	if err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("expected regular file: %v", err)
+	}
+}
+
+func TestMvRename(t *testing.T) {
+	env := makeEnv(t)
+	src := filepath.Join(env.CWD, "old.txt")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"src": "old.txt", "dst": "new.txt"})
+	if _, err := reg.Execute(context.Background(), "mv", string(args), env); err != nil {
+		t.Fatalf("mv: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(env.CWD, "new.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("expected old path removed")
+	}
+}
+
+func TestRmFile(t *testing.T) {
+	env := makeEnv(t)
+	p := filepath.Join(env.CWD, "gone.txt")
+	if err := os.WriteFile(p, []byte("bye"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "gone.txt"})
+	if _, err := reg.Execute(context.Background(), "rm", string(args), env); err != nil {
+		t.Fatalf("rm: %v", err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("expected file removed")
+	}
+}
+
+func TestRmdirEmptyDir(t *testing.T) {
+	env := makeEnv(t)
+	d := filepath.Join(env.CWD, "empty")
+	if err := os.Mkdir(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"path": "empty"})
+	if _, err := reg.Execute(context.Background(), "rmdir", string(args), env); err != nil {
+		t.Fatalf("rmdir: %v", err)
+	}
+	if _, err := os.Stat(d); !os.IsNotExist(err) {
+		t.Error("expected directory removed")
+	}
+}

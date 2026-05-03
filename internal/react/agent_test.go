@@ -38,7 +38,7 @@ func TestToolKind(t *testing.T) {
 		{"write_file", "write"},
 		{"apply_diff", "write"},
 		{"run_command", "run_command"},
-		{"switch_to_agent_mode", "switch_mode"},
+		{"mkdir", "write"},
 		{"mcp_server__tool", "other"},
 	}
 	for _, tc := range cases {

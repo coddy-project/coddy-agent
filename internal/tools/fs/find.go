@@ -1,4 +1,4 @@
-package tools
+package fs
 
 import (
 	"bytes"
@@ -8,11 +8,12 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// searchFilesTool returns the search_files built-in tool.
-func searchFilesTool() *Tool {
-	return &Tool{
+// SearchFilesTool returns the search_files built-in tool (discover paths and content via ripgrep).
+func SearchFilesTool() *tooling.Tool {
+	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "search_files",
 			Description: "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
@@ -56,8 +57,8 @@ type searchFilesArgs struct {
 	MaxResults    int    `json:"max_results"`
 }
 
-func executeSearchFiles(ctx context.Context, argsJSON string, env *Env) (string, error) {
-	args, err := parseArgs[searchFilesArgs](argsJSON)
+func executeSearchFiles(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+	args, err := tooling.ParseArgs[searchFilesArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -67,7 +68,7 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *Env) (string,
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
 	if env.RestrictToCWD {
-		if err := checkInsideCWD(searchPath, env.CWD); err != nil {
+		if err := CheckInsideCWD(searchPath, env.CWD); err != nil {
 			return "", err
 		}
 	}
@@ -100,11 +101,9 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *Env) (string,
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Exit code 1 means no matches, which is not an error.
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return "no matches found", nil
 		}
-		// rg not found - fall back to grep.
 		if strings.Contains(err.Error(), "executable file not found") {
 			return searchWithGrep(ctx, args, searchPath, env)
 		}
@@ -118,9 +117,11 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *Env) (string,
 	return result, nil
 }
 
-// searchWithGrep falls back to grep when rg is not available.
-func searchWithGrep(ctx context.Context, args searchFilesArgs, searchPath string, _ *Env) (string, error) {
-	grepArgs := []string{"-rn", "--include=" + args.Glob}
+func searchWithGrep(ctx context.Context, args searchFilesArgs, searchPath string, _ *tooling.Env) (string, error) {
+	grepArgs := []string{"-rn"}
+	if args.Glob != "" {
+		grepArgs = append(grepArgs, "--include="+args.Glob)
+	}
 	if !args.CaseSensitive {
 		grepArgs = append(grepArgs, "-i")
 	}

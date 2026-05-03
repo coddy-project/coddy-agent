@@ -25,8 +25,8 @@ You are in PLAN mode. Think deeply before acting.
 2. Identify what needs to change and why
 3. Consider edge cases and potential issues
 4. Write a clear, actionable plan with specific steps
-5. When the plan is complete and you are confident, use `switch_to_agent_mode`
-   to hand off to the implementation agent
+5. When the plan is complete, tell the user to switch the session to **agent** mode in the client
+   (mode selector or session config) so implementation can run with full tools
 
 ### Output format
 

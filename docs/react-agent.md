@@ -114,13 +114,12 @@ System prompt addition:
 You are in PLAN mode. Your goal is to plan and document, NOT to execute code.
 You may read files to understand the codebase. You may write or edit text and
 markdown files. Do NOT execute commands or make code changes.
-When ready to implement, you can request switching to agent mode.
+When ready to implement, tell the user to switch the session to **agent** mode in the client tool strip or session settings.
 ```
 
 Available tools:
 - `read_file`, `list_dir`, `search_files` (read-only)
-- `write_file` (text/markdown files only, no .go/.py/.ts etc.)
-- `switch_to_agent_mode` (sends permission request to user)
+- `write_text_file` (.txt / .md / .mdx only in plan mode)
 
 ## Built-in Tools Specification
 
@@ -201,18 +200,6 @@ Available tools:
     "diff": { "type": "string", "description": "Unified diff content" }
   },
   "required": ["path", "diff"]
-}
-```
-
-### `switch_to_agent_mode` (plan mode only)
-```json
-{
-  "name": "switch_to_agent_mode",
-  "description": "Request switching from plan mode to agent mode for implementation",
-  "parameters": {
-    "plan_summary": { "type": "string", "description": "Summary of the plan to implement" }
-  },
-  "required": ["plan_summary"]
 }
 ```
 
