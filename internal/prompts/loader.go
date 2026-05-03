@@ -1,6 +1,6 @@
 // Package prompts manages system prompt templates for each agent mode.
 // Templates are markdown files embedded into the binary or loaded from a directory
-// configured under YAML key prompts (prompts.Config, dir). They use Go text/template for variable substitution.
+// configured under YAML key prompts (config.Prompts in internal/config/prompts.go). They use Go text/template for variable substitution.
 //
 // Template variables available in .md files:
 //

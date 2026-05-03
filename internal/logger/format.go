@@ -3,12 +3,14 @@ package logger
 import (
 	"io"
 	"log/slog"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // newHandler builds the slog.Handler matching cfg.Format and cfg.Level.
-func newHandler(w io.Writer, cfg Config) slog.Handler {
+func newHandler(w io.Writer, cfg config.Logger) slog.Handler {
 	opts := &slog.HandlerOptions{Level: levelOf(cfg.Level)}
-	if cfg.Format == FormatJSON {
+	if cfg.Format == config.LogFormatJSON {
 		return slog.NewJSONHandler(w, opts)
 	}
 	return slog.NewTextHandler(w, opts)
@@ -16,11 +18,11 @@ func newHandler(w io.Writer, cfg Config) slog.Handler {
 
 func levelOf(name string) slog.Level {
 	switch name {
-	case LevelDebug:
+	case config.LogLevelDebug:
 		return slog.LevelDebug
-	case LevelWarn:
+	case config.LogLevelWarn:
 		return slog.LevelWarn
-	case LevelError:
+	case config.LogLevelError:
 		return slog.LevelError
 	default:
 		return slog.LevelInfo

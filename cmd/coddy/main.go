@@ -100,7 +100,7 @@ func runACP(args []string) error {
 	logFormat := fs.String("log-format", "", "text|json (default from config)")
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
-	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions_dir or ~/.coddy/sessions)")
+	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	disableSession := fs.Bool("disable-session", false, "do not write sessions to disk (in-memory only; use for cron and one-shot runs; session/load and session/list unavailable)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	fs.Usage = func() {
@@ -132,7 +132,7 @@ func runACP(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	cfg.Logger.Apply(logger.CLIOverrides{
+	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{
 		Level:  strings.TrimSpace(*logLevel),
 		Output: strings.TrimSpace(*logOutput),
 		File:   strings.TrimSpace(*logFile),
@@ -220,7 +220,7 @@ func runSessions(args []string) error {
 	case "list":
 		fs := flag.NewFlagSet("sessions list", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
-		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config or ~/.coddy/sessions)")
+		rootFlag := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 		cwdFilter := fs.String("cwd", "", "only list sessions saved with this cwd (absolute)")
 		if err := fs.Parse(args[1:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {

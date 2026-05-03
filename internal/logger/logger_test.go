@@ -10,59 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
-
-func TestConfigValidateDefaults(t *testing.T) {
-	c := Config{}
-	if err := c.Validate(); err != nil {
-		t.Fatalf("default validate: %v", err)
-	}
-	if c.Level != LevelInfo {
-		t.Fatalf("level default: got %q", c.Level)
-	}
-	if c.Format != FormatText {
-		t.Fatalf("format default: got %q", c.Format)
-	}
-	if len(c.Outputs) != 1 || c.Outputs[0] != OutputStderr {
-		t.Fatalf("outputs default: got %v", c.Outputs)
-	}
-}
-
-func TestConfigValidateUnknown(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		c    Config
-	}{
-		{"bad level", Config{Level: "trace"}},
-		{"bad format", Config{Format: "yaml"}},
-		{"bad output", Config{Outputs: []string{"udp"}}},
-		{"file w/o path", Config{Outputs: []string{OutputFile}}},
-		{"negative size", Config{Outputs: []string{OutputFile}, File: "x", Rotation: Rotation{MaxSizeMB: -1}}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := tc.c
-			if err := c.Validate(); err == nil {
-				t.Fatal("expected error")
-			}
-		})
-	}
-}
-
-func TestApplyOverrides(t *testing.T) {
-	c := Config{Level: "debug", Outputs: []string{OutputStdout}, Format: "json"}
-	c.Apply(CLIOverrides{
-		Level:  "warn",
-		Output: "both",
-		File:   "/tmp/x.log",
-		Format: "text",
-	})
-	if c.Level != "warn" || c.Format != "text" || c.File != "/tmp/x.log" {
-		t.Fatalf("apply scalars: %+v", c)
-	}
-	if len(c.Outputs) != 2 || c.Outputs[0] != OutputStdout || c.Outputs[1] != OutputFile {
-		t.Fatalf("apply output 'both': %v", c.Outputs)
-	}
-}
 
 func TestNewWritesToStdoutAndFile(t *testing.T) {
 	dir := t.TempDir()
@@ -76,11 +26,11 @@ func TestNewWritesToStdoutAndFile(t *testing.T) {
 	os.Stdout = w
 	defer func() { os.Stdout = origStdout }()
 
-	slogLog, closer, err := New(Config{
-		Level:   LevelDebug,
-		Outputs: []string{OutputStdout, OutputFile},
+	slogLog, closer, err := New(config.Logger{
+		Level:   config.LogLevelDebug,
+		Outputs: []string{config.LogOutputStdout, config.LogOutputFile},
 		File:    path,
-		Format:  FormatText,
+		Format:  config.LogFormatText,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,11 +56,11 @@ func TestNewWritesToStdoutAndFile(t *testing.T) {
 func TestNewJSONFormat(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "coddy.log")
-	slogLog, closer, err := New(Config{
-		Level:   LevelInfo,
-		Outputs: []string{OutputFile},
+	slogLog, closer, err := New(config.Logger{
+		Level:   config.LogLevelInfo,
+		Outputs: []string{config.LogOutputFile},
 		File:    path,
-		Format:  FormatJSON,
+		Format:  config.LogFormatJSON,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +85,7 @@ func TestRotationSizeAndCount(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "x.log")
 
-	rf, err := newRotatingFile(path, Rotation{MaxSizeMB: 0, MaxFiles: 2})
+	rf, err := newRotatingFile(path, config.LoggerRotation{MaxSizeMB: 0, MaxFiles: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +99,7 @@ func TestRotationSizeAndCount(t *testing.T) {
 		t.Fatal("unexpected backup with MaxSizeMB=0")
 	}
 
-	rf, err = newRotatingFile(path, Rotation{MaxSizeMB: 1, MaxFiles: 2})
+	rf, err = newRotatingFile(path, config.LoggerRotation{MaxSizeMB: 1, MaxFiles: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

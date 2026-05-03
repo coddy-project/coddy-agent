@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,8 +58,8 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			cfg := &Config{Paths: paths}
 			applyDefaults(cfg)
-			if err := cfg.Prompts.Validate(); err != nil {
-				return nil, fmt.Errorf("prompts: %w", err)
+			if err := validateSubconfigs(cfg); err != nil {
+				return nil, err
 			}
 			return cfg, nil
 		}
@@ -76,55 +75,55 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	cfg.Paths = paths
 
 	applyDefaults(&cfg)
-	if err := cfg.Prompts.Validate(); err != nil {
-		return nil, fmt.Errorf("prompts: %w", err)
+	if err := validateSubconfigs(&cfg); err != nil {
+		return nil, err
 	}
 	return &cfg, nil
+}
+
+func validateSubconfigs(cfg *Config) error {
+	if err := cfg.Logger.Validate(); err != nil {
+		return fmt.Errorf("logger: %w", err)
+	}
+	if err := cfg.Prompts.Validate(); err != nil {
+		return fmt.Errorf("prompts: %w", err)
+	}
+	if err := cfg.React.Validate(); err != nil {
+		return fmt.Errorf("react: %w", err)
+	}
+	if err := cfg.Skills.Validate(); err != nil {
+		return fmt.Errorf("skills: %w", err)
+	}
+	if err := cfg.Tools.Validate(); err != nil {
+		return fmt.Errorf("tools: %w", err)
+	}
+	if err := cfg.Sessions.Validate(); err != nil {
+		return fmt.Errorf("sessions: %w", err)
+	}
+	return nil
 }
 
 func applyDefaults(cfg *Config) {
 	p := cfg.Paths
 
-	if cfg.React.MaxTurns == 0 {
-		cfg.React.MaxTurns = 30
-	}
-	if cfg.React.MaxTokensPerTurn == 0 {
-		cfg.React.MaxTokensPerTurn = 200000
-	}
+	cfg.React.ApplyDefaults()
 	if cfg.Logger.Level == "" {
-		cfg.Logger.Level = logger.LevelInfo
+		cfg.Logger.Level = LogLevelInfo
 	}
 	// Legacy: logger.file without outputs used to be stored but unused; route to stderr + file.
 	if strings.TrimSpace(cfg.Logger.File) != "" && len(cfg.Logger.Outputs) == 0 {
-		cfg.Logger.Outputs = []string{logger.OutputStderr, logger.OutputFile}
+		cfg.Logger.Outputs = []string{LogOutputStderr, LogOutputFile}
 	}
 
-	if strings.TrimSpace(cfg.SessionsDir) != "" {
-		cfg.SessionsDir = filepath.Clean(ExpandCODDYHomeOnly(cfg.SessionsDir, p))
-	}
-
-	if cfg.Skills.InstallDir == "" {
-		if p.Home != "" {
-			cfg.Skills.InstallDir = filepath.Join(p.Home, "skills")
-		} else {
-			cfg.Skills.InstallDir = expandHome("~/.coddy/skills")
-		}
+	if d := strings.TrimSpace(cfg.Sessions.Dir); d != "" {
+		cfg.Sessions.Dir = filepath.Clean(ExpandCODDYHomeOnly(d, p))
 	} else {
-		cfg.Skills.InstallDir = filepath.Clean(ExpandCODDYHomeOnly(cfg.Skills.InstallDir, p))
+		cfg.Sessions.Dir = ""
 	}
 
-	if len(cfg.Skills.Dirs) == 0 {
-		cfg.Skills.Dirs = []string{
-			"${CODDY_HOME}/skills",
-			"${CWD}/.skills",
-			"~/.cursor/skills",
-			"~/.claude/skills",
-		}
-	} else {
-		for i := range cfg.Skills.Dirs {
-			cfg.Skills.Dirs[i] = ExpandCODDYHomeOnly(cfg.Skills.Dirs[i], p)
-		}
-	}
+	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
+		return ExpandCODDYHomeOnly(s, p)
+	})
 
 	if cfg.Models.Default == "" && len(cfg.Models.Defs) == 0 {
 		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
@@ -153,8 +152,8 @@ func applyDefaults(cfg *Config) {
 
 // ResolvedSessionsRoot returns the filesystem root for persisted sessions.
 func (c *Config) ResolvedSessionsRoot() string {
-	if strings.TrimSpace(c.SessionsDir) != "" {
-		return filepath.Clean(c.SessionsDir)
+	if d := strings.TrimSpace(c.Sessions.Dir); d != "" {
+		return filepath.Clean(d)
 	}
 	if c.Paths.Home != "" {
 		return filepath.Join(c.Paths.Home, "sessions")

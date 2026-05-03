@@ -7,13 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // rotatingFile is a size-bounded file writer that rotates on writes once the
 // current file exceeds Rotation.MaxSizeMB. Writes are serialised so the
 // rotation is safe across goroutines.
 //
-// Rotation policy: when the current file would grow past MaxSizeMB, the
+// Rotation policy: when the current file would grow past LoggerRotation.MaxSizeMB, the
 // existing files are renamed in chain (foo.log.(N-1) -> foo.log.N, ...,
 // foo.log -> foo.log.1) and a fresh empty foo.log is opened. Files past
 // MaxFiles are deleted.
@@ -29,7 +31,7 @@ type rotatingFile struct {
 
 // newRotatingFile opens (or creates) the file at path. The directory must
 // already exist; the caller is expected to MkdirAll if needed.
-func newRotatingFile(path string, r Rotation) (*rotatingFile, error) {
+func newRotatingFile(path string, r config.LoggerRotation) (*rotatingFile, error) {
 	if path == "" {
 		return nil, errors.New("rotatingFile: empty path")
 	}

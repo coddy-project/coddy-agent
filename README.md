@@ -200,7 +200,7 @@ Python harnesses under [**`examples/acp-jsonrpc-session/`**](examples/acp-jsonrp
 
 ## Persistent sessions
 
-By default, `coddy acp` stores each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`** or **`sessions_dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
+By default, `coddy acp` stores each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`** or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
 Use **`coddy acp --disable-session`** to avoid writing any bundle (in-memory only, e.g. cron or one-shot). The agent does not advertise **`session/load`** or **`session/list`** in that mode.
 

@@ -41,8 +41,10 @@ react:
   max_turns: 30
   max_tokens_per_turn: 200000
 
-# Optional: override where session bundles are stored (default $CODDY_HOME/sessions).
-# sessions_dir: "${CODDY_HOME}/sessions"
+sessions:
+  # Directory to store session bundles.
+  # Leave empty to use default $CODDY_HOME/sessions.
+  dir: ""
 
 prompts:
   # Directory containing agent.md and plan.md (Go text/template).
