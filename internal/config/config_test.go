@@ -37,7 +37,7 @@ tools:
   require_permission_for_commands: true
   restrict_to_cwd: true
 
-log:
+logger:
   level: "debug"
 `
 	tmp := t.TempDir()
@@ -60,8 +60,8 @@ log:
 	if !cfg.Tools.RequirePermissionForCommands {
 		t.Error("expected require_permission_for_commands to be true")
 	}
-	if cfg.Log.Level != "debug" {
-		t.Errorf("expected log level %q, got %q", "debug", cfg.Log.Level)
+	if cfg.Logger.Level != "debug" {
+		t.Errorf("expected logger level %q, got %q", "debug", cfg.Logger.Level)
 	}
 }
 
@@ -77,7 +77,7 @@ models:
       max_tokens: 4096
       temperature: 0.1
 
-log:
+logger:
   level: "info"
   file: "/tmp/coddy-legacy.log"
 `
@@ -90,14 +90,14 @@ log:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cfg.Log.Outputs) != 2 {
-		t.Fatalf("expected 2 outputs, got %v", cfg.Log.Outputs)
+	if len(cfg.Logger.Outputs) != 2 {
+		t.Fatalf("expected 2 outputs, got %v", cfg.Logger.Outputs)
 	}
-	if cfg.Log.Outputs[0] != logger.OutputStderr || cfg.Log.Outputs[1] != logger.OutputFile {
-		t.Fatalf("unexpected outputs: %v", cfg.Log.Outputs)
+	if cfg.Logger.Outputs[0] != logger.OutputStderr || cfg.Logger.Outputs[1] != logger.OutputFile {
+		t.Fatalf("unexpected outputs: %v", cfg.Logger.Outputs)
 	}
-	if cfg.Log.File != "/tmp/coddy-legacy.log" {
-		t.Fatalf("file: %q", cfg.Log.File)
+	if cfg.Logger.File != "/tmp/coddy-legacy.log" {
+		t.Fatalf("file: %q", cfg.Logger.File)
 	}
 }
 
@@ -158,22 +158,6 @@ func TestExpandCWD(t *testing.T) {
 	result := config.ExpandCWD("${CWD}/.skills", "/home/user/project")
 	if result != "/home/user/project/.skills" {
 		t.Errorf("unexpected result: %q", result)
-	}
-}
-
-func TestResolvedPromptsDirEmpty(t *testing.T) {
-	p := config.PromptsConfig{}
-	if got := p.ResolvedPromptsDir("/tmp/ws"); got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-}
-
-func TestResolvedPromptsDirCWD(t *testing.T) {
-	p := config.PromptsConfig{Dir: "${CWD}/prompts"}
-	got := p.ResolvedPromptsDir("/project/root")
-	want := filepath.Clean("/project/root/prompts")
-	if got != want {
-		t.Errorf("got %q want %q", got, want)
 	}
 }
 

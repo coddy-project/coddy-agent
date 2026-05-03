@@ -68,7 +68,7 @@ react:
 prompts:
   # Empty = use embedded defaults. Otherwise a directory containing those two files.
   #
-  # Go text/template data (see internal/prompts/loader.go):
+  # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is prompts.Config in internal/prompts/config.go.
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills and rules (omit section when empty via {{if .Skills}})
@@ -118,7 +118,7 @@ tools:
   restrict_to_cwd: true
 
 # Logging
-log:
+logger:
   level: "info"           # debug | info | warn | error
   # Where records go: any combination of stdout, stderr, file. Omitted or empty = stderr only.
   outputs: []
@@ -133,7 +133,7 @@ log:
 
 ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
 
-If the older two-field style had **`file`** set but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
+If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
 
 ## Environment Variable References
 

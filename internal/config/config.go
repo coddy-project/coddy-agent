@@ -59,6 +59,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			cfg := &Config{Paths: paths}
 			applyDefaults(cfg)
+			if err := cfg.Prompts.Validate(); err != nil {
+				return nil, fmt.Errorf("prompts: %w", err)
+			}
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
@@ -73,6 +76,9 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	cfg.Paths = paths
 
 	applyDefaults(&cfg)
+	if err := cfg.Prompts.Validate(); err != nil {
+		return nil, fmt.Errorf("prompts: %w", err)
+	}
 	return &cfg, nil
 }
 
@@ -85,12 +91,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.React.MaxTokensPerTurn == 0 {
 		cfg.React.MaxTokensPerTurn = 200000
 	}
-	if cfg.Log.Level == "" {
-		cfg.Log.Level = logger.LevelInfo
+	if cfg.Logger.Level == "" {
+		cfg.Logger.Level = logger.LevelInfo
 	}
-	// Legacy: log.file without outputs used to be stored but unused; route to stderr + file.
-	if strings.TrimSpace(cfg.Log.File) != "" && len(cfg.Log.Outputs) == 0 {
-		cfg.Log.Outputs = []string{logger.OutputStderr, logger.OutputFile}
+	// Legacy: logger.file without outputs used to be stored but unused; route to stderr + file.
+	if strings.TrimSpace(cfg.Logger.File) != "" && len(cfg.Logger.Outputs) == 0 {
+		cfg.Logger.Outputs = []string{logger.OutputStderr, logger.OutputFile}
 	}
 
 	if strings.TrimSpace(cfg.SessionsDir) != "" {
@@ -195,16 +201,6 @@ func (c *Config) ModelForMode(mode string) string {
 func ExpandCWD(s, cwd string) string {
 	s = strings.ReplaceAll(s, "${CWD}", cwd)
 	return expandHome(s)
-}
-
-// ResolvedPromptsDir returns the prompts directory with ~ and ${CWD} expanded for the given session cwd.
-// Empty config Dir means callers should pass "" to prompts.Render (embedded defaults).
-func (p PromptsConfig) ResolvedPromptsDir(sessionCWD string) string {
-	d := strings.TrimSpace(p.Dir)
-	if d == "" {
-		return ""
-	}
-	return filepath.Clean(ExpandCWD(d, sessionCWD))
 }
 
 // expandHome expands a leading ~ to the user's home directory.

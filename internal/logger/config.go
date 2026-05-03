@@ -84,7 +84,7 @@ func (c *Config) Validate() error {
 	case "warning":
 		c.Level = LevelWarn
 	default:
-		return fmt.Errorf("log.level: unknown value %q (want debug|info|warn|error)", c.Level)
+		return fmt.Errorf("logger.level: unknown value %q (want debug|info|warn|error)", c.Level)
 	}
 
 	c.Format = strings.ToLower(strings.TrimSpace(c.Format))
@@ -92,7 +92,7 @@ func (c *Config) Validate() error {
 		c.Format = FormatText
 	}
 	if c.Format != FormatText && c.Format != FormatJSON {
-		return fmt.Errorf("log.format: unknown value %q (want text|json)", c.Format)
+		return fmt.Errorf("logger.format: unknown value %q (want text|json)", c.Format)
 	}
 
 	if len(c.Outputs) == 0 {
@@ -107,18 +107,18 @@ func (c *Config) Validate() error {
 		case OutputFile:
 			hasFile = true
 		default:
-			return fmt.Errorf("log.outputs[%d]: unknown value %q (want stdout|stderr|file)", i, o)
+			return fmt.Errorf("logger.outputs[%d]: unknown value %q (want stdout|stderr|file)", i, o)
 		}
 	}
 	if hasFile && strings.TrimSpace(c.File) == "" {
-		return fmt.Errorf("log.file: required when 'file' is in log.outputs")
+		return fmt.Errorf("logger.file: required when 'file' is in logger.outputs")
 	}
 
 	if c.Rotation.MaxSizeMB < 0 {
-		return fmt.Errorf("log.rotation.max_size_mb: must be >= 0")
+		return fmt.Errorf("logger.rotation.max_size_mb: must be >= 0")
 	}
 	if c.Rotation.MaxFiles < 0 {
-		return fmt.Errorf("log.rotation.max_files: must be >= 0")
+		return fmt.Errorf("logger.rotation.max_files: must be >= 0")
 	}
 	return nil
 }

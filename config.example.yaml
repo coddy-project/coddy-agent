@@ -98,7 +98,7 @@ tools:
     - "git diff"
     - "git log"
 
-log:
+logger:
   level: "info"
   # outputs: ["stderr"]          # default when omitted
   # outputs: ["stdout", "file"] # example: tee to console and file

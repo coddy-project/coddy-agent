@@ -353,7 +353,7 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
 func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition) string {
-	promptsDir := a.cfg.Prompts.ResolvedPromptsDir(a.state.GetCWD())
+	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	todoMD := strings.TrimSpace(todo.FormatTodoMarkdown(a.state.GetPlan()))
 	return prompts.RenderWithFallback(mode, promptsDir, prompts.TemplateData{
 		CWD:      a.state.GetCWD(),

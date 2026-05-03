@@ -3,6 +3,7 @@ package config
 
 import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 )
 
 // Config is the root configuration struct.
@@ -12,11 +13,11 @@ type Config struct {
 
 	Models     ModelsConfig      `yaml:"models"`
 	React      ReactConfig       `yaml:"react"`
-	Prompts    PromptsConfig     `yaml:"prompts"`
+	Prompts    prompts.Config    `yaml:"prompts"`
 	Skills     SkillsConfig      `yaml:"skills"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
 	Tools      ToolsConfig       `yaml:"tools"`
-	Log        logger.Config `yaml:"log"`
+	Logger     logger.Config `yaml:"logger"`
 
 	// SessionsDir overrides the directory for persisted session bundles. Empty means <Paths.Home>/sessions.
 	SessionsDir string `yaml:"sessions_dir"`
@@ -45,13 +46,6 @@ type ModelDefinition struct {
 type ReactConfig struct {
 	MaxTurns         int `yaml:"max_turns"`
 	MaxTokensPerTurn int `yaml:"max_tokens_per_turn"`
-}
-
-// PromptsConfig selects a directory of system prompt templates.
-type PromptsConfig struct {
-	// Dir is a directory containing agent.md and plan.md (Go text/template).
-	// If empty or whitespace, embedded built-in templates are used.
-	Dir string `yaml:"dir"`
 }
 
 // SkillsConfig controls where skills and rules are loaded from.

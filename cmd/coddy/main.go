@@ -132,13 +132,13 @@ func runACP(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	cfg.Log.Apply(logger.CLIOverrides{
+	cfg.Logger.Apply(logger.CLIOverrides{
 		Level:  strings.TrimSpace(*logLevel),
 		Output: strings.TrimSpace(*logOutput),
 		File:   strings.TrimSpace(*logFile),
 		Format: strings.TrimSpace(*logFormat),
 	})
-	log, logCloser, err := logger.New(cfg.Log)
+	log, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
