@@ -85,7 +85,7 @@ type Env struct {
 
     // Plan/todo support (always populated by the ReAct agent):
     SessionID string                      // current session ID
-    Sender    acp.UpdateSender            // sends updates to TUI/ACP client
+    Sender    acp.UpdateSender            // sends session/update to connected ACP client
     GetPlan   func() []acp.PlanEntry      // read current todo list
     SetPlan   func([]acp.PlanEntry)       // replace todo list
 }
@@ -94,7 +94,7 @@ type Env struct {
 Use `env.CWD` as the base for relative paths. Use `resolvePath(path, env.CWD)` (package-private
 helper) to convert user-supplied paths to absolute paths.
 
-If your tool wants to update the plan sidebar, call `sendPlanUpdate(env, entries)` — a
+If your tool wants to push plan state to the client, call `sendPlanUpdate(env, entries)` — a
 package-private helper in `internal/tools/todo.go` that nil-checks `Sender` before sending.
 
 ---
@@ -408,9 +408,9 @@ Before submitting a new tool, verify:
 
 ## Built-in Plan / Todo Tools
 
-Two tools are built into the agent to support task tracking. The TUI renders a dedicated sidebar
-panel (right 1/5 of the screen) that shows the current plan and token usage. Both tools are
-available in **both** `agent` and `plan` modes.
+Two tools are built into the agent to support task tracking. Plan entries and optional token
+statistics are surfaced to editors through `session/update` notifications (`PlanUpdate` and related
+updates). Both tools are available in **both** `agent` and `plan` modes.
 
 ### `create_todo_list`
 
@@ -433,7 +433,7 @@ Example agent call:
 The tool:
 1. Parses the checklist into plan entries (checked items get status `completed`)
 2. Stores the plan in session state (persists across turns)
-3. Sends a `PlanUpdate` via `acp.UpdateSender` so the TUI sidebar refreshes immediately
+3. Sends a `PlanUpdate` via `acp.UpdateSender` so the client can refresh its plan UI
 4. Returns a confirmation string to the LLM
 
 ### `update_todo_item`
@@ -452,15 +452,8 @@ Example agent call:
 { "index": 0, "status": "in_progress" }
 ```
 
-### TUI Sidebar
-
-When the terminal is at least 60 columns wide, the TUI splits into two vertical panels:
-
-- Left (4/5): chat viewport, input field, header, status bar - as usual
-- Right (1/5): token statistics + plan checklist
-
-Token stats show per-turn and cumulative input/output tokens. The plan checklist uses visual
-indicators:
+ACP-capable editors map these plan states to their own checklist UI once they receive updates.
+Rough equivalent of Markdown checkbox markers in the markdown source:
 
 | Symbol | Status |
 |--------|--------|
@@ -469,8 +462,6 @@ indicators:
 | `[x]` | completed |
 | `[!]` | failed |
 | `[-]` | cancelled |
-
-Scroll the sidebar with `Ctrl+Up` / `Ctrl+Down`.
 
 ---
 

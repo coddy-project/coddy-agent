@@ -87,7 +87,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
 
-	// Restore existing plan to the TUI if one was set by create_todo_list in a previous turn.
+	// Restore existing plan via session/update if one was set by create_todo_list in a previous turn.
 	if existing := a.state.GetPlan(); len(existing) > 0 {
 		if err := a.sendPlan(a.state.GetID(), existing); err != nil {
 			a.log.Warn("failed to restore plan", "error", err)
@@ -225,7 +225,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string) (string, error) {
-	// Mark as in_progress, include raw InputJSON so the TUI can display args.
+	// Mark as in_progress, include raw InputJSON so connected clients can show args.
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
 		ToolCallID:    tc.ID,

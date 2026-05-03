@@ -41,32 +41,7 @@ make build
 go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(git describe --tags --always)" -o coddy ./cmd/coddy/
 ```
 
-### Terminal UI
-
-![Coddy TUI demo](assets/demo.gif)
-
-Run `coddy` in any project directory to open the interactive terminal UI:
-
-```bash
-coddy
-```
-
-The TUI opens full-screen with a chat interface. Your session is automatically saved on exit (`ctrl+c`) and can be resumed later:
-
-```bash
-coddy -s tui_1234567890   # resume a saved session
-```
-
-**Key bindings:**
-
-| Key | Action |
-|-----|--------|
-| `tab` | Switch mode (agent / plan) |
-| `ctrl+p` | Command palette with search |
-| `ctrl+m` | Switch model from the list in config |
-| `ctrl+x` | Toggle input on/off |
-| `esc` | Cancel the running agent |
-| `ctrl+c` | Save session and exit |
+The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured; use `coddy acp --help` for CLI flags such as `--log-level`.
 
 ### Configuration
 
@@ -255,13 +230,7 @@ coddy acp --log-level debug
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
 
-### Building separate binaries
-
-The TUI package (`internal/tui`) is decoupled from the ACP server layer. You can:
-
-- Build full binary (TUI + ACP + skills CLI): `go build ./cmd/coddy/`
-- Use only ACP server in your own `main.go` without importing `internal/tui`
-- Use only the TUI without the ACP server by not calling `runACP()`
+### Version string in builds
 
 The `internal/version` package uses `-ldflags` build-time injection with a `"dev"` fallback, so no extra tooling is required for development builds.
 
