@@ -2,8 +2,7 @@
 
 ## Overview
 
-The Agent Client Protocol (ACP) standardizes communication between code editors and coding
-agents. It uses **JSON-RPC 2.0** transported over **stdio** (local agents).
+Coddy implements ACP as the **wire contract for the harness**. ACP standardizes how clients (for example editors, scripts, or orchestrators) talk to an agent process. The stock configuration presents a **coding agent**, but transports and RPC methods are generic harness surface area - initialize, session lifecycle, `session/prompt`, permission flows, and MCP-related options.
 
 Reference: https://agentclientprotocol.com/protocol/overview
 

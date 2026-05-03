@@ -1,5 +1,16 @@
 # ReAct Agent: Design Specification
 
+## Role in Coddy
+
+Coddy is modeled as **harness plus execution engine**. This document specifies that engine -
+
+- the **ReAct loop** in `internal/react` that turns prompts and tools into streamed turns,
+- default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
+
+The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
+
+The ReAct flow and message contract below stay stable for any ACP-speaking session.
+
 ## What is ReAct?
 
 ReAct (Reasoning + Acting) is an agent paradigm where the LLM alternates between:

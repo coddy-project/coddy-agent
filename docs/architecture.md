@@ -2,9 +2,14 @@
 
 ## Overview
 
-This project implements a **ReAct (Reasoning + Acting)** AI agent in Go that exposes itself
-via the **Agent Client Protocol (ACP)**. The agent can be integrated into any ACP-compatible
-editor (Cursor, Zed, VS Code via extension, etc.).
+Coddy is a **distroless-friendly ACP harness** written in Go. At its core it is protocol plumbing
+(STDIO JSON-RPC server, sessions, configuration, MCP wiring) plus a **ReAct** execution loop backed
+by pluggable LLM providers. Ship it as one binary suitable for scratch or distroless images,
+sidecars, CI sandboxes, or local installs.
+
+The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
+(editors spawn `coddy acp`; users get filesystem, commands, MCP, Cursor rules/skills).
+That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
 
 ## High-Level Architecture
 
