@@ -5,6 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-./examples/build_coddy_httpserver.sh
+./examples/build_coddy.sh
 ./examples/test_acp.sh
 ./examples/test_httpserver.sh

@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.rpa-gpt-oss-120b.yaml}"
+export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.demo.yaml}"
 PORT="${1:-19876}"
 BIN="${ROOT}/build/coddy"
 
@@ -21,7 +21,14 @@ fi
 cleanup() { kill "$HTTP_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-"$BIN" http --disable-session -H 127.0.0.1 -P "$PORT" &
+HOME_DIR="$(mktemp -d -t coddy-http-home-XXXXXX)"
+WORK_DIR="$(mktemp -d -t coddy-http-work-XXXXXX)"
+export CODDY_HOME="$HOME_DIR"
+export WORK_DIR
+export BASE_URL="http://127.0.0.1:$PORT/v1"
+export MODEL="${MODEL:-rpa/gpt-oss:120b}"
+
+"$BIN" http --disable-session --home "$HOME_DIR" --cwd "$WORK_DIR" -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
 sleep 0.4
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
@@ -29,12 +36,10 @@ if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   exit 1
 fi
 
-out="$(curl -sS "http://127.0.0.1:$PORT/v1/models")"
-echo "$out" | head -c 500
-echo
-if ! echo "$out" | grep -q '"object"'; then
-  echo "unexpected /v1/models response" >&2
-  exit 1
+python3 "$ROOT/examples/http_smoke_basic.py"
+if [[ "${RUN_LIVE:-0}" == "1" ]]; then
+  python3 "$ROOT/examples/http_agent_todo_e2e_demo.py"
+  python3 "$ROOT/examples/http_memory_copilot_e2e_demo.py"
 fi
 
-echo "ok httpserver /v1/models"
+echo "ok httpserver tests"

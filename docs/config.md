@@ -29,12 +29,12 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"
 
   - name: "local"
-    type: "ollama"
-    api_base: "http://localhost:11434"
-    api_key: ""
+    type: "openai"
+    api_base: "http://localhost:11434/v1"
+    api_key: "~"
 
   - name: "deepseek"
-    type: "openai_compatible"
+    type: "openai"
     api_base: "https://api.deepseek.com/v1"
     api_key: "${DEEPSEEK_API_KEY}"
 
@@ -179,7 +179,7 @@ Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expand
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`openai_compatible`**, **`anthropic`**, **`ollama`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**.
 
 YAML split:
 
@@ -196,12 +196,5 @@ Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-
 
 Provider needs **`api_key`**. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
 
-### `ollama`
-Local Ollama instance. Supports any model installed via `ollama pull`.
-
-Provider **`api_base`**: host root, for example **`http://localhost:11434`** (default inside the client if empty). Use **`models[].model`** like **`local/qwen2.5-coder:14b`** where **`local`** is the provider **`name`**.
-
-### `openai_compatible`
-Any API with OpenAI-compatible chat endpoints (DeepSeek, Together, Groq, LM Studio, etc.)
-
-Provider needs **`api_base`** (for example **`https://api.deepseek.com/v1`**) and **`api_key`**. Use **`models[].model`** like **`deepseek/deepseek-coder`**, plus **`max_tokens`**, **`temperature`**.
+### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
+Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

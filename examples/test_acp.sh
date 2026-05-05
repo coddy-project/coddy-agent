@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 export CODDY_BIN="${CODDY_BIN:-$ROOT/build/coddy}"
-export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.rpa-gpt-oss-120b.yaml}"
+export CODDY_CONFIG="${CODDY_CONFIG:-$ROOT/examples/config.demo.yaml}"
 export SESSION_ROOT="${SESSION_ROOT:-/tmp/coddy-examples-acp}"
 export SESSION_ID="${SESSION_ID:-example-acp}"
 

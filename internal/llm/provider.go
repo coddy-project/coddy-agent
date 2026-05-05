@@ -69,15 +69,10 @@ type Provider interface {
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(providerType, model, apiKey, baseURL string, maxTokens int, temp float64) (Provider, error) {
 	switch providerType {
-	case "openai", "openai_compatible":
+	case "openai":
 		return newOpenAIProvider(model, apiKey, baseURL, maxTokens, temp), nil
 	case "anthropic":
 		return newAnthropicProvider(model, apiKey, maxTokens, temp), nil
-	case "ollama":
-		if baseURL == "" {
-			baseURL = "http://localhost:11434"
-		}
-		return newOpenAIProvider(model, "", baseURL+"/v1", maxTokens, temp), nil
 	default:
 		return nil, &UnsupportedProviderError{Provider: providerType}
 	}

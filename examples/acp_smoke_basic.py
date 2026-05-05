@@ -60,7 +60,9 @@ def rpc_call(
 
 def main() -> int:
     binary = os.environ.get("CODDY_BIN", default_coddy_bin())
-    cfg = os.environ.get("CODDY_CONFIG", str(Path.home() / ".coddy" / "config.yaml"))
+    cfg = os.environ.get(
+        "CODDY_CONFIG", str(Path(__file__).resolve().parent / "config.demo.yaml")
+    )
     session_root = os.environ.get("SESSION_ROOT", "/tmp/coddy-examples-acp-smoke")
     session_id = os.environ.get("SESSION_ID", "example-acp-smoke")
 

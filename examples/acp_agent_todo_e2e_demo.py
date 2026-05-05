@@ -48,7 +48,7 @@ def default_coddy_bin() -> str:
 
 
 def default_config() -> str:
-    return str(Path.home() / ".config" / "coddy-agent" / "config.yaml")
+    return str(Path(__file__).resolve().parent / "config.demo.yaml")
 
 
 def rpc_call(

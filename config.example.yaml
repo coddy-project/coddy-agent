@@ -4,11 +4,11 @@ providers:
     type: openai
     api_key: "${OPENAI_API_KEY}"
 
-  # Local Ollama (OpenAI-compatible)
+  # Local Ollama or llama.cpp server (OpenAI-compatible)
   # - name: local
-  #   type: ollama
-  #   api_base: "http://localhost:11434"
-  #   api_key: ""
+  #   type: openai
+  #   api_base: "http://localhost:11434/v1"
+  #   api_key: "~"
 
   # Anthropic
   # - name: anthropic
@@ -16,12 +16,13 @@ providers:
   #   api_key: "${ANTHROPIC_API_KEY}"
 
   # OpenAI-compatible (DeepSeek, Groq, Together, neuraldeep, etc.)
+  # Use type openai and include /v1 in api_base.
   # - name: deepseek
-  #   type: openai_compatible
+  #   type: openai
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
   # - name: neuraldeep
-  #   type: openai_compatible
+  #   type: openai
   #   api_base: "https://api.neuraldeep.ru/v1"
   #   api_key: "${NEURALDEEP_API_KEY}"
 
