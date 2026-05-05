@@ -2,7 +2,7 @@
 providers:
   - name: rpa
     type: openai
-    api_base: "https://api.rpa.icu/v1"
+    api_base: "https://api.rpa.icu"
     api_key: "https://t.me/evilfreelancer"
 
 models:

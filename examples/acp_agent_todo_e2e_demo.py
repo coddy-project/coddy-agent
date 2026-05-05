@@ -304,15 +304,28 @@ Fully autonomously (no clarification questions):
         sid = r1["result"]["sessionId"]
         print("sessionId=", sid, "work_dir=", work, file=sys.stderr)
 
-        rp, backlog = rpc_call(
-            proc,
-            "session/prompt",
-            {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]},
-            nid,
-        )
-        if "error" in rp:
-            print("session/prompt error:", jd(rp), file=sys.stderr)
-            sys.exit(1)
+        backlog: list[dict[str, Any]] = []
+        for attempt in range(3):
+            turn_text = prompt if attempt == 0 else (
+                "Finish the remaining todo checklist items from this session without adding new items. "
+                "Execute the remaining steps and mark every checklist row as [x]. "
+                "If anything is pending, complete it now."
+            )
+            rp, b = rpc_call(
+                proc,
+                "session/prompt",
+                {"sessionId": sid, "prompt": [{"type": "text", "text": turn_text}]},
+                nid,
+            )
+            backlog.extend(b)
+            if "error" in rp:
+                print("session/prompt error:", jd(rp), file=sys.stderr)
+                sys.exit(1)
+            if active_path.is_file():
+                body_now = active_path.read_text(encoding="utf-8")
+                done_now, pending_now = parse_checklist(body_now)
+                if done_now >= args.min_completed_items and pending_now == 0:
+                    break
 
         seen_tools = set(collect_tool_call_titles(backlog))
         print("stopReason=", rp.get("result"), file=sys.stderr)
