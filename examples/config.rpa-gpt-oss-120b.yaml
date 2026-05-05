@@ -1,0 +1,42 @@
+# Test config for Coddy examples
+providers:
+  - name: rpa
+    type: openai_compatible
+    api_base: "https://api.rpa.icu/v1"
+    api_key: "https://t.me/evilfreelancer"
+
+models:
+  - model: "rpa/gpt-oss:120b"
+    max_tokens: 8192
+    temperature: 0.2
+
+agent:
+  model: "rpa/gpt-oss:120b"
+  max_turns: 30
+  max_tokens_per_turn: 200000
+
+sessions:
+  dir: ""
+
+skills:
+  dirs: []
+
+mcp_servers: []
+
+tools:
+  require_permission_for_commands: false
+  require_permission_for_writes: false
+  restrict_to_cwd: true
+
+httpserver:
+  host: "127.0.0.1"
+  port: 19876
+
+logger:
+  level: "warn"
+  outputs: ["stderr"]
+  file: ""
+  format: "text"
+  rotation:
+    max_size_mb: 0
+    max_files: 0
