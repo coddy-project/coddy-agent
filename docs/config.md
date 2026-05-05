@@ -29,12 +29,12 @@ providers:
     api_key: "${ANTHROPIC_API_KEY}"
 
   - name: "local"
-    type: "ollama"
-    api_base: "http://localhost:11434"
-    api_key: ""
+    type: "openai"
+    api_base: "http://localhost:11434/v1"
+    api_key: "~"
 
   - name: "deepseek"
-    type: "openai_compatible"
+    type: "openai"
     api_base: "https://api.deepseek.com/v1"
     api_key: "${DEEPSEEK_API_KEY}"
 
@@ -135,6 +135,14 @@ tools:
   # Working directory restriction: only allow operations within session cwd
   restrict_to_cwd: true
 
+  # When non-empty, auto-approve all tool permission prompts (ACP and HTTP). Use only in trusted environments.
+  # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
+
+# HTTP OpenAI gateway (only with go build -tags=http). See docs/http-api.md
+# httpserver:
+#   host: "127.0.0.1"
+#   port: 8080
+
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
@@ -153,6 +161,10 @@ ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`*
 
 If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
 
+## HTTP gateway (optional build)
+
+The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
+
 ## Environment Variable References
 
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
@@ -167,7 +179,7 @@ Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expand
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`openai_compatible`**, **`anthropic`**, **`ollama`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**.
 
 YAML split:
 
@@ -184,12 +196,5 @@ Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-
 
 Provider needs **`api_key`**. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
 
-### `ollama`
-Local Ollama instance. Supports any model installed via `ollama pull`.
-
-Provider **`api_base`**: host root, for example **`http://localhost:11434`** (default inside the client if empty). Use **`models[].model`** like **`local/qwen2.5-coder:14b`** where **`local`** is the provider **`name`**.
-
-### `openai_compatible`
-Any API with OpenAI-compatible chat endpoints (DeepSeek, Together, Groq, LM Studio, etc.)
-
-Provider needs **`api_base`** (for example **`https://api.deepseek.com/v1`**) and **`api_key`**. Use **`models[].model`** like **`deepseek/deepseek-coder`**, plus **`max_tokens`**, **`temperature`**.
+### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
+Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

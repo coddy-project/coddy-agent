@@ -15,13 +15,15 @@ import (
 )
 
 const (
-	sessionMetaFile   = "session.json"
-	messagesFile      = "messages.json"
-	todosDirName      = "todos"
-	todosArchiveName  = "archive"
-	activeTodoFile    = "active.md"
-	sessionFileLayout = 1
-	messagesLayout    = 1
+	sessionMetaFile      = "session.json"
+	messagesFile         = "messages.json"
+	permissionGrantsFile = "permission_grants.json"
+	todosDirName         = "todos"
+	todosArchiveName     = "archive"
+	activeTodoFile       = "active.md"
+	sessionFileLayout    = 1
+	messagesLayout       = 1
+	permissionGrantsVer  = 1
 )
 
 // FileStore persists session state under Root/<sessionId>/.
@@ -91,12 +93,20 @@ type messagesFileData struct {
 	Messages []llm.Message `json:"messages"`
 }
 
+type permissionGrantsFileData struct {
+	Version  int      `json:"version"`
+	Commands []string `json:"commands,omitempty"`
+	Writes   []string `json:"writes,omitempty"`
+}
+
 // LoadedSnapshot is session data read from disk (before MCP and skills are attached).
 type LoadedSnapshot struct {
-	Dir      string
-	Meta     sessionMetaFileData
-	Messages []llm.Message
-	Plan     []acp.PlanEntry
+	Dir                 string
+	Meta                sessionMetaFileData
+	Messages            []llm.Message
+	Plan                []acp.PlanEntry
+	PermissionCommands  []string
+	PermissionWriteKeys []string
 }
 
 // ReadSnapshot loads session.json, messages.json, and todos/active.md if present.
@@ -129,11 +139,23 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		plan = todo.ParseTodoMarkdown(string(b))
 	}
 
+	var permCmds, permWrites []string
+	pgPath := filepath.Join(dir, permissionGrantsFile)
+	if b, readErr := os.ReadFile(pgPath); readErr == nil {
+		var pg permissionGrantsFileData
+		if jsonErr := json.Unmarshal(b, &pg); jsonErr == nil {
+			permCmds = append(permCmds, pg.Commands...)
+			permWrites = append(permWrites, pg.Writes...)
+		}
+	}
+
 	return &LoadedSnapshot{
-		Dir:      dir,
-		Meta:     meta,
-		Messages: msgs,
-		Plan:     plan,
+		Dir:                 dir,
+		Meta:                meta,
+		Messages:            msgs,
+		Plan:                plan,
+		PermissionCommands:  permCmds,
+		PermissionWriteKeys: permWrites,
 	}, nil
 }
 
@@ -217,6 +239,14 @@ func (f *FileStore) Save(state *State) error {
 		Messages: msgs,
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, messagesFile), wrap); err != nil {
+		return err
+	}
+	pg := permissionGrantsFileData{
+		Version:  permissionGrantsVer,
+		Commands: state.GetPermissionCommandGrants(),
+		Writes:   state.GetPermissionWriteGrants(),
+	}
+	if err := writeJSONAtomic(filepath.Join(dir, permissionGrantsFile), pg); err != nil {
 		return err
 	}
 	return SyncActiveTodoFile(dir, state.GetPlan())

@@ -4,7 +4,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -259,18 +259,30 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
 
+	var sessCmdGrants, sessWriteGrants []string
+	if st := sessionStatePtr(a.state); st != nil {
+		sessCmdGrants = st.GetPermissionCommandGrants()
+		sessWriteGrants = st.GetPermissionWriteGrants()
+	}
+
 	if tc.Name == "run_command" {
 		if env.RequirePermissionForCommands {
-			if !env.CommandAllowed(extractCommand(tc.InputJSON)) {
-				requiresPerm = true
-			} else {
+			cmd := permission.ExtractRunCommand(tc.InputJSON)
+			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
 				requiresPerm = false
+			} else {
+				requiresPerm = true
 			}
 		} else {
 			requiresPerm = false
 		}
 	} else if filesystemWriteTool(tc.Name) && env.RequirePermissionForWrites {
-		requiresPerm = true
+		keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
+		if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
+			requiresPerm = false
+		} else {
+			requiresPerm = true
+		}
 	}
 
 	// Outside CWD when restrict_to_cwd is false - still require explicit approval.
@@ -287,7 +299,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Kind:       toolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{
-					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: fmt.Sprintf("Arguments: %s", tc.InputJSON)}},
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
 				},
 			},
 			Options: []acp.PermissionOption{
@@ -304,6 +316,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Status:        "cancelled",
 			})
 			return "permission denied by user", nil
+		}
+		if st := sessionStatePtr(a.state); st != nil {
+			permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, env.CWD, permResult)
 		}
 	}
 
@@ -460,7 +475,6 @@ func toolKind(name string) string {
 	}
 }
 
-// extractCommand parses the "command" field from run_command JSON args.
 func filesystemWriteTool(name string) bool {
 	switch name {
 	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm", "mv":
@@ -470,12 +484,15 @@ func filesystemWriteTool(name string) bool {
 	}
 }
 
+// extractCommand parses the "command" field from run_command JSON args.
 func extractCommand(argsJSON string) string {
-	var args struct {
-		Command string `json:"command"`
+	return permission.ExtractRunCommand(argsJSON)
+}
+
+func sessionStatePtr(s SessionState) *session.State {
+	st, ok := s.(*session.State)
+	if !ok {
+		return nil
 	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return ""
-	}
-	return args.Command
+	return st
 }

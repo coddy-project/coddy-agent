@@ -7,10 +7,8 @@ import (
 
 // AllowedLLMProviderTypes lists provider kinds accepted in YAML (internal/llm.NewProvider).
 var AllowedLLMProviderTypes = map[string]struct{}{
-	"openai":            {},
-	"openai_compatible": {},
-	"anthropic":         {},
-	"ollama":            {},
+	"openai":    {},
+	"anthropic": {},
 }
 
 // ProviderConfig is one entry under YAML key providers.

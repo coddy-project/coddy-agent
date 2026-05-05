@@ -48,6 +48,8 @@ go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Ver
 
 **Long-term memory** copilot lives in `external/memory/` and is always linked into `build/coddy`. Turn it on or off at runtime with `memory.enabled` in `config.yaml` (see `external/memory/README.md`).
 
+**Optional OpenAI HTTP API** lives in `external/httpserver/` and is linked only when you build with **`-tags http`** (for example `make build TAGS=http`). It adds the `coddy http` subcommand (`-H` / `--host`, `-P` / `--port`, same session and log flags as `coddy acp`). See **`docs/http-api.md`**.
+
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
 The agent speaks ACP over stdio. Editors launch `coddy` for you once it is configured. `coddy -v` or `coddy --version` prints the embedded build version (`dev` if not set at link time - see `-ldflags` in the build command above). Flags for ACP itself live on the subcommand, for example `coddy acp --help` for `--log-level`, `--log-output`, `--log-file`, `--log-format`, `--home`, `--cwd`, and `--config`.

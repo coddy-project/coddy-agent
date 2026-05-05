@@ -1,9 +1,10 @@
 .PHONY: build build-acp test lint clean install print-version
 
 # ---- Build options (extend when you add optional Go build tags) ----
-#   TAGS   optional extra `go build -tags` values (space-separated). Example: make build TAGS=integration
+#   TAGS   optional extra `go build -tags` values (space-separated). Example: make build TAGS=http
 #   Long-term memory lives in external/memory and is always linked into coddy. Turn it on or off at
 #   runtime with memory.enabled in config.yaml (no separate memory binary).
+#   OpenAI-compatible HTTP (external/httpserver) is included only with TAGS=http.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,
@@ -46,7 +47,8 @@ install: build
 
 # Run all tests.
 test:
-	go test -v ./...
+	go test ./...
+	go test -tags=http ./...
 
 # Clean build artifacts.
 clean:

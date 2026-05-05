@@ -36,7 +36,7 @@ func testConfig() *config.Config {
 	}
 }
 
-func noopRunner(context.Context, *session.State, []acp.ContentBlock) (string, error) {
+func noopRunner(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 	return string(acp.StopReasonEndTurn), nil
 }
 
@@ -62,7 +62,7 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotCWD string
-	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		gotCWD = st.GetCWD()
 		return string(acp.StopReasonEndTurn), nil
 	}
@@ -221,7 +221,7 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	store := &session.FileStore{Root: root}
 	cfg := testConfig()
 
-	persistRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+	persistRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "u"})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "a"})
 		return string(acp.StopReasonEndTurn), nil
@@ -250,7 +250,7 @@ func TestManagerPersistMessagesAndReload(t *testing.T) {
 	}
 
 	var afterReload int
-	peekRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock) (string, error) {
+	peekRunner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		afterReload = len(st.GetMessages())
 		return string(acp.StopReasonEndTurn), nil
 	}

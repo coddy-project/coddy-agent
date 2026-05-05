@@ -15,4 +15,5 @@ type Config struct {
 	Logger     Logger            `yaml:"logger"`
 	Sessions   Sessions          `yaml:"sessions"`
 	Memory     MemoryConfig      `yaml:"memory"`
+	HTTPServer HTTPServerConfig  `yaml:"httpserver"`
 }

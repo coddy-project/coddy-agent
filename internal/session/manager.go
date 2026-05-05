@@ -18,7 +18,8 @@ import (
 
 // AgentRunner is a function that runs the ReAct loop for a prompt turn.
 // It is provided at Manager construction time to avoid circular imports.
-type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlock) (string, error)
+// sender is used for session updates and permission prompts (ACP server or HTTP bridge).
+type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlock, sender acp.UpdateSender) (string, error)
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
@@ -284,6 +285,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.AgentMemory)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
+	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
 
 	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
 	if err != nil {
@@ -380,6 +382,14 @@ func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListPar
 }
 
 func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPromptParams) (*acp.SessionPromptResult, error) {
+	return m.HandleSessionPromptWithSender(ctx, params, m.server)
+}
+
+// HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
+func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	if sender == nil {
+		sender = m.server
+	}
 	state := m.getSession(params.SessionID)
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
@@ -390,7 +400,7 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	state.SetCancel(cancel)
 	defer cancel()
 
-	stopReason, err := m.runner(turnCtx, state, params.Prompt)
+	stopReason, err := m.runner(turnCtx, state, params.Prompt, sender)
 	if err != nil {
 		return nil, err
 	}
@@ -492,6 +502,11 @@ func (m *Manager) getSession(id string) *State {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.sessions[id]
+}
+
+// SessionByID returns in-memory session state or nil.
+func (m *Manager) SessionByID(id string) *State {
+	return m.getSession(id)
 }
 
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {

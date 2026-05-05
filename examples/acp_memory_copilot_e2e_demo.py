@@ -8,11 +8,6 @@ Verifies the memory subsystem behaves like an internal voice (not main-agent too
   $CODDY_HOME/memory or <cwd>/memory and a third question recalls it.
 - Optional prune step: user text nudges the recall copilot to remove a disposable global note; file must disappear.
 
-Environment (required for real LLM calls, use one of):
-
-- RPA_API_KEY for provider `rpa` / model `rpa/gpt-oss:120b` (optional RPA_API_BASE, default https://api.rpa.icu/v1)
-- or OPENAI_API_KEY for provider `openai` / model `openai/gpt-4o-mini`
-
 Environment (paths):
 
 - CODDY_BIN (default: <repo>/build/coddy if that file exists, else "coddy" from PATH)
@@ -59,6 +54,10 @@ def default_coddy_bin() -> str:
         return str(p)
     exe = shutil.which("coddy")
     return exe if exe else "coddy"
+
+
+def default_config() -> str:
+    return str(Path(__file__).resolve().parent / "config.demo.yaml")
 
 
 def rpc_call(
@@ -184,99 +183,23 @@ def assert_memory_binary(binary: str) -> None:
         sys.exit(2)
 
 
-def write_isolated_config(path: Path, rpa_api_base: str) -> None:
-    rpa_key = os.environ.get("RPA_API_KEY", "https://t.me/evilfreelancer").strip()
-    oai_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if rpa_key:
-        os.environ["RPA_API_KEY"] = rpa_key
-        os.environ["RPA_API_BASE"] = rpa_api_base
-        text = f"""providers:
-  - name: rpa
-    type: openai_compatible
-    api_base: "${{RPA_API_BASE}}"
-    # Must be the real API secret string from the provider, not a URL or placeholder page.
-    api_key: "${{RPA_API_KEY}}"
-
-models:
-  - model: "rpa/gpt-oss:120b"
-    max_tokens: 8192
-    temperature: 0.2
-
-agent:
-  model: "rpa/gpt-oss:120b"
-  max_turns: 24
-
-memory:
-  enabled: true
-
-tools:
-  require_permission_for_commands: false
-  require_permission_for_writes: false
-  restrict_to_cwd: true
-
-logger:
-  level: warn
-  format: text
-"""
-    elif oai_key:
-        text = """providers:
-  - name: openai
-    type: openai
-    api_key: "${OPENAI_API_KEY}"
-
-models:
-  - model: "openai/gpt-4o-mini"
-    max_tokens: 8192
-    temperature: 0.2
-
-agent:
-  model: "openai/gpt-4o-mini"
-  max_turns: 24
-
-memory:
-  enabled: true
-
-tools:
-  require_permission_for_commands: false
-  require_permission_for_writes: false
-  restrict_to_cwd: true
-
-logger:
-  level: warn
-  format: text
-"""
-    else:
-        print(
-            "ERROR: set RPA_API_KEY or OPENAI_API_KEY for live LLM calls.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    path.write_text(text, encoding="utf-8")
-
-
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--keep-session", action="store_true")
     ap.add_argument("--keep-work-dir", action="store_true")
     ap.add_argument("--keep-coddy-home", action="store_true")
     ap.add_argument("--skip-prune", action="store_true", help="Do not test disposable global note deletion")
-    ap.add_argument(
-        "--api-base",
-        default=os.environ.get("RPA_API_BASE", "https://api.rpa.icu/v1"),
-        help="OpenAI-compatible base URL for the rpa provider",
-    )
     ap.add_argument("--work-dir", default="", help="Session cwd (default: temp dir)")
     args = ap.parse_args()
 
     binary = os.environ.get("CODDY_BIN", default_coddy_bin())
     assert_memory_binary(binary)
+    cfg = os.environ.get("CODDY_CONFIG", default_config())
 
     session_root = os.environ.get("SESSION_ROOT", str(repo_root() / "build" / "e2e-memory-sessions"))
     session_id = os.environ.get("SESSION_ID", "acp-memory-copilot-e2e")
 
     coddy_home = tempfile.mkdtemp(prefix="coddy-home-mem-e2e-")
-    cfg_path = Path(coddy_home) / "config.yaml"
-    write_isolated_config(cfg_path, args.api_base)
 
     if args.work_dir:
         work = os.path.abspath(args.work_dir)
@@ -325,7 +248,7 @@ def main() -> None:
             "--home",
             coddy_home,
             "--config",
-            str(cfg_path),
+            cfg,
             "--sessions-dir",
             session_root,
             "--session-id",
