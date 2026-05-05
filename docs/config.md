@@ -135,6 +135,14 @@ tools:
   # Working directory restriction: only allow operations within session cwd
   restrict_to_cwd: true
 
+  # When non-empty, auto-approve all tool permission prompts (ACP and HTTP). Use only in trusted environments.
+  # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
+
+# HTTP OpenAI gateway (only with go build -tags=http). See docs/http-api.md
+# httpserver:
+#   host: "127.0.0.1"
+#   port: 8080
+
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
@@ -152,6 +160,10 @@ logger:
 ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
 
 If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
+
+## HTTP gateway (optional build)
+
+The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
 
 ## Environment Variable References
 

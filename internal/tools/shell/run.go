@@ -24,6 +24,10 @@ func RunCommandTool() *tooling.Tool {
 						"type":        "string",
 						"description": "Shell command to execute",
 					},
+					"permission_rationale": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional text shown in the permission dialog instead of raw arguments",
+					},
 					"timeout_seconds": map[string]interface{}{
 						"type":        "integer",
 						"description": "Command timeout in seconds (default: 30)",
@@ -39,8 +43,9 @@ func RunCommandTool() *tooling.Tool {
 }
 
 type runCommandArgs struct {
-	Command        string `json:"command"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
+	Command             string `json:"command"`
+	PermissionRationale string `json:"permission_rationale"`
+	TimeoutSeconds      int    `json:"timeout_seconds"`
 }
 
 func executeRunCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {

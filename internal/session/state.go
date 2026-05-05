@@ -59,6 +59,11 @@ type State struct {
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
+	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
+	PermissionCommandGrants []string
+	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
+	PermissionWriteGrants []string
+
 	// persist is invoked after persisted fields change (set by Manager; may be nil).
 	persist func()
 
@@ -294,4 +299,66 @@ func (s *State) CloseAll() {
 		_ = c.Close()
 	}
 	s.MCPClients = nil
+}
+
+// RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).
+func (s *State) RestorePermissionGrantsWithoutPersist(commands, writes []string) {
+	s.mu.Lock()
+	s.PermissionCommandGrants = append([]string(nil), commands...)
+	s.PermissionWriteGrants = append([]string(nil), writes...)
+	s.mu.Unlock()
+}
+
+// GetPermissionCommandGrants returns a copy of session command grants.
+func (s *State) GetPermissionCommandGrants() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.PermissionCommandGrants))
+	copy(out, s.PermissionCommandGrants)
+	return out
+}
+
+// GetPermissionWriteGrants returns a copy of session write grant keys.
+func (s *State) GetPermissionWriteGrants() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, len(s.PermissionWriteGrants))
+	copy(out, s.PermissionWriteGrants)
+	return out
+}
+
+// AddCommandGrantIfNew appends a command pattern if not already matched by existing grants.
+func (s *State) AddCommandGrantIfNew(cmd string) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return
+	}
+	s.mu.Lock()
+	for _, g := range s.PermissionCommandGrants {
+		if g == cmd {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.PermissionCommandGrants = append(s.PermissionCommandGrants, cmd)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// AddWriteGrantIfNew appends a write grant key if not already present.
+func (s *State) AddWriteGrantIfNew(key string) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	s.mu.Lock()
+	for _, g := range s.PermissionWriteGrants {
+		if g == key {
+			s.mu.Unlock()
+			return
+		}
+	}
+	s.PermissionWriteGrants = append(s.PermissionWriteGrants, key)
+	s.mu.Unlock()
+	s.touchPersist()
 }

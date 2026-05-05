@@ -15,18 +15,22 @@ providers:
   #   type: anthropic
   #   api_key: "${ANTHROPIC_API_KEY}"
 
-  # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
+  # OpenAI-compatible (DeepSeek, Groq, Together, neuraldeep, etc.)
   # - name: deepseek
   #   type: openai_compatible
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
+  # - name: neuraldeep
+  #   type: openai_compatible
+  #   api_base: "https://api.neuraldeep.ru/v1"
+  #   api_key: "${NEURALDEEP_API_KEY}"
 
 models:
   - model: "openai/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
 
-  # - model: "local/gpt-oss:120b"
+  # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
 
@@ -96,6 +100,14 @@ tools:
     - "git status"
     - "git diff"
     - "git log"
+
+  # When non-empty, all tool permission prompts are auto-approved (ACP and HTTP). Dangerous; use only in trusted environments.
+  # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
+
+# OpenAI-compatible HTTP API (only when built with: go build -tags=http). See docs/http-api.md
+# httpserver:
+#   host: "127.0.0.1"
+#   port: 8080
 
 # Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
 # Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the

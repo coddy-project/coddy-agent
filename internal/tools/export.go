@@ -19,6 +19,7 @@ func NewRegistry() *Registry {
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandTool())
+	r.Register(AskUserApprovalTool())
 	r.Register(todo.CreateListTool())
 	r.Register(todo.UpdateItemTool())
 	r.Register(todo.GetListTool())

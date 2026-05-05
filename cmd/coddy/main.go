@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -21,21 +22,25 @@ import (
 
 // serverRef breaks the cyclic dependency between acp.Server and session.Manager.
 type serverRef struct {
-	p **acp.Server
+	p   **acp.Server
+	cfg *config.Config
 }
 
 func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) error {
 	s := *r.p
 	if s == nil {
-		return fmt.Errorf("acp server not initialized")
+		return nil
 	}
 	return s.SendSessionUpdate(sessionID, update)
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if permission.MasterKeyActive(r.cfg) {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
 	s := *r.p
 	if s == nil {
-		return nil, fmt.Errorf("acp server not initialized")
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	return s.RequestPermission(ctx, params)
 }
@@ -63,6 +68,8 @@ func main() {
 	switch args[0] {
 	case "acp":
 		err = runACP(args[1:])
+	case "http":
+		err = runHTTP(args[1:])
 	case "sessions":
 		err = runSessions(args[1:])
 	case "skills":
@@ -83,6 +90,7 @@ func printUsage(w *os.File) {
   %[1]s -h | --help
   %[1]s -v | --version
   %[1]s acp [flags]
+  %[1]s http [flags]  (OpenAI-compatible HTTP; build with: go build -tags=http)
   %[1]s sessions list [flags]
   %[1]s skills list
   %[1]s skills install <path-or-github-or-url>
@@ -160,9 +168,9 @@ func runACP(args []string) error {
 	}
 
 	var srv *acp.Server
-	ref := &serverRef{p: &srv}
-	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock) (string, error) {
-		loop := agent.NewAgent(cfg, st, ref, log)
+	ref := &serverRef{p: &srv, cfg: cfg}
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+		loop := agent.NewAgent(cfg, st, snd, log)
 		return loop.Run(ctx, prompt)
 	}
 	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
