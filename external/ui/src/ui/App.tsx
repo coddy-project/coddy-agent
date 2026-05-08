@@ -5,6 +5,7 @@ import type { TokenUsage, TranscriptItem } from './chat/types';
 import { NavRail } from './nav/NavRail';
 import { SessionsSidebar } from './sessions/SessionsSidebar';
 import type { SessionRow } from './sessions/types';
+import { startSuggestSessionTitle } from './sessionTitleSuggest';
 
 const HDR = 'X-Coddy-Session-ID';
 
@@ -100,14 +101,21 @@ export function App() {
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
+  const [describePreview, setDescribePreview] = useState<{ sessionId: string; title: string } | null>(null);
   const currentTitle = useMemo(() => {
     if (!sessionId) {
       return 'New chat';
     }
+    if (describePreview?.sessionId === sessionId) {
+      const hint = describePreview.title.trim();
+      if (hint) {
+        return hint;
+      }
+    }
     const row = sessions.find((s) => s.id === sessionId);
     const t = (row?.title || '').trim();
     return t || 'New chat';
-  }, [sessionId, sessions]);
+  }, [sessionId, sessions, describePreview]);
 
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
@@ -157,6 +165,10 @@ export function App() {
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, [sessionId]);
+
+  useEffect(() => {
+    setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
 
   async function loadSessions(reset: boolean): Promise<SessionRow[] | null> {
@@ -310,6 +322,7 @@ export function App() {
     setDraft('');
     setTokenUsage(null);
     setSessionsOpen(false);
+    setDescribePreview(null);
   }
 
   async function renameSession(id: string) {
@@ -418,6 +431,15 @@ export function App() {
 
   async function streamResponses(text: string) {
     inFlightRef.current = true;
+    const isNewChatFirstSend = !sessionId.trim();
+    let releaseSessionId: ((id: string) => void) | undefined;
+    const sessionIdWhenKnown = isNewChatFirstSend
+      ? new Promise<string>((resolve) => {
+          releaseSessionId = resolve;
+        })
+      : null;
+
+    let sidEffective = '';
     try {
       let sid = sessionId;
       if (!sid) {
@@ -425,7 +447,31 @@ export function App() {
         setSessionHash(sid);
         setSessionId(sid);
       }
-      let sidEffective = sid;
+      sidEffective = sid;
+      let latestPreviewSid = sid;
+
+      if (isNewChatFirstSend && sessionIdWhenKnown) {
+        startSuggestSessionTitle({
+          userText: text,
+          sessionIdPromise: sessionIdWhenKnown,
+          getPreviewSessionId: () => latestPreviewSid,
+          onShortReady: (cid, ttl) => {
+            setDescribePreview({ sessionId: cid, title: ttl });
+            setSessions((prev) => {
+              const i = prev.findIndex((s) => s.id === cid);
+              if (i >= 0) {
+                return prev.map((s) => (s.id === cid ? { ...s, title: ttl } : s));
+              }
+              return [{ id: cid, title: ttl }, ...prev];
+            });
+          },
+          onApplied: (id, appliedTitle) => {
+            setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: appliedTitle } : s)));
+            setDescribePreview((p) => (p?.sessionId === id ? null : p));
+          },
+        });
+      }
+
       const hdrs = sid ? { [HDR]: sid } : {};
       const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
       const assistantId = newId('a');
@@ -443,7 +489,13 @@ export function App() {
         sidEffective = sidHdr;
         setSessionHash(sidHdr);
         setSessionId(sidHdr);
+        setDescribePreview((p) => (p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p));
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
+        );
       }
+      latestPreviewSid = sidEffective;
+      releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
         setItems((prev) =>
@@ -779,6 +831,7 @@ export function App() {
       }
       await loadMessages(sidEffective);
     } finally {
+      releaseSessionId?.(sidEffective);
       inFlightRef.current = false;
     }
   }
