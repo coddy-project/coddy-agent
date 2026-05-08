@@ -43,7 +43,7 @@ export function ToolCallMessage(props: {
       : '';
 
   return (
-    <div className="msg msg-tools" data-kind={props.kind || ''} data-status={props.status}>
+    <div className="msg msg-tools msg-compact" data-kind={props.kind || ''} data-status={props.status}>
       <details
         className="tool-details"
         onToggle={(e) => {

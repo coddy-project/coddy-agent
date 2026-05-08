@@ -1,7 +1,10 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { Composer } from './Composer';
+
+afterEach(() => cleanup());
 
 function renderComposer(opts: { isEmpty: boolean }) {
   return render(

@@ -616,6 +616,10 @@ body {
   align-self: flex-start;
 }
 
+.msg-tools + .thinking-row {
+  margin-top: -6px;
+}
+
 .thinking-details {
   margin: 0;
 }
