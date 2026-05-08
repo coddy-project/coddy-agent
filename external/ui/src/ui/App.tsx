@@ -429,8 +429,6 @@ export function App() {
       const hdrs = sid ? { [HDR]: sid } : {};
       const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
       const assistantId = newId('a');
-      const thinkingId = newId('r');
-      const thinkingStarted = Date.now();
       setItems((prev) => [...prev, userItem]);
       setTokenUsage(null);
 
@@ -551,25 +549,28 @@ export function App() {
         });
       };
 
-      const ensureThinking = (patch?: Partial<Extract<TranscriptItem, { type: 'thinking' }>>) => {
-        setItems((prev) => {
-          const idx = prev.findIndex((x) => x.type === 'thinking' && x.id === thinkingId);
-          if (idx < 0) {
-            const base: Extract<TranscriptItem, { type: 'thinking' }> = { id: thinkingId, type: 'thinking', status: 'in_progress', content: '' };
-            const aIdx = prev.findIndex((x) => x.type === 'assistant_message' && x.id === assistantId);
-            if (aIdx >= 0) {
-              const next = [...prev];
-              next.splice(aIdx, 0, { ...base, ...(patch || {}) });
-              return next;
-            }
-            return [...prev, { ...base, ...(patch || {}) }];
-          }
-          if (!patch) return prev;
-          const next = [...prev];
-          const cur = next[idx] as Extract<TranscriptItem, { type: 'thinking' }>;
-          next[idx] = { ...cur, ...patch };
-          return next;
-        });
+      let activeThinkingId: string | null = null;
+      let activeThinkingStarted = 0;
+      const startThinkingIfNeeded = () => {
+        if (activeThinkingId) return activeThinkingId;
+        activeThinkingId = newId('r');
+        activeThinkingStarted = Date.now();
+        const id = activeThinkingId;
+        setItems((prev) => [...prev, { id, type: 'thinking', status: 'in_progress', content: '' }]);
+        return id;
+      };
+      const appendThinking = (delta: string) => {
+        const id = startThinkingIfNeeded();
+        setItems((prev) => prev.map((it) => (it.type === 'thinking' && it.id === id ? { ...it, content: it.content + delta } : it)));
+      };
+      const finishThinking = () => {
+        if (!activeThinkingId) return;
+        const id = activeThinkingId;
+        const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        setItems((prev) =>
+          prev.map((it) => (it.type === 'thinking' && it.id === id ? { ...it, status: 'completed', durationMs: dur } : it)),
+        );
+        activeThinkingId = null;
       };
 
       const syncAssistantFromServer = async () => {
@@ -577,18 +578,12 @@ export function App() {
           const res = await fetchJSON<{ messages: Array<any> }>(`/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`, { headers: { [HDR]: sidEffective } });
           if (!res.ok || !res.data?.messages) return false;
           let last = '';
-          let lastReasoning = '';
           for (const m of res.data.messages) {
             if ((m.role || '').trim() !== 'assistant') continue;
             const c = (m.content || '').trim();
             if (c) last = c;
-            const r = (m.reasoning || '').trim();
-            if (r) lastReasoning = r;
           }
           if (!last) return false;
-          if (lastReasoning) {
-            ensureThinking({ status: 'completed', content: lastReasoning, durationMs: Math.max(0, Date.now() - thinkingStarted) });
-          }
           ensureAssistant();
           setItems((prev) => prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: last } : it)));
           return true;
@@ -616,10 +611,7 @@ export function App() {
               const c = delta.choices?.[0]?.delta?.content || '';
               const r = delta.choices?.[0]?.delta?.reasoning_content || '';
               if (r) {
-                ensureThinking();
-                setItems((prev) =>
-                  prev.map((it) => (it.type === 'thinking' && it.id === thinkingId ? { ...it, content: it.content + r } : it)),
-                );
+                appendThinking(r);
               }
               if (c) {
                 ensureAssistant();
@@ -652,6 +644,7 @@ export function App() {
 
           if (ev.event === 'tool_call') {
             try {
+              finishThinking();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
               const now = Date.now();
               const patch: Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string } = {
@@ -775,8 +768,8 @@ export function App() {
 
       flushToolQueue();
 
+      finishThinking();
       ensureAssistant({ streaming: false });
-      ensureThinking({ status: 'completed', durationMs: Math.max(0, Date.now() - thinkingStarted) });
 
       void loadSessions(true);
       let ok = await syncAssistantFromServer();
@@ -784,6 +777,7 @@ export function App() {
         await new Promise((r) => setTimeout(r, 500));
         ok = await syncAssistantFromServer();
       }
+      await loadMessages(sidEffective);
     } finally {
       inFlightRef.current = false;
     }
