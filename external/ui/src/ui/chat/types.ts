@@ -26,5 +26,8 @@ export type TranscriptItem =
       argsText?: string;
       resultText?: string;
       detailsLoaded?: boolean;
+      startedAtMs?: number;
+      finishedAtMs?: number;
+      durationMs?: number;
     };
 

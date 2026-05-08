@@ -564,6 +564,78 @@ body {
   line-height: 1.45;
 }
 
+.tool-details {
+  margin: 0;
+}
+
+.tool-details > summary {
+  list-style: none;
+}
+
+.tool-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.tool-dur {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(10, 10, 12, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tool-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(156, 163, 175, 0.75);
+}
+
+.tool-dot-pending,
+.tool-dot-in_progress {
+  background: rgba(251, 191, 36, 0.85);
+}
+
+.tool-dot-completed {
+  background: rgba(52, 211, 153, 0.85);
+}
+
+.tool-dot-failed {
+  background: rgba(248, 113, 113, 0.85);
+}
+
+.tool-dot-cancelled {
+  background: rgba(156, 163, 175, 0.85);
+}
+
+.tool-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-top-color: rgba(255, 255, 255, 0.75);
+  animation: toolspin 0.9s linear infinite;
+}
+
+@keyframes toolspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .md {
   color: rgba(255, 255, 255, 0.9);
   line-height: 1.55;
@@ -899,6 +971,47 @@ textarea#composer {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.context-ring {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 10, 12, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.context-ring svg {
+  display: block;
+}
+
+.context-ring-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 3;
+}
+
+.context-ring-fg {
+  fill: none;
+  stroke: rgba(147, 51, 234, 0.9);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 12px 12px;
+  transition: stroke-dashoffset 160ms ease;
+}
+
+.context-ring-label {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  pointer-events: none;
 }
 
 .composer-icon {

@@ -78,6 +78,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Object  string `json:"object"`
 		Created int64  `json:"created"`
 		OwnedBy string `json:"owned_by"`
+		MaxContextTokens int `json:"max_context_tokens,omitempty"`
 	}
 	out := struct {
 		Object string     `json:"object"`
@@ -87,12 +88,21 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Data:   nil,
 	}
 	// IDs are Coddy session profiles (modes), not YAML models[]. Same values as ACP session mode.
+	maxCtx := 128000
+	if s.cfg != nil {
+		if ent := s.cfg.FindModelEntry(strings.TrimSpace(s.cfg.Agent.Model)); ent != nil {
+			if ent.MaxContextTokens > 0 {
+				maxCtx = ent.MaxContextTokens
+			}
+		}
+	}
 	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {
 		out.Data = append(out.Data, modelObj{
 			ID:      string(mode),
 			Object:  "model",
 			Created: 0,
 			OwnedBy: "coddy-mode",
+			MaxContextTokens: maxCtx,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

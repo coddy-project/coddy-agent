@@ -12,6 +12,7 @@ type ModelEntry struct {
 	Model       string  `yaml:"model"`
 	MaxTokens   int     `yaml:"max_tokens"`
 	Temperature float64 `yaml:"temperature"`
+	MaxContextTokens int `yaml:"max_context_tokens"`
 }
 
 // SplitModelRef parses model into provider name and API model id.

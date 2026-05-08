@@ -25,6 +25,5 @@ test('renders user, assistant, and tool call items', () => {
   expect(screen.getByText('Hello')).toBeInTheDocument();
   expect(screen.getByText('Hi')).toBeInTheDocument();
   expect(screen.getByText('read_file')).toBeInTheDocument();
-  expect(screen.getByLabelText('Tool arguments')).toBeInTheDocument();
-  expect(screen.getByLabelText('Tool result')).toBeInTheDocument();
+  expect(screen.getByLabelText('Tool summary')).toBeInTheDocument();
 });

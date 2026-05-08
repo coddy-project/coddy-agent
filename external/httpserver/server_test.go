@@ -56,6 +56,7 @@ func TestGETModels(t *testing.T) {
 			ID      string `json:"id"`
 			Object  string `json:"object"`
 			OwnedBy string `json:"owned_by"`
+			MaxContextTokens int `json:"max_context_tokens"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
@@ -72,6 +73,9 @@ func TestGETModels(t *testing.T) {
 		}
 		if item.Object != "model" || item.OwnedBy != "coddy-mode" {
 			t.Fatalf("unexpected meta on %q %+v", item.ID, item)
+		}
+		if item.MaxContextTokens <= 0 {
+			t.Fatalf("expected max_context_tokens, got %+v", item)
 		}
 	}
 	if !seen["agent"] || !seen["plan"] {

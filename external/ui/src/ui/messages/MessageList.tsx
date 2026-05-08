@@ -13,19 +13,17 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
         if (it.type === 'assistant_message') {
           return <AssistantMessage key={it.id} content={it.content} />;
         }
-        const toolProps: Record<string, unknown> = {
-          toolCallId: it.toolCallId,
-          status: it.status,
-        };
-        if (it.title !== undefined) toolProps.title = it.title;
-        if (it.kind !== undefined) toolProps.kind = it.kind;
-        if (it.argsText !== undefined) toolProps.argsText = it.argsText;
-        if (it.resultText !== undefined) toolProps.resultText = it.resultText;
-        if (it.detailsLoaded !== undefined) toolProps.detailsLoaded = it.detailsLoaded;
         return (
           <ToolCallMessage
             key={it.id}
-            {...toolProps}
+            toolCallId={it.toolCallId}
+            status={it.status}
+            {...(it.title !== undefined ? { title: it.title } : {})}
+            {...(it.kind !== undefined ? { kind: it.kind } : {})}
+            {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
+            {...(it.resultText !== undefined ? { resultText: it.resultText } : {})}
+            {...(it.detailsLoaded !== undefined ? { detailsLoaded: it.detailsLoaded } : {})}
+            {...(it.durationMs !== undefined ? { durationMs: it.durationMs } : {})}
             {...(props.onLoadToolCallDetails ? { onLoadDetails: props.onLoadToolCallDetails } : {})}
           />
         );

@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import type { TokenUsage, TranscriptItem } from './types';
 import { ChatHeader } from './ChatHeader';
 import { Composer } from './Composer';
-import { TokenBar } from './TokenBar';
 import { MessageList } from '../messages/MessageList';
 
 export function ChatScreen(props: {
@@ -12,6 +11,9 @@ export function ChatScreen(props: {
   items: TranscriptItem[];
   draft: string;
   tokenUsage: TokenUsage | null;
+  contextPct?: number;
+  maxContextTokens?: number;
+  modelLabel?: string;
   mode: string;
   modes: string[];
   onModeChange: (mode: string) => void;
@@ -73,12 +75,15 @@ export function ChatScreen(props: {
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner">
-              <TokenBar usage={props.tokenUsage} />
               <Composer
                 value={props.draft}
                 isEmpty={false}
                 mode={props.mode}
                 modes={props.modes}
+                tokenUsage={props.tokenUsage}
+                {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
+                {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
+                {...(props.modelLabel !== undefined ? { modelLabel: props.modelLabel } : {})}
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}

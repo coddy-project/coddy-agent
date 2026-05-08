@@ -32,6 +32,8 @@ type ToolCallListRow = {
   resultPreview?: string;
 };
 
+type ModelInfo = { id: string; maxContextTokens?: number | undefined };
+
 type SessionStats = {
   tokenUsageTotal?: { inputTokens: number; outputTokens: number; totalTokens: number };
 };
@@ -86,6 +88,8 @@ export function App() {
   const [draft, setDraft] = useState('');
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const tokenBaselineRef = useRef<{ input: number; output: number; total: number }>({ input: 0, output: 0, total: 0 });
+  const inFlightRef = useRef(false);
+  const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
@@ -121,11 +125,15 @@ export function App() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetchJSON<{ data?: Array<{ id?: string }> }>('/v1/models');
+      const res = await fetchJSON<{ data?: Array<{ id?: string; max_context_tokens?: number }> }>('/v1/models');
       if (!res.ok || !res.data?.data) {
         return;
       }
-      const ids = res.data.data.map((d) => (d.id || '').trim()).filter(Boolean);
+      const rows = res.data.data
+        .map((d) => ({ id: (d.id || '').trim(), ...(d.max_context_tokens !== undefined ? { maxContextTokens: d.max_context_tokens } : {}) }))
+        .filter((d) => d.id);
+      setModelInfos(rows);
+      const ids = rows.map((d) => d.id);
       if (ids.length > 0) {
         setModes(ids);
         if (!ids.includes(mode)) {
@@ -170,14 +178,19 @@ export function App() {
     return next;
   }
 
-  async function loadMessages() {
+  async function loadMessages(idOverride?: string): Promise<boolean> {
+    const sid = (idOverride ?? sessionId).trim();
+    if (!sid) {
+      setItems([]);
+      return false;
+    }
     const res = await fetchJSON<{ messages: Array<any> }>(
-      `/coddy/sessions/${encodeURIComponent(sessionId)}/messages`,
-      { headers },
+      `/coddy/sessions/${encodeURIComponent(sid)}/messages`,
+      { headers: sid === sessionId ? headers : { [HDR]: sid } },
     );
     if (!res.ok || !res.data) {
       setItems([]);
-      return;
+      return false;
     }
     const next: TranscriptItem[] = [];
     const toolIdx = new Map<string, number>();
@@ -237,8 +250,8 @@ export function App() {
     }
 
     // Enrich tool calls with persisted previews when available.
-    const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(`/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls`, {
-      headers,
+    const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(`/coddy/sessions/${encodeURIComponent(sid)}/tool-calls`, {
+      headers: sid === sessionId ? headers : { [HDR]: sid },
     });
     if (tcRes.ok && tcRes.data?.toolCalls) {
       for (const row of tcRes.data.toolCalls) {
@@ -263,12 +276,15 @@ export function App() {
       }
     }
     setItems(next);
+    return next.some((it) => it.type === 'assistant_message');
   }
 
-  async function pickSession(id: string) {
+  async function pickSession(id: string, opts?: { closeMenu?: boolean }) {
     setSessionHash(id);
     setSessionId(id);
-    setSessionsOpen(false);
+    if (opts?.closeMenu !== false) {
+      setSessionsOpen(false);
+    }
   }
 
   function goHome() {
@@ -300,7 +316,7 @@ export function App() {
     }
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers });
     if (id === sessionId) {
-      pickSession(randomSessionId());
+      pickSession(randomSessionId(), { closeMenu: false });
       return;
     }
     await loadSessions(true);
@@ -310,6 +326,9 @@ export function App() {
     if (!sessionId) {
       setItems([]);
       void loadSessions(true);
+      return;
+    }
+    if (inFlightRef.current) {
       return;
     }
     setTokenUsage(null);
@@ -350,14 +369,28 @@ export function App() {
         if (update.kind !== undefined) it.kind = update.kind;
         if (update.argsText !== undefined) it.argsText = update.argsText;
         if (update.resultText !== undefined) it.resultText = update.resultText;
+        if (update.startedAtMs !== undefined) it.startedAtMs = update.startedAtMs;
+        if (update.finishedAtMs !== undefined) it.finishedAtMs = update.finishedAtMs;
+        if (update.durationMs !== undefined) it.durationMs = update.durationMs;
         return [...prev, it];
       }
       const next = [...prev];
       const cur = next[idx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+      const nextStarted = update.startedAtMs !== undefined ? update.startedAtMs : cur.startedAtMs;
+      const nextFinished = update.finishedAtMs !== undefined ? update.finishedAtMs : cur.finishedAtMs;
+      const nextDuration =
+        update.durationMs !== undefined
+          ? update.durationMs
+          : nextStarted && nextFinished
+            ? Math.max(0, nextFinished - nextStarted)
+            : cur.durationMs;
       const merged: Extract<TranscriptItem, { type: 'tool_call' }> = {
         ...cur,
         status: (update.status as any) || cur.status,
       };
+      if (nextStarted !== undefined) merged.startedAtMs = nextStarted;
+      if (nextFinished !== undefined) merged.finishedAtMs = nextFinished;
+      if (nextDuration !== undefined) merged.durationMs = nextDuration;
       if (update.title !== undefined) merged.title = update.title;
       if (update.kind !== undefined) merged.kind = update.kind;
       if (update.argsText !== undefined) merged.argsText = update.argsText;
@@ -368,49 +401,53 @@ export function App() {
   }
 
   async function streamResponses(text: string) {
-    let sid = sessionId;
-    if (!sid) {
-      sid = randomSessionId();
-      setSessionHash(sid);
-      setSessionId(sid);
-    }
-    const hdrs = sid ? { [HDR]: sid } : {};
-    const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
-    const assistantId = newId('a');
-    const assistantItem: TranscriptItem = { id: assistantId, type: 'assistant_message', content: '', streaming: true };
+    inFlightRef.current = true;
+    try {
+      let sid = sessionId;
+      if (!sid) {
+        sid = randomSessionId();
+        setSessionHash(sid);
+        setSessionId(sid);
+      }
+      let sidEffective = sid;
+      const hdrs = sid ? { [HDR]: sid } : {};
+      const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
+      const assistantId = newId('a');
+      const assistantItem: TranscriptItem = { id: assistantId, type: 'assistant_message', content: '', streaming: true };
 
-    setItems((prev) => [...prev, userItem, assistantItem]);
-    setTokenUsage(null);
+      setItems((prev) => [...prev, userItem, assistantItem]);
+      setTokenUsage(null);
 
-    const res = await fetch('/v1/responses', {
-      method: 'POST',
-      headers: { ...hdrs, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: mode || 'agent', input: text, stream: true }),
-    });
+      const res = await fetch('/v1/responses', {
+        method: 'POST',
+        headers: { ...hdrs, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: mode || 'agent', input: text, stream: true }),
+      });
 
-    const sidHdr = res.headers.get(HDR);
-    if (sidHdr && sidHdr !== sid) {
-      setSessionHash(sidHdr);
-      setSessionId(sidHdr);
-    }
+      const sidHdr = res.headers.get(HDR);
+      if (sidHdr && sidHdr !== sid) {
+        sidEffective = sidHdr;
+        setSessionHash(sidHdr);
+        setSessionId(sidHdr);
+      }
 
-    if (!res.ok || !res.body) {
-      setItems((prev) =>
-        prev.map((it) =>
-          it.type === 'assistant_message' && it.id === assistantId
-            ? { ...it, content: `Request failed (${res.status})`, streaming: false }
-            : it,
-        ),
-      );
-      return;
-    }
+      if (!res.ok || !res.body) {
+        setItems((prev) =>
+          prev.map((it) =>
+            it.type === 'assistant_message' && it.id === assistantId
+              ? { ...it, content: `Request failed (${res.status})`, streaming: false }
+              : it,
+          ),
+        );
+        return;
+      }
 
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    const carry = { buf: '' };
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      const carry = { buf: '' };
 
-    const toolQueue: Array<Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string }> = [];
-    let raf = 0;
+      const toolQueue: Array<Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string }> = [];
+      let raf = 0;
     const flushToolQueue = () => {
       raf = 0;
       if (toolQueue.length === 0) return;
@@ -432,15 +469,29 @@ export function App() {
             if (upd.argsText !== undefined) it.argsText = upd.argsText;
             if (upd.resultText !== undefined) it.resultText = upd.resultText;
             if (upd.detailsLoaded !== undefined) it.detailsLoaded = upd.detailsLoaded;
+            if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
+            if (upd.finishedAtMs !== undefined) it.finishedAtMs = upd.finishedAtMs;
+            if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
             next = [...next, it];
             continue;
           }
           const arr = next === prev ? [...next] : next;
           const cur = arr[idx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+          const nextStarted = upd.startedAtMs !== undefined ? upd.startedAtMs : cur.startedAtMs;
+          const nextFinished = upd.finishedAtMs !== undefined ? upd.finishedAtMs : cur.finishedAtMs;
+          const nextDuration =
+            upd.durationMs !== undefined
+              ? upd.durationMs
+              : nextStarted && nextFinished
+                ? Math.max(0, nextFinished - nextStarted)
+                : cur.durationMs;
           const merged: Extract<TranscriptItem, { type: 'tool_call' }> = {
             ...cur,
             status: (upd.status as any) || cur.status,
           };
+          if (nextStarted !== undefined) merged.startedAtMs = nextStarted;
+          if (nextFinished !== undefined) merged.finishedAtMs = nextFinished;
+          if (nextDuration !== undefined) merged.durationMs = nextDuration;
           if (upd.title !== undefined) merged.title = upd.title;
           if (upd.kind !== undefined) merged.kind = upd.kind;
           if (upd.argsText !== undefined) merged.argsText = upd.argsText;
@@ -457,97 +508,222 @@ export function App() {
       raf = window.requestAnimationFrame(flushToolQueue);
     };
 
-    while (true) {
-      const step = await reader.read();
-      if (step.done) {
-        break;
-      }
-      const events = parseSSEBlocks(dec.decode(step.value, { stream: true }), carry);
-      for (const ev of events) {
-        if (ev.data === '[DONE]') {
-          continue;
+      const syncAssistantFromServer = async () => {
+        try {
+          const res = await fetchJSON<{ messages: Array<any> }>(`/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`, { headers: { [HDR]: sidEffective } });
+          if (!res.ok || !res.data?.messages) return false;
+          let last = '';
+          for (const m of res.data.messages) {
+            if ((m.role || '').trim() !== 'assistant') continue;
+            const c = (m.content || '').trim();
+            if (c) last = c;
+          }
+          if (!last) return false;
+          setItems((prev) =>
+            prev.map((it) =>
+              it.type === 'assistant_message' && it.id === assistantId && !it.content ? { ...it, content: last } : it,
+            ),
+          );
+          return true;
+        } catch {
+          return false;
         }
+      };
 
-        if (!ev.event) {
-          try {
-            const delta = JSON.parse(ev.data) as any;
-            const piece = delta.choices?.[0]?.delta?.content || delta.choices?.[0]?.delta?.reasoning_content || '';
-            if (piece) {
-              setItems((prev) =>
-                prev.map((it) =>
-                  it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + piece } : it,
-                ),
-              );
+      let sawDone = false;
+      while (true) {
+        const step = await reader.read();
+        if (step.done) {
+          break;
+        }
+        const events = parseSSEBlocks(dec.decode(step.value, { stream: true }), carry);
+        for (const ev of events) {
+          if (ev.data === '[DONE]') {
+            sawDone = true;
+            break;
+          }
+
+          if (!ev.event) {
+            try {
+              const delta = JSON.parse(ev.data) as any;
+              const piece = delta.choices?.[0]?.delta?.content || delta.choices?.[0]?.delta?.reasoning_content || '';
+              if (piece) {
+                setItems((prev) =>
+                  prev.map((it) =>
+                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + piece } : it,
+                  ),
+                );
+              }
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
+            continue;
           }
-          continue;
-        }
 
-        if (ev.event === 'token_usage') {
-          try {
-            const u = JSON.parse(ev.data) as TokenUsage;
-            const merged: TokenUsage = {
-              inputTokens: tokenBaselineRef.current.input + (u.inputTokens || 0),
-              outputTokens: tokenBaselineRef.current.output + (u.outputTokens || 0),
-              totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
-            };
-            setTokenUsage(merged);
-          } catch {
-            // ignore
-          }
-          continue;
-        }
-
-        if (ev.event === 'tool_call') {
-          try {
-            const t = JSON.parse(ev.data) as ToolCallUpdate;
-            const patch: Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string } = {
-              toolCallId: t.toolCallId,
-              status: (t.status as any) || 'pending',
-            };
-            if (t.title !== undefined) patch.title = t.title;
-            if (t.kind !== undefined) patch.kind = t.kind;
-            toolQueue.push(patch);
-            scheduleToolFlush();
-          } catch {
-            // ignore
-          }
-          continue;
-        }
-
-        if (ev.event === 'tool_call_update') {
-          try {
-            const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
-            const status = (u.status as any) || 'in_progress';
-            const text0 = u.content?.[0]?.content?.text || '';
-            if (status === 'in_progress' && text0) {
-              toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0 });
-              scheduleToolFlush();
-            } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
-              toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0 });
-              scheduleToolFlush();
-            } else {
-              toolQueue.push({ toolCallId: u.toolCallId, status });
-              scheduleToolFlush();
+          if (ev.event === 'token_usage') {
+            try {
+              const u = JSON.parse(ev.data) as TokenUsage;
+              const merged: TokenUsage = {
+                inputTokens: tokenBaselineRef.current.input + (u.inputTokens || 0),
+                outputTokens: tokenBaselineRef.current.output + (u.outputTokens || 0),
+                totalTokens: tokenBaselineRef.current.total + (u.totalTokens || 0),
+              };
+              setTokenUsage(merged);
+            } catch {
+              // ignore
             }
-          } catch {
-            // ignore
+            continue;
           }
-          continue;
+
+          if (ev.event === 'tool_call') {
+            try {
+              const t = JSON.parse(ev.data) as ToolCallUpdate;
+              const now = Date.now();
+              const patch: Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string } = {
+                toolCallId: t.toolCallId,
+                status: (t.status as any) || 'pending',
+                startedAtMs: now,
+              };
+              if (t.title !== undefined) patch.title = t.title;
+              if (t.kind !== undefined) patch.kind = t.kind;
+              toolQueue.push(patch);
+              scheduleToolFlush();
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === 'tool_call_update') {
+            try {
+              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
+              const status = (u.status as any) || 'in_progress';
+              const text0 = u.content?.[0]?.content?.text || '';
+              const now = Date.now();
+              if (status === 'in_progress' && text0) {
+                toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0, startedAtMs: now });
+                scheduleToolFlush();
+              } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
+                toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0, finishedAtMs: now });
+                scheduleToolFlush();
+              } else {
+                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                  toolQueue.push({ toolCallId: u.toolCallId, status, finishedAtMs: now });
+                } else {
+                  toolQueue.push({ toolCallId: u.toolCallId, status, startedAtMs: now });
+                }
+                scheduleToolFlush();
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+        }
+        if (sawDone) {
+          break;
         }
       }
+      if (sawDone) {
+        try {
+          await reader.cancel();
+        } catch {
+          // ignore
+        }
+      }
+
+      if (carry.buf.trim()) {
+        const tailEvents = parseSSEBlocks('\n\n', carry);
+        for (const ev of tailEvents) {
+          if (ev.data === '[DONE]') continue;
+          if (!ev.event) {
+            try {
+              const delta = JSON.parse(ev.data) as any;
+              const piece = delta.choices?.[0]?.delta?.content || delta.choices?.[0]?.delta?.reasoning_content || '';
+              if (piece) {
+                setItems((prev) =>
+                  prev.map((it) =>
+                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + piece } : it,
+                  ),
+                );
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === 'tool_call') {
+            try {
+              const t = JSON.parse(ev.data) as ToolCallUpdate;
+              const now = Date.now();
+              const patch: Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string } = {
+                toolCallId: t.toolCallId,
+                status: (t.status as any) || 'pending',
+                startedAtMs: now,
+              };
+              if (t.title !== undefined) patch.title = t.title;
+              if (t.kind !== undefined) patch.kind = t.kind;
+              toolQueue.push(patch);
+              scheduleToolFlush();
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === 'tool_call_update') {
+            try {
+              const u = JSON.parse(ev.data) as ToolCallStatusUpdate;
+              const status = (u.status as any) || 'in_progress';
+              const text0 = u.content?.[0]?.content?.text || '';
+              const now = Date.now();
+              if (status === 'in_progress' && text0) {
+                toolQueue.push({ toolCallId: u.toolCallId, status, argsText: text0, startedAtMs: now });
+                scheduleToolFlush();
+              } else if ((status === 'completed' || status === 'failed' || status === 'cancelled') && text0) {
+                toolQueue.push({ toolCallId: u.toolCallId, status, resultText: text0, finishedAtMs: now });
+                scheduleToolFlush();
+              } else {
+                if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+                  toolQueue.push({ toolCallId: u.toolCallId, status, finishedAtMs: now });
+                } else {
+                  toolQueue.push({ toolCallId: u.toolCallId, status, startedAtMs: now });
+                }
+                scheduleToolFlush();
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+        }
+      }
+
+      flushToolQueue();
+
+      setItems((prev) =>
+        prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, streaming: false } : it)),
+      );
+
+      void loadSessions(true);
+      let ok = await syncAssistantFromServer();
+      for (let i = 0; i < 10 && !ok; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        ok = await syncAssistantFromServer();
+      }
+    } finally {
+      inFlightRef.current = false;
     }
-
-    flushToolQueue();
-
-    setItems((prev) =>
-      prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, streaming: false } : it)),
-    );
-
-    void loadSessions(true);
   }
+
+  const maxContextTokens = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === mode);
+    return row?.maxContextTokens || 128000;
+  }, [modelInfos, mode]);
+
+  const contextPct = useMemo(() => {
+    if (!tokenUsage || !maxContextTokens) return 0;
+    return Math.min(100, Math.max(0, (tokenUsage.totalTokens / maxContextTokens) * 100));
+  }, [tokenUsage, maxContextTokens]);
 
   return (
     <div className="shell">
@@ -583,6 +759,9 @@ export function App() {
         items={items}
         draft={draft}
         tokenUsage={tokenUsage}
+        contextPct={contextPct}
+        maxContextTokens={maxContextTokens}
+        modelLabel={mode}
         mode={mode}
         modes={modes}
         onModeChange={setMode}
