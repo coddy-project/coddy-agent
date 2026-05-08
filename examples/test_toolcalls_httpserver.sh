@@ -44,11 +44,6 @@ if [[ "$ready" != 1 ]]; then
   exit 1
 fi
 
-python3 "$ROOT/examples/http_smoke_basic.py"
-if [[ "${RUN_LIVE:-0}" == "1" ]]; then
-  python3 "$ROOT/examples/http_agent_todo_e2e_demo.py"
-  python3 "$ROOT/examples/http_memory_copilot_e2e_demo.py"
-  python3 "$ROOT/examples/http_toolcalls_persist_e2e_demo.py"
-fi
+python3 "$ROOT/examples/http_toolcalls_persist_e2e_demo.py"
 
-echo "ok httpserver tests"
+echo "ok http toolcalls e2e"

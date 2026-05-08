@@ -74,3 +74,53 @@ func TestActiveTodoPersistence(t *testing.T) {
 		t.Fatalf("plan len=%d", len(snap.Plan))
 	}
 }
+
+func TestListSnapshotsSkipsSchedulerSessions(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	// Normal persisted session.
+	normalID := "sess_normal"
+	normalDir, err := fs.EnsureLayout(normalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normal := &State{
+		ID:         normalID,
+		CWD:        "/tmp/unit",
+		Mode:       ModeAgent,
+		SessionDir: normalDir,
+	}
+	normal.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hello"})
+	if err := fs.Save(normal); err != nil {
+		t.Fatal(err)
+	}
+
+	// Scheduler-like session id prefix.
+	schedID := "sched_deadbeef"
+	schedDir, err := fs.EnsureLayout(schedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched := &State{
+		ID:         schedID,
+		CWD:        "/tmp/unit",
+		Mode:       ModeAgent,
+		SessionDir: schedDir,
+	}
+	sched.AddMessage(llm.Message{Role: llm.RoleUser, Content: "ignore me"})
+	if err := fs.Save(sched); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshots("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 visible snapshot, got %d", len(rows))
+	}
+	if rows[0].SessionID != normalID {
+		t.Fatalf("expected %s, got %s", normalID, rows[0].SessionID)
+	}
+}

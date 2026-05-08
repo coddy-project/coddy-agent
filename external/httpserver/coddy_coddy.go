@@ -77,6 +77,23 @@ func previewText(s string, max int) string {
 	return txt[:max] + "..."
 }
 
+func toolKind(name string) string {
+	n := strings.TrimSpace(strings.ToLower(name))
+	if n == "" {
+		return "tool"
+	}
+	if strings.HasPrefix(n, "coddy_todo_") {
+		return "todo"
+	}
+	switch n {
+	case "run_command":
+		return "shell"
+	case "write_file", "apply_diff", "mkdir", "touch", "mv":
+		return "fs"
+	}
+	return "tool"
+}
+
 func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)

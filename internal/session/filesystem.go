@@ -200,6 +200,9 @@ func (f *FileStore) ListSnapshots(cwdFilter string) ([]SessionListEntry, error) 
 			continue
 		}
 		id := ent.Name()
+		if strings.HasPrefix(id, "sched_") {
+			continue
+		}
 		snap, err := f.ReadSnapshot(id)
 		if err != nil {
 			continue
