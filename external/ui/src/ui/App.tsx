@@ -66,21 +66,13 @@ export function App() {
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [draft, setDraft] = useState('');
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const [modes, setModes] = useState<string[]>(['agent', 'plan']);
   const [mode, setMode] = useState<string>('agent');
-  const [navWide, setNavWide] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem('coddy_ui_nav_wide');
-      if (v === '0' || v === '1') return v === '1';
-    } catch {
-      // ignore
-    }
-    return window.matchMedia?.('(min-width: 1024px)').matches ?? true;
-  });
   const currentTitle = useMemo(() => {
     if (!sessionId) {
       return 'New chat';
@@ -109,28 +101,6 @@ export function App() {
   useEffect(() => {
     let id = getSessionFromHash();
     setSessionId(id || '');
-  }, []);
-
-  useEffect(() => {
-    document.documentElement.dataset.nav = navWide ? 'wide' : 'compact';
-    try {
-      localStorage.setItem('coddy_ui_nav_wide', navWide ? '1' : '0');
-    } catch {
-      // ignore
-    }
-  }, [navWide]);
-
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const mq = window.matchMedia('(max-width: 760px)');
-    const onChange = () => {
-      if (mq.matches) {
-        setNavWide(false);
-      }
-    };
-    onChange();
-    mq.addEventListener?.('change', onChange);
-    return () => mq.removeEventListener?.('change', onChange);
   }, []);
 
   useEffect(() => {
@@ -168,8 +138,10 @@ export function App() {
       headers,
     });
     if (!res.ok || !res.data) {
+      setSessionsError(`Backend is unavailable (${res.status})`);
       return null;
     }
+    setSessionsError(null);
     const next = res.data.sessions || [];
     setSessions((prev) => {
       if (reset) {
@@ -423,8 +395,6 @@ export function App() {
         onNewChat={goHome}
         menuOpen={sessionsOpen}
         onToggleMenu={() => setSessionsOpen((v) => !v)}
-        navWide={navWide}
-        onToggleNavWide={() => setNavWide((v) => !v)}
       />
 
       <div
@@ -436,20 +406,10 @@ export function App() {
       <SessionsSidebar
         sessionId={sessionId}
         sessions={sessions}
+        error={sessionsError}
         variant="drawer"
         open={sessionsOpen}
         onClose={() => setSessionsOpen(false)}
-        onPick={pickSession}
-        onRename={(id: string) => void renameSession(id)}
-        onTitleSave={(id: string, title: string) => void saveSessionTitle(id, title)}
-        onDelete={(id: string) => void deleteSession(id)}
-        onLoadMore={() => void loadSessions(false)}
-      />
-
-      <SessionsSidebar
-        sessionId={sessionId}
-        sessions={sessions}
-        variant="dock"
         onPick={pickSession}
         onRename={(id: string) => void renameSession(id)}
         onTitleSave={(id: string, title: string) => void saveSessionTitle(id, title)}

@@ -137,10 +137,10 @@ body {
 }
 
 .rail-brand-text {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  white-space: nowrap;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  white-space: normal;
   line-height: 1.05;
 }
 
@@ -256,9 +256,15 @@ body {
 
 .session-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.sessions-empty {
+  padding: 12px 12px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
 }
 
 .session-title {
@@ -938,122 +944,6 @@ textarea#composer {
   }
 }
 
-/* Very wide screens keep sessions dock visible */
-@media (min-width: 1400px) {
-  .shell {
-    grid-template-columns: 88px 340px 1fr;
-  }
-  .sessions.dock {
-    display: flex;
-    position: relative;
-    padding: 14px 10px;
-    background: transparent;
-  }
-  .sessions.drawer,
-  .backdrop {
-    display: none;
-  }
-
-  .sessions.dock {
-    align-self: stretch;
-    height: 100vh;
-    padding: 14px 10px;
-    display: flex;
-    justify-content: center;
-  }
-
-  .sessions.dock .sessions-head {
-    width: 100%;
-    max-width: 320px;
-  }
-
-  .sessions.dock .session-list,
-  .sessions.dock .sessions-foot {
-    width: 100%;
-    max-width: 320px;
-  }
-
-  .sessions.dock {
-    background: transparent;
-    border: 0;
-    box-shadow: none;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-
-  .sessions.dock {
-    padding: 14px 10px;
-  }
-
-  .sessions.dock::before {
-    content: '';
-    position: absolute;
-    top: 14px;
-    bottom: 14px;
-    left: 10px;
-    right: 10px;
-    border-radius: 18px;
-    background: var(--sidebar);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    pointer-events: none;
-  }
-
-  .sessions.dock > * {
-    position: relative;
-  }
-}
-
-/* Wide vs compact nav choice (desktop only) */
-@media (min-width: 1024px) {
-  html[data-nav='wide'] .shell {
-    grid-template-columns: 240px 340px 1fr;
-  }
-
-  html[data-nav='wide'] .rail {
-    padding: 14px 14px;
-    justify-content: stretch;
-  }
-
-  html[data-nav='wide'] .rail-pill {
-    width: 100%;
-    height: calc(100vh - 28px);
-    border-radius: 24px;
-    flex-direction: column;
-    align-items: stretch;
-    padding: 14px 14px;
-  }
-
-  html[data-nav='wide'] .rail-brand {
-    justify-content: flex-start;
-    padding: 8px 10px;
-  }
-
-  html[data-nav='wide'] .rail-brand-text {
-    display: grid;
-    justify-items: start;
-    gap: 2px;
-    white-space: normal;
-  }
-
-  html[data-nav='wide'] .rail-icon {
-    width: 100%;
-    height: 44px;
-    justify-content: flex-start;
-    padding: 0 12px;
-  }
-
-  html[data-nav='wide'] .rail-icon span {
-    width: auto;
-  }
-
-  html[data-nav='wide'] .rail-icon.rail-link {
-    font-size: 13px;
-  }
-}
-
 /* Mobile: rail becomes top bar */
 @media (max-width: 760px) {
   .nav-toggle {
@@ -1095,6 +985,12 @@ textarea#composer {
   }
   .rail-spacer {
     flex: 1;
+  }
+  .rail-brand-text {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    white-space: nowrap;
   }
   .main {
     padding-top: 10px;

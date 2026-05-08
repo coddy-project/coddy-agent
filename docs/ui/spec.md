@@ -11,30 +11,27 @@ This page captures the original UI requirements and the intended end state. It i
 
 ## Layout
 
-Three pane layout on desktop
+Desktop layout
 
 - Left rail with a new chat action
-- Sessions list with pagination and per session actions
+- Sessions list is a drawer overlay with pagination and per session actions
 - Main chat area with streamed assistant output
 - Right rail is out of scope for the current milestone
 
-Navigation modes on wide screens
+Wide screens
 
-- On large screens (full HD and above) the UI supports two left navigation styles
-  - wide navigation with labels
-  - compact icon-only navigation
-- User choice is persisted in local storage.
-- Default on large screens is wide navigation.
+- On desktop and wide screens, navigation is consistent and does not have a width toggle.
 
 Mobile layout
 
 - On mobile the left rail becomes a top bar to preserve horizontal space.
-- On mobile the nav width toggle is hidden.
+- On mobile the brand stays on a single line.
 
 Header links
 
 - GitHub link to `https://github.com/coddy-project/coddy-agent`
 - API docs link to `/docs/`
+- Links live in the nav rail for this milestone.
 
 ## Sessions
 
@@ -153,3 +150,29 @@ When describing a specific element, link to the relevant image file.
 - Chat history view: `assets/ref-history.png`
 - Chat transcript view: `assets/ref-chat.png`
 - Flow montage: `assets/ref-flow.png`
+
+## UI test scenarios
+
+These scenarios are intended to be automated via Playwright against the Vite dev server.
+
+- Desktop navigation has no width toggle
+  - Given viewport width is at least 1024px
+  - When the app loads
+  - Then `data-testid="nav-menu"` is visible
+  - And `data-testid="nav-toggle-width"` is not present
+
+- Sessions are drawer only
+  - Given any desktop viewport
+  - When the app loads
+  - Then `data-testid="sessions"` is not visible
+  - When user clicks `data-testid="nav-menu"`
+  - Then `data-testid="sessions"` becomes visible
+  - When user clicks `data-testid="sessions-close"`
+  - Then the sessions drawer is hidden
+
+- Mobile uses top bar and single line brand
+  - Given viewport width is at most 760px
+  - When the app loads
+  - Then the nav width toggle is not present
+  - And the nav rail height is 78px
+  - And sessions can still be opened from the menu button

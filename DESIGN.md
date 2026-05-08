@@ -24,7 +24,7 @@ Store the design reference images under `docs/ui/assets/` and link to the specif
 
 - System stack: **`system-ui`**, `-apple-system`, **`Segoe UI`**, **`sans-serif`**
 - Comfortable padding: **`12px`** grid, radius **`12px`** (pill buttons **`999px`**)
-- Density tuned for dashboards: two-column desktop layout (**`52px`** rail + **`260px`** sessions + fluid chat)
+- Density tuned for dashboards: desktop layout (single navigation style + fluid chat). Sessions are a drawer overlay.
 
 ### Token usage HUD
 
@@ -34,9 +34,9 @@ Muted footer row under composer shows **`input` / `output` / `total`** counts fr
 
 Left-to-right zones:
 
-1. **Icon rail**: quick **New chat** button.
+1. **Nav rail**: burger menu, home action, and repo links.
 2. **Session drawer**: sessions are hidden by default and opened from the burger menu. Drawer overlays chat on desktop and mobile.
-3. **Chat canvas**: sticky header (**GitHub** + **API docs**), scrollable transcripts,composer with **Send** (**Enter** submits, **`Shift+Enter`** newline).
+3. **Chat canvas**: sticky header with editable title, scrollable transcripts, composer with **Send** (**Enter** submits, **`Shift+Enter`** newline).
 
 The right insights rail is removed for the current milestone.
 
@@ -49,13 +49,9 @@ The right insights rail is removed for the current milestone.
 - Mobile first: sessions are accessed via drawer.
 - Drawer overlays chat and composer on all screen sizes.
 
-Wide desktop navigation
+Desktop navigation
 
-- On wide screens (full HD and above), UI supports two navigation styles
-  - wide navigation with labels
-  - compact icon-only navigation
-- User choice is persisted in local storage.
-- Default on wide screens is wide navigation.
+- Desktop navigation does not have a width toggle. The nav rail stays consistent across wide screens.
 
 Sessions list interactions
 
@@ -67,7 +63,7 @@ Sessions list interactions
 
 ### Repo links
 
-Outlined text buttons inline in header (`RepoLink`): GitHub (**`https://github.com/coddy-project/coddy-agent`**) and relative **`/docs/`** anchor.
+Repo links live in the nav rail: GitHub (**`https://github.com/coddy-project/coddy-agent`**) and relative **`/docs/`** anchor.
 
 ### Tool timeline
 
