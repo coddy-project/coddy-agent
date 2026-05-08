@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Markdown } from '../markdown/Markdown';
 
 function formatDuration(ms: number): string {
@@ -11,26 +11,52 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
-export function ThinkingMessage(props: { status: 'in_progress' | 'completed'; content: string; durationMs?: number }) {
-  const label = props.status === 'completed' ? 'thinking' : 'thinking...';
-  const dur = useMemo(() => (typeof props.durationMs === 'number' ? formatDuration(props.durationMs) : ''), [props.durationMs]);
+export function ThinkingMessage(props: {
+  status: 'in_progress' | 'completed';
+  content: string;
+  durationMs?: number;
+  /** Wall clock ms when reasoning started (live elapsed until completed). */
+  startedAtMs?: number;
+}) {
+  const inProgress = props.status === 'in_progress';
+  const label = inProgress ? 'thinking...' : 'thinking';
   const text = (props.content || '').trim();
-  const openByDefault = props.status !== 'completed';
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!inProgress || typeof props.startedAtMs !== 'number') return;
+    const h = window.setInterval(() => setNowMs(Date.now()), 160);
+    return () => window.clearInterval(h);
+  }, [inProgress, props.startedAtMs]);
+
+  const durationLabel = useMemo(() => {
+    if (props.status === 'completed') {
+      if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs)) {
+        return formatDuration(props.durationMs);
+      }
+      return '-';
+    }
+    if (typeof props.startedAtMs === 'number' && Number.isFinite(props.startedAtMs)) {
+      return formatDuration(Math.max(0, nowMs - props.startedAtMs));
+    }
+    if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs)) {
+      return formatDuration(props.durationMs);
+    }
+    return '-';
+  }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   return (
     <div className="thinking-row">
-      <details className="thinking-details" open={openByDefault ? true : undefined}>
+      <details className="thinking-details">
         <summary className="thinking-summary" aria-label="Thinking summary">
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{label}</span>
           </span>
-          {props.status === 'in_progress' ? <span className="thinking-spinner" aria-hidden="true" /> : null}
-          {dur ? (
-            <span className="thinking-dur" aria-hidden="true">
-              {dur}
-            </span>
-          ) : null}
+          {inProgress ? <span className="thinking-spinner" aria-hidden="true" /> : null}
+          <span className="thinking-dur" aria-hidden="true">
+            {durationLabel}
+          </span>
         </summary>
         {text ? (
           <div className="thinking-body" aria-label="Thinking content">

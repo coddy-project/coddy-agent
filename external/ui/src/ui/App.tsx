@@ -608,7 +608,8 @@ export function App() {
         activeThinkingId = newId('r');
         activeThinkingStarted = Date.now();
         const id = activeThinkingId;
-        setItems((prev) => [...prev, { id, type: 'thinking', status: 'in_progress', content: '' }]);
+        const t0 = activeThinkingStarted;
+        setItems((prev) => [...prev, { id, type: 'thinking', status: 'in_progress', content: '', startedAtMs: t0 }]);
         return id;
       };
       const appendThinking = (delta: string) => {
@@ -660,12 +661,16 @@ export function App() {
           if (!ev.event) {
             try {
               const delta = JSON.parse(ev.data) as any;
-              const c = delta.choices?.[0]?.delta?.content || '';
+              const contentDelta = delta.choices?.[0]?.delta?.content;
+              const c = typeof contentDelta === 'string' ? contentDelta : '';
               const r = delta.choices?.[0]?.delta?.reasoning_content || '';
               if (r) {
                 appendThinking(r);
               }
               if (c) {
+                if (/\S/.test(c)) {
+                  finishThinking();
+                }
                 ensureAssistant();
                 setItems((prev) =>
                   prev.map((it) =>
@@ -759,11 +764,20 @@ export function App() {
           if (!ev.event) {
             try {
               const delta = JSON.parse(ev.data) as any;
-              const piece = delta.choices?.[0]?.delta?.content || delta.choices?.[0]?.delta?.reasoning_content || '';
-              if (piece) {
+              const contentDelta = delta.choices?.[0]?.delta?.content;
+              const c = typeof contentDelta === 'string' ? contentDelta : '';
+              const r = delta.choices?.[0]?.delta?.reasoning_content || '';
+              if (r) {
+                appendThinking(r);
+              }
+              if (c) {
+                if (/\S/.test(c)) {
+                  finishThinking();
+                }
+                ensureAssistant();
                 setItems((prev) =>
                   prev.map((it) =>
-                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + piece } : it,
+                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + c } : it,
                   ),
                 );
               }
@@ -774,6 +788,7 @@ export function App() {
           }
           if (ev.event === 'tool_call') {
             try {
+              finishThinking();
               const t = JSON.parse(ev.data) as ToolCallUpdate;
               const now = Date.now();
               const patch: Partial<Extract<TranscriptItem, { type: 'tool_call' }>> & { toolCallId: string } = {

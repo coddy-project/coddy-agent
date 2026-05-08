@@ -16,6 +16,7 @@ export type TranscriptItem =
       status: 'in_progress' | 'completed';
       content: string;
       durationMs?: number;
+      startedAtMs?: number;
     }
   | {
       id: string;

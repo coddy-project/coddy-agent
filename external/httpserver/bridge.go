@@ -79,6 +79,12 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 	if text == "" {
 		return nil
 	}
+	choiceDelta := map[string]interface{}{}
+	if u.Content.Type == acp.ContentTypeReasoning {
+		choiceDelta["reasoning_content"] = text
+	} else {
+		choiceDelta["content"] = text
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delta := map[string]interface{}{
@@ -88,7 +94,7 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 		"model":   s.model,
 		"choices": []map[string]interface{}{{
 			"index": 0,
-			"delta": map[string]interface{}{"content": text},
+			"delta": choiceDelta,
 		}},
 	}
 	line, err := json.Marshal(delta)

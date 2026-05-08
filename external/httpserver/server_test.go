@@ -182,6 +182,70 @@ func TestCoddyDescribeUsesProviderForLongText(t *testing.T) {
 	}
 }
 
+func TestCoddyDescribeSkipsJunkFirstLine(t *testing.T) {
+	_, srv := testHTTPServerPersist(t)
+	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
+		return fakeProvider{reply: "Po\nSkills and tools in verse"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"Tell me what you can do in a poem with tools listed"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, b)
+	}
+	var out struct {
+		Object string `json:"object"`
+		Short  string `json:"short"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Short != "Skills and tools in verse" {
+		t.Fatalf("unexpected short %q", out.Short)
+	}
+}
+
+func TestCoddyDescribeFallsBackWhenModelReturnsGarbage(t *testing.T) {
+	_, srv := testHTTPServerPersist(t)
+	srv.providerFactory = func(*config.Config) (llm.Provider, error) {
+		return fakeProvider{reply: "Po"}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	longUser := "one two three four five six seven eight nine ten"
+	res, err := http.Post(ts.URL+"/coddy/describe", "application/json", strings.NewReader(`{"text":"`+longUser+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d body %s", res.StatusCode, b)
+	}
+	var out struct {
+		Object string `json:"object"`
+		Short  string `json:"short"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := "one two three four five six seven eight"
+	if out.Short != want {
+		t.Fatalf("want %q got %q", want, out.Short)
+	}
+}
+
 func TestGETOpenAPIServed(t *testing.T) {
 	cfg := &config.Config{
 		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},

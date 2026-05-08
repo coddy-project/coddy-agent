@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -21,6 +22,101 @@ import (
 )
 
 var errTraversal = errors.New("path escapes allowed root")
+
+func describeFallbackTitle(words []string) string {
+	if len(words) == 0 {
+		return ""
+	}
+	n := min(8, len(words))
+	return strings.Join(words[:n], " ")
+}
+
+func describeClampWords(s string, maxWords int) string {
+	w := strings.Fields(s)
+	if len(w) <= maxWords {
+		return strings.Join(w, " ")
+	}
+	return strings.Join(w[:maxWords], " ")
+}
+
+func describeStripLineNoise(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "- ")
+	s = strings.TrimPrefix(s, "* ")
+	s = strings.Trim(s, `"'“”„`)
+	for strings.HasPrefix(s, "**") {
+		s = strings.TrimPrefix(s, "**")
+		if i := strings.Index(s, "**"); i >= 0 {
+			s = strings.TrimSpace(s[:i] + s[i+2:])
+		} else {
+			break
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+// describePickPhraseFromLLM picks a usable title from model output. Some models emit a junk first line (e.g. "Po") then the real phrase.
+func describePickPhraseFromLLM(llmRaw string, userWords []string) string {
+	trimmed := strings.TrimSpace(llmRaw)
+	if trimmed == "" {
+		return describeFallbackTitle(userWords)
+	}
+	type scored struct {
+		text  string
+		words int
+		chars int
+	}
+	var cands []scored
+	for _, line := range strings.Split(trimmed, "\n") {
+		part := describeStripLineNoise(line)
+		if part == "" {
+			continue
+		}
+		fw := strings.Fields(part)
+		if len(fw) == 0 {
+			continue
+		}
+		joined := strings.Join(fw, " ")
+		cands = append(cands, scored{
+			text:  joined,
+			words: len(fw),
+			chars: utf8.RuneCountInString(joined),
+		})
+	}
+	bestText := ""
+	bestScore := 0
+	substantial := func(c scored) bool {
+		if c.words >= 3 {
+			return true
+		}
+		return c.words >= 2 && c.chars >= 12
+	}
+	for _, c := range cands {
+		if !substantial(c) {
+			continue
+		}
+		score := c.words*120 + min(c.chars, 140)
+		if score > bestScore {
+			bestScore = score
+			bestText = c.text
+		}
+	}
+	if bestText == "" && len(cands) > 0 {
+		longest := ""
+		for _, c := range cands {
+			if c.chars > utf8.RuneCountInString(longest) {
+				longest = c.text
+			}
+		}
+		if utf8.RuneCountInString(longest) >= 8 {
+			bestText = longest
+		}
+	}
+	if bestText == "" || utf8.RuneCountInString(bestText) < 4 {
+		return describeFallbackTitle(userWords)
+	}
+	return describeClampWords(bestText, 12)
+}
 
 func (s *Server) coddyPaths() pathsForMemoryAPI {
 	dir := strings.TrimSpace(s.cfg.Memory.Dir)
@@ -98,8 +194,9 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		{
 			Role: llm.RoleSystem,
 			Content: "You generate short descriptions for chat titles and command labels. " +
-				"Return a single short phrase (3-8 words) describing what the user's text is about. " +
-				"No quotes. No trailing period. Output only the phrase.",
+				"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
+				"Match the user's language when possible. " +
+				"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase.",
 		},
 		{Role: llm.RoleUser, Content: raw},
 	}, nil)
@@ -109,12 +206,9 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	short := strings.TrimSpace(resp.Content)
-	if i := strings.IndexByte(short, '\n'); i >= 0 {
-		short = strings.TrimSpace(short[:i])
-	}
+	short := describePickPhraseFromLLM(resp.Content, words)
 	if short == "" {
-		short = strings.Join(words[:3], " ")
+		short = strings.Join(words[:min(3, len(words))], " ")
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -12,7 +12,15 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
           return <UserMessage key={it.id} content={it.content} />;
         }
         if (it.type === 'thinking') {
-          return <ThinkingMessage key={it.id} status={it.status} content={it.content} durationMs={it.durationMs} />;
+          return (
+            <ThinkingMessage
+              key={it.id}
+              status={it.status}
+              content={it.content}
+              durationMs={it.durationMs}
+              startedAtMs={it.startedAtMs}
+            />
+          );
         }
         if (it.type === 'assistant_message') {
           return <AssistantMessage key={it.id} content={it.content} />;
