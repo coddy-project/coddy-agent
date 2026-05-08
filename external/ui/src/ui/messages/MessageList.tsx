@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '../chat/types';
 import { AssistantMessage } from './AssistantMessage';
+import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage } from './ToolCallMessage';
 import { UserMessage } from './UserMessage';
 
@@ -9,6 +10,9 @@ export function MessageList(props: { items: TranscriptItem[]; onLoadToolCallDeta
       {props.items.map((it) => {
         if (it.type === 'user_message') {
           return <UserMessage key={it.id} content={it.content} />;
+        }
+        if (it.type === 'thinking') {
+          return <ThinkingMessage key={it.id} status={it.status} content={it.content} durationMs={it.durationMs} />;
         }
         if (it.type === 'assistant_message') {
           return <AssistantMessage key={it.id} content={it.content} />;

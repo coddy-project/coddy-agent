@@ -425,6 +425,9 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 			"role":    string(m.Role),
 			"content": m.Content,
 		}
+		if strings.TrimSpace(m.Reasoning) != "" {
+			item["reasoning"] = m.Reasoning
+		}
 		if m.Role == llm.RoleTool && m.ToolCallID != "" {
 			item["tool_call_id"] = m.ToolCallID
 		}

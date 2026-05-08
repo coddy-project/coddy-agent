@@ -12,6 +12,13 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      type: 'thinking';
+      status: 'in_progress' | 'completed';
+      content: string;
+      durationMs?: number;
+    }
+  | {
+      id: string;
       type: 'assistant_message';
       content: string;
       streaming?: boolean;

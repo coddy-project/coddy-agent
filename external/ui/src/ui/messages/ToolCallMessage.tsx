@@ -10,6 +10,16 @@ function safePrettyJSON(text: string): string {
   }
 }
 
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  if (ms >= 60_000) {
+    const mins = ms / 60_000;
+    const fixed = mins < 10 ? mins.toFixed(1) : mins.toFixed(0);
+    return `${fixed}m`;
+  }
+  return `${Math.round(ms)}ms`;
+}
+
 export function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
@@ -29,7 +39,7 @@ export function ToolCallMessage(props: {
   const canLoad = !!props.onLoadDetails && !props.detailsLoaded;
   const dur =
     typeof props.durationMs === 'number' && Number.isFinite(props.durationMs) && props.durationMs >= 0
-      ? `${Math.round(props.durationMs)}ms`
+      ? formatDuration(props.durationMs)
       : '';
 
   return (
@@ -44,9 +54,11 @@ export function ToolCallMessage(props: {
         }}
       >
         <summary className="tool-summary" aria-label="Tool summary" title="Click to view details">
-          <span className={`tool-dot tool-dot-${status || 'unknown'}`} aria-hidden="true" />
-          {showSpinner ? <span className="tool-spinner" aria-hidden="true" /> : null}
-          <span className="tool-name">{name}</span>
+          <span className="tool-left">
+            <span className={`tool-dot tool-dot-${status || 'unknown'}`} aria-hidden="true" />
+            {showSpinner ? <span className="tool-spinner" aria-hidden="true" /> : null}
+            <span className="tool-name">{name}</span>
+          </span>
           {dur ? (
             <span className="tool-dur" aria-hidden="true">
               {dur}

@@ -584,6 +584,19 @@ body {
   cursor: pointer;
 }
 
+.tool-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.tool-left .tool-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-dur {
   margin-left: auto;
   font-size: 11px;

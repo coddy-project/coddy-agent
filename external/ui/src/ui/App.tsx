@@ -79,6 +79,13 @@ function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
 }
 
+function parseRFC3339ms(s: string | undefined): number | null {
+  const t = (s || '').trim();
+  if (!t) return null;
+  const ms = Date.parse(t);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function App() {
   const [sessionId, setSessionId] = useState('');
   const [sessions, setSessions] = useState<SessionRow[]>([]);
@@ -201,6 +208,10 @@ export function App() {
         continue;
       }
       if (role === 'assistant') {
+        const reasoning = (m.reasoning || '').trim();
+        if (reasoning) {
+          next.push({ id: newId('r'), type: 'thinking', status: 'completed', content: reasoning });
+        }
         const content = m.content || '';
         if (content) {
           next.push({ id: newId('a'), type: 'assistant_message', content });
@@ -272,6 +283,11 @@ export function App() {
         if (kind) merged.kind = kind;
         if (row.argsPreview) merged.argsText = row.argsPreview;
         if (row.resultPreview) merged.resultText = row.resultPreview;
+        const st = parseRFC3339ms(row.startedAt);
+        const fin = parseRFC3339ms(row.finishedAt);
+        if (st != null && fin != null && fin >= st) {
+          merged.durationMs = fin - st;
+        }
         next[idx] = merged;
       }
     }
@@ -413,9 +429,9 @@ export function App() {
       const hdrs = sid ? { [HDR]: sid } : {};
       const userItem: TranscriptItem = { id: newId('u'), type: 'user_message', content: text };
       const assistantId = newId('a');
-      const assistantItem: TranscriptItem = { id: assistantId, type: 'assistant_message', content: '', streaming: true };
-
-      setItems((prev) => [...prev, userItem, assistantItem]);
+      const thinkingId = newId('r');
+      const thinkingStarted = Date.now();
+      setItems((prev) => [...prev, userItem]);
       setTokenUsage(null);
 
       const res = await fetch('/v1/responses', {
@@ -472,7 +488,14 @@ export function App() {
             if (upd.startedAtMs !== undefined) it.startedAtMs = upd.startedAtMs;
             if (upd.finishedAtMs !== undefined) it.finishedAtMs = upd.finishedAtMs;
             if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
-            next = [...next, it];
+            const aIdx = next.findIndex((x) => x.type === 'assistant_message' && x.id === assistantId);
+            if (aIdx >= 0) {
+              const arr = next === prev ? [...next] : next;
+              arr.splice(aIdx, 0, it);
+              next = arr;
+            } else {
+              next = [...next, it];
+            }
             continue;
           }
           const arr = next === prev ? [...next] : next;
@@ -508,22 +531,66 @@ export function App() {
       raf = window.requestAnimationFrame(flushToolQueue);
     };
 
+      const ensureAssistant = (patch?: Partial<Extract<TranscriptItem, { type: 'assistant_message' }>>) => {
+        setItems((prev) => {
+          const idx = prev.findIndex((x) => x.type === 'assistant_message' && x.id === assistantId);
+          if (idx < 0) {
+            const base: Extract<TranscriptItem, { type: 'assistant_message' }> = {
+              id: assistantId,
+              type: 'assistant_message',
+              content: '',
+              streaming: true,
+            };
+            return [...prev, { ...base, ...(patch || {}) }];
+          }
+          if (!patch) return prev;
+          const next = [...prev];
+          const cur = next[idx] as Extract<TranscriptItem, { type: 'assistant_message' }>;
+          next[idx] = { ...cur, ...patch };
+          return next;
+        });
+      };
+
+      const ensureThinking = (patch?: Partial<Extract<TranscriptItem, { type: 'thinking' }>>) => {
+        setItems((prev) => {
+          const idx = prev.findIndex((x) => x.type === 'thinking' && x.id === thinkingId);
+          if (idx < 0) {
+            const base: Extract<TranscriptItem, { type: 'thinking' }> = { id: thinkingId, type: 'thinking', status: 'in_progress', content: '' };
+            const aIdx = prev.findIndex((x) => x.type === 'assistant_message' && x.id === assistantId);
+            if (aIdx >= 0) {
+              const next = [...prev];
+              next.splice(aIdx, 0, { ...base, ...(patch || {}) });
+              return next;
+            }
+            return [...prev, { ...base, ...(patch || {}) }];
+          }
+          if (!patch) return prev;
+          const next = [...prev];
+          const cur = next[idx] as Extract<TranscriptItem, { type: 'thinking' }>;
+          next[idx] = { ...cur, ...patch };
+          return next;
+        });
+      };
+
       const syncAssistantFromServer = async () => {
         try {
           const res = await fetchJSON<{ messages: Array<any> }>(`/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`, { headers: { [HDR]: sidEffective } });
           if (!res.ok || !res.data?.messages) return false;
           let last = '';
+          let lastReasoning = '';
           for (const m of res.data.messages) {
             if ((m.role || '').trim() !== 'assistant') continue;
             const c = (m.content || '').trim();
             if (c) last = c;
+            const r = (m.reasoning || '').trim();
+            if (r) lastReasoning = r;
           }
           if (!last) return false;
-          setItems((prev) =>
-            prev.map((it) =>
-              it.type === 'assistant_message' && it.id === assistantId && !it.content ? { ...it, content: last } : it,
-            ),
-          );
+          if (lastReasoning) {
+            ensureThinking({ status: 'completed', content: lastReasoning, durationMs: Math.max(0, Date.now() - thinkingStarted) });
+          }
+          ensureAssistant();
+          setItems((prev) => prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: last } : it)));
           return true;
         } catch {
           return false;
@@ -546,11 +613,19 @@ export function App() {
           if (!ev.event) {
             try {
               const delta = JSON.parse(ev.data) as any;
-              const piece = delta.choices?.[0]?.delta?.content || delta.choices?.[0]?.delta?.reasoning_content || '';
-              if (piece) {
+              const c = delta.choices?.[0]?.delta?.content || '';
+              const r = delta.choices?.[0]?.delta?.reasoning_content || '';
+              if (r) {
+                ensureThinking();
+                setItems((prev) =>
+                  prev.map((it) => (it.type === 'thinking' && it.id === thinkingId ? { ...it, content: it.content + r } : it)),
+                );
+              }
+              if (c) {
+                ensureAssistant();
                 setItems((prev) =>
                   prev.map((it) =>
-                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + piece } : it,
+                    it.type === 'assistant_message' && it.id === assistantId ? { ...it, content: it.content + c } : it,
                   ),
                 );
               }
@@ -700,9 +775,8 @@ export function App() {
 
       flushToolQueue();
 
-      setItems((prev) =>
-        prev.map((it) => (it.type === 'assistant_message' && it.id === assistantId ? { ...it, streaming: false } : it)),
-      );
+      ensureAssistant({ streaming: false });
+      ensureThinking({ status: 'completed', durationMs: Math.max(0, Date.now() - thinkingStarted) });
 
       void loadSessions(true);
       let ok = await syncAssistantFromServer();

@@ -150,6 +150,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// Call LLM and stream response.
 		var response *llm.Response
 		var streamErr error
+		var reasoningBuf strings.Builder
 
 		sessionID := a.state.GetID()
 		response, streamErr = provider.Stream(ctx, messages, toolDefs, func(chunk llm.StreamChunk) {
@@ -157,6 +158,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				return
 			}
 			if chunk.ReasoningDelta != "" {
+				reasoningBuf.WriteString(chunk.ReasoningDelta)
 				_ = a.server.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
 					Content:       acp.ContentBlock{Type: acp.ContentTypeReasoning, Text: chunk.ReasoningDelta},
@@ -235,6 +237,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		assistantMsg := llm.Message{
 			Role:      llm.RoleAssistant,
 			Content:   response.Content,
+			Reasoning: strings.TrimSpace(reasoningBuf.String()),
 			ToolCalls: response.ToolCalls,
 		}
 		messages = append(messages, assistantMsg)
