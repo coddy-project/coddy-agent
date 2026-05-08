@@ -1,0 +1,36 @@
+{
+  "name": "ui",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:go": "vite build && node scripts-sync-to-go.mjs",
+    "fmt": "prettier -w ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^25.6.2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.11",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

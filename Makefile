@@ -29,6 +29,15 @@ ifneq ($(strip $(TAGS)),)
 GO_TAGS_FLAG := -tags "$(strip $(TAGS))"
 endif
 
+# When building with TAGS=http, compile UI TypeScript into external/ui/ for go:embed.
+ifneq (,$(findstring http,$(TAGS)))
+build: ui-build
+endif
+
+ui-build:
+	npm --prefix external/ui install --no-fund --no-audit
+	npm --prefix external/ui run build:go
+
 # Build the coddy CLI (skills commands + ACP entrypoint; includes external/memory).
 build:
 	@mkdir -p $(BUILD_DIR)

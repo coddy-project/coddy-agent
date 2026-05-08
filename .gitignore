@@ -39,3 +39,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# UI dev
+/external/ui/node_modules/
+/external/ui/dist/
+/external/ui/app.js.map
