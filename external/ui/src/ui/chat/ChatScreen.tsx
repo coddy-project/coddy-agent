@@ -13,7 +13,6 @@ export function ChatScreen(props: {
   tokenUsage: TokenUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
-  modelLabel?: string;
   mode: string;
   modes: string[];
   onModeChange: (mode: string) => void;
@@ -43,8 +42,12 @@ export function ChatScreen(props: {
             <Composer
               value={props.draft}
               isEmpty={true}
+              contextIdle={!props.sessionId}
               mode={props.mode}
               modes={props.modes}
+              tokenUsage={props.tokenUsage}
+              {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
+              {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
@@ -78,12 +81,12 @@ export function ChatScreen(props: {
               <Composer
                 value={props.draft}
                 isEmpty={false}
+                contextIdle={false}
                 mode={props.mode}
                 modes={props.modes}
                 tokenUsage={props.tokenUsage}
                 {...(props.contextPct !== undefined ? { contextPct: props.contextPct } : {})}
                 {...(props.maxContextTokens !== undefined ? { maxContextTokens: props.maxContextTokens } : {})}
-                {...(props.modelLabel !== undefined ? { modelLabel: props.modelLabel } : {})}
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}

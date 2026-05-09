@@ -1438,17 +1438,49 @@ textarea#composer {
   display: flex;
   align-items: center;
   gap: 10px;
+  overflow: visible;
+}
+
+/* Context meter: same tooltip styling as narrow rail (see .rail-tip) */
+.composer-context-tip-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  outline: none;
+}
+
+.composer-context-tip-host:hover .rail-tip,
+.composer-context-tip-host:focus-within .rail-tip {
+  opacity: 1;
+}
+
+.composer-context-tip-host:focus-visible {
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+}
+
+.composer-context-tip-host .composer-context-tip.rail-tip {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  white-space: pre-line;
+  min-width: 260px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 14px;
+  font-weight: 500;
+  text-align: left;
 }
 
 .context-ring {
   position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 14px;
   display: grid;
   place-items: center;
-  background: rgba(10, 10, 12, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border: none;
 }
 
 .context-ring svg {
@@ -1457,28 +1489,18 @@ textarea#composer {
 
 .context-ring-bg {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.12);
-  stroke-width: 3;
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 4;
 }
 
 .context-ring-fg {
   fill: none;
   stroke: rgba(147, 51, 234, 0.9);
-  stroke-width: 3;
+  stroke-width: 4;
   stroke-linecap: round;
   transform: rotate(-90deg);
-  transform-origin: 12px 12px;
+  transform-origin: 14px 14px;
   transition: stroke-dashoffset 160ms ease;
-}
-
-.context-ring-label {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.7);
-  pointer-events: none;
 }
 
 .composer-icon {

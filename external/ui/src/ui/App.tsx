@@ -1023,7 +1023,6 @@ export function App() {
         tokenUsage={tokenUsage}
         contextPct={contextPct}
         maxContextTokens={maxContextTokens}
-        modelLabel={mode}
         mode={mode}
         modes={modes}
         onModeChange={setMode}
