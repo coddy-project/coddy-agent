@@ -37,6 +37,11 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 - For UI changes, update sources under `external/ui/src/` and rebuild embedded assets via `make build TAGS=http` (this runs the UI build and sync step).
 - Run full regression `make test`, then `make lint`.
 
+## Embedded UI (`external/ui`)
+
+- Visual spec and tokens are in **`DESIGN.md`**. After changing **`external/ui/src/`**, rebuild embedded assets with **`make build TAGS=http`** before relying on **`go:embed`** bundles.
+- **Thinking row (`thinking` transcript block)** - keep the duration label **next to** the **thinking** word, not pushed to the far right of the chat column. **`ThinkingMessage.tsx`** nests **`.thinking-dur`** inside **`.thinking-left`** with **`external/ui/src/styles.css`** **`.thinking-left { gap: 0 5px; }`** between the label and the timer. Do not use **`justify-content: space-between`** on **`summary.thinking-summary`** for that spacing.
+
 ## Python samples (`examples/`)
 
 Scripts may bootstrap project-local interpreters (`.venv` recommended); follow each script header for prerequisites.

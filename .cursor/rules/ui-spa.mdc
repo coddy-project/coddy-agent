@@ -1,0 +1,12 @@
+---
+description: Embedded SPA chat UI conventions (thinking row, rebuild)
+globs: external/ui/**/*
+alwaysApply: false
+---
+
+# Embedded UI (`external/ui`)
+
+- Rebuild **`go:embed`** assets after UI changes: **`make build TAGS=http`** (runs **`ui-build`**).
+- **Thinking disclosure row** - duration must sit **next to** the **thinking** label, not at the trailing edge of the column. Markup keeps **`.thinking-dur`** inside **`.thinking-left`** in **`ThinkingMessage.tsx`**. Styles use **`.thinking-left { gap: 0 5px; }`** in **`styles.css`**. Do not drive label vs timer spacing with **`justify-content: space-between`** on **`summary.thinking-summary`**.
+- Authoritative layout and tokens remain in the repo root **`DESIGN.md`**.
+

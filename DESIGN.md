@@ -103,6 +103,7 @@ Current block types:
 - `thinking`
   - Streaming model reasoning deltas (`delta.reasoning_content`) rendered as a disclosure row.
   - `thinking...` while in progress, `thinking` when completed.
+  - **Summary row layout** - elapsed time stays immediately beside the **thinking** label (inline in **`.thinking-left`**). CSS uses **`gap: 0 5px`** between the label and **`.thinking-dur`**; avoid a wide summary flex that sends the timer to the opposite edge of the transcript.
   - Multiple `thinking` blocks can appear in one user turn. If the model resumes reasoning after tool calls, the UI starts a new `thinking` block and preserves ordering.
 - `tool_call`
   - Tool execution timeline block (SSE `tool_call` and `tool_call_update`, enriched from `/coddy/sessions/{id}/tool-calls`).
