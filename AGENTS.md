@@ -41,6 +41,7 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 
 - Visual spec and tokens are in **`DESIGN.md`**. After changing **`external/ui/src/`**, rebuild embedded assets with **`make build TAGS=http`** before relying on **`go:embed`** bundles.
 - **Thinking row (`thinking` transcript block)** - keep the duration label **next to** the **thinking** word, not pushed to the far right of the chat column. **`ThinkingMessage.tsx`** nests **`.thinking-dur`** inside **`.thinking-left`** with **`external/ui/src/styles.css`** **`.thinking-left { gap: 0 5px; }`** between the label and the timer. Do not use **`justify-content: space-between`** on **`summary.thinking-summary`** for that spacing.
+- **Composer context meter** (ring left of Send in **`Composer.tsx`**) - no percent label **on** the ring; percentages and counters live **only** in the tooltip (**`rail-tip`** family, above the ring, centered, adequately wide via **`composer-context-tip`** CSS). Idle home (**`contextIdle`**): empty arc; tooltip **`No context usage yet`** plus **`Max context …`** only (no **`Model …`** line). Active session - fill from stats; tooltip may include usage lines but never a **`Model …`** duplicate of **Mode**. See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 ## Python samples (`examples/`)
 
