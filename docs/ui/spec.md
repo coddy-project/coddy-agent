@@ -16,14 +16,14 @@ Desktop layout
 - **Brand** is **typography only** (**Coddy** and **chat**). **No** circular logo or icon before the brand text, regardless of older reference images that include a circle.
 - Desktop nav is a **vertical panel** with rounding on the **right** edge (not a full-height center-pill). On **`min-width: 1920px`**, the wide rail header includes an icon with **horizontal lines** used **only** to **collapse** to narrow rail, not as a global navigation drawer.
 - Left rail opens **chat history** from **History** under the brand; brand click goes to the **start screen** (**new chat**).
-- Sessions list - **drawer** by default or **inline** beside the rail only when **`min-width: 1920px`** and the rail cookie is **wide**
+- Sessions list is **always** a **drawer overlay** with backdrop at **all** breakpoints and rail widths (**no** inline column beside the rail that would shrink the chat area). The panel heading and related chrome use the copy **History**.
 - Optional rail **narrow versus wide** (icons plus labels) only when **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default)
 - Main chat area with streamed assistant output
 - Right rail is out of scope for the current milestone
 
 Wide screens
 
-- **`min-width: 1920px`** may enable the rail widen control and cookie-backed layout (**see DESIGN.md**)
+- **`min-width: 1920px`** may enable the rail widen control and cookie-backed layout (**see DESIGN.md**). **History** remains a **floating drawer** next to the measured nav column (**`--rail-shell-track-width`**); do not fix **`left`** with a static pixel constant for wide rails.
 
 Mobile layout
 
@@ -32,9 +32,14 @@ Mobile layout
 
 Header links
 
-- GitHub link to `https://github.com/coddy-project/coddy-agent`
-- API docs link to `/docs/`
+- GitHub link to `https://github.com/coddy-project/coddy-agent` (**new tab**, `rel=noopener`).
+- API docs link to `/docs/` (**new tab**, `rel=noopener`).
 - Links live in the nav rail for this milestone.
+
+Narrow-rail tooltips (desktop)
+
+- When the rail has **no** wide labels, **hover tooltips** reinforce icon meaning (example **New Chat** on the brand, **History** on history). **Wide labeled rail** hides those tooltips; labels are the affordance.
+- After opening **History**, the history trigger's tooltip must **not** stay visible if the pointer still hovers the rail (see **DESIGN.md**).
 
 ## Sessions
 
@@ -55,7 +60,7 @@ Session title
 
 ## Session list
 
-- Left column lists chats via `GET /coddy/sessions`.
+- **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title substring or first **`user`** message content substring only**, case insensitive; **not** full-chat search). Search input updates use client debouncing.
 - CRUD

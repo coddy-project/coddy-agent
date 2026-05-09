@@ -36,8 +36,8 @@ Token usage totals are persisted per session and restored after restart.
 
 Left-to-right zones:
 
-1. **Nav rail**: **History** opens the chat list, brand goes to the empty start screen; GitHub and API links. **Brand is text only** (**Coddy** plus **chat**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default).
-2. **Session list**: **drawer overlay** unless viewport is **`min-width: 1920px`** and the rail is **wide**, then **inline column** beside the rail. There is **no** global hamburger that opens a separate app menu; the **stacked-lines control** in the wide rail header **only** collapses the rail to the narrow (icons-only) layout, matching the references.
+1. **Nav rail**: **History** opens the session list overlay, brand goes to the empty start screen; GitHub and **API docs** links (**API docs** opens **`/docs/`** in a **new browser tab**, same as GitHub **`target=_blank`** with **`rel=noopener`**). **Brand is text only** (**Coddy** plus **chat**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default).
+2. **Session list**: **always a drawer overlay** with a dimming backdrop. It must **not** consume a second grid column or shrink the chat canvas (no inline sessions column beside the rail at any breakpoint). **Panel chrome title copy is History** (not "Chats"). There is **no** global hamburger that opens a separate app menu; the **stacked-lines control** in the wide rail header **only** collapses the rail to the narrow (icons-only) layout, matching the references.
 3. **Chat canvas**: sticky header with editable title, scrollable transcripts, composer with **Send** (**Enter** submits, **`Shift+Enter`** newline).
 
 The right insights rail is removed for the current milestone.
@@ -48,9 +48,22 @@ The right insights rail is removed for the current milestone.
 
 ### Responsive breakpoints
 
-- Below **`min-width: 1920px`**: rail width toggle hidden; sessions list opens as drawer only.
-- At **`min-width: 1920px`**: user may widen the rail (**arrow**); drawer when rail is narrow, **inline sessions column** when rail is wide.
+- Below **`min-width: 1920px`**: rail width toggle hidden; History opens the same **drawer + backdrop** as on larger viewports.
+- At **`min-width: 1920px`**: user may widen the rail (**arrow**). Sessions remain a **drawer overlay** whether the rail is narrow or wide (wide rail changes label density only, not session placement).
 - Mobile (**top bar**) keeps compact rail only; drawer for sessions history.
+
+### Sessions drawer placement (implementation contract)
+
+- **Horizontal alignment**: The **left edge** of the drawer is **`rail-column` right edge + gutter** (~**`--nav-floating-gutter`**). Do **not** hardcode **`left`** in **`px`** for "wide navbar" guesses (wide **`fit-content`** width varies).
+- **Measured track width**: SPA sets **`--rail-shell-track-width`** on **`.shell`** to **`rail-column.offsetWidth`** (ResizeObserver in **`NavRail`**) before computing drawer **`left`** and **`width`** so narrow and labeled-wide rails stay flush with **`--nav-floating-gutter`** after the nav column.
+- **CSS fallback**: When the variable is not yet set inline, **`--rail-shell-track-width`** defaults on **`.shell`** to **`calc(var(--rail-pill-track) + var(--rail-column-pad-end))`**.
+
+### Narrow-rail hover tooltips
+
+- Shown **only** when the rail is **narrow** (no wide labels column). Labels visible in wide rail substitute for tooltips; do not show floating tip rows there.
+- **Copy**: brand area **New Chat**, **History** nav control **History**, external links match their labels. Reference accent chrome in **`docs/ui/assets/ref-navbar-narrow-tooltips-accent.png`**.
+- **While a control owns an open overlay** (example **History** with the list visible and **`.is-active`** on the trigger), **hide that row's tooltip** even if the mouse still hovers (**nav stacking can sit above backdrop**).
+- Tooltip **horizontal offset** must use the **same gutter math** as the History drawer (**column padding + nav floating gutter (+ border shim where needed)**), not a shorter offset from icon-only **`rail-tip-host`** width alone.
 
 Sessions search uses **`GET /coddy/sessions?q=...`** (**title or first persisted user message substring only**); list uses infinite scroll toward older pages.
 
@@ -66,7 +79,7 @@ Sessions list interactions
 
 ### Repo links
 
-Repo links live in the nav rail: GitHub (**`https://github.com/coddy-project/coddy-agent`**) and relative **`/docs/`** anchor.
+Repo links live in the nav rail: GitHub (**`https://github.com/coddy-project/coddy-agent`**) opens in a new tab; **API docs** points to **`/docs/`** and also opens in a **new tab** (embedded same-origin SPA still launches Swagger in a separate tab for convenience).
 
 ### Tool timeline
 
