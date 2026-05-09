@@ -75,7 +75,6 @@ export function NavRail(props: {
                 className="rail-toggle-width"
                 onClick={props.onToggleRailLabels}
                 aria-label="Use narrow sidebar"
-                title="Narrow sidebar"
               >
                 <IconSidebarCollapse className="rail-toggle-svg" />
               </button>
@@ -87,32 +86,44 @@ export function NavRail(props: {
             </div>
           ) : (
             <>
-              <div className="rail-row rail-row-toggle">
+              <div className="rail-row rail-row-toggle rail-tip-host">
                 <button
                   type="button"
                   className="rail-toggle-width"
                   onClick={props.onToggleRailLabels}
                   aria-label="Use wide sidebar"
-                  title="Wide sidebar"
                 >
                   <IconSidebarExpand className="rail-toggle-svg" />
                 </button>
-              </div>
-              <button type="button" className="rail-brand" aria-label="Coddy chat home" data-testid="nav-home" onClick={props.onNewChat}>
-                <span className="rail-brand-text">
-                  <span className="rail-brand-title">Coddy</span>
-                  <span className="rail-brand-sub">chat</span>
+                <span className="rail-tip" role="tooltip">
+                  Wide sidebar
                 </span>
-              </button>
+              </div>
+              <div className="rail-tip-host rail-brand-tip-host">
+                <button type="button" className="rail-brand" aria-label="Coddy chat home" data-testid="nav-home" onClick={props.onNewChat}>
+                  <span className="rail-brand-text">
+                    <span className="rail-brand-title">Coddy</span>
+                    <span className="rail-brand-sub">chat</span>
+                  </span>
+                </button>
+                <span className="rail-tip" role="tooltip">
+                  New Chat
+                </span>
+              </div>
             </>
           )
         ) : (
-          <button type="button" className="rail-brand" aria-label="Coddy chat home" data-testid="nav-home" onClick={props.onNewChat}>
-            <span className="rail-brand-text">
-              <span className="rail-brand-title">Coddy</span>
-              <span className="rail-brand-sub">chat</span>
+          <div className="rail-tip-host rail-brand-tip-host">
+            <button type="button" className="rail-brand" aria-label="Coddy chat home" data-testid="nav-home" onClick={props.onNewChat}>
+              <span className="rail-brand-text">
+                <span className="rail-brand-title">Coddy</span>
+                <span className="rail-brand-sub">chat</span>
+              </span>
+            </button>
+            <span className="rail-tip" role="tooltip">
+              New Chat
             </span>
-          </button>
+          </div>
         )}
 
         <div className="rail-middle">
@@ -120,7 +131,7 @@ export function NavRail(props: {
             <button
               type="button"
               className={`${navBtnCls} ${props.historyOpen ? 'is-active' : ''}`}
-              aria-label="Chat history"
+              aria-label="History"
               aria-pressed={props.historyOpen}
               data-testid="nav-history"
               onClick={props.onOpenHistory}

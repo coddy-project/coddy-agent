@@ -59,14 +59,6 @@ body {
   min-height: 0;
 }
 
-.shell-inline-sessions {
-  grid-template-columns: auto minmax(280px, 340px) minmax(0, 1fr);
-}
-
-.shell-rail-wide:not(.shell-inline-sessions) {
-  grid-template-columns: auto minmax(0, 1fr);
-}
-
 .shell-main {
   position: relative;
   min-width: 0;
@@ -107,7 +99,8 @@ body {
   gap: 10px;
   min-height: 0;
   flex: 1;
-  overflow: hidden;
+  /* Visible so .rail-tip (positioned right of icons) is not clipped. */
+  overflow: visible;
   transition:
     width 180ms ease,
     padding 180ms ease,
@@ -227,9 +220,9 @@ body {
   transform: translateY(-50%);
   padding: 6px 12px;
   border-radius: 12px;
-  background: rgba(36, 36, 38, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.82);
+  background: rgba(36, 36, 38, 0.97);
+  border: 1px solid rgba(147, 51, 234, 0.35);
+  color: rgba(255, 255, 255, 0.86);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -470,8 +463,9 @@ body {
   position: fixed;
   top: 14px;
   bottom: 14px;
-  left: 92px;
-  width: min(320px, calc(100vw - 106px));
+  /* Narrow rail: pill (74px base) + column padding-inline-end + 2px gutter */
+  left: calc(74px + 8px + 2px);
+  width: min(320px, calc(100vw - 74px - 8px - 2px - 16px));
   border-radius: 18px;
   background: var(--sidebar);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -483,36 +477,6 @@ body {
   overflow: hidden;
   z-index: 50;
   min-height: 0;
-}
-
-.sessions.sessions-inline {
-  position: relative;
-  margin: 14px 0;
-  width: 100%;
-  max-height: calc(100vh - 28px);
-  border-radius: 18px;
-  background: var(--sidebar);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  z-index: 25;
-  min-height: 0;
-  animation: sessions-inline-in 200ms ease-out;
-}
-
-@keyframes sessions-inline-in {
-  from {
-    opacity: 0;
-    transform: translateX(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
 }
 
 .sessions.dock {
@@ -1512,13 +1476,15 @@ textarea#composer {
   cursor: not-allowed;
 }
 
+@media (min-width: 761px) {
+  .sessions.drawer {
+    left: calc(76px + 8px + 2px);
+    width: min(320px, calc(100vw - 76px - 8px - 2px - 16px));
+  }
+}
+
 /* Desktop */
 @media (min-width: 900px) {
-  .sessions.drawer {
-    left: 94px;
-    width: 320px;
-  }
-
   .shell-rail-wide .sessions.drawer {
     left: 212px;
     width: min(320px, calc(100vw - 236px));
@@ -1548,10 +1514,6 @@ textarea#composer {
     z-index: 70;
   }
   .shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: 78px 1fr;
-  }
-  .shell-inline-sessions {
     grid-template-columns: 1fr;
     grid-template-rows: 78px 1fr;
   }

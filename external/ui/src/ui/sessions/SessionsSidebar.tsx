@@ -5,7 +5,6 @@ export function SessionsSidebar(props: {
   sessionId: string;
   sessions: SessionRow[];
   error?: string | null;
-  variant: 'drawer' | 'inline';
   open?: boolean;
   onClose?: () => void;
   onPick: (id: string) => void;
@@ -39,19 +38,17 @@ export function SessionsSidebar(props: {
     );
     io.observe(sent);
     return () => io.disconnect();
-  }, [isOpen, props.hasMore, props.loadingMore, props.sessions.length, props.onLoadMore, props.variant]);
+  }, [isOpen, props.hasMore, props.loadingMore, props.sessions.length, props.onLoadMore]);
 
   if (!isOpen) {
     return null;
   }
 
-  const drawer = props.variant === 'drawer';
-
   return (
-    <aside className={`sessions ${drawer ? 'drawer' : 'sessions-inline'}`} aria-label="Sessions" data-testid="sessions" data-variant={props.variant}>
+    <aside className="sessions drawer" aria-label="History" data-testid="sessions" data-variant="drawer">
       <div className="sessions-head">
-        <span>Chats</span>
-        <button type="button" className="sessions-close" aria-label="Close chats" data-testid="sessions-close" onClick={props.onClose}>
+        <span>History</span>
+        <button type="button" className="sessions-close" aria-label="Close history" data-testid="sessions-close" onClick={props.onClose}>
           ×
         </button>
       </div>
@@ -63,7 +60,7 @@ export function SessionsSidebar(props: {
           placeholder="Search by title or first message"
           value={props.searchDraft}
           onChange={(ev) => props.onSearchDraftChange(ev.target.value)}
-          aria-label="Search chats by title or first user message"
+          aria-label="Search history by title or first user message"
           data-testid="sessions-search"
         />
         {props.searchDraft.trim() ? (
@@ -81,7 +78,7 @@ export function SessionsSidebar(props: {
         ) : null}
         {!props.error && props.sessions.length === 0 ? (
           <div className="sessions-empty" data-testid="sessions-empty">
-            No chats yet
+            No history yet
           </div>
         ) : null}
         {props.sessions.map((s) => (
@@ -99,7 +96,7 @@ export function SessionsSidebar(props: {
               <button
                 className="session-trash"
                 type="button"
-                aria-label="Delete chat"
+                aria-label="Delete conversation"
                 title="Delete"
                 data-testid={`session-delete-${s.id}`}
                 onMouseDown={(ev) => ev.stopPropagation()}

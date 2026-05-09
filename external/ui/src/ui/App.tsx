@@ -967,8 +967,7 @@ export function App() {
     return Math.min(100, Math.max(0, (tokenUsage.totalTokens / maxContextTokens) * 100));
   }, [tokenUsage, maxContextTokens]);
 
-  const sessionsPlacementInline = viewportXL && railLabelsWide && sessionsOpen;
-  const sessionsBackdropOpen = sessionsOpen && !sessionsPlacementInline;
+  const sessionsBackdropOpen = sessionsOpen;
 
   const sessionPanelShared = {
     sessionId,
@@ -996,15 +995,7 @@ export function App() {
   };
 
   return (
-    <div
-      className={[
-        'shell',
-        sessionsPlacementInline ? 'shell-inline-sessions' : '',
-        viewportXL && railLabelsWide ? 'shell-rail-wide' : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-    >
+    <div className={['shell', viewportXL && railLabelsWide ? 'shell-rail-wide' : ''].filter(Boolean).join(' ')}>
       <NavRail
         onNewChat={goHome}
         onOpenHistory={() => setSessionsOpen(true)}
@@ -1014,10 +1005,6 @@ export function App() {
         onToggleRailLabels={toggleRailWidth}
       />
 
-      {sessionsPlacementInline ? (
-        <SessionsSidebar {...sessionPanelShared} variant="inline" />
-      ) : null}
-
       <div className="shell-main">
         <div
           className={`backdrop ${sessionsBackdropOpen ? 'is-open' : ''}`}
@@ -1025,7 +1012,7 @@ export function App() {
           aria-hidden={!sessionsBackdropOpen}
         />
 
-        {!sessionsPlacementInline && sessionsOpen ? <SessionsSidebar {...sessionPanelShared} variant="drawer" /> : null}
+        {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
 
         <ChatScreen
         title={currentTitle}
