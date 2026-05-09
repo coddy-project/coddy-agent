@@ -881,9 +881,10 @@ body {
 }
 
 .msg-assistant {
-  background: rgba(18, 18, 20, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border: none;
   align-self: flex-start;
+  box-shadow: none;
 }
 
 .msg-tools {
