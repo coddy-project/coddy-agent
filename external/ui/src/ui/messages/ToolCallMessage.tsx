@@ -29,14 +29,41 @@ export function ToolCallMessage(props: {
   fullResultText?: string | undefined;
   resultWasTruncated?: boolean | undefined;
   durationMs?: number;
+  /** Wall-clock start for live elapsed while pending/in_progress. */
+  startedAtMs?: number;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
   const args = useMemo(() => (props.argsText ? safePrettyJSON(props.argsText) : ''), [props.argsText]);
   const preview = useMemo(() => (props.resultText ? props.resultText : ''), [props.resultText]);
   const full = props.fullResultText || '';
-  const name = (props.title || props.kind || 'tool').trim();
+  const rawName = (props.title || props.kind || 'tool').trim();
   const status = (props.status || '').toLowerCase();
-  const showSpinner = status === 'pending' || status === 'in_progress';
+  const pendingLike = status === 'pending' || status === 'in_progress';
+  const displayLabel = pendingLike ? `${rawName || 'tool'}...` : rawName || 'tool';
+
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!pendingLike || typeof props.startedAtMs !== 'number') return;
+    const h = window.setInterval(() => setNowMs(Date.now()), 160);
+    return () => window.clearInterval(h);
+  }, [pendingLike, props.startedAtMs]);
+
+  const durationLabel = useMemo(() => {
+    const terminal = status === 'completed' || status === 'failed' || status === 'cancelled';
+    if (terminal) {
+      if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs) && props.durationMs >= 0) {
+        return formatDuration(props.durationMs);
+      }
+      return '-';
+    }
+    if (typeof props.startedAtMs === 'number' && Number.isFinite(props.startedAtMs)) {
+      return formatDuration(Math.max(0, nowMs - props.startedAtMs));
+    }
+    if (typeof props.durationMs === 'number' && Number.isFinite(props.durationMs)) {
+      return formatDuration(props.durationMs);
+    }
+    return '-';
+  }, [props.durationMs, props.startedAtMs, props.status, nowMs]);
 
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -108,45 +135,46 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? 'scroll' : 'clip';
 
-  const dur =
-    typeof props.durationMs === 'number' && Number.isFinite(props.durationMs) && props.durationMs >= 0
-      ? formatDuration(props.durationMs)
-      : '';
+  const hasBody =
+    !!args ||
+    !!(resultBody && resultBody.length > 0) ||
+    !!toggleLink;
 
   return (
-    <div className="msg msg-tools msg-compact" data-kind={props.kind || ''} data-status={props.status}>
-      <details className="tool-details" data-testid={`tool-details-${props.toolCallId}`}>
-        <summary className="tool-summary" aria-label="Tool summary" title="Click to expand">
-          <span className="tool-left">
-            <span className={`tool-dot tool-dot-${status || 'unknown'}`} aria-hidden="true" />
-            {showSpinner ? <span className="tool-spinner" aria-hidden="true" /> : null}
-            <span className="tool-name">{name}</span>
-          </span>
-          {dur ? (
-            <span className="tool-dur" aria-hidden="true">
-              {dur}
+    <div className="thinking-row coddy-tool-call-row" data-kind={props.kind || ''} data-status={props.status}>
+      <details className="thinking-details coddy-tool-details" data-testid={`tool-details-${props.toolCallId}`}>
+        <summary className="thinking-summary" aria-label="Tool summary">
+          <span className="thinking-left">
+            <span className="thinking-chevron" aria-hidden="true" />
+            <span className="thinking-label">{displayLabel}</span>
+            <span className="thinking-dur" aria-hidden="true">
+              {durationLabel}
             </span>
-          ) : null}
+          </span>
         </summary>
-        {args ? (
-          <pre className="tool-block" aria-label="Tool arguments">
-            {args}
-          </pre>
-        ) : null}
-        {resultBody ? (
-          <div
-            className={[
-              'tool-block tool-result tool-result-raw',
-              useTallViewport && `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="Tool result"
-          >
-            <pre className="tool-result-pre">{resultBody}</pre>
+        {hasBody ? (
+          <div className="thinking-body coddy-tool-call-body" aria-label="Tool call details">
+            {args ? (
+              <pre className="tool-block" aria-label="Tool arguments">
+                {args}
+              </pre>
+            ) : null}
+            {resultBody ? (
+              <div
+                className={[
+                  'tool-block tool-result tool-result-raw',
+                  useTallViewport && `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label="Tool result"
+              >
+                <pre className="tool-result-pre">{resultBody}</pre>
+              </div>
+            ) : null}
+            {toggleLink ? <div className="tool-result-toggle-row">{toggleLink}</div> : null}
           </div>
         ) : null}
-        {toggleLink ? <div className="tool-result-toggle-row">{toggleLink}</div> : null}
       </details>
     </div>
   );

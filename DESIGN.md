@@ -100,9 +100,9 @@ Repo links live in the nav rail: GitHub (**`https://github.com/coddy-project/cod
 
 ### Tool timeline
 
-Captured via SSE (**`tool_call`**, **`tool_call_update`**). Rendered compact grey cards inside transcript.
+Captured via SSE (**`tool_call`**, **`tool_call_update`**). Rendered like **thinking** and **memory**: a **`thinking-row`** foldout with **chevron**, **tool name**, and **duration** (**`thinking-dur`** in the summary row alongside the label).
 
-Tool cards must include tool name, status, arguments, and result.
+The expanded body lists **arguments** (when known) and **result** (**raw** monospace, **no Markdown**, per the preview rules below).
 
 - Tool arguments arrive via `tool_call_update` status `in_progress` where `content[0].content.text` is raw JSON args.
 - Tool result arrives via `tool_call_update` status `completed` or `failed` where `content[0].content.text` matches the HTTP user preview rules (**raw** text, **no Markdown**): the first **19** content lines, then a twentieth row that is only **`...`**, when the output is longer; **`_meta.coddy.toolResultPreview`** marks truncation. Outputs that are not truncated skip the fixed-height viewport and **Load more** (natural-height grey mono panel). When truncated, the fixed-height panel shows the clipped preview with **no vertical scrollbar**. A text link **Load more results** (not a filled button) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`** once, fills the same panel with the full saved body at the same max height, enables **overflow-y** scrolling, and turns the link into **Hide**. **Hide** restores the clipped preview without another request while the full text stays in memory for this session.
@@ -111,7 +111,7 @@ Tool cards must include tool name, status, arguments, and result.
 
 Implementation lives in **`external/ui/src/ui/messages/ToolCallMessage.tsx`**.
 
-- **Layout** - One **`details`** per tool (**`tool-details`**). **`summary.tool-summary`** is the compact header ( **`aria-label="Tool summary"`** ). Expanded body can show **`pre.tool-block`** arguments (pretty-printed JSON when parseable), then **`div.tool-block.tool-result.tool-result-raw`** wrapping **`pre.tool-result-pre`** for the output (**always raw plaintext**, never the Markdown renderer).
+- **Layout** - Outer **`thinking-row coddy-tool-call-row`**; **`details`** uses **`thinking-details coddy-tool-details`**. **`summary.thinking-summary`** with **`thinking-left`** ( **`aria-label="Tool summary"`** ): **`thinking-chevron`**, **`thinking-label`** (tool title or kind, **`...`** suffix while **`pending`** / **`in_progress`** ), **`thinking-dur`** (**finished** durations from **`meta.json`**, **live elapsed** while in flight when **`startedAtMs`** is set, placeholder **`-`** when unknown). Transcript stacking uses **`messages-inner` `gap`** like other **`thinking-row`** blocks (avoid tool-only asymmetric margins). Expanded body **`thinking-body coddy-tool-call-body`** wraps **`pre.tool-block`** arguments (pretty-printed JSON when parseable) and **`div.tool-block.tool-result.tool-result-raw`** with **`pre.tool-result-pre`** for output (**always raw plaintext**, never the Markdown renderer).
 - **Viewport** - Truncated runs ( **`resultWasTruncated`** from list / SSE) also add **`tool-result-viewport tool-result-viewport--tall`**, clipped with **`tool-result-viewport--clip`** or scrollable with **`tool-result-viewport--scroll`** after **Load more**. Short non-truncated runs omit **`--tall`** so height follows content (**no fake tall box**, **no Load more row**).
 - **Controls** - **Load more results** (**`data-testid="tool-result-more-link"`** ) and **Hide** (**`data-testid="tool-result-hide-link"`** ) are styled as text links (**`tool-result-text-link`**), in **`tool-result-toggle-row`**, under the result panel.
 - **Full body** - The SPA obtains the saved full string only via **GET `/coddy/sessions/{sessionId}/tool-calls/{toolCallId}`** (JSON **`result`** ). **`App.tsx`** wires **`onFetchToolCallFull`** to that endpoint and merges **`fullResultText`** into transcript state (**`external/ui/src/ui/App.tsx`** ).
@@ -133,8 +133,8 @@ Current block types:
   - Multiple `thinking` blocks can appear in one user turn. If the model resumes reasoning after tool calls, the UI starts a new `thinking` block and preserves ordering.
 - `tool_call`
   - Tool execution timeline block (SSE `tool_call` and `tool_call_update`, enriched from `/coddy/sessions/{id}/tool-calls`).
-  - Summary row stays compact; details show args and tool **result**. Results are **raw plain text** in a monospace, muted grey panel (**no Markdown**). When **`resultWasTruncated`** is false (output fits the preview cap), the result block grows with content only (no fixed tall viewport, no **Load more results**). When truncated, the capped viewport and **Load more results** / **Hide** match the tool timeline above (REST fetch only on first **Load more results**).
-  - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available.
+  - Summary row matches **thinking** (**chevron**, **tool name**, **duration** beside the label). Details show args and tool **result**. Results are **raw plain text** in a monospace, muted grey panel (**no Markdown**). When **`resultWasTruncated`** is false (output fits the preview cap), the result block grows with content only (no fixed tall viewport, no **Load more results**). When truncated, the capped viewport and **Load more results** / **Hide** match the tool timeline above (REST fetch only on first **Load more results**).
+  - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available, with live **`startedAtMs`** updates while **`in_progress`**.
 - `assistant_message`
   - Final assistant output for the turn. UI keeps it last and backfills it from `/coddy/sessions/{id}/messages` when streaming ends.
 

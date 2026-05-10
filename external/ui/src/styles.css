@@ -926,33 +926,6 @@ body {
   box-shadow: none;
 }
 
-.msg-tools {
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(18, 18, 20, 0.35);
-  border: 1px dashed rgba(255, 255, 255, 0.18);
-  align-self: flex-start;
-  font-size: 12px;
-}
-
-.tool-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.tool-name {
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 600;
-}
-
-.tool-status {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.8;
-}
-
 .tool-block {
   white-space: pre-wrap;
   word-break: break-word;
@@ -964,46 +937,6 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   line-height: 1.45;
-}
-
-.tool-details {
-  margin: 0;
-  padding-inline: 0;
-}
-
-.tool-details > summary {
-  list-style: none;
-  appearance: none;
-  -webkit-appearance: none;
-  margin-inline: 0;
-  padding-inline: 0;
-}
-
-.tool-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.tool-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  cursor: pointer;
-  width: 100%;
-}
-
-.tool-left {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex: 1;
-}
-
-.tool-left .tool-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* Tool output is always raw text (no Markdown); subtle grey monospace. */
@@ -1064,30 +997,19 @@ body {
   cursor: wait;
 }
 
-.tool-dur {
-  margin-left: auto;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-  background: rgba(10, 10, 12, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  padding: 2px 8px;
-  user-select: none;
-  white-space: nowrap;
-}
-
 .thinking-row {
   max-width: 720px;
   align-self: flex-start;
 }
 
-.msg-tools + .thinking-row {
-  margin-top: -6px;
-}
-
 .thinking-details {
   margin: 0;
   padding-inline: 0;
+}
+
+/* Closed <details> must not reserve space for the body (args/result) in any engine. */
+.thinking-details:not([open]) > :not(summary) {
+  display: none !important;
 }
 
 .thinking-details > summary {
@@ -1306,44 +1228,13 @@ body {
   color: rgba(255, 255, 255, 0.45);
 }
 
-.tool-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(156, 163, 175, 0.75);
+.coddy-tool-call-body {
+  font-size: 12px;
+  line-height: 1.45;
 }
 
-.tool-dot-pending,
-.tool-dot-in_progress {
-  background: rgba(251, 191, 36, 0.85);
-}
-
-.tool-dot-completed {
-  background: rgba(52, 211, 153, 0.85);
-}
-
-.tool-dot-failed {
-  background: rgba(248, 113, 113, 0.85);
-}
-
-.tool-dot-cancelled {
-  background: rgba(156, 163, 175, 0.85);
-}
-
-.tool-spinner {
-  width: 12px;
-  height: 12px;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.14);
-  border-top-color: rgba(255, 255, 255, 0.75);
-  animation: toolspin 0.9s linear infinite;
-}
-
-@keyframes toolspin {
-  to {
-    transform: rotate(360deg);
-  }
+.coddy-tool-call-body .tool-block:first-of-type {
+  margin-top: 0;
 }
 
 .md {

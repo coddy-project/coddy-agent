@@ -130,8 +130,8 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - Status `completed` shows label `thinking` and preserves the text for review.
   - Multiple `thinking` blocks may appear in one turn (reasoning can resume after tool calls).
 - `tool_call`
-  - A single tool execution card.
-  - Summary row shows tool name, status dot, and duration label.
+  - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`** with the tool name or kind, **`thinking-dur`** for duration or **`-`**).
+  - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`read_file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
   - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
 
 ## Tool call card (bundled SPA, current)
@@ -140,13 +140,14 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 
 | Concern | Current behaviour |
 | --- | --- |
-| Component | **`ToolCallMessage.tsx`** (`details` **`.tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`**) |
-| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** |
+| Component | **`ToolCallMessage.tsx`** - **`thinking-row coddy-tool-call-row`**, **`details.thinking-details.coddy-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
+| Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
+| Args | **`pre.tool-block`**, **`aria-label="Tool arguments"`** (inside **`thinking-body coddy-tool-call-body`**) |
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** (user or assistant bubbles still use the Markdown pipeline per below) |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
 | Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
-| CSS | **`styles.css`**: **`.tool-result-raw`**, **`.tool-result-pre`**, **`.tool-result-viewport`** / **`--tall`** / **`--clip`** / **`--scroll`**, **`.tool-result-toggle-row`**, **`.tool-result-text-link`** |
+| CSS | **`styles.css`**: **`.coddy-tool-call-row`**, **`.coddy-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.

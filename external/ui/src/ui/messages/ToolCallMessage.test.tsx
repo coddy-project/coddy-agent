@@ -28,6 +28,7 @@ test('truncated tool shows text link, fetches once, then Hide restores preview',
         resultText={`${'a\n'.repeat(18)}last preview line\n...`}
         fullResultText={full}
         resultWasTruncated
+        durationMs={42}
         onFetchToolCallFull={onFetch}
       />
     );
@@ -68,6 +69,7 @@ test('no load-more row when preview is not truncated', () => {
       title="read_file"
       status="completed"
       resultText="short"
+      durationMs={10}
       onFetchToolCallFull={vi.fn()}
     />,
   );
@@ -82,4 +84,32 @@ test('truncated tool does not show toggle without fetch handler', () => {
   );
   openToolDetails();
   expect(screen.queryByTestId('tool-result-more-link')).toBeNull();
+});
+
+test('summary matches thinking-row pattern: chevron, tool name, duration', () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-4"
+      title="glob"
+      status="completed"
+      resultText="ok"
+      durationMs={125}
+      onFetchToolCallFull={vi.fn()}
+    />,
+  );
+  const row = container.querySelector('.thinking-row.coddy-tool-call-row');
+  expect(row).toBeTruthy();
+  expect(container.querySelector('.thinking-row.coddy-tool-call-row .thinking-chevron')).toBeTruthy();
+  expect(screen.getByText('glob')).toBeInTheDocument();
+  expect(container.querySelector('.thinking-dur')?.textContent).toBe('125ms');
+});
+
+test('in-progress tool shows ellipsis on label and elapsed from startedAtMs', () => {
+  const t0 = Date.now() - 2500;
+  const { container } = render(
+    <ToolCallMessage toolCallId="tc-5" title="run_cmd" status="in_progress" startedAtMs={t0} argsText="{}" />,
+  );
+  expect(screen.getByText('run_cmd...')).toBeTruthy();
+  const dur = container.querySelector('.thinking-dur')?.textContent ?? '';
+  expect(dur).toMatch(/^\d+ms$|^\d/);
 });

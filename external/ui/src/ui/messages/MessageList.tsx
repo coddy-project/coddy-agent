@@ -72,6 +72,7 @@ export function MessageList(props: { items: TranscriptItem[]; onFetchToolCallFul
             {...(it.fullResultText !== undefined ? { fullResultText: it.fullResultText } : {})}
             {...(it.resultWasTruncated === true ? { resultWasTruncated: true } : {})}
             {...(typeof it.durationMs === 'number' ? { durationMs: it.durationMs } : {})}
+            {...(typeof it.startedAtMs === 'number' ? { startedAtMs: it.startedAtMs } : {})}
             {...(props.onFetchToolCallFull ? { onFetchToolCallFull: props.onFetchToolCallFull } : {})}
           />
         );
