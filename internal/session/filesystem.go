@@ -17,6 +17,7 @@ import (
 const (
 	sessionMetaFile      = "session.json"
 	messagesFile         = "messages.json"
+	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
 	todosArchiveName     = "archive"
@@ -24,6 +25,7 @@ const (
 	toolCallsDirName     = "tool_calls"
 	sessionFileLayout    = 1
 	messagesLayout       = 1
+	uiLogLayout          = 1
 	permissionGrantsVer  = 1
 )
 
@@ -108,6 +110,11 @@ type messagesFileData struct {
 	Messages []llm.Message `json:"messages"`
 }
 
+type uiLogFileData struct {
+	Version  int          `json:"version"`
+	Entries  []UILogEntry `json:"entries"`
+}
+
 type permissionGrantsFileData struct {
 	Version  int      `json:"version"`
 	Commands []string `json:"commands,omitempty"`
@@ -119,6 +126,7 @@ type LoadedSnapshot struct {
 	Dir                 string
 	Meta                sessionMetaFileData
 	Messages            []llm.Message
+	UILog               []UILogEntry
 	Plan                []acp.PlanEntry
 	PermissionCommands  []string
 	PermissionWriteKeys []string
@@ -148,6 +156,15 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		}
 	}
 
+	var uiEntries []UILogEntry
+	ulPath := filepath.Join(dir, uiLogFile)
+	if b, readErr := os.ReadFile(ulPath); readErr == nil {
+		var wrap uiLogFileData
+		if jsonErr := json.Unmarshal(b, &wrap); jsonErr == nil {
+			uiEntries = wrap.Entries
+		}
+	}
+
 	var plan []acp.PlanEntry
 	activePath := ActiveTodoPath(dir)
 	if b, readErr := os.ReadFile(activePath); readErr == nil && strings.TrimSpace(string(b)) != "" {
@@ -168,6 +185,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		Dir:                 dir,
 		Meta:                meta,
 		Messages:            msgs,
+		UILog:               uiEntries,
 		Plan:                plan,
 		PermissionCommands:  permCmds,
 		PermissionWriteKeys: permWrites,
@@ -310,6 +328,13 @@ func (f *FileStore) Save(state *State) error {
 		Messages: msgs,
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, messagesFile), wrap); err != nil {
+		return err
+	}
+	uiWrap := uiLogFileData{
+		Version: uiLogLayout,
+		Entries: state.GetUILog(),
+	}
+	if err := writeJSONAtomic(filepath.Join(dir, uiLogFile), uiWrap); err != nil {
 		return err
 	}
 	pg := permissionGrantsFileData{

@@ -926,6 +926,31 @@ body {
   box-shadow: none;
 }
 
+.msg-system {
+  align-self: flex-start;
+  background: rgba(40, 18, 18, 0.55);
+  border: 1px solid rgba(255, 120, 120, 0.25);
+}
+
+.msg-system-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 168, 168, 0.85);
+  margin-bottom: 6px;
+}
+
+.msg-system-body {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(248, 220, 220, 0.92);
+}
+
 .tool-block {
   white-space: pre-wrap;
   word-break: break-word;

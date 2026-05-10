@@ -6,6 +6,19 @@ import type { TranscriptItem } from '../chat/types';
 
 afterEach(() => cleanup());
 
+test('renders system error notice', () => {
+  const items: TranscriptItem[] = [
+    { id: 'u1', type: 'user_message', content: 'Hello' },
+    { id: 's1', type: 'system_notice', level: 'error', message: 'LLM error: context exceeded' },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  expect(screen.getByText('System')).toBeInTheDocument();
+  expect(screen.getByText('LLM error: context exceeded')).toBeInTheDocument();
+});
+
 test('renders user, assistant, and tool call items', () => {
   const items: TranscriptItem[] = [
     { id: 'u1', type: 'user_message', content: 'Hello' },

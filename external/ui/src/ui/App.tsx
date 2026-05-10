@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen';
+import { openAIStreamErrorMessage } from './chat/streamError';
 import { parseSSEBlocks } from './chat/sse';
 import { stableMemoryCopilotItemId } from './chat/memoryStableId';
 import type { TokenUsage, TranscriptItem } from './chat/types';
@@ -585,14 +586,39 @@ export function App() {
       setItems([]);
       return false;
     }
-    const res = await fetchJSON<{ messages: Array<any>; memoryTurns?: MemoryTurnApi[] }>(
-      `/coddy/sessions/${encodeURIComponent(sid)}/messages`,
-      { headers: sid === sessionId ? headers : { [HDR]: sid } },
-    );
+    const res = await fetchJSON<{
+      messages: Array<any>;
+      memoryTurns?: MemoryTurnApi[];
+      uiLog?: Array<{ id?: string; level?: string; message?: string; userTurnIndex?: number; createdAt?: string }>;
+    }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages`, {
+      headers: sid === sessionId ? headers : { [HDR]: sid },
+    });
     if (!res.ok || !res.data) {
       setItems([]);
       return false;
     }
+    type UILogRow = { id: string; level: string; message: string; createdAt: string };
+    const noticesByTurn = new Map<number, UILogRow[]>();
+    for (const raw of res.data.uiLog || []) {
+      const msg = typeof raw.message === 'string' ? raw.message.trim() : '';
+      if (!msg) continue;
+      const turn =
+        typeof raw.userTurnIndex === 'number' && Number.isFinite(raw.userTurnIndex) && raw.userTurnIndex >= 1
+          ? Math.floor(raw.userTurnIndex)
+          : 1;
+      const id = typeof raw.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : newId('s');
+      const level = (raw.level || 'error').trim() || 'error';
+      const createdAt = typeof raw.createdAt === 'string' ? raw.createdAt : '';
+      const row: UILogRow = { id, level, message: msg, createdAt };
+      const bucket = noticesByTurn.get(turn) ?? [];
+      bucket.push(row);
+      noticesByTurn.set(turn, bucket);
+    }
+    for (const [turn, bucket] of noticesByTurn) {
+      bucket.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      noticesByTurn.set(turn, bucket);
+    }
+
     const memByTurn = new Map<number, MemoryTurnApi>();
     for (const row of res.data.memoryTurns || []) {
       if (typeof row.userTurnIndex === 'number' && row.userTurnIndex > 0) {
@@ -600,6 +626,12 @@ export function App() {
       }
     }
     const next: TranscriptItem[] = [];
+    const pushUiNoticesForTurn = (turn: number) => {
+      for (const row of noticesByTurn.get(turn) || []) {
+        if (row.level !== 'error') continue;
+        next.push({ id: row.id, type: 'system_notice', level: 'error', message: row.message });
+      }
+    };
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
     for (const m of res.data.messages || []) {
@@ -611,6 +643,7 @@ export function App() {
         if (mt) {
           next.push(memoryTranscriptFromApi(mt));
         }
+        pushUiNoticesForTurn(userTurnIdx);
         continue;
       }
       if (role === 'assistant') {
@@ -927,13 +960,11 @@ export function App() {
       releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
-        setItems((prev) =>
-          prev.map((it) =>
-            it.type === 'assistant_message' && it.id === assistantId
-              ? { ...it, content: `Request failed (${res.status})`, streaming: false }
-              : it,
-          ),
-        );
+        const msg = !res.body ? 'Empty response body' : `Request failed (${res.status})`;
+        setItems((prev) => [
+          ...prev,
+          { id: newId('s'), type: 'system_notice', level: 'error' as const, message: msg },
+        ]);
         completedNormally = true;
         return;
       }
@@ -1093,6 +1124,8 @@ export function App() {
       };
 
       let sawDone = false;
+      let streamErrorMessage: string | null = null;
+      let streamHalted = false;
       while (true) {
         const step = await reader.read();
         if (step.done) {
@@ -1106,11 +1139,31 @@ export function App() {
           }
 
           if (!ev.event) {
+            let delta: unknown;
             try {
-              const delta = JSON.parse(ev.data) as any;
-              const contentDelta = delta.choices?.[0]?.delta?.content;
+              delta = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            const sseErr = openAIStreamErrorMessage(delta);
+            if (sseErr) {
+              streamErrorMessage = sseErr;
+              streamHalted = true;
+              try {
+                await reader.cancel();
+              } catch {
+                // ignore
+              }
+              break;
+            }
+            const d = delta as {
+              choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown } }>;
+            };
+            try {
+              const contentDelta = d.choices?.[0]?.delta?.content;
               const c = typeof contentDelta === 'string' ? contentDelta : '';
-              const r = delta.choices?.[0]?.delta?.reasoning_content || '';
+              const rRaw = d.choices?.[0]?.delta?.reasoning_content || '';
+              const r = typeof rRaw === 'string' ? rRaw : '';
               if (r) {
                 appendThinking(r);
               }
@@ -1239,6 +1292,9 @@ export function App() {
             continue;
           }
         }
+        if (streamHalted) {
+          break;
+        }
         if (sawDone) {
           break;
         }
@@ -1256,11 +1312,25 @@ export function App() {
         for (const ev of tailEvents) {
           if (ev.data === '[DONE]') continue;
           if (!ev.event) {
+            let delta: unknown;
             try {
-              const delta = JSON.parse(ev.data) as any;
-              const contentDelta = delta.choices?.[0]?.delta?.content;
+              delta = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            const sseErr = openAIStreamErrorMessage(delta);
+            if (sseErr) {
+              streamErrorMessage = sseErr;
+              break;
+            }
+            const d = delta as {
+              choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown } }>;
+            };
+            try {
+              const contentDelta = d.choices?.[0]?.delta?.content;
               const c = typeof contentDelta === 'string' ? contentDelta : '';
-              const r = delta.choices?.[0]?.delta?.reasoning_content || '';
+              const rRaw = d.choices?.[0]?.delta?.reasoning_content || '';
+              const r = typeof rRaw === 'string' ? rRaw : '';
               if (r) {
                 appendThinking(r);
               }
@@ -1370,6 +1440,21 @@ export function App() {
             continue;
           }
         }
+      }
+
+      if (streamErrorMessage) {
+        flushToolQueue();
+        finishThinking();
+        const errText = streamErrorMessage;
+        setItems((prev) => {
+          const withoutEmptyAssistant = prev.filter(
+            (it) => !(it.type === 'assistant_message' && it.id === assistantId && !it.content.trim()),
+          );
+          return [...withoutEmptyAssistant, { id: newId('s'), type: 'system_notice', level: 'error' as const, message: errText }];
+        });
+        void loadSessionsList(true);
+        completedNormally = true;
+        return;
       }
 
       flushToolQueue();

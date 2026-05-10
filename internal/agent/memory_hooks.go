@@ -7,7 +7,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/memory"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -19,16 +18,6 @@ func truncatePersistBodyForWire(s string) string {
 		return s
 	}
 	return strings.TrimSpace(s[:persistBodyWireMax]) + "\n\n…"
-}
-
-func countUserTurns(msgs []llm.Message) int {
-	n := 0
-	for _, m := range msgs {
-		if m.Role == llm.RoleUser {
-			n++
-		}
-	}
-	return n
 }
 
 func (a *Agent) memoryRowID(turn int) string {
@@ -80,7 +69,7 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText string) {
 	if mr == "" {
 		mr = a.state.EffectiveModelID(a.cfg)
 	}
-	turn := countUserTurns(a.state.GetMessages())
+	turn := session.CountUserTurns(a.state.GetMessages())
 	rowID := a.memoryRowID(turn)
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 

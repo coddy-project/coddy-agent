@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -287,6 +288,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
+	st.RestoreUILogWithoutPersist(snap.UILog)
 
 	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.cfg.Paths.Home)
 	if err != nil {
@@ -458,6 +460,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	stopReason, err := m.runner(turnCtx, state, params.Prompt, sender)
 	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			state.AppendUILogError(CountUserTurns(state.GetMessages()), err.Error())
+		}
 		return nil, err
 	}
 

@@ -7,6 +7,39 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
+func TestFileStoreRoundTripUILog(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	id := "sess_ulog"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := &State{
+		ID:         id,
+		CWD:        "/tmp/unit",
+		Mode:       ModeAgent,
+		SessionDir: dir,
+	}
+	st.AppendUILogError(1, "context exceeded")
+
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.UILog) != 1 {
+		t.Fatalf("ui log len=%d", len(snap.UILog))
+	}
+	if snap.UILog[0].Message != "context exceeded" || snap.UILog[0].UserTurnIndex != 1 {
+		t.Fatalf("entry %+v", snap.UILog[0])
+	}
+}
+
 func TestFileStoreRoundTripMessages(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

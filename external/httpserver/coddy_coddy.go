@@ -705,6 +705,19 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		"sessionId": id,
 		"messages":  llmMsgsToCoddyOpenAI(st.GetMessages()),
 	}
+	if u := st.GetUILog(); len(u) > 0 {
+		rows := make([]map[string]interface{}, 0, len(u))
+		for _, e := range u {
+			rows = append(rows, map[string]interface{}{
+				"id":            e.ID,
+				"level":         e.Level,
+				"message":       e.Message,
+				"userTurnIndex": e.UserTurnIndex,
+				"createdAt":     e.CreatedAt,
+			})
+		}
+		out["uiLog"] = rows
+	}
 	if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" {
 		if env, err := session.ReadMemoryTrace(sd); err == nil && env != nil && len(env.Turns) > 0 {
 			out["memoryTurns"] = env.Turns

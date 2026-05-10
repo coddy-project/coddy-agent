@@ -326,6 +326,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
+		if !errors.Is(err, context.Canceled) {
+			st.AppendUILogError(session.CountUserTurns(st.GetMessages()), err.Error())
+		}
 		s.log.Error("direct completion", "error", err)
 		if req.Stream {
 			_, _ = io.WriteString(w, fmt.Sprintf("data: {\"error\":{\"message\":%q}}\n\n", err.Error()))
@@ -559,6 +562,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			meta := metadataResponse(s.cfg, model)
 			_ = bridge.FinishStreamWithMetadata(meta)
 			return
+		}
+		if !errors.Is(err, context.Canceled) {
+			st.AppendUILogError(session.CountUserTurns(st.GetMessages()), err.Error())
 		}
 		s.log.Error("responses direct completion", "error", err)
 		if body.Stream {

@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -604,6 +605,93 @@ func TestCoddySessionsListFilterByQUserMessage(t *testing.T) {
 	}
 	if len(parsed.Sessions) != 1 || parsed.Sessions[0].ID != "sess_q_keep" {
 		t.Fatalf("want one sess_q_keep, got %+v (%s)", parsed.Sessions, string(b))
+	}
+}
+
+func TestCoddyMessagesIncludesUILogAfterAgentError(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var sb strings.Builder
+		for _, b := range prompt {
+			if b.Type == "text" {
+				sb.WriteString(b.Text)
+			}
+		}
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
+		return "", fmt.Errorf("forced LLM failure")
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: "/tmp"},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	sid := "sess_ui_log_http_1"
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(
+		`{"model":"agent","input":"hi","stream":false}`,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d: %s", res.StatusCode, b)
+	}
+
+	ms, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := ioReadAllClose(ms.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ms.StatusCode != http.StatusOK {
+		t.Fatalf("messages %d %s", ms.StatusCode, mb)
+	}
+	var body struct {
+		Messages []struct {
+			Role string `json:"role"`
+		} `json:"messages"`
+		UILog []struct {
+			Level         string `json:"level"`
+			Message       string `json:"message"`
+			UserTurnIndex int    `json:"userTurnIndex"`
+		} `json:"uiLog"`
+	}
+	if err := json.Unmarshal(mb, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Messages) != 1 || body.Messages[0].Role != "user" {
+		t.Fatalf("messages: %+v", body.Messages)
+	}
+	if len(body.UILog) != 1 {
+		t.Fatalf("uiLog len=%d body=%s", len(body.UILog), mb)
+	}
+	if body.UILog[0].Level != "error" || body.UILog[0].UserTurnIndex != 1 {
+		t.Fatalf("uiLog row %+v", body.UILog[0])
+	}
+	if !strings.Contains(body.UILog[0].Message, "forced LLM failure") {
+		t.Fatalf("message %q", body.UILog[0].Message)
 	}
 }
 

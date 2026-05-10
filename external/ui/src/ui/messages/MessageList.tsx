@@ -1,6 +1,7 @@
 import type { TranscriptItem } from '../chat/types';
 import { AssistantMessage } from './AssistantMessage';
 import { MemoryCopilotMessage } from './MemoryCopilotMessage';
+import { SystemNoticeMessage } from './SystemNoticeMessage';
 import { ThinkingMessage } from './ThinkingMessage';
 import { ToolCallMessage } from './ToolCallMessage';
 import { UserMessage } from './UserMessage';
@@ -59,6 +60,9 @@ export function MessageList(props: { items: TranscriptItem[]; onFetchToolCallFul
         }
         if (it.type === 'assistant_message') {
           return <AssistantMessage key={it.id} content={it.content} />;
+        }
+        if (it.type === 'system_notice') {
+          return <SystemNoticeMessage key={it.id} level={it.level} message={it.message} />;
         }
         return (
           <ToolCallMessage

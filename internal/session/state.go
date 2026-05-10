@@ -41,6 +41,9 @@ type State struct {
 	// Messages is the conversation history.
 	Messages []llm.Message
 
+	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
+	UILog []UILogEntry
+
 	// MCPClients are connected MCP servers for this session.
 	MCPClients []*mcp.Client
 

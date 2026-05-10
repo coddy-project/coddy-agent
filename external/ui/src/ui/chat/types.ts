@@ -44,6 +44,12 @@ export type TranscriptItem =
     }
   | {
       id: string;
+      type: 'system_notice';
+      level: 'error';
+      message: string;
+    }
+  | {
+      id: string;
       type: 'memory_copilot';
       memoryRowId: string;
       userTurnIndex: number;
