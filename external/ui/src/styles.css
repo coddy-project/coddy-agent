@@ -3,11 +3,28 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
+  --coddy-skill-chip-bg: rgba(147, 51, 234, 0.14);
+  --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
+  --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --text: #ffffff;
   --muted: #9ca3af;
   --bubble-user: #2d2d2d;
   --radius: 14px;
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  /* Shared frosted panels (composer, History drawer, skills slash picker) */
+  /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
+  --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
+  --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
+  --coddy-glass-panel-border: rgba(255, 255, 255, 0.12);
+  --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
+  /* Match composer-card and History drawer corners */
+  --coddy-glass-panel-radius: 18px;
+  /* Plain dim behind History / slash sheet — no fullscreen blur */
+  --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.55);
+  /* Slash skills UI must stay below History (backdrop 40, drawer 50; mobile 60/70). */
+  --coddy-z-slash-command: 38;
   /* Narrow nav column: outer edge = pill + trailing column padding before chat/drawer */
   --rail-column-pad-end: 8px;
   --nav-floating-gutter: 2px;
@@ -475,7 +492,7 @@ body {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--coddy-overlay-scrim-bg);
   opacity: 0;
   pointer-events: none;
   transition: opacity 160ms ease;
@@ -498,12 +515,8 @@ body {
   bottom: 14px;
   left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
   width: min(320px, calc(100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px));
-  border-radius: 18px;
-  background: var(--sidebar);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -844,7 +857,8 @@ body {
   flex-direction: column;
   gap: 0;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  /* both-edges keeps #messages content center aligned with composer (stable alone reserves inline-end only) */
+  scrollbar-gutter: stable both-edges;
 }
 
 .messages-inner {
@@ -854,7 +868,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 0 2px;
+  /* Match textarea horizontal inset (#composer padding) so bubbles align with composer text band */
+  padding: 0 16px;
 }
 
 .chat-scroll-tail {
@@ -1479,20 +1494,206 @@ body {
   z-index: 0;
 }
 
+.composer-wrap:has(.slash-menu--sheet) {
+  z-index: var(--coddy-z-slash-command);
+}
+
+/* Frosted dark glass INSIDE surfaces only — not fullscreen scrims (tokens in :root) */
+.composer-card,
+.sessions.drawer,
+.slash-menu-surface,
+.mode-menu {
+  background: var(--coddy-glass-panel-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+}
+
 .composer-card {
-  border-radius: 18px;
-  background: rgba(22, 22, 24, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  position: relative;
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
   overflow: visible;
+}
+
+.composer-field-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.slash-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--coddy-overlay-scrim-bg);
+}
+
+/* Shell holds surface (frosted) + inner scroll — scroll must not live on backdrop-filter layer */
+.slash-menu {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+.slash-menu-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.slash-menu-scroll {
+  position: relative;
+  z-index: 1;
+  /* Match #composer horizontal padding so skills list lines up with typed text */
+  padding: 10px 10px 5px;
+  min-height: 0;
+}
+
+/* Floating desktop menu is portaled under document.body so backdrop-filter blurs chat below composer */
+.slash-menu--portal {
+  position: fixed;
+  z-index: var(--coddy-z-slash-command);
+  box-sizing: border-box;
+}
+
+.slash-menu--portal .slash-menu-scroll {
+  max-height: min(260px, 42vh);
+  overflow-y: auto;
+}
+
+.slash-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: min(560px, 100vw);
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0 0;
+  z-index: 41;
+}
+
+.slash-menu--sheet .slash-menu-surface {
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0 0;
+}
+
+.slash-menu--sheet .slash-menu-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.slash-menu-title {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 2px 6px 6px;
+}
+
+.slash-muted,
+.slash-err {
+  font-size: 12px;
+  padding: 8px;
+  opacity: 0.75;
+}
+
+.slash-err {
+  opacity: 0.95;
+  color: rgba(251, 113, 133, 0.95);
+}
+
+.slash-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.slash-row-btn {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text);
+  background: transparent;
+}
+
+.slash-row-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.slash-row-name {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.slash-row-desc {
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.slash-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(147, 197, 253, 0.95);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slash-load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.md .coddy-skill-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0 8px;
+  margin: 0 1px;
+  border-radius: 999px;
+  font-family: var(--coddy-skill-chip-font);
+  font-weight: 600;
+  font-size: 0.88em;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  border: 1px solid var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .composer-wrap-docked .composer-card {
   position: relative;
   /* Soft halo above and below the rounded card (follows radius, avoids hard strip on borders) */
   box-shadow:
+    var(--coddy-glass-panel-shadow),
     0 12px 34px rgba(0, 0, 0, 0.5),
     0 -14px 40px rgba(11, 11, 12, 0.38),
     0 -4px 18px rgba(11, 11, 12, 0.32),
@@ -1504,12 +1705,87 @@ textarea#composer {
   width: 100%;
   min-height: 76px;
   max-height: 180px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   color: var(--text);
   background: transparent;
   border: 0;
   border-radius: 0;
   padding: 16px 16px 10px;
   outline: none;
+}
+
+.composer-stack {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.composer-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.composer-mirror-inner {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 16px 16px 10px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  color: var(--text);
+}
+
+textarea#composer.composer-ta-masked {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+@supports (-webkit-text-fill-color: transparent) {
+  textarea#composer.composer-ta-masked {
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+textarea#composer.composer-ta-masked::selection {
+  background: rgba(147, 51, 234, 0.18);
+}
+
+.composer-mirror-inner,
+textarea#composer {
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-style: normal;
+  font-variant-numeric: normal;
+}
+
+/* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */
+.composer-skill-chip-inline {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  color: var(--coddy-skill-chip-text);
+  background: var(--coddy-skill-chip-bg);
+  box-shadow: 0 0 0 1px var(--coddy-skill-chip-bd);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .composer-bar {
@@ -1562,12 +1838,8 @@ textarea#composer {
   left: 0;
   min-width: 160px;
   padding: 6px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(18, 18, 20, 0.85);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
   z-index: 90;
 }
 

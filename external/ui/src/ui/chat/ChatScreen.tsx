@@ -66,6 +66,7 @@ export function ChatScreen(props: {
             <Composer
               value={props.draft}
               isEmpty={true}
+              sessionId={props.sessionId}
               contextIdle={!props.sessionId}
               mode={props.mode}
               modes={props.modes}
@@ -119,6 +120,7 @@ export function ChatScreen(props: {
               <Composer
                 value={props.draft}
                 isEmpty={false}
+                sessionId={props.sessionId}
                 contextIdle={false}
                 mode={props.mode}
                 modes={props.modes}

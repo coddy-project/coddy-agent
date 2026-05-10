@@ -83,7 +83,7 @@ Client                          Agent
   |<------- session/new resp -----|
   |                               |
   |-------- session/prompt ------>|
-  |<------- session/update -------|  (notifications: plan, chunks, tool_calls)
+  |<------- session/update -------|  (notifications: plan, available_commands_update, chunks, tool_calls)
   |<------- session/update -------|
   |<------- session/update -------|
   |<------- session/prompt resp --|  (stopReason: end_turn)
@@ -228,7 +228,7 @@ The `model` option is present only when the `models` list in the agent config is
 
 ### `session/load`
 
-Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, sends `available_commands_update`, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
 
 **Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
 
@@ -350,6 +350,19 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
     { "content": "Read auth module", "priority": "high", "status": "pending" },
     { "content": "Design JWT structure", "priority": "high", "status": "pending" },
     { "content": "Implement changes", "priority": "medium", "status": "pending" }
+  ]
+}
+```
+
+### `available_commands_update` - Slash commands from skills
+
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+
+```json
+{
+  "sessionUpdate": "available_commands_update",
+  "availableCommands": [
+    { "name": "demo", "description": "Runs the demo checklist" }
   ]
 }
 ```

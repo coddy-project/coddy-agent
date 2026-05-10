@@ -101,15 +101,16 @@ func BuildSystemPromptSection(skills []*Skill) string {
 	var b strings.Builder
 	b.WriteString("## Active Rules and Skills\n\n")
 	for _, s := range skills {
+		head := CanonicalCommandName(s)
 		if s.Description != "" {
 			b.WriteString("### ")
-			b.WriteString(s.Name)
+			b.WriteString(head)
 			b.WriteString(" (")
 			b.WriteString(s.Description)
 			b.WriteString(")\n\n")
 		} else {
 			b.WriteString("### ")
-			b.WriteString(s.Name)
+			b.WriteString(head)
 			b.WriteString("\n\n")
 		}
 		b.WriteString(s.Content)
@@ -129,9 +130,16 @@ func loadFromDir(dir string) ([]*Skill, error) {
 
 	var skills []*Skill
 	for _, e := range entries {
-		if e.IsDir() {
-			// Recurse one level for skill subdirectories with SKILL.md.
-			subSkill := filepath.Join(dir, e.Name(), "SKILL.md")
+		name := e.Name()
+		full := filepath.Join(dir, name)
+		fi, err := os.Stat(full)
+		if err != nil {
+			continue
+		}
+
+		if fi.IsDir() {
+			// One level deep: dirname/SKILL.md. Use Stat so symlinked skill dirs resolve.
+			subSkill := filepath.Join(full, "SKILL.md")
 			if _, err := os.Stat(subSkill); err == nil {
 				s, err := loadFile(subSkill)
 				if err == nil {
@@ -141,13 +149,12 @@ func loadFromDir(dir string) ([]*Skill, error) {
 			continue
 		}
 
-		name := e.Name()
 		ext := strings.ToLower(filepath.Ext(name))
 		if ext != ".md" && ext != ".mdc" && name != "SKILL.md" {
 			continue
 		}
 
-		s, err := loadFile(filepath.Join(dir, name))
+		s, err := loadFile(full)
 		if err != nil {
 			continue
 		}

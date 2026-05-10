@@ -67,6 +67,8 @@ func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
 		return s.writeNamedEventJSON("memory_phase", u)
 	case acp.MemoryMessageChunkUpdate:
 		return s.writeNamedEventJSON("memory_chunk", u)
+	case acp.AvailableCommandsUpdate:
+		return s.writeNamedEventJSON("available_commands", u)
 	default:
 		return nil
 	}

@@ -1,6 +1,6 @@
-import React from 'react';
-import { afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import React, { useState } from 'react';
+import { afterEach, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, test } from 'vitest';
 import { Composer } from './Composer';
 
@@ -91,6 +91,103 @@ test('send play enabled when draft has text', () => {
     />,
   );
   expect(screen.getByRole('button', { name: 'Send' })).not.toBeDisabled();
+});
+
+test('composer highlights only the active slash draft at caret', () => {
+  const s = 'asdfasf /find-skills asdfasdf';
+  render(
+    <Composer
+      value={s}
+      isEmpty={false}
+      mode="agent"
+      modes={['agent', 'plan']}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+  const caret = s.indexOf('/') + '/find-skil'.length;
+  ta.focus();
+  ta.setSelectionRange(caret, caret);
+  fireEvent.select(ta);
+
+  const chip = screen.getByTestId('composer-skill-chip');
+  expect(chip).toHaveTextContent('/find-skil');
+});
+
+test('no slash chip and no menu after API returns zero commands for prefix', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [], has_more: false, page: 1 }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  function Harness() {
+    const [value, setValue] = useState('');
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={['agent', 'plan']}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(ta, { target: { value: '/as', selectionStart: 3, selectionEnd: 3 } });
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalled();
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId('composer-skill-chip')).toBeNull();
+  });
+  expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull();
+
+  vi.unstubAllGlobals();
+});
+
+test('extending a no-match prefix does not reopen slash menu or refetch', async () => {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ items: [], has_more: false, page: 1 }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+
+  function Harness() {
+    const [value, setValue] = useState('');
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={['agent', 'plan']}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole('textbox', { name: 'Message' });
+  fireEvent.change(ta, { target: { value: '/adf', selectionStart: 4, selectionEnd: 4 } });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  fireEvent.change(ta, {
+    target: { value: '/adfadsfgaf', selectionStart: '/adfadsfgaf'.length, selectionEnd: '/adfadsfgaf'.length },
+  });
+  await new Promise((r) => setTimeout(r, 250));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull();
+  expect(screen.queryByTestId('composer-skill-chip')).toBeNull();
+
+  vi.unstubAllGlobals();
 });
 
 test('generating shows stop and calls onStop', () => {

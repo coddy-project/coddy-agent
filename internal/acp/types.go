@@ -295,17 +295,36 @@ type SessionUpdate map[string]interface{}
 
 // Update type constants for the "sessionUpdate" discriminator field.
 const (
-	UpdateTypePlan               = "plan"
-	UpdateTypeAgentMessageChunk  = "agent_message_chunk"
-	UpdateTypeUserMessageChunk   = "user_message_chunk"
-	UpdateTypeToolCall           = "tool_call"
-	UpdateTypeToolCallUpdate     = "tool_call_update"
-	UpdateTypeCurrentModeUpdate  = "current_mode_update"
-	UpdateTypeConfigOptionUpdate = "config_option_update"
-	UpdateTypeTokenUsage         = "token_usage"
-	UpdateTypeMemoryPhase        = "memory_phase"
-	UpdateTypeMemoryMessageChunk = "memory_message_chunk"
+	UpdateTypePlan                    = "plan"
+	UpdateTypeAgentMessageChunk       = "agent_message_chunk"
+	UpdateTypeUserMessageChunk        = "user_message_chunk"
+	UpdateTypeToolCall                = "tool_call"
+	UpdateTypeToolCallUpdate          = "tool_call_update"
+	UpdateTypeCurrentModeUpdate       = "current_mode_update"
+	UpdateTypeConfigOptionUpdate      = "config_option_update"
+	UpdateTypeTokenUsage              = "token_usage"
+	UpdateTypeMemoryPhase             = "memory_phase"
+	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
+	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
 )
+
+// AvailableCommand is one slash command advertised to ACP clients.
+type AvailableCommand struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description,omitempty"`
+	Input       *AvailableCommandInput `json:"input,omitempty"`
+}
+
+// AvailableCommandInput is optional metadata for slash command text input.
+type AvailableCommandInput struct {
+	Hint string `json:"hint,omitempty"`
+}
+
+// AvailableCommandsUpdate publishes the current slash command catalog for a session.
+type AvailableCommandsUpdate struct {
+	SessionUpdate     string             `json:"sessionUpdate"` // "available_commands_update"
+	AvailableCommands []AvailableCommand `json:"availableCommands"`
+}
 
 // PlanUpdate sends the agent's execution plan to the client.
 type PlanUpdate struct {
@@ -337,10 +356,10 @@ type ToolCallUpdate struct {
 
 // ToolCallStatusUpdate reports progress on an existing tool call.
 type ToolCallStatusUpdate struct {
-	SessionUpdate string               `json:"sessionUpdate"` // "tool_call_update"
-	ToolCallID    string               `json:"toolCallId"`
-	Status        string               `json:"status"` // "in_progress", "completed", "failed", "cancelled"
-	Content       []ToolCallResultItem `json:"content,omitempty"`
+	SessionUpdate string                 `json:"sessionUpdate"` // "tool_call_update"
+	ToolCallID    string                 `json:"toolCallId"`
+	Status        string                 `json:"status"` // "in_progress", "completed", "failed", "cancelled"
+	Content       []ToolCallResultItem   `json:"content,omitempty"`
 	Meta          map[string]interface{} `json:"_meta,omitempty"` // ACP extensibility; Coddy uses coddy.toolResultPreview for truncated previews
 }
 

@@ -28,6 +28,9 @@ export default defineConfig({
       : {}),
   },
   build: {
+    // Lightning CSS (Vite 8 default) can drop unprefixed `backdrop-filter` when `-webkit-backdrop-filter`
+    // is present, which breaks blur in Firefox (and some stacks). Esbuild preserves both declarations.
+    cssMinify: 'esbuild',
     outDir: '../dist',
     emptyOutDir: true,
     sourcemap: true,

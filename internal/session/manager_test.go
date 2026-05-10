@@ -18,6 +18,22 @@ type noopSender struct{}
 
 func (noopSender) SendSessionUpdate(string, interface{}) error { return nil }
 
+type captureSender struct {
+	mu  sync.Mutex
+	ups []interface{}
+}
+
+func (c *captureSender) SendSessionUpdate(_ string, u interface{}) error {
+	c.mu.Lock()
+	c.ups = append(c.ups, u)
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *captureSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow"}, nil
+}
+
 func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	return &acp.PermissionResult{Outcome: "allow"}, nil
 }
@@ -322,5 +338,38 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 	if out.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("stop reason %q want %q", out.StopReason, acp.StopReasonCancelled)
+	}
+}
+
+func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
+	skRoot := t.TempDir()
+	skillDir := filepath.Join(skRoot, "probe")
+	if err := os.MkdirAll(filepath.Join(skillDir, "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "demo", "SKILL.md"), []byte("# Demo skill\n\nRuns demo flow.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.Skills.Dirs = []string{skillDir}
+	snd := &captureSender{}
+	m := session.NewManager(cfg, snd, noopRunner, slog.Default(), t.TempDir(), nil)
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	_ = res
+	var slash *acp.AvailableCommandsUpdate
+	for _, u := range snd.ups {
+		if v, ok := u.(acp.AvailableCommandsUpdate); ok && v.SessionUpdate == acp.UpdateTypeAvailableCommandsUpdate {
+			slash = &v
+			break
+		}
+	}
+	if slash == nil {
+		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
+	}
+	if len(slash.AvailableCommands) != 1 || slash.AvailableCommands[0].Name != "demo" {
+		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 }

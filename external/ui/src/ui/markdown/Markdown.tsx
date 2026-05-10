@@ -1,4 +1,4 @@
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { isValidElement, useCallback, useMemo, useState } from 'react';
@@ -10,6 +10,11 @@ type CodeProps = {
 };
 
 type PreProps = {
+  children?: unknown;
+};
+
+type AProps = {
+  href?: string;
   children?: unknown;
 };
 
@@ -83,13 +88,42 @@ export function Markdown(props: { text: string }) {
           </div>
         );
       },
+      a: (p: AProps) => {
+        const href = typeof p.href === 'string' ? p.href : '';
+        if (href.startsWith('coddy-skill:')) {
+          const name = href.slice('coddy-skill:'.length);
+          return (
+            <span className="coddy-skill-chip" data-testid="coddy-skill-span" data-skill-name={name}>
+              {p.children as any}
+            </span>
+          );
+        }
+        const external = /^https?:\/\//i.test(href);
+        return (
+          <a href={href} {...(external ? ({ target: '_blank', rel: 'noreferrer noopener' } as const) : {})}>
+            {p.children as any}
+          </a>
+        );
+      },
     }),
     [],
   );
 
+  const urlTransform = useCallback((url: string, key: string, node: any) => {
+    if (url.startsWith('coddy-skill:')) {
+      return url;
+    }
+    return defaultUrlTransform(url, key, node);
+  }, []);
+
   return (
     <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={components}
+        urlTransform={urlTransform}
+      >
         {props.text}
       </ReactMarkdown>
     </div>

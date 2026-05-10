@@ -23,7 +23,9 @@ sessions:
   dir: ""
 
 skills:
-  dirs: []
+  install_dir: "${CODDY_HOME}/skills_fixture"
+  dirs:
+    - "${CODDY_HOME}/skills_fixture"
 
 mcp_servers: []
 

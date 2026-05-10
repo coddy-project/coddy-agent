@@ -104,6 +104,41 @@ func TestLoadSKILLFile(t *testing.T) {
 	}
 }
 
+func TestLoadSymlinkDirWithSKILLMd(t *testing.T) {
+	tmp := t.TempDir()
+	realDir := filepath.Join(tmp, "real", "linked-skill")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ndescription: via symlink dir\n---\n\nBody."
+	if err := os.WriteFile(filepath.Join(realDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(tmp, "skills-root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked-skill")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Skip("unsupported symlink:", err)
+	}
+
+	loader := skills.NewLoader([]string{root})
+	loaded, err := loader.LoadAll(tmp, "")
+	if err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 skill, got %d", len(loaded))
+	}
+	if got := skills.CanonicalCommandName(loaded[0]); got != "linked-skill" {
+		t.Fatalf("canonical name: got %q want linked-skill", got)
+	}
+	if loaded[0].Description != "via symlink dir" {
+		t.Errorf("description %q", loaded[0].Description)
+	}
+}
+
 func TestFilterForContext(t *testing.T) {
 	goRule := &skills.Skill{
 		Name:        "go-rule",
@@ -156,8 +191,8 @@ func TestFilterForContext(t *testing.T) {
 
 func TestBuildSystemPromptSection(t *testing.T) {
 	loaded := []*skills.Skill{
-		{Name: "rule1", Description: "First rule", Content: "Content of rule 1"},
-		{Name: "rule2", Content: "Content of rule 2"},
+		{Name: "rule1", FilePath: filepath.Join("/tmp", "rules", "rule1.md"), Description: "First rule", Content: "Content of rule 1"},
+		{Name: "rule2", FilePath: filepath.Join("/tmp", "rules", "rule2.md"), Content: "Content of rule 2"},
 	}
 
 	section := skills.BuildSystemPromptSection(loaded)

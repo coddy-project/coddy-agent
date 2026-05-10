@@ -50,6 +50,7 @@ Scripts may bootstrap project-local interpreters (`.venv` recommended); follow e
 - **`examples/build_coddy.sh`** - runs **`make build TAGS=http`** and prints **`coddy -v`**.
 - **`examples/test_acp.sh`** - drives **`coddy acp`** (`acp_smoke_basic.py`, **`acp_models_e2e_demo.py`**, then the longer ACP demos in that script).
 - **`examples/test_httpserver.sh`** - starts a temporary **`coddy http`** and runs **`http_smoke_basic.py`**, **`http_models_e2e_demo.py`**, then the HTTP demos listed in that script (optional port argument).
+- **`examples/test_httpserver_skills_slash.sh`** - same **`examples/config.demo.yaml`** as other HTTP demos; copies **`examples/skills_fixture/`** into **`${CODDY_HOME}/skills_fixture`** and runs **`http_skills_slash_e2e_demo.py`** ( **`GET /coddy/slash-commands`**, **`POST /v1/responses`** with **`/coddy_slash_demo`**, control turn).
 - **`examples/run_full_test.sh`** - build step then **`test_acp.sh`** and **`test_httpserver.sh`**.
 
 Example HTTP scripts that call completion endpoints expect a reachable provider and return non-zero on HTTP errors.

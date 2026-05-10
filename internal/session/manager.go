@@ -195,6 +195,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	m.log.Info("session created", "id", id, "cwd", cwd, "mode", state.Mode)
 
+	m.sendAvailableSlashCommands(id, state)
+
 	return &acp.SessionNewResult{
 		SessionID:     id,
 		ConfigOptions: BuildACPConfigOptions(m.cfg, state),
@@ -334,6 +336,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			Entries:       st.GetPlan(),
 		})
 	}
+
+	m.sendAvailableSlashCommands(params.SessionID, st)
 
 	if err := m.store.Save(st); err != nil {
 		m.log.Warn("session load save", "error", err)
@@ -568,6 +572,21 @@ func (m *Manager) getSession(id string) *State {
 // SessionByID returns in-memory session state or nil.
 func (m *Manager) SessionByID(id string) *State {
 	return m.getSession(id)
+}
+
+func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
+	if m.server == nil || st == nil {
+		return
+	}
+	sums := skills.ListSkills(st.GetSkills())
+	cmds := make([]acp.AvailableCommand, 0, len(sums))
+	for _, s := range sums {
+		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
+	}
+	_ = m.server.SendSessionUpdate(sessionID, acp.AvailableCommandsUpdate{
+		SessionUpdate:     acp.UpdateTypeAvailableCommandsUpdate,
+		AvailableCommands: cmds,
+	})
 }
 
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
