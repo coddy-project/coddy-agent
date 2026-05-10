@@ -18,6 +18,12 @@ import {
 } from "../skills/draftSlash";
 import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
 import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
+import {
+  pickerRowFromRecent,
+  readWorkspaceAtRecents,
+  recordWorkspaceAtRecent,
+  WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+} from "../skills/workspaceAtRecents";
 import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
 
 function clamp01(x: number): number {
@@ -105,6 +111,13 @@ export function Composer(props: {
     prefix: string;
   } | null>(null);
   const atFetchGenRef = useRef(0);
+  /**
+   * After a workspace row is chosen, `setSelectionRange` + textarea `select` fires
+   * `updatePickerMenus` while the line still matches `atMenuDraftAtCaret`
+   * (file picks append a trailing space, which MENU_PATH treats as inside the `@` token).
+   * Skip reopening `@` on the next picker sync ticks (handles duplicate selection events).
+   */
+  const deferAtDraftPickerTicksRef = useRef(0);
   const [atItems, setAtItems] = useState<WorkspaceFileRow[]>([]);
   const [atOpen, setAtOpen] = useState(false);
   const [atPrefix, setAtPrefix] = useState("");
@@ -414,7 +427,10 @@ export function Composer(props: {
 
       if (draft.prefix.trim() === "") {
         bumpAtFetchGen();
-        setAtItems([]);
+        const wk =
+          (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
+        const recents = readWorkspaceAtRecents(wk).map(pickerRowFromRecent);
+        setAtItems(recents);
         setAtPage(1);
         setAtHasMore(false);
         setAtNoMatch(null);
@@ -487,13 +503,18 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchAtPage, atNoMatch],
+    [fetchAtPage, atNoMatch, props.sessionId],
   );
 
   const updatePickerMenus = useCallback(
     (value: string, caret: number) => {
+      let deferAtDraft = false;
+      if (deferAtDraftPickerTicksRef.current > 0) {
+        deferAtDraftPickerTicksRef.current -= 1;
+        deferAtDraft = true;
+      }
       const ad = atMenuDraftAtCaret(value, caret);
-      if (ad.open) {
+      if (ad.open && !deferAtDraft) {
         bumpSlashFetchGen();
         setSlashOpen(false);
         setSlashReplace(null);
@@ -605,6 +626,7 @@ export function Composer(props: {
     if (!atReplace) {
       return;
     }
+    deferAtDraftPickerTicksRef.current = 2;
     const { from, to } = atReplace;
     const insert =
       row.kind === "dir"
@@ -612,6 +634,10 @@ export function Composer(props: {
         : `@${row.path_rel.replace(/\/$/, "")} `;
     const next = props.value.slice(0, from) + insert + props.value.slice(to);
     props.onChange(next);
+    recordWorkspaceAtRecent(
+      (props.sessionId || "").trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+      row,
+    );
     setAtOpen(false);
     setAtReplace(null);
     setAtNoMatch(null);
@@ -787,7 +813,11 @@ export function Composer(props: {
       >
         <div className="slash-menu-title">Workspace files</div>
         {atPrefix.trim() === "" ? (
-          <div className="slash-muted">Type after @ to search</div>
+          <div className="slash-muted">
+            {atItems.length === 0
+              ? "Type after @ to search"
+              : "Recent in this workspace"}
+          </div>
         ) : null}
         {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
           <div className="slash-muted">Loading…</div>

@@ -1007,6 +1007,9 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wd, "pkg", "readme.md"), []byte("#"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(wd, "MixedCaseGo.go"), []byte("p"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 		return string(acp.StopReasonEndTurn), nil
 	}
@@ -1052,6 +1055,23 @@ func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	if rsp.StatusCode != http.StatusOK || body.Total != 1 || len(body.Items) != 1 ||
 		body.Items[0]["path_rel"] != "with space.go" || body.Items[0]["kind"] != "file" {
 		t.Fatalf("space prefix: status=%d %+v", rsp.StatusCode, body)
+	}
+
+	ci, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=mixedcasego")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cib struct {
+		Items []map[string]string `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.NewDecoder(ci.Body).Decode(&cib); err != nil {
+		t.Fatal(err)
+	}
+	_ = ci.Body.Close()
+	if ci.StatusCode != http.StatusOK || cib.Total != 1 || len(cib.Items) != 1 ||
+		cib.Items[0]["path_rel"] != "MixedCaseGo.go" || cib.Items[0]["kind"] != "file" {
+		t.Fatalf("case-insensitive prefix: status=%d %+v", ci.StatusCode, cib)
 	}
 
 	rd, err := http.Get(ts.URL + "/coddy/workspace/files?page=1&page_size=10&prefix=pkg&dirs=true")

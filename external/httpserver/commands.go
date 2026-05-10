@@ -97,7 +97,7 @@ func Run(args []string, deps CommandDeps) error {
 	}
 	defer func() { _ = logCloser.Close() }()
 
-	log.Info("starting HTTP server", "version", version.Get())
+	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 
 	scheduler.Start(context.Background(), cfg, log, paths.CWD)
 

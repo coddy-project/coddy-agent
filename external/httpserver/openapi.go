@@ -282,7 +282,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/workspace/files": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List workspace files under session cwd (paginated)",
-					"description": "**`page`** (1-based) and **`page_size`** (1 to 200) are required. **`prefix`** substring filter over **`path_rel`** (non-empty substring required; omit or blank **`prefix`** yields an empty **`items`** page without scanning). " +
+					"description": "**`page`** (1-based) and **`page_size`** (1 to 200) are required. **Case-insensitive** **`prefix`** substring filter over **`path_rel`** (non-empty substring required; omit or blank **`prefix`** yields an empty **`items`** page without scanning). " +
 						"Optional **`dirs=true`** adds **`kind`** **`dir`** rows with **`path_rel`** ending in **`/`** for navigation-only rows. Responses are sorted **`path_rel`** ascending. Paths never escape session **cwd**.",
 					"operationId": "listWorkspaceFiles",
 					"parameters": []interface{}{

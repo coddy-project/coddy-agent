@@ -11,6 +11,11 @@ import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import type { SessionRow } from "./sessions/types";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
+import {
+  migrateWorkspaceAtRecents,
+  recordWorkspaceAtRecent,
+  WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
+} from "./skills/workspaceAtRecents";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -1070,6 +1075,7 @@ export function App() {
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
+        migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
         setSessionHash(sid);
         setSessionId(sid);
       }
@@ -1126,6 +1132,10 @@ export function App() {
       const profileModel = mode === "agent" || mode === "plan";
       if (atts.length > 0 && profileModel) {
         reqBody.attachments = atts;
+        const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
+        for (const a of atts) {
+          recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
+        }
       }
       const yamlSel = llmModel.trim();
       if (yamlSel) {
@@ -1140,6 +1150,7 @@ export function App() {
 
       const sidHdr = res.headers.get(HDR);
       if (sidHdr && sidHdr !== sid) {
+        migrateWorkspaceAtRecents(sid, sidHdr);
         sidEffective = sidHdr;
         setSessionHash(sidHdr);
         setSessionId(sidHdr);
