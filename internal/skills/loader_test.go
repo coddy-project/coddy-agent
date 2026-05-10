@@ -156,8 +156,8 @@ func TestFilterForContext(t *testing.T) {
 
 func TestBuildSystemPromptSection(t *testing.T) {
 	loaded := []*skills.Skill{
-		{Name: "rule1", Description: "First rule", Content: "Content of rule 1"},
-		{Name: "rule2", Content: "Content of rule 2"},
+		{Name: "rule1", FilePath: filepath.Join("/tmp", "rules", "rule1.md"), Description: "First rule", Content: "Content of rule 1"},
+		{Name: "rule2", FilePath: filepath.Join("/tmp", "rules", "rule2.md"), Content: "Content of rule 2"},
 	}
 
 	section := skills.BuildSystemPromptSection(loaded)

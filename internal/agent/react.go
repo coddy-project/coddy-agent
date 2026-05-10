@@ -97,7 +97,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 
 	// Build the full message list starting with system prompt (refreshed each ReAct turn).
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs))
+	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText))
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -144,7 +144,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after coddy_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs)
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText)
 		}
 
 		// Call LLM and stream response.

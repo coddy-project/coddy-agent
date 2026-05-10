@@ -101,15 +101,16 @@ func BuildSystemPromptSection(skills []*Skill) string {
 	var b strings.Builder
 	b.WriteString("## Active Rules and Skills\n\n")
 	for _, s := range skills {
+		head := CanonicalCommandName(s)
 		if s.Description != "" {
 			b.WriteString("### ")
-			b.WriteString(s.Name)
+			b.WriteString(head)
 			b.WriteString(" (")
 			b.WriteString(s.Description)
 			b.WriteString(")\n\n")
 		} else {
 			b.WriteString("### ")
-			b.WriteString(s.Name)
+			b.WriteString(head)
 			b.WriteString("\n\n")
 		}
 		b.WriteString(s.Content)

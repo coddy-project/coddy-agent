@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/ui"
@@ -35,18 +36,22 @@ type Server struct {
 	providerFactory func(*config.Config) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+
+	slashMu    sync.Mutex
+	slashCache map[string]slashListCacheEntry
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
-		cfg:        cfg,
-		mgr:        mgr,
-		log:        log,
-		defaultCWD: defaultCWD,
-		mux:        http.NewServeMux(),
+		cfg:             cfg,
+		mgr:             mgr,
+		log:             log,
+		defaultCWD:      defaultCWD,
+		mux:             http.NewServeMux(),
 		providerFactory: defaultProviderFromAgentModel,
 		makeLLMFromYAML: defaultMakeLLMFromYAML,
+		slashCache:      make(map[string]slashListCacheEntry),
 	}
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
@@ -130,9 +135,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		MaxContextTokens int    `json:"max_context_tokens,omitempty"`
 	}
 	out := struct {
-		Object             string     `json:"object"`
-		Data               []modelObj `json:"data"`
-		DefaultAgentModel  string     `json:"default_agent_model,omitempty"`
+		Object            string     `json:"object"`
+		Data              []modelObj `json:"data"`
+		DefaultAgentModel string     `json:"default_agent_model,omitempty"`
 	}{
 		Object: "list",
 		Data:   nil,

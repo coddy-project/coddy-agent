@@ -1479,7 +1479,12 @@ body {
   z-index: 0;
 }
 
+.composer-wrap:has(.slash-menu--sheet) {
+  z-index: 60;
+}
+
 .composer-card {
+  position: relative;
   border-radius: 18px;
   background: rgba(22, 22, 24, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1487,6 +1492,145 @@ body {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   overflow: visible;
+}
+
+.composer-field-wrap {
+  position: relative;
+  z-index: 1;
+}
+
+.slash-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.slash-menu {
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(18, 18, 22, 0.96);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+}
+
+.slash-menu--floating {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  max-height: min(260px, 42vh);
+  overflow-y: auto;
+  z-index: 41;
+}
+
+.slash-menu--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: min(560px, 100vw);
+  max-height: 46vh;
+  overflow-y: auto;
+  border-radius: 14px 14px 0 0;
+  z-index: 41;
+}
+
+.slash-menu-title {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  padding: 2px 6px 6px;
+}
+
+.slash-muted,
+.slash-err {
+  font-size: 12px;
+  padding: 8px;
+  opacity: 0.75;
+}
+
+.slash-err {
+  opacity: 0.95;
+  color: rgba(251, 113, 133, 0.95);
+}
+
+.slash-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.slash-row-btn {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+  color: var(--text);
+  background: transparent;
+}
+
+.slash-row-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.slash-row-name {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.slash-row-desc {
+  font-size: 12px;
+  opacity: 0.72;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.slash-load-more {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: rgba(147, 197, 253, 0.95);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slash-load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.md .coddy-skill-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 0 7px;
+  margin: 0 1px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.92em;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.38);
 }
 
 .composer-wrap-docked .composer-card {

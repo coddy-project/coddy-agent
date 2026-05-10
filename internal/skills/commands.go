@@ -162,34 +162,7 @@ func skillDescriptionLine(s *Skill) string {
 	if d := strings.TrimSpace(s.Description); d != "" {
 		return d
 	}
-	return firstMarkdownBlurb(s.Content)
-}
-
-func firstMarkdownBlurb(content string) string {
-	lines := strings.Split(content, "\n")
-	inFence := false
-	for _, raw := range lines {
-		line := strings.TrimRight(raw, "\r")
-		lineTrim := strings.TrimSpace(line)
-		if strings.HasPrefix(lineTrim, "```") {
-			inFence = !inFence
-			continue
-		}
-		if inFence {
-			continue
-		}
-		if lineTrim == "" || lineTrim == "---" {
-			continue
-		}
-		if strings.HasPrefix(lineTrim, "#") {
-			continue
-		}
-		if len(lineTrim) > 160 {
-			return lineTrim[:157] + "..."
-		}
-		return lineTrim
-	}
-	return "(no description)"
+	return FirstMarkdownBlurb(s.Content)
 }
 
 func sanitizeTableCell(s string) string {

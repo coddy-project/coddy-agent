@@ -109,7 +109,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -923,6 +923,98 @@ func TestMemoryTreeRejectsTraversal(t *testing.T) {
 	}
 	if r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("want 400 got %d: %s", r.StatusCode, b)
+	}
+}
+
+func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	skillsDir := filepath.Join(root, "skills")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillsDir, "zebra"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "zebra", "SKILL.md"), []byte("# Z\n\nz"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "apples.md"), []byte("# A\n\nalpha"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	defaultCWD := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(defaultCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{skillsDir}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/coddy/slash-commands?page=x&page_size=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad page status %d %s", res.StatusCode, b)
+	}
+
+	rm, err := http.Get(ts.URL + "/coddy/slash-commands?page=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bm, err := ioReadAllClose(rm.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rm.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing page_size: status %d %s", rm.StatusCode, bm)
+	}
+
+	r1, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page1 struct {
+		Items   []map[string]string `json:"items"`
+		Total   int                 `json:"total"`
+		HasMore bool                `json:"has_more"`
+	}
+	if err := json.NewDecoder(r1.Body).Decode(&page1); err != nil {
+		t.Fatal(err)
+	}
+	_ = r1.Body.Close()
+	if r1.StatusCode != http.StatusOK || page1.Total != 2 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
+	}
+
+	rp, err := http.Get(ts.URL + "/coddy/slash-commands?page=1&page_size=10&prefix=z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pref struct {
+		Items []map[string]string `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.NewDecoder(rp.Body).Decode(&pref); err != nil {
+		t.Fatal(err)
+	}
+	_ = rp.Body.Close()
+	if rp.StatusCode != http.StatusOK || pref.Total != 1 || len(pref.Items) != 1 || pref.Items[0]["name"] != "zebra" {
+		t.Fatalf("prefix: status=%d %+v", rp.StatusCode, pref)
 	}
 }
 

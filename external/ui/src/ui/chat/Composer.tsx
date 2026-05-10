@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TokenUsage } from './types';
+import { slashMenuDraftAtCaret } from '../skills/draftSlash';
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -23,9 +24,13 @@ function displayLlmId(id: string): string {
   return m || 'Model';
 }
 
+type SlashRow = { name: string; description: string };
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
+  /** When set, slash command requests send X-Coddy-Session-ID for cwd-scoped skills. */
+  sessionId?: string;
   mode: string;
   modes: string[];
   /** Configured backends (`owned_by` != **`coddy`**). Omitted when empty. */
@@ -46,6 +51,141 @@ export function Composer(props: {
 }) {
   const idleSendDisabled = props.value.trim() === '';
   const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
+
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const debounceSlashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mobileUi, setMobileUi] = useState(false);
+  const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashPrefix, setSlashPrefix] = useState('');
+  const [slashLoading, setSlashLoading] = useState(false);
+  const [slashErr, setSlashErr] = useState<string | null>(null);
+  const [slashPage, setSlashPage] = useState(1);
+  const [slashHasMore, setSlashHasMore] = useState(false);
+  const [slashReplace, setSlashReplace] = useState<{ from: number; to: number } | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)');
+    const apply = () => setMobileUi(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  const cancelSlashDebounce = () => {
+    if (debounceSlashRef.current) {
+      clearTimeout(debounceSlashRef.current);
+      debounceSlashRef.current = null;
+    }
+  };
+
+  const fetchSlashPage = useCallback(
+    async (prefix: string, page: number) => {
+      const sp = new URLSearchParams({
+        page: String(page),
+        page_size: '30',
+      });
+      if (prefix) {
+        sp.set('prefix', prefix);
+      }
+      const headers: Record<string, string> = {};
+      const sid = (props.sessionId || '').trim();
+      if (sid) {
+        headers['X-Coddy-Session-ID'] = sid;
+      }
+      const res = await fetch(`/coddy/slash-commands?${sp.toString()}`, { headers });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return (await res.json()) as {
+        items: SlashRow[];
+        has_more: boolean;
+        page: number;
+      };
+    },
+    [props.sessionId],
+  );
+
+  const updateSlashMenu = useCallback(
+    (value: string, caret: number) => {
+      const draft = slashMenuDraftAtCaret(value, caret);
+      if (!draft.open) {
+        cancelSlashDebounce();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        return;
+      }
+      setSlashOpen(true);
+      setSlashReplace({ from: draft.slashIdx, to: draft.caret });
+      setSlashPrefix(draft.prefix);
+      cancelSlashDebounce();
+      debounceSlashRef.current = setTimeout(() => {
+        debounceSlashRef.current = null;
+        void (async () => {
+          setSlashLoading(true);
+          setSlashErr(null);
+          try {
+            const body = await fetchSlashPage(draft.prefix, 1);
+            setSlashItems(body.items || []);
+            setSlashPage(1);
+            setSlashHasMore(!!body.has_more);
+          } catch (e) {
+            setSlashErr(e instanceof Error ? e.message : 'request failed');
+            setSlashItems([]);
+            setSlashHasMore(false);
+          } finally {
+            setSlashLoading(false);
+          }
+        })();
+      }, 100);
+    },
+    [fetchSlashPage],
+  );
+
+  useEffect(() => () => cancelSlashDebounce(), []);
+
+  const applySlashChoice = (name: string) => {
+    if (!slashReplace) {
+      return;
+    }
+    const { from, to } = slashReplace;
+    const link = `[/${name}](coddy-skill:${name}) `;
+    const next = props.value.slice(0, from) + link + props.value.slice(to);
+    props.onChange(next);
+    setSlashOpen(false);
+    setSlashReplace(null);
+    cancelSlashDebounce();
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) {
+        return;
+      }
+      const pos = from + link.length;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
+
+  const loadMoreSlash = () => {
+    if (!slashOpen || slashLoading || !slashHasMore) {
+      return;
+    }
+    void (async () => {
+      setSlashLoading(true);
+      setSlashErr(null);
+      try {
+        const nextPage = slashPage + 1;
+        const body = await fetchSlashPage(slashPrefix, nextPage);
+        setSlashItems((prev) => [...prev, ...(body.items || [])]);
+        setSlashPage(nextPage);
+        setSlashHasMore(!!body.has_more);
+      } catch (e) {
+        setSlashErr(e instanceof Error ? e.message : 'request failed');
+      } finally {
+        setSlashLoading(false);
+      }
+    })();
+  };
   const llmList = props.llmModels ?? [];
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || '').trim();
@@ -91,27 +231,127 @@ export function Composer(props: {
         Message
       </label>
       <div className="composer-card">
-        <textarea
-          id="composer"
-          rows={props.isEmpty ? 5 : 2}
-          placeholder={props.isEmpty ? 'Ask anything...' : 'Message Coddy'}
-          autoComplete="off"
-          value={props.value}
-          onChange={(ev) => props.onChange(ev.target.value)}
-          onKeyDown={(ev) => {
-            if (ev.key === 'Enter' && !ev.shiftKey) {
-              ev.preventDefault();
-              if (props.generating) {
+        {slashOpen && mobileUi ? (
+          <button
+            type="button"
+            className="slash-sheet-backdrop"
+            aria-label="Close slash commands"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setSlashOpen(false);
+              setSlashReplace(null);
+              cancelSlashDebounce();
+            }}
+          />
+        ) : null}
+        <div className="composer-field-wrap">
+          <textarea
+            ref={taRef}
+            id="composer"
+            rows={props.isEmpty ? 5 : 2}
+            placeholder={props.isEmpty ? 'Ask anything...' : 'Message Coddy'}
+            autoComplete="off"
+            value={props.value}
+            onChange={(ev) => {
+              const v = ev.target.value;
+              const caret = ev.target.selectionStart ?? v.length;
+              props.onChange(v);
+              updateSlashMenu(v, caret);
+            }}
+            onKeyUp={(ev) => {
+              const el = taRef.current;
+              if (!el) {
                 return;
               }
-              const txt = props.value.trim();
-              if (!txt) {
+              if (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'Home' || ev.key === 'End') {
+                updateSlashMenu(props.value, el.selectionStart);
+              }
+            }}
+            onSelect={() => {
+              const el = taRef.current;
+              if (el) {
+                updateSlashMenu(props.value, el.selectionStart);
+              }
+            }}
+            onClick={() => {
+              const el = taRef.current;
+              if (el) {
+                updateSlashMenu(props.value, el.selectionStart);
+              }
+            }}
+            onKeyDown={(ev) => {
+              if (ev.key === 'Escape' && slashOpen) {
+                ev.preventDefault();
+                setSlashOpen(false);
+                setSlashReplace(null);
+                cancelSlashDebounce();
                 return;
               }
-              props.onSend(txt);
-            }
-          }}
-        />
+              if (ev.key === 'Enter' && !ev.shiftKey && slashOpen && slashItems.length > 0 && !props.generating) {
+                ev.preventDefault();
+                applySlashChoice(slashItems[0].name);
+                return;
+              }
+              if (ev.key === 'Enter' && !ev.shiftKey) {
+                ev.preventDefault();
+                if (props.generating) {
+                  return;
+                }
+                const txt = props.value.trim();
+                if (!txt) {
+                  return;
+                }
+                props.onSend(txt);
+              }
+            }}
+          />
+          {slashOpen ? (
+            <div
+              className={mobileUi ? 'slash-menu slash-menu--sheet' : 'slash-menu slash-menu--floating'}
+              data-testid="slash-command-menu"
+              role="listbox"
+              aria-label="Slash commands"
+            >
+              <div className="slash-menu-title">Skills</div>
+              {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
+              {slashErr ? <div className="slash-err">{slashErr}</div> : null}
+              {!slashLoading && slashItems.length === 0 && !slashErr ? (
+                <div className="slash-muted">No commands</div>
+              ) : null}
+              <ul className="slash-rows">
+                {slashItems.map((row) => (
+                  <li key={row.name}>
+                    <button
+                      type="button"
+                      role="option"
+                      className="slash-row-btn"
+                      data-testid={`slash-command-row-${row.name}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applySlashChoice(row.name);
+                      }}
+                    >
+                      <span className="slash-row-name">/{row.name}</span>
+                      <span className="slash-row-desc">{row.description}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {slashHasMore ? (
+                <button
+                  type="button"
+                  className="slash-load-more"
+                  disabled={slashLoading}
+                  data-testid="slash-command-more"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => loadMoreSlash()}
+                >
+                  {slashLoading ? 'Loading…' : 'More'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
         <div className="composer-bar">
           <div className="composer-tabs" aria-label="Composer options">

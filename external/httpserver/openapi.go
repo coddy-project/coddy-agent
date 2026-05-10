@@ -103,7 +103,7 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/v1/responses": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary":     "Create response",
+					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**.",
 					"operationId": "createResponse",
@@ -226,6 +226,54 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/slash-commands": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List slash commands from skills (paginated)",
+					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
+						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
+						"When **X-Coddy-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+					"operationId": "listSlashCommands",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Optional session whose cwd scopes skill path expansion.",
+						},
+						map[string]interface{}{
+							"name": "page", "in": "query", "required": true,
+							"schema":      map[string]interface{}{"type": "integer", "minimum": 1},
+							"description": "Page index (1-based).",
+						},
+						map[string]interface{}{
+							"name": "page_size", "in": "query", "required": true,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 200,
+							},
+							"description": "Rows per page.",
+						},
+						map[string]interface{}{
+							"name": "prefix", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Case-insensitive filter on command name.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Paged slash command rows",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddySlashCommandsPage",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
@@ -289,11 +337,11 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{
 								"type": "object",
 								"properties": map[string]interface{}{
-									"id":       map[string]string{"type": "string"},
-									"object":   map[string]string{"type": "string", "example": "model"},
-									"created":  map[string]string{"type": "integer", "format": "int64"},
-									"owned_by":              map[string]string{"type": "string", "example": "coddy"},
-									"max_context_tokens":    map[string]string{"type": "integer"},
+									"id":                 map[string]string{"type": "string"},
+									"object":             map[string]string{"type": "string", "example": "model"},
+									"created":            map[string]string{"type": "integer", "format": "int64"},
+									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
+									"max_context_tokens": map[string]string{"type": "integer"},
 								},
 							},
 						},
@@ -347,8 +395,8 @@ func openAPISpec() map[string]interface{} {
 						"max_tokens":  map[string]string{"type": "integer"},
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
-							"type":        "object",
-							"description": "Optional. For agent/plan only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"type":                 "object",
+							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -362,8 +410,8 @@ func openAPISpec() map[string]interface{} {
 						"created": map[string]string{"type": "integer", "format": "int64"},
 						"model":   map[string]string{"type": "string"},
 						"metadata": map[string]interface{}{
-							"type":                   "object",
-							"description":            "Effective YAML model selector under `model`, optional `api_model`.",
+							"type":                 "object",
+							"description":          "Effective YAML model selector under `model`, optional `api_model`.",
 							"additionalProperties": map[string]string{"type": "string"},
 						},
 						"choices": map[string]interface{}{
@@ -435,6 +483,29 @@ func openAPISpec() map[string]interface{} {
 						"object": map[string]string{"type": "string", "example": "response"},
 						"status": map[string]string{"type": "string", "example": "completed"},
 					},
+				},
+				"CoddySlashCommandRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Slash command id (text after `/`)."},
+						"description": map[string]string{"type": "string", "description": "Short summary for pickers."},
+					},
+					"required": []string{"name", "description"},
+				},
+				"CoddySlashCommandsPage": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.slash_commands_page"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/CoddySlashCommandRow"},
+						},
+						"total":     map[string]string{"type": "integer", "description": "Row count after prefix filter."},
+						"has_more":  map[string]string{"type": "boolean"},
+						"page":      map[string]string{"type": "integer"},
+						"page_size": map[string]string{"type": "integer"},
+					},
+					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
 				},
 			},
 		},

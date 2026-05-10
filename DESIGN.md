@@ -179,10 +179,22 @@ Composer YAML **`models[].model`** selector
 
 Composer does not show tools toggles in this milestone.
 
+### Slash commands picker (skills)
+
+When the caret sits on the current composer line immediately after **`/`** (leading spaces allowed) and outside Markdown fences or blockquotes, the UI loads **`GET /coddy/slash-commands`** with a **100ms** debounce, required **`page=1`** and **`page_size=30`**, and optional **`prefix`** from typed characters after **`/`**.
+
+- **Automation** uses **`data-testid="slash-command-menu"`**, per-row **`data-testid={`slash-command-row-${name}`}`**, and **`data-testid="slash-command-more"`** for paging.
+- **Desktop** (**`slash-menu--floating`**) attaches above the textarea inside **`composer-card`**. **`Mobile`** (**narrow width**, match roughly **`max-width: 720px`**) renders a dimming backdrop (**`slash-sheet-backdrop`**) plus a bottom sheet (**`slash-menu--sheet`**).
+- Choosing a row replaces the typed **`/`…** segment with **`[/<name>](coddy-skill:<name>) `** so **`Markdown.tsx`** renders a **`coddy-skill-chip`** (**`data-testid="coddy-skill-span"`**) in **`user_message`** bubbles.
+- **`Escape`** closes the menu; **`Enter`** confirms the first row when results are loaded and the menu is open (same turn as **`/`** autocomplete).
+
+Full browser checks against a running **`coddy http`** instance (including a **mobile viewport**) use **Playwright MCP** in Cursor, Codex or any other code agent you use. This repository does not ship **`@playwright/test`** as an npm dependency.
+
 ### Markdown
 
 Messages may contain Markdown.
 
+- **`coddy-skill:`** autolinks from the picker render as **`span.coddy-skill-chip`** (not a navigating anchor).
 - Render fenced code blocks with syntax highlighting.
 - Each code block has a copy button in the top right corner that copies only the block contents.
 

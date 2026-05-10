@@ -134,6 +134,7 @@ type pathsForMemoryAPI struct {
 }
 
 func (s *Server) registerCoddyRoutes() {
+	s.mux.HandleFunc("GET /coddy/slash-commands", s.coddySlashCommandsGet)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)

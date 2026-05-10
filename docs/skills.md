@@ -62,6 +62,18 @@ Directories are scanned in config order (see `skills.dirs` in `docs/config.md`).
 3. **`~/.cursor/skills/`**
 4. **`~/.claude/skills/`**
 
+## Slash commands catalog
+
+Every discovered skill has a canonical slash **`name`** (folder name for `subdir/SKILL.md`, file stem for root `*.md` / `*.mdc`). The agent builds one **`Skills`** template block:
+
+1. A Markdown catalog listing all commands with short descriptions (**`ListSkills`**).
+2. Full bodies for **`globs`** / **`alwaysApply`** matches (existing behavior).
+3. On a user message, line-leading **`/name`** tokens outside fenced code and blockquotes append the matching skill body for that turn when the name is **not** already in the glob-selected active set (catalog lines alone do not count as a full body); the persisted user message is unchanged.
+
+ACP clients receive **`session/update`** **`available_commands_update`** with **`name`** and **`description`** for the same listings after **`session/new`** and **`session/load`**.
+
+The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** (required pagination) for autocomplete; picking a row inserts **`[/<name>](coddy-skill:<name>)`** in the composer (rendered as a chip in user bubbles).
+
 ## How Rules Are Applied
 
 When processing a `session/prompt`, the agent:
@@ -69,7 +81,7 @@ When processing a `session/prompt`, the agent:
 1. Collects all skill/rule files from configured directories
 2. Filters based on `globs` matching files mentioned in the prompt context
 3. Includes all `alwaysApply: true` rules
-4. Injects applicable rules into the system prompt template via the `Skills` field (see prompts in `docs/config.md`)
+4. Injects the merged slash catalog plus applicable rules into the system prompt template via the **`Skills`** field (see prompts in **`docs/config.md`**)
 
 ## Example Rule File
 
