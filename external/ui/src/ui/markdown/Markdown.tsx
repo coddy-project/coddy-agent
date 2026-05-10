@@ -76,14 +76,9 @@ export function Markdown(props: { text: string }) {
       },
       pre: (p: PreProps) => {
         const txt = normalizeText(p.children);
-        const codeEl = isValidElement(p.children) ? p.children : null;
-        const className = (codeEl?.props as any)?.className || '';
-        const hasClass = typeof className === 'string' && className.trim() !== '';
-        const isFenced = hasClass && (className.includes('language-') || className.includes('hljs'));
-
         return (
           <div className="md-code">
-            {isFenced ? <CopyButton text={txt.replace(/\n$/, '')} /> : null}
+            <CopyButton text={txt.replace(/\n$/, '')} />
             <pre>{p.children as any}</pre>
           </div>
         );

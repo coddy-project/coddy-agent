@@ -1467,7 +1467,7 @@ body {
 
 .md-code {
   position: relative;
-  margin-top: 10px;
+  margin: 12px 0;
 }
 
 .md :where(table) {
