@@ -20,6 +20,10 @@ Store the design reference images under `docs/ui/assets/` and link to the specif
 | text muted | `#9CA3AF` | captions, timestamps |
 | user bubble | `#2D2D2D` | outgoing chat |
 
+### Frosted glass panels
+
+Floating **composer** card, **History** drawer chrome, **skills** slash menu, **Mode**, and **Model** dropdowns share **`--coddy-glass-panel-*`**: tint plus **`backdrop-filter`** on that surface **only**, so frosting stays **inside** the panel outline. Dimming overlays behind History or the slash sheet use **`--coddy-overlay-scrim-bg`** (**no** fullscreen blur behind the overlay).
+
 ### Typography and spacing
 
 - System stack: **`system-ui`**, `-apple-system`, **`Segoe UI`**, **`sans-serif`**
@@ -203,6 +207,23 @@ Rules for **`.composer-skill-chip-inline`** (composer only):
 Transcript chips (**.md .coddy-skill-chip**) are **not** bound by this contract; they may use monospace, heavier weight, and pill padding because they are not paired with a transparent textarea.
 
 Full browser checks against a running **`coddy http`** instance (including a **mobile viewport**) use **Playwright MCP** in Cursor, Codex or any other code agent you use. This repository does not ship **`@playwright/test`** as an npm dependency.
+
+**Frosted glass (Playwright MCP smoke)** - after **`npm run dev`** under **`external/ui/`** (or **`coddy http`** with **`make build TAGS=http`**), use **`browser_tabs` / `browser_navigate`** to the SPA, then **`browser_evaluate`** **`getComputedStyle(...).backdropFilter`** and **`.backgroundColor`** on:
+
+| Target | **`backdrop-filter`** | **`backgroundColor`** (example) |
+| --- | --- | --- |
+| **`.composer-card`** | **`blur(…) saturate(…)`** from **`--coddy-glass-panel-backdrop`** | tinted rgba from **`--coddy-glass-panel-bg`** |
+| **`.sessions.drawer`** (open **History**) | same as composer row | same |
+| **`.mode-menu`** (open **Mode**) | same | same |
+| **`.slash-menu-surface`** (inside **`data-testid="slash-command-menu"`**) | same | same; scroll **`slash-menu-scroll`** only (**`slash-menu-surface`** carries blur). On **desktop** (viewport **`> 720px`**) the menu root classes include **`slash-menu--portal`** and the node renders under **`document.body`** so **`backdrop-filter`** sees chat behind the composer. The mobile bottom sheet stays inside **`composer-card`**. **`--coddy-z-slash-command`** keeps slash UI stacking **below** History **`backdrop`** and **`sessions.drawer`**. |
+| **`.backdrop`** (History open) | **`none`** | dim from **`--coddy-overlay-scrim-bg`** only |
+| **`.slash-sheet-backdrop`** (slash sheet on **narrow** viewport, **`max-width: 720px`**) | **`none`** | dim only |
+
+Docked chat (transcript visible) uses the same **`.composer-card`** rule as the hero composer.
+
+**`.messages-inner`** uses **`padding: 0 16px`** so bubbles line up with **`#composer`** horizontal inset (composer card still spans the full **`max-width: 920px`** track).
+
+**Corner radius** for composer, History drawer, **`slash-menu-surface`**, **`mode-menu`**, and the bottom sheet chrome uses **`--coddy-glass-panel-radius`** (**`18px`**) so skills dropdown reads as the same family as composer and History.
 
 #### Slash skills verification use cases
 

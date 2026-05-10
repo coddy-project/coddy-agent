@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { TokenUsage } from './types';
 import { slashMenuDraftAtCaret } from '../skills/draftSlash';
 import { segmentComposerSlashSpans } from '../skills/segmentComposerSlashSpans';
@@ -27,6 +28,9 @@ function displayLlmId(id: string): string {
 
 type SlashRow = { name: string; description: string };
 
+/** Floating slash menu anchored to **`composer-field-wrap`** (viewport-relative). */
+type SlashFloatRect = { left: number; width: number; bottom: number; maxH: number };
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -54,6 +58,7 @@ export function Composer(props: {
   const [menuOpen, setMenuOpen] = useState<'mode' | 'llm' | null>(null);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   const debounceSlashRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -66,6 +71,54 @@ export function Composer(props: {
   const [slashPage, setSlashPage] = useState(1);
   const [slashHasMore, setSlashHasMore] = useState(false);
   const [slashReplace, setSlashReplace] = useState<{ from: number; to: number } | null>(null);
+  const [slashFloatRect, setSlashFloatRect] = useState<SlashFloatRect | null>(null);
+
+  const measureSlashFloat = useCallback(() => {
+    if (!slashOpen || mobileUi) {
+      setSlashFloatRect(null);
+      return;
+    }
+    const el = composerFieldWrapRef.current;
+    if (!el) {
+      setSlashFloatRect(null);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    if (r.width < 8) {
+      setSlashFloatRect(null);
+      return;
+    }
+    const maxH = Math.min(260, Math.round(window.innerHeight * 0.42));
+    setSlashFloatRect({
+      left: r.left,
+      width: r.width,
+      bottom: window.innerHeight - r.top + 8,
+      maxH,
+    });
+  }, [slashOpen, mobileUi]);
+
+  useLayoutEffect(() => {
+    if (!slashOpen || mobileUi) {
+      setSlashFloatRect(null);
+      return;
+    }
+    measureSlashFloat();
+    const el = composerFieldWrapRef.current;
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && el) {
+      ro = new ResizeObserver(() => measureSlashFloat());
+      ro.observe(el);
+    }
+    window.addEventListener('resize', measureSlashFloat);
+    const msgEl = typeof document !== 'undefined' ? document.getElementById('messages') : null;
+    const onMsgs = () => measureSlashFloat();
+    msgEl?.addEventListener('scroll', onMsgs, { passive: true });
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measureSlashFloat);
+      msgEl?.removeEventListener('scroll', onMsgs);
+    };
+  }, [slashOpen, mobileUi, measureSlashFloat, props.isEmpty]);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 720px)');
@@ -272,8 +325,52 @@ export function Composer(props: {
         .filter(Boolean)
         .join('\n');
 
+  const slashMenuChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div className="slash-menu-scroll" style={{ maxHeight: slashFloatRect?.maxH }}>
+        <div className="slash-menu-title">Skills</div>
+        {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
+        {slashErr ? <div className="slash-err">{slashErr}</div> : null}
+        {!slashLoading && slashItems.length === 0 && !slashErr ? <div className="slash-muted">No commands</div> : null}
+        <ul className="slash-rows">
+          {slashItems.map((row) => (
+            <li key={row.name}>
+              <button
+                type="button"
+                role="option"
+                className="slash-row-btn"
+                data-testid={`slash-command-row-${row.name}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  applySlashChoice(row.name);
+                }}
+              >
+                <span className="slash-row-name">/{row.name}</span>
+                <span className="slash-row-desc">{row.description}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {slashHasMore ? (
+          <button
+            type="button"
+            className="slash-load-more"
+            disabled={slashLoading}
+            data-testid="slash-command-more"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => loadMoreSlash()}
+          >
+            {slashLoading ? 'Loading…' : 'More'}
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+
   return (
-    <footer className={['composer-wrap', props.isEmpty ? '' : 'composer-wrap-docked'].filter(Boolean).join(' ')}>
+    <>
+      <footer className={['composer-wrap', props.isEmpty ? '' : 'composer-wrap-docked'].filter(Boolean).join(' ')}>
       <label className="sr-only" htmlFor="composer">
         Message
       </label>
@@ -291,7 +388,7 @@ export function Composer(props: {
             }}
           />
         ) : null}
-        <div className="composer-field-wrap">
+        <div className="composer-field-wrap" ref={composerFieldWrapRef}>
           <div className="composer-stack">
             {maskComposerText ? (
               <div className="composer-mirror" aria-hidden="true">
@@ -365,7 +462,10 @@ export function Composer(props: {
                 }
                 if (ev.key === 'Enter' && !ev.shiftKey && slashOpen && slashItems.length > 0 && !props.generating) {
                   ev.preventDefault();
-                  applySlashChoice(slashItems[0].name);
+                  const row0 = slashItems[0];
+                  if (row0) {
+                    applySlashChoice(row0.name);
+                  }
                   return;
                 }
                 if (ev.key === 'Enter' && !ev.shiftKey) {
@@ -382,50 +482,48 @@ export function Composer(props: {
               }}
             />
           </div>
-          {slashOpen ? (
-            <div
-              className={mobileUi ? 'slash-menu slash-menu--sheet' : 'slash-menu slash-menu--floating'}
-              data-testid="slash-command-menu"
-              role="listbox"
-              aria-label="Slash commands"
-            >
-              <div className="slash-menu-title">Skills</div>
-              {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
-              {slashErr ? <div className="slash-err">{slashErr}</div> : null}
-              {!slashLoading && slashItems.length === 0 && !slashErr ? (
-                <div className="slash-muted">No commands</div>
-              ) : null}
-              <ul className="slash-rows">
-                {slashItems.map((row) => (
-                  <li key={row.name}>
-                    <button
-                      type="button"
-                      role="option"
-                      className="slash-row-btn"
-                      data-testid={`slash-command-row-${row.name}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        applySlashChoice(row.name);
-                      }}
-                    >
-                      <span className="slash-row-name">/{row.name}</span>
-                      <span className="slash-row-desc">{row.description}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {slashHasMore ? (
-                <button
-                  type="button"
-                  className="slash-load-more"
-                  disabled={slashLoading}
-                  data-testid="slash-command-more"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => loadMoreSlash()}
-                >
-                  {slashLoading ? 'Loading…' : 'More'}
-                </button>
-              ) : null}
+          {slashOpen && mobileUi ? (
+            <div className="slash-menu slash-menu--sheet" data-testid="slash-command-menu" role="listbox" aria-label="Slash commands">
+              <div className="slash-menu-surface" aria-hidden />
+              <div className="slash-menu-scroll">
+                <div className="slash-menu-title">Skills</div>
+                {slashLoading && slashItems.length === 0 ? <div className="slash-muted">Loading…</div> : null}
+                {slashErr ? <div className="slash-err">{slashErr}</div> : null}
+                {!slashLoading && slashItems.length === 0 && !slashErr ? (
+                  <div className="slash-muted">No commands</div>
+                ) : null}
+                <ul className="slash-rows">
+                  {slashItems.map((row) => (
+                    <li key={row.name}>
+                      <button
+                        type="button"
+                        role="option"
+                        className="slash-row-btn"
+                        data-testid={`slash-command-row-${row.name}`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          applySlashChoice(row.name);
+                        }}
+                      >
+                        <span className="slash-row-name">/{row.name}</span>
+                        <span className="slash-row-desc">{row.description}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {slashHasMore ? (
+                  <button
+                    type="button"
+                    className="slash-load-more"
+                    disabled={slashLoading}
+                    data-testid="slash-command-more"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => loadMoreSlash()}
+                  >
+                    {slashLoading ? 'Loading…' : 'More'}
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
@@ -551,5 +649,24 @@ export function Composer(props: {
         </div>
       </div>
     </footer>
+    {slashOpen && !mobileUi && slashFloatRect
+      ? createPortal(
+          <div
+            className="slash-menu slash-menu--portal"
+            data-testid="slash-command-menu"
+            role="listbox"
+            aria-label="Slash commands"
+            style={{
+              left: slashFloatRect.left,
+              width: slashFloatRect.width,
+              bottom: slashFloatRect.bottom,
+            }}
+          >
+            {slashMenuChrome}
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
