@@ -6,7 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sched "github.com/EvilFreelancer/coddy-agent/external/scheduler/lib"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/schedulerops"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -59,9 +60,24 @@ func parseSessionMode(s string) session.Mode {
 	}
 }
 
-func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, fm *sched.JobFrontmatter, instruction string) error {
-	lock := sched.LockPath(jobPath)
-	stPath := sched.StatePath(jobPath)
+func jobIDFromMDPath(abs string) string {
+	return strings.TrimSuffix(filepath.Base(abs), ".md")
+}
+
+// fireSlot/updateLastScheduledState are used for cron ticks only; manual triggers pass updateLastScheduledState=false and may use a zero fireSlot.
+func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, updateLastScheduledState bool, fm *sched.JobFrontmatter, instruction string) error {
+	if fm != nil && fm.Paused {
+		return nil
+	}
+	absJob, err := filepath.Abs(jobPath)
+	if err != nil {
+		absJob = filepath.Clean(jobPath)
+	} else {
+		absJob = filepath.Clean(absJob)
+	}
+	jobID := jobIDFromMDPath(absJob)
+	lock := sched.LockPath(absJob)
+	stPath := sched.StatePath(absJob)
 
 	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -74,53 +90,105 @@ func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 	_ = f.Close()
 	defer func() { _ = os.Remove(lock) }()
 
-	log.Info("scheduler job start", "utc", time.Now().UTC().Format(time.RFC3339), "job", jobPath)
+	jobCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	schedulerops.RegisterTrackedRun(absJob, cancel)
+	defer schedulerops.UnregisterTrackedRun(absJob)
+
+	sessRoot := cfg.ResolvedSessionsRoot()
+	fs := &session.FileStore{Root: sessRoot}
+	sid := randomSchedulerSessionID()
+	dir, err := fs.EnsureLayout(sid)
+	if err != nil {
+		log.Error("scheduler_run_session_layout", "job_id", jobID, "error", err)
+		return err
+	}
+	started := time.Now().UTC().Format(time.RFC3339)
 
 	jobCWD, err := resolveJobCWD(processCWD, fm)
 	if err != nil {
-		log.Error("scheduler job cwd", "job", jobPath, "error", err)
+		log.Error("scheduler_run_cwd", "job_id", jobID, "error", err)
 		return err
 	}
 
 	loader := skills.NewLoader(cfg.Skills.Dirs)
-	skillList, err := loader.LoadAll(jobCWD, cfg.Paths.Home)
-	if err != nil {
-		log.Warn("scheduler skills load", "error", err)
+	skillList, loadErr := loader.LoadAll(jobCWD, cfg.Paths.Home)
+	if loadErr != nil {
+		log.Warn("scheduler_run_skills", "job_id", jobID, "error", loadErr)
 		skillList = nil
 	}
 
 	st := &session.State{
-		ID:              randomSchedulerSessionID(),
+		ID:              sid,
 		CWD:             jobCWD,
 		Mode:            parseSessionMode(fm.Mode),
 		SelectedModelID: strings.TrimSpace(fm.Model),
 		Skills:          skillList,
+		SessionDir:      dir,
 	}
+	st.SetSchedulerRunMeta(jobID, started)
+	if saveErr := fs.Save(st); saveErr != nil {
+		log.Error("scheduler_run_persist_meta", "job_id", jobID, "session_id", sid, "error", saveErr)
+		return saveErr
+	}
+
+	log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", sid)
 
 	timeout, err := time.ParseDuration(cfg.Scheduler.Timeout)
 	if err != nil {
 		timeout = 30 * time.Minute
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	runCtx, timeoutCancel := context.WithTimeout(jobCtx, timeout)
+	defer timeoutCancel()
 
 	var snd autoAllowSender
-	text, stop, runErr := agent.RunScheduledTurn(runCtx, cfg, st, log, snd, instruction)
-	if runErr != nil {
-		log.Error("scheduler job failed", "job", jobPath, "stop", stop, "error", runErr)
-	} else {
-		const maxLog = 16000
-		out := text
-		if len(out) > maxLog {
-			out = out[:maxLog] + fmt.Sprintf(" ... (%d bytes truncated)", len(text))
-		}
-		log.Info("scheduler job done", "job", jobPath, "stop", stop, "assistant_chars", len(text), "output", out)
+	text, stopReason, runErr := agent.RunScheduledTurn(runCtx, cfg, st, log, snd, instruction)
+	_ = text
+
+	status := "completed"
+	switch {
+	case errors.Is(runErr, context.Canceled), errors.Is(runCtx.Err(), context.Canceled):
+		status = "cancelled"
+	case runCtx.Err() != nil && errors.Is(runCtx.Err(), context.DeadlineExceeded):
+		status = "failed"
+	case runErr != nil:
+		status = "failed"
+	case stopReason == string(acp.StopReasonCancelled):
+		status = "cancelled"
 	}
 
-	if werr := sched.WriteJobState(stPath, fireSlot); werr != nil {
-		log.Warn("scheduler state write", "path", stPath, "error", werr)
-		if runErr == nil {
-			return werr
+	ended := time.Now().UTC().Format(time.RFC3339)
+	st.FinishSchedulerRun(ended, status)
+	if saveErr := fs.Save(st); saveErr != nil {
+		log.Error("scheduler_run_persist_final", "job_id", jobID, "session_id", sid, "error", saveErr)
+	} else {
+		if perr := schedulerops.PruneSchedulerRunSessions(fs, jobID, cfg.SchedulerRetainSessionsEffective()); perr != nil {
+			log.Warn("scheduler_run_prune", "job_id", jobID, "error", perr)
+		}
+	}
+
+	switch status {
+	case "completed":
+		log.Info("scheduler_run_finish", "job_id", jobID, "session_id", sid, "status", status)
+	case "cancelled":
+		log.Info("scheduler_run_finish", "job_id", jobID, "session_id", sid, "status", status)
+	default:
+		errStr := ""
+		if runErr != nil {
+			errStr = runErr.Error()
+			if len(errStr) > 200 {
+				errStr = errStr[:200] + "..."
+			}
+		}
+		log.Info("scheduler_run_finish", "job_id", jobID, "session_id", sid, "status", status, "error", errStr)
+	}
+
+	if updateLastScheduledState {
+		if werr := sched.WriteJobState(stPath, fireSlot); werr != nil {
+			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
+			if runErr == nil {
+				return werr
+			}
 		}
 	}
 	return runErr

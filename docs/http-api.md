@@ -32,7 +32,7 @@ No authentication is enforced. Run behind appropriate network controls.
 | POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). |
 | POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**, optional **`attachments`** ( **`path`** workspace-relative under session cwd, **`agent`** / **`plan`** only; server rejects traversal, oversized, non UTF-8, and folder **`path`**). **`input`** remains the full composer text including **`@path`** echoes. Keeps history between turns when using headers. |
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
-| GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. |
+| GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. **`include_scheduler=true`** includes session bundles created for **scheduler runs** (they set **`schedulerRun`** in **`session.json`** and are **omitted** from the default composer list). |
 | POST | **`/coddy/describe`** | JSON **`{"text"}`** to get a short description phrase. |
 | GET | **`/coddy/slash-commands`** | Paginated slash commands derived from configured skills (**`page`**, **`page_size`** required). Optional **`prefix`** filters by **`name`** (case-insensitive). Optional **`X-Coddy-Session-ID`** resolves **`${CWD}`** expansion for **`skills.dirs`** like other session-scoped lookups. JSON **`items[].name`** and **`items[].description`**, **`total`**, **`has_more`**. |
 | GET | **`/coddy/workspace/files`** | Paginated workspace listing under session **cwd** (**`page`**, **`page_size`** required). Non-blank **case-insensitive** substring **`prefix`** on **`path_rel`**; omit or blank **`prefix`** yields empty **`items`**. **`dirs=true`** adds directory rows (**`kind`** **`dir`**, **`path_rel`** trailing **`/`**). JSON **`items[].name`**, **`items[].path_rel`**, **`items[].kind`** (**`file`** or **`dir`**), **`total`**, **`has_more`**. |
@@ -50,6 +50,26 @@ No authentication is enforced. Run behind appropriate network controls.
 | PUT | **`/coddy/sessions/{id}/memory/file`** | JSON **`{"root","path","content"}`**. |
 | POST | **`/coddy/sessions/{id}/memory/dir`** | JSON **`{"root","path"}`** for new subdirectory. |
 | DELETE | **`/coddy/sessions/{id}/memory/file`** | Query **`root`** + **`path`**. |
+
+### Scheduler REST (**`-tags=http,scheduler`**)
+
+Paths are **missing** from a plain **`http`** build and from OpenAPI when **scheduler** is not linked (client **404**). When linked, responses use the same **`ErrorEnvelope`** JSON as other **`/coddy`** routes. **`503`** when **`scheduler.enabled`** is false for that process.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | **`/coddy/scheduler/jobs`** | JSON **`{ scheduler, jobs[] }`**. Envelope **`scheduler`** includes **`enabled`**, resolved **`dir`**, **`poll_interval`**, **`timeout`**, **`max_queue`**, **`runs_active`**, **`retain_sessions`**. Optional query **`include_body=true`** embeds each job instruction body. |
+| POST | **`/coddy/scheduler/jobs`** | Create job. JSON body **`job_id`**, **`description`**, **`schedule`** (5-field UTC cron), optional **`paused`**, **`cwd`**, **`model`**, **`mode`**, **`body`**. **`201`** + **`Location`**. **`409`** when **`job_id`** already exists. |
+| GET | **`/coddy/scheduler/jobs/{job_id}`** | Full **`SchedulerJob`** including **`body`**. |
+| PUT | **`/coddy/scheduler/jobs/{job_id}`** | Replace entire job file. |
+| PATCH | **`/coddy/scheduler/jobs/{job_id}`** | Merge fields (e.g. **`paused`**, **`schedule`**, **`body`**). |
+| DELETE | **`/coddy/scheduler/jobs/{job_id}`** | Remove **`.md`** and sidecars **`basename.state`**, **`basename.lock`** when idle. **`409`** when locked or a run is tracked. |
+| POST | **`/coddy/scheduler/jobs/{job_id}/pause`** | Sets YAML **`paused: true`**. |
+| POST | **`/coddy/scheduler/jobs/{job_id}/resume`** | Sets **`paused: false`**. |
+| POST | **`/coddy/scheduler/jobs/{job_id}/run`** | Fire-and-forget manual run (**`202`**). Does **not** advance cron **`.state`** (cron timing stays independent). **`409`** when paused, busy, or locked. |
+| POST | **`/coddy/scheduler/jobs/{job_id}/cancel`** | **`context.Cancel`** on the active tracked run when possible. JSON **`{ cancelled: bool }`**. |
+| GET | **`/coddy/scheduler/jobs/{job_id}/runs`** | Metadata for persisted runs (**`session_id`**, timestamps, **`status`**). **`limit`** query (default **50**, max **100**). Read full transcript with **`GET /coddy/sessions/{session_id}/messages`**. |
+
+Process logs for scheduler should stay short; full traces live under **`sessions.dir`** in normal session layout with **`schedulerRun`** metadata.
 
 ## **`model`**, profiles, and direct completion
 

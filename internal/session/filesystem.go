@@ -73,7 +73,7 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	}
 	metaPath := filepath.Join(dir, sessionMetaFile)
 	if _, statErr := os.Stat(metaPath); os.IsNotExist(statErr) {
-		m := sessionMetaFileData{
+		m := SessionMeta{
 			Version:   sessionFileLayout,
 			ID:        sessionID,
 			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
@@ -92,8 +92,8 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	return dir, nil
 }
 
-// sessionMetaFileData is persisted in session.json.
-type sessionMetaFileData struct {
+// SessionMeta is persisted in session.json.
+type SessionMeta struct {
 	Version         int    `json:"version"`
 	ID              string `json:"id"`
 	CWD             string `json:"cwd"`
@@ -103,6 +103,21 @@ type sessionMetaFileData struct {
 	Title           string `json:"title,omitempty"`
 	TitlePinned     string `json:"titlePinned,omitempty"`
 	UpdatedAt       string `json:"updatedAt,omitempty"`
+	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
+	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
+	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
+	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
+	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
+	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+}
+
+// ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /coddy/sessions).
+func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) bool {
+	if m.SchedulerRun {
+		return true
+	}
+	s := strings.TrimSpace(sessionFolderName)
+	return strings.HasPrefix(s, "sched_")
 }
 
 type messagesFileData struct {
@@ -124,7 +139,7 @@ type permissionGrantsFileData struct {
 // LoadedSnapshot is session data read from disk (before MCP and skills are attached).
 type LoadedSnapshot struct {
 	Dir                 string
-	Meta                sessionMetaFileData
+	Meta                SessionMeta
 	Messages            []llm.Message
 	UILog               []UILogEntry
 	Plan                []acp.PlanEntry
@@ -143,7 +158,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 		}
 		return nil, err
 	}
-	var meta sessionMetaFileData
+	var meta SessionMeta
 	if err := json.Unmarshal(metaBytes, &meta); err != nil {
 		return nil, fmt.Errorf("session.json: %w", err)
 	}
@@ -201,7 +216,8 @@ type SessionListEntry struct {
 }
 
 // ListSnapshots scans Root for persisted sessions (requires session.json).
-func (f *FileStore) ListSnapshots(cwdFilter string) ([]SessionListEntry, error) {
+// When includeSchedulerRuns is false, sessions marked schedulerRun in session.json (or folder id prefix sched_) are omitted (default composer list).
+func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) ([]SessionListEntry, error) {
 	var out []SessionListEntry
 	if f.Root == "" {
 		return out, nil
@@ -218,11 +234,11 @@ func (f *FileStore) ListSnapshots(cwdFilter string) ([]SessionListEntry, error) 
 			continue
 		}
 		id := ent.Name()
-		if strings.HasPrefix(id, "sched_") {
-			continue
-		}
 		snap, err := f.ReadSnapshot(id)
 		if err != nil {
+			continue
+		}
+		if !includeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
 			continue
 		}
 		if cwdFilter != "" && snap.Meta.CWD != cwdFilter {
@@ -315,7 +331,7 @@ func (f *FileStore) Save(state *State) error {
 	}
 	msgs := state.GetMessages()
 	title := persistedConversationTitle(state)
-	meta := sessionMetaFileData{
+	meta := SessionMeta{
 		Version:         sessionFileLayout,
 		ID:              state.ID,
 		CWD:             state.CWD,
@@ -325,6 +341,13 @@ func (f *FileStore) Save(state *State) error {
 		Title:           title,
 		TitlePinned:     strings.TrimSpace(state.GetTitlePinned()),
 		UpdatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+	if state.GetSchedulerRun() {
+		meta.SchedulerRun = true
+		meta.SchedulerJobID = strings.TrimSpace(state.GetSchedulerJobID())
+		meta.SchedulerStartedAt = strings.TrimSpace(state.GetSchedulerStartedAt())
+		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
+		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
 	}
 	if err := writeJSONAtomic(filepath.Join(dir, sessionMetaFile), meta); err != nil {
 		return err

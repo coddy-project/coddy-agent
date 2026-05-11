@@ -153,6 +153,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/memory/file", s.coddyMemoryFilePut)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/memory/dir", s.coddyMemoryDirPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/memory/file", s.coddyMemoryFileDelete)
+	s.registerSchedulerRoutes()
 }
 
 func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Request) {
@@ -592,7 +593,8 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	if fs == nil {
 		return
 	}
-	rows, err := fs.ListSnapshots("")
+	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
+	rows, err := fs.ListSnapshots("", includeScheduler)
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)

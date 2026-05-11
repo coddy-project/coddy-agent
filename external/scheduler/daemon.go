@@ -11,6 +11,10 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
+func jobRunnableForTick(fm *sched.JobFrontmatter) bool {
+	return fm != nil && !fm.Paused
+}
+
 func runDaemon(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD string) {
 	d, err := time.ParseDuration(cfg.Scheduler.PollInterval)
 	if err != nil || d < time.Second {
@@ -38,7 +42,7 @@ func runDaemon(ctx context.Context, cfg *config.Config, log *slog.Logger, proces
 }
 
 func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD string, sem chan struct{}, maxQueue int) {
-	paths, err := sched.ListJobMarkdownFiles(cfg.SchedulerScanRoots())
+	paths, err := sched.ListFlatJobMarkdownFiles(cfg.SchedulerScanRoots())
 	if err != nil {
 		log.Warn("scheduler scan", "error", err)
 		return
@@ -48,6 +52,9 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		fm, body, err := sched.ParseJobFile(path)
 		if err != nil {
 			log.Debug("scheduler skip file", "path", path, "error", err)
+			continue
+		}
+		if !jobRunnableForTick(fm) {
 			continue
 		}
 		sch, err := sched.ParseCronUTC(fm.Schedule)
@@ -68,7 +75,7 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		case sem <- struct{}{}:
 			go func(p string, fm *sched.JobFrontmatter, instruction string, fire time.Time) {
 				defer func() { <-sem }()
-				_ = runJobFile(ctx, cfg, log, processCWD, p, fire, fm, instruction)
+				_ = runJobFile(ctx, cfg, log, processCWD, p, fire, true, fm, instruction)
 			}(path, fm, body, slot)
 		default:
 			log.Warn("scheduler max_queue saturated, skipping job until a run finishes (raise scheduler.max_queue if needed)",

@@ -22,6 +22,9 @@ type SchedulerConfig struct {
 
 	// Timeout limits one scheduled agent run (LLM + tools), e.g. "30m".
 	Timeout string `yaml:"timeout"`
+
+	// RetainSessions keeps at most N completed scheduler-run session dirs per job_id under sessions.dir (default 5 when unset or 0).
+	RetainSessions int `yaml:"retain_sessions"`
 }
 
 // SchedulerEffectiveEnabled reports whether the scheduler daemon and tools are active for this process.
@@ -69,6 +72,21 @@ func (s *SchedulerConfig) ApplyDefaults(p Paths) {
 			s.Dir = filepath.Join(p.CWD, ".scheduler")
 		}
 	}
+	if s.RetainSessions <= 0 {
+		s.RetainSessions = 5
+	}
+}
+
+// SchedulerRetainSessionsEffective returns retained completed run dirs per job (after defaults).
+func (c *Config) SchedulerRetainSessionsEffective() int {
+	if c == nil {
+		return 5
+	}
+	n := c.Scheduler.RetainSessions
+	if n <= 0 {
+		return 5
+	}
+	return n
 }
 
 // Validate checks scheduler settings when enabled (effective).

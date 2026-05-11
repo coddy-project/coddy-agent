@@ -27,6 +27,7 @@ DEFAULT_HTTPSERVER_PORT = 19876
 PHASE1_MARKER = "PHASE1.marker"
 PHASE1_NEEDLE = "PHASE1_SCHEDULER_E2E_OK"
 JOB_BASENAME = "e2e_minute_tick.md"
+JOB_ID = Path(JOB_BASENAME).stem
 JOB_DESCRIPTION = "E2E minute scheduler tick"
 JOB_SCHEDULE = "* * * * *"
 RESULT_FILE = "SCHEDULER_RUN_RESULT.txt"
@@ -141,6 +142,25 @@ def http_json(
         return resp.status, out, hdrs
 
 
+def job_instruction_body() -> str:
+    return (
+        "In the session working directory, run shell command:\n"
+        f"bash -lc 'printf %s \"{RESULT_NEEDLE}\" > {RESULT_FILE}'\n\n"
+        "Then stop.\n"
+    )
+
+
+def job_create_args() -> dict[str, Any]:
+    return {
+        "job_id": JOB_ID,
+        "description": JOB_DESCRIPTION,
+        "schedule": JOB_SCHEDULE,
+        "cwd": "",
+        "mode": "agent",
+        "body": job_instruction_body(),
+    }
+
+
 def job_markdown_exact() -> str:
     return (
         f"---\n"
@@ -149,9 +169,7 @@ def job_markdown_exact() -> str:
         "cwd: \"\"\n"
         "mode: agent\n"
         "---\n\n"
-        "In the session working directory, run shell command:\n"
-        f"bash -lc 'printf %s \"{RESULT_NEEDLE}\" > {RESULT_FILE}'\n\n"
-        "Then stop.\n"
+        + job_instruction_body()
     )
 
 
@@ -252,21 +270,18 @@ def run_acp(binary: Path, cfg_path: Path, home: Path, work: Path) -> int:
     scheduler_dir = home / "scheduler"
     scheduler_dir.mkdir(parents=True, exist_ok=True)
 
-    content_json = json.dumps(job_markdown_exact())
+    create_json = jd(job_create_args())
 
     compound_prompt = f"""Working directory MUST be: {work}
 Do not browse outside this cwd.
 
-STEP 1 — Run exactly this shell via run_command tool (choose the project's run_command wrapper name if different):
+STEP 1 - Run exactly this shell via run_command tool (choose the project's run_command wrapper name if different):
 bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
 Verify file {PHASE1_MARKER} exists in cwd before continuing.
 
-STEP 2 — Using tool coddy_scheduler_write exactly once:
-- path: {JOB_BASENAME}
-- content: {content_json}
-Do not omit or truncate the YAML frontmatter triple-dash blocks.
+STEP 2 - Call tool coddy_scheduler_job_create exactly once. Use these JSON arguments verbatim (one tool call): {create_json}
 
-STEP 3 — Reply single line OK when both steps succeeded.
+STEP 3 - Reply single line OK when both steps succeeded.
 """
 
     glo = (work / "coddy-e2e-global.log").resolve()
@@ -390,10 +405,10 @@ def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) ->
             return 13
 
         model = os.environ.get("MODEL", "").strip() or model_from_demo()
-        content_json = json.dumps(job_markdown_exact())
+        create_json = jd(job_create_args())
         compound_prompt = f"""Working directory MUST be: {work}
 STEP 1: run_command bash -lc 'echo {PHASE1_NEEDLE} > {PHASE1_MARKER}'
-STEP 2: coddy_scheduler_write path {JOB_BASENAME} content (JSON body string exactly): {content_json}
+STEP 2: coddy_scheduler_job_create JSON arguments exactly (one call): {create_json}
 STEP 3: reply OK
 """
 

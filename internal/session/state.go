@@ -65,6 +65,13 @@ type State struct {
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
+	// Scheduler run metadata (cron / coddy_scheduler_job_run); written to session.json when SchedulerRun is true.
+	SchedulerRun        bool
+	SchedulerJobID      string
+	SchedulerStartedAt  string // RFC3339 UTC
+	SchedulerEndedAt    string // RFC3339 UTC when terminal
+	SchedulerStopStatus string // running | completed | failed | cancelled
+
 	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
@@ -92,6 +99,55 @@ func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.SessionDir
+}
+
+// SetSchedulerRunMeta configures this state as a persisted scheduler run (writes scheduler* fields in session.json via Save).
+func (s *State) SetSchedulerRunMeta(jobID string, startedRFC3339UTC string) {
+	s.mu.Lock()
+	s.SchedulerRun = true
+	s.SchedulerJobID = strings.TrimSpace(jobID)
+	s.SchedulerStartedAt = strings.TrimSpace(startedRFC3339UTC)
+	s.SchedulerEndedAt = ""
+	s.SchedulerStopStatus = "running"
+	s.mu.Unlock()
+}
+
+// FinishSchedulerRun marks the scheduler run terminal (call before final Save).
+func (s *State) FinishSchedulerRun(endedRFC3339UTC, status string) {
+	s.mu.Lock()
+	s.SchedulerEndedAt = strings.TrimSpace(endedRFC3339UTC)
+	s.SchedulerStopStatus = strings.TrimSpace(status)
+	s.mu.Unlock()
+}
+
+func (s *State) GetSchedulerRun() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerRun
+}
+
+func (s *State) GetSchedulerJobID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerJobID
+}
+
+func (s *State) GetSchedulerStartedAt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerStartedAt
+}
+
+func (s *State) GetSchedulerEndedAt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerEndedAt
+}
+
+func (s *State) GetSchedulerStopStatus() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SchedulerStopStatus
 }
 
 // GetSkills returns the loaded skills.

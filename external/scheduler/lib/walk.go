@@ -3,13 +3,14 @@
 package scheduler
 
 import (
-	"io/fs"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
-// ListJobMarkdownFiles collects *.md files under scheduler roots (excluding dotfiles).
-func ListJobMarkdownFiles(roots []string) ([]string, error) {
+// ListFlatJobMarkdownFiles returns *.md job files immediately under each scheduler root (non-recursive, no subfolders).
+func ListFlatJobMarkdownFiles(roots []string) ([]string, error) {
 	var out []string
 	seen := map[string]struct{}{}
 	for _, root := range roots {
@@ -17,30 +18,42 @@ func ListJobMarkdownFiles(roots []string) ([]string, error) {
 		if root == "" {
 			continue
 		}
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if !strings.HasSuffix(strings.ToLower(path), ".md") {
-				return nil
-			}
-			base := filepath.Base(path)
-			if strings.HasPrefix(base, ".") {
-				return nil
-			}
-			if _, ok := seen[path]; ok {
-				return nil
-			}
-			seen[path] = struct{}{}
-			out = append(out, path)
-			return nil
-		})
+		de, err := os.ReadDir(root)
 		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
 			return nil, err
 		}
+		for _, ent := range de {
+			if ent.IsDir() {
+				continue
+			}
+			name := ent.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			if !strings.HasSuffix(strings.ToLower(name), ".md") {
+				continue
+			}
+			path := filepath.Join(root, name)
+			ap, err := filepath.Abs(path)
+			if err != nil {
+				continue
+			}
+			if _, ok := seen[ap]; ok {
+				continue
+			}
+			seen[ap] = struct{}{}
+			out = append(out, ap)
+		}
 	}
+	sort.Strings(out)
 	return out, nil
+}
+
+// Deprecated: recursive walk kept for tooling that still discovers nested drafts; daemon and REST use ListFlatJobMarkdownFiles only.
+// ListJobMarkdownFiles collects *.md files under scheduler roots (excluding dotfiles).
+func ListJobMarkdownFiles(roots []string) ([]string, error) {
+	return ListFlatJobMarkdownFiles(roots)
 }

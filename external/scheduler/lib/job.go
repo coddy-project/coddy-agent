@@ -39,6 +39,7 @@ func NextScheduledUTC(sched cron.Schedule, lastFiredSlot time.Time) time.Time {
 type JobFrontmatter struct {
 	Description string `yaml:"description"`
 	Schedule    string `yaml:"schedule"`
+	Paused      bool   `yaml:"paused"`
 	CWD         string `yaml:"cwd"`
 	Model       string `yaml:"model"`
 	Mode        string `yaml:"mode"`
@@ -86,6 +87,30 @@ func splitFrontmatter(data []byte) (string, *JobFrontmatter) {
 		return body, nil
 	}
 	return body, &fm
+}
+
+// FormatJobMarkdown serializes frontmatter plus optional markdown instruction body for a *.md scheduler job file.
+func FormatJobMarkdown(fm *JobFrontmatter, body string) ([]byte, error) {
+	if fm == nil {
+		return nil, fmt.Errorf("nil job frontmatter")
+	}
+	head, err := yaml.Marshal(fm)
+	if err != nil {
+		return nil, err
+	}
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.Write(head)
+	if len(head) > 0 && head[len(head)-1] != '\n' {
+		b.WriteByte('\n')
+	}
+	b.WriteString("---\n")
+	body = strings.TrimRight(body, "\n")
+	if strings.TrimSpace(body) != "" {
+		b.WriteString(body)
+		b.WriteByte('\n')
+	}
+	return []byte(b.String()), nil
 }
 
 // ParseJobFromBytes validates frontmatter for programmatic writes.

@@ -249,7 +249,7 @@ func runSessions(args []string) error {
 		if store == nil || store.Root == "" {
 			return fmt.Errorf("session store not available")
 		}
-		rows, err := store.ListSnapshots(strings.TrimSpace(*cwdFilter))
+		rows, err := store.ListSnapshots(strings.TrimSpace(*cwdFilter), false)
 		if err != nil {
 			return err
 		}
