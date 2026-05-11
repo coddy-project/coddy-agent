@@ -441,7 +441,7 @@ export function SchedulerJobEditorSheet(props: {
       }
       data-testid="scheduler-editor-panel"
     >
-      <div className="scheduler-editor-head">
+      <div className="sessions-head">
         <span>
           {props.mode === "create"
             ? "New job"
@@ -459,17 +459,18 @@ export function SchedulerJobEditorSheet(props: {
       </div>
 
       <div className="scheduler-editor-scroll">
-        {loadErr ? (
-          <div className="sessions-empty" data-testid="scheduler-editor-load-err">
-            {loadErr}
-          </div>
-        ) : null}
-        {props.mode === "edit" && loading ? (
-          <div className="sessions-empty">Loading…</div>
-        ) : null}
+        <div className="scheduler-editor-scroll-inner">
+          {loadErr ? (
+            <div className="sessions-empty" data-testid="scheduler-editor-load-err">
+              {loadErr}
+            </div>
+          ) : null}
+          {props.mode === "edit" && loading ? (
+            <div className="sessions-empty">Loading…</div>
+          ) : null}
 
-        {!loadErr && (props.mode === "create" || !loading) ? (
-          <div className="scheduler-editor-form">
+          {!loadErr && (props.mode === "create" || !loading) ? (
+            <div className="scheduler-editor-form">
             <label className="scheduler-field">
               <span className="scheduler-field-label">job_id</span>
               <span className="scheduler-field-help">
@@ -617,8 +618,9 @@ export function SchedulerJobEditorSheet(props: {
                 {saveErr}
               </div>
             ) : null}
-          </div>
-        ) : null}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="scheduler-editor-footer">

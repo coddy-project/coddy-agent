@@ -2468,7 +2468,7 @@ textarea#composer {
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .scheduler-drawer-meta {
@@ -2750,25 +2750,17 @@ textarea#composer {
   }
 }
 
-.scheduler-editor-head {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 10px 10px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.72);
-}
-
 .scheduler-editor-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 14px 12px;
+  /* Extra bottom padding so body markdown clears the footer when this column scrolls. */
+  padding: 12px 14px 32px;
+}
+
+.scheduler-editor-scroll-inner {
+  min-height: min-content;
+  box-sizing: border-box;
 }
 
 .scheduler-editor-form {
@@ -2785,8 +2777,8 @@ textarea#composer {
 }
 
 .scheduler-field-stack {
-  flex: 1 1 auto;
-  min-height: 120px;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .scheduler-field-label {
@@ -2851,6 +2843,8 @@ textarea#composer {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  /* Clearance before cwd / next field when the hint wraps to several lines (narrow screens). */
+  margin-bottom: 8px;
 }
 
 .scheduler-job-editor-dock .scheduler-cron-hint {
@@ -2875,20 +2869,22 @@ textarea#composer {
   justify-content: flex-start;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .md-line-editor {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  min-height: 160px;
-  max-height: min(420px, 45vh);
+  /* Min ~10 rows; MarkdownLineEditor sets inline height from full content (no viewport cap). */
+  min-height: calc(12px * 1.45 * 10 + 16px);
+  max-height: none;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 10, 12, 0.45);
   overflow: hidden;
   min-width: 0;
+  flex: 0 0 auto;
 }
 
 .scheduler-body-editor-wrap-err .md-line-editor {
@@ -2896,12 +2892,18 @@ textarea#composer {
   box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
 }
 
+/* Extra space under the body field; MarkdownLineEditor height is content-driven. */
+.scheduler-job-editor-dock .scheduler-field.scheduler-field-stack {
+  box-sizing: border-box;
+  padding-bottom: 12px;
+}
+
 .md-line-editor-gutter {
   flex: 0 0 auto;
   margin: 0;
   padding: 8px 6px 8px 8px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -2922,6 +2924,7 @@ textarea#composer {
   flex: 1 1 auto;
   min-width: 0;
   resize: none;
+  overflow-y: hidden;
   border: none;
   margin: 0;
   padding: 8px 10px;
@@ -2935,11 +2938,17 @@ textarea#composer {
 }
 
 @media (max-width: 1199px) {
-  .scheduler-dock-cluster {
+  /*
+    Same horizontal band as .sessions.drawer (History): symmetric inset from viewport edges.
+    Use .shell-main > ... so we beat the desktop dock rule
+    (left: rail + max-width) which otherwise leaves empty space on the right on phones.
+  */
+  .shell-main > .scheduler-dock-cluster {
     left: max(10px, env(safe-area-inset-left, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
     width: auto;
     max-width: none;
+    box-sizing: border-box;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     /* Match History drawer vertical inset (sessions.drawer). */
     bottom: max(14px, env(safe-area-inset-bottom, 0px));
@@ -2951,7 +2960,14 @@ textarea#composer {
   }
 
   /* Jobs list alone uses the full cluster height like History. */
-  .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+    /* Override mobile .sessions.drawer / .scheduler-jobs.drawer inset - those are for fixed History panels.
+       On relative children inside the dock cluster they resolve as offsets and pull the panel left (~-10px). */
+    position: relative;
+    left: 0;
+    right: auto;
+    top: auto;
+    bottom: auto;
     width: 100%;
     min-width: 0;
     max-width: none;
@@ -2984,14 +3000,10 @@ textarea#composer {
     height: 100%;
   }
 
-  .md-line-editor {
-    max-height: min(360px, 38vh);
-  }
-
   .scheduler-dock-cluster.scheduler-dock-cluster-editor-active .md-line-editor {
     max-height: none;
-    flex: 1 1 auto;
-    min-height: 140px;
+    flex: 0 0 auto;
+    min-height: calc(12px * 1.45 * 10 + 16px);
   }
 
   .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
@@ -3004,7 +3016,7 @@ textarea#composer {
 
   .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
     .scheduler-field-stack {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -3012,7 +3024,7 @@ textarea#composer {
 
   .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
     .scheduler-body-editor-wrap {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -3022,6 +3034,23 @@ textarea#composer {
     .scheduler-editor-scroll {
     display: flex;
     flex-direction: column;
+  }
+
+  .scheduler-dock-cluster.scheduler-dock-cluster-editor-active
+    .scheduler-editor-scroll-inner {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Pause / delete / actions - right side for thumb reach */
+  .scheduler-job-editor-dock .scheduler-editor-footer {
+    justify-content: flex-end;
+  }
+
+  .scheduler-job-editor-dock .scheduler-cron-hint {
+    margin-bottom: 14px;
   }
 }
 

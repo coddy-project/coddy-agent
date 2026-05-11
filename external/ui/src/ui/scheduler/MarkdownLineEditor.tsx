@@ -1,4 +1,12 @@
-import { useMemo, useRef } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
+
+/** Minimum visible rows; editor grows with content, outer panel scrolls only. */
+export const MARKDOWN_LINE_EDITOR_MIN_ROWS = 10;
 
 export function MarkdownLineEditor(props: {
   value: string;
@@ -7,29 +15,59 @@ export function MarkdownLineEditor(props: {
   "aria-label"?: string;
   placeholder?: string;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const gutterRef = useRef<HTMLPreElement>(null);
 
   const gutterText = useMemo(() => {
     const n = props.value === "" ? 1 : props.value.split("\n").length;
     return Array.from({ length: n }, (_, i) => String(i + 1)).join("\n");
   }, [props.value]);
 
-  const onScroll = () => {
+  const syncHeight = useCallback(() => {
+    const root = rootRef.current;
     const ta = taRef.current;
-    const g = gutterRef.current;
-    if (ta && g) {
-      g.scrollTop = ta.scrollTop;
+    if (!root || !ta) return;
+
+    ta.style.height = "0px";
+    const cs = getComputedStyle(ta);
+    const lhPx = parseFloat(cs.lineHeight);
+    const lineHeight = Number.isFinite(lhPx) ? lhPx : 12 * 1.45;
+    const padY =
+      (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const minTextareaPx = Math.ceil(
+      lineHeight * MARKDOWN_LINE_EDITOR_MIN_ROWS + padY,
+    );
+
+    const contentPx = ta.scrollHeight;
+    const h = Math.max(contentPx, minTextareaPx);
+
+    ta.style.height = `${h}px`;
+    root.style.height = `${h}px`;
+    root.style.removeProperty("max-height");
+  }, []);
+
+  useLayoutEffect(() => {
+    syncHeight();
+  }, [props.value, props.disabled, syncHeight]);
+
+  useLayoutEffect(() => {
+    const onLayout = () => syncHeight();
+    window.addEventListener("resize", onLayout);
+    const root = rootRef.current;
+    let ro: ResizeObserver | undefined;
+    if (root && typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(onLayout);
+      ro.observe(root.parentElement ?? root);
     }
-  };
+    return () => {
+      window.removeEventListener("resize", onLayout);
+      ro?.disconnect();
+    };
+  }, [syncHeight]);
 
   return (
-    <div className="md-line-editor">
-      <pre
-        ref={gutterRef}
-        className="md-line-editor-gutter"
-        aria-hidden
-      >
+    <div ref={rootRef} className="md-line-editor">
+      <pre className="md-line-editor-gutter" aria-hidden>
         {gutterText}
       </pre>
       <textarea
@@ -41,7 +79,6 @@ export function MarkdownLineEditor(props: {
         placeholder={props.placeholder}
         aria-label={props["aria-label"]}
         onChange={(ev) => props.onChange(ev.target.value)}
-        onScroll={onScroll}
       />
     </div>
   );
