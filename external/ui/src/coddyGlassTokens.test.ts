@@ -18,10 +18,10 @@ test("styles define shared coddy frosted glass tokens", () => {
   expect(css).toMatch(/--coddy-z-slash-command:/);
 });
 
-test("composer, history, slash frosted surface, mode or model menus share panel rule", () => {
+test("composer, history, scheduler, slash frosted surface, mode or model menus share panel rule", () => {
   const css = cssText();
   expect(css).toMatch(
-    /\.composer-card,\s*\n\.sessions\.drawer,\s*\n\.slash-menu-surface,\s*\n\.mode-menu\s*\{/,
+    /\.composer-card,\s*\n\.sessions\.drawer,\s*\n\.scheduler-jobs\.drawer,\s*\n\.scheduler-job-editor-dock,\s*\n\.slash-menu-surface,\s*\n\.mode-menu\s*\{/,
   );
   expect(css).toContain("var(--coddy-glass-panel-bg)");
 });

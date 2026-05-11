@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -50,7 +51,12 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 			})
 		}
 		out := strings.TrimSpace(resp.Content)
-		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: out, Model: yamlSel})
+		st.AddMessage(llm.Message{
+			Role:      llm.RoleAssistant,
+			Content:   out,
+			Model:     yamlSel,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		})
 		return resp, nil
 	}
 	resp, err := provider.Complete(ctx, msgs, toolDefs)
@@ -58,7 +64,12 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		return nil, err
 	}
 	out := strings.TrimSpace(resp.Content)
-	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: out, Model: yamlSel})
+	st.AddMessage(llm.Message{
+		Role:      llm.RoleAssistant,
+		Content:   out,
+		Model:     yamlSel,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 	return resp, nil
 }
 

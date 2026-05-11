@@ -99,7 +99,9 @@ func Run(args []string, deps CommandDeps) error {
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
 
-	scheduler.Start(context.Background(), cfg, log, paths.CWD)
+	if cfg.SchedulerEffectiveEnabled() {
+		scheduler.Start(context.Background(), cfg, log, paths.CWD)
+	}
 
 	store, err := deps.OpenStore(*sessionsRoot, cfg)
 	if err != nil {

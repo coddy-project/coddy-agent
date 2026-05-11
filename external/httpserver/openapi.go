@@ -15,7 +15,7 @@ import (
 // Keep this in sync with routes registered in New.
 func openAPISpec() map[string]interface{} {
 	ver := version.Get()
-	return map[string]interface{}{
+	doc := map[string]interface{}{
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title": "Coddy HTTP API",
@@ -182,8 +182,14 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
-						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it.",
-					"parameters": coddyPagingParams(),
+						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
+						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
+					"parameters": append(coddyPagingParams(), map[string]interface{}{
+						"name":        "include_scheduler",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include scheduler-run session directories in the list.",
+					}),
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Paged session identifiers"},
 						"503": errorResponseRef(),
@@ -338,6 +344,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
 					"description": "Assistant messages may include `model` (YAML selector persisted for that reply). " +
+						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model.",
 					"parameters": []interface{}{
@@ -623,6 +630,8 @@ func openAPISpec() map[string]interface{} {
 			},
 		},
 	}
+	mergeOpenAPISchedulerDoc(&doc)
+	return doc
 }
 
 func errorResponseRef() map[string]interface{} {

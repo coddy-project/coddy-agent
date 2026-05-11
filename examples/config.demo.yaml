@@ -6,13 +6,13 @@ providers:
 
 models:
   - model: "rpa/gpt-oss:120b"
-    max_tokens: 8192
+    max_tokens: 131072
     temperature: 0.2
-    max_context_tokens: 32768
+    max_context_tokens: 131072
   - model: "rpa/gpt-oss:20b"
     max_tokens: 8192
     temperature: 0.2
-    max_context_tokens: 32768
+    max_context_tokens: 8192
 
 agent:
   model: "rpa/gpt-oss:120b"
@@ -39,8 +39,8 @@ memory:
   model: "rpa/gpt-oss:120b"
 
 httpserver:
-  host: "127.0.0.1"
-  port: 19876
+  host: "0.0.0.0"
+  port: 19946
 
 scheduler:
   enabled: true
@@ -50,8 +50,8 @@ scheduler:
   timeout: "6m"
 
 logger:
-  level: "info"
-  outputs: ["file"]
+  level: "debug"
+  outputs: ["stderr", "file"]
   file: "__E2E_LOG_PATH__"
   format: "text"
   rotation:

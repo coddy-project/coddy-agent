@@ -2,6 +2,7 @@ package session
 
 import (
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -116,6 +117,49 @@ func TestActiveTodoPersistence(t *testing.T) {
 	}
 }
 
+func TestListSnapshotsSkipsMarkedSchedulerRunsByMeta(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	visibleID := "conv_normal"
+	dirV, err := fs.EnsureLayout(visibleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &State{ID: visibleID, CWD: "/tmp", Mode: ModeAgent, SessionDir: dirV}
+	v.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	if err := fs.Save(v); err != nil {
+		t.Fatal(err)
+	}
+
+	metaOnlyID := "custom_no_prefix"
+	dirM, err := fs.EnsureLayout(metaOnlyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &State{ID: metaOnlyID, CWD: "/tmp", Mode: ModeAgent, SessionDir: dirM}
+	m.SetSchedulerRunMeta("job_a", time.Now().UTC().Format(time.RFC3339))
+	m.AddMessage(llm.Message{Role: llm.RoleUser, Content: "cron"})
+	if err := fs.Save(m); err != nil {
+		t.Fatal(err)
+	}
+
+	rowsDefault, err := fs.ListSnapshots("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rowsDefault) != 1 || rowsDefault[0].SessionID != visibleID {
+		t.Fatalf("composer list: %+v", rowsDefault)
+	}
+	all, err := fs.ListSnapshots("", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("want 2 sessions with include scheduler, got %d", len(all))
+	}
+}
+
 func TestListSnapshotsSkipsSchedulerSessions(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}
@@ -154,7 +198,7 @@ func TestListSnapshotsSkipsSchedulerSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := fs.ListSnapshots("")
+	rows, err := fs.ListSnapshots("", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +240,7 @@ func TestFilterSnapshotListForSearchMatchesFirstUserNotTitle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := fs.ListSnapshots("")
+	rows, err := fs.ListSnapshots("", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +274,7 @@ func TestFilterSnapshotListAssistantPrefixNoFirstUserSkippedForMessageMatch(t *t
 		t.Fatal(err)
 	}
 
-	rows, err := fs.ListSnapshots("")
+	rows, err := fs.ListSnapshots("", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +317,7 @@ func TestFilterSnapshotFirstUserAfterSystemIgnoredForSecondUser(t *testing.T) {
 	if err := fs.Save(st); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := fs.ListSnapshots("")
+	rows, err := fs.ListSnapshots("", false)
 	if err != nil {
 		t.Fatal(err)
 	}

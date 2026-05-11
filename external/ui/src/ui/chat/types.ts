@@ -9,6 +9,8 @@ export type TranscriptItem =
       id: string;
       type: "user_message";
       content: string;
+      /** RFC3339 UTC from server created_at or client clock when sending. */
+      createdAtUtc?: string;
     }
   | {
       id: string;
@@ -23,6 +25,8 @@ export type TranscriptItem =
       type: "assistant_message";
       content: string;
       streaming?: boolean;
+      /** RFC3339 UTC when the assistant reply was finalized (persisted). */
+      createdAtUtc?: string;
     }
   | {
       id: string;

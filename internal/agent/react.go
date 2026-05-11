@@ -70,7 +70,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
-	a.state.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText})
+	a.state.AddMessage(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   userText,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 	a.runMemoryBeforeTurn(ctx, userText)
 
 	// Collect context files from the prompt for skill filtering.
@@ -287,6 +291,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			ToolCalls:           response.ToolCalls,
 			ReasoningDurationMs: reasoningMs,
 			Model:               a.state.EffectiveModelID(a.cfg),
+			CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)

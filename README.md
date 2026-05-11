@@ -50,7 +50,7 @@ go build -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Ver
 
 **Optional OpenAI HTTP API** lives in `external/httpserver/` and is linked only when you build with **`-tags http`** (for example `make build TAGS=http`). It adds the `coddy http` subcommand (`-H` / `--host`, `-P` / `--port`, same session and log flags as `coddy acp`). **`GET /v1/models`** exposes session modes **agent** and **plan**; OpenAPI lives at **`/openapi.yaml`** and Swagger UI at **`/docs`**. Add **`-tags ui`** together with **http** (for example `make build TAGS="http ui"`) when you want the embedded SPA served from **`/`** (**`/`** responds with **404** without **`ui`**). See **`docs/http-api.md`**.
 
-**Optional cron scheduler** lives under **`external/scheduler/`** (package **`scheduler`**, daemon and **`Start`** at the **`external/scheduler`** import path). Job parsing and cron live in **`lib/`** (also package **`scheduler`**, path **`scheduler/lib`**). **`coddy_scheduler_*`** agent tools live in **`tools/`** (package **`schedtools`**). Split layouts avoid an import cycle with **`internal/agent`** and **`internal/tools`**. Linked only with **`-tags scheduler`** (combine with **`http`** when you need both). Enable **`scheduler.enabled`** in config or **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** (sets the same YAML field for this process). Jobs are markdown files under **`~/.coddy/scheduler`** with UTC crontab metadata in YAML frontmatter.
+**Optional cron scheduler** lives under **`external/scheduler/`** (see **`external/scheduler/README.md`** and **`docs/scheduler.md`**). **`external/scheduler`** exposes **`Start`** (delegates to **`daemon/`**); job execution and the manual-launch hook live in **`daemon/`**; flat job files and cron helpers live in **`storage/`**; shared CRUD and run tracking live in **`service/`** (**`schedservice`**); **`coddy_scheduler_*`** tools are registered from **`tools/`** (**`schedtools`**, one `*.go` file per tool). Linked only with **`-tags scheduler`** (combine with **`http`** for **`/coddy/scheduler`** REST). Enable **`scheduler.enabled`** or **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`**. Jobs are flat **`*.md`** files under **`~/.coddy/scheduler`** (default) with YAML frontmatter (**`paused`** optional) and UTC five-field **`schedule`**.
 
 After `make build` the binary is `build/coddy`. If another `coddy` is already on your `PATH`, a plain `coddy acp` runs that older install. Use `./build/coddy acp`, run `make install`, or compare with `which coddy` and `coddy -v`.
 
@@ -207,9 +207,9 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Examples (ACP over stdio)
 
-[**`examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py`**](examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py) is a newline-delimited JSON-RPC harness against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
+[**`examples/acp/acp_e2e_todo.py`**](examples/acp/acp_e2e_todo.py) is a newline-delimited JSON-RPC harness against **`coddy acp`** ( **`stdbuf -oL`**, permission auto-reply, nil-result responses). Use it as reference when building your own minimal client rather than chaining naive **`echo`** lines into a pipe.
 
-[**`examples/acp_memory_copilot_e2e_demo.py`**](examples/acp_memory_copilot_e2e_demo.py) drives **`build/coddy`** from **`make build`**, an isolated **`CODDY_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$CODDY_HOME/memory`**. See the script docstring for flags.
+[**`examples/acp/acp_e2e_memory.py`**](examples/acp/acp_e2e_memory.py) drives **`build/coddy`**, an isolated **`CODDY_HOME`**, and **`RPA_API_KEY`** to verify recall, persist, and optional prune of markdown under **`$CODDY_HOME/memory`**. See the script docstring for flags. Overview of all harnesses - [**`examples/README.md`**](examples/README.md).
 
 ## Persistent sessions
 
@@ -230,7 +230,7 @@ When the persisted plan is **non-empty**, the agent injects **`### Current todo 
 go test ./...
 make test
 
-# Integration-style example harnesses (ACP + HTTP, see examples/ and AGENTS.md): ./examples/run_full_test.sh
+# Example harnesses (see examples/README.md): ./examples/build_coddy.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Build binary (with git version embedded)
 make build
@@ -240,7 +240,7 @@ coddy -v    # same as --version
 # Run with debug logging (ACP mode); optional --log-output, --log-file, --log-format
 coddy acp --log-level debug
 
-# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp-jsonrpc-session/acp_agent_todo_e2e_demo.py)
+# Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp/acp_e2e_todo.py)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
 

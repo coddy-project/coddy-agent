@@ -415,7 +415,7 @@ func (m *Manager) HandleSessionList(_ context.Context, params acp.SessionListPar
 	if params.CWD != nil {
 		cwdFilter = strings.TrimSpace(*params.CWD)
 	}
-	rows, err := m.store.ListSnapshots(cwdFilter)
+	rows, err := m.store.ListSnapshots(cwdFilter, false)
 	if err != nil {
 		return nil, fmt.Errorf("session/list: %w", err)
 	}

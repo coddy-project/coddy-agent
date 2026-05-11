@@ -40,7 +40,7 @@ Token usage totals are persisted per session and restored after restart.
 
 Left-to-right zones:
 
-1. **Nav rail**: **History** opens the session list overlay, brand goes to the empty start screen; GitHub and **API docs** links (**API docs** opens **`/docs/`** in a **new browser tab**, same as GitHub **`target=_blank`** with **`rel=noopener`**). **Brand is text only** (**Coddy** plus **agent**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default).
+1. **Nav rail**: **History** opens the session list overlay; **Scheduler** opens the cron jobs drawer (requires **`coddy http`** built with **`http,scheduler`** and scheduler enabled). Brand goes to the empty start screen; GitHub and **API docs** links (**API docs** opens **`/docs/`** in a **new browser tab**, same as GitHub **`target=_blank`** with **`rel=noopener`**). **Brand is text only** (**Coddy** plus **agent**), **no** circle or logo mark before the label, even if a reference mockup shows one. Optional **narrow vs wide rail** (**icons only vs icons plus labels**) on viewports **`min-width: 1920px`**, persisted in **`coddy_nav_rail`** cookie (**`narrow`** default).
 2. **Session list**: **always a drawer overlay** with a dimming backdrop. It must **not** consume a second grid column or shrink the chat canvas (no inline sessions column beside the rail at any breakpoint). **Panel chrome title copy is History** (not "Chats"). There is **no** global hamburger that opens a separate app menu; the **stacked-lines control** in the wide rail header **only** collapses the rail to the narrow (icons-only) layout, matching the references.
 3. **Chat canvas**: on **`min-width: 1200px`**, editable title and transcript share **`#messages`** with **`overflow-y: auto`**, and **`.chat-bottom`** is **`position: absolute`** with **`--coddy-chat-scrollbar-gutter`** padding so the composer does not cover the scrollbar track. The sticky title uses **`.chat-title-column`** (**`max-width: 920px`**, centered) so the title bar matches the composer stripe. On **`max-width: 1199px`** (phones, tablets, and smaller desktops), **`body`** scrolls (native scrollbar); **`.rail-column`** (top bar with brand and links) is **`position: fixed`** to the **viewport top** (**`.shell-main`** gets **`padding-top: var(--coddy-mobile-top-inset)`** so content clears it). The chat title row (**`.chat-scroll-sticky-head`**) is **`position: sticky`** with **`top: var(--coddy-mobile-title-sticky-top)`** (**`--coddy-mobile-top-inset` plus `--coddy-mobile-chat-stack-gap`**, same **12px** token as **`.messages-inner`** **`gap`** and title **`padding-bottom`**) so spacing under the rail matches title-to-first-message rhythm. Only **`.rail-pill`** is frosted. In active chat, **`.chat-bottom`** is **`position: fixed`** to the viewport bottom so the composer stays on screen while **`chat-scroll-tail`** reserves space, **`ChatScreen`** uses **`window`** for stick-to-bottom, and the skills slash menu uses the same **`slash-menu--portal`** path as desktop (**`createPortal`**).
 
@@ -49,6 +49,18 @@ The right insights rail is removed for the current milestone.
 ### Session identifier in URL
 
 `#/s/<sessionId>` survives reload/share as long as the browser hits the **same Coddy http instance** backing the **`sessions`** root hash. SPA keeps **`X-Coddy-Session-ID`** synced with whichever id anchors the fragment.
+
+### Scheduler hash routes
+
+- The scheduler jobs drawer footer is a single **Add job** control (**plus icon**, native **`title`** tooltip), **right-aligned** in the drawer (no manual **Refresh** button, list still reloads when the drawer opens and after saves). The job editor footer uses **pause or resume**, **delete** as icon buttons with the same **`title` / `aria-label`** pattern. While the drawer stays open, the client **polls `GET /coddy/scheduler/jobs` about every 12 seconds** (silent, no list loading chrome) so **running**, **next_run_utc**, and **paused** stay in sync with the server.
+- Each scheduler job row uses **two lines** - **job_id** on the first line with either the **paused** badge or **`Next … (UTC)`** beside it (same line, muted), then **description** on the second line.
+- The job editor footer keeps **Resume** or **Pause** and **Delete** on the **left** for shorter pointer travel.
+- **`#/scheduler`** opens the **Scheduler** jobs list drawer. **`#/scheduler/jobs/<job_id>`** opens that drawer with the **job editor** docked **next to** the list on desktop (**no** fullscreen scrim over the list). Encode **`job_id`** in the path segment when it contains special characters. The job row open in the editor uses the same **`session-item active`** highlight as **History** for the current chat. On **`max-width: 1199px`**, the **`.scheduler-dock-cluster`** stack sits **above** the shared dim **`.backdrop`** (**`z-index: 70`**) so job rows and footer controls stay clickable while the drawer is open.
+- **`#/history`** opens the **History** drawer alone. On **`min-width: 1200px`**, opening **History** while **Scheduler** is already open keeps both drawers by adding **`?history=1`** to the scheduler hash (example **`#/scheduler/jobs/<job_id>?history=1`**). Choosing another chat from the list keeps the drawer open by using **`#/s/<sessionId>?history=1`** while **History** stays visible. The main chat shell still uses the shared dim **backdrop** when a drawer is open.
+- Deleting the **active** chat from **History** leaves the drawer open and moves the shell to the empty start state via **`#/history`** (same as opening **History** alone). Deleting other rows only refreshes the list. The row **trash** control calls **`stopPropagation`** on **`click`** before **`deleteSession`** so an **`async`** delete (first **`await`** after confirm) cannot bubble to the row and accidentally **`pickSession`** the deleted id or clear the route.
+- Field edits in the job editor **auto-save** with a short debounce (no separate **Save** button) without a footer status line. **Pause**, **Resume**, and **Delete** stay explicit.
+- The URL still carries **one** primary route at a time for **`#/s/...`** vs **`#/scheduler...`** vs **`#/history`**; the optional **`history=1`** query only augments scheduler (or session) URLs for the dual-drawer desktop case.
+- **`404`** from **`GET /coddy/scheduler/jobs`** means the server build has no scheduler HTTP surface; **`503`** means **`scheduler.enabled`** is false for that process. The drawer shows a plain-language line instead of crashing.
 
 ### Responsive breakpoints
 
@@ -65,8 +77,8 @@ The right insights rail is removed for the current milestone.
 ### Narrow-rail hover tooltips
 
 - Shown **only** when the rail is **narrow** (no wide labels column). Labels visible in wide rail substitute for tooltips; do not show floating tip rows there.
-- **Copy**: brand area **New Chat**, **History** nav control **History**, external links match their labels. Reference accent chrome in **`docs/ui/assets/ref-navbar-narrow-tooltips-accent.png`**.
-- **While a control owns an open overlay** (example **History** with the list visible and **`.is-active`** on the trigger), **hide that row's tooltip** even if the mouse still hovers (**nav stacking can sit above backdrop**).
+- **Copy**: brand area **New Chat**, **History** nav control **History**, **Scheduler** nav control **Scheduler**, external links match their labels. Reference accent chrome in **`docs/ui/assets/ref-navbar-narrow-tooltips-accent.png`**.
+- **While a control owns an open overlay** (example **History** with the list visible and **`.is-active`** on the trigger), **hide that row's tooltip** even if the mouse still hovers (**nav stacking can sit above backdrop**). Same for **Scheduler** when its drawer is open.
 - Tooltip **horizontal offset** must use the **same gutter math** as the History drawer (**column padding + nav floating gutter (+ border shim where needed)**), not a shorter offset from icon-only **`rail-tip-host`** width alone.
 
 ### Nav rail panel and wide layout (design contract)
@@ -74,7 +86,7 @@ The right insights rail is removed for the current milestone.
 - **Panel shape (desktop)**. The nav is a **tall rectangular column** along the **left viewport edge** with **rounding only on the right** (straight left edge flush with the browser). Avoid a centered **full-height capsule** that does not meet the edge.
 - **Wide rail width**. Pill width is **content-driven** (**`fit-content`**) with a sensible **max-width** cap, not a legacy fixed pixel width guess.
 - **Wide header brand**. **Coddy agent** is **one horizontal line** (**Coddy** + muted **agent**). Keep **breathing room to the right** of the label (**extra padding-right** on the brand control) so copy does not sit against the inner right edge of the panel.
-- **Labeled rows (History, GitHub, API docs)**. Rows **share the same width** within the column (stretch to the **widest** row). Each row is a **single interactive surface** (icon + label), not a small icon hit target plus detached text.
+- **Labeled rows (History, Scheduler, GitHub, API docs)**. Rows **share the same width** within the column (stretch to the **widest** row). Each row is a **single interactive surface** (icon + label), not a small icon hit target plus detached text.
 - **Icon column alignment**. The first grid track for row icons matches the **collapse** toggle footprint (**44px** wide control). **Horizontal padding** on row hits stays **balanced** (avoid oversized **padding-left** and cramped **padding-right** at the label end).
 - **Collapse vs global menu**. The **stacked-lines** control **only** narrows the rail. It is **not** a global app navigation drawer (see Nav rail item 2 above).
 
@@ -123,6 +135,8 @@ Implementation lives in **`external/ui/src/ui/messages/ToolCallMessage.tsx`**.
 Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
 
 ### Transcript message types (technical)
+
+Assistant messages keep the footer row **inside** the same padded box as the prose so the copy control shares the transcript inset. **User** copy and time sit **below** the grey bubble (outside the bubble contour), still **bottom-right** under that bubble. **Copy message** is a **bare icon** (no filled tile on hover); hover uses **link-violet** tint like markdown anchors; the browser **`title`** tooltip shows **Copy message** after a short hover like other native hints. Raw persisted text is copied on click. Timestamps use **`created_at`** (RFC3339 UTC): visible label is **local hour and minutes** only; hovering shows full calendar date, seconds, and timezone offset in the native **`title`** tooltip. Assistant prose uses the full transcript column width.
 
 The transcript UI is a flat list of message blocks (no nested threads). The runtime list lives in `external/ui/src/ui/chat/types.ts`.
 

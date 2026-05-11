@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
@@ -16,8 +24,28 @@ import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "./skills/workspaceAtRecents";
+import { schedulerCancelJob, schedulerListJobs, schedulerRunJob } from "./scheduler/api";
+import {
+  parseAppHash,
+  setHistoryHash,
+  setSessionHashInLocation,
+  setSchedulerJobHash,
+  setSchedulerListHash,
+  stripHistorySidebarFromHash,
+} from "./scheduler/hashRoute";
+import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
+import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 
 const HDR = "X-Coddy-Session-ID";
+
+/** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
+const SCHEDULER_JOBS_POLL_MS = 12_000;
+
+type SchedulerEditorState =
+  | null
+  | { mode: "create" }
+  | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -48,6 +76,15 @@ type ToolCallListRow = {
   resultPreview?: string;
   resultPreviewTruncated?: boolean;
 };
+
+function readMessageCreatedAtUTC(m: Record<string, unknown>): string | undefined {
+  const raw = m.created_at ?? m.createdAt;
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const s = raw.trim();
+  return s === "" ? undefined : s;
+}
 
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   const p = u._meta?.coddy?.toolResultPreview;
@@ -114,34 +151,6 @@ function randomSessionId(): string {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return `sess_${hex}`;
-}
-
-function getSessionFromHash(): string {
-  const h = window.location.hash.replace(/^#\/?/, "");
-  const m = /^s\/([^/]+)$/.exec(h);
-  const id = m && m[1] ? m[1] : "";
-  return id ? decodeURIComponent(id) : "";
-}
-
-function setSessionHash(id: string): void {
-  if (!id) {
-    if (window.location.hash) {
-      history.replaceState(
-        null,
-        "",
-        `${window.location.pathname}${window.location.search}`,
-      );
-    }
-    return;
-  }
-  const next = `#/s/${encodeURIComponent(id)}`;
-  if (window.location.hash !== next) {
-    history.replaceState(
-      null,
-      "",
-      `${window.location.pathname}${window.location.search}${next}`,
-    );
-  }
 }
 
 async function fetchJSON<T>(
@@ -461,6 +470,25 @@ export function App() {
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
+  const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
+    boolean | null
+  >(null);
+  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [schedulerEditor, setSchedulerEditor] =
+    useState<SchedulerEditorState>(null);
+  const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
+  const [schedulerInfo, setSchedulerInfo] = useState<SchedulerInfo | null>(
+    null,
+  );
+  const [schedulerListError, setSchedulerListError] = useState<string | null>(
+    null,
+  );
+  const [schedulerListLoading, setSchedulerListLoading] = useState(false);
+  const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
+  const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
+  const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
+  const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
@@ -468,6 +496,7 @@ export function App() {
   const sessionsHasMoreRef = useRef(false);
   const sessionsLoadingMoreRef = useRef(false);
   const [viewportXL, setViewportXL] = useState(false);
+  const [drawersWide, setDrawersWide] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
@@ -491,6 +520,14 @@ export function App() {
     return t || "New chat";
   }, [sessionId, sessions, describePreview]);
 
+  const currentSessionCwd = useMemo(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return "";
+    }
+    return (sessions.find((s) => s.id === sid)?.cwd || "").trim();
+  }, [sessionId, sessions]);
+
   async function saveSessionTitle(id: string, title: string) {
     const t = title.trim();
     if (!t) {
@@ -511,10 +548,210 @@ export function App() {
     [sessionId],
   );
 
-  useEffect(() => {
-    let id = getSessionFromHash();
-    setSessionId(id || "");
+  const refreshSchedulerJobs = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setSchedulerListLoading(true);
+        setSchedulerListError(null);
+      }
+      const res = await schedulerListJobs(false);
+      if (!silent) {
+        setSchedulerListLoading(false);
+      }
+      if (!res.ok) {
+        let msg = res.message;
+        if (res.status === 404) {
+          setSchedulerHttpLinked(false);
+          setSchedulerOpen(false);
+          setSchedulerEditor(null);
+          msg =
+            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          const sid = sessionId.trim();
+          if (sid) {
+            setSessionHashInLocation(sid);
+          } else if (window.location.hash) {
+            history.replaceState(
+              null,
+              "",
+              `${window.location.pathname}${window.location.search}`,
+            );
+          }
+          setSchedulerListError(msg);
+          setSchedulerJobs([]);
+          setSchedulerInfo(null);
+          return;
+        }
+        if (res.status === 503) {
+          msg =
+            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          if (!silent) {
+            setSchedulerListError(msg);
+            setSchedulerJobs([]);
+            setSchedulerInfo(null);
+          }
+          return;
+        }
+        if (!silent) {
+          setSchedulerListError(msg);
+          setSchedulerJobs([]);
+          setSchedulerInfo(null);
+        }
+        return;
+      }
+      setSchedulerInfo(res.data.scheduler);
+      setSchedulerJobs(res.data.jobs || []);
+    },
+    [sessionId],
+  );
+
+  const applyLocationHash = useCallback(() => {
+    const p = parseAppHash();
+    if (p.branch === "session") {
+      setSessionId(p.sessionId);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionsOpen(!!p.historyOpen);
+      return;
+    }
+    if (p.branch === "history") {
+      setSessionsOpen(true);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      return;
+    }
+    if (p.branch === "scheduler") {
+      if (schedulerHttpLinked === false) {
+        setSchedulerOpen(false);
+        setSchedulerEditor(null);
+        const sid = sessionId.trim();
+        if (sid) {
+          setSessionHashInLocation(sid);
+        } else if (window.location.hash) {
+          history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+        return;
+      }
+      if (schedulerHttpLinked === null) {
+        return;
+      }
+      setSchedulerOpen(true);
+      setSessionsOpen(!!p.historyOpen && drawersWide);
+      if (p.jobId) {
+        setSchedulerEditor({ mode: "edit", jobId: p.jobId });
+      } else {
+        setSchedulerEditor(null);
+      }
+      return;
+    }
+    setSessionId("");
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSessionsOpen(!!p.historyOpen);
+  }, [schedulerHttpLinked, sessionId, drawersWide]);
+
+  const openSessionFromRoute = useCallback(
+    (id: string, opts?: { historySidebar?: boolean }) => {
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionHashInLocation(id, opts);
+      setSessionId(id);
+    },
+    [],
+  );
+
+  const clearSessionRoute = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSessionHashInLocation("");
+    setSessionId("");
   }, []);
+
+  const closeSchedulerDrawer = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    if (sessionsOpen) {
+      setHistoryHash();
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId, sessionsOpen]);
+
+  const closeAllShellDrawers = useCallback(() => {
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch("/coddy/scheduler/jobs");
+        if (cancelled) {
+          return;
+        }
+        setSchedulerHttpLinked(r.status !== 404);
+      } catch {
+        if (!cancelled) {
+          setSchedulerHttpLinked(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    applyLocationHash();
+  }, [applyLocationHash]);
+
+  useEffect(() => {
+    const onHash = () => applyLocationHash();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [applyLocationHash]);
+
+  useEffect(() => {
+    if (!schedulerOpen || schedulerHttpLinked === false) {
+      return;
+    }
+    void refreshSchedulerJobs();
+  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
+
+  useEffect(() => {
+    if (!schedulerOpen || schedulerHttpLinked !== true) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      void refreshSchedulerJobs({ silent: true });
+    }, SCHEDULER_JOBS_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
 
   useEffect(() => {
     void (async () => {
@@ -565,15 +802,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const onHash = () => {
-      const id = getSessionFromHash();
-      setSessionId(id || "");
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, [sessionId]);
-
-  useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
 
@@ -584,6 +812,32 @@ export function App() {
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1200px)");
+    const apply = () => setDrawersWide(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!schedulerOpen || schedulerHttpLinked !== true) {
+      setSchedDockClusterWidthPx(0);
+      return;
+    }
+    const el = schedulerDockClusterRef.current;
+    if (!el) {
+      setSchedDockClusterWidthPx(0);
+      return;
+    }
+    const ro = new ResizeObserver(() => {
+      setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
+    });
+    ro.observe(el);
+    setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
+    return () => ro.disconnect();
+  }, [schedulerOpen, schedulerHttpLinked, schedulerEditor]);
 
   useEffect(() => {
     if (!viewportXL) {
@@ -602,6 +856,14 @@ export function App() {
   }, [sessionFilterDraft]);
 
   useEffect(() => {
+    const t = window.setTimeout(
+      () => setSchedulerFilterQ(schedulerFilterDraft.trim()),
+      200,
+    );
+    return () => window.clearTimeout(t);
+  }, [schedulerFilterDraft]);
+
+  useEffect(() => {
     sessionsCursorRef.current = sessionsCursor;
   }, [sessionsCursor]);
 
@@ -614,17 +876,37 @@ export function App() {
   }, [sessionsLoadingMore]);
 
   useEffect(() => {
-    if (!sessionsOpen) {
+    if (!sessionsOpen && !schedulerOpen) {
       return;
     }
     const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
+      if (ev.key !== "Escape") {
+        return;
+      }
+      if (schedulerEditor) {
+        setSchedulerEditor(null);
+        const hp = parseAppHash();
+        const hist =
+          hp.branch === "scheduler" && hp.historyOpen;
+        setSchedulerListHash({ historySidebar: hist });
+        return;
+      }
+      if (schedulerOpen) {
+        closeSchedulerDrawer();
+        return;
+      }
+      if (sessionsOpen) {
         setSessionsOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sessionsOpen]);
+  }, [
+    sessionsOpen,
+    schedulerOpen,
+    schedulerEditor,
+    closeSchedulerDrawer,
+  ]);
 
   const loadSessionsList = useCallback(
     async (reset: boolean): Promise<SessionRow[] | null> => {
@@ -773,10 +1055,12 @@ export function App() {
       const role = (m.role || "").trim();
       if (role === "user") {
         userTurnIdx++;
+        const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         next.push({
           id: newId("u"),
           type: "user_message",
           content: m.content || "",
+          ...(cat ? { createdAtUtc: cat } : {}),
         });
         const mt = memByTurn.get(userTurnIdx);
         if (mt) {
@@ -821,7 +1105,13 @@ export function App() {
         }
         const content = m.content || "";
         if (content) {
-          next.push({ id: newId("a"), type: "assistant_message", content });
+          const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+          next.push({
+            id: newId("a"),
+            type: "assistant_message",
+            content,
+            ...(acat ? { createdAtUtc: acat } : {}),
+          });
         }
         const tcs = Array.isArray(m.tool_calls) ? m.tool_calls : [];
         for (const tc of tcs) {
@@ -910,13 +1200,13 @@ export function App() {
 
   function pickSession(id: string) {
     reasoningDurationMsByContentRef.current = new Map();
-    setSessionHash(id);
-    setSessionId(id);
+    openSessionFromRoute(id, {
+      historySidebar: sessionsOpen,
+    });
   }
 
   function goHome() {
-    setSessionHash("");
-    setSessionId("");
+    clearSessionRoute();
     setItems([]);
     setDraft("");
     setTokenUsage(null);
@@ -935,13 +1225,19 @@ export function App() {
     });
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (id === sessionId) {
-      setSessionHash("");
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
       setSessionId("");
       setItems([]);
       setDraft("");
       setTokenUsage(null);
       setDescribePreview(null);
       reasoningDurationMsByContentRef.current = new Map();
+      if (sessionsOpen) {
+        setHistoryHash();
+      } else {
+        setSessionHashInLocation("");
+      }
       return;
     }
     await loadSessionsList(true);
@@ -1076,8 +1372,7 @@ export function App() {
       if (!sid) {
         sid = randomSessionId();
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
-        setSessionHash(sid);
-        setSessionId(sid);
+        openSessionFromRoute(sid);
       }
       sidEffective = sid;
       let latestPreviewSid = sid;
@@ -1115,6 +1410,7 @@ export function App() {
         id: newId("u"),
         type: "user_message",
         content: text,
+        createdAtUtc: new Date().toISOString(),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -1152,8 +1448,7 @@ export function App() {
       if (sidHdr && sidHdr !== sid) {
         migrateWorkspaceAtRecents(sid, sidHdr);
         sidEffective = sidHdr;
-        setSessionHash(sidHdr);
-        setSessionId(sidHdr);
+        openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
         );
@@ -1374,17 +1669,25 @@ export function App() {
           );
           if (!res.ok || !res.data?.messages) return false;
           let last = "";
+          let lastCreated: string | undefined;
           for (const m of res.data.messages) {
             if ((m.role || "").trim() !== "assistant") continue;
             const c = (m.content || "").trim();
-            if (c) last = c;
+            if (c) {
+              last = c;
+              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+            }
           }
           if (!last) return false;
           ensureAssistant();
           setItems((prev) =>
             prev.map((it) =>
               it.type === "assistant_message" && it.id === assistantId
-                ? { ...it, content: last }
+                ? {
+                    ...it,
+                    content: last,
+                    ...(lastCreated ? { createdAtUtc: lastCreated } : {}),
+                  }
                 : it,
             ),
           );
@@ -1836,7 +2139,10 @@ export function App() {
       flushToolQueue();
 
       finishThinking();
-      ensureAssistant({ streaming: false });
+      ensureAssistant({
+        streaming: false,
+        createdAtUtc: new Date().toISOString(),
+      });
 
       void loadSessionsList(true);
       let ok = await syncAssistantFromServer();
@@ -1915,14 +2221,112 @@ export function App() {
     );
   }, [tokenUsage, maxContextTokens]);
 
-  const sessionsBackdropOpen = sessionsOpen;
+  const onSchedulerRunJob = useCallback(
+    async (jobId: string) => {
+      const r = await schedulerRunJob(jobId);
+      if (!r.ok) {
+        setSchedulerListError(r.message);
+        return;
+      }
+      void refreshSchedulerJobs({ silent: true });
+    },
+    [refreshSchedulerJobs],
+  );
+
+  const onSchedulerCancelJob = useCallback(
+    async (jobId: string) => {
+      const r = await schedulerCancelJob(jobId);
+      if (!r.ok) {
+        setSchedulerListError(r.message);
+        return;
+      }
+      void refreshSchedulerJobs({ silent: true });
+    },
+    [refreshSchedulerJobs],
+  );
+
+  const openSchedulerFromNav = useCallback(() => {
+    if (schedulerHttpLinked !== true) {
+      return;
+    }
+    const hist = drawersWide && sessionsOpen;
+    if (!drawersWide) {
+      setSessionsOpen(false);
+    }
+    setSchedulerOpen(true);
+    setSchedulerEditor(null);
+    setSchedulerListHash({ historySidebar: hist });
+  }, [schedulerHttpLinked, drawersWide, sessionsOpen]);
+
+  const onOpenHistoryFromNav = useCallback(() => {
+    setSessionsOpen(true);
+    if (drawersWide && schedulerOpen && schedulerHttpLinked === true) {
+      if (schedulerEditor?.mode === "edit") {
+        setSchedulerJobHash(schedulerEditor.jobId, { historySidebar: true });
+      } else {
+        setSchedulerListHash({ historySidebar: true });
+      }
+      return;
+    }
+    if (!drawersWide && schedulerOpen) {
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+    }
+    setHistoryHash();
+  }, [
+    drawersWide,
+    schedulerOpen,
+    schedulerHttpLinked,
+    schedulerEditor,
+  ]);
+
+  const shellBackdropOpen =
+    sessionsOpen || (schedulerOpen && schedulerHttpLinked === true);
+
+  const filteredSchedulerJobs = useMemo(() => {
+    const q = schedulerFilterQ.trim().toLowerCase();
+    if (!q) {
+      return schedulerJobs;
+    }
+    return schedulerJobs.filter((j) => {
+      const id = (j.job_id || "").toLowerCase();
+      const desc = (j.description || "").toLowerCase();
+      return id.includes(q) || desc.includes(q);
+    });
+  }, [schedulerJobs, schedulerFilterQ]);
+
+  const historyDrawerBesideScheduler =
+    drawersWide &&
+    sessionsOpen &&
+    schedulerOpen &&
+    schedulerHttpLinked === true;
 
   const sessionPanelShared = {
     sessionId,
     sessions,
     error: sessionsError,
     open: sessionsOpen,
-    onClose: () => setSessionsOpen(false),
+    className: historyDrawerBesideScheduler
+      ? "sessions-drawer-beside-scheduler"
+      : undefined,
+    onClose: () => {
+      setSessionsOpen(false);
+      const p = parseAppHash();
+      if (p.branch === "history") {
+        const sid = sessionId.trim();
+        if (sid) {
+          setSessionHashInLocation(sid);
+        } else if (window.location.hash) {
+          history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+        return;
+      }
+      stripHistorySidebarFromHash();
+    },
     onPick: pickSession,
     onTitleSave: saveSessionTitle as (id: string, title: string) => void,
     onDelete: deleteSession as (id: string) => void | Promise<void>,
@@ -1953,21 +2357,112 @@ export function App() {
     >
       <NavRail
         onNewChat={goHome}
-        onOpenHistory={() => setSessionsOpen(true)}
+        onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
+        showScheduler={schedulerHttpLinked === true}
+        onOpenScheduler={openSchedulerFromNav}
+        schedulerOpen={schedulerOpen}
         canWidenRail={viewportXL}
         railLabelsWide={railLabelsWide}
         onToggleRailLabels={toggleRailWidth}
       />
 
-      <div className="shell-main">
+      <div
+        className={[
+          "shell-main",
+          historyDrawerBesideScheduler ? "shell-history-beside-scheduler" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={
+          schedDockClusterWidthPx > 0
+            ? ({
+                "--sched-dock-cluster-width": `${schedDockClusterWidthPx}px`,
+              } as CSSProperties)
+            : undefined
+        }
+      >
         <div
-          className={`backdrop ${sessionsBackdropOpen ? "is-open" : ""}`}
-          onClick={() => setSessionsOpen(false)}
-          aria-hidden={!sessionsBackdropOpen}
+          className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
+          onClick={() => {
+            if (shellBackdropOpen) {
+              closeAllShellDrawers();
+            }
+          }}
+          aria-hidden={!shellBackdropOpen}
         />
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
+
+        {schedulerOpen && schedulerHttpLinked === true ? (
+          <div
+            ref={schedulerDockClusterRef}
+            className="scheduler-dock-cluster"
+          >
+            <SchedulerJobsDrawer
+              open={schedulerOpen}
+              selectedJobId={
+                schedulerEditor?.mode === "edit"
+                  ? schedulerEditor.jobId
+                  : null
+              }
+              className="scheduler-dock-drawer"
+              onClose={closeSchedulerDrawer}
+              scheduler={schedulerInfo}
+              jobs={filteredSchedulerJobs}
+              listError={schedulerListError}
+              loading={schedulerListLoading}
+              onAddJob={() => {
+                setSchedulerEditor({ mode: "create" });
+                const hp = parseAppHash();
+                setSchedulerListHash({
+                  historySidebar:
+                    hp.branch === "scheduler" && hp.historyOpen,
+                });
+              }}
+              onOpenJob={(jid) => {
+                setSchedulerEditor({ mode: "edit", jobId: jid });
+                const hp = parseAppHash();
+                const hist =
+                  hp.branch === "scheduler" && hp.historyOpen;
+                setSchedulerJobHash(jid, { historySidebar: hist });
+              }}
+              onRunJob={(jid) => void onSchedulerRunJob(jid)}
+              onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
+              searchDraft={schedulerFilterDraft}
+              onSearchDraftChange={setSchedulerFilterDraft}
+              onSearchClear={() => setSchedulerFilterDraft("")}
+            />
+
+            <SchedulerJobEditorSheet
+              open={schedulerHttpLinked === true && !!schedulerEditor}
+              mode={schedulerEditor?.mode === "create" ? "create" : "edit"}
+              jobId={
+                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
+              }
+              availableModels={llmModelIds}
+              defaultModel={llmModel}
+              currentCwd={currentSessionCwd}
+              onClose={() => {
+                setSchedulerEditor(null);
+                const hp = parseAppHash();
+                const hist =
+                  hp.branch === "scheduler" && hp.historyOpen;
+                setSchedulerListHash({ historySidebar: hist });
+              }}
+              onSaved={(createdId) => {
+                void refreshSchedulerJobs({ silent: true });
+                if (createdId) {
+                  setSchedulerEditor({ mode: "edit", jobId: createdId });
+                }
+              }}
+              onDeleted={() => {
+                setSchedulerEditor(null);
+                void refreshSchedulerJobs({ silent: true });
+              }}
+            />
+          </div>
+        ) : null}
 
         <ChatScreen
           title={currentTitle}

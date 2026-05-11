@@ -70,8 +70,8 @@ Every discovered skill has a canonical slash **`name`** (folder name for `subdir
 1. A Markdown catalog listing all commands with short descriptions (**`ListSkills`**).
 2. Full bodies for **`globs`** / **`alwaysApply`** matches (existing behavior).
 3. On a user message, **`/name`** tokens preceded by line start or ASCII whitespace (and legacy **`[/name](coddy-skill:name)`** forms if present in stored text) are collected outside fenced code and blockquotes and append the matching skill body for that turn when the name is **not** already in the glob-selected active set (catalog lines alone do not count as a full body); the persisted user message is unchanged.
-c
-ACP clients receive **`session/update`** **`available_commands_update`** with **`name`** and **`description`** for the same listings after **`session/new`** and **`session/load`**.
+
+ACP clients receive **`session/update`** **`available_commands_update`** with **`name`** and **`description`** for the same listings after **`session/new`** and **`session/load`** (see **`examples/acp/acp_e2e_skills_slash.py`**).
 
 The **`coddy http`** SPA queries **`GET /coddy/slash-commands`** (required pagination) for autocomplete; picking a row inserts plain **`/<name> `** in the composer. The UI highlights those tokens locally; user bubbles run a display-only Markdown pass so transcript chips still render from **`coddy-skill:`** autolinks.
 

@@ -145,13 +145,14 @@ tools:
 #   host: "127.0.0.1"
 #   port: 8080
 
-# Cron scheduler (only with go build -tags=scheduler). UTC crontab; jobs under scheduler.dir.
+# Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs under scheduler.dir.
 # scheduler:
 #   enabled: false
 #   dir: ""
 #   poll_interval: "1m"
 #   max_queue: 10
 #   timeout: "30m"
+#   retain_sessions: 5  # max completed run session dirs kept per job_id (default 5)
 
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
@@ -179,9 +180,11 @@ The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
-Five **`coddy_scheduler_*`** tools manage jobs when the scheduler is effectively enabled.
+**`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
+
+When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover list or get, create or replace or patch, delete, pause or resume, manual run, cancel, and listing run metadata (**`coddy_scheduler_jobs_list`**, **`coddy_scheduler_job_get`**, **`coddy_scheduler_job_create`**, **`coddy_scheduler_job_replace`**, **`coddy_scheduler_job_patch`**, **`coddy_scheduler_job_delete`**, **`coddy_scheduler_job_pause`**, **`coddy_scheduler_job_resume`**, **`coddy_scheduler_job_run`**, **`coddy_scheduler_job_cancel`**, **`coddy_scheduler_job_runs`**). With **`-tags=http,scheduler`**, the same operations exist as REST under **`/coddy/scheduler`** (see **`docs/http-api.md`**).
 
 ## Environment Variable References
 

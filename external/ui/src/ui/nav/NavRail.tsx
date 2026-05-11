@@ -47,6 +47,26 @@ function IconBook(props: { className?: string }) {
   );
 }
 
+function IconScheduler(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="8" />
+      <path d="M12 8v4l2.5 2.5" />
+    </svg>
+  );
+}
+
 function IconApi(props: { className?: string }) {
   return (
     <svg
@@ -113,6 +133,10 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
+  showScheduler?: boolean;
+  onOpenScheduler: () => void;
+  schedulerOpen: boolean;
   canWidenRail: boolean;
   railLabelsWide: boolean;
   onToggleRailLabels: () => void;
@@ -139,6 +163,7 @@ export function NavRail(props: {
     };
   }, [props.canWidenRail, props.railLabelsWide]);
 
+  const showScheduler = props.showScheduler !== false;
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -246,12 +271,35 @@ export function NavRail(props: {
                 <span className="rail-nav-label">History</span>
               ) : null}
             </button>
-            {!pillWide ? (
+            {!pillWide && !props.historyOpen ? (
               <span className="rail-tip" role="tooltip">
                 History
               </span>
             ) : null}
           </div>
+
+          {showScheduler ? (
+            <div className="rail-tip-host">
+              <button
+                type="button"
+                className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
+                aria-label="Scheduler jobs"
+                aria-pressed={props.schedulerOpen}
+                data-testid="nav-scheduler"
+                onClick={props.onOpenScheduler}
+              >
+                <IconScheduler className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">Scheduler</span>
+                ) : null}
+              </button>
+              {!pillWide && !props.schedulerOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  Scheduler
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="rail-spacer rail-spacer-between" aria-hidden />
 

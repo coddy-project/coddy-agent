@@ -6,6 +6,8 @@ export function SessionsSidebar(props: {
   sessions: SessionRow[];
   error?: string | null;
   open?: boolean;
+  /** Extra classes on the root aside (e.g. offset when Scheduler is docked). */
+  className?: string;
   onClose?: () => void;
   onPick: (id: string) => void;
   onTitleSave?: (id: string, title: string) => void;
@@ -52,7 +54,9 @@ export function SessionsSidebar(props: {
 
   return (
     <aside
-      className="sessions drawer"
+      className={["sessions", "drawer", props.className || ""]
+        .filter(Boolean)
+        .join(" ")}
       aria-label="History"
       data-testid="sessions"
       data-variant="drawer"
@@ -123,8 +127,9 @@ export function SessionsSidebar(props: {
                 title="Delete"
                 data-testid={`session-delete-${s.id}`}
                 onMouseDown={(ev) => ev.stopPropagation()}
-                onClick={() => {
-                  props.onDelete(s.id);
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  void props.onDelete(s.id);
                 }}
               >
                 🗑

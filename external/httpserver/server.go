@@ -322,7 +322,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	st.ReplaceMessagesWithoutPersist(prefix)
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: last.Content})
+	st.AddMessage(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   last.Content,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
@@ -592,7 +596,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(body.Input)})
+	st.AddMessage(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   strings.TrimSpace(body.Input),
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()

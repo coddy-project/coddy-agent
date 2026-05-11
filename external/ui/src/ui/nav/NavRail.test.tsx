@@ -11,6 +11,8 @@ test("nav brand uses Coddy agent label (compact rail)", () => {
       onNewChat={() => {}}
       onOpenHistory={() => {}}
       historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
       canWidenRail={false}
       railLabelsWide={false}
       onToggleRailLabels={() => {}}
@@ -29,6 +31,8 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
       onNewChat={() => {}}
       onOpenHistory={() => {}}
       historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
       canWidenRail
       railLabelsWide
       onToggleRailLabels={() => {}}
@@ -39,4 +43,22 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
     screen.getByRole("button", { name: "Coddy agent home" }),
   ).toBeInTheDocument();
   expect(screen.getByTestId("nav-home")).toHaveTextContent("Coddy agent");
+});
+
+test("nav hides Scheduler when showScheduler is false", () => {
+  render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      showScheduler={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+
+  expect(screen.queryByTestId("nav-scheduler")).toBeNull();
 });

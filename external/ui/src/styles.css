@@ -558,7 +558,8 @@ body {
   color: var(--text);
 }
 
-.sessions.drawer {
+.sessions.drawer,
+.scheduler-jobs.drawer {
   position: fixed;
   top: 14px;
   bottom: 14px;
@@ -1011,23 +1012,133 @@ body {
 
 .msg {
   border-radius: var(--radius);
-  max-width: 720px;
   padding: 12px 14px;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.msg-user-stack {
+  align-self: flex-end;
+  max-width: min(680px, 86%);
+  width: fit-content;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.msg-user-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+  min-height: 28px;
+  width: 100%;
+  align-self: stretch;
+}
+
+.msg-user-time {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.38);
+  user-select: none;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.msg-assistant-stack {
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.msg-assistant-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+/* Whole control sits on the same inset as prose; small nudge fixes subpixel vs icon box */
+.msg-assistant-time {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.38);
+  user-select: none;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.msg-copy-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 4px;
+  margin: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.msg-copy-icon-btn:hover:not(:disabled),
+.msg-copy-icon-btn:focus-visible:not(:disabled) {
+  color: rgba(167, 139, 250, 0.95);
+  background: transparent;
+}
+
+.msg-copy-icon-btn:focus-visible {
+  outline: 2px solid rgba(147, 51, 234, 0.45);
+  outline-offset: 2px;
+}
+
+.msg-copy-icon-btn:active:not(:disabled) {
+  color: rgba(196, 181, 253, 0.9);
+}
+
+.msg-copy-icon-btn__glyph {
+  display: block;
+  flex-shrink: 0;
+}
+
+.msg-copy-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .msg-user {
   background: rgba(45, 45, 45, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.06);
   align-self: flex-end;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
 }
 
 .msg-assistant {
   padding: 0px 14px;
   background: transparent;
   border: none;
-  align-self: flex-start;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
   box-shadow: none;
 }
 
@@ -1591,6 +1702,8 @@ body {
 /* Frosted dark glass INSIDE surfaces only — not fullscreen scrims (tokens in :root) */
 .composer-card,
 .sessions.drawer,
+.scheduler-jobs.drawer,
+.scheduler-job-editor-dock,
 .slash-menu-surface,
 .mode-menu {
   background: var(--coddy-glass-panel-bg);
@@ -2130,7 +2243,8 @@ textarea#composer {
   .backdrop {
     z-index: 60;
   }
-  .sessions.drawer {
+  .sessions.drawer,
+  .scheduler-jobs.drawer {
     z-index: 70;
   }
   .shell {
@@ -2332,12 +2446,524 @@ textarea#composer {
     z-index: 45;
   }
 
-  .sessions.drawer {
+  .sessions.drawer,
+  .scheduler-jobs.drawer {
     left: 10px;
     right: 10px;
     width: auto;
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 14px;
+  }
+
+}
+
+.scheduler-search-row {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.scheduler-drawer-footer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scheduler-drawer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.scheduler-meta-muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.scheduler-pill-on,
+.scheduler-pill-off {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scheduler-pill-on {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgba(187, 247, 208, 0.95);
+}
+
+.scheduler-pill-off {
+  background: rgba(248, 113, 113, 0.12);
+  color: rgba(254, 202, 202, 0.9);
+}
+
+.scheduler-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 20, 22, 0.45);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.scheduler-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.scheduler-btn-icon-only {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.scheduler-btn-icon-only svg {
+  flex-shrink: 0;
+}
+
+.scheduler-btn-primary {
+  border-color: rgba(147, 51, 234, 0.45);
+  background: rgba(147, 51, 234, 0.2);
+}
+
+.scheduler-btn-stop {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.scheduler-btn-danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: rgba(254, 202, 202, 0.95);
+}
+
+.scheduler-job-list .scheduler-job-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+
+/* Match History list chrome; inner button carries row padding. */
+.scheduler-job-list .session-item.scheduler-job-row {
+  padding: 0;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.scheduler-job-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 10px 8px 10px 12px;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.scheduler-job-row-text-block {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+
+.scheduler-job-row-title-line {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.scheduler-job-row-title-line .scheduler-job-row-id {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.scheduler-job-row-title-line .scheduler-job-paused {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+
+.scheduler-job-row-next {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.48);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scheduler-job-row-id {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-job-row-desc {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.52);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-job-paused {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.scheduler-job-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px 6px 0;
+}
+
+.scheduler-job-run-icon.composer-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+.scheduler-job-run-icon.composer-send-play .composer-send-glyph {
+  font-size: 18px;
+  transform: translate(calc(1px + 0.04em), -0.09em);
+}
+
+.scheduler-job-run-icon.composer-send-stop .composer-send-glyph {
+  font-size: 14px;
+  transform: translateY(-0.08em);
+}
+
+/* Scheduler list + job editor docked beside the rail (no fullscreen scrim). */
+.scheduler-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  z-index: 50;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(
+    100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+  );
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.scheduler-dock-cluster > * {
+  pointer-events: auto;
+}
+
+.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+  position: relative;
+  left: auto;
+  top: auto;
+  bottom: auto;
+  flex: 0 0 auto;
+  height: 100%;
+  width: min(
+    320px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
+  max-height: none;
+}
+
+.scheduler-job-editor-dock {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: min(
+    480px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px -
+        min(
+          320px,
+          calc(
+            100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+              16px
+          )
+        ) - 8px
+    )
+  );
+  max-width: min(560px, 46vw);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  background: var(--coddy-glass-panel-bg);
+  border: 1px solid var(--coddy-glass-panel-border);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+}
+
+@media (min-width: 1200px) {
+  .shell-main.shell-history-beside-scheduler
+    .sessions.drawer.sessions-drawer-beside-scheduler {
+    left: calc(
+      var(--rail-shell-track-width) + var(--nav-floating-gutter) +
+        var(--sched-dock-cluster-width, 0px) + 8px
+    );
+  }
+}
+
+.scheduler-editor-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.scheduler-editor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 12px;
+}
+
+.scheduler-editor-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scheduler-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.scheduler-field-stack {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.scheduler-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.scheduler-field-help {
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.scheduler-field-input {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 12, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+  outline: none;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.scheduler-field-input-cron {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.scheduler-field-input:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
+.scheduler-field-input-err {
+  border-color: rgba(248, 113, 113, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
+}
+
+.scheduler-field-err {
+  font-size: 12px;
+  color: rgba(252, 165, 165, 0.95);
+}
+
+.scheduler-cron-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.62);
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  overflow: hidden;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.scheduler-job-editor-dock .scheduler-cron-hint {
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+.scheduler-cron-hint-err {
+  color: rgba(252, 165, 165, 0.95);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.scheduler-save-err {
+  font-size: 12px;
+  color: rgba(252, 165, 165, 0.95);
+}
+
+.scheduler-editor-footer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.md-line-editor {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  min-height: 160px;
+  max-height: min(420px, 45vh);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 12, 0.45);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.scheduler-body-editor-wrap-err .md-line-editor {
+  border-color: rgba(248, 113, 113, 0.6) !important;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.12);
+}
+
+.md-line-editor-gutter {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 6px 8px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.38);
+  user-select: none;
+  background: rgba(0, 0, 0, 0.2);
+  min-width: 2.25rem;
+}
+
+.md-line-editor-gutter::-webkit-scrollbar {
+  display: none;
+}
+
+.md-line-editor-textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: none;
+  border: none;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  outline: none;
+}
+
+@media (max-width: 1199px) {
+  .scheduler-dock-cluster {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-width: none;
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: max(12px, env(safe-area-inset-bottom, 0px));
+    flex-direction: column;
+    gap: 6px;
+    /* Above .backdrop (60) so list rows and footer stay clickable on phones. */
+    z-index: 70;
+  }
+
+  .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+    width: auto;
+    flex: 0 0 auto;
+    max-height: min(44vh, 360px);
+    min-height: 0;
+  }
+
+  .scheduler-job-editor-dock {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: none;
+    min-height: 0;
+  }
+
+  .md-line-editor {
+    max-height: min(360px, 38vh);
   }
 }
 

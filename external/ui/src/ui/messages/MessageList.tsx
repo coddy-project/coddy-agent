@@ -27,7 +27,13 @@ export function MessageList(props: {
     <>
       {props.items.map((it, idx) => {
         if (it.type === "user_message") {
-          return <UserMessage key={it.id} content={it.content} />;
+          return (
+            <UserMessage
+              key={it.id}
+              content={it.content}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
+            />
+          );
         }
         if (it.type === "thinking") {
           return (
@@ -96,7 +102,16 @@ export function MessageList(props: {
           );
         }
         if (it.type === "assistant_message") {
-          return <AssistantMessage key={it.id} content={it.content} />;
+          return (
+            <AssistantMessage
+              key={it.id}
+              content={it.content}
+              {...(typeof it.streaming === "boolean"
+                ? { streaming: it.streaming }
+                : {})}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
+            />
+          );
         }
         if (it.type === "system_notice") {
           return (
