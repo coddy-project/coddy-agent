@@ -3,15 +3,15 @@
 package schedtools
 
 const (
-	ToolJobsList   = "coddy_scheduler_jobs_list"
-	ToolJobGet     = "coddy_scheduler_job_get"
-	ToolJobPause   = "coddy_scheduler_job_pause"
-	ToolJobResume  = "coddy_scheduler_job_resume"
-	ToolJobCreate  = "coddy_scheduler_job_create"
-	ToolJobReplace = "coddy_scheduler_job_replace"
-	ToolJobPatch   = "coddy_scheduler_job_patch"
-	ToolJobDelete  = "coddy_scheduler_job_delete"
-	ToolJobRun     = "coddy_scheduler_job_run"
-	ToolJobCancel  = "coddy_scheduler_job_cancel"
-	ToolJobRuns    = "coddy_scheduler_job_runs"
+	toolJobsList   = "coddy_scheduler_jobs_list"
+	toolJobGet     = "coddy_scheduler_job_get"
+	toolJobPause   = "coddy_scheduler_job_pause"
+	toolJobResume  = "coddy_scheduler_job_resume"
+	toolJobCreate  = "coddy_scheduler_job_create"
+	toolJobReplace = "coddy_scheduler_job_replace"
+	toolJobPatch   = "coddy_scheduler_job_patch"
+	toolJobDelete  = "coddy_scheduler_job_delete"
+	toolJobRun     = "coddy_scheduler_job_run"
+	toolJobCancel  = "coddy_scheduler_job_cancel"
+	toolJobRuns    = "coddy_scheduler_job_runs"
 )

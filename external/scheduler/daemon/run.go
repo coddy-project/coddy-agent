@@ -1,6 +1,6 @@
 //go:build scheduler
 
-package scheduler
+package daemon
 
 import (
 	"context"
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	sched "github.com/EvilFreelancer/coddy-agent/external/scheduler/lib"
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/schedulerops"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -30,7 +30,7 @@ func randomSchedulerSessionID() string {
 	return "sched_" + hex.EncodeToString(b)
 }
 
-func resolveJobCWD(processCWD string, fm *sched.JobFrontmatter) (string, error) {
+func resolveJobCWD(processCWD string, fm *storage.JobFrontmatter) (string, error) {
 	base := strings.TrimSpace(processCWD)
 	if base == "" {
 		wd, err := os.Getwd()
@@ -64,8 +64,8 @@ func jobIDFromMDPath(abs string) string {
 	return strings.TrimSuffix(filepath.Base(abs), ".md")
 }
 
-// fireSlot/updateLastScheduledState are used for cron ticks only; manual triggers pass updateLastScheduledState=false and may use a zero fireSlot.
-func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, updateLastScheduledState bool, fm *sched.JobFrontmatter, instruction string) error {
+// RunJobFile executes one scheduler job (cron tick or manual). When updateLastScheduledState is true, fireSlot updates the .state checkpoint.
+func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, updateLastScheduledState bool, fm *storage.JobFrontmatter, instruction string) error {
 	if fm != nil && fm.Paused {
 		return nil
 	}
@@ -76,8 +76,8 @@ func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		absJob = filepath.Clean(absJob)
 	}
 	jobID := jobIDFromMDPath(absJob)
-	lock := sched.LockPath(absJob)
-	stPath := sched.StatePath(absJob)
+	lock := storage.LockPath(absJob)
+	stPath := storage.StatePath(absJob)
 
 	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
@@ -92,8 +92,8 @@ func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 
 	jobCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	schedulerops.RegisterTrackedRun(absJob, cancel)
-	defer schedulerops.UnregisterTrackedRun(absJob)
+	schedservice.RegisterTrackedRun(absJob, cancel)
+	defer schedservice.UnregisterTrackedRun(absJob)
 
 	sessRoot := cfg.ResolvedSessionsRoot()
 	fs := &session.FileStore{Root: sessRoot}
@@ -162,7 +162,7 @@ func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 	if saveErr := fs.Save(st); saveErr != nil {
 		log.Error("scheduler_run_persist_final", "job_id", jobID, "session_id", sid, "error", saveErr)
 	} else {
-		if perr := schedulerops.PruneSchedulerRunSessions(fs, jobID, cfg.SchedulerRetainSessionsEffective()); perr != nil {
+		if perr := schedservice.PruneSchedulerRunSessions(fs, jobID, cfg.SchedulerRetainSessionsEffective()); perr != nil {
 			log.Warn("scheduler_run_prune", "job_id", jobID, "error", perr)
 		}
 	}
@@ -184,7 +184,7 @@ func runJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 	}
 
 	if updateLastScheduledState {
-		if werr := sched.WriteJobState(stPath, fireSlot); werr != nil {
+		if werr := storage.WriteJobState(stPath, fireSlot); werr != nil {
 			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
 			if runErr == nil {
 				return werr

@@ -6,9 +6,11 @@ The scheduler is an optional cron-like runner. It scans a single job directory f
 
 Pieces:
 
-- **`external/scheduler`** - daemon (**`Start`**) and job execution (**`run_job`**), wired into **`cmd/coddy`** so manual launches work in production binaries.
-- **`external/scheduler/schedulerops`** - shared CRUD, run tracker, pruning of old run sessions, HTTP and tool payloads (no cycles with **`internal/tools`**).
-- **`external/scheduler/tools`** - **`coddy_scheduler_*`** tools registered when **`scheduler.enabled`** is true.
+- **`external/scheduler`** - thin **`Start`** entry wired into **`cmd/coddy`**.
+- **`external/scheduler/daemon`** - poll loop, **`RunJobFile`**, and **`LaunchManualJob`** hook registration.
+- **`external/scheduler/storage`** - flat job discovery, YAML frontmatter, UTC cron, `.state` / `.lock` paths.
+- **`external/scheduler/service`** (**`schedservice`**) - shared CRUD, run tracker, pruning of old run sessions, HTTP and tool payloads (no cycles with **`internal/tools`**).
+- **`external/scheduler/tools`** - **`schedtools`** registers **`coddy_scheduler_*`** tools (one `*.go` file per tool under **`tools/`**) when **`scheduler.enabled`** is true.
 
 The cron parser uses **five fields** (**minute hour day month weekday**) in **UTC**.
 
@@ -61,7 +63,7 @@ Daemon process logging stays short (**`slog`**); full traces live in session sto
 
 ### HTTP API
 
-With **`-tags=http,scheduler`**, **`GET /coddy/scheduler/jobs`**, job CRUD, **`pause`** / **`resume`**, **`run`**, **`cancel`**, and **`…/runs`** mirror the **`schedulerops`** layer. **`503`** if **`scheduler.enabled`** is false. OpenAPI merges these paths only when **scheduler** is linked.
+With **`-tags=http,scheduler`**, **`GET /coddy/scheduler/jobs`**, job CRUD, **`pause`** / **`resume`**, **`run`**, **`cancel`**, and **`…/runs`** mirror the **`schedservice`** layer. **`503`** if **`scheduler.enabled`** is false. OpenAPI merges these paths only when **scheduler** is linked.
 
 ### Tools (when scheduler is enabled)
 

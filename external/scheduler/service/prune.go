@@ -1,6 +1,6 @@
 //go:build scheduler
 
-package schedulerops
+package schedservice
 
 import (
 	"os"

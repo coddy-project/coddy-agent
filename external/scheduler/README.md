@@ -1,6 +1,8 @@
 # Optional cron scheduler (`scheduler` build tag)
 
-This tree implements the Coddy cron scheduler daemon, **`schedulerops`** (CRUD and run tracking shared by HTTP and tools), and **`tools/`** package **`schedtools`** (**`coddy_scheduler_*`**).
+This tree implements **`daemon/`** (background tick loop and **`RunJobFile`**), **`storage/`** (flat `*.md` jobs, cron, `.state` / `.lock`), **`service/`** (**`schedservice`**, CRUD and run tracking for HTTP and tools), and **`tools/`** (**`schedtools`**, flat Go files per **`coddy_scheduler_*`** tool).
+
+Within **`service/`**, logic is split across small files (**`errors`**, **`types`**, **`patch_decode`**, **`service`** core, **`jobs_read`** / **`jobs_write`**, **`manual_run`**, **`runs`**, **`tracker`**, **`prune`**).
 
 - Human-oriented guide - **`docs/scheduler.md`**
 - YAML and retention - **`docs/config.md`** (**`scheduler`** key)

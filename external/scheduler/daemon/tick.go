@@ -1,17 +1,17 @@
 //go:build scheduler
 
-package scheduler
+package daemon
 
 import (
 	"context"
 	"log/slog"
 	"time"
 
-	sched "github.com/EvilFreelancer/coddy-agent/external/scheduler/lib"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
-func jobRunnableForTick(fm *sched.JobFrontmatter) bool {
+func jobRunnableForTick(fm *storage.JobFrontmatter) bool {
 	return fm != nil && !fm.Paused
 }
 
@@ -42,14 +42,14 @@ func runDaemon(ctx context.Context, cfg *config.Config, log *slog.Logger, proces
 }
 
 func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD string, sem chan struct{}, maxQueue int) {
-	paths, err := sched.ListFlatJobMarkdownFiles(cfg.SchedulerScanRoots())
+	paths, err := storage.ListFlatJobMarkdownFiles(cfg.SchedulerScanRoots())
 	if err != nil {
 		log.Warn("scheduler scan", "error", err)
 		return
 	}
 	now := time.Now().UTC()
 	for _, path := range paths {
-		fm, body, err := sched.ParseJobFile(path)
+		fm, body, err := storage.ParseJobFile(path)
 		if err != nil {
 			log.Debug("scheduler skip file", "path", path, "error", err)
 			continue
@@ -57,25 +57,25 @@ func doTick(ctx context.Context, cfg *config.Config, log *slog.Logger, processCW
 		if !jobRunnableForTick(fm) {
 			continue
 		}
-		sch, err := sched.ParseCronUTC(fm.Schedule)
+		sch, err := storage.ParseCronUTC(fm.Schedule)
 		if err != nil {
 			log.Warn("scheduler bad cron", "path", path, "error", err)
 			continue
 		}
-		last, err := sched.ReadJobState(sched.StatePath(path))
+		last, err := storage.ReadJobState(storage.StatePath(path))
 		if err != nil {
 			log.Warn("scheduler state read", "path", path, "error", err)
 			continue
 		}
-		slot := sched.NextScheduledUTC(sch, last)
+		slot := storage.NextScheduledUTC(sch, last)
 		if slot.After(now) {
 			continue
 		}
 		select {
 		case sem <- struct{}{}:
-			go func(p string, fm *sched.JobFrontmatter, instruction string, fire time.Time) {
+			go func(p string, fm *storage.JobFrontmatter, instruction string, fire time.Time) {
 				defer func() { <-sem }()
-				_ = runJobFile(ctx, cfg, log, processCWD, p, fire, true, fm, instruction)
+				_ = RunJobFile(ctx, cfg, log, processCWD, p, fire, true, fm, instruction)
 			}(path, fm, body, slot)
 		default:
 			log.Warn("scheduler max_queue saturated, skipping job until a run finishes (raise scheduler.max_queue if needed)",

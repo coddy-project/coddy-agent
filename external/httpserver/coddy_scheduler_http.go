@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/EvilFreelancer/coddy-agent/external/scheduler/schedulerops"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/service"
 )
 
 func (s *Server) registerSchedulerRoutes() {
@@ -29,11 +29,11 @@ func (s *Server) registerSchedulerRoutes() {
 }
 
 func (s *Server) coddySchedulerWriteErr(w http.ResponseWriter, err error) {
-	code := schedulerops.HTTPErrStatus(err)
-	if code == http.StatusInternalServerError && !errors.Is(err, schedulerops.ErrSchedulerDisabled) &&
-		!errors.Is(err, schedulerops.ErrJobNotFound) && !errors.Is(err, schedulerops.ErrInvalidJobID) &&
-		!errors.Is(err, schedulerops.ErrJobBusy) && !errors.Is(err, schedulerops.ErrJobExists) &&
-		!errors.Is(err, schedulerops.ErrJobPaused) {
+	code := schedservice.HTTPErrStatus(err)
+	if code == http.StatusInternalServerError && !errors.Is(err, schedservice.ErrSchedulerDisabled) &&
+		!errors.Is(err, schedservice.ErrJobNotFound) && !errors.Is(err, schedservice.ErrInvalidJobID) &&
+		!errors.Is(err, schedservice.ErrJobBusy) && !errors.Is(err, schedservice.ErrJobExists) &&
+		!errors.Is(err, schedservice.ErrJobPaused) {
 		s.log.Error("coddy_scheduler", "error", err)
 	}
 	msg := err.Error()
@@ -47,8 +47,8 @@ func (s *Server) coddySchedulerWriteErr(w http.ResponseWriter, err error) {
 	})
 }
 
-func (s *Server) schedulerOps() *schedulerops.Ops {
-	return schedulerops.NewOps(s.cfg, s.log, s.defaultCWD)
+func (s *Server) schedulerService() *schedservice.Service {
+	return schedservice.NewService(s.cfg, s.log, s.defaultCWD)
 }
 
 func (s *Server) coddySchedulerJobsList(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (s *Server) coddySchedulerJobsList(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	includeBody := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_body")), "true")
 	out, err := op.ListJobs(includeBody)
 	if err != nil {
@@ -72,12 +72,12 @@ func (s *Server) coddySchedulerJobsPost(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	var body schedulerops.SchedulerJobCreate
+	var body schedservice.SchedulerJobCreate
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedulerops.ErrInvalidJobID, err))
+		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedservice.ErrInvalidJobID, err))
 		return
 	}
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.CreateJob(body); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -95,7 +95,7 @@ func (s *Server) coddySchedulerJobGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	job, err := op.GetJob(id)
 	if err != nil {
 		s.coddySchedulerWriteErr(w, err)
@@ -111,12 +111,12 @@ func (s *Server) coddySchedulerJobPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	var body schedulerops.SchedulerJobCreate
+	var body schedservice.SchedulerJobCreate
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedulerops.ErrInvalidJobID, err))
+		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedservice.ErrInvalidJobID, err))
 		return
 	}
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.ReplaceJob(id, body); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -131,12 +131,12 @@ func (s *Server) coddySchedulerJobPatchHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	p, err := schedulerops.DecodeSchedulerJobPatch(r.Body)
+	p, err := schedservice.DecodeSchedulerJobPatch(r.Body)
 	if err != nil {
-		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedulerops.ErrInvalidJobID, err))
+		s.coddySchedulerWriteErr(w, fmt.Errorf("%w: %v", schedservice.ErrInvalidJobID, err))
 		return
 	}
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.PatchJob(id, p); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -151,7 +151,7 @@ func (s *Server) coddySchedulerJobDelete(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.DeleteJob(id); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -165,7 +165,7 @@ func (s *Server) coddySchedulerJobPause(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.PauseJob(id); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -180,7 +180,7 @@ func (s *Server) coddySchedulerJobResume(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.ResumeJob(id); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -195,7 +195,7 @@ func (s *Server) coddySchedulerJobRunPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	if err := op.TriggerJobRun(id); err != nil {
 		s.coddySchedulerWriteErr(w, err)
 		return
@@ -217,7 +217,7 @@ func (s *Server) coddySchedulerJobCancelPost(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("job_id"))
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	cancelled, err := op.CancelJobRun(id)
 	if err != nil {
 		s.coddySchedulerWriteErr(w, err)
@@ -243,7 +243,7 @@ func (s *Server) coddySchedulerJobRunsGet(w http.ResponseWriter, r *http.Request
 			limit = n
 		}
 	}
-	op := s.schedulerOps()
+	op := s.schedulerService()
 	runs, err := op.ListJobRuns(id, limit)
 	if err != nil {
 		s.coddySchedulerWriteErr(w, err)

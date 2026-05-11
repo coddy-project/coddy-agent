@@ -1,18 +1,18 @@
 //go:build scheduler
 
-package scheduler
+package daemon
 
 import (
 	"testing"
 
-	sched "github.com/EvilFreelancer/coddy-agent/external/scheduler/lib"
+	"github.com/EvilFreelancer/coddy-agent/external/scheduler/storage"
 )
 
 func TestJobRunnableForTickPaused(t *testing.T) {
-	if jobRunnableForTick(&sched.JobFrontmatter{Paused: true}) {
+	if jobRunnableForTick(&storage.JobFrontmatter{Paused: true}) {
 		t.Fatal("paused job must not be runnable")
 	}
-	if !jobRunnableForTick(&sched.JobFrontmatter{Paused: false}) {
+	if !jobRunnableForTick(&storage.JobFrontmatter{Paused: false}) {
 		t.Fatal("unpaused job must be runnable")
 	}
 	if jobRunnableForTick(nil) {
