@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Coddy slash demo (examples)
 
-This file is loaded by `examples/test_httpserver_skills_slash.sh` and `examples/http_skills_slash_e2e_demo.py`.
+This file is loaded by `examples/test_httpserver.sh` (skills step) and `examples/httpserver/http_skills_slash_e2e_demo.py`.
 
 When the user invokes **`/coddy_slash_demo`** (slash at the start of a line, outside code fences), you **must** include the following verification string **verbatim** in your reply (copy it exactly, including the prefix):
 

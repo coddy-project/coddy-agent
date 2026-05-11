@@ -60,7 +60,7 @@ def rpc_call(proc: subprocess.Popen[str], method: str, params: dict[str, Any], n
 
 
 def default_config_path() -> Path:
-    return Path(__file__).resolve().parent / "config.demo.yaml"
+    return Path(__file__).resolve().parent.parent / "config.demo.yaml"
 
 
 def parse_models_from_yaml(raw: str) -> list[str]:

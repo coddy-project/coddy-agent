@@ -45,12 +45,10 @@ The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Mod
 
 ## Python samples (`examples/`)
 
-Scripts may bootstrap project-local interpreters (`.venv` recommended); follow each script header for prerequisites.
+See **`examples/README.md`** for layout (**`examples/httpserver/`**, **`examples/acp/`**, **`examples/shared/`**). Scripts may use a project-local interpreter (`.venv` recommended); follow each script header for prerequisites.
 
-- **`examples/build_coddy.sh`** - runs **`make build TAGS=http`** and prints **`coddy -v`**. Pass **`TAGS="http ui"`** if you need the SPA in **`./build/coddy`**.
-- **`examples/test_acp.sh`** - drives **`coddy acp`** (`acp_smoke_basic.py`, **`acp_models_e2e_demo.py`**, then the longer ACP demos in that script).
-- **`examples/test_httpserver.sh`** - starts a temporary **`coddy http`** and runs **`http_smoke_basic.py`**, **`http_models_e2e_demo.py`**, then the HTTP demos listed in that script (optional port argument).
-- **`examples/test_httpserver_skills_slash.sh`** - same **`examples/config.demo.yaml`** as other HTTP demos; copies **`examples/skills_fixture/`** into **`${CODDY_HOME}/skills_fixture`** and runs **`http_skills_slash_e2e_demo.py`** ( **`GET /coddy/slash-commands`**, **`POST /v1/responses`** with **`/coddy_slash_demo`**, control turn).
-- **`examples/run_full_test.sh`** - build step then **`test_acp.sh`** and **`test_httpserver.sh`**.
+- **`examples/build_coddy.sh`** - runs **`make build TAGS="http scheduler"`** and prints **`coddy -v`**. Pass **`TAGS="http ui"`** or adjust tags as needed for your **`./build/coddy`**.
+- **`examples/test_acp.sh`** - wrapper that runs **`examples/acp/test_acp.sh`** (all ACP **`acp_*.py`** demos in one pass).
+- **`examples/test_httpserver.sh`** - wrapper that runs **`examples/httpserver/test_httpserver.sh`** (temp **`coddy http`**, all HTTP **`http_*.py`** demos including skills slash and scheduler REST smoke).
 
 Example HTTP scripts that call completion endpoints expect a reachable provider and return non-zero on HTTP errors.

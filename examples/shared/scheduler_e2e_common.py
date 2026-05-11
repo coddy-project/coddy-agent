@@ -18,7 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
-EXAMPLES_DIR = Path(__file__).resolve().parent
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent
 CONFIG_DEMO = EXAMPLES_DIR / "config.demo.yaml"
 
 # Keep in sync with httpserver.port in config.demo.yaml when running HTTP e2e.

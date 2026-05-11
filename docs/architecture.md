@@ -192,7 +192,7 @@ coddy-agent/
 │   ├── tools/                   # builtins (fs/, shell/, todo/), NewRegistry
 │   ├── mcp/
 │   └── skills/
-├── examples/                    # stdio JSON-RPC E2E harness
+├── examples/                    # ACP and HTTP Python harnesses (acp/, httpserver/, shared/, README.md)
 ├── docs/                        # this tree and guides
 ├── config.example.yaml
 ├── go.mod

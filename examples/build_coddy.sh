@@ -5,5 +5,5 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-make build TAGS=http
+make build TAGS="http scheduler"
 ./build/coddy -v

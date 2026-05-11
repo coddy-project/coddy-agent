@@ -8,7 +8,7 @@ Uses ``examples/config.demo.yaml`` (or ``CODDY_CONFIG``). One ``models[].model``
 Environment:
 
 - ``BASE_URL`` - base for OpenAI-compatible routes (default ``http://127.0.0.1:19876/v1``).
-- ``CODDY_CONFIG`` - same YAML the server was started with (default ``examples/config.demo.yaml`` next to this script).
+- ``CODDY_CONFIG`` - same YAML the server was started with (default repo ``examples/config.demo.yaml``).
 
 The script verifies:
 
@@ -56,7 +56,7 @@ def http_json(method: str, url: str, body: dict[str, Any] | None, headers: dict[
 
 
 def default_config_path() -> Path:
-    return Path(__file__).resolve().parent / "config.demo.yaml"
+    return Path(__file__).resolve().parent.parent / "config.demo.yaml"
 
 
 def parse_models_from_yaml(raw: str) -> list[str]:

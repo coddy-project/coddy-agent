@@ -115,4 +115,4 @@ make build TAGS="http ui"
 
 `go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then **`http`** and **`http,ui`** and scheduler combinations).
 
-For a manual gateway check against a disposable **`coddy http`** process, **`examples/test_httpserver.sh`** runs **`http_smoke_basic.py`** and the bundled HTTP demo scripts (they expect a working **`models`** backend where they call the LLM).
+For a manual gateway check against a disposable **`coddy http`** process, **`examples/test_httpserver.sh`** runs the Python demos under **`examples/httpserver/`** (see **`examples/README.md`**). Steps that call chat or responses expect a working **`models`** backend.

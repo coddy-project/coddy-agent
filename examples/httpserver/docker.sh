@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+# Smoke coddy http inside docker compose (see repo docker-compose.yml). Needs docker and docker compose.
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
+HTTP_DIR="$ROOT/examples/httpserver"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker not found" >&2
@@ -83,6 +85,6 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 export BASE_URL="http://127.0.0.1:${PORT}/v1"
-python3 "$ROOT/examples/http_smoke_basic.py"
+python3 "$HTTP_DIR/http_smoke_basic.py"
 
 echo "ok docker httpserver tests"

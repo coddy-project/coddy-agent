@@ -45,7 +45,7 @@ def same_id(a: Any, b: Any) -> bool:
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
+    return Path(__file__).resolve().parents[2]
 
 
 def default_coddy_bin() -> str:
@@ -57,7 +57,7 @@ def default_coddy_bin() -> str:
 
 
 def default_config() -> str:
-    return str(Path(__file__).resolve().parent / "config.demo.yaml")
+    return str(Path(__file__).resolve().parent.parent / "config.demo.yaml")
 
 
 def rpc_call(

@@ -32,5 +32,5 @@ curl -sS http://127.0.0.1:12345/v1/models | head
 ## Example smoke test
 
 ```bash
-./examples/test_httpserver_docker.sh
+./examples/httpserver/docker.sh
 ```

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """HTTP e2e: slash skills catalog and ephemeral /name skill body on agent turns.
 
-Needs a running ``coddy http`` built with TAGS=http, using ``examples/config.demo.yaml`` with ``skills.install_dir``
-and ``skills.dirs`` set to ``${CODDY_HOME}/skills_fixture``. Populate that tree like ``test_httpserver_skills_slash.sh``
-(copy the fixture skill into the home).
+Needs a running ``coddy http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.install_dir``
+and ``skills.dirs`` set to ``${CODDY_HOME}/skills_fixture``. The full HTTP harness copies ``examples/skills_fixture/`` there (``examples/httpserver/test_httpserver.sh``).
 
 Calls a real configured LLM via ``POST /v1/responses`` (``model``: ``agent`` or ``plan``).
 
