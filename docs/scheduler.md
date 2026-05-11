@@ -12,7 +12,9 @@ Pieces:
 - **`external/scheduler/service`** (**`schedservice`**) - shared CRUD, run tracker, pruning of old run sessions, HTTP and tool payloads (no cycles with **`internal/tools`**).
 - **`external/scheduler/tools`** - **`schedtools`** registers **`coddy_scheduler_*`** tools (one `*.go` file per tool under **`tools/`**) when **`scheduler.enabled`** is true.
 
-The cron parser uses **five fields** (**minute hour day month weekday**) in **UTC**.
+The cron parser uses **five fields** (**minute hour day month weekday**) in **UTC**. Fires are evaluated on **UTC minute boundaries** (second **0**, nanoseconds **0**), like **crond**: the daemon wakes once per UTC minute, scans **`scheduler.dir`**, and starts a job only when that minute matches the expression and the **`.state`** checkpoint is strictly before that minute. **`* * * * *`** therefore runs **at most once per UTC minute**. Step fields such as **`*/2 * * * *`** use the same minute grid as vixie cron (minutes **0,2,4,…** UTC); **`*/3 * * * *`** uses **0,3,6,…** UTC.
+
+Changes to the **`schedule`** field in a job file are read on the next directory scan (no restart). When the schedule **string** changes, in-memory duplicate-launch bookkeeping for that job is cleared so the new expression is not skewed by the old cron stepping.
 
 ### Build
 
@@ -36,7 +38,7 @@ Sidecars next to **`basename.md`**:
 - **`basename.lock`** while a run holds the exclusive lock. The first line is the committed cron fire instant in UTC (RFC3339), same value as the checkpoint written to **`.state`**, so poll ticks that fire before the atomic **`.state`** rename still skip a duplicate launch for that slot. (API **`running`** follows the in-process run tracker, not the lock file alone; stale locks are cleaned after a timeout-based grace window.)
 - **`basename.state`** cron checkpoint (**`last_scheduled_utc`**)
 
-The daemon writes **`.state`** as soon as a cron run is committed (after the scheduler session is first persisted on disk), using the cron slot time that fired, so poll ticks do not re-trigger the same minute while the agent turn is still running. Checkpoints are written **atomically** (temp file plus rename in the same directory) so ticks never observe a half-written JSON file as a missing checkpoint. On Unix the final rename **replaces** an existing file in one step (no interval where the path is absent). On Windows the implementation removes the previous file first because **`os.Rename`** cannot replace an existing destination there. With no checkpoint yet (or a stale pre-1980 timestamp left by older builds), the first run follows **vixie-style** timing from wall clock and the five-field expression, not a backlog from the Unix epoch. Only **one** long-lived process should enable the scheduler against a given **`scheduler.dir`** - two daemons on the same directory can still double-fire regardless of checkpointing.
+The daemon writes **`.state`** as soon as a cron run is committed (after the scheduler session is first persisted on disk), using the **UTC minute start** that fired, so the next UTC minute tick does not re-trigger the same minute while the agent turn is still running. Checkpoints are written **atomically** (temp file plus rename in the same directory) so ticks never observe a half-written JSON file as a missing checkpoint. On Unix the final rename **replaces** an existing file in one step (no interval where the path is absent). On Windows the implementation removes the previous file first because **`os.Rename`** cannot replace an existing destination there. With no checkpoint yet (or a stale pre-1980 timestamp left by older builds), the first run follows **vixie-style** timing from wall clock and the five-field expression, not a backlog from the Unix epoch. Only **one** long-lived process should enable the scheduler against a given **`scheduler.dir`** - two daemons on the same directory can still double-fire regardless of checkpointing.
 
 Optional YAML frontmatter **`paused: true`** skips both cron ticks and **`POST …/run`** until resumed.
 
@@ -57,7 +59,7 @@ Body - markdown used as the one-shot user instruction for that scheduler run.
 
 Each execution persists a normal session directory under **`sessions.dir`** with **`schedulerRun`** metadata in **`session.json`** (job id, start or end timestamps, **`status`**). Completed runs older than **`scheduler.retain_sessions`** per **`job_id`** are pruned (default **5** when unset).
 
-The daemon records **`last_spawn_started_utc`** in **`basename.state`** alongside **`last_scheduled_utc`** and refuses to start another run until at least one **minimum schedule interval** has elapsed since that spawn time (derived from the cron expression, for example **one minute** for a five-field every-minute schedule). That way a long run that crosses into the next cron minute does not immediately trigger another execution right after the previous one finishes.
+Step expressions such as **`*/2 * * * *`** follow normal vixie semantics (minutes **0,2,4,…** UTC); **`*/5 * * * *`** fires at minutes **0,5,10,…** UTC. While a run is in progress, the exclusive **`basename.lock`** prevents starting another execution for the same job until the prior run releases it.
 
 Composer session list (**`GET /coddy/sessions`**) omits scheduler-only bundles unless **`include_scheduler=true`**.
 

@@ -34,3 +34,11 @@ func noteSpawnDispatched(absJobPath string, dueSlot time.Time) {
 	spawnDedupe[absJobPath] = dueSlot
 	spawnDedupeMu.Unlock()
 }
+
+// clearSpawnDedupeEntry removes in-memory dedupe state for a job path (for example after the
+// schedule string in the *.md file changes so stale slot keys do not affect the next tick).
+func clearSpawnDedupeEntry(absJobPath string) {
+	spawnDedupeMu.Lock()
+	delete(spawnDedupe, absJobPath)
+	spawnDedupeMu.Unlock()
+}

@@ -149,7 +149,6 @@ tools:
 # scheduler:
 #   enabled: false
 #   dir: ""
-#   poll_interval: "1m"
 #   max_queue: 10
 #   timeout: "30m"
 #   retain_sessions: 5  # max completed run session dirs kept per job_id (default 5)

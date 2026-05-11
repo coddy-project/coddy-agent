@@ -118,7 +118,6 @@ tools:
 # scheduler:
 #   enabled: false
 #   dir: ""              # empty = ${CODDY_HOME}/scheduler
-#   poll_interval: "1m"
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 

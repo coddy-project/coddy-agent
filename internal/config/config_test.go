@@ -395,9 +395,6 @@ agent:
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Scheduler.PollInterval != "1m" {
-		t.Fatalf("poll default %q", cfg.Scheduler.PollInterval)
-	}
 	if cfg.Scheduler.MaxQueue != 10 {
 		t.Fatalf("max_queue %d", cfg.Scheduler.MaxQueue)
 	}

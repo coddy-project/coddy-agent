@@ -6,7 +6,6 @@ package schedservice
 type SchedulerInfo struct {
 	Enabled        bool   `json:"enabled"`
 	Dir            string `json:"dir"`
-	PollInterval   string `json:"poll_interval"`
 	Timeout        string `json:"timeout"`
 	MaxQueue       int    `json:"max_queue"`
 	RunsActive     int    `json:"runs_active"`

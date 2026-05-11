@@ -1,7 +1,6 @@
 export type SchedulerInfo = {
   enabled: boolean;
   dir: string;
-  poll_interval: string;
   timeout: string;
   max_queue: number;
   runs_active: number;

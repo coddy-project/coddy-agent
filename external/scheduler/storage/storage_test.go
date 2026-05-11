@@ -36,27 +36,125 @@ func TestScheduleMinimumInterval_Hourly(t *testing.T) {
 	}
 }
 
-func TestSpawnThrottleBlocksBackToBackMinuteCron(t *testing.T) {
-	// Long run crossing into the next cron minute: without spawn spacing, a second start can
-	// occur seconds after the first finishes; throttle requires minGap since last spawn.
-	lastSpawn, err := time.Parse(time.RFC3339, "2026-05-12T22:30:44Z")
+func TestScheduleMinimumInterval_EveryTwoMinutes(t *testing.T) {
+	s, err := ParseCronUTC("*/2 * * * *")
 	if err != nil {
 		t.Fatal(err)
 	}
-	now, err := time.Parse(time.RFC3339, "2026-05-12T22:31:14Z")
+	if g := ScheduleMinimumInterval(s); g != 2*time.Minute {
+		t.Fatalf("got %v want 2m", g)
+	}
+}
+
+func TestTruncateUTCToMinute(t *testing.T) {
+	raw, err := time.Parse(time.RFC3339Nano, "2026-05-12T14:35:44.123456789+02:00")
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := TruncateUTCToMinute(raw)
+	want, err := time.Parse(time.RFC3339, "2026-05-12T12:35:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(want) {
+		t.Fatalf("got %s want %s", got.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+func TestCronMinuteMatchesUTC_StepThreeMinutes(t *testing.T) {
+	s, err := ParseCronUTC("*/3 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, minute := range []int{0, 3, 6, 9, 57} {
+		m := time.Date(2026, 5, 12, 8, minute, 0, 0, time.UTC)
+		if !CronMinuteMatchesUTC(s, m) {
+			t.Fatalf("minute %d should match */3", minute)
+		}
+	}
+	for _, minute := range []int{1, 2, 4, 5, 7} {
+		m := time.Date(2026, 5, 12, 8, minute, 0, 0, time.UTC)
+		if CronMinuteMatchesUTC(s, m) {
+			t.Fatalf("minute %d should not match */3", minute)
+		}
+	}
+}
+
+func TestCronMinuteMatchesUTC_AtMinute15(t *testing.T) {
+	s, err := ParseCronUTC("15 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, err := time.Parse(time.RFC3339, "2026-05-12T11:15:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := time.Parse(time.RFC3339, "2026-05-12T11:16:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CronMinuteMatchesUTC(s, ok) {
+		t.Fatal("expected fire at minute 15")
+	}
+	if CronMinuteMatchesUTC(s, bad) {
+		t.Fatal("expected no fire at minute 16")
+	}
+}
+
+func TestCronJobEligibleForMinute_StaleCheckpointIgnored(t *testing.T) {
 	s, err := ParseCronUTC("* * * * *")
 	if err != nil {
 		t.Fatal(err)
 	}
-	minGap := ScheduleMinimumInterval(s)
-	if minGap != time.Minute {
-		t.Fatalf("minGap %v", minGap)
+	stale, err := time.Parse(time.RFC3339, "1970-01-01T00:00:00Z")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !now.Before(lastSpawn.Add(minGap)) {
-		t.Fatal("expected throttle to block another spawn")
+	eval, err := time.Parse(time.RFC3339, "2026-05-12T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CronJobEligibleForMinute(s, stale, eval) {
+		t.Fatal("stale checkpoint should not block current minute")
+	}
+}
+
+func TestDueFireSlotUTC_StepEveryTwoMinutesUsesClockGrid(t *testing.T) {
+	s, err := ParseCronUTC("*/2 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := time.Parse(time.RFC3339, "2026-05-12T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-12T10:03:45Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, last, now)
+	if want := "2026-05-12T10:02:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
+	}
+}
+
+func TestDueFireSlotUTC_StepEveryFiveMinutesUsesClockGrid(t *testing.T) {
+	s, err := ParseCronUTC("*/5 * * * *")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := time.Parse(time.RFC3339, "2026-05-12T10:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := time.Parse(time.RFC3339, "2026-05-12T10:12:30Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := DueFireSlotUTC(s, last, now)
+	// Single Next(last): first scheduled instant strictly after last checkpoint.
+	if want := "2026-05-12T10:05:00Z"; slot.Format(time.RFC3339) != want {
+		t.Fatalf("got %s want %s", slot.Format(time.RFC3339), want)
 	}
 }
 
@@ -280,55 +378,6 @@ func TestReadWriteJobStateRoundTrip(t *testing.T) {
 	}
 	if !empty.IsZero() {
 		t.Fatalf("missing file should yield zero time, got %v", empty)
-	}
-}
-
-func TestWriteJobSchedulerCheckpointRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "job.state")
-	slot, err := time.Parse(time.RFC3339, "2024-06-01T12:30:00Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	spawn, err := time.Parse(time.RFC3339, "2024-06-01T12:30:44Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteJobSchedulerCheckpoint(p, slot, spawn); err != nil {
-		t.Fatal(err)
-	}
-	gotSched, gotSpawn, err := ReadJobDiskState(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !gotSched.Equal(slot.UTC()) || !gotSpawn.Equal(spawn.UTC()) {
-		t.Fatalf("sched=%v spawn=%v", gotSched, gotSpawn)
-	}
-}
-
-func TestWriteJobSpawnStartedPreservesScheduled(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "job.state")
-	slot, err := time.Parse(time.RFC3339, "2024-06-01T12:30:00Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteJobState(p, slot); err != nil {
-		t.Fatal(err)
-	}
-	spawn, err := time.Parse(time.RFC3339, "2024-06-01T14:00:01Z")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteJobSpawnStarted(p, spawn); err != nil {
-		t.Fatal(err)
-	}
-	gotSched, gotSpawn, err := ReadJobDiskState(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !gotSched.Equal(slot.UTC()) || !gotSpawn.Equal(spawn.UTC()) {
-		t.Fatalf("sched=%v spawn=%v", gotSched, gotSpawn)
 	}
 }
 

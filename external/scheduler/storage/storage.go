@@ -59,7 +59,36 @@ func NextScheduledUTC(sched cron.Schedule, lastFiredSlot time.Time) time.Time {
 // staleCheckpointYear treats .state checkpoints before this as missing (epoch-era bug or corrupt file).
 const staleCheckpointYear = 1980
 
-// DueFireSlotUTC returns the cron instant the daemon should treat as due at wall-clock now.
+// TruncateUTCToMinute returns t in UTC with seconds and sub-second fields zeroed.
+func TruncateUTCToMinute(t time.Time) time.Time {
+	u := t.UTC()
+	return time.Date(u.Year(), u.Month(), u.Day(), u.Hour(), u.Minute(), 0, 0, time.UTC)
+}
+
+// CronMinuteMatchesUTC reports whether the five-field schedule fires at the given UTC minute start
+// (second and nanosecond must be zero; vixie-style minute grid).
+func CronMinuteMatchesUTC(sched cron.Schedule, minuteStart time.Time) bool {
+	t := TruncateUTCToMinute(minuteStart)
+	n := sched.Next(t.Add(-time.Nanosecond)).UTC()
+	return n.Equal(t)
+}
+
+// CronJobEligibleForMinute reports whether the daemon should start a run for evalMinute (UTC minute start),
+// given last checkpoint from .state. Stale or zero last is treated as no durable prior run.
+func CronJobEligibleForMinute(sched cron.Schedule, lastFromState, evalMinute time.Time) bool {
+	eval := TruncateUTCToMinute(evalMinute)
+	last := lastFromState.UTC()
+	if !last.IsZero() && last.Year() >= staleCheckpointYear {
+		if !last.Before(eval) {
+			return false
+		}
+	}
+	return CronMinuteMatchesUTC(sched, eval)
+}
+
+// DueFireSlotUTC is kept for tests and legacy callers. The daemon uses CronJobEligibleForMinute on a
+// UTC minute tick instead of sub-minute polling. It returns the cron instant the daemon would treat as due
+// at wall-clock now when driven by sub-minute polls.
 // With no durable checkpoint (zero last, or stale pre-1980 timestamps from old epoch anchoring), it behaves
 // like vixie crontab for a new line: the next fire follows the schedule from real time, not from Unix epoch.
 // With a normal last checkpoint, it is the first scheduled instant strictly after that last fire.
@@ -77,6 +106,7 @@ func DueFireSlotUTC(sched cron.Schedule, lastFiredSlot time.Time, now time.Time)
 
 // NextScheduledDisplayUTC returns the next cron instant strictly after max(lastFiredSlot, now) for UI lists.
 // When lastFiredSlot is zero (never recorded), anchors at now instead of CronEpoch so clients do not show 1970.
+// Instants are on the UTC minute grid (five-field crontab), matching the daemon's CronJobEligibleForMinute model.
 func NextScheduledDisplayUTC(sched cron.Schedule, lastFiredSlot time.Time, now time.Time) time.Time {
 	now = now.UTC()
 	anchor := lastFiredSlot.UTC()
@@ -282,8 +312,7 @@ func StatePath(jobMDPath string) string {
 }
 
 type jobDiskState struct {
-	LastScheduledUTC    string `json:"last_scheduled_utc,omitempty"`
-	LastSpawnStartedUTC string `json:"last_spawn_started_utc,omitempty"`
+	LastScheduledUTC string `json:"last_scheduled_utc,omitempty"`
 }
 
 func parseRFC3339Field(s string) (time.Time, bool) {
@@ -298,32 +327,23 @@ func parseRFC3339Field(s string) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-// ReadJobDiskState reads last_scheduled_utc and optional last_spawn_started_utc from a .state file.
-func ReadJobDiskState(path string) (lastScheduled, lastSpawnStarted time.Time, err error) {
+// ReadJobState reads last scheduled fire time from a .state file.
+func ReadJobState(path string) (time.Time, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return time.Time{}, time.Time{}, nil
+			return time.Time{}, nil
 		}
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, err
 	}
 	var st jobDiskState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, err
 	}
 	if t, ok := parseRFC3339Field(st.LastScheduledUTC); ok {
-		lastScheduled = t
+		return t, nil
 	}
-	if t, ok := parseRFC3339Field(st.LastSpawnStartedUTC); ok {
-		lastSpawnStarted = t
-	}
-	return lastScheduled, lastSpawnStarted, nil
-}
-
-// ReadJobState reads last scheduled fire time from a .state file.
-func ReadJobState(path string) (time.Time, error) {
-	last, _, err := ReadJobDiskState(path)
-	return last, err
+	return time.Time{}, nil
 }
 
 func marshalJobDiskState(st jobDiskState) ([]byte, error) {
@@ -370,52 +390,13 @@ func persistJobDiskState(path string, data []byte) error {
 	return nil
 }
 
-// WriteJobSchedulerCheckpoint persists the committed cron slot and the wall-clock spawn instant
-// used to throttle back-to-back starts within one schedule period.
-func WriteJobSchedulerCheckpoint(path string, lastScheduledSlot, spawnStartedUTC time.Time) error {
-	st := jobDiskState{
-		LastScheduledUTC:    lastScheduledSlot.UTC().Format(time.RFC3339),
-		LastSpawnStartedUTC: spawnStartedUTC.UTC().Format(time.RFC3339),
-	}
-	data, err := marshalJobDiskState(st)
-	if err != nil {
-		return err
-	}
-	return persistJobDiskState(path, data)
-}
-
-// WriteJobSpawnStarted updates only last_spawn_started_utc, preserving last_scheduled_utc when present.
-// Manual runs use this so the next cron tick respects minimum spacing after a manual execution.
-func WriteJobSpawnStarted(path string, spawnStartedUTC time.Time) error {
-	lastSched, _, err := ReadJobDiskState(path)
-	if err != nil {
-		return err
-	}
-	st := jobDiskState{LastSpawnStartedUTC: spawnStartedUTC.UTC().Format(time.RFC3339)}
-	if !lastSched.IsZero() {
-		st.LastScheduledUTC = lastSched.UTC().Format(time.RFC3339)
-	}
-	data, err := marshalJobDiskState(st)
-	if err != nil {
-		return err
-	}
-	return persistJobDiskState(path, data)
-}
-
-// WriteJobState persists the last executed cron slot (UTC), preserving last_spawn_started_utc when present.
+// WriteJobState persists the last executed cron slot (UTC).
 // It writes through a temp file in the same directory and renames into place so
 // concurrent daemon ticks never read a truncated JSON file as an empty checkpoint.
 // On Unix, rename replaces an existing destination atomically. On Windows the prior
 // file is removed first because os.Rename cannot replace an existing path there.
 func WriteJobState(path string, lastScheduled time.Time) error {
-	_, spawn, err := ReadJobDiskState(path)
-	if err != nil {
-		return err
-	}
 	st := jobDiskState{LastScheduledUTC: lastScheduled.UTC().Format(time.RFC3339)}
-	if !spawn.IsZero() {
-		st.LastSpawnStartedUTC = spawn.UTC().Format(time.RFC3339)
-	}
 	data, err := marshalJobDiskState(st)
 	if err != nil {
 		return err

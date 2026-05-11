@@ -23,6 +23,21 @@ func TestSpawnDedupeSkipsSecondLaunchSameSlot(t *testing.T) {
 	}
 }
 
+// RunJobFile registers noteSpawnDispatched before WriteJobState so a failing checkpoint write
+// still suppresses repeated launches for the same cron slot on subsequent polls.
+func TestSpawnDedupeRegistersBeforeCheckpointWrite(t *testing.T) {
+	p := "/tmp/demo-state-write.md"
+	slot, err := time.Parse(time.RFC3339, "2026-05-12T12:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zero time.Time
+	noteSpawnDispatched(p, slot)
+	if !shouldSkipDuplicateCronSpawn(p, slot, zero) {
+		t.Fatal("same-slot poll retry must skip even when .state write failed")
+	}
+}
+
 func TestSpawnDedupeClearsWhenDiskCaughtUp(t *testing.T) {
 	p := "/tmp/other.md"
 	slot, err := time.Parse(time.RFC3339, "2026-05-12T00:05:00Z")

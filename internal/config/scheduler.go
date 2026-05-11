@@ -14,9 +14,6 @@ type SchedulerConfig struct {
 	// Dir is the filesystem root containing *.md job definitions. Empty defaults to ${CODDY_HOME}/scheduler.
 	Dir string `yaml:"dir"`
 
-	// PollInterval is how often the daemon rescans jobs (default 1m).
-	PollInterval string `yaml:"poll_interval"`
-
 	// MaxQueue caps concurrent scheduled sub-agent runs (default 10). When saturated, pending jobs are skipped until a slot frees.
 	MaxQueue int `yaml:"max_queue"`
 
@@ -50,15 +47,11 @@ func (s *SchedulerConfig) Normalize(p Paths) {
 	if s.Dir != "" {
 		s.Dir = filepath.Clean(ExpandCODDYHomeOnly(s.Dir, p))
 	}
-	s.PollInterval = strings.TrimSpace(s.PollInterval)
 	s.Timeout = strings.TrimSpace(s.Timeout)
 }
 
 // ApplyDefaults fills scheduler defaults after Normalize.
 func (s *SchedulerConfig) ApplyDefaults(p Paths) {
-	if s.PollInterval == "" {
-		s.PollInterval = "1m"
-	}
 	if s.MaxQueue <= 0 {
 		s.MaxQueue = 10
 	}
@@ -93,9 +86,6 @@ func (c *Config) SchedulerRetainSessionsEffective() int {
 func (s *SchedulerConfig) Validate(cfg *Config) error {
 	if cfg == nil || !cfg.SchedulerEffectiveEnabled() {
 		return nil
-	}
-	if _, err := time.ParseDuration(s.PollInterval); err != nil {
-		return fmt.Errorf("scheduler.poll_interval: %w", err)
 	}
 	if _, err := time.ParseDuration(s.Timeout); err != nil {
 		return fmt.Errorf("scheduler.timeout: %w", err)

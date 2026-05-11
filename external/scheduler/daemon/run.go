@@ -22,6 +22,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+// schedulerSkillsLoadGateForTest runs immediately before skills.LoadAll when non-nil (daemon tests).
+var schedulerSkillsLoadGateForTest func()
+
 func randomSchedulerSessionID() string {
 	b := make([]byte, 12)
 	if _, err := rand.Read(b); err != nil {
@@ -65,8 +68,8 @@ func jobIDFromMDPath(abs string) string {
 }
 
 // RunJobFile executes one scheduler job (cron tick or manual). When updateLastScheduledState is true, fireSlot updates the .state checkpoint
-// as soon as the run is committed (after initial session persist) so daemon poll ticks do not treat the same cron slot as still due while
-// the agent turn is in progress or if the final checkpoint write at shutdown were to fail.
+// immediately after the first session persist and before skills.LoadAll so concurrent daemon ticks do not treat the same cron slot as still due
+// while skills load or the agent turn runs.
 func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD, jobPath string, fireSlot time.Time, updateLastScheduledState bool, fm *storage.JobFrontmatter, instruction string) error {
 	if fm != nil && fm.Paused {
 		return nil
@@ -103,8 +106,7 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		log.Error("scheduler_run_session_layout", "job_id", jobID, "error", err)
 		return err
 	}
-	spawnUTC := time.Now().UTC()
-	started := spawnUTC.Format(time.RFC3339)
+	started := time.Now().UTC().Format(time.RFC3339)
 
 	jobCWD, err := resolveJobCWD(processCWD, fm)
 	if err != nil {
@@ -112,19 +114,12 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		return err
 	}
 
-	loader := skills.NewLoader(cfg.Skills.Dirs)
-	skillList, loadErr := loader.LoadAll(jobCWD, cfg.Paths.Home)
-	if loadErr != nil {
-		log.Warn("scheduler_run_skills", "job_id", jobID, "error", loadErr)
-		skillList = nil
-	}
-
 	st := &session.State{
 		ID:              sid,
 		CWD:             jobCWD,
 		Mode:            parseSessionMode(fm.Mode),
 		SelectedModelID: strings.TrimSpace(fm.Model),
-		Skills:          skillList,
+		Skills:          nil,
 		SessionDir:      dir,
 	}
 	st.SetSchedulerRunMeta(jobID, started)
@@ -133,14 +128,32 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		return saveErr
 	}
 
+	// Cron checkpoint and in-memory dedupe must happen before LoadAll (can be slow) and before the
+	// async tick fires again; doTickAtMinute runs on another goroutine and would see stale .state otherwise.
+	// Record the slot in spawnDedupe before WriteJobState: if the disk write fails, we still must not
+	// launch the same fire slot again on every poll (otherwise the daemon retries every poll interval).
 	if updateLastScheduledState {
-		if werr := storage.WriteJobSchedulerCheckpoint(stPath, fireSlot, spawnUTC); werr != nil {
+		noteSpawnDispatched(absJob, fireSlot)
+		if werr := storage.WriteJobState(stPath, fireSlot); werr != nil {
 			log.Warn("scheduler_run_state_write", "job_id", jobID, "path", stPath, "error", werr)
 			return werr
 		}
-		noteSpawnDispatched(absJob, fireSlot)
-	} else if werr := storage.WriteJobSpawnStarted(stPath, spawnUTC); werr != nil {
-		log.Warn("scheduler_spawn_throttle_write", "job_id", jobID, "path", stPath, "error", werr)
+	}
+
+	// Tests only: block until an observer sees .state (guarantees checkpoint precedes LoadAll).
+	if schedulerSkillsLoadGateForTest != nil {
+		schedulerSkillsLoadGateForTest()
+	}
+
+	loader := skills.NewLoader(cfg.Skills.Dirs)
+	skillList, loadErr := loader.LoadAll(jobCWD, cfg.Paths.Home)
+	if loadErr != nil {
+		log.Warn("scheduler_run_skills", "job_id", jobID, "error", loadErr)
+		skillList = nil
+	}
+	st.Skills = skillList
+	if saveErr := fs.Save(st); saveErr != nil {
+		log.Warn("scheduler_run_persist_skills", "job_id", jobID, "session_id", sid, "error", saveErr)
 	}
 
 	log.Info("scheduler_run_spawn", "job_id", jobID, "session_id", sid)

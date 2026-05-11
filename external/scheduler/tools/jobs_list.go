@@ -17,7 +17,7 @@ func jobsListTool(cfg *config.Config) *tooling.Tool {
 		Definition: llm.ToolDefinition{
 			Name: toolJobsList,
 			Description: "Lists all scheduler cron jobs configured as flat *.md files under scheduler.dir (YAML frontmatter + markdown body). " +
-				"Returns a JSON envelope mirroring GET /coddy/scheduler/jobs: a scheduler info object (enabled, dirs, poll_interval, active run count) plus an array of jobs. " +
+				"Returns a JSON envelope mirroring GET /coddy/scheduler/jobs: a scheduler info object (enabled, dir, timeout, max_queue, runs_active, retain_sessions) plus an array of jobs. " +
 				"Call when the user asks what is scheduled or which jobs exist. Prefer over job_get when you need the full collection. " +
 				"Uses include_body:false by default to omit large instruction bodies; pass include_body true only when edit text is required.",
 			InputSchema: map[string]interface{}{

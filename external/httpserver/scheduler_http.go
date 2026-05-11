@@ -548,7 +548,6 @@ func openAPISchedulerSchemas() map[string]interface{} {
 			"properties": map[string]interface{}{
 				"enabled":         map[string]string{"type": "boolean"},
 				"dir":             map[string]string{"type": "string"},
-				"poll_interval":   map[string]string{"type": "string"},
 				"timeout":         map[string]string{"type": "string"},
 				"max_queue":       map[string]string{"type": "integer"},
 				"runs_active":     map[string]string{"type": "integer"},

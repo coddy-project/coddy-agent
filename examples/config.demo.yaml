@@ -45,7 +45,6 @@ httpserver:
 scheduler:
   enabled: true
   dir: ""
-  poll_interval: "10s"
   max_queue: 10
   timeout: "6m"
 

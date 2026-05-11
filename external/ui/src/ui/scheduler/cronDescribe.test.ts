@@ -23,6 +23,14 @@ describe("describeCronScheduleOrError", () => {
     }
   });
 
+  it("describes step minute */2 (UTC five-field) like cronstrue verbose", () => {
+    const r = describeCronScheduleOrError("*/2 * * * *");
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.text).toBe("Every 2 minutes, every hour, every day");
+    }
+  });
+
   it("returns error for empty", () => {
     const r = describeCronScheduleOrError("  ");
     expect(r.ok).toBe(false);

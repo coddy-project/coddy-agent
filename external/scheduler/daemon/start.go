@@ -27,6 +27,6 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger, processCWD
 		}
 		pcwd = wd
 	}
-	log.Info("scheduler daemon enabled", "poll", cfg.Scheduler.PollInterval, "dir", cfg.Scheduler.Dir, "component", "scheduler")
+	log.Info("scheduler daemon enabled", "dir", cfg.Scheduler.Dir, "component", "scheduler")
 	go runDaemon(ctx, cfg, log, pcwd)
 }

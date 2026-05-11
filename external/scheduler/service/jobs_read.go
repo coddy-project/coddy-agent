@@ -16,7 +16,6 @@ func (o *Service) buildSchedulerInfo() SchedulerInfo {
 	return SchedulerInfo{
 		Enabled:        c.SchedulerEffectiveEnabled(),
 		Dir:            strings.TrimSpace(c.Scheduler.Dir),
-		PollInterval:   strings.TrimSpace(c.Scheduler.PollInterval),
 		Timeout:        strings.TrimSpace(c.Scheduler.Timeout),
 		MaxQueue:       c.Scheduler.MaxQueue,
 		RunsActive:     TrackedJobRunCount(),

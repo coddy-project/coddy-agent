@@ -57,7 +57,7 @@ Paths are **missing** from a plain **`http`** build and from OpenAPI when **sche
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | **`/coddy/scheduler/jobs`** | JSON **`{ scheduler, jobs[] }`**. Envelope **`scheduler`** includes **`enabled`**, resolved **`dir`**, **`poll_interval`**, **`timeout`**, **`max_queue`**, **`runs_active`**, **`retain_sessions`**. Optional query **`include_body=true`** embeds each job instruction body. Each **`jobs[].running`** is **true** only while this server process tracks an in-flight agent run for that job (not from a stray **`basename.lock`** alone). Stale locks older than a grace window are removed during list and daemon ticks. |
+| GET | **`/coddy/scheduler/jobs`** | JSON **`{ scheduler, jobs[] }`**. Envelope **`scheduler`** includes **`enabled`**, resolved **`dir`**, **`timeout`**, **`max_queue`**, **`runs_active`**, **`retain_sessions`**. Optional query **`include_body=true`** embeds each job instruction body. Each **`jobs[].running`** is **true** only while this server process tracks an in-flight agent run for that job (not from a stray **`basename.lock`** alone). Stale locks older than a grace window are removed during list and daemon ticks. |
 | POST | **`/coddy/scheduler/jobs`** | Create job. JSON body **`job_id`**, **`description`**, **`schedule`** (5-field UTC cron), optional **`paused`**, **`cwd`**, **`model`**, **`mode`**, **`body`**. **`201`** + **`Location`**. **`409`** when **`job_id`** already exists. |
 | GET | **`/coddy/scheduler/jobs/{job_id}`** | Full **`SchedulerJob`** including **`body`**. |
 | PUT | **`/coddy/scheduler/jobs/{job_id}`** | Replace entire job file. |
