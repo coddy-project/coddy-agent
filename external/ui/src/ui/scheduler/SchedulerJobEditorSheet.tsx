@@ -17,7 +17,7 @@ import {
 import type { SchedulerJob, SchedulerJobCreate } from "./types";
 import {
   SchedulerIconPause,
-  SchedulerIconPlay,
+  SchedulerIconResume,
   SchedulerIconTrash,
 } from "./schedulerToolbarIcons";
 
@@ -634,7 +634,7 @@ export function SchedulerJobEditorSheet(props: {
             aria-label={paused ? "Resume" : "Pause"}
             onClick={() => void onPauseToggle()}
           >
-            {paused ? <SchedulerIconPlay /> : <SchedulerIconPause />}
+            {paused ? <SchedulerIconResume /> : <SchedulerIconPause />}
           </button>
         ) : null}
         {props.mode === "edit" ? (

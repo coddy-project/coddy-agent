@@ -29,10 +29,20 @@ export function SchedulerIconPause(props: { className?: string }) {
   );
 }
 
-export function SchedulerIconPlay(props: { className?: string }) {
+/** Resume paused schedule - clock metaphor (not a play/run-now triangle). */
+export function SchedulerIconResume(props: { className?: string }) {
   return (
-    <svg {...common} className={props.className}>
-      <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
+    <svg
+      {...common}
+      className={props.className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 12V8M12 12l4 3" />
     </svg>
   );
 }
