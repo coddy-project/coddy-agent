@@ -51,6 +51,13 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 			if err := validateSubconfigs(cfg); err != nil {
 				return nil, err
 			}
+			rp := RuntimeOverlayPath(paths.Home)
+			overlay, _ := LoadRuntimeOverlay(rp)
+			if overlay == nil {
+				overlay = &RuntimeOverlay{}
+			}
+			cfg.RuntimeOverlay = overlay
+			cfg.RuntimeOverlayPath = rp
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
@@ -68,6 +75,13 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	if err := validateSubconfigs(&cfg); err != nil {
 		return nil, err
 	}
+	rp := RuntimeOverlayPath(paths.Home)
+	overlay, _ := LoadRuntimeOverlay(rp)
+	if overlay == nil {
+		overlay = &RuntimeOverlay{}
+	}
+	cfg.RuntimeOverlay = overlay
+	cfg.RuntimeOverlayPath = rp
 	return &cfg, nil
 }
 

@@ -16,6 +16,7 @@ type ResolvedLLM struct {
 }
 
 // FindProvider returns the provider with the given name, or nil.
+// It searches static providers first, then runtime overlay providers.
 func (c *Config) FindProvider(name string) *ProviderConfig {
 	n := strings.TrimSpace(name)
 	for i := range c.Providers {
@@ -23,10 +24,18 @@ func (c *Config) FindProvider(name string) *ProviderConfig {
 			return &c.Providers[i]
 		}
 	}
+	if c.RuntimeOverlay != nil {
+		for i := range c.RuntimeOverlay.Providers {
+			if c.RuntimeOverlay.Providers[i].Name == n {
+				return &c.RuntimeOverlay.Providers[i]
+			}
+		}
+	}
 	return nil
 }
 
 // FindModelEntry returns the model entry whose Model selector equals ref, or nil.
+// It searches static models first, then runtime overlay models.
 func (c *Config) FindModelEntry(ref string) *ModelEntry {
 	want := strings.TrimSpace(ref)
 	for i := range c.Models {
@@ -34,7 +43,42 @@ func (c *Config) FindModelEntry(ref string) *ModelEntry {
 			return &c.Models[i]
 		}
 	}
+	if c.RuntimeOverlay != nil {
+		for i := range c.RuntimeOverlay.Models {
+			if c.RuntimeOverlay.Models[i].Model == want {
+				return &c.RuntimeOverlay.Models[i]
+			}
+		}
+	}
 	return nil
+}
+
+// AllProviders returns a new slice containing static providers followed by runtime overlay providers.
+func (c *Config) AllProviders() []ProviderConfig {
+	total := len(c.Providers)
+	if c.RuntimeOverlay != nil {
+		total += len(c.RuntimeOverlay.Providers)
+	}
+	out := make([]ProviderConfig, 0, total)
+	out = append(out, c.Providers...)
+	if c.RuntimeOverlay != nil {
+		out = append(out, c.RuntimeOverlay.Providers...)
+	}
+	return out
+}
+
+// AllModels returns a new slice containing static models followed by runtime overlay models.
+func (c *Config) AllModels() []ModelEntry {
+	total := len(c.Models)
+	if c.RuntimeOverlay != nil {
+		total += len(c.RuntimeOverlay.Models)
+	}
+	out := make([]ModelEntry, 0, total)
+	out = append(out, c.Models...)
+	if c.RuntimeOverlay != nil {
+		out = append(out, c.RuntimeOverlay.Models...)
+	}
+	return out
 }
 
 // ResolveLLM merges provider and model configuration for use with internal/llm.

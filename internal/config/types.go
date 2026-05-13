@@ -17,4 +17,7 @@ type Config struct {
 	Memory     MemoryConfig      `yaml:"memory"`
 	HTTPServer HTTPServerConfig  `yaml:"httpserver"`
 	Scheduler  SchedulerConfig   `yaml:"scheduler"`
+
+	RuntimeOverlay     *RuntimeOverlay `yaml:"-"`
+	RuntimeOverlayPath string          `yaml:"-"`
 }
