@@ -315,4 +315,4 @@ echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":
 
 ## License
 
-MIT
+This project is licensed under the MIT License, see the [LICENSE](LICENSE) file in the repository root for details.
