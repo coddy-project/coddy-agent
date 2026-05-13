@@ -93,6 +93,74 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}
 }
 
+func TestGETModelsIncludesRuntimeOverlay(t *testing.T) {
+	cfg := &config.Config{
+		Agent: config.Agent{Model: "static/m1"},
+		Models: []config.ModelEntry{
+			{Model: "static/m1", MaxTokens: 100, Temperature: 0.2},
+		},
+		RuntimeOverlay: &config.RuntimeOverlay{
+			Models: []config.ModelEntry{
+				{Model: "runtime/m2", MaxTokens: 200, Temperature: 0.5},
+			},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var body struct {
+		Object            string `json:"object"`
+		DefaultAgentModel string `json:"default_agent_model"`
+		Data              []struct {
+			ID               string `json:"id"`
+			Object           string `json:"object"`
+			OwnedBy          string `json:"owned_by"`
+			MaxContextTokens int    `json:"max_context_tokens"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		id      string
+		ownedBy string
+	}{
+		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
+		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: "static/m1", ownedBy: "static"},
+		{id: "runtime/m2", ownedBy: "runtime"},
+	}
+	if body.Object != "list" || len(body.Data) != len(want) {
+		t.Fatalf("unexpected body %+v", body)
+	}
+	if body.DefaultAgentModel != "static/m1" {
+		t.Fatalf("default_agent_model: want static/m1 got %q", body.DefaultAgentModel)
+	}
+	for i, w := range want {
+		item := body.Data[i]
+		if item.ID != w.id || item.Object != "model" || item.OwnedBy != w.ownedBy {
+			t.Fatalf("row %d: want id=%s owned_by=%s, got %+v", i, w.id, w.ownedBy, item)
+		}
+		if item.MaxContextTokens <= 0 {
+			t.Fatalf("row %d: expected max_context_tokens, got %+v", i, item)
+		}
+	}
+}
+
 func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	doc := openAPISpec()
 	if doc["openapi"] != "3.0.3" {

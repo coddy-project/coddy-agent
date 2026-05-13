@@ -169,8 +169,9 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if s.cfg != nil {
-		for i := range s.cfg.Models {
-			ent := &s.cfg.Models[i]
+		allModels := s.cfg.AllModels()
+		for i := range allModels {
+			ent := &allModels[i]
 			mid := strings.TrimSpace(ent.Model)
 			if mid == "" {
 				continue
