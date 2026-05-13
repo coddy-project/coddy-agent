@@ -42,7 +42,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 
 	// POST a new provider runtime1. Expect 201.
 	postBody := `{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":"secret123"}`
-	res, err := http.Post(ts.URL+"/admin/providers", "application/json", strings.NewReader(postBody))
+	res, err := http.Post(ts.URL+"/coddy/admin/providers", "application/json", strings.NewReader(postBody))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// GET list. Expect 1 item, key masked.
-	res, err = http.Get(ts.URL + "/admin/providers")
+	res, err = http.Get(ts.URL + "/coddy/admin/providers")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// PUT runtime1 with empty api_key. Expect key preserved.
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/admin/providers/runtime1", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":""}`))
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/providers/runtime1", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":""}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// PUT runtime1 with new api_key. Expect key updated (verify via masked response).
-	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/admin/providers/runtime1", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":"newsecret456"}`))
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/providers/runtime1", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":"newsecret456"}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -131,7 +131,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// POST duplicate name static or runtime1. Expect 400/409.
-	res, err = http.Post(ts.URL+"/admin/providers", "application/json", strings.NewReader(`{"name":"static","type":"openai","api_base":"https://api.openai.com","api_key":"x"}`))
+	res, err = http.Post(ts.URL+"/coddy/admin/providers", "application/json", strings.NewReader(`{"name":"static","type":"openai","api_base":"https://api.openai.com","api_key":"x"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 		t.Fatalf("expected 400/409 for duplicate, got %d body %s", res.StatusCode, b)
 	}
 
-	res, err = http.Post(ts.URL+"/admin/providers", "application/json", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":"x"}`))
+	res, err = http.Post(ts.URL+"/coddy/admin/providers", "application/json", strings.NewReader(`{"name":"runtime1","type":"openai","api_base":"https://api.openai.com","api_key":"x"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// DELETE runtime1. Expect 204.
-	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/admin/providers/runtime1", nil)
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/coddy/admin/providers/runtime1", nil)
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// DELETE non-existent provider. Expect 404.
-	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/admin/providers/nonexistent", nil)
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/coddy/admin/providers/nonexistent", nil)
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestAdminProviderCRUD(t *testing.T) {
 	}
 
 	// GET list. Expect 0 items.
-	res, err = http.Get(ts.URL + "/admin/providers")
+	res, err = http.Get(ts.URL + "/coddy/admin/providers")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	defer ts.Close()
 
 	// Create a runtime provider first so the model has a valid provider.
-	res, err := http.Post(ts.URL+"/admin/providers", "application/json", strings.NewReader(`{"name":"runtime","type":"openai","api_base":"https://api.openai.com","api_key":"rt"}`))
+	res, err := http.Post(ts.URL+"/coddy/admin/providers", "application/json", strings.NewReader(`{"name":"runtime","type":"openai","api_base":"https://api.openai.com","api_key":"rt"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestAdminModelCRUD(t *testing.T) {
 
 	// POST a runtime model runtime/gpt-4o-mini. Expect 201.
 	postBody := `{"model":"runtime/gpt-4o-mini","max_tokens":200,"temperature":0.5,"max_context_tokens":4000}`
-	res, err = http.Post(ts.URL+"/admin/models", "application/json", strings.NewReader(postBody))
+	res, err = http.Post(ts.URL+"/coddy/admin/models", "application/json", strings.NewReader(postBody))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// POST a model with unknown provider. Expect 400.
-	res, err = http.Post(ts.URL+"/admin/models", "application/json", strings.NewReader(`{"model":"bad/gpt-4","max_tokens":100}`))
+	res, err = http.Post(ts.URL+"/coddy/admin/models", "application/json", strings.NewReader(`{"model":"bad/gpt-4","max_tokens":100}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +255,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// POST duplicate of static model openai/gpt-4o. Expect 409.
-	res, err = http.Post(ts.URL+"/admin/models", "application/json", strings.NewReader(`{"model":"openai/gpt-4o","max_tokens":100}`))
+	res, err = http.Post(ts.URL+"/coddy/admin/models", "application/json", strings.NewReader(`{"model":"openai/gpt-4o","max_tokens":100}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// POST with empty model field. Expect 400.
-	res, err = http.Post(ts.URL+"/admin/models", "application/json", strings.NewReader(`{"model":"","max_tokens":100}`))
+	res, err = http.Post(ts.URL+"/coddy/admin/models", "application/json", strings.NewReader(`{"model":"","max_tokens":100}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// GET list. Expect 1 item.
-	res, err = http.Get(ts.URL + "/admin/models")
+	res, err = http.Get(ts.URL + "/coddy/admin/models")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// PUT runtime/gpt-4o-mini with new max_tokens. Expect 200.
-	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"runtime/gpt-4o-mini","max_tokens":999,"temperature":0.7}`))
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"runtime/gpt-4o-mini","max_tokens":999,"temperature":0.7}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -320,7 +320,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// PUT runtime/gpt-4o-mini renaming to existing static model. Expect 409.
-	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"openai/gpt-4o","max_tokens":100}`))
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"openai/gpt-4o","max_tokens":100}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -332,7 +332,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// PUT runtime/gpt-4o-mini with unknown provider. Expect 400.
-	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"bad/gpt-4","max_tokens":100}`))
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/models/runtime/gpt-4o-mini", strings.NewReader(`{"model":"bad/gpt-4","max_tokens":100}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// DELETE runtime/gpt-4o-mini. Expect 204.
-	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/admin/models/runtime/gpt-4o-mini", nil)
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/coddy/admin/models/runtime/gpt-4o-mini", nil)
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -355,7 +355,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// GET list. Expect 0 items.
-	res, err = http.Get(ts.URL + "/admin/models")
+	res, err = http.Get(ts.URL + "/coddy/admin/models")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// DELETE non-existent model. Expect 404.
-	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/admin/models/nonexistent/model", nil)
+	req, _ = http.NewRequest(http.MethodDelete, ts.URL+"/coddy/admin/models/nonexistent/model", nil)
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +385,7 @@ func TestAdminModelCRUD(t *testing.T) {
 	}
 
 	// PUT non-existent model. Expect 404.
-	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/admin/models/nonexistent/model", strings.NewReader(`{"model":"nonexistent/model","max_tokens":100}`))
+	req, _ = http.NewRequest(http.MethodPut, ts.URL+"/coddy/admin/models/nonexistent/model", strings.NewReader(`{"model":"nonexistent/model","max_tokens":100}`))
 	req.Header.Set("Content-Type", "application/json")
 	res, err = http.DefaultClient.Do(req)
 	if err != nil {

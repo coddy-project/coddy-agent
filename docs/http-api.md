@@ -45,6 +45,14 @@ No authentication is enforced. Run behind appropriate network controls.
 | DELETE | **`/coddy/sessions/{id}`** | Removes the entire persisted session directory (including `tool_calls/` and `stats.json`) plus in-memory MCP clients. |
 | GET/PUT | **`/coddy/sessions/{id}/plan`** | Read or overwrite todo **`entries`** (ACP shape). |
 | POST | **`/coddy/sessions/{id}/plan/archive`** | Archives active todos like **`coddy_todo_plan_archive`**. |
+| GET | **`/coddy/admin/providers`** | List runtime overlay providers (masked keys). |
+| POST | **`/coddy/admin/providers`** | Create runtime provider. |
+| PUT | **`/coddy/admin/providers/{name}`** | Update runtime provider. |
+| DELETE | **`/coddy/admin/providers/{name}`** | Delete runtime provider (cascades to its runtime models). |
+| GET | **`/coddy/admin/models`** | List runtime overlay models. |
+| POST | **`/coddy/admin/models`** | Create runtime model. |
+| PUT | **`/coddy/admin/models/{id...}`** | Update runtime model. |
+| DELETE | **`/coddy/admin/models/{id...}`** | Delete runtime model. |
 | GET | **`/coddy/sessions/{id}/memory/tree`** | Without **`root`**, lists **`global`** and **`workspace`**. Otherwise lists allowed **`.md` / `.txt`** children (traversal guarded). |
 | GET | **`/coddy/sessions/{id}/memory/file`** | Query **`root`** + **`path`**. UTF-8 content. |
 | PUT | **`/coddy/sessions/{id}/memory/file`** | JSON **`{"root","path","content"}`**. |
@@ -70,6 +78,21 @@ Paths are **missing** from a plain **`http`** build and from OpenAPI when **sche
 | GET | **`/coddy/scheduler/jobs/{job_id}/runs`** | Metadata for persisted runs (**`session_id`**, timestamps, **`status`**). **`limit`** query (default **50**, max **100**). Read full transcript with **`GET /coddy/sessions/{session_id}/messages`**. |
 
 Process logs for scheduler should stay short; full traces live under **`sessions.dir`** in normal session layout with **`schedulerRun`** metadata.
+
+### Admin config REST
+
+These endpoints manage the runtime overlay config (`$CODDY_HOME/ui-config.yaml`). Static `config.yaml` is never modified. All responses use the same **`ErrorEnvelope`** JSON as other **`/coddy`** routes.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | **`/coddy/admin/providers`** | JSON array of **`AdminProvider`** rows with masked **`api_key`** (`...last4`). |
+| POST | **`/coddy/admin/providers`** | JSON body **`name`**, **`type`**, **`api_base`**, **`api_key`**. **`201`** on success. **`409`** if name already exists in static or runtime config. |
+| PUT | **`/coddy/admin/providers/{name}`** | JSON body replaces the provider. Empty or omitted **`api_key`** preserves the existing key. |
+| DELETE | **`/coddy/admin/providers/{name}`** | **`204`**. Also removes any runtime models that reference the deleted provider. |
+| GET | **`/coddy/admin/models`** | JSON array of **`AdminModel`** rows. |
+| POST | **`/coddy/admin/models`** | JSON body **`model`** (`provider/name`), **`max_tokens`**, **`temperature`**, **`max_context_tokens`**. **`201`** on success. **`400`** if provider unknown or model ID malformed. **`409`** if model already exists. |
+| PUT | **`/coddy/admin/models/{id...}`** | JSON body replaces the model. **`400`** if provider unknown. **`409`** if renaming to an existing model ID. |
+| DELETE | **`/coddy/admin/models/{id...}`** | **`204`**. |
 
 ## **`model`**, profiles, and direct completion
 

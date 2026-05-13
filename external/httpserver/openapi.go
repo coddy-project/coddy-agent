@@ -377,6 +377,229 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/admin/providers": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List runtime providers",
+					"description": "Returns runtime overlay providers with masked API keys.",
+					"operationId": "listAdminProviders",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Provider list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminProviderList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Create runtime provider",
+					"description": "Adds a provider to the runtime overlay config.",
+					"operationId": "createAdminProvider",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"$ref": "#/components/schemas/AdminProvider",
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"201": map[string]interface{}{
+							"description": "Created provider",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminProvider",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/admin/providers/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Update runtime provider",
+					"description": "Replaces a runtime overlay provider. Empty api_key preserves the existing key.",
+					"operationId": "updateAdminProvider",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "name",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Provider name.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"$ref": "#/components/schemas/AdminProvider",
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Updated provider",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminProvider",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete runtime provider",
+					"description": "Removes a runtime overlay provider and any runtime models that reference it.",
+					"operationId": "deleteAdminProvider",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "name",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Provider name.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Deleted"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/admin/models": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List runtime models",
+					"description": "Returns runtime overlay models.",
+					"operationId": "listAdminModels",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Model list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminModelList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Create runtime model",
+					"description": "Adds a model to the runtime overlay config.",
+					"operationId": "createAdminModel",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"$ref": "#/components/schemas/AdminModel",
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"201": map[string]interface{}{
+							"description": "Created model",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminModel",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/admin/models/{id...}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Update runtime model",
+					"description": "Replaces a runtime overlay model.",
+					"operationId": "updateAdminModel",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Model selector (provider/name).",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"$ref": "#/components/schemas/AdminModel",
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Updated model",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/AdminModel",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete runtime model",
+					"description": "Removes a runtime overlay model.",
+					"operationId": "deleteAdminModel",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Model selector (provider/name).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Deleted"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
 			"schemas": map[string]interface{}{
@@ -626,6 +849,37 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"AdminProvider": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":     map[string]string{"type": "string"},
+						"type":     map[string]string{"type": "string"},
+						"api_base": map[string]string{"type": "string"},
+						"api_key": map[string]string{
+							"type":        "string",
+							"description": "Masked on read (...last4). Empty on write preserves existing key.",
+						},
+					},
+					"required": []string{"name", "type", "api_base"},
+				},
+				"AdminProviderList": map[string]interface{}{
+					"type":  "array",
+					"items": map[string]interface{}{"$ref": "#/components/schemas/AdminProvider"},
+				},
+				"AdminModel": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"model":              map[string]string{"type": "string"},
+						"max_tokens":         map[string]string{"type": "integer"},
+						"temperature":        map[string]interface{}{"type": "number", "format": "float"},
+						"max_context_tokens": map[string]string{"type": "integer"},
+					},
+					"required": []string{"model"},
+				},
+				"AdminModelList": map[string]interface{}{
+					"type":  "array",
+					"items": map[string]interface{}{"$ref": "#/components/schemas/AdminModel"},
 				},
 			},
 		},
