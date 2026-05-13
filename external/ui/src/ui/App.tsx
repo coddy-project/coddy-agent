@@ -40,6 +40,9 @@ import {
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
+import { SettingsModal } from "./settings/SettingsModal";
+import { ProviderForm } from "./settings/ProviderForm";
+import { ModelForm } from "./settings/ModelForm";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -509,6 +512,8 @@ export function App() {
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [llmModel, setLlmModel] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -776,53 +781,55 @@ export function App() {
     return () => window.clearInterval(id);
   }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
 
-  useEffect(() => {
-    void (async () => {
-      const res = await fetchJSON<{
-        default_agent_model?: string;
-        data?: Array<{
-          id?: string;
-          owned_by?: string;
-          max_context_tokens?: number;
-        }>;
-      }>("/v1/models");
-      if (!res.ok || !res.data?.data) {
-        return;
+  const refreshModels = useCallback(async () => {
+    const res = await fetchJSON<{
+      default_agent_model?: string;
+      data?: Array<{
+        id?: string;
+        owned_by?: string;
+        max_context_tokens?: number;
+      }>;
+    }>("/v1/models");
+    if (!res.ok || !res.data?.data) {
+      return;
+    }
+    const raw = res.data.data
+      .map((d) => ({
+        id: (d.id || "").trim(),
+        ownedBy: (d.owned_by || "").trim(),
+        ...(d.max_context_tokens !== undefined
+          ? { maxContextTokens: d.max_context_tokens }
+          : {}),
+      }))
+      .filter((d) => d.id);
+    const rows: ModelInfo[] = raw.map((d) => {
+      const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy };
+      if (d.maxContextTokens !== undefined) {
+        m.maxContextTokens = d.maxContextTokens;
       }
-      const raw = res.data.data
-        .map((d) => ({
-          id: (d.id || "").trim(),
-          ownedBy: (d.owned_by || "").trim(),
-          ...(d.max_context_tokens !== undefined
-            ? { maxContextTokens: d.max_context_tokens }
-            : {}),
-        }))
-        .filter((d) => d.id);
-      const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy };
-        if (d.maxContextTokens !== undefined) {
-          m.maxContextTokens = d.maxContextTokens;
-        }
-        return m;
-      });
-      setModelInfos(rows);
-      const backends = raw
-        .filter((r) => r.ownedBy !== "coddy")
-        .map((r) => r.id);
-      setLlmModelIds(backends);
-      const defaultYaml = (res.data.default_agent_model || "").trim();
-      const fromCookie = readLlmModelCookie();
-      let next = "";
-      if (fromCookie && backends.includes(fromCookie)) {
-        next = fromCookie;
-      } else if (defaultYaml && backends.includes(defaultYaml)) {
-        next = defaultYaml;
-      } else if (backends.length > 0 && backends[0]) {
-        next = backends[0];
-      }
-      setLlmModel(next);
-    })();
+      return m;
+    });
+    setModelInfos(rows);
+    const backends = raw
+      .filter((r) => r.ownedBy !== "coddy")
+      .map((r) => r.id);
+    setLlmModelIds(backends);
+    const defaultYaml = (res.data.default_agent_model || "").trim();
+    const fromCookie = readLlmModelCookie();
+    let next = "";
+    if (fromCookie && backends.includes(fromCookie)) {
+      next = fromCookie;
+    } else if (defaultYaml && backends.includes(defaultYaml)) {
+      next = defaultYaml;
+    } else if (backends.length > 0 && backends[0]) {
+      next = backends[0];
+    }
+    setLlmModel(next);
   }, []);
+
+  useEffect(() => {
+    void refreshModels();
+  }, [refreshModels]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -2390,6 +2397,7 @@ export function App() {
         canWidenRail={viewportXL}
         railLabelsWide={railLabelsWide}
         onToggleRailLabels={toggleRailWidth}
+        onOpenSettings={openSettings}
       />
 
       <div
@@ -2540,8 +2548,17 @@ export function App() {
               patch.fullResultText = det.data.result;
             upsertToolCall(patch as any);
           }}
+          onOpenSettings={openSettings}
         />
       </div>
+      {settingsOpen && (
+        <SettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          providersPanel={<ProviderForm onRefresh={refreshModels} />}
+          modelsPanel={<ModelForm onRefresh={refreshModels} />}
+        />
+      )}
     </div>
   );
 }

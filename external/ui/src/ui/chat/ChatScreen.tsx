@@ -58,6 +58,7 @@ export function ChatScreen(props: {
   onStop?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  onOpenSettings?: () => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
@@ -174,6 +175,9 @@ export function ChatScreen(props: {
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
                 : {})}
+              {...(props.onOpenSettings
+                ? { onOpenSettings: props.onOpenSettings }
+                : {})}
             />
           </div>
         </div>
@@ -242,6 +246,9 @@ export function ChatScreen(props: {
                 onSend={props.onSend}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
+                  : {})}
+                {...(props.onOpenSettings
+                  ? { onOpenSettings: props.onOpenSettings }
                   : {})}
               />
             </div>

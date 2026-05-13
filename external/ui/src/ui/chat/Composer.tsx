@@ -84,6 +84,7 @@ export function Composer(props: {
   onSend: (text: string) => void;
   generating?: boolean;
   onStop?: () => void;
+  onOpenSettings?: () => void;
 }) {
   const idleSendDisabled = props.value.trim() === "";
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
@@ -1123,6 +1124,22 @@ export function Composer(props: {
                           </button>
                         );
                       })}
+                      {props.onOpenSettings ? (
+                        <>
+                          <div style={{ height: "1px", background: "var(--nav)", margin: "4px 0" }} />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="mode-item"
+                            onClick={() => {
+                              props.onOpenSettings?.();
+                              setMenuOpen(null);
+                            }}
+                          >
+                            Manage models & providers…
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
