@@ -1778,6 +1778,19 @@ body {
   overflow: visible;
 }
 
+.settings-modal {
+  background: var(--coddy-glass-panel-bg);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  width: min(800px, 90vw);
+  height: min(600px, 80vh);
+  display: flex;
+  overflow: hidden;
+}
+
 .composer-field-wrap {
   position: relative;
   z-index: 1;
