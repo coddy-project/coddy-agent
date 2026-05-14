@@ -343,7 +343,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for Coddy YAML configuration (UI)",
-					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/coddy/config` and returned by **GET** `/coddy/config`. Exposes **api_key** and other secrets when combined with **GET** - use only on trusted networks.",
+					"description": "Returns a JSON Schema document describing the JSON shape accepted by **PUT** `/coddy/config` and returned by **GET** `/coddy/config`. Exposes **api_key**, optional per-provider **proxy**, and other secrets when combined with **GET** - use only on trusted networks.",
 					"operationId": "coddyConfigSchemaGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -361,7 +361,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** fields).",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers).",
 					"operationId": "coddyConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{

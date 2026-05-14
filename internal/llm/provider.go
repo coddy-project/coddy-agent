@@ -74,15 +74,30 @@ type Provider interface {
 	Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error)
 }
 
+// ProviderInput selects an LLM backend and connection parameters.
+type ProviderInput struct {
+	Type        string
+	Model       string
+	APIKey      string
+	BaseURL     string
+	ProxyURL    string
+	MaxTokens   int
+	Temperature float64
+}
+
 // NewProvider creates the appropriate Provider from a model definition.
-func NewProvider(providerType, model, apiKey, baseURL string, maxTokens int, temp float64) (Provider, error) {
-	switch providerType {
+func NewProvider(p ProviderInput) (Provider, error) {
+	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
+	switch p.Type {
 	case "openai":
-		return newOpenAIProvider(model, apiKey, baseURL, maxTokens, temp), nil
+		return newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature), nil
 	case "anthropic":
-		return newAnthropicProvider(model, apiKey, maxTokens, temp), nil
+		return newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature), nil
 	default:
-		return nil, &UnsupportedProviderError{Provider: providerType}
+		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
 }
 

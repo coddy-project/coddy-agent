@@ -11,6 +11,7 @@ type ResolvedLLM struct {
 	Model        string
 	APIKey       string
 	BaseURL      string
+	ProxyURL     string
 	MaxTokens    int
 	Temperature  float64
 }
@@ -57,6 +58,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		Model:        entry.APIModel(),
 		APIKey:       prov.APIKey,
 		BaseURL:      prov.APIBase,
+		ProxyURL:     prov.Proxy,
 		MaxTokens:    entry.MaxTokens,
 		Temperature:  entry.Temperature,
 	}, nil

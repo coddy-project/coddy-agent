@@ -101,7 +101,15 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 	if maxTok <= 0 || maxTok > 96 {
 		maxTok = 96
 	}
-	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, maxTok, rm.Temperature)
+	return llm.NewProvider(llm.ProviderInput{
+		Type:        rm.ProviderType,
+		Model:       rm.Model,
+		APIKey:      rm.APIKey,
+		BaseURL:     rm.BaseURL,
+		ProxyURL:    rm.ProxyURL,
+		MaxTokens:   maxTok,
+		Temperature: rm.Temperature,
+	})
 }
 
 func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
@@ -120,7 +128,15 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if maxTok <= 0 || maxTok > 96 {
 		maxTok = 96
 	}
-	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, maxTok, rm.Temperature)
+	return llm.NewProvider(llm.ProviderInput{
+		Type:        rm.ProviderType,
+		Model:       rm.Model,
+		APIKey:      rm.APIKey,
+		BaseURL:     rm.BaseURL,
+		ProxyURL:    rm.ProxyURL,
+		MaxTokens:   maxTok,
+		Temperature: rm.Temperature,
+	})
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {

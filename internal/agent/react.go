@@ -522,7 +522,15 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 		return nil, err
 	}
 
-	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, rm.MaxTokens, rm.Temperature)
+	return llm.NewProvider(llm.ProviderInput{
+		Type:        rm.ProviderType,
+		Model:       rm.Model,
+		APIKey:      rm.APIKey,
+		BaseURL:     rm.BaseURL,
+		ProxyURL:    rm.ProxyURL,
+		MaxTokens:   rm.MaxTokens,
+		Temperature: rm.Temperature,
+	})
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

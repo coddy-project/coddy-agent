@@ -29,6 +29,7 @@ type ProviderJSON struct {
 	Type    string `json:"type"`
 	APIBase string `json:"api_base,omitempty"`
 	APIKey  string `json:"api_key,omitempty"`
+	Proxy   string `json:"proxy,omitempty"`
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.

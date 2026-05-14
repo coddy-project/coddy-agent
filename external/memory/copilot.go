@@ -73,7 +73,15 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	}
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
-	return llm.NewProvider(rm.ProviderType, rm.Model, rm.APIKey, rm.BaseURL, rm.MaxTokens, rm.Temperature)
+	return llm.NewProvider(llm.ProviderInput{
+		Type:        rm.ProviderType,
+		Model:       rm.Model,
+		APIKey:      rm.APIKey,
+		BaseURL:     rm.BaseURL,
+		ProxyURL:    rm.ProxyURL,
+		MaxTokens:   rm.MaxTokens,
+		Temperature: rm.Temperature,
+	})
 }
 
 type saveCapture struct {

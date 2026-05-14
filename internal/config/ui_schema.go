@@ -188,6 +188,8 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider."),
 		"api_key":  strProp("API key", "Secret API key. Prefer env-based injection outside untrusted networks."),
+		"proxy": strProp("HTTP or SOCKS proxy",
+			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -247,7 +249,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key"},
+				[]string{"name", "type", "api_base", "api_key", "proxy"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{

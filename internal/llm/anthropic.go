@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -17,10 +18,13 @@ type anthropicProvider struct {
 	temp      float64
 }
 
-func newAnthropicProvider(model, apiKey string, maxTokens int, temp float64) *anthropicProvider {
+func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64) *anthropicProvider {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
+	}
+	if httpClient != nil {
+		opts = append(opts, option.WithHTTPClient(httpClient))
 	}
 	if maxTokens == 0 {
 		maxTokens = 8192

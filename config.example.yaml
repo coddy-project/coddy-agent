@@ -3,6 +3,9 @@ providers:
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"
+    # Optional outbound proxy for this provider only (http, https, socks5, socks5h).
+    # proxy: "http://127.0.0.1:8888"
+    # proxy: "socks5h://127.0.0.1:1080"
 
   # Local Ollama or llama.cpp server (OpenAI-compatible)
   # - name: local
