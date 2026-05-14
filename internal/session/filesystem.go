@@ -476,17 +476,54 @@ func truncateRunes(s string, max int) string {
 	return string(rs[:max]) + "..."
 }
 
+// writeBytesAtomic writes data to path using a unique temp file in the same directory
+// and renames it into place. A fixed ".tmp" suffix races when multiple goroutines patch
+// the same session (e.g. markActivityRead from parallel UI tabs).
+func writeBytesAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	base := filepath.Base(path)
+	f, err := os.CreateTemp(dir, base+".tmp.")
+	if err != nil {
+		return err
+	}
+	tmpPath := f.Name()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpPath, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func writeJSONAtomic(path string, v interface{}) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeBytesAtomic(path, data)
 }
 
 // SyncActiveTodoFile writes todos/active.md from the current plan (empty file if no items).
@@ -501,11 +538,7 @@ func SyncActiveTodoFile(sessionDir string, plan []acp.PlanEntry) error {
 	if text != "" {
 		data = []byte(text + "\n")
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeBytesAtomic(path, data)
 }
 
 // WritePlanArchivedMarkdown saves markdown to todos/archive/plan_<unix_seconds>.md.
@@ -538,11 +571,7 @@ func WritePlanArchivedMarkdown(sessionDir, markdown string) (writtenPath string,
 				data = append(data, '\n')
 			}
 		}
-		tmp := dest + ".tmp"
-		if err := os.WriteFile(tmp, data, 0o644); err != nil {
-			return "", err
-		}
-		if err := os.Rename(tmp, dest); err != nil {
+		if err := writeBytesAtomic(dest, data); err != nil {
 			return "", err
 		}
 		return dest, nil

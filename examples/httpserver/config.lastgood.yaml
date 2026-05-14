@@ -1,0 +1,24 @@
+providers:
+  - name: dummy
+    type: openai
+    api_base: "http://127.0.0.1:1"
+    api_key: "dummy"
+models:
+  - model: "dummy/m"
+    max_tokens: 256
+    temperature: 0
+    max_context_tokens: 8192
+agent:
+  model: "dummy/m"
+  max_turns: 5
+  max_tokens_per_turn: 4096
+sessions:
+  dir: ""
+httpserver:
+  host: "127.0.0.1"
+  port: 19999
+logger:
+  level: "warn"
+  outputs: ["stderr"]
+scheduler:
+  enabled: false

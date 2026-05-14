@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -231,7 +232,39 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		})
 
 		if streamErr != nil {
+			if errors.Is(streamErr, context.Canceled) && response != nil {
+				reasonTrim := strings.TrimSpace(reasoningBuf.String())
+				hasText := strings.TrimSpace(response.Content) != ""
+				hasTools := len(response.ToolCalls) > 0
+				if hasText || hasTools || reasonTrim != "" {
+					var reasoningMs int64
+					if reasonTrim != "" && !reasonClockStart.IsZero() {
+						end := reasonClockEnd
+						if end.IsZero() {
+							end = time.Now()
+						}
+						d := end.Sub(reasonClockStart)
+						if d < 0 {
+							d = 0
+						}
+						reasoningMs = d.Milliseconds()
+					}
+					assistantMsg := llm.Message{
+						Role:                llm.RoleAssistant,
+						Content:             response.Content,
+						Reasoning:           reasonTrim,
+						ToolCalls:           response.ToolCalls,
+						ReasoningDurationMs: reasoningMs,
+						Model:               a.state.EffectiveModelID(a.cfg),
+						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
+					}
+					a.state.AddMessage(assistantMsg)
+				}
+			}
 			if ctx.Err() != nil {
+				return string(acp.StopReasonCancelled), nil
+			}
+			if errors.Is(streamErr, context.Canceled) {
 				return string(acp.StopReasonCancelled), nil
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)

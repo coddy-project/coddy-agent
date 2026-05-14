@@ -3,8 +3,10 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -67,6 +69,18 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 	toolUseMap := make(map[int64]*toolUseAccum)
 
+	finalizeAnthropicToolUses := func() []ToolCall {
+		var out []ToolCall
+		for i := int64(0); i < int64(len(toolUseMap)); i++ {
+			acc, ok := toolUseMap[i]
+			if !ok {
+				continue
+			}
+			out = append(out, ToolCall{ID: acc.id, Name: acc.name, InputJSON: acc.input})
+		}
+		return out
+	}
+
 	for stream.Next() {
 		event := stream.Current()
 		switch e := event.AsAny().(type) {
@@ -100,17 +114,41 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 
 	if err := stream.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			partialTools := finalizeAnthropicToolUses()
+			if strings.TrimSpace(fullContent) != "" || len(partialTools) > 0 {
+				sr := stopReason
+				if sr == "" {
+					if len(partialTools) > 0 {
+						sr = "tool_use"
+					} else {
+						sr = "end_turn"
+					}
+				}
+				return &Response{
+					Content:      fullContent,
+					ToolCalls:    partialTools,
+					StopReason:   sr,
+					InputTokens:  inputTokens,
+					OutputTokens: outputTokens,
+				}, fmt.Errorf("anthropic stream: %w", err)
+			}
+		}
 		return nil, fmt.Errorf("anthropic stream: %w", err)
 	}
 
-	for i := int64(0); i < int64(len(toolUseMap)); i++ {
-		acc, ok := toolUseMap[i]
-		if !ok {
-			continue
-		}
-		tc := ToolCall{ID: acc.id, Name: acc.name, InputJSON: acc.input}
-		toolCalls = append(toolCalls, tc)
+	toolCalls = finalizeAnthropicToolUses()
+	for i := range toolCalls {
+		tc := toolCalls[i]
 		onChunk(StreamChunk{ToolCall: &tc})
+	}
+
+	if stopReason == "" {
+		if len(toolCalls) > 0 {
+			stopReason = "tool_use"
+		} else {
+			stopReason = "end_turn"
+		}
 	}
 
 	return &Response{

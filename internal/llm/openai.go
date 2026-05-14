@@ -3,8 +3,10 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -65,6 +67,18 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 	builders := make(map[int]*tcBuilder)
 
+	finalizeOpenAIToolBuilders := func() []ToolCall {
+		var out []ToolCall
+		for i := 0; i < len(builders); i++ {
+			b, ok := builders[i]
+			if !ok {
+				continue
+			}
+			out = append(out, ToolCall{ID: b.id, Name: b.name, InputJSON: b.args})
+		}
+		return out
+	}
+
 	for stream.Next() {
 		chunk := stream.Current()
 		if len(chunk.Choices) == 0 {
@@ -116,16 +130,32 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if err := stream.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			toolCalls = finalizeOpenAIToolBuilders()
+			if strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0 {
+				sr := stopReason
+				if sr == "" {
+					if len(toolCalls) > 0 {
+						sr = "tool_use"
+					} else {
+						sr = "end_turn"
+					}
+				}
+				return &Response{
+					Content:      fullContent,
+					ToolCalls:    toolCalls,
+					StopReason:   sr,
+					InputTokens:  inputTokens,
+					OutputTokens: outputTokens,
+				}, fmt.Errorf("openai stream: %w", err)
+			}
+		}
 		return nil, fmt.Errorf("openai stream: %w", err)
 	}
 
-	for i := 0; i < len(builders); i++ {
-		b, ok := builders[i]
-		if !ok {
-			continue
-		}
-		tc := ToolCall{ID: b.id, Name: b.name, InputJSON: b.args}
-		toolCalls = append(toolCalls, tc)
+	toolCalls = finalizeOpenAIToolBuilders()
+	for i := range toolCalls {
+		tc := toolCalls[i]
 		onChunk(StreamChunk{ToolCall: &tc})
 	}
 

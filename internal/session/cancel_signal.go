@@ -19,16 +19,15 @@ func WriteCancelRequest(sessionDir string) error {
 		return nil
 	}
 	p := cancelRequestPath(sessionDir)
-	tmp := p + ".tmp"
 	payload := cancelRequestPayload{RequestedAtRFC3339: time.Now().UTC().Format(time.RFC3339)}
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+	if err := writeBytesAtomic(p, b); err != nil {
 		return err
 	}
-	return os.Rename(tmp, p)
+	return nil
 }
 
 // ClearCancelRequest removes the cancel signal file if present.

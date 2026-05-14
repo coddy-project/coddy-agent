@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -392,5 +394,57 @@ func TestSavePreservesUpdatedAtWhenMessagesAndActivitySeqUnchanged(t *testing.T)
 	}
 	if snap3.Meta.UpdatedAt == ut1 {
 		t.Fatal("expected updatedAt to change after new user message")
+	}
+}
+
+func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	id := "sess_concur_meta"
+	dir, err := fs.EnsureLayout(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &State{
+		ID:         id,
+		CWD:        "/tmp",
+		Mode:       ModeAgent,
+		SessionDir: dir,
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+	st.RestoreActivityFromSnapshot(10, 0)
+	if err := fs.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	const n = 64
+	var wg sync.WaitGroup
+	wg.Add(n)
+	errCh := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(k int) {
+			defer wg.Done()
+			stLocal := &State{
+				ID:         id,
+				CWD:        "/tmp",
+				Mode:       ModeAgent,
+				SessionDir: dir,
+			}
+			stLocal.RestoreActivityFromSnapshot(uint64(10+k), uint64(k))
+			if err := fs.PatchSessionMetaActivitySync(stLocal); err != nil {
+				errCh <- fmt.Errorf("k=%d: %w", k, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Fatal(err)
+	}
+	snap, err := fs.ReadSnapshot(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Meta.ActivitySeq < 10 {
+		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
 	}
 }

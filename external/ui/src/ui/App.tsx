@@ -16,6 +16,9 @@ import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThin
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
+import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { keepLocalTranscriptIfServerEmpty } from "./chat/transcriptServerSnapshot";
+import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import { NavRail } from "./nav/NavRail";
@@ -493,18 +496,72 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  const inFlightRef = useRef(false);
-  const generationAbortRef = useRef<AbortController | null>(null);
-  const liveRelayAbortRef = useRef<AbortController | null>(null);
-  const activeStreamSidRef = useRef("");
+  /** Per-session shadow transcript while that session streams in the background. */
+  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
+  /** Session ids with an active client-side composer POST or GET relay. */
+  const activeComposerSidRef = useRef<Set<string>>(new Set());
+  const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Live transcript for the in-flight HTTP stream (kept when user switches to another session). */
-  const streamShadowRef = useRef<TranscriptItem[] | null>(null);
-  const streamingAssistantIdRef = useRef("");
-  const [generating, setGenerating] = useState(false);
-  const generatingRef = useRef(false);
-  generatingRef.current = generating;
+  const bumpComposerActivity = () =>
+    setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
+
+  function addActiveComposer(sid: string) {
+    const k = sid.trim();
+    if (!k) return;
+    if (activeComposerSidRef.current.has(k)) return;
+    activeComposerSidRef.current.add(k);
+    bumpComposerActivity();
+  }
+
+  function removeActiveComposer(sid: string) {
+    const k = sid.trim();
+    if (!k) return;
+    if (!activeComposerSidRef.current.delete(k)) return;
+    bumpComposerActivity();
+  }
+
+  function applyStreamItemsForSession(
+    streamSid: string,
+    fn: (prev: TranscriptItem[]) => TranscriptItem[],
+  ) {
+    const key = streamSid.trim();
+    if (!key) return;
+    const viewing = viewedSessionIdRef.current.trim();
+    const base = pickStreamMutationBase({
+      mutationSessionId: key,
+      viewingSid: viewing,
+      shadow: streamShadowBySidRef.current.get(key),
+      hasActiveComposer: activeComposerSidRef.current.has(key),
+      itemsWhenViewingMatches: itemsRef.current,
+    });
+    const prevShadowLen = streamShadowBySidRef.current.get(key)?.length ?? 0;
+    const next = fn(base);
+    if (next.length === 0 && prevShadowLen > 0 && base.length === 0) {
+      return;
+    }
+    streamShadowBySidRef.current.set(key, next);
+    if (viewing === key) {
+      itemsRef.current = next;
+    }
+    setItems((prev) => {
+      const v = viewedSessionIdRef.current.trim();
+      if (v === key) {
+        return next;
+      }
+      return prev;
+    });
+  }
+
+  const generating = useMemo(() => {
+    const sid = sessionId.trim();
+    if (!sid) return false;
+    return activeComposerSidRef.current.has(sid);
+  }, [sessionId, composerActivityEpoch]);
+
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -1056,14 +1113,15 @@ export function App() {
     const hasBackgroundTurn = sessions.some(
       (s) => !!s.turnActive && s.id !== sessionId,
     );
-    if (!generating && !hasBackgroundTurn) {
+    const anyLocalComposer = activeComposerSidRef.current.size > 0;
+    if (!anyLocalComposer && !hasBackgroundTurn) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [generating, sessions, sessionId, loadSessionsList]);
+  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -1074,6 +1132,7 @@ export function App() {
 
   async function loadMessages(
     idOverride?: string,
+    opts?: { skipSetItems?: boolean; preserveOnError?: boolean },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
@@ -1094,7 +1153,12 @@ export function App() {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
     if (!res.ok || !res.data) {
-      setItems([]);
+      if (!opts?.preserveOnError) {
+        const viewingTrim = viewedSessionIdRef.current.trim();
+        if (viewingTrim === sid) {
+          setItems([]);
+        }
+      }
       return null;
     }
     type UILogRow = {
@@ -1292,12 +1356,27 @@ export function App() {
         next[idx] = merged;
       }
     }
-    setItems(next);
-    return next;
+    const viewingTrim = viewedSessionIdRef.current.trim();
+    const applied =
+      keepLocalTranscriptIfServerEmpty({
+        serverNext: next,
+        sid,
+        viewingSid: viewingTrim,
+        prevShadow: streamShadowBySidRef.current.get(sid),
+        prevItems: itemsRef.current,
+      }) ?? next;
+    if (opts?.skipSetItems) {
+      streamShadowBySidRef.current.set(sid, applied);
+      return applied;
+    }
+    streamShadowBySidRef.current.set(sid, applied);
+    setItems(applied);
+    return applied;
   }
 
   function pickSession(id: string) {
     reasoningDurationMsByContentRef.current = new Map();
+    setItems([]);
     openSessionFromRoute(id, {
       historySidebar: sessionsOpen,
     });
@@ -1381,42 +1460,50 @@ export function App() {
             totalTokens: tokenBaselineRef.current.total,
           });
         }
-        const streamSid = activeStreamSidRef.current.trim();
-        const shadowSnap = streamShadowRef.current;
-        const rejoiningLiveStream =
-          generatingRef.current &&
-          sessionId.trim() === streamSid &&
-          streamSid !== "" &&
-          shadowSnap != null &&
-          shadowSnap.length > 0;
-        if (rejoiningLiveStream && shadowSnap) {
+        const shadowSnap = streamShadowBySidRef.current.get(sessionId);
+        if (
+          activeComposerSidRef.current.has(sessionId) &&
+          shadowSnap &&
+          shadowSnap.length > 0
+        ) {
           setItems([...shadowSnap]);
         } else {
           const loaded = await loadMessages();
           if (lifecycle.signal.aborted) {
             return;
           }
+          if (activeComposerSidRef.current.has(sessionId)) {
+            const sh = streamShadowBySidRef.current.get(sessionId);
+            if (sh && sh.length > 0) {
+              setItems([...sh]);
+            }
+          }
           if (
             loaded &&
             sess?.turnActive &&
-            !rejoiningLiveStream
+            !activeComposerSidRef.current.has(sessionId)
           ) {
-            await rejoinComposerLiveStream(
-              sessionId,
-              loaded,
-              lifecycle.signal,
-            );
+            void rejoinComposerLiveStream(sessionId, loaded);
           }
         }
       } else {
-        setItems([]);
+        const shElse = streamShadowBySidRef.current.get(sessionId);
+        if (
+          activeComposerSidRef.current.has(sessionId) ||
+          (shElse && shElse.length > 0)
+        ) {
+          if (shElse && shElse.length > 0) {
+            setItems([...shElse]);
+          }
+        } else {
+          setItems([]);
+        }
       }
     })();
     return () => {
       lifecycle.abort();
     };
-    // Intentionally sessionId only: rejoinComposerLiveStream calls setGenerating(true);
-    // including generating here would abort the relay fetch on the same render cycle.
+    // Intentionally sessionId only for loadMessages coalescing; rejoin runs detached.
   }, [sessionId]);
 
   function upsertToolCall(
@@ -1424,14 +1511,9 @@ export function App() {
       toolCallId: string;
     },
   ) {
-    const streamSid = activeStreamSidRef.current.trim();
-    if (
-      streamSid &&
-      viewedSessionIdRef.current.trim() !== streamSid
-    ) {
-      return;
-    }
-    setItems((prev) => {
+    const targetSid = sessionId.trim();
+    if (!targetSid) return;
+    applyStreamItemsForSession(targetSid, (prev) => {
       const idx = prev.findIndex(
         (x) => x.type === "tool_call" && x.toolCallId === update.toolCallId,
       );
@@ -1498,54 +1580,36 @@ export function App() {
   async function rejoinComposerLiveStream(
     sid: string,
     baseline: TranscriptItem[],
-    lifecycleSignal: AbortSignal,
   ): Promise<void> {
-    if (inFlightRef.current) {
-      return;
-    }
-    inFlightRef.current = true;
-    liveRelayAbortRef.current?.abort();
-    const fetchCtl = new AbortController();
-    liveRelayAbortRef.current = fetchCtl;
-    const onLifecycle = () => {
-      fetchCtl.abort();
-    };
-    if (lifecycleSignal.aborted) {
-      fetchCtl.abort();
-    } else {
-      lifecycleSignal.addEventListener("abort", onLifecycle, { once: true });
-    }
+    const key = sid.trim();
+    if (!key) return;
 
-    setGenerating(true);
+    relayAbortBySidRef.current.get(key)?.abort();
+    const fetchCtl = new AbortController();
+    relayAbortBySidRef.current.set(key, fetchCtl);
+
+    addActiveComposer(key);
     const assistantId = newId("a");
-    streamingAssistantIdRef.current = assistantId;
-    activeStreamSidRef.current = sid;
-    streamShadowRef.current = [...baseline];
-    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+    streamingAssistantBySidRef.current.set(key, assistantId);
+    streamShadowBySidRef.current.set(key, [...baseline]);
+    if (viewedSessionIdRef.current.trim() === key) {
       setItems([...baseline]);
     }
 
-    const applyStreamItems = (
-      fn: (prev: TranscriptItem[]) => TranscriptItem[],
-    ) => {
-      setItems((prev) => {
-        const streamSid = activeStreamSidRef.current.trim();
-        const viewing = viewedSessionIdRef.current.trim();
-        const base =
-          viewing === streamSid ? prev : (streamShadowRef.current ?? []);
-        const next = fn(base);
-        streamShadowRef.current = next;
-        if (viewing === streamSid) {
-          return next;
-        }
-        return prev;
-      });
+    const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
+      applyStreamItemsForSession(key, fn);
+
+    const branchTokenUsage = (u: TokenUsage | null) => {
+      if (u === null) return;
+      if (viewedSessionIdRef.current.trim() === key) {
+        setTokenUsage(u);
+      }
     };
 
     try {
       const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(sid)}/composer-stream`,
-        { headers: { [HDR]: sid }, signal: fetchCtl.signal },
+        `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
+        { headers: { [HDR]: key }, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         return;
@@ -1564,7 +1628,7 @@ export function App() {
         carry,
         assistantId,
         applyStreamItems,
-        setTokenUsage,
+        setTokenUsage: branchTokenUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -1575,8 +1639,8 @@ export function App() {
       const syncAssistantFromServer = async () => {
         try {
           const res2 = await fetchJSON<{ messages: Array<any> }>(
-            `/coddy/sessions/${encodeURIComponent(sid)}/messages`,
-            { headers: { [HDR]: sid } },
+            `/coddy/sessions/${encodeURIComponent(key)}/messages`,
+            { headers: { [HDR]: key } },
           );
           if (!res2.ok || !res2.data?.messages) return false;
           let last = "";
@@ -1648,31 +1712,27 @@ export function App() {
         await new Promise((r) => setTimeout(r, 500));
         ok = await syncAssistantFromServer();
       }
-      await loadMessages(sid);
+      const viewing = viewedSessionIdRef.current.trim();
+      await loadMessages(key, {
+        skipSetItems: viewing !== key,
+      });
     } catch {
-      // AbortError when user leaves session or stops generation
+      // AbortError when relay superseded or fetch aborted
     } finally {
-      lifecycleSignal.removeEventListener("abort", onLifecycle);
-      if (liveRelayAbortRef.current === fetchCtl) {
-        liveRelayAbortRef.current = null;
+      if (relayAbortBySidRef.current.get(key) === fetchCtl) {
+        relayAbortBySidRef.current.delete(key);
       }
-      streamingAssistantIdRef.current = "";
-      activeStreamSidRef.current = "";
-      streamShadowRef.current = null;
-      setGenerating(false);
-      inFlightRef.current = false;
+      streamingAssistantBySidRef.current.delete(key);
+      removeActiveComposer(key);
       void loadSessionsList(true);
-      void loadMessages(sid);
+      const viewing = viewedSessionIdRef.current.trim();
+      void loadMessages(key, { skipSetItems: viewing !== key });
     }
   }
 
   async function streamResponses(text: string) {
-    liveRelayAbortRef.current?.abort();
-    liveRelayAbortRef.current = null;
-    inFlightRef.current = true;
     const abortCtl = new AbortController();
-    generationAbortRef.current = abortCtl;
-    setGenerating(true);
+    let postSessionKey = "";
     let completedNormally = false;
     let assistantStreamId = "";
     const isNewChatFirstSend = !sessionId.trim();
@@ -1684,22 +1744,8 @@ export function App() {
       : null;
 
     let sidEffective = "";
+
     try {
-      const applyStreamItems = (
-        fn: (prev: TranscriptItem[]) => TranscriptItem[],
-      ) => {
-        setItems((prev) => {
-          const streamSid = activeStreamSidRef.current.trim();
-          const viewing = viewedSessionIdRef.current.trim();
-          const base = viewing === streamSid ? prev : (streamShadowRef.current ?? []);
-          const next = fn(base);
-          streamShadowRef.current = next;
-          if (viewing === streamSid) {
-            return next;
-          }
-          return prev;
-        });
-      };
       let sid = sessionId;
       if (!sid) {
         sid = randomSessionId();
@@ -1708,6 +1754,21 @@ export function App() {
       }
       sidEffective = sid;
       let latestPreviewSid = sid;
+      postSessionKey = sid.trim();
+      postAbortBySidRef.current.set(postSessionKey, abortCtl);
+      relayAbortBySidRef.current.get(postSessionKey)?.abort();
+      relayAbortBySidRef.current.delete(postSessionKey);
+
+      let streamKey = postSessionKey;
+      const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
+        applyStreamItemsForSession(streamKey, fn);
+
+      const branchTokenUsage = (u: TokenUsage | null) => {
+        if (u === null) return;
+        if (viewedSessionIdRef.current.trim() === streamKey) {
+          setTokenUsage(u);
+        }
+      };
 
       if (isNewChatFirstSend && sessionIdWhenKnown) {
         startSuggestSessionTitle({
@@ -1746,13 +1807,24 @@ export function App() {
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
-      streamingAssistantIdRef.current = assistantId;
-      activeStreamSidRef.current = sid;
-      streamShadowRef.current = [...itemsRef.current, userItem];
-      if (viewedSessionIdRef.current.trim() === sid.trim()) {
-        setItems(streamShadowRef.current);
+      streamingAssistantBySidRef.current.set(streamKey, assistantId);
+      const viewingNow = viewedSessionIdRef.current.trim();
+      const baseItems = pickStreamMutationBase({
+        mutationSessionId: streamKey,
+        viewingSid: viewingNow,
+        shadow: streamShadowBySidRef.current.get(streamKey),
+        hasActiveComposer: activeComposerSidRef.current.has(streamKey),
+        itemsWhenViewingMatches: itemsRef.current,
+        assumeActiveForBase: true,
+      });
+      const nextShadow = [...baseItems, userItem];
+      streamShadowBySidRef.current.set(streamKey, nextShadow);
+      if (viewingNow === streamKey) {
+        setItems(nextShadow);
       }
-      setTokenUsage(null);
+      if (viewingNow === streamKey) {
+        setTokenUsage(null);
+      }
 
       const reqBody: Record<string, unknown> = {
         model: mode || "agent",
@@ -1772,6 +1844,8 @@ export function App() {
       if (yamlSel) {
         reqBody.metadata = { model: yamlSel };
       }
+      // Mark this session busy before awaiting fetch so hung POST still blocks same-session resend.
+      addActiveComposer(postSessionKey);
       const res = await fetch("/v1/responses", {
         method: "POST",
         headers: { ...hdrs, "Content-Type": "application/json" },
@@ -1802,14 +1876,30 @@ export function App() {
             message: msg,
           },
         ]);
+        postAbortBySidRef.current.delete(postSessionKey);
+        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
 
       const sidHdr = res.headers.get(HDR);
       if (sidHdr && sidHdr !== sid) {
+        const oldKey = postSessionKey;
         migrateWorkspaceAtRecents(sid, sidHdr);
         sidEffective = sidHdr;
+        postSessionKey = sidHdr.trim();
+        streamKey = postSessionKey;
+        postAbortBySidRef.current.delete(oldKey);
+        postAbortBySidRef.current.set(postSessionKey, abortCtl);
+        relayAbortBySidRef.current.get(oldKey)?.abort();
+        relayAbortBySidRef.current.delete(oldKey);
+        const sh = streamShadowBySidRef.current.get(oldKey);
+        streamShadowBySidRef.current.delete(oldKey);
+        if (sh) {
+          streamShadowBySidRef.current.set(postSessionKey, sh);
+        }
+        streamingAssistantBySidRef.current.delete(oldKey);
+        streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
         openSessionFromRoute(sidHdr);
         setDescribePreview((p) =>
           p?.sessionId === sid ? { ...p, sessionId: sidHdr } : p,
@@ -1817,9 +1907,10 @@ export function App() {
         setSessions((prev) =>
           prev.map((s) => (s.id === sid ? { ...s, id: sidHdr } : s)),
         );
+        removeActiveComposer(oldKey);
+        addActiveComposer(postSessionKey);
       }
       latestPreviewSid = sidEffective;
-      activeStreamSidRef.current = sidEffective;
       releaseSessionId?.(sidEffective);
 
       if (!res.ok || !res.body) {
@@ -1835,6 +1926,8 @@ export function App() {
             message: msg,
           },
         ]);
+        postAbortBySidRef.current.delete(postSessionKey);
+        streamingAssistantBySidRef.current.delete(postSessionKey);
         completedNormally = true;
         return;
       }
@@ -1854,7 +1947,7 @@ export function App() {
         carry,
         assistantId,
         applyStreamItems,
-        setTokenUsage,
+        setTokenUsage: branchTokenUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -1864,14 +1957,14 @@ export function App() {
 
       const syncAssistantFromServer = async () => {
         try {
-          const res = await fetchJSON<{ messages: Array<any> }>(
+          const res2 = await fetchJSON<{ messages: Array<any> }>(
             `/coddy/sessions/${encodeURIComponent(sidEffective)}/messages`,
             { headers: { [HDR]: sidEffective } },
           );
-          if (!res.ok || !res.data?.messages) return false;
+          if (!res2.ok || !res2.data?.messages) return false;
           let last = "";
           let lastCreated: string | undefined;
-          for (const m of res.data.messages) {
+          for (const m of res2.data.messages) {
             if ((m.role || "").trim() !== "assistant") continue;
             const c = (m.content || "").trim();
             if (c) {
@@ -1897,7 +1990,6 @@ export function App() {
           return false;
         }
       };
-
 
       if (streamErrorMessage) {
         flushToolQueue();
@@ -1936,21 +2028,44 @@ export function App() {
       });
 
       void loadSessionsList(true);
-      let ok = await syncAssistantFromServer();
-      for (let i = 0; i < 10 && !ok; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        ok = await syncAssistantFromServer();
+      const kProbe = postSessionKey.trim();
+      let mergedForSyncProbe: TranscriptItem[] = [];
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const sh = streamShadowBySidRef.current.get(kProbe);
+        if (sh && sh.length > 0) {
+          mergedForSyncProbe = sh;
+        } else if (viewedSessionIdRef.current.trim() === kProbe) {
+          mergedForSyncProbe = itemsRef.current;
+        } else {
+          mergedForSyncProbe = sh ?? [];
+        }
+        if (transcriptHasFilledAssistant(mergedForSyncProbe, assistantId)) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 16));
       }
-      await loadMessages(sidEffective);
+      const localStreamingAssistantReady = transcriptHasFilledAssistant(
+        mergedForSyncProbe,
+        assistantId,
+      );
+      let ok = localStreamingAssistantReady;
+      if (!ok) {
+        ok = await syncAssistantFromServer();
+        for (let i = 0; i < 10 && !ok; i++) {
+          await new Promise((r) => setTimeout(r, 500));
+          ok = await syncAssistantFromServer();
+        }
+      }
+      const viewingEnd = viewedSessionIdRef.current.trim();
+      await loadMessages(sidEffective, {
+        skipSetItems: viewingEnd !== postSessionKey,
+        preserveOnError: true,
+      });
       completedNormally = true;
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
     } finally {
-      const cleanupStreamSid = activeStreamSidRef.current;
-      streamingAssistantIdRef.current = "";
-      activeStreamSidRef.current = "";
-      generationAbortRef.current = null;
-      setGenerating(false);
+      postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
@@ -1973,34 +2088,31 @@ export function App() {
             }
             return it;
           });
-        setItems((prev) => {
-          if (viewedSessionIdRef.current.trim() !== cleanupStreamSid.trim()) {
-            return prev;
-          }
-          return patchIncomplete(prev);
-        });
-        if (streamShadowRef.current && cleanupStreamSid.trim() !== "") {
-          streamShadowRef.current = patchIncomplete(streamShadowRef.current);
+        if (postSessionKey.trim() !== "") {
+          applyStreamItemsForSession(postSessionKey, patchIncomplete);
         }
-        void loadMessages(sidEffective);
+        const viewingFin = viewedSessionIdRef.current.trim();
+        void loadMessages(sidEffective, {
+          skipSetItems: viewingFin !== postSessionKey.trim(),
+          preserveOnError: true,
+        });
         void loadSessionsList(true);
       }
-      streamShadowRef.current = null;
+      removeActiveComposer(postSessionKey);
+      streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
-      inFlightRef.current = false;
     }
   }
 
   function stopActiveGeneration(): void {
-    const sid = activeStreamSidRef.current;
-    const ctl = generationAbortRef.current;
+    const sid = sessionId.trim();
+    if (!sid) return;
+    const ctl = postAbortBySidRef.current.get(sid);
     if (!ctl) return;
-    if (sid.trim()) {
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
-        method: "POST",
-        headers: { [HDR]: sid },
-      });
-    }
+    void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
+      method: "POST",
+      headers: { [HDR]: sid },
+    });
     ctl.abort();
   }
 
@@ -2323,7 +2435,12 @@ export function App() {
           generating={generating}
           onStop={() => stopActiveGeneration()}
           onSend={(text: string) => {
-            if (generating) return;
+            if (
+              sessionId.trim() &&
+              activeComposerSidRef.current.has(sessionId.trim())
+            ) {
+              return;
+            }
             setDraft("");
             void streamResponses(text);
           }}

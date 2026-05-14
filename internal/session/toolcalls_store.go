@@ -188,9 +188,5 @@ func writeTextAtomic(path, text string) error {
 			data = append(data, '\n')
 		}
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeBytesAtomic(path, data)
 }
