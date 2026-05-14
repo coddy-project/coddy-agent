@@ -12,6 +12,7 @@ import {
   HERO_ACCENT_VERBS,
   pickHeroAccentVerb,
 } from "./chat/heroTitleWords";
+import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
 import { parseSSEBlocks } from "./chat/sse";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
@@ -1665,18 +1666,20 @@ export function App() {
           const known = prev.some(
             (it) => it.type === "thinking" && it.id === id,
           );
+          const newRow: Extract<TranscriptItem, { type: "thinking" }> = {
+            id,
+            type: "thinking",
+            status: "in_progress",
+            content: "",
+            startedAtMs: freezeAt,
+          };
           let next = known
             ? prev
-            : [
-                ...prev,
-                {
-                  id,
-                  type: "thinking",
-                  status: "in_progress",
-                  content: "",
-                  startedAtMs: freezeAt,
-                },
-              ];
+            : insertNewThinkingBeforeStreamingAssistant(
+                prev,
+                assistantId,
+                newRow,
+              );
           next = next.map((it) =>
             it.type === "thinking" && it.id === id
               ? { ...it, content: it.content + delta }
