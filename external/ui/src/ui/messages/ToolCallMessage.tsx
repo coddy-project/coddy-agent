@@ -9,7 +9,6 @@ import {
 import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
-  questionToolSummaryLabel,
 } from "../chat/questionToolDisplay";
 
 function safePrettyJSON(text: string): string {
@@ -61,13 +60,16 @@ function QuestionToolTimelineReadout(props: {
           key={`${qi}-${item.question}`}
           className={qi === 0 ? undefined : "question-prompt-resolved-block"}
         >
-          <div className="question-prompt-resolved-idx">Question {qi + 1}</div>
-          <div className="question-prompt-resolved-q">{item.question}</div>
-          <div className="question-prompt-resolved-a">
+          <div className="question-prompt-resolved-pair">
+            <div className="question-prompt-resolved-q">{item.question}</div>
             {terminal && (answers[qi] ?? []).filter(Boolean).length ? (
-              answers[qi]!.join(", ")
+              <div className="question-prompt-resolved-a">
+                {answers[qi]!.join(", ")}
+              </div>
             ) : (
-              <span className="muted">Awaiting answer</span>
+              <div className="question-prompt-resolved-a muted">
+                Awaiting answer
+              </div>
             )}
           </div>
         </div>
@@ -102,8 +104,6 @@ export function ToolCallMessage(props: {
   const rawName = (props.title || props.kind || "tool").trim();
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
-  const terminal =
-    status === "completed" || status === "failed" || status === "cancelled";
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
@@ -111,22 +111,10 @@ export function ToolCallMessage(props: {
 
   const displayLabel = useMemo(() => {
     if (isQuestionTool) {
-      return questionToolSummaryLabel({
-        argsText: props.argsText,
-        resultText: preview,
-        pendingLike,
-        terminal,
-      });
+      return "question";
     }
     return pendingLike ? `${rawName || "tool"}...` : rawName || "tool";
-  }, [
-    isQuestionTool,
-    pendingLike,
-    preview,
-    props.argsText,
-    rawName,
-    terminal,
-  ]);
+  }, [isQuestionTool, pendingLike, rawName]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {

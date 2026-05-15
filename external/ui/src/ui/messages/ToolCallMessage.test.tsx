@@ -148,7 +148,12 @@ test("question tool omits duration from summary row", () => {
     />,
   );
   expect(container.querySelector(".thinking-dur")).toBeNull();
-  expect(screen.getByText(/Continue\? Yes/)).toBeInTheDocument();
+  expect(container.querySelector(".thinking-label")?.textContent?.trim()).toBe(
+    "question",
+  );
+  openToolDetails();
+  expect(screen.getByText("Continue?")).toBeInTheDocument();
+  expect(screen.getByText("Yes")).toBeInTheDocument();
 });
 
 test("question tool shows human timeline readout instead of raw JSON blobs", () => {

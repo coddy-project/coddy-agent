@@ -304,11 +304,10 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                       : "question-prompt-resolved-block"
                   }
                 >
-                  <div className="question-prompt-resolved-idx">
-                    Question {qi + 1}
+                  <div className="question-prompt-resolved-pair">
+                    <div className="question-prompt-resolved-q">{q.question}</div>
+                    <div className="question-prompt-resolved-a">{aText}</div>
                   </div>
-                  <div className="question-prompt-resolved-q">{q.question}</div>
-                  <div className="question-prompt-resolved-a">{aText}</div>
                 </div>
               );
             })}

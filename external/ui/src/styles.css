@@ -3753,29 +3753,32 @@ button.question-prompt-row.question-prompt-row--active:hover {
   padding-top: 0;
 }
 
-.question-prompt-resolved-idx {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.38);
-  margin-bottom: 4px;
+.question-prompt-resolved-pair {
+  margin: 0;
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-q {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.52;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-a {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.52;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.question-prompt-resolved-pair .question-prompt-resolved-a.muted {
+  color: var(--muted);
 }
 
 .question-prompt-resolved-header {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.46);
   margin-bottom: 4px;
-}
-
-.question-prompt-resolved-q {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  margin-bottom: 6px;
-}
-
-.question-prompt-resolved-a {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.88);
 }
 
 /*$vite$:1*/
