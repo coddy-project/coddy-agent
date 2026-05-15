@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""HTTP e2e: search_web and extract_page_content hit the network and persist results.
+"""HTTP e2e: websearch and webfetch hit the network and persist results.
 
 Uses POST /v1/responses with stream=true, then checks under
 CODDY_HOME/sessions/<sessionId>/tool_calls/*/meta.json for both tool names and
-reads extract_page_content result.md for text from https://example.com/.
+reads webfetch result.md for text from https://example.com/.
 
 Environment: BASE_URL (ends with /v1), MODEL, WORK_DIR, CODDY_HOME.
 """
@@ -85,8 +85,8 @@ def main() -> int:
 Do not use filesystem write tools. Use only the built-in web tools.
 
 You must run these two tools in order (wait for each result before the next):
-1) Call search_web with query exactly: IANA example domain reserved
-2) Call extract_page_content with url exactly: https://example.com/
+1) Call websearch with query exactly: IANA example domain reserved
+2) Call webfetch with url exactly: https://example.com/
 
 When both complete, reply one line starting with WEB_E2E_OK and add a short quote from the page (under 15 words).
 """
@@ -134,16 +134,16 @@ When both complete, reply one line starting with WEB_E2E_OK and add a short quot
             session_dir = home / "sessions" / sid
             by_id = _tool_names_from_disk(session_dir)
             names = set(by_id.values())
-            if "search_web" not in names:
-                print(f"expected search_web in persisted tool metas, got {sorted(names)}", file=sys.stderr)
+            if "websearch" not in names:
+                print(f"expected websearch in persisted tool metas, got {sorted(names)}", file=sys.stderr)
                 return 1
-            if "extract_page_content" not in names:
-                print(f"expected extract_page_content in persisted tool metas, got {sorted(names)}", file=sys.stderr)
+            if "webfetch" not in names:
+                print(f"expected webfetch in persisted tool metas, got {sorted(names)}", file=sys.stderr)
                 return 1
 
             extract_body = ""
             for folder, name in by_id.items():
-                if name != "extract_page_content":
+                if name != "webfetch":
                     continue
                 rp = session_dir / "tool_calls" / folder / "result.md"
                 if rp.is_file():
@@ -152,7 +152,7 @@ When both complete, reply one line starting with WEB_E2E_OK and add a short quot
 
             low = extract_body.lower()
             if "example" not in low or "domain" not in low:
-                print("extract_page_content result.md missing expected example.com phrases", file=sys.stderr)
+                print("webfetch result.md missing expected example.com phrases", file=sys.stderr)
                 return 1
 
             print("ok http web tools e2e")

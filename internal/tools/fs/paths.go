@@ -38,20 +38,39 @@ func PathEscapesCWD(path, cwd string) bool {
 
 // ToolPathsEscapeCWD reports whether a built-in tool call targets a path outside the session CWD.
 // When RestrictToCWD is false, tools allow such paths; the agent must still ask the user first.
-// Optional path fields that default to CWD (empty list_dir path, empty search_files path) are not outside.
+// Optional path fields that default to CWD (empty grep path, empty glob path) are not outside.
 func ToolPathsEscapeCWD(toolName, argsJSON, cwd string) bool {
 	if cwd == "" {
 		return false
 	}
 	switch toolName {
-	case "read_file", "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm":
 		var a struct {
-			Path string `json:"path"`
+			Path     string `json:"path"`
+			FilePath string `json:"filePath"`
 		}
-		if json.Unmarshal([]byte(argsJSON), &a) != nil || a.Path == "" {
+		if json.Unmarshal([]byte(argsJSON), &a) != nil {
 			return false
 		}
-		return PathEscapesCWD(ResolvePath(a.Path, cwd), cwd)
+		p := strings.TrimSpace(a.FilePath)
+		if p == "" {
+			p = strings.TrimSpace(a.Path)
+		}
+		if p == "" {
+			return false
+		}
+		return PathEscapesCWD(ResolvePath(p, cwd), cwd)
+	case "read":
+		var a struct {
+			FilePath string `json:"filePath"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) != nil {
+			return false
+		}
+		if strings.TrimSpace(a.FilePath) == "" {
+			return false
+		}
+		return PathEscapesCWD(ResolvePath(strings.TrimSpace(a.FilePath), cwd), cwd)
 	case "mv":
 		var a struct {
 			Src string `json:"src"`
@@ -67,19 +86,7 @@ func ToolPathsEscapeCWD(toolName, argsJSON, cwd string) bool {
 			return true
 		}
 		return false
-	case "list_dir":
-		var a struct {
-			Path string `json:"path"`
-		}
-		if json.Unmarshal([]byte(argsJSON), &a) != nil {
-			return false
-		}
-		dirPath := cwd
-		if a.Path != "" {
-			dirPath = ResolvePath(a.Path, cwd)
-		}
-		return PathEscapesCWD(dirPath, cwd)
-	case "search_files":
+	case "grep":
 		var a struct {
 			Path string `json:"path"`
 		}
@@ -87,6 +94,18 @@ func ToolPathsEscapeCWD(toolName, argsJSON, cwd string) bool {
 			return false
 		}
 		return PathEscapesCWD(ResolvePath(a.Path, cwd), cwd)
+	case "glob":
+		var a struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal([]byte(argsJSON), &a) != nil {
+			return false
+		}
+		dirPath := cwd
+		if strings.TrimSpace(a.Path) != "" {
+			dirPath = ResolvePath(strings.TrimSpace(a.Path), cwd)
+		}
+		return PathEscapesCWD(dirPath, cwd)
 	default:
 		return false
 	}

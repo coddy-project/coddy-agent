@@ -7,12 +7,12 @@ import (
 // RegisterBuiltins registers all filesystem-backed tools via add.
 func RegisterBuiltins(add func(*tooling.Tool)) {
 	for _, ctor := range []func() *tooling.Tool{
-		ReadFileTool,
-		WriteFileTool,
-		WriteTextFileTool,
-		ListDirTool,
-		SearchFilesTool,
-		ApplyDiffTool,
+		ReadTool,
+		GlobTool,
+		GrepTool,
+		EditTool,
+		WriteTool,
+		ApplyPatchTool,
 		MkdirTool,
 		RmdirTool,
 		TouchTool,

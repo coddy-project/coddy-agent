@@ -10,43 +10,51 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// ApplyDiffTool returns the apply_diff built-in tool.
-func ApplyDiffTool() *tooling.Tool {
+// ApplyPatchTool returns the apply_patch built-in (unified diff on one file).
+func ApplyPatchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "apply_diff",
-			Description: "Apply a unified diff/patch to a file. Use this to make targeted changes without rewriting the whole file.",
+			Name:        "apply_patch",
+			Description: "Apply a unified diff/patch to a file. Use for targeted edits without rewriting the whole file.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
+					"filePath": map[string]interface{}{
 						"type":        "string",
 						"description": "File path to patch",
 					},
-					"diff": map[string]interface{}{
+					"patch": map[string]interface{}{
 						"type":        "string",
 						"description": "Unified diff content (output of diff -u or git diff)",
 					},
 				},
-				"required": []string{"path", "diff"},
+				"required": []string{"filePath", "patch"},
 			},
 		},
-		Execute: executeApplyDiff,
+		Execute: executeApplyPatch,
 	}
 }
 
-type applyDiffArgs struct {
-	Path string `json:"path"`
-	Diff string `json:"diff"`
+type applyPatchArgs struct {
+	FilePath string `json:"filePath"`
+	Patch    string `json:"patch"`
+	Diff     string `json:"diff"` // legacy alias
 }
 
-func executeApplyDiff(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
-	args, err := tooling.ParseArgs[applyDiffArgs](argsJSON)
+func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
+	args, err := tooling.ParseArgs[applyPatchArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
+	patchBody := strings.TrimSpace(args.Patch)
+	if patchBody == "" {
+		patchBody = strings.TrimSpace(args.Diff)
+	}
+	if patchBody == "" {
+		return "", fmt.Errorf("apply_patch: patch is required")
+	}
 
-	path := ResolvePath(args.Path, env.CWD)
+	path := ResolvePath(args.FilePath, env.CWD)
 	if env.RestrictToCWD {
 		if err := CheckInsideCWD(path, env.CWD); err != nil {
 			return "", err
@@ -55,16 +63,16 @@ func executeApplyDiff(_ context.Context, argsJSON string, env *tooling.Env) (str
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("apply_diff read: %w", err)
+		return "", fmt.Errorf("apply_patch read: %w", err)
 	}
 
-	patched, err := applyUnifiedDiff(string(data), args.Diff)
+	patched, err := applyUnifiedDiff(string(data), patchBody)
 	if err != nil {
-		return "", fmt.Errorf("apply_diff: %w", err)
+		return "", fmt.Errorf("apply_patch: %w", err)
 	}
 
 	if err := os.WriteFile(path, []byte(patched), 0o644); err != nil {
-		return "", fmt.Errorf("apply_diff write: %w", err)
+		return "", fmt.Errorf("apply_patch write: %w", err)
 	}
 
 	return fmt.Sprintf("patch applied successfully to %s", path), nil

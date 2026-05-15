@@ -56,6 +56,14 @@ func (r *serverRef) RequestPermission(ctx context.Context, params acp.Permission
 	return s.RequestPermission(ctx, params)
 }
 
+func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	s := *r.p
+	if s == nil {
+		return &acp.QuestionResult{}, nil
+	}
+	return s.RequestQuestion(ctx, params)
+}
+
 func main() {
 	if len(os.Args) >= 2 {
 		a := os.Args[1]

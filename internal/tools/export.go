@@ -26,7 +26,8 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandTool())
-	r.Register(AskUserApprovalTool())
+	r.Register(QuestionTool())
+	r.Register(PlanExitTool())
 	r.Register(todo.PlanReadTool())
 	r.Register(todo.PlanReplaceTool())
 	r.Register(todo.PlanArchiveTool())
@@ -34,8 +35,8 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 	r.Register(todo.ItemRemoveTool())
 	r.Register(todo.ItemUpdateTool())
 	r.Register(todo.ItemMoveTool())
-	r.Register(toolweb.SearchWebTool())
-	r.Register(toolweb.ExtractPageContentTool())
+	r.Register(toolweb.WebSearchTool())
+	r.Register(toolweb.WebFetchTool())
 	registerSchedulerTools(r, cfg)
 	return r
 }

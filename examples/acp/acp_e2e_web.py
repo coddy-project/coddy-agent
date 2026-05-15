@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""ACP e2e: search_web and extract_page_content hit the network and persist results.
+"""ACP e2e: websearch and webfetch hit the network and persist results.
 
 Runs one prompt that requires both tools, then verifies session/update includes
 tool_call and tool_call_update, and disk has both tool names plus example.com
-text in extract_page_content result.md.
+text in webfetch result.md.
 
 Environment: CODDY_BIN, CODDY_CONFIG, SESSION_ROOT, SESSION_ID.
 """
@@ -202,8 +202,8 @@ def main() -> int:
 Do not use filesystem write tools. Use only the built-in web tools.
 
 You must run these two tools in order (wait for each result before the next):
-1) Call search_web with query exactly: IANA example domain reserved
-2) Call extract_page_content with url exactly: https://example.com/
+1) Call websearch with query exactly: IANA example domain reserved
+2) Call webfetch with url exactly: https://example.com/
 
 When both complete, reply one line starting with WEB_E2E_OK and add a short quote from the page (under 15 words).
 """
@@ -227,25 +227,25 @@ When both complete, reply one line starting with WEB_E2E_OK and add a short quot
             return 1
 
         titles = _titles(calls)
-        if "search_web" not in titles:
-            print(f"expected search_web in tool_call titles, got {titles}", file=sys.stderr)
+        if "websearch" not in titles:
+            print(f"expected websearch in tool_call titles, got {titles}", file=sys.stderr)
             return 1
-        if "extract_page_content" not in titles:
-            print(f"expected extract_page_content in tool_call titles, got {titles}", file=sys.stderr)
+        if "webfetch" not in titles:
+            print(f"expected webfetch in tool_call titles, got {titles}", file=sys.stderr)
             return 1
 
         by_id = _tool_names_from_disk(sdir)
         names = set(by_id.values())
-        if "search_web" not in names:
-            print(f"expected search_web on disk, got {sorted(names)}", file=sys.stderr)
+        if "websearch" not in names:
+            print(f"expected websearch on disk, got {sorted(names)}", file=sys.stderr)
             return 1
-        if "extract_page_content" not in names:
-            print(f"expected extract_page_content on disk, got {sorted(names)}", file=sys.stderr)
+        if "webfetch" not in names:
+            print(f"expected webfetch on disk, got {sorted(names)}", file=sys.stderr)
             return 1
 
         extract_body = ""
         for folder, name in by_id.items():
-            if name != "extract_page_content":
+            if name != "webfetch":
                 continue
             rp = sdir / "tool_calls" / folder / "result.md"
             if rp.is_file():
@@ -254,7 +254,7 @@ When both complete, reply one line starting with WEB_E2E_OK and add a short quot
 
         low = extract_body.lower()
         if "example" not in low or "domain" not in low:
-            print("extract_page_content result.md missing expected example.com phrases", file=sys.stderr)
+            print("webfetch result.md missing expected example.com phrases", file=sys.stderr)
             return 1
 
         print("ok acp web tools e2e")

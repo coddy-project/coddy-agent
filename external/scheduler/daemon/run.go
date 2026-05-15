@@ -218,3 +218,7 @@ func (autoAllowSender) SendSessionUpdate(string, interface{}) error { return nil
 func (autoAllowSender) RequestPermission(_ context.Context, _ acp.PermissionRequestParams) (*acp.PermissionResult, error) {
 	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 }
+
+func (autoAllowSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}

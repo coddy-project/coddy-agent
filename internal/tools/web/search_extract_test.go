@@ -22,7 +22,7 @@ func TestSearchWebMockedBackend(t *testing.T) {
 			},
 		}, nil
 	}
-	tool := SearchWebTool()
+	tool := WebSearchTool()
 	out, err := tool.Execute(context.Background(), `{"query":"qtest","page":1}`, nil)
 	if err != nil {
 		t.Fatal(err)

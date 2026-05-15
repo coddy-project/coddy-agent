@@ -11,11 +11,11 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// SearchFilesTool returns the search_files built-in tool (discover paths and content via ripgrep).
-func SearchFilesTool() *tooling.Tool {
+// GrepTool returns the grep built-in (ripgrep content search).
+func GrepTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "search_files",
+			Name:        "grep",
 			Description: "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -44,11 +44,11 @@ func SearchFilesTool() *tooling.Tool {
 				"required": []string{"pattern"},
 			},
 		},
-		Execute: executeSearchFiles,
+		Execute: executeGrep,
 	}
 }
 
-type searchFilesArgs struct {
+type grepArgs struct {
 	Pattern       string `json:"pattern"`
 	Path          string `json:"path"`
 	Glob          string `json:"glob"`
@@ -56,8 +56,8 @@ type searchFilesArgs struct {
 	MaxResults    int    `json:"max_results"`
 }
 
-func executeSearchFiles(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
-	args, err := tooling.ParseArgs[searchFilesArgs](argsJSON)
+func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+	args, err := tooling.ParseArgs[grepArgs](argsJSON)
 	if err != nil {
 		return "", err
 	}
@@ -104,9 +104,9 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *tooling.Env) 
 			return "no matches found", nil
 		}
 		if strings.Contains(err.Error(), "executable file not found") {
-			return searchWithGrep(ctx, args, searchPath, env)
+			return grepWithGrepFallback(ctx, args, searchPath, env)
 		}
-		return "", fmt.Errorf("search_files rg: %s", stderr.String())
+		return "", fmt.Errorf("grep rg: %s", stderr.String())
 	}
 
 	result := stdout.String()
@@ -116,7 +116,7 @@ func executeSearchFiles(ctx context.Context, argsJSON string, env *tooling.Env) 
 	return result, nil
 }
 
-func searchWithGrep(ctx context.Context, args searchFilesArgs, searchPath string, _ *tooling.Env) (string, error) {
+func grepWithGrepFallback(ctx context.Context, args grepArgs, searchPath string, _ *tooling.Env) (string, error) {
 	grepArgs := []string{"-rn"}
 	if args.Glob != "" {
 		grepArgs = append(grepArgs, "--include="+args.Glob)
@@ -134,7 +134,7 @@ func searchWithGrep(ctx context.Context, args searchFilesArgs, searchPath string
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
 			return "no matches found", nil
 		}
-		return "", fmt.Errorf("search_files grep: %w", err)
+		return "", fmt.Errorf("grep: %w", err)
 	}
 
 	return stdout.String(), nil

@@ -11,12 +11,14 @@ type ToolSet []string
 // planToolNames is the fixed allowlist for plan mode (read-only registry builtins plus shell).
 // MCP server tools are appended separately in react.go (same as agent mode).
 var planToolNames = []string{
-	"read_file",
-	"list_dir",
-	"search_files",
-	"search_web",
-	"extract_page_content",
+	"read",
+	"glob",
+	"grep",
+	"websearch",
+	"webfetch",
 	"run_command",
+	"question",
+	"plan_exit",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

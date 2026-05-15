@@ -140,6 +140,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		Sender:  a.server,
 		GetPlan: a.state.GetPlan,
 		SetPlan: a.state.SetPlan,
+		SetSessionMode: func(mode string) error {
+			a.state.SetMode(strings.TrimSpace(mode))
+			return nil
+		},
 	}
 
 	var totalInputTokens, totalOutputTokens int
@@ -377,6 +381,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string) (string, error) {
+	env.ToolCallID = strings.TrimSpace(tc.ID)
+	defer func() { env.ToolCallID = "" }()
+
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
 		sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
@@ -633,9 +640,9 @@ func extractContextFiles(blocks []acp.ContentBlock) []string {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read_file", "list_dir", "search_files", "search_web", "extract_page_content":
+	case "read", "glob", "grep", "websearch", "webfetch":
 		return "read"
-	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -646,7 +653,7 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
 		return true
 	default:
 		return false

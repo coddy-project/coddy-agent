@@ -17,14 +17,22 @@ func WriteGrantKeys(toolName, argsJSON, cwd string) []string {
 		return nil
 	}
 	switch toolName {
-	case "write_file", "write_text_file", "apply_diff", "mkdir", "rmdir", "touch", "rm":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm":
 		var a struct {
-			Path string `json:"path"`
+			Path     string `json:"path"`
+			FilePath string `json:"filePath"`
 		}
-		if json.Unmarshal([]byte(argsJSON), &a) != nil || strings.TrimSpace(a.Path) == "" {
+		if json.Unmarshal([]byte(argsJSON), &a) != nil {
 			return nil
 		}
-		abs, err := filepath.Abs(toolfs.ResolvePath(strings.TrimSpace(a.Path), cwd))
+		p := strings.TrimSpace(a.FilePath)
+		if p == "" {
+			p = strings.TrimSpace(a.Path)
+		}
+		if p == "" {
+			return nil
+		}
+		abs, err := filepath.Abs(toolfs.ResolvePath(p, cwd))
 		if err != nil {
 			return nil
 		}

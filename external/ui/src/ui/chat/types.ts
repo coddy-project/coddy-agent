@@ -1,3 +1,5 @@
+import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+
 export type TokenUsage = {
   inputTokens: number;
   outputTokens: number;
@@ -5,6 +7,12 @@ export type TokenUsage = {
 };
 
 export type TranscriptItem =
+  | {
+      id: string;
+      type: "question_prompt";
+      payload: CoddyQuestionPayload;
+      resolved?: QuestionResolvedState;
+    }
   | {
       id: string;
       type: "user_message";

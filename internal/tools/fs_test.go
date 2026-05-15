@@ -28,10 +28,10 @@ func TestReadFile(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"path": "test.txt"})
-	result, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	args, _ := json.Marshal(map[string]interface{}{"filePath": "test.txt"})
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("read_file: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if result != content {
 		t.Errorf("expected %q, got %q", content, result)
@@ -48,13 +48,13 @@ func TestReadFileLines(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	args, _ := json.Marshal(map[string]interface{}{
-		"path":       "test.txt",
-		"start_line": 2,
-		"end_line":   3,
+		"filePath": "test.txt",
+		"offset":   2,
+		"limit":    2,
 	})
-	result, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("read_file with lines: %v", err)
+		t.Fatalf("read with lines: %v", err)
 	}
 	if !strings.Contains(result, "line2") || !strings.Contains(result, "line3") {
 		t.Errorf("unexpected result: %q", result)
@@ -69,12 +69,12 @@ func TestWriteFile(t *testing.T) {
 	reg := tools.NewRegistry()
 
 	args, _ := json.Marshal(map[string]interface{}{
-		"path":    "output.txt",
-		"content": "new file content",
+		"filePath": "output.txt",
+		"content":  "new file content",
 	})
-	result, err := reg.Execute(context.Background(), "write_file", string(args), env)
+	result, err := reg.Execute(context.Background(), "write", string(args), env)
 	if err != nil {
-		t.Fatalf("write_file: %v", err)
+		t.Fatalf("write: %v", err)
 	}
 	if !strings.Contains(result, "output.txt") {
 		t.Errorf("unexpected result: %q", result)
@@ -94,12 +94,12 @@ func TestWriteFileCreatesDirectories(t *testing.T) {
 	reg := tools.NewRegistry()
 
 	args, _ := json.Marshal(map[string]interface{}{
-		"path":    "subdir/nested/file.txt",
-		"content": "nested content",
+		"filePath": "subdir/nested/file.txt",
+		"content":  "nested content",
 	})
-	_, err := reg.Execute(context.Background(), "write_file", string(args), env)
+	_, err := reg.Execute(context.Background(), "write", string(args), env)
 	if err != nil {
-		t.Fatalf("write_file nested: %v", err)
+		t.Fatalf("write nested: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(env.CWD, "subdir/nested/file.txt"))
@@ -115,14 +115,14 @@ func TestReadFileOutsideCWD(t *testing.T) {
 	env := makeEnv(t)
 	reg := tools.NewRegistry()
 
-	args, _ := json.Marshal(map[string]interface{}{"path": "/etc/passwd"})
-	_, err := reg.Execute(context.Background(), "read_file", string(args), env)
+	args, _ := json.Marshal(map[string]interface{}{"filePath": "/etc/passwd"})
+	_, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err == nil {
 		t.Error("expected error when reading outside CWD")
 	}
 }
 
-func TestListDir(t *testing.T) {
+func TestReadDirListing(t *testing.T) {
 	env := makeEnv(t)
 
 	// Create some files.
@@ -137,20 +137,20 @@ func TestListDir(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{})
-	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	args, _ := json.Marshal(map[string]interface{}{"filePath": "."})
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("list_dir: %v", err)
+		t.Fatalf("read dir: %v", err)
 	}
 	if !strings.Contains(result, "a.go") || !strings.Contains(result, "b.go") {
-		t.Errorf("missing files in list_dir output: %q", result)
+		t.Errorf("missing files in read dir output: %q", result)
 	}
 	if !strings.Contains(result, "subdir/") {
-		t.Errorf("missing subdir in list_dir output: %q", result)
+		t.Errorf("missing subdir in read dir output: %q", result)
 	}
 }
 
-func TestListDirHiddenDefault(t *testing.T) {
+func TestReadDirHiddenDefault(t *testing.T) {
 	env := makeEnv(t)
 	if err := os.WriteFile(filepath.Join(env.CWD, "visible.txt"), []byte(""), 0o644); err != nil {
 		t.Fatal(err)
@@ -163,10 +163,10 @@ func TestListDirHiddenDefault(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{})
-	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	args, _ := json.Marshal(map[string]interface{}{"filePath": "."})
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("list_dir: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if !strings.Contains(result, "visible.txt") {
 		t.Errorf("expected visible file: %q", result)
@@ -175,17 +175,17 @@ func TestListDirHiddenDefault(t *testing.T) {
 		t.Errorf("did not expect hidden entries by default: %q", result)
 	}
 
-	args, _ = json.Marshal(map[string]interface{}{"show_hidden": true})
-	result, err = reg.Execute(context.Background(), "list_dir", string(args), env)
+	args, _ = json.Marshal(map[string]interface{}{"filePath": ".", "show_hidden": true})
+	result, err = reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("list_dir show_hidden: %v", err)
+		t.Fatalf("read show_hidden: %v", err)
 	}
 	if !strings.Contains(result, ".hidden.txt") || !strings.Contains(result, ".hiddendir/") {
 		t.Errorf("expected hidden file and dir when show_hidden: %q", result)
 	}
 }
 
-func TestListDirRecursiveSkipsHiddenSubtree(t *testing.T) {
+func TestReadDirRecursiveSkipsHiddenSubtree(t *testing.T) {
 	env := makeEnv(t)
 	sub := filepath.Join(env.CWD, "outer")
 	if err := os.MkdirAll(filepath.Join(sub, ".git", "objects"), 0o755); err != nil {
@@ -196,16 +196,39 @@ func TestListDirRecursiveSkipsHiddenSubtree(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"path": "outer", "recursive": true})
-	result, err := reg.Execute(context.Background(), "list_dir", string(args), env)
+	args, _ := json.Marshal(map[string]interface{}{"filePath": "outer", "recursive": true})
+	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
-		t.Fatalf("list_dir: %v", err)
+		t.Fatalf("read: %v", err)
 	}
 	if strings.Contains(result, ".git/") {
 		t.Errorf("did not expect .git in non-show_hidden recursive listing: %q", result)
 	}
 	if !strings.Contains(result, "ok.txt") {
 		t.Errorf("expected ok.txt: %q", result)
+	}
+}
+
+func TestGlobFiles(t *testing.T) {
+	env := makeEnv(t)
+	if err := os.WriteFile(filepath.Join(env.CWD, "a.go"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(env.CWD, "b.txt"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := tools.NewRegistry()
+	args, _ := json.Marshal(map[string]interface{}{"pattern": "*.go", "path": "."})
+	result, err := reg.Execute(context.Background(), "glob", string(args), env)
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	if !strings.Contains(result, "a.go") {
+		t.Errorf("expected a.go in glob output: %q", result)
+	}
+	if strings.Contains(result, "b.txt") {
+		t.Errorf("did not expect b.txt: %q", result)
 	}
 }
 
@@ -225,12 +248,12 @@ func TestApplyDiff(t *testing.T) {
 `
 	reg := tools.NewRegistry()
 	args, _ := json.Marshal(map[string]interface{}{
-		"path": "file.txt",
-		"diff": diff,
+		"filePath": "file.txt",
+		"patch":    diff,
 	})
-	_, err := reg.Execute(context.Background(), "apply_diff", string(args), env)
+	_, err := reg.Execute(context.Background(), "apply_patch", string(args), env)
 	if err != nil {
-		t.Fatalf("apply_diff: %v", err)
+		t.Fatalf("apply_patch: %v", err)
 	}
 
 	data, err := os.ReadFile(path)

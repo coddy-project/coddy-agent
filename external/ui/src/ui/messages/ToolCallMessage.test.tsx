@@ -134,6 +134,44 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("125ms");
 });
 
+test("question tool omits duration from summary row", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-q"
+      title="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Continue?", options: [{ label: "Yes" }] }],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+      durationMs={1006}
+    />,
+  );
+  expect(container.querySelector(".thinking-dur")).toBeNull();
+  expect(screen.getByText(/Continue\? Yes/)).toBeInTheDocument();
+});
+
+test("question tool shows human timeline readout instead of raw JSON blobs", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-q2"
+      title="question"
+      kind="question"
+      status="completed"
+      argsText={JSON.stringify({
+        questions: [{ question: "Go on?", options: [{ label: "Yes" }, { label: "No" }] }],
+      })}
+      resultText={JSON.stringify({ answers: [["Yes"]] })}
+      durationMs={10}
+    />,
+  );
+  openToolDetails();
+  expect(document.querySelector(".tool-result-pre")).toBeNull();
+  expect(screen.getByLabelText("Tool call details")).toBeTruthy();
+  expect(screen.getByText("Go on?")).toBeInTheDocument();
+  expect(screen.queryByText(/"questions"/)).toBeNull();
+});
+
 test("in-progress tool shows ellipsis on label and elapsed from startedAtMs", () => {
   const t0 = Date.now() - 2500;
   const { container } = render(

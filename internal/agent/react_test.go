@@ -37,10 +37,11 @@ func TestToolKind(t *testing.T) {
 	cases := []struct {
 		name, want string
 	}{
-		{"read_file", "read"},
-		{"list_dir", "read"},
-		{"write_file", "write"},
-		{"apply_diff", "write"},
+		{"read", "read"},
+		{"glob", "read"},
+		{"grep", "read"},
+		{"write", "write"},
+		{"apply_patch", "write"},
 		{"run_command", "run_command"},
 		{"mkdir", "write"},
 		{"mcp_server__tool", "other"},

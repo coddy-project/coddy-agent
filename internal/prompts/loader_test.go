@@ -56,11 +56,11 @@ func TestRenderPlanPrompt(t *testing.T) {
 	if !strings.Contains(result, "Mode: Plan") {
 		t.Error("plan prompt should mention Mode: Plan")
 	}
-	if !strings.Contains(result, "switch the session") {
-		t.Error("plan prompt should instruct switching to agent mode in the client")
+	if !strings.Contains(result, "switch the session") && !strings.Contains(result, "plan_exit") {
+		t.Error("plan prompt should mention switching to agent mode or plan_exit")
 	}
-	if !strings.Contains(result, "search_web") {
-		t.Error("plan prompt should mention search_web for external research")
+	if !strings.Contains(result, "websearch") {
+		t.Error("plan prompt should mention websearch for external research")
 	}
 	if !strings.Contains(result, "run_command") {
 		t.Error("plan prompt should mention run_command for shell inspection")
@@ -77,14 +77,14 @@ func TestRenderWithSkillsToolsMemory(t *testing.T) {
 	result, err := prompts.Render("agent", "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
 		CWD:    "/project",
 		Skills: "## Active Rules\n\nstub",
-		Tools:  "- `read_file`: read",
+		Tools:  "- `read`: read",
 		Memory: "User prefers pytest.",
 		UTCNow: fixtureUTC,
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	for _, want := range []string{"stub", "`read_file`", "pytest", "Session memory"} {
+	for _, want := range []string{"stub", "`read`", "pytest", "Session memory"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("expected %q in result", want)
 		}

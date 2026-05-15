@@ -123,6 +123,8 @@ export type ConsumeComposerSseParams = {
     prev: TranscriptItem[],
     p: MemoryChunkEvt,
   ) => TranscriptItem[];
+  /** Coddy extension. Fired when the `question` tool blocks for answers (matches session/request_question payload shape). */
+  onQuestion?: (payload: Record<string, unknown>) => void;
 };
 
 export type ConsumeComposerSseResult = {
@@ -149,6 +151,7 @@ export async function consumeComposerSseReader(
     newId,
     applyMemoryPhaseToItems,
     applyMemoryChunkToItems,
+    onQuestion,
   } = p;
 
       const toolQueue: Array<
@@ -474,6 +477,16 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "question") {
+            try {
+              const raw = JSON.parse(ev.data) as Record<string, unknown>;
+              onQuestion?.(raw);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "tool_call") {
             try {
               finishThinking();
@@ -661,6 +674,15 @@ export async function consumeComposerSseReader(
                   delta: typeof raw.delta === "string" ? raw.delta : "",
                 }),
               );
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+          if (ev.event === "question") {
+            try {
+              const raw = JSON.parse(ev.data) as Record<string, unknown>;
+              onQuestion?.(raw);
             } catch {
               // ignore
             }

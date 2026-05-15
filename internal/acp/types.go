@@ -446,6 +446,36 @@ type PermissionResult struct {
 	OptionID string `json:"optionId"`
 }
 
+// ---- ACP session/request_question ----
+
+// QuestionOption is one selectable choice for QuestionPrompt.
+type QuestionOption struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+}
+
+// QuestionPrompt is one interactive question with optional header and multiple choice flags.
+type QuestionPrompt struct {
+	Header    string           `json:"header,omitempty"`
+	Question  string           `json:"question"`
+	Options   []QuestionOption `json:"options"`
+	Multiple  bool             `json:"multiple,omitempty"`
+	Custom    bool             `json:"custom,omitempty"`
+}
+
+// QuestionRequestParams are the parameters for session/request_question.
+type QuestionRequestParams struct {
+	SessionID   string           `json:"sessionId"`
+	RequestID   string           `json:"requestId"`
+	ToolCallID  string           `json:"toolCallId,omitempty"`
+	Questions   []QuestionPrompt `json:"questions"`
+}
+
+// QuestionResult is the client's response to session/request_question.
+type QuestionResult struct {
+	Answers [][]string `json:"answers"`
+}
+
 // ---- Content blocks ----
 
 // ContentBlock is a polymorphic content item used in prompts and messages.

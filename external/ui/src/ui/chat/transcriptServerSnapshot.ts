@@ -49,6 +49,14 @@ export function transcriptItemsLooselyEqual(
         (b as Extract<TranscriptItem, { type: "memory_copilot" }>).userTurnIndex ===
           a.userTurnIndex
       );
+    case "question_prompt": {
+      const asv = a as Extract<TranscriptItem, { type: "question_prompt" }>;
+      const bl = b as Extract<TranscriptItem, { type: "question_prompt" }>;
+      if (asv.payload.requestId !== bl.payload.requestId) return false;
+      if (bl.resolved && !asv.resolved) return true;
+      if (!!asv.resolved !== !!bl.resolved) return false;
+      return true;
+    }
     default:
       return false;
   }
@@ -76,6 +84,15 @@ export function mergeTranscriptPreferLocalSuffix(
   if (local.length === serverNext.length && minLen > 0) {
     const lastS = serverNext[serverNext.length - 1]!;
     const lastL = local[local.length - 1]!;
+    if (
+      lastS.type === "question_prompt" &&
+      lastL.type === "question_prompt" &&
+      lastS.payload.requestId === lastL.payload.requestId &&
+      lastL.resolved &&
+      !lastS.resolved
+    ) {
+      return [...serverNext.slice(0, -1), lastL];
+    }
     if (lastS.type === "assistant_message" && lastL.type === "assistant_message") {
       const sText = lastS.content;
       const lText = lastL.content;

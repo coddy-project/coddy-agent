@@ -19,6 +19,10 @@ type noopSender struct{}
 
 func (noopSender) SendSessionUpdate(string, interface{}) error { return nil }
 
+func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow"}, nil
+}
+
 type captureSender struct {
 	mu  sync.Mutex
 	ups []interface{}
@@ -35,8 +39,12 @@ func (c *captureSender) RequestPermission(context.Context, acp.PermissionRequest
 	return &acp.PermissionResult{Outcome: "allow"}, nil
 }
 
-func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	return &acp.PermissionResult{Outcome: "allow"}, nil
+func (c *captureSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+func (noopSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
 }
 
 func testConfig() *config.Config {

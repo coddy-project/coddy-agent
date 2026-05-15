@@ -126,6 +126,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/stats", s.coddySessionStatsGet)
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/question", s.coddySessionQuestionPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/plan", s.coddyPlanGet)
 	s.mux.HandleFunc("PUT /coddy/sessions/{id}/plan", s.coddyPlanPut)
@@ -171,6 +172,46 @@ func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Req
 	s.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: id})
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_cancelled", "id": id})
+}
+
+func (s *Server) coddySessionQuestionPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if err := session.ValidateFolderSessionID(id); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
+	hdr := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
+	if hdr != "" && hdr != id {
+		http.Error(w, `{"error":{"message":"X-Coddy-Session-ID does not match path id"}}`, http.StatusBadRequest)
+		return
+	}
+	var body struct {
+		RequestID string     `json:"requestId"`
+		Answers   [][]string `json:"answers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
+		return
+	}
+	rid := strings.TrimSpace(body.RequestID)
+	if rid == "" {
+		http.Error(w, `{"error":{"message":"requestId is required"}}`, http.StatusBadRequest)
+		return
+	}
+	if body.Answers == nil {
+		http.Error(w, `{"error":{"message":"answers is required"}}`, http.StatusBadRequest)
+		return
+	}
+	ok := CompleteQuestionAnswer(id, rid, &acp.QuestionResult{Answers: body.Answers})
+	if !ok {
+		http.Error(w, `{"error":{"message":"no pending question for this requestId"}}`, http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
@@ -274,7 +315,7 @@ func toolKind(name string) string {
 	switch n {
 	case "run_command":
 		return "shell"
-	case "write_file", "apply_diff", "mkdir", "touch", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "touch", "mv":
 		return "fs"
 	}
 	return "tool"
@@ -672,12 +713,12 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	out := map[string]interface{}{
-		"object":           "coddy.session_activity",
-		"sessionId":        id,
-		"turnActive":       turnActive,
-		"activitySeq":      actSeq,
-		"readActivitySeq":  readSeq,
-		"unreadComplete":   actSeq > readSeq && !turnActive,
+		"object":          "coddy.session_activity",
+		"sessionId":       id,
+		"turnActive":      turnActive,
+		"activitySeq":     actSeq,
+		"readActivitySeq": readSeq,
+		"unreadComplete":  actSeq > readSeq && !turnActive,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

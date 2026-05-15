@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
@@ -58,6 +59,11 @@ export function ChatScreen(props: {
   onStop?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  onQuestionPromptResolved?: (
+    sessionId: string,
+    itemId: string,
+    resolved: QuestionResolvedState,
+  ) => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
@@ -206,6 +212,9 @@ export function ChatScreen(props: {
                 items={props.items}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
+                  : {})}
+                {...(props.onQuestionPromptResolved
+                  ? { onQuestionPromptResolved: props.onQuestionPromptResolved }
                   : {})}
               />
             </div>

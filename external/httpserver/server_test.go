@@ -33,6 +33,10 @@ func (noopSender) RequestPermission(context.Context, acp.PermissionRequestParams
 	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 }
 
+func (noopSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
 func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	cfg := &config.Config{
 		Agent:  config.Agent{Model: "openai/gpt-4o"},
@@ -109,7 +113,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/cancel"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/cancel"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}

@@ -10,10 +10,10 @@ import (
 
 func TestFormatDefinitionsForPrompt(t *testing.T) {
 	out := tools.FormatDefinitionsForPrompt([]llm.ToolDefinition{
-		{Name: "read_file", Description: "Read a file."},
-		{Name: "list_dir", Description: ""},
+		{Name: "read", Description: "Read a file."},
+		{Name: "grep", Description: ""},
 	})
-	for _, want := range []string{"read_file", "Read a file.", "list_dir", "(no description)"} {
+	for _, want := range []string{"read", "Read a file.", "grep", "(no description)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output %q should contain %q", out, want)
 		}

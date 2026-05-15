@@ -6,7 +6,7 @@ minimal container images (`scratch`, `distroless`, read-only workspaces) without
 inside the image.
 
 The bundled default is a **ReAct** loop with filesystem, shell (when exposed), todo,
-web search and page extraction (**`search_web`**, **`extract_page_content`**), and MCP tools,
+web search and page extraction (**`websearch`**, **`webfetch`**), and MCP tools,
 **which makes Coddy a coding agent over ACP stdio** for any compatible ACP client or harness script.
 
 The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or

@@ -49,6 +49,12 @@ type Env struct {
 	// SetPlan replaces the plan entries in session state.
 	// May be nil if plan support is not wired up.
 	SetPlan func([]acp.PlanEntry)
+
+	// ToolCallID is the active LLM tool call id for this execution, when applicable.
+	ToolCallID string
+
+	// SetSessionMode switches the session operating mode (e.g. plan to agent). Optional.
+	SetSessionMode func(mode string) error
 }
 
 // CommandAllowed returns true if the given shell command matches an entry

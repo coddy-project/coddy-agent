@@ -9,7 +9,7 @@ func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
 	t.Parallel()
 	sd := t.TempDir()
 	id := "call_test_1"
-	if err := MarkToolCallStarted(sd, id, "search_files", "tool", "in_progress"); err != nil {
+	if err := MarkToolCallStarted(sd, id, "grep", "tool", "in_progress"); err != nil {
 		t.Fatalf("MarkToolCallStarted: %v", err)
 	}
 	before, err := ReadToolCallMeta(sd, id)
@@ -20,7 +20,7 @@ func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
 		t.Fatal("expected StartedAt after MarkToolCallStarted")
 	}
 	time.Sleep(2 * time.Millisecond)
-	if err := MarkToolCallFinished(sd, id, "search_files", "tool", "completed"); err != nil {
+	if err := MarkToolCallFinished(sd, id, "grep", "tool", "completed"); err != nil {
 		t.Fatalf("MarkToolCallFinished: %v", err)
 	}
 	after, err := ReadToolCallMeta(sd, id)

@@ -34,9 +34,10 @@ type Server struct {
 	writer  *json.Encoder
 	mu      sync.Mutex // protects writer
 
-	// Pending permission requests waiting for client response.
-	pendingPerms   map[interface{}]chan *PermissionResult
-	pendingPermsMu sync.Mutex
+	// Pending permission and question RPC responses from the client.
+	pendingPerms  map[interface{}]chan *PermissionResult
+	pendingQuests map[interface{}]chan *QuestionResult
+	pendingRPCMu  sync.Mutex
 
 	nextID atomic.Int64
 	log    *slog.Logger
@@ -45,10 +46,11 @@ type Server struct {
 // NewServer creates a new ACP server.
 func NewServer(handler Handler, log *slog.Logger) *Server {
 	return &Server{
-		handler:      handler,
-		writer:       json.NewEncoder(os.Stdout),
-		pendingPerms: make(map[interface{}]chan *PermissionResult),
-		log:          log,
+		handler:       handler,
+		writer:        json.NewEncoder(os.Stdout),
+		pendingPerms:  make(map[interface{}]chan *PermissionResult),
+		pendingQuests: make(map[interface{}]chan *QuestionResult),
+		log:           log,
 	}
 }
 
@@ -144,7 +146,7 @@ func (s *Server) processLine(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// handleResponse processes a response to a request we sent (e.g. permission).
+// handleResponse processes a response to a request we sent (e.g. permission or question).
 func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 	var id interface{}
 	if rawID, ok := raw["id"]; ok {
@@ -153,16 +155,22 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 		}
 	}
 
-	s.pendingPermsMu.Lock()
+	s.pendingRPCMu.Lock()
+	qch, qOK := s.pendingQuests[id]
 	ch, ok := s.pendingPerms[id]
-	s.pendingPermsMu.Unlock()
+	s.pendingRPCMu.Unlock()
 
-	if !ok {
+	if !qOK && !ok {
 		s.log.Warn("received unexpected response", "id", id)
 		return nil
 	}
 
 	if errRaw, ok := raw["error"]; ok {
+		if qOK {
+			_ = errRaw
+			qch <- &QuestionResult{}
+			return nil
+		}
 		var rpcErr RPCError
 		if err := json.Unmarshal(errRaw, &rpcErr); err == nil {
 			if rpcErr.Message == "cancelled" {
@@ -175,6 +183,15 @@ func (s *Server) handleResponse(raw map[string]json.RawMessage) error {
 	}
 
 	if resultRaw, ok := raw["result"]; ok {
+		if qOK {
+			var result QuestionResult
+			if err := json.Unmarshal(resultRaw, &result); err != nil {
+				qch <- &QuestionResult{}
+				return nil
+			}
+			qch <- &result
+			return nil
+		}
 		var result PermissionResult
 		if err := json.Unmarshal(resultRaw, &result); err != nil {
 			ch <- &PermissionResult{Outcome: "cancelled"}
@@ -308,14 +325,14 @@ func (s *Server) RequestPermission(ctx context.Context, params PermissionRequest
 	id := s.nextID.Add(1)
 	ch := make(chan *PermissionResult, 1)
 
-	s.pendingPermsMu.Lock()
+	s.pendingRPCMu.Lock()
 	s.pendingPerms[float64(id)] = ch
-	s.pendingPermsMu.Unlock()
+	s.pendingRPCMu.Unlock()
 
 	defer func() {
-		s.pendingPermsMu.Lock()
+		s.pendingRPCMu.Lock()
 		delete(s.pendingPerms, float64(id))
-		s.pendingPermsMu.Unlock()
+		s.pendingRPCMu.Unlock()
 	}()
 
 	msg := map[string]interface{}{
@@ -336,6 +353,39 @@ func (s *Server) RequestPermission(ctx context.Context, params PermissionRequest
 	}
 }
 
+// RequestQuestion sends a session/request_question request and waits for the response.
+func (s *Server) RequestQuestion(ctx context.Context, params QuestionRequestParams) (*QuestionResult, error) {
+	id := s.nextID.Add(1)
+	ch := make(chan *QuestionResult, 1)
+
+	s.pendingRPCMu.Lock()
+	s.pendingQuests[float64(id)] = ch
+	s.pendingRPCMu.Unlock()
+
+	defer func() {
+		s.pendingRPCMu.Lock()
+		delete(s.pendingQuests, float64(id))
+		s.pendingRPCMu.Unlock()
+	}()
+
+	msg := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "session/request_question",
+		"params":  params,
+	}
+	if err := s.writeJSON(msg); err != nil {
+		return nil, err
+	}
+
+	select {
+	case result := <-ch:
+		return result, nil
+	case <-ctx.Done():
+		return &QuestionResult{}, nil
+	}
+}
+
 // CallClientFS calls fs/read_text_file or fs/write_text_file on the client.
 func (s *Server) CallClientFS(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
 	id := s.nextID.Add(1)
@@ -345,13 +395,13 @@ func (s *Server) CallClientFS(ctx context.Context, method string, params interfa
 	// Store a raw channel instead.
 	rawCh := make(chan json.RawMessage, 1)
 
-	s.pendingPermsMu.Lock()
+	s.pendingRPCMu.Lock()
 	// Use a unique key combining id and method.
 	key := fmt.Sprintf("fs_%d", id)
 	// Store as PermissionResult channel - won't be called for FS.
 	// Instead we use a parallel raw map.
 	s.pendingPerms[key] = nil // placeholder
-	s.pendingPermsMu.Unlock()
+	s.pendingRPCMu.Unlock()
 
 	// Store raw channel separately.
 	rawPerms := s.getRawPermsMap()
@@ -360,9 +410,9 @@ func (s *Server) CallClientFS(ctx context.Context, method string, params interfa
 	rawPerms.mu.Unlock()
 
 	defer func() {
-		s.pendingPermsMu.Lock()
+		s.pendingRPCMu.Lock()
 		delete(s.pendingPerms, key)
-		s.pendingPermsMu.Unlock()
+		s.pendingRPCMu.Unlock()
 		rawPerms.mu.Lock()
 		delete(rawPerms.m, key)
 		rawPerms.mu.Unlock()

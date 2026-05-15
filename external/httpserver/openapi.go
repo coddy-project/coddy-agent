@@ -524,6 +524,49 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/question": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Answer a pending interactive question from a streaming ReAct turn",
+					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"required": []interface{}{
+										"requestId", "answers",
+									},
+									"properties": map[string]interface{}{
+										"requestId": map[string]string{"type": "string"},
+										"answers": map[string]interface{}{
+											"type": "array",
+											"items": map[string]interface{}{
+												"type": "array",
+												"items": map[string]string{"type": "string"},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"204": map[string]interface{}{"description": "Answer accepted"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",

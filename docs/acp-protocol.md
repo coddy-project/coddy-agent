@@ -67,7 +67,7 @@ stderr -> agent logs (not protocol messages)
 Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp/acp_e2e_todo.py`**.
 
 1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
-2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** in between by writing a client response with the same **`id`**.
+2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** or **`session/request_question`** in between by writing a client response with the same **`id`**.
 3. **Stdout buffering** - When stdout is not a TTY, output can be block-buffered. Wrap the binary with **`stdbuf -oL -eL`** (or equivalent) so lines appear as they are written.
 4. **Concurrent request handlers** - Outstanding requests are dispatched asynchronously. Do not send a second RPC until you have consumed the response for the previous one if your client assumes strict ordering.
 
@@ -517,6 +517,40 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
   "result": {
     "outcome": "allow",
     "optionId": "allow"
+  }
+}
+```
+
+## Question Requests (Agent -> Client, expects response)
+
+Used by the **`question`** tool. Same inbound JSON-RPC pattern as permission requests (client must reply with the same **`id`**).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "session/request_question",
+  "params": {
+    "sessionId": "sess_abc123def456",
+    "requestId": "q_1730000000000",
+    "toolCallId": "call_003",
+    "questions": [
+      {
+        "question": "Pick a stack",
+        "options": [{ "label": "Go" }, { "label": "Rust" }]
+      }
+    ]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "answers": [["Go"]]
   }
 }
 ```

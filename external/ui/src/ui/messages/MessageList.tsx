@@ -1,3 +1,5 @@
+import { QuestionPromptSection } from "../chat/QuestionPromptSection";
+import type { QuestionResolvedState } from "../chat/questionTypes";
 import type { TranscriptItem } from "../chat/types";
 import { AssistantMessage } from "./AssistantMessage";
 import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
@@ -22,6 +24,11 @@ function mainThinkingOverlapsMemory(
 export function MessageList(props: {
   items: TranscriptItem[];
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  onQuestionPromptResolved?: (
+    sessionId: string,
+    itemId: string,
+    resolved: QuestionResolvedState,
+  ) => void;
 }) {
   return (
     <>
@@ -120,6 +127,24 @@ export function MessageList(props: {
               level={it.level}
               message={it.message}
             />
+          );
+        }
+        if (it.type === "question_prompt") {
+          return (
+            <div key={it.id} className="message-row message-row-question">
+              <QuestionPromptSection
+                itemId={it.id}
+                payload={it.payload}
+                resolved={it.resolved}
+                onResolved={(state) =>
+                  props.onQuestionPromptResolved?.(
+                    it.payload.sessionId,
+                    it.id,
+                    state,
+                  )
+                }
+              />
+            </div>
           );
         }
         return (

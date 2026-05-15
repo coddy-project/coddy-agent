@@ -14,12 +14,12 @@ func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
 	for _, d := range filtered {
 		got[d.Name] = true
 	}
-	for _, want := range []string{"read_file", "list_dir", "search_files", "search_web", "extract_page_content", "run_command"} {
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_exit"} {
 		if !got[want] {
 			t.Errorf("plan toolset should include %q", want)
 		}
 	}
-	for _, forbid := range []string{"write_text_file", "coddy_todo_plan_read"} {
+	for _, forbid := range []string{"write", "coddy_todo_plan_read"} {
 		if got[forbid] {
 			t.Errorf("plan toolset should not include %q", forbid)
 		}

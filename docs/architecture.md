@@ -113,27 +113,27 @@ The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`
 composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
 call sites such as **`internal/agent`** keep importing **`tools`** only.
 
-- **`internal/tools/web`** - **`search_web`** (DuckDuckGo text search) and **`extract_page_content`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+- **`internal/tools/web`** - **`websearch`** (DuckDuckGo text search) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
 
 Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 
 - **`internal/tools/fs`** - path helpers (`paths.go` with `ResolvePath`, `CheckInsideCWD`,
-  `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`readfile.go`, **`writefile.go`** registers both
-  **`write_file`** and **`write_text_file`**), **`ls.go`** (**`list_dir`**), **`find.go`** (**`search_files`**),
-  **`patch.go`** (**`apply_diff`**), **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
+  `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`read.go` **`read`**, **`glob.go`** **`glob`**,
+  **`grep.go`** **`grep`**, **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
+  **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
 - **`internal/tools/shell`** - **`run_command`**
 - **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
   **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
   **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
 
-**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read_file`**, **`list_dir`**, **`search_files`**, **`search_web`**, **`extract_page_content`**, **`run_command`**), then MCP tools from connected servers are appended the same way as in agent mode.
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
 
 Agents see:
 
-- **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`search_web`**, **`extract_page_content`**, etc.) plus MCP tools from connected servers.
+- **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
 - **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
 
-`run_command`, optional write paths, and out-of-tree paths still go through **`session/request_permission`** as before.
+`run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
 
 ### Optional `external` tool packages (scheduler, memory)
 
@@ -174,7 +174,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read_file`**, **`list_dir`**, **`search_files`**, **`search_web`**, **`extract_page_content`**, **`run_command`**, plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
 - No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 

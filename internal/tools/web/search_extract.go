@@ -37,11 +37,11 @@ func defaultDDGSearch(ctx context.Context, params *ddgsearch.SearchParams) (*ddg
 	return c.Search(ctx, params)
 }
 
-// SearchWebTool returns the search_web built-in tool (DuckDuckGo text search).
-func SearchWebTool() *tooling.Tool {
+// WebSearchTool returns the websearch built-in tool (DuckDuckGo text search).
+func WebSearchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "search_web",
+			Name:        "websearch",
 			Description: "Search the public web via DuckDuckGo. Returns titles, URLs, and short snippets. Use page for pagination (about 10 results per page). If results are thin, rephrase the query 1-3 times before giving up.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -121,7 +121,7 @@ func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (str
 		Page:  page,
 	}
 	if len(resp.Results) >= maxRes || (len(resp.Results) > 0 && !resp.NoResults) {
-		out.HasMoreHint = "If you need more links, call search_web again with page incremented or a refined query."
+		out.HasMoreHint = "If you need more links, call websearch again with page incremented or a refined query."
 	}
 	for _, r := range resp.Results {
 		out.Results = append(out.Results, row{
@@ -142,11 +142,11 @@ func executeSearchWeb(ctx context.Context, argsJSON string, _ *tooling.Env) (str
 
 const maxFetchHTMLBytes = 4 << 20
 
-// ExtractPageContentTool returns the extract_page_content built-in tool.
-func ExtractPageContentTool() *tooling.Tool {
+// WebFetchTool returns the webfetch built-in tool (fetch URL as markdown).
+func WebFetchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "extract_page_content",
+			Name:        "webfetch",
 			Description: "Download a public http(s) page and return main article text as Markdown (readability extraction). Respects size limits. Blocked for private networks and localhost (SSRF guard).",
 			InputSchema: map[string]interface{}{
 				"type": "object",

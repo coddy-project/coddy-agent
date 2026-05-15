@@ -28,6 +28,10 @@ func (m *mockSender) RequestPermission(_ context.Context, _ acp.PermissionReques
 	return &acp.PermissionResult{Outcome: "allow"}, nil
 }
 
+func (m *mockSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
 func newRegistry() *apptools.Registry {
 	return apptools.NewRegistry()
 }

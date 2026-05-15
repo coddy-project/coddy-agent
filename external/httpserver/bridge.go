@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,6 +139,32 @@ func (s *Sender) RequestPermission(ctx context.Context, _ acp.PermissionRequestP
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+// RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.
+func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	if !s.stream || s.w == nil {
+		return nil, fmt.Errorf("question tool requires streaming responses")
+	}
+	sid := strings.TrimSpace(params.SessionID)
+	rid := strings.TrimSpace(params.RequestID)
+	if sid == "" || rid == "" {
+		return nil, fmt.Errorf("sessionId and requestId are required")
+	}
+	ch := registerQuestionWait(sid, rid)
+	defer unregisterQuestionWait(sid, rid)
+	if err := s.writeNamedEventJSON("question", params); err != nil {
+		return nil, err
+	}
+	select {
+	case res := <-ch:
+		if res == nil {
+			return &acp.QuestionResult{}, nil
+		}
+		return res, nil
+	case <-ctx.Done():
+		return &acp.QuestionResult{}, ctx.Err()
+	}
 }
 
 // WriteCoddyMetaSSE emits a named event with Coddy response metadata (effective model). No-op when not streaming.
