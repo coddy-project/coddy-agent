@@ -90,9 +90,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
             <span className="plan-document-preview">{preview}</span>
           ) : null}
         </button>
-        <motionRow
-          sessionId={props.sessionId}
-          slug={props.slug}
+        <PlanDocumentActions
           onRunPlan={props.onRunPlan}
           onDiscard={props.onDiscard}
         />
@@ -131,9 +129,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         rows={16}
         spellCheck
       />
-      <motionRow
-        sessionId={props.sessionId}
-        slug={props.slug}
+      <PlanDocumentActions
         onRunPlan={props.onRunPlan}
         onDiscard={props.onDiscard}
       />
@@ -141,9 +137,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   );
 }
 
-function motionRow(p: {
-  sessionId: string;
-  slug: string;
+function PlanDocumentActions(p: {
   onRunPlan: () => void;
   onDiscard: () => void;
 }) {
