@@ -1,9 +1,10 @@
 # Build distroless image (Dockerfile scratch) and push to GitHub Container Registry.
-# Always tags: ghcr.io/<owner>/coddy-agent:<major>.<minor>.<patch>
-# Also tags major.minor, major, and latest only when the pushed tag is the highest
-# SemVer in that scope (see "Compute image tags" step).
+# Always tags: ghcr.io/<owner>/<repo>:<major>.<minor>.<patch>
+# Also tags major.minor, major, and latest when that git tag is highest in scope.
 #
-# Auth: GITHUB_TOKEN (packages: write). Trigger: push tag v* on main, or workflow_dispatch.
+# Triggers:
+#   - push tag v* (commit must be on main)
+#   - workflow_dispatch: uses latest SemVer git tag, checks out that commit, rebuilds and overwrites GHCR tags
 
 name: Docker build and push
 
@@ -12,11 +13,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Git tag to simulate (e.g. v1.2.3). Use dev for a single :dev image."
-        required: false
-        default: "dev"
 
 defaults:
   run:
@@ -40,6 +36,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve git tag and checkout release commit
+        id: git_tag
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+            if [ -z "$TAG" ]; then
+              echo "No SemVer git tags (vX.Y.Z) found. Merge a PR or push a tag first." >&2
+              exit 1
+            fi
+            echo "Manual run: latest SemVer tag is ${TAG}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match v<major>.<minor>.<patch> (got ${TAG})." >&2
+            exit 1
+          fi
+
+          git checkout "$TAG"
+          echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -53,18 +75,11 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
-      - name: Resolve git tag
-        id: git_tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag || 'dev' }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Ensure tag is on main
         id: gate
-        if: github.event_name == 'push'
         run: |
           TAG="${{ steps.git_tag.outputs.tag }}"
           git fetch origin main --tags
@@ -78,12 +93,12 @@ jobs:
           fi
 
       - name: Run tests
-        if: github.event_name != 'push' || steps.gate.outputs.skip != 'true'
+        if: steps.gate.outputs.skip != 'true'
         run: make test
 
       - name: Compute image tags
         id: meta
-        if: github.event_name != 'push' || steps.gate.outputs.skip != 'true'
+        if: steps.gate.outputs.skip != 'true'
         env:
           REGISTRY: ${{ env.REGISTRY }}
         run: |
@@ -91,33 +106,14 @@ jobs:
           GIT_TAG="${{ steps.git_tag.outputs.tag }}"
           IMAGE="${REGISTRY}/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
 
-          # Manual / smoke: single :dev tag, no floating aliases.
-          if [ "$GIT_TAG" = "dev" ]; then
-            {
-              echo "version=dev"
-              echo "push=true"
-              echo "tags<<EOF"
-              echo "${IMAGE}:dev"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ ! "$GIT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must match v<major>.<minor>.<patch> (got ${GIT_TAG})." >&2
-            exit 1
-          fi
-
           VERSION="${GIT_TAG#v}"
           MAJOR="${VERSION%%.*}"
           REST="${VERSION#*.}"
           MINOR="${REST%%.*}"
 
-          git fetch --tags origin
-
           mapfile -t ALL_TAGS < <(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
           if [ "${#ALL_TAGS[@]}" -eq 0 ]; then
-            echo "No SemVer tags found after fetch." >&2
+            echo "No SemVer tags found." >&2
             exit 1
           fi
 
@@ -130,25 +126,25 @@ jobs:
           MAX_MAJ="${MAJ_TAGS[$((${#MAJ_TAGS[@]} - 1))]}"
 
           TAGS="${IMAGE}:${VERSION}"
-          echo "Always push: ${IMAGE}:${VERSION}"
+          echo "Always push (overwrite): ${IMAGE}:${VERSION}"
 
           if [ "$GIT_TAG" = "$MAX_MM" ]; then
             TAGS+=$'\n'"${IMAGE}:${MAJOR}.${MINOR}"
-            echo "Also push (highest v${MAJOR}.${MINOR}.*): ${IMAGE}:${MAJOR}.${MINOR}"
+            echo "Also push (overwrite): ${IMAGE}:${MAJOR}.${MINOR}"
           else
             echo "Skip ${IMAGE}:${MAJOR}.${MINOR} (max is ${MAX_MM})."
           fi
 
           if [ "$GIT_TAG" = "$MAX_MAJ" ]; then
             TAGS+=$'\n'"${IMAGE}:${MAJOR}"
-            echo "Also push (highest v${MAJOR}.*.*): ${IMAGE}:${MAJOR}"
+            echo "Also push (overwrite): ${IMAGE}:${MAJOR}"
           else
             echo "Skip ${IMAGE}:${MAJOR} (max is ${MAX_MAJ})."
           fi
 
           if [ "$GIT_TAG" = "$MAX_ALL" ]; then
             TAGS+=$'\n'"${IMAGE}:latest"
-            echo "Also push latest (global max ${MAX_ALL})."
+            echo "Also push (overwrite): ${IMAGE}:latest"
           else
             echo "Skip latest (global max is ${MAX_ALL})."
           fi
