@@ -42,10 +42,16 @@ jobs:
           set -euo pipefail
           git fetch --tags origin
 
+          latest_semver_tag() {
+            { git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
+          }
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+            TAG="$(latest_semver_tag)"
             if [ -z "$TAG" ]; then
-              echo "No SemVer git tags (vX.Y.Z) found. Merge a PR or push a tag first." >&2
+              echo "No SemVer git tags (vX.Y.Z) on origin. Merge a PR (tag-on-merge) or push a tag first." >&2
+              echo "Tags visible after fetch:" >&2
+              git tag -l >&2 || true
               exit 1
             fi
             echo "Manual run: latest SemVer tag is ${TAG}"
@@ -58,7 +64,8 @@ jobs:
             exit 1
           fi
 
-          git checkout "$TAG"
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          git checkout --force "$TAG"
           echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
@@ -111,7 +118,7 @@ jobs:
           REST="${VERSION#*.}"
           MINOR="${REST%%.*}"
 
-          mapfile -t ALL_TAGS < <(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V)
+          mapfile -t ALL_TAGS < <({ git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V)
           if [ "${#ALL_TAGS[@]}" -eq 0 ]; then
             echo "No SemVer tags found." >&2
             exit 1
