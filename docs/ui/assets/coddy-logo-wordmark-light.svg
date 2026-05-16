@@ -10,7 +10,7 @@
       <stop offset="1" stop-color="#9333ea" stop-opacity="0.65"/>
     </linearGradient>
   </defs>
-  <g transform="translate(28 28)">
+  <g transform="translate(28 28) rotate(90)">
     <circle
       r="11"
       fill="none"
@@ -21,13 +21,10 @@
       stroke-dashoffset="8.5"
     />
     <circle
-      r="7"
+      r="6.25"
       fill="none"
       stroke="url(#cwl-stroke-inner)"
       stroke-width="2"
-      stroke-linecap="round"
-      stroke-dasharray="33.1 10.4"
-      stroke-dashoffset="5.2"
     />
   </g>
   <text
@@ -40,6 +37,6 @@
     fill="#18181b"
   >
     <tspan>Coddy</tspan>
-    <tspan font-size="14.5" font-weight="500" fill="#52525b" dx="6">agent</tspan>
+    <tspan font-size="14.5" font-weight="500" fill="#52525b" dx="3">agent</tspan>
   </text>
 </svg>

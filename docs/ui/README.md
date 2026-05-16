@@ -51,3 +51,12 @@ See `spec.md` for functional requirements and design constraints.
 ## Design references
 
 Reference images should be stored under `assets/`.
+
+## Brand assets (README and preview only)
+
+Canonical SVG logos live in [`assets/coddy-logo-*.svg`](assets/) for the repo README and review page. The embedded SPA nav brand stays **text only** (see **`DESIGN.md`**).
+
+```bash
+npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
+# open http://127.0.0.1:5173/logo-preview.html
+```

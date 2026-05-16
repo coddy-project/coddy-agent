@@ -32,23 +32,22 @@
   <rect x="3" y="3" width="58" height="58" rx="16" fill="url(#cm-plate-glow)"/>
   <rect x="3.5" y="3.5" width="57" height="57" rx="15.5" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1"/>
   <g transform="translate(32 32)" filter="url(#cm-glyph-glow)">
-    <circle
-      r="12.25"
-      fill="none"
-      stroke="url(#cm-stroke)"
-      stroke-width="3.35"
-      stroke-linecap="round"
-      stroke-dasharray="58.2 18.8"
-      stroke-dashoffset="9.4"
-    />
-    <circle
-      r="7.75"
-      fill="none"
-      stroke="url(#cm-stroke-inner)"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-dasharray="36.8 11.6"
-      stroke-dashoffset="5.8"
-    />
+    <g transform="rotate(90)">
+      <circle
+        r="12.25"
+        fill="none"
+        stroke="url(#cm-stroke)"
+        stroke-width="3.35"
+        stroke-linecap="round"
+        stroke-dasharray="58.2 18.8"
+        stroke-dashoffset="9.4"
+      />
+      <circle
+        r="7.25"
+        fill="none"
+        stroke="url(#cm-stroke-inner)"
+        stroke-width="2.15"
+      />
+    </g>
   </g>
 </svg>

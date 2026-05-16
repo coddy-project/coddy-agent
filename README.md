@@ -1,16 +1,23 @@
-# Coddy Agent
+<p align="center">
+  <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
+  <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
+  <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
+  <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
+</p>
 
-Is a distroless-friendly **harness** for running an [Agent Client Protocol (ACP)](https://agentclientprotocol.com/)
-agent over stdio. It ships as a single static-friendly Go binary, so you can drop it into
-minimal container images (`scratch`, `distroless`, read-only workspaces) without a full OS shell
-inside the image.
+<p align="center">
+  <img src="docs/ui/assets/coddy-logo-wordmark.svg" alt="Coddy agent" height="156" />
+</p>
 
-The bundled default is a **ReAct** loop with filesystem, shell (when exposed), todo,
-web search and page extraction (**`websearch`**, **`webfetch`**), and MCP tools,
-**which makes Coddy a coding agent over ACP stdio** for any compatible ACP client or harness script.
+<p align="center">
+  <strong>Run a full general purpose agent from one static Go binary.</strong><br />
+  ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.
+</p>
 
-The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or
-drive it from automation instead of an IDE.
+
+Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE.
 
 ## Contents
 

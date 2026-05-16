@@ -4,7 +4,7 @@ This folder contains reference screenshots used to align the embedded UI with th
 
 ## Navbar (RPA-style references, May 2026)
 
-Implementation note: **Coddy does not render a circle or logo glyph** before the **Coddy agent** brand. Some references still show that circle, treat it as layout inspiration only.
+Implementation note: **Coddy does not render a circle or logo glyph** before the **Coddy agent** brand in the embedded SPA. SVG logos under **`coddy-logo-*.svg`** are for README and **`logo-preview.html`** only. Some references still show a circle, treat it as layout inspiration only.
 
 - `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
 - `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (Coddy uses History + GitHub + API, not News or Projects)
