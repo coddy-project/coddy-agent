@@ -15,6 +15,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
 | **`e2e_scheduler_api`** | **`httpserver/http_e2e_scheduler_api.py`** | (REST is HTTP-only) |
 | **`e2e_scheduler_agent`** | **`httpserver/http_e2e_scheduler_agent.py`** | **`acp/acp_e2e_scheduler_agent.py`** |
+| **`e2e_plan_files`** | **`httpserver/http_e2e_plan_files.py`** | **`acp/acp_e2e_plan_files.py`** |
 
 ## Layout
 
@@ -24,7 +25,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`build_coddy.sh`** | **`make build TAGS="http scheduler memory"`** then **`./build/coddy -v`**. |
 | **`httpserver/`** | HTTP Python harnesses, **`test_httpserver.sh`**, **`docker.sh`**. |
 | **`acp/`** | ACP Python harnesses and **`test_acp.sh`**. |
-| **`shared/`** | **`scheduler_e2e_common.py`** for **`e2e_scheduler_agent`** (HTTP and ACP). |
+| **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`** for paired e2e harnesses. |
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$CODDY_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
 
 ## HTTP gateway
@@ -38,7 +39,7 @@ From the repository root:
 
 Optional port: **`./examples/test_httpserver.sh 19900`**.
 
-**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_web`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_toolcalls_persist`**, **`http_e2e_scheduler_agent`** (model uses scheduler tools, waits for daemon tick and session side effects). All steps run every time and need a working models backend where the LLM is called.
+**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_web`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_toolcalls_persist`**, **`http_e2e_scheduler_agent`**, **`http_e2e_plan_files`** (plan mode **`plan_write`** to **`plans/e2e-plan.plan.md`**, then **`metadata.runPlanSlug`**). All steps run every time and need a working models backend where the LLM is called.
 
 Docker-only smoke:
 
@@ -53,7 +54,7 @@ Docker-only smoke:
 ./examples/test_acp.sh
 ```
 
-Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`** (model plus scheduler daemon tick).
+Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_memory`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_scheduler_agent`**, **`acp_e2e_plan_files`** (plan file on disk plus run via **`_meta.coddy.dev/runPlanSlug`**).
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 
