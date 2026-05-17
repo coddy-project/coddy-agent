@@ -73,66 +73,85 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
 
   const title = props.name.trim() || props.slug;
   const preview = previewLine(props.overview, props.content);
-
-  if (!props.expanded) {
-    return (
-      <section
-        className="plan-document-frame plan-document-collapsed"
-        data-test="plan_document_collapsed"
-      >
-        <button
-          type="button"
-          className="plan-document-toggle"
-          onClick={() => props.onExpandedChange(true)}
-        >
-          <span className="plan-document-title">{title}</span>
-          {preview ? (
-            <span className="plan-document-preview">{preview}</span>
-          ) : null}
-        </button>
-        <PlanDocumentActions
-          onRunPlan={props.onRunPlan}
-          onDiscard={props.onDiscard}
-        />
-      </section>
-    );
-  }
+  const slugLabel = props.slug.trim();
 
   return (
     <section
       className="plan-document-frame"
-      data-test="plan_document_section"
+      data-test={
+        props.expanded ? "plan_document_section" : "plan_document_collapsed"
+      }
     >
-      <header className="plan-document-header">
-        <button
-          type="button"
-          className="plan-document-toggle"
-          onClick={() => props.onExpandedChange(false)}
-        >
-          {title}
-        </button>
-        {saving ? (
-          <span className="plan-document-save-hint">Saving…</span>
+      <div
+        className={
+          props.expanded
+            ? "plan-document-card plan-document-card--expanded"
+            : "plan-document-card"
+        }
+      >
+        <header className="plan-document-head">
+          <button
+            type="button"
+            className="plan-document-head-btn"
+            onClick={() => props.onExpandedChange(!props.expanded)}
+            aria-expanded={props.expanded}
+          >
+            <span
+              className={
+                props.expanded
+                  ? "plan-document-chevron plan-document-chevron--open"
+                  : "plan-document-chevron"
+              }
+              aria-hidden
+            />
+            <span className="plan-document-icon" aria-hidden />
+            <span className="plan-document-head-copy">
+              <span className="plan-document-kicker">Design plan</span>
+              <span className="plan-document-title">{title}</span>
+              {!props.expanded && preview ? (
+                <span className="plan-document-preview">{preview}</span>
+              ) : null}
+            </span>
+            {slugLabel ? (
+              <span className="plan-document-slug" title={slugLabel}>
+                {slugLabel}
+              </span>
+            ) : null}
+          </button>
+          {props.expanded ? (
+            <div className="plan-document-head-meta">
+              {saving ? (
+                <span className="plan-document-save-hint">Saving…</span>
+              ) : null}
+              {saveError ? (
+                <span className="plan-document-save-error">{saveError}</span>
+              ) : null}
+            </div>
+          ) : null}
+        </header>
+
+        {props.expanded ? (
+          <div className="plan-document-body">
+            <textarea
+              className="plan-document-editor"
+              value={draft}
+              onChange={(e) => {
+                const v = e.target.value;
+                setDraft(v);
+                scheduleSave(v);
+              }}
+              rows={14}
+              spellCheck
+              aria-label="Plan markdown"
+            />
+          </div>
         ) : null}
-        {saveError ? (
-          <span className="plan-document-save-error">{saveError}</span>
-        ) : null}
-      </header>
-      <textarea
-        className="plan-document-editor"
-        value={draft}
-        onChange={(e) => {
-          const v = e.target.value;
-          setDraft(v);
-          scheduleSave(v);
-        }}
-        rows={16}
-        spellCheck
-      />
-      <PlanDocumentActions
-        onRunPlan={props.onRunPlan}
-        onDiscard={props.onDiscard}
-      />
+
+        <PlanDocumentActions
+          onRunPlan={props.onRunPlan}
+          onDiscard={props.onDiscard}
+        />
+      </div>
     </section>
   );
 }
@@ -142,22 +161,25 @@ function PlanDocumentActions(p: {
   onDiscard: () => void;
 }) {
   return (
-    <footer className="plan-document-actions">
+    <footer className="plan-document-foot">
       <button
         type="button"
-        className="btn primary"
-        data-test="plan_document_run"
-        onClick={() => p.onRunPlan()}
-      >
-        Run plan
-      </button>
-      <button
-        type="button"
-        className="btn"
+        className="plan-document-discard"
         data-test="plan_document_discard"
         onClick={() => p.onDiscard()}
       >
         Discard
+      </button>
+      <button
+        type="button"
+        className="plan-document-run"
+        data-test="plan_document_run"
+        onClick={() => p.onRunPlan()}
+      >
+        <span className="plan-document-run-ic" aria-hidden>
+          ▶
+        </span>
+        Run plan
       </button>
     </footer>
   );

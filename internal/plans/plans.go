@@ -43,9 +43,9 @@ type TodoItem struct {
 
 // Frontmatter is YAML metadata at the top of a plan file.
 type Frontmatter struct {
-	Name     string     `yaml:"name,omitempty"`
-	Overview string     `yaml:"overview,omitempty"`
-	Todos    []TodoItem `yaml:"todos,omitempty"`
+	Name     string   `yaml:"name,omitempty"`
+	Overview string   `yaml:"overview,omitempty"`
+	Todos    todoList `yaml:"todos,omitempty"`
 }
 
 // Document is a parsed design plan file.

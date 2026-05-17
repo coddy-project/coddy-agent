@@ -18,6 +18,7 @@ func PlanWriteTool() *tooling.Tool {
 			Name: "plan_write",
 			Description: "Write or replace a design plan file at plans/<slug>.plan.md in the session bundle. " +
 				"Use YAML frontmatter (name, overview, todos) plus a markdown body. " +
+				"Each todo is either a plain string or an object with content (aliases title, description, label also work). " +
 				"Publishes a design plan preview to the client.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
@@ -27,8 +28,9 @@ func PlanWriteTool() *tooling.Tool {
 						"description": "Plan identifier (lowercase letters, digits, hyphens)",
 					},
 					"content": map[string]interface{}{
-						"type":        "string",
-						"description": "Full .plan.md file content including YAML frontmatter",
+						"type": "string",
+						"description": "Full .plan.md file content including YAML frontmatter. " +
+							"Example todos: [\"Step one\", \"Step two\"] or [{\"content\":\"Step one\",\"status\":\"pending\"}].",
 					},
 				},
 				"required": []interface{}{"slug", "content"},

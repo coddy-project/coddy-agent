@@ -58,10 +58,17 @@ func Write(sessionDir, slug, content string) (*Document, error) {
 	if err != nil {
 		return nil, err
 	}
+	doc, err := Parse(slug, content)
+	if err != nil {
+		return nil, err
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
-	return Read(sessionDir, slug)
+	if fi, statErr := os.Stat(path); statErr == nil {
+		doc.UpdatedAt = fi.ModTime().UTC()
+	}
+	return doc, nil
 }
 
 // Create writes a new plan file; returns ErrExists if the file is already present.

@@ -33,7 +33,7 @@ func Parse(slug, raw string) (*Document, error) {
 		Slug:     slug,
 		Name:     name,
 		Overview: strings.TrimSpace(meta.Overview),
-		Todos:    meta.Todos,
+		Todos:    []TodoItem(meta.Todos),
 		Body:     strings.TrimRight(body, "\n"),
 		Content:  raw,
 	}, nil

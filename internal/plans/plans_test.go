@@ -32,6 +32,68 @@ func TestValidateSlug(t *testing.T) {
 	}
 }
 
+func TestParseTodosAsPlainStrings(t *testing.T) {
+	raw := `---
+name: QA plan
+overview: Test scenarios
+todos:
+  - Опросить требования
+  - Сформировать сценарии
+  - Добавить отчёт
+---
+## Body
+`
+	doc, err := plans.Parse("qa-plan", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Todos) != 3 {
+		t.Fatalf("todos len: %d %+v", len(doc.Todos), doc.Todos)
+	}
+	if doc.Todos[0].Content != "Опросить требования" {
+		t.Fatalf("todo[0]: %q", doc.Todos[0].Content)
+	}
+}
+
+func TestParseTodosWithTitleField(t *testing.T) {
+	raw := `---
+name: Demo
+todos:
+  - title: Set up UI component
+    status: pending
+---
+## Steps
+`
+	doc, err := plans.Parse("demo", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Todos) != 1 || doc.Todos[0].Content != "Set up UI component" {
+		t.Fatalf("todos: %+v", doc.Todos)
+	}
+	if doc.Todos[0].Status != "pending" {
+		t.Fatalf("status: %q", doc.Todos[0].Status)
+	}
+}
+
+func TestWriteRejectsInvalidFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	slug := "bad-plan"
+	invalid := `---
+name: Bad
+todos: not-a-list
+---
+body
+`
+	_, err := plans.Write(dir, slug, invalid)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, plans.DirName, slug+".plan.md")); statErr == nil {
+		t.Fatal("invalid plan file should not be written")
+	}
+}
+
 func TestParseFormatRoundTrip(t *testing.T) {
 	raw := `---
 name: Auth refactor

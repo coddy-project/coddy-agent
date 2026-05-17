@@ -137,22 +137,23 @@ export function MessageList(props: {
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
           return (
-            <PlanDocumentSection
-              key={it.id}
-              sessionId={sid}
-              slug={it.slug}
-              name={it.name}
-              overview={it.overview}
-              content={it.content}
-              expanded={it.expanded}
-              onExpandedChange={(ex) =>
-                props.onPlanDocumentExpanded?.(it.id, ex)
-              }
-              onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-              onDiscard={() =>
-                props.onPlanDocumentDiscard?.(it.id, it.slug)
-              }
-            />
+            <div key={it.id} className="message-row-plan">
+              <PlanDocumentSection
+                sessionId={sid}
+                slug={it.slug}
+                name={it.name}
+                overview={it.overview}
+                content={it.content}
+                expanded={it.expanded}
+                onExpandedChange={(ex) =>
+                  props.onPlanDocumentExpanded?.(it.id, ex)
+                }
+                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
+                onDiscard={() =>
+                  props.onPlanDocumentDiscard?.(it.id, it.slug)
+                }
+              />
+            </div>
           );
         }
         if (it.type === "question_prompt") {
