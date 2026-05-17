@@ -50,6 +50,7 @@ test("eye toggle switches preview and markdown in one pane", () => {
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-pressed", "false");
   expect(screen.getByRole("textbox", { name: /plan body/i })).toBeInTheDocument();
+  expect(screen.getByTestId("plan_editor_gutter")).toBeInTheDocument();
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hello");

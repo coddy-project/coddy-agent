@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Markdown } from "../markdown/Markdown";
+import { MarkdownLineEditor } from "../markdown/MarkdownLineEditor";
 import { planEditorBody } from "./planContent";
 
 type PlanBodyView = "markdown" | "preview";
@@ -222,7 +223,13 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                   setBodyView((v) => (v === "preview" ? "markdown" : "preview"))
                 }
               />
-              <div className="plan-document-pane-scroll">
+              <div
+                className={
+                  previewOn
+                    ? "plan-document-pane-inner plan-document-pane-inner--preview"
+                    : "plan-document-pane-inner plan-document-pane-inner--markdown"
+                }
+              >
                 {previewOn ? (
                   <div
                     className="plan-document-preview-pane"
@@ -237,18 +244,20 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                     )}
                   </div>
                 ) : (
-                  <textarea
-                    className="plan-document-editor"
+                  <MarkdownLineEditor
+                    className="md-line-editor--plan"
                     value={draft}
                     readOnly={discarded}
-                    onChange={(e) => {
-                      const v = e.target.value;
+                    minRows={4}
+                    spellCheck
+                    gutterTestId="plan_editor_gutter"
+                    rootTestId="plan_markdown_editor"
+                    aria-label="Plan body (markdown)"
+                    placeholder="Plan steps and notes…"
+                    onChange={(v) => {
                       setDraft(v);
                       scheduleSave(v);
                     }}
-                    spellCheck
-                    aria-label="Plan body (markdown)"
-                    placeholder="Plan steps and notes…"
                   />
                 )}
               </div>

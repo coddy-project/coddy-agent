@@ -3007,18 +3007,30 @@ textarea#composer {
 }
 
 .md-line-editor {
+  --md-editor-fs: 12px;
+  --md-editor-lh: 1.45;
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  /* Min ~10 rows; MarkdownLineEditor sets inline height from full content (no viewport cap). */
-  min-height: calc(12px * 1.45 * 10 + 16px);
+  min-height: calc(var(--md-editor-fs) * var(--md-editor-lh) * 10 + 16px);
   max-height: none;
+  width: 100%;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(10, 10, 12, 0.45);
   overflow: hidden;
   min-width: 0;
   flex: 0 0 auto;
+  box-sizing: border-box;
+}
+
+.md-line-editor--plan {
+  --md-editor-fs: 13px;
+  --md-editor-lh: 1.5;
+  min-height: calc(var(--md-editor-fs) * var(--md-editor-lh) * 4 + 16px);
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.22);
 }
 
 .scheduler-body-editor-wrap-err .md-line-editor {
@@ -3034,41 +3046,122 @@ textarea#composer {
 
 .md-line-editor-gutter {
   flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 8px 6px 8px 8px;
-  overflow-x: hidden;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.45;
+  overflow: hidden;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
   text-align: right;
-  color: rgba(255, 255, 255, 0.38);
   user-select: none;
   background: rgba(0, 0, 0, 0.2);
   min-width: 2.25rem;
 }
 
-.md-line-editor-gutter::-webkit-scrollbar {
-  display: none;
+.md-line-editor-gutter-line {
+  height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
+  line-height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: var(--md-editor-fs);
+  color: rgba(255, 255, 255, 0.32);
+  padding: 0 2px;
+  border-radius: 3px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.md-line-editor-gutter-line.is-active {
+  color: rgba(255, 255, 255, 0.62);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.md-line-editor-stack {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.md-line-editor-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  box-sizing: border-box;
+}
+
+.md-line-editor-hl-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: var(--md-editor-fs);
+  line-height: var(--md-editor-lh);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  color: transparent;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.md-line-editor-hl-band {
+  height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.md-line-editor-hl-band.is-current {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.md-line-editor-hl-line.is-current {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.md-line-editor-measure {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  height: auto;
+  z-index: -1;
 }
 
 .md-line-editor-textarea {
-  flex: 1 1 auto;
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
   min-width: 0;
   resize: none;
-  overflow-y: hidden;
+  overflow: hidden;
   border: none;
   margin: 0;
   padding: 8px 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--md-editor-fs);
+  line-height: var(--md-editor-lh);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: rgba(255, 255, 255, 0.9);
   background: transparent;
   outline: none;
+  caret-color: rgba(255, 255, 255, 0.95);
+  box-sizing: border-box;
+  vertical-align: top;
+  overflow-x: hidden;
+}
+
+.md-line-editor--plan .md-line-editor-textarea {
+  padding: 8px 10px;
 }
 
 @media (max-width: 1199px) {
@@ -3923,26 +4016,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .plan-document-body {
   grid-area: body;
-  padding: 4px 10px 12px 14px;
+  padding: 6px 12px 12px 12px;
   min-width: 0;
 }
 
 .plan-document-pane {
   position: relative;
-  height: min(42vh, 360px);
-  min-height: min(42vh, 360px);
-  max-height: min(42vh, 360px);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.32);
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
 }
 
 .plan-document-eye {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 12px;
   z-index: 5;
   display: inline-flex;
   align-items: center;
@@ -3983,18 +4073,24 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   display: block;
 }
 
-.plan-document-pane-scroll {
-  position: absolute;
-  inset: 0;
-  overflow: auto;
+.plan-document-pane-inner {
   padding: 12px;
-  border-radius: inherit;
   box-sizing: border-box;
-  scrollbar-gutter: stable;
+}
+
+.plan-document-pane-inner--preview {
+  overflow: visible;
+}
+
+.plan-document-pane-inner--markdown {
+  display: block;
+  overflow: visible;
+  min-width: 0;
 }
 
 .plan-document-preview-pane {
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .plan-document-preview-empty {
@@ -4005,31 +4101,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-style: italic;
 }
 
-.plan-document-editor {
-  display: block;
+.plan-document-pane-inner--markdown .md-line-editor {
   width: 100%;
-  min-height: calc(100% - 24px);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 13px;
-  line-height: 1.5;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.9);
-  padding: 0;
-  margin: 0;
-  resize: none;
-  box-sizing: border-box;
-  vertical-align: top;
-}
-
-.plan-document-pane:focus-within {
-  border-color: rgba(249, 115, 22, 0.45);
-  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
-}
-
-.plan-document-editor:focus {
-  outline: none;
 }
 
 .plan-document-foot {
@@ -4094,11 +4167,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     justify-content: center;
   }
 
-  .plan-document-pane {
-    height: min(48vh, 400px);
-    min-height: min(48vh, 400px);
-    max-height: min(48vh, 400px);
-  }
 }
 
 .plan-document-discard {
