@@ -10,7 +10,7 @@ This page is the detailed reference for local builds. For a short version, see [
 
 Optional:
 
-- **`golangci-lint`** - for **`make lint`**.
+- **`golangci-lint` v2.x** (built with Go **1.25** or newer) - for **`make lint`**. v1.x releases compiled with older Go toolchains cannot load configs when **`go.mod`** targets **1.25**.
 
 ## Recommended full binary (HTTP, UI, scheduler, memory)
 

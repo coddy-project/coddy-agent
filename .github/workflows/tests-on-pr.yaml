@@ -56,5 +56,6 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          # v2.x binaries are built with Go >= 1.25; v1.64.x fails on go 1.25 modules.
+          version: v2.12.2
           args: ./...

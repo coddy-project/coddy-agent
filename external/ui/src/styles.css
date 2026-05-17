@@ -4016,13 +4016,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .plan-document-body {
   grid-area: body;
-  padding: 6px 12px 12px 12px;
+  padding: 0px;
   min-width: 0;
 }
 
 .plan-document-pane {
   position: relative;
-  border-radius: 12px;
+  border-radius: 0px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(0, 0, 0, 0.32);
   overflow: visible;
