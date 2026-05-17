@@ -1,5 +1,5 @@
 # Bump the highest SemVer tag (patch) when a PR is merged into main.
-# Pushes tag X.Y.Z. Push triggers docker-build-push.yaml (GitHub Packages).
+# Pushes tag X.Y.Z, then workflow_dispatch on docker-build-push (tag pushes via GITHUB_TOKEN do not fire push workflows).
 
 name: Tag release on merge
 
@@ -21,6 +21,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     permissions:
       contents: write
+      actions: write
 
     steps:
       - name: Checkout repository
@@ -65,3 +66,11 @@ jobs:
           TAG="${{ steps.version.outputs.tag }}"
           git tag -a "$TAG" -m "Release $TAG (auto-tag on merge)"
           git push origin "$TAG"
+
+      - name: Trigger Docker build and push
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          gh workflow run "Docker build and push" --ref "$TAG" -f "tag=${TAG}"
