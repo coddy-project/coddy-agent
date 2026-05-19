@@ -109,6 +109,25 @@ Order does not matter for these tags.
 
 **`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
 
+## Release binaries (CI)
+
+On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binaries**](../.github/workflows/release-binaries.yaml) workflow (separate from Docker CI) uploads archives to the matching **GitHub Release**:
+
+| Archive | Platform |
+|---------|----------|
+| **`coddy_X.Y.Z_linux_amd64.tar.gz`** | Linux x86_64 |
+| **`coddy_X.Y.Z_linux_arm64.tar.gz`** | Linux arm64 |
+| **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
+| **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
+| **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
+| **`SHA256SUMS`** | Checksums for the archives above |
+
+Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memory`**. Manual run after a tag exists:
+
+```bash
+gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
+```
+
 ## **`go install` from upstream**
 
 ```bash

@@ -1,0 +1,167 @@
+# Cross-platform CLI binaries on SemVer tags; assets attached to the matching GitHub Release.
+#
+# Triggers:
+#   - push SemVer tag (commit must be on main)
+#   - workflow_dispatch: build a specific or latest SemVer tag
+#
+# Independent from "Docker build and push".
+
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: SemVer git tag to build (X.Y.Z)
+        required: false
+        type: string
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GO_BUILD_TAGS: "http,ui,scheduler,memory"
+
+jobs:
+  release-binaries:
+    name: Build and publish release assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve git tag and checkout release commit
+        id: git_tag
+        run: |
+          set -euo pipefail
+          git fetch --tags origin
+
+          latest_semver_tag() {
+            { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
+          }
+
+          DISPATCH_TAG="${{ inputs.tag }}"
+          if [ -n "$DISPATCH_TAG" ]; then
+            TAG="$DISPATCH_TAG"
+            echo "workflow_dispatch: building requested tag ${TAG}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="$(latest_semver_tag)"
+            if [ -z "$TAG" ]; then
+              echo "No SemVer git tags (X.Y.Z) on origin." >&2
+              git tag -l >&2 || true
+              exit 1
+            fi
+            echo "workflow_dispatch: latest SemVer tag is ${TAG}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match X.Y.Z (got ${TAG})." >&2
+            exit 1
+          fi
+
+          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}"
+          git checkout --force "$TAG"
+          echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tag is on main
+        id: gate
+        run: |
+          TAG="${{ steps.git_tag.outputs.tag }}"
+          git fetch origin main --tags
+          TAG_SHA="$(git rev-parse "${TAG}^{commit}")"
+          if git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            echo "Tag ${TAG} is on main."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag ${TAG} (${TAG_SHA}) is not on branch main; skipping binary release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Go
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: external/ui/package-lock.json
+
+      - name: Build UI assets for go:embed
+        if: steps.gate.outputs.skip != 'true'
+        run: make ui-build
+
+      - name: Cross-compile release binaries
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.git_tag.outputs.tag }}
+          GO_BUILD_TAGS: ${{ env.GO_BUILD_TAGS }}
+        run: |
+          set -euo pipefail
+          DIST="${GITHUB_WORKSPACE}/dist"
+          LDFLAGS="-s -w -X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}"
+          rm -rf "$DIST"
+          mkdir -p "$DIST"
+
+          build_target() {
+            local goos="$1"
+            local goarch="$2"
+            local stem="coddy_${VERSION}_${goos}_${goarch}"
+            local bindir="$DIST/_staging/${stem}"
+            local binname="coddy"
+            if [ "$goos" = "windows" ]; then
+              binname="coddy.exe"
+            fi
+            mkdir -p "$bindir"
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 \
+              go build \
+              -tags="${GO_BUILD_TAGS}" \
+              -trimpath \
+              -ldflags "$LDFLAGS" \
+              -o "$bindir/$binname" \
+              ./cmd/coddy/
+            if [ "$goos" = "windows" ]; then
+              (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
+            else
+              tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" "$binname"
+            fi
+          }
+
+          build_target linux amd64
+          build_target linux arm64
+          build_target windows amd64
+          build_target darwin amd64
+          build_target darwin arm64
+
+          rm -rf "$DIST/_staging"
+          (cd "$DIST" && sha256sum coddy_*.tar.gz coddy_*.zip > SHA256SUMS)
+          ls -la "$DIST"
+
+      - name: Upload assets to GitHub Release
+        if: steps.gate.outputs.skip != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.git_tag.outputs.tag }}
+          name: ${{ steps.git_tag.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

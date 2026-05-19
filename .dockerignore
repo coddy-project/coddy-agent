@@ -1,11 +1,20 @@
+.git/
+.github/
+.cursor/
+docs/
+examples/
+tests/
+
 # Docker
 /workspace
 /coddy_home
 /config.yaml
 /config.*.yaml
+/examples/config.*.yaml
 
 # Binaries
 build/
+dist/
 coddy-agent
 /coddy
 rpa-agent
@@ -26,6 +35,7 @@ external/ui/dist/
 # Go build cache
 /vendor/
 __pycache__/
+/*.png
 
 # Config with secrets (use config.example.yaml as template)
 config.yaml
@@ -44,3 +54,13 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# UI dev
+/external/ui/node_modules/
+/external/ui/src/node_modules/
+/external/ui/dist/
+/external/ui/index.html
+/external/ui/styles.css
+/external/ui/app.js
+/external/ui/app.js.map
+.playwright-mcp/

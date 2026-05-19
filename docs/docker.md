@@ -10,7 +10,14 @@ Related files:
 - [`.dockerignore`](../.dockerignore) - keeps context small; never commit **`config.yaml`** with secrets
 - [`examples/httpserver/docker.sh`](../examples/httpserver/docker.sh) - automated smoke test
 
-Published images: **[coddy-agent on GHCR](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** (`ghcr.io/coddy-project/coddy-agent`). CI pushes SemVer tags and floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml).
+Published images: **[coddy-agent on GHCR](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** (`ghcr.io/coddy-project/coddy-agent`). CI builds **multi-arch** manifests (**`linux/amd64`**, **`linux/arm64`**) on SemVer tags and pushes floating aliases (**`latest`**, **`MAJOR.MINOR`**, **`MAJOR`**) when appropriate - see [`.github/workflows/docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml).
+
+On Apple Silicon or arm64 Linux hosts, pull the image as usual; Docker selects **`arm64`** automatically. To pin a platform explicitly:
+
+```bash
+docker pull --platform linux/arm64 ghcr.io/coddy-project/coddy-agent:latest
+docker pull --platform linux/amd64 ghcr.io/coddy-project/coddy-agent:latest
+```
 
 General build instructions without Docker - **[docs/build.md](build.md)**.
 
@@ -152,7 +159,7 @@ docker compose up -d
 ## How the Dockerfile stages work
 
 1. **`ui-builder` (Node)** - runs **`npm ci`** and **`npm run build:go`** under **`external/ui`**, producing the static bundle copied into the Go tree for **`go:embed`** when **`ui`** is in **`BUILD_TAGS`**.
-2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/coddy`**, copies **`ca-certificates.crt`** for HTTPS clients.
+2. **`build` (Go)** - **`CGO_ENABLED=0`**, **`GOOS`/`GOARCH`** from BuildKit **`TARGETOS`/`TARGETARCH`** (CI builds **`linux/amd64`** and **`linux/arm64`**), **`go build -tags="$BUILD_TAGS"`** with **`-trimpath`** and **`-ldflags "-s -w -X ...Version=..."`**, writes **`/out/coddy`**, copies **`ca-certificates.crt`** for HTTPS clients.
 3. **`scratch`** - only the binary and CA bundle; **`ENTRYPOINT`** **`/bin/coddy`**, default **`CMD`** **`http -H 0.0.0.0 -P 12345`**.
 
 ## Automated smoke test
