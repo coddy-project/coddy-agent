@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <title>Coddy Agent</title>
+    <script>
+      (function () {
+        var m = document.cookie.match(
+          /(?:^|;\s*)coddy_ui_theme=([^;]+)/,
+        );
+        var t = m && decodeURIComponent(m[1].replace(/\+/g, " "));
+        if (t === "light") {
+          document.documentElement.dataset.theme = "light";
+          document.documentElement.style.colorScheme = "light";
+        } else {
+          document.documentElement.dataset.theme = "dark";
+          document.documentElement.style.colorScheme = "dark";
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

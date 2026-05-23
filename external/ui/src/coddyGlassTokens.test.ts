@@ -18,6 +18,15 @@ test("styles define shared coddy frosted glass tokens", () => {
   expect(css).toMatch(/--coddy-z-slash-command:/);
 });
 
+test("light theme overrides semantic tokens on data-theme", () => {
+  const css = cssText();
+  expect(css).toMatch(/\[data-theme="light"\]\s*\{[^}]*--text:\s*#18181b/);
+  expect(css).toMatch(/\[data-theme="light"\]\s*\{[^}]*--bg:\s*#f8f8fa/);
+  expect(css).toMatch(
+    /\[data-theme="light"\]\s*\{[^}]*--coddy-glass-panel-bg:\s*rgba\(255,\s*255,\s*255/,
+  );
+});
+
 test("composer, history, scheduler, settings, slash frosted surface, mode or model menus share panel rule", () => {
   const css = cssText();
   expect(css).toMatch(

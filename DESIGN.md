@@ -20,6 +20,21 @@ Store the design reference images under `docs/ui/assets/` and link to the specif
 | text muted | `#9CA3AF` | captions, timestamps |
 | user bubble | `#2D2D2D` | outgoing chat |
 
+### Light and dark theme
+
+- **Default:** dark (`data-theme="dark"` on **`<html>`**).
+- **Persistence:** cookie **`coddy_ui_theme`** (`dark` | `light`), same lifetime pattern as **`coddy_nav_rail`**.
+- **Bootstrap:** inline script in **`external/ui/src/index.html`** applies the cookie before first paint; **`main.tsx`** calls **`bootstrapUiThemeFromCookie()`** on load.
+- **Toggle:** **Settings** drawer (**`#/settings`**) → **Appearance** segmented control (**`ThemeToggle`**, **`data-testid="theme-toggle-light"`** / **`theme-toggle-dark`**).
+- **CSS:** semantic tokens on **`:root`** / **`[data-theme="dark"]`**; **`[data-theme="light"]`** overrides **`--text`**, **`--bg`**, glass, canvas gradients, etc. Foreground tints use **`color-mix(in srgb, var(--text) …%, var(--coddy-blend-base))`** (**`transparent`** on dark, **`#ffffff`** on light) so text stays opaque and readable on each canvas. Hero headline gradient uses **`--coddy-hero-muted-mid`** / **`--coddy-hero-muted-end`** (no light-gray stops on a light background).
+
+| Token (light) | Hex | Usage |
+|---------------|-----|-------|
+| background | `#F8F8FA` | main canvas |
+| text primary | `#18181B` | default copy |
+| text muted | `#52525B` | captions |
+| glass panel | `rgba(255,255,255,0.9)` | composer, drawers (light frost, not dark tint) |
+
 ### Frosted glass panels
 
 Floating **composer** card, **History** drawer chrome, **skills** slash menu, **Mode**, and **Model** dropdowns share **`--coddy-glass-panel-*`**: tint plus **`backdrop-filter`** on that surface **only**, so frosting stays **inside** the panel outline. Dimming overlays behind History or the slash sheet use **`--coddy-overlay-scrim-bg`** (**no** fullscreen blur behind the overlay).
