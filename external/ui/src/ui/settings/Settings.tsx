@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ThemeToggle } from "../theme/ThemeToggle";
 import { SchemaForm, type JsonSchema } from "./SchemaForm";
 
 type ValidateResponse = { ok: boolean; error?: string };
@@ -146,6 +147,7 @@ export function Settings(props: { onClose: () => void }) {
       </div>
 
       <div className="settings-lead-pane">
+        <ThemeToggle />
         <p className="settings-lead">
           Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
           use only on trusted networks.
