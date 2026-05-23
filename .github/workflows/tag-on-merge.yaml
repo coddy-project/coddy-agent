@@ -1,14 +1,17 @@
-# Bump the highest SemVer tag (patch) when a PR is merged into main.
-# Pushes tag X.Y.Z, then workflow_dispatch on Docker and Release binaries (tag pushes via GITHUB_TOKEN do not fire push workflows).
+# On each push to main: bump patch SemVer tag on HEAD (if untagged), then build Docker image and release binaries.
+# Child workflows are invoked via workflow_call (GITHUB_TOKEN tag pushes do not fire push: tags workflows).
 
 name: Tag release on merge
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
       - main
   workflow_dispatch:
+
+concurrency:
+  group: release-tag-main
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -18,17 +21,17 @@ jobs:
   tag-version:
     name: Bump and push version tag
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     permissions:
       contents: write
-      actions: write
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || github.event.pull_request.merge_commit_sha }}
 
       - name: Fetch all tags
         run: git fetch --tags origin
@@ -67,18 +70,20 @@ jobs:
           git tag -a "$TAG" -m "Release $TAG (auto-tag on merge)"
           git push origin "$TAG"
 
-      - name: Trigger Docker build and push
-        if: steps.check.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          gh workflow run "Docker build and push" --ref "$TAG" -f "tag=${TAG}"
+  docker:
+    name: Docker build and push
+    needs: tag-version
+    if: needs.tag-version.outputs.skip != 'true'
+    uses: ./.github/workflows/docker-build-push.yaml
+    with:
+      tag: ${{ needs.tag-version.outputs.tag }}
+    secrets: inherit
 
-      - name: Trigger Release binaries
-        if: steps.check.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          gh workflow run "Release binaries" --ref "$TAG" -f "tag=${TAG}"
+  binaries:
+    name: Release binaries
+    needs: tag-version
+    if: needs.tag-version.outputs.skip != 'true'
+    uses: ./.github/workflows/release-binaries.yaml
+    with:
+      tag: ${{ needs.tag-version.outputs.tag }}
+    secrets: inherit

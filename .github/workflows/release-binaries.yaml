@@ -1,21 +1,28 @@
 # Cross-platform CLI binaries on SemVer tags; assets attached to the matching GitHub Release.
 #
 # Triggers:
-#   - push SemVer tag (commit must be on main)
-#   - workflow_dispatch: build a specific or latest SemVer tag
+#   - workflow_call from "Tag release on merge" (tag input required)
+#   - push SemVer tag (manual tag push; commit must be on main)
+#   - workflow_dispatch: optional tag input, else latest SemVer tag
 #
 # Independent from "Docker build and push".
 
 name: Release binaries
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: SemVer git tag to build (X.Y.Z)
+        required: true
+        type: string
   push:
     tags:
       - "[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
     inputs:
       tag:
-        description: SemVer git tag to build (X.Y.Z)
+        description: SemVer git tag to build (X.Y.Z); empty = latest SemVer tag
         required: false
         type: string
 
@@ -38,31 +45,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag != '' && format('refs/tags/{0}', inputs.tag) || github.ref }}
 
-      - name: Resolve git tag and checkout release commit
+      - name: Resolve release tag
         id: git_tag
         run: |
           set -euo pipefail
           git fetch --tags origin
 
-          latest_semver_tag() {
-            { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1
-          }
-
-          DISPATCH_TAG="${{ inputs.tag }}"
-          if [ -n "$DISPATCH_TAG" ]; then
-            TAG="$DISPATCH_TAG"
-            echo "workflow_dispatch: building requested tag ${TAG}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="$(latest_semver_tag)"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ inputs.tag }}" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="$({ git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)"
             if [ -z "$TAG" ]; then
               echo "No SemVer git tags (X.Y.Z) on origin." >&2
               git tag -l >&2 || true
               exit 1
             fi
-            echo "workflow_dispatch: latest SemVer tag is ${TAG}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
+            git checkout --force "$TAG"
           fi
 
           if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -70,9 +72,6 @@ jobs:
             exit 1
           fi
 
-          # checkout@v4 on a tag ref already creates a local tag; force-update from origin.
-          git fetch origin "+refs/tags/${TAG}:refs/tags/${TAG}"
-          git checkout --force "$TAG"
           echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
