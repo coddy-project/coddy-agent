@@ -52,6 +52,10 @@ make build TAGS="http ui scheduler memory"
 make install
 ```
 
+## Update from GitHub Releases
+
+See **[docs/update.md](update.md)** for **`coddy update`**, release asset names, and how that differs from **`make install`**.
+
 ## Lean build (ACP-focused, smaller binary)
 
 Plain **`make build`** (empty **`TAGS`**) omits **`external/httpserver`**, the embedded UI, **`external/scheduler`**, and **`external/memory`**. You still get **`coddy acp`**, core tools, and MCP.

@@ -28,6 +28,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
   - [Docker](#docker)
   - [Paths (`CODDY_HOME`, `CODDY_CWD`)](#paths-coddy_home-coddy_cwd)
   - [Configuration](#configuration)
+- [How to update](#how-to-update)
 - [Operating modes](#operating-modes)
 - [Editor and IDE integration](#editor-and-ide-integration)
 - [Cursor rules and skills](#cursor-rules-and-skills)
@@ -126,6 +127,8 @@ make build
 ```
 
 After any local build, prefer **`./build/coddy`** or **`make install`** so you do not accidentally run another **`coddy`** already on **`PATH`**. Check with **`which coddy`** and **`coddy -v`**.
+
+To upgrade an existing install from GitHub Releases, see **[How to update](#how-to-update)**.
 
 Full detail, **`LDFLAGS`**, and **`make print-version`** - **[docs/build.md](docs/build.md)**.
 
@@ -226,6 +229,56 @@ export OPENAI_API_KEY="sk-..."
 ```
 
 Other setups (Anthropic, Ollama, a non-default **`api_base`**, and env-based defaults) are covered in **`config.example.yaml`** and **[docs/config.md](docs/config.md)**.
+
+## How to update
+
+Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory"`**.
+
+**`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
+
+**1. See what you run today**
+
+```bash
+which coddy
+coddy -v
+```
+
+**2. Check for a newer release**
+
+```bash
+coddy update --check
+```
+
+Exit code **0** means you are already on the latest published **`X.Y.Z`** (or newer). Exit code **1** means a newer release is available.
+
+**3. Install**
+
+```bash
+coddy update          # asks [y/N]
+coddy update -y       # no prompt
+```
+
+**4. Confirm**
+
+```bash
+coddy -v
+coddy http --help     # only when the binary includes -tags=http (release builds do)
+```
+
+**Common flags**
+
+| Flag | Purpose |
+|------|---------|
+| **`--check`** | Only report whether an update exists (no download). |
+| **`-y`** / **`--yes`** | Install without confirmation. |
+| **`--version X.Y.Z`** | Install a specific release, not only "latest". |
+| **`--repo owner/name`** | Alternate GitHub repo (default **`coddy-project/coddy-agent`**). |
+
+**Notes**
+
+- Update the same binary you intend to use. If **`which coddy`** points at **`~/.local/bin/coddy`**, run **`coddy update`** from that install, not a different copy on **`PATH`**.
+- **`$CODDY_HOME`** (config, sessions, skills) is untouched; only the executable changes.
+- To build from source or change tags, use **`make build`** instead. For containers, use **`docker compose pull`**. See **[docs/update.md](docs/update.md)** for platform tables, limitations, and other upgrade paths.
 
 ## Operating Modes
 
@@ -339,6 +392,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 ## Documentation
 
 - [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
+- [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats

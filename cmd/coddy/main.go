@@ -96,6 +96,8 @@ func main() {
 		err = runSkills(args[1:])
 	case "rules":
 		err = runRules(args[1:])
+	case "update":
+		err = runUpdate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
@@ -118,6 +120,7 @@ func printUsage(w *os.File) {
   %[1]s skills install <path-or-github-or-url>
   %[1]s skills uninstall <name>
   %[1]s rules list [--cwd DIR]
+  %[1]s update [flags]
 `, os.Args[0])
 }
 
