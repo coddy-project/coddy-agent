@@ -2,18 +2,22 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import {
+  createContext,
   isValidElement,
   useCallback,
+  useContext,
   useMemo,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 
 type CodeProps = {
-  inline?: boolean;
   className?: string | undefined;
   children?: unknown;
 };
+
+const MarkdownPreContext = createContext(false);
 
 type PreProps = {
   children?: unknown;
@@ -37,30 +41,30 @@ function normalizeText(children: unknown): string {
   return "";
 }
 
+function copyTextToClipboard(text: string): Promise<void> {
+  return navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  });
+}
+
 function CopyButton(props: { text: string }) {
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(props.text);
+      await copyTextToClipboard(props.text);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 900);
     } catch {
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = props.text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 900);
-      } catch {
-        setCopied(false);
-      }
+      setCopied(false);
     }
   }, [props.text]);
 
@@ -76,24 +80,83 @@ function CopyButton(props: { text: string }) {
   );
 }
 
+function InlineCode(props: { className?: string; children?: unknown }) {
+  const text = normalizeText(props.children);
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = useCallback(async () => {
+    if (!text) return;
+    try {
+      await copyTextToClipboard(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 900);
+    } catch {
+      setCopied(false);
+    }
+  }, [text]);
+
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLElement>) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        void onCopy();
+      }
+    },
+    [onCopy],
+  );
+
+  const title = copied ? "Copied" : "Copy";
+  const className = ["md-inline-code", props.className || ""]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <code
+      className={className}
+      role="button"
+      tabIndex={0}
+      title={title}
+      aria-label="Copy code"
+      data-testid="md-inline-code"
+      onClick={() => void onCopy()}
+      onKeyDown={onKeyDown}
+    >
+      {props.children as any}
+    </code>
+  );
+}
+
+function MarkdownCode(props: CodeProps) {
+  const inPre = useContext(MarkdownPreContext);
+  if (!inPre) {
+    return (
+      <InlineCode className={props.className || ""}>
+        {props.children as any}
+      </InlineCode>
+    );
+  }
+  return (
+    <code className={props.className || ""}>{props.children as any}</code>
+  );
+}
+
+function MarkdownPre(props: PreProps) {
+  const txt = normalizeText(props.children);
+  return (
+    <MarkdownPreContext.Provider value={true}>
+      <div className="md-code">
+        <CopyButton text={txt.replace(/\n$/, "")} />
+        <pre>{props.children as any}</pre>
+      </div>
+    </MarkdownPreContext.Provider>
+  );
+}
+
 export function Markdown(props: { text: string }) {
   const components = useMemo(
     () => ({
-      code: (p: CodeProps) => {
-        if (p.inline) {
-          return <code className={p.className || ""}>{p.children as any}</code>;
-        }
-        return <code className={p.className || ""}>{p.children as any}</code>;
-      },
-      pre: (p: PreProps) => {
-        const txt = normalizeText(p.children);
-        return (
-          <div className="md-code">
-            <CopyButton text={txt.replace(/\n$/, "")} />
-            <pre>{p.children as any}</pre>
-          </div>
-        );
-      },
+      code: MarkdownCode,
+      pre: MarkdownPre,
       table: ({ children }: { children?: ReactNode }) => (
         <div className="md-table-scroll">
           <table>{children}</table>

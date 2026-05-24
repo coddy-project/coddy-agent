@@ -40,6 +40,11 @@
   --coddy-surface-code-fg: rgba(186, 192, 204, 0.88);
   --coddy-surface-code-bg: rgba(229, 231, 235, 0.9);
   --coddy-link: rgba(167, 139, 250, 0.95);
+  --coddy-md-inline-code-fg: rgba(229, 231, 235, 0.92);
+  --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.1);
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(140, 175, 255, 0.95);
   --coddy-link-action-hover: rgba(180, 205, 255, 1);
   --coddy-hero-muted-mid: rgba(226, 232, 240, 0.82);
@@ -104,6 +109,11 @@
   --coddy-surface-code-fg: #3f3f46;
   --coddy-surface-code-bg: #f4f4f5;
   --coddy-link: #7c3aed;
+  --coddy-md-inline-code-fg: #3f3f46;
+  --coddy-md-inline-code-bg: rgba(0, 0, 0, 0.06);
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: #6d28d9;
   --coddy-link-action-hover: #5b21b6;
   --coddy-hero-muted-mid: #3f3f46;
@@ -1597,7 +1607,7 @@ a.session-item {
 }
 
 .thinking-body .md-inline-code {
-  color: rgba(229, 231, 235, 0.78);
+  color: var(--coddy-md-inline-code-fg);
 }
 
 .coddy-memory-copilot-flat-banner {
@@ -1824,7 +1834,7 @@ a.session-item {
   background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
 }
 
-.md :where(code) {
+.md :where(code:not(.md-inline-code)) {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   padding: 2px 6px;
@@ -1834,11 +1844,67 @@ a.session-item {
 }
 
 .md-inline-code {
-  display: inline-block;
-  color: rgba(229, 231, 235, 0.95);
-  border-color: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-  background: var(--coddy-surface-muted);
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: baseline;
+  box-sizing: border-box;
+  font-family: var(--coddy-md-inline-code-font);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 10px;
+  letter-spacing: 0;
+  color: var(--coddy-md-inline-code-fg);
+  border: none;
+  border-radius: 6px;
+  background: var(--coddy-md-inline-code-bg);
+  padding: 5px 7px 3px;
+  margin: 0 0.06em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    background 120ms ease;
+}
+
+.md-inline-code:hover,
+.md-inline-code:focus-visible {
+  color: var(--coddy-md-inline-code-fg);
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 70%,
+    rgba(255, 255, 255, 0.16)
+  );
+  outline: none;
+}
+
+.md-inline-code:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.md-inline-code:active {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 55%,
+    rgba(255, 255, 255, 0.2)
+  );
+}
+
+[data-theme="light"] .md-inline-code:hover,
+[data-theme="light"] .md-inline-code:focus-visible {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 65%,
+    rgba(0, 0, 0, 0.08)
+  );
+}
+
+[data-theme="light"] .md-inline-code:active {
+  background: color-mix(
+    in srgb,
+    var(--coddy-md-inline-code-bg) 50%,
+    rgba(0, 0, 0, 0.1)
+  );
 }
 
 .md :where(pre) {
