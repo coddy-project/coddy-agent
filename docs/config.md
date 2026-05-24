@@ -120,6 +120,13 @@ skills:
     - "~/.cursor/skills"
     - "~/.claude/skills"
 
+# Project rules (Go: config.Rules, internal/config/rules.go)
+# Discovered from .coddy/rules, .cursor/rules, .claude/rules, .codex/rules under session CWD.
+# Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
+rules:
+  auto_discover: true
+  systems: []   # optional: coddy, cursor, claude, codex
+
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
   - name: "filesystem"

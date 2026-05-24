@@ -152,6 +152,7 @@ func RunJobFile(ctx context.Context, cfg *config.Config, log *slog.Logger, proce
 		skillList = nil
 	}
 	st.Skills = skillList
+	st.ReplaceRulesCatalog(session.DiscoverRules(cfg, jobCWD))
 	if saveErr := fs.Save(st); saveErr != nil {
 		log.Warn("scheduler_run_persist_skills", "job_id", jobID, "session_id", sid, "error", saveErr)
 	}

@@ -9,6 +9,10 @@ import {
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import {
+  ContextBreakdownPopover,
+  type ContextBreakdown,
+} from "./ContextBreakdownPopover";
+import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
@@ -79,6 +83,7 @@ export function Composer(props: {
   tokenUsage?: TokenUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
+  contextBreakdown?: ContextBreakdown | null;
   onModeChange: (mode: string) => void;
   onChange: (v: string) => void;
   onSend: (text: string) => void;
@@ -87,6 +92,7 @@ export function Composer(props: {
 }) {
   const idleSendDisabled = props.value.trim() === "";
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
+  const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
@@ -997,6 +1003,11 @@ export function Composer(props: {
                   }
                 }}
                 onKeyDown={(ev) => {
+                  if (ev.key === "Escape" && contextPopoverOpen) {
+                    ev.preventDefault();
+                    setContextPopoverOpen(false);
+                    return;
+                  }
                   if (ev.key === "Escape" && (slashOpen || atOpen)) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
@@ -1134,6 +1145,15 @@ export function Composer(props: {
                 className="composer-context-tip-host"
                 tabIndex={0}
                 aria-label="Context usage"
+                aria-expanded={contextPopoverOpen}
+                data-testid="composer-context-ring-host"
+                onClick={() => setContextPopoverOpen((o) => !o)}
+                onKeyDown={(ev) => {
+                  if (ev.key === "Enter" || ev.key === " ") {
+                    ev.preventDefault();
+                    setContextPopoverOpen((o) => !o);
+                  }
+                }}
               >
                 <div className="context-ring" role="img" aria-hidden="true">
                   <svg
@@ -1153,9 +1173,19 @@ export function Composer(props: {
                     />
                   </svg>
                 </div>
-                <span className="rail-tip composer-context-tip" role="tooltip">
-                  {tip}
-                </span>
+                {!contextPopoverOpen ? (
+                  <span className="rail-tip composer-context-tip" role="tooltip">
+                    {tip}
+                  </span>
+                ) : null}
+                <ContextBreakdownPopover
+                  open={contextPopoverOpen}
+                  onClose={() => setContextPopoverOpen(false)}
+                  contextIdle={contextIdle}
+                  contextPct={pct}
+                  maxContextTokens={maxCtx}
+                  breakdown={props.contextBreakdown}
+                />
               </div>
               <button
                 type="button"

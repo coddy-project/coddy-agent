@@ -17,6 +17,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -93,6 +94,8 @@ func main() {
 		err = runSessions(args[1:])
 	case "skills":
 		err = runSkills(args[1:])
+	case "rules":
+		err = runRules(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", args[0])
 		printUsage(os.Stderr)
@@ -114,6 +117,7 @@ func printUsage(w *os.File) {
   %[1]s skills list
   %[1]s skills install <path-or-github-or-url>
   %[1]s skills uninstall <name>
+  %[1]s rules list [--cwd DIR]
 `, os.Args[0])
 }
 
@@ -310,4 +314,19 @@ func runSkills(args []string) error {
 	default:
 		return fmt.Errorf("unknown skills subcommand %q", args[0])
 	}
+}
+
+func runRules(args []string) error {
+	cfg, err := config.LoadFromCLI(config.CLIPaths{})
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	cwd := "."
+	if len(args) >= 1 && args[0] == "list" {
+		if len(args) >= 3 && args[1] == "--cwd" {
+			cwd = args[2]
+		}
+		return rules.ListCatalog(cwd, rules.DefaultFactory(), rules.ParseSystems(cfg.Rules.Systems))
+	}
+	return fmt.Errorf("usage: %s rules list [--cwd DIR]", os.Args[0])
 }

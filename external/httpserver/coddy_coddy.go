@@ -596,6 +596,10 @@ func (s *Server) coddySessionStatsGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"read failed"}}`, http.StatusInternalServerError)
 		return
 	}
+	if live := st.GetLastContextBreakdown(); live != nil {
+		cp := *live
+		stats.ContextBreakdown = &cp
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object":    "coddy.session_stats",

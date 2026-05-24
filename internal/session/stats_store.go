@@ -26,10 +26,11 @@ type TokenUsageTurn struct {
 }
 
 type SessionStats struct {
-	Version         int             `json:"version"`
-	UpdatedAt       string          `json:"updatedAt"`
-	TokenUsageTotal TokenUsageTotals `json:"tokenUsageTotal"`
-	TokenUsageByTurn []TokenUsageTurn `json:"tokenUsageByTurn,omitempty"`
+	Version          int               `json:"version"`
+	UpdatedAt        string            `json:"updatedAt"`
+	TokenUsageTotal  TokenUsageTotals  `json:"tokenUsageTotal"`
+	TokenUsageByTurn []TokenUsageTurn  `json:"tokenUsageByTurn,omitempty"`
+	ContextBreakdown *ContextBreakdown `json:"contextBreakdown,omitempty"`
 }
 
 func statsPath(sessionDir string) (string, error) {

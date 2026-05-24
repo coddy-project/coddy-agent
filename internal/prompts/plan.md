@@ -56,6 +56,10 @@ Structure your plans as markdown with:
 {{.Skills}}
 
 {{end}}
+{{if .Rules}}
+{{.Rules}}
+
+{{end}}
 {{if .Memory}}
 ## Session memory
 

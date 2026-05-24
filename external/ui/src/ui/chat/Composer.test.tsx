@@ -297,3 +297,37 @@ test("context tooltip percent and Max context follow cap when model max changes"
   expect(tip()).toMatch(/10\.0% context used/);
   expect(tip()).toMatch(/Max context 10000/);
 });
+
+test("click context ring opens breakdown popover; Escape closes", () => {
+  const breakdown = {
+    systemPrompt: 100,
+    toolDefinitions: 200,
+    rules: 300,
+    skills: 150,
+    mcp: 50,
+    subagents: 0,
+    conversation: 1200,
+    estimatedTotal: 2000,
+  };
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      tokenUsage={{ inputTokens: 800, outputTokens: 200, totalTokens: 1000 }}
+      contextPct={10.0}
+      maxContextTokens={10000}
+      contextBreakdown={breakdown}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("context-breakdown-popover")).toBeNull();
+  fireEvent.click(screen.getByTestId("composer-context-ring-host"));
+  expect(screen.getByTestId("context-breakdown-popover")).toBeTruthy();
+  expect(screen.getByTestId("context-breakdown-row-rules")).toBeTruthy();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByTestId("context-breakdown-popover")).toBeNull();
+});

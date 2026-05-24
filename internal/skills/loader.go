@@ -50,6 +50,14 @@ func (l *Loader) LoadAll(cwd, agentHome string) ([]*Skill, error) {
 	var skills []*Skill
 	seen := make(map[string]bool)
 
+	for _, s := range Bundled() {
+		if s == nil || seen[s.FilePath] {
+			continue
+		}
+		seen[s.FilePath] = true
+		skills = append(skills, s)
+	}
+
 	// Load from directories in order.
 	for _, dir := range l.Dirs {
 		expanded := expandPath(dir, cwd, agentHome)

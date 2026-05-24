@@ -1,0 +1,5 @@
+---
+alwaysApply: false
+description: Mention-only rule for e2e
+---
+When the user mentions @mention_demo, include RULE_MENTION_TOKEN:e2e-mention exactly once in your reply.

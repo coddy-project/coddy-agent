@@ -2484,6 +2484,123 @@ textarea#composer {
   transition: stroke-dashoffset 160ms ease;
 }
 
+.composer-context-tip-host {
+  cursor: pointer;
+}
+
+.context-breakdown-popover {
+  --ctx-seg-system: rgba(148, 163, 184, 0.85);
+  --ctx-seg-tools: rgba(168, 85, 247, 0.9);
+  --ctx-seg-rules: rgba(34, 197, 94, 0.9);
+  --ctx-seg-skills: rgba(249, 115, 22, 0.9);
+  --ctx-seg-mcp: rgba(236, 72, 153, 0.88);
+  --ctx-seg-subagents: rgba(56, 189, 248, 0.88);
+  --ctx-seg-conversation: rgba(59, 130, 246, 0.92);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 60;
+  width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  background: var(--coddy-surface-elevated, #1a1d24);
+  box-shadow: var(--coddy-tip-shadow);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.context-breakdown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.context-breakdown-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.context-breakdown-close {
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.context-breakdown-close:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.context-breakdown-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: color-mix(in srgb, var(--text) 75%, transparent);
+  margin-bottom: 10px;
+}
+
+.context-breakdown-summary-sep {
+  opacity: 0.5;
+}
+
+.context-breakdown-empty {
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 60%, transparent);
+}
+
+.context-breakdown-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  margin-bottom: 12px;
+}
+
+.context-breakdown-seg {
+  min-width: 2px;
+  height: 100%;
+}
+
+.context-breakdown-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.context-breakdown-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.context-breakdown-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.context-breakdown-label {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+}
+
+.context-breakdown-value {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
 /* Send/stop control: perfect circle so play/stop glyphs read clearly on all breakpoints */
 .composer-icon {
   box-sizing: border-box;

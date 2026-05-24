@@ -82,6 +82,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Skills.Validate(); err != nil {
 		return fmt.Errorf("skills: %w", err)
 	}
+	if err := cfg.Rules.Validate(); err != nil {
+		return fmt.Errorf("rules: %w", err)
+	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
@@ -125,6 +128,7 @@ func applyDefaults(cfg *Config) {
 	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
 		return ExpandCODDYHomeOnly(s, p)
 	})
+	cfg.Rules.ApplyDefaults()
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()

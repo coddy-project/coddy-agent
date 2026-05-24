@@ -35,8 +35,11 @@ type TemplateData struct {
 	// CWD is the session working directory.
 	CWD string
 
-	// Skills is preformatted markdown for active skills and rules (may be empty).
+	// Skills is preformatted markdown for slash skills (may be empty).
 	Skills string
+
+	// Rules is preformatted markdown for active project rules (may be empty).
+	Rules string
 
 	// Tools is a human-readable markdown list of tools for the current mode (may be empty).
 	Tools string

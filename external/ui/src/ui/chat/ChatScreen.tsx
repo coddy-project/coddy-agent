@@ -49,6 +49,7 @@ export function ChatScreen(props: {
   tokenUsage: TokenUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
+  contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
   mode: string;
   modes: string[];
   llmModels?: string[];
@@ -181,6 +182,9 @@ export function ChatScreen(props: {
               {...(props.maxContextTokens !== undefined
                 ? { maxContextTokens: props.maxContextTokens }
                 : {})}
+              {...(props.contextBreakdown !== undefined
+                ? { contextBreakdown: props.contextBreakdown }
+                : {})}
               {...(props.llmModels !== undefined &&
               props.llmModels.length > 0 &&
               props.onLlmModelChange !== undefined
@@ -266,10 +270,13 @@ export function ChatScreen(props: {
                 {...(props.contextPct !== undefined
                   ? { contextPct: props.contextPct }
                   : {})}
-                {...(props.maxContextTokens !== undefined
-                  ? { maxContextTokens: props.maxContextTokens }
-                  : {})}
-                {...(props.llmModels !== undefined &&
+              {...(props.maxContextTokens !== undefined
+                ? { maxContextTokens: props.maxContextTokens }
+                : {})}
+              {...(props.contextBreakdown !== undefined
+                ? { contextBreakdown: props.contextBreakdown }
+                : {})}
+              {...(props.llmModels !== undefined &&
                 props.llmModels.length > 0 &&
                 props.onLlmModelChange !== undefined
                   ? {

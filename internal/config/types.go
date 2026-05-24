@@ -10,6 +10,7 @@ type Config struct {
 	Agent      Agent             `yaml:"agent"`
 	Prompts    Prompts           `yaml:"prompts"`
 	Skills     Skills            `yaml:"skills"`
+	Rules      Rules             `yaml:"rules"`
 	MCPServers []MCPServerConfig `yaml:"mcp_servers"`
 	Tools      Tools             `yaml:"tools"`
 	Logger     Logger            `yaml:"logger"`

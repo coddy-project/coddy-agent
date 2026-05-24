@@ -6,9 +6,9 @@ Short map for automation-friendly contributors.
 
 | Area | Responsibility |
 |------|------------------|
-| `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`). |
+| `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `rules list`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
-| `internal/session` | Session manager, Filesystem persistence, Acp hooks. |
+| `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |

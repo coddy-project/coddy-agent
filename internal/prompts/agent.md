@@ -69,6 +69,10 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 {{.TodoList}}
 
 {{end}}
+{{if .Rules}}
+{{.Rules}}
+
+{{end}}
 {{if .Memory}}
 ## Session memory
 

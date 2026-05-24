@@ -9,6 +9,17 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+func withoutBundled(loaded []*skills.Skill) []*skills.Skill {
+	var out []*skills.Skill
+	for _, s := range loaded {
+		if skills.CanonicalCommandName(s) == "coddy-generate-rules" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 func TestLoadSkillWithFrontmatter(t *testing.T) {
 	tmp := t.TempDir()
 
@@ -33,6 +44,8 @@ Use fmt.Errorf for error wrapping.
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+
+	loaded = withoutBundled(loaded)
 
 	if len(loaded) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(loaded))
@@ -68,6 +81,8 @@ func TestLoadSkillNoFrontmatter(t *testing.T) {
 		t.Fatalf("LoadAll: %v", err)
 	}
 
+	loaded = withoutBundled(loaded)
+
 	if len(loaded) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(loaded))
 	}
@@ -95,6 +110,8 @@ func TestLoadSKILLFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+
+	loaded = withoutBundled(loaded)
 
 	if len(loaded) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(loaded))
@@ -128,6 +145,8 @@ func TestLoadSymlinkDirWithSKILLMd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+	loaded = withoutBundled(loaded)
+
 	if len(loaded) != 1 {
 		t.Fatalf("expected 1 skill, got %d", len(loaded))
 	}
@@ -225,6 +244,8 @@ func TestLoadAllExpandsCODDYHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	loaded = withoutBundled(loaded)
+
 	if len(loaded) != 1 {
 		t.Fatalf("got %d skills", len(loaded))
 	}
@@ -237,7 +258,8 @@ func TestLoadFromNonexistentDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error for nonexistent dir, got: %v", err)
 	}
+	loaded = withoutBundled(loaded)
 	if len(loaded) != 0 {
-		t.Errorf("expected empty result for nonexistent dir, got %d", len(loaded))
+		t.Errorf("expected no user skills for nonexistent dir, got %d", len(loaded))
 	}
 }

@@ -493,7 +493,14 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	if slash == nil {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 	}
-	if len(slash.AvailableCommands) != 1 || slash.AvailableCommands[0].Name != "demo" {
+	if len(slash.AvailableCommands) != 2 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
+	}
+	names := map[string]bool{}
+	for _, c := range slash.AvailableCommands {
+		names[c.Name] = true
+	}
+	if !names["demo"] || !names["coddy-generate-rules"] {
+		t.Fatalf("expected demo and coddy-generate-rules, got %+v", slash.AvailableCommands)
 	}
 }

@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+globs: ['**/*.go']
+description: E2E glob rule for Go files
+---
+When this rule is active, any reply must include the verification token RULE_GLOB_TOKEN:e2e-glob exactly once.

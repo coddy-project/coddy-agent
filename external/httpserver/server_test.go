@@ -1307,7 +1307,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	if r1.StatusCode != http.StatusOK || page1.Total != 2 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+	if r1.StatusCode != http.StatusOK || page1.Total != 3 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 

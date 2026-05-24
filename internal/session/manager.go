@@ -245,6 +245,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 		Skills:     loadedSkills,
 		SessionDir: sessionDir,
 	}
+	state.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
 	state.SetPersistHook(m.makePersist(state))
 
@@ -326,6 +327,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		m.log.Warn("failed to load skills on session load", "error", err)
 	}
 	st.ReplaceSkills(loadedSkills)
+	st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
 	st.SetPersistHook(m.makePersist(st))
 

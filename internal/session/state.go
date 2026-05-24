@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
+	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
@@ -49,8 +50,15 @@ type State struct {
 	// MCPClients are connected MCP servers for this session.
 	MCPClients []*mcp.Client
 
-	// Skills are the loaded and active skills/rules.
+	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
+
+	// RulesCatalog is discovered project rules for the session CWD.
+	RulesCatalog []*rules.Rule
+	// ActiveAutoRules are sticky auto rules (alwaysApply true after first match).
+	ActiveAutoRules []*rules.Rule
+	// LastContextBreakdown is the latest per-category token estimate for the UI.
+	LastContextBreakdown *ContextBreakdown
 
 	// Plan holds the current todo list entries.
 	Plan []acp.PlanEntry
@@ -509,6 +517,58 @@ func (s *State) ReplaceSkills(sk []*skills.Skill) {
 	s.mu.Lock()
 	s.Skills = sk
 	s.mu.Unlock()
+}
+
+// GetRulesCatalog returns discovered rules.
+func (s *State) GetRulesCatalog() []*rules.Rule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.RulesCatalog
+}
+
+// ReplaceRulesCatalog sets the rules catalog (session bootstrap).
+func (s *State) ReplaceRulesCatalog(cat []*rules.Rule) {
+	s.mu.Lock()
+	s.RulesCatalog = cat
+	s.ActiveAutoRules = nil
+	s.mu.Unlock()
+}
+
+// GetActiveAutoRules returns sticky auto rules.
+func (s *State) GetActiveAutoRules() []*rules.Rule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ActiveAutoRules
+}
+
+// SetActiveAutoRules updates sticky auto rules.
+func (s *State) SetActiveAutoRules(r []*rules.Rule) {
+	s.mu.Lock()
+	s.ActiveAutoRules = r
+	s.mu.Unlock()
+}
+
+// GetLastContextBreakdown returns the latest context breakdown for UI.
+func (s *State) GetLastContextBreakdown() *ContextBreakdown {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.LastContextBreakdown == nil {
+		return nil
+	}
+	cp := *s.LastContextBreakdown
+	return &cp
+}
+
+// SetLastContextBreakdown stores the latest breakdown.
+func (s *State) SetLastContextBreakdown(b *ContextBreakdown) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if b == nil {
+		s.LastContextBreakdown = nil
+		return
+	}
+	cp := *b
+	s.LastContextBreakdown = &cp
 }
 
 // SetCancel stores a cancel function for the active prompt turn.

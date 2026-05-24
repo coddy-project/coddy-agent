@@ -62,7 +62,7 @@ func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
 // It is rebuilt each agent turn so the checklist section stays aligned with todo tool mutations.
-func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string) string {
+func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, toolDefs []llm.ToolDefinition, userText string, contextFiles []string) string {
 	promptsDir := a.cfg.Prompts.ResolvedDir(a.state.GetCWD())
 	promptTodoMD := checklistMarkdownFromPlan(a.state.GetPlan())
 	mem := formatMergedMemory(strings.TrimSpace(a.state.GetAgentMemory()), strings.TrimSpace(a.state.GetMemoryCopilotBlock()))
@@ -74,15 +74,25 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if mode == "plan" {
 		discardedPlans = discardedPlansPromptBlock(a.state.DiscardedPlanSlugs())
 	}
+	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText)
+	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	rulesMD := ""
+	if rs, ok := a.state.(rulesState); ok {
+		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
+	}
+	if rs, ok := a.state.(rulesState); ok {
+		rs.SetLastContextBreakdown(computeContextBreakdown(skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
+	}
 	return prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
-		CWD:             a.state.GetCWD(),
-		Skills:          buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, userText),
-		Tools:           tools.FormatDefinitionsForPrompt(toolDefs),
-		Memory:          mem,
-		TodoList:        promptTodoMD,
-		PlanContext:     planCtx,
-		DiscardedPlans:  discardedPlans,
-		UTCNow:          time.Now().UTC().Format(time.RFC3339),
+		CWD:            a.state.GetCWD(),
+		Skills:         skillsMD,
+		Rules:          rulesMD,
+		Tools:          toolsMD,
+		Memory:         mem,
+		TodoList:       promptTodoMD,
+		PlanContext:    planCtx,
+		DiscardedPlans: discardedPlans,
+		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 }
 

@@ -39,6 +39,11 @@ export CODDY_CONFIG="$CFG"
 
 mkdir -p "$HOME_DIR/skills_fixture"
 cp -a "$ROOT/examples/skills_fixture/coddy_slash_demo" "$HOME_DIR/skills_fixture/"
+mkdir -p "$WORK_DIR/.coddy"
+cp -a "$ROOT/examples/rules_fixture/.coddy/rules" "$WORK_DIR/.coddy/"
+echo 'package main
+
+func main() {}' >"$WORK_DIR/main.go"
 
 "$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler-enabled -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
@@ -63,6 +68,7 @@ python3 "$HTTP_DIR/http_e2e_web.py"
 python3 "$HTTP_DIR/http_e2e_todo.py"
 python3 "$HTTP_DIR/http_e2e_memory.py"
 python3 "$HTTP_DIR/http_e2e_skills_slash.py"
+python3 "$HTTP_DIR/http_e2e_rules.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"

@@ -86,7 +86,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	contextFiles := extractContextFiles(prompt)
 
 	// Load skills applicable to this context.
-	activeSkills := skills.FilterForContext(a.state.GetSkills(), contextFiles)
+	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
@@ -112,7 +112,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	}
 
 	// Build the full message list starting with system prompt (refreshed each ReAct turn).
-	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText))
+	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -169,7 +169,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// System prompt is rebuilt every turn so conditional sections (e.g. todo checklist) match
 		// state after coddy_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
-			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText)
+			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
 		}
 
 		// Call LLM and stream response.
@@ -313,6 +313,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 						TotalTokens:  totalInputTokens + totalOutputTokens,
 						Timestamp:    now.Format(time.RFC3339),
 					}},
+				}
+				if rs, ok := a.state.(rulesState); ok {
+					if b := rs.GetLastContextBreakdown(); b != nil {
+						cp := *b
+						stats.ContextBreakdown = &cp
+					}
 				}
 				_ = session.WriteSessionStats(sd, stats)
 			}
