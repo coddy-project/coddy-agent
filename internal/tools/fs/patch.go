@@ -16,7 +16,7 @@ func ApplyPatchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "apply_patch",
-			Description: "Apply a unified diff/patch to a file. Use for targeted edits without rewriting the whole file.",
+			Description: "Apply a patch to a file. Supports unified diff (diff -u / git diff) and Codex/V4A format (*** Begin Patch ... @@ hunks with +/- lines).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -67,7 +67,7 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 		return "", fmt.Errorf("apply_patch read: %w", err)
 	}
 
-	patched, err := applyUnifiedDiff(string(data), patchBody)
+	patched, err := applyPatch(string(data), patchBody)
 	if err != nil {
 		return "", fmt.Errorf("apply_patch: %w", err)
 	}
@@ -79,12 +79,16 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 	return fmt.Sprintf("patch applied successfully to %s", path), nil
 }
 
+func applyPatch(original, diff string) (string, error) {
+	if isV4APatch(diff) {
+		return applyV4APatch(original, diff)
+	}
+	return applyUnifiedDiff(original, diff)
+}
+
 // applyUnifiedDiff is a simple unified diff applicator for standard --- / +++ / @@ hunks.
 func applyUnifiedDiff(original, diff string) (string, error) {
-	lines := strings.Split(original, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
+	lines := splitFileLines(original)
 	diffLines := strings.Split(diff, "\n")
 
 	result := make([]string, len(lines))

@@ -2765,7 +2765,7 @@ textarea#composer {
 /* Desktop main padding (shell with side rail) */
 @media (min-width: 1200px) {
   .main {
-    padding: 14px 18px 18px;
+    padding: 14px 0;
   }
 
   .composer-wrap {
