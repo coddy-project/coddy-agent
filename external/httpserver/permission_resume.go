@@ -9,7 +9,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
-	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -48,24 +47,6 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 	if strings.TrimSpace(pending.ToolCall.ToolCallID) != toolCallID {
 		return false
 	}
-	if res.Outcome == "cancelled" || res.OptionID == "reject" {
-		_ = session.ClearPendingPermission(sd)
-		st.AddMessage(llm.Message{
-			Role:       llm.RoleTool,
-			Content:    "permission denied by user",
-			ToolCallID: toolCallID,
-		})
-		name := strings.TrimSpace(pending.ToolName)
-		if name == "" {
-			name = "tool"
-		}
-		_ = session.MarkToolCallFinished(sd, toolCallID, name, pending.ToolCall.Kind, "cancelled")
-		if fs := s.mgr.FileStore(); fs != nil {
-			_ = fs.Save(st)
-		}
-		st.BumpActivitySeq()
-		return true
-	}
 	go s.runPermissionResume(context.WithoutCancel(ctx), sessionID, toolCallID, res)
 	return true
 }
@@ -89,6 +70,7 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetProviderFactory(s.agentProviderFactory)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
 		return

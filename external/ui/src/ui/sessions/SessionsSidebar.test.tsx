@@ -35,6 +35,30 @@ test("delete click does not bubble to row pick", async () => {
   expect(onPick).not.toHaveBeenCalled();
 });
 
+test("clicking session row outside the text picks the session", () => {
+  const onPick = vi.fn();
+  render(
+    <SessionsSidebar
+      sessionId="current"
+      sessions={[row("current", "A"), row("other", "B")]}
+      open
+      onPick={onPick}
+      onDelete={() => Promise.resolve()}
+      searchDraft=""
+      onSearchDraftChange={() => {}}
+      onSearchClear={() => {}}
+      hasMore={false}
+      loadingMore={false}
+      onLoadMore={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("session-row-other"));
+
+  expect(onPick).toHaveBeenCalledTimes(1);
+  expect(onPick).toHaveBeenCalledWith("other");
+});
+
 test("session row is a link with session hash href", () => {
   render(
     <SessionsSidebar

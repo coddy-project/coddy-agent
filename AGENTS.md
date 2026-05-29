@@ -27,6 +27,17 @@ Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives 
 
 All **code comments** plus **technical markdown authored for this repo** (including `docs/`, `DESIGN.md`, `AGENTS.md`) stay **English** unless an operator explicitly asks for another natural language.
 
+## Codex and Cursor rules
+
+Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. This repository also keeps the detailed project rules in **`.cursor/rules/*.mdc`**.
+
+When working in Codex:
+
+- Treat **`.cursor/rules/*.mdc`** as authoritative project rules, not Cursor-only metadata.
+- Read the relevant Cursor rule files before changing code or docs covered by their `globs`.
+- Start with **`.codex/rules.md`** for the Cursor rules index.
+- Do not copy Cursor rules into `.codex/`; keep **`.cursor/rules/`** as the single source of truth and update the index if rule files are added, renamed, or removed.
+
 ## HTTP API development flow
 
 When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:

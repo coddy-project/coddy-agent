@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent } from "react";
 import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
@@ -9,6 +9,19 @@ import {
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
+
+function pickFromSessionRowClick(
+  ev: MouseEvent<HTMLDivElement>,
+  action: () => void,
+): void {
+  if (ev.defaultPrevented || ev.button !== 0) {
+    return;
+  }
+  if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) {
+    return;
+  }
+  action();
+}
 
 export function SessionsSidebar(props: {
   sessionId: string;
@@ -128,6 +141,12 @@ export function SessionsSidebar(props: {
           <div
             key={s.id}
             className={`session-item ${s.id === props.sessionId ? "active" : ""}`}
+            data-testid={`session-row-${s.id}`}
+            onClick={(ev) =>
+              pickFromSessionRowClick(ev, () => {
+                props.onPick(s.id);
+              })
+            }
           >
             <a
               href={
@@ -136,11 +155,12 @@ export function SessionsSidebar(props: {
                   : appNavHrefSession(s.id)
               }
               className="session-row-link"
-              onClick={(ev) =>
+              onClick={(ev) => {
+                ev.stopPropagation();
                 sameTabInAppNavClick(ev, () => {
                   props.onPick(s.id);
-                })
-              }
+                });
+              }}
             >
               <div className="session-row-leading">
                 {sessionRowShowsSpinner(

@@ -36,6 +36,19 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}
+	if perm.Outcome == "cancelled" || perm.OptionID == "reject" {
+		toolResultMsg := llm.Message{
+			Role:       llm.RoleTool,
+			Content:    "permission denied by user",
+			ToolCallID: tc.ID,
+		}
+		a.state.AddMessage(toolResultMsg)
+		if sd != "" {
+			_ = session.WriteToolCallResult(sd, tc.ID, toolResultMsg.Content)
+			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
+		}
+		return a.continueReAct(ctx, mode, toolEnv)
+	}
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true)
 	var toolResultMsg llm.Message
 	if execErr != nil {
