@@ -43,7 +43,6 @@ import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
-  removePermissionPromptRecord,
   upsertPermissionPromptRecord,
 } from "./chat/permissionPromptSessionStore";
 import {
@@ -577,6 +576,9 @@ export function App() {
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
   const [draft, setDraft] = useState("");
@@ -870,6 +872,15 @@ export function App() {
           toolCallId: tcid,
           payload: p,
         });
+        // Insert right after the corresponding tool_call if it's already in the transcript.
+        const tcIdx = withoutDup.findIndex(
+          (x) => x.type === "tool_call" && x.toolCallId === tcid,
+        );
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
         return [...withoutDup, row];
       });
     },
@@ -917,7 +928,7 @@ export function App() {
     (
       sessionId: string,
       itemId: string,
-      _resolved: PermissionResolvedState,
+      resolved: PermissionResolvedState,
     ) => {
       const key = sessionId.trim();
       if (!key) return;
@@ -931,10 +942,13 @@ export function App() {
           (x) => x.type === "permission_prompt" && x.id === itemId,
         );
         if (hit?.type === "permission_prompt") {
-          removePermissionPromptRecord(
-            key,
-            hit.payload.toolCall.toolCallId.trim(),
-          );
+          // Keep the record marked as resolved so restorePermissionPromptsForPendingTools
+          // won't re-synthesize a prompt for the same tool call on subsequent loadMessages.
+          upsertPermissionPromptRecord(key, {
+            toolCallId: hit.payload.toolCall.toolCallId.trim(),
+            payload: hit.payload,
+            resolved,
+          });
         }
         return prev.filter(
           (x) => !(x.type === "permission_prompt" && x.id === itemId),
@@ -1060,6 +1074,7 @@ export function App() {
       setActiveDraftId("");
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
+      setSessionLoading(true);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
@@ -1867,7 +1882,13 @@ export function App() {
       return applied;
     }
     streamShadowBySidRef.current.set(sid, applied);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    setSessionFadingOut(false);
     setItems(applied);
+    setSessionLoading(false);
     return applied;
   }
 
@@ -1892,8 +1913,13 @@ export function App() {
   function pickSession(id: string) {
     persistComposerDraftBeforeLeave();
     reasoningDurationMsByContentRef.current = new Map();
-    setItems([]);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
     if (isClientDraftSessionId(id)) {
+      setSessionFadingOut(false);
+      setItems([]);
       setActiveDraftId(id);
       setSessionId("");
       viewedSessionIdRef.current = "";
@@ -1902,10 +1928,19 @@ export function App() {
       setDraftHashInLocation(id, { historySidebar: sessionsOpen });
       return;
     }
+    setSessionLoading(true);
     setActiveDraftId("");
-    openSessionFromRoute(id, {
-      historySidebar: sessionsOpen,
-    });
+    openSessionFromRoute(id, { historySidebar: sessionsOpen });
+    if (itemsRef.current.length > 0) {
+      setSessionFadingOut(true);
+      fadeOutTimerRef.current = setTimeout(() => {
+        fadeOutTimerRef.current = null;
+        setSessionFadingOut(false);
+        setItems([]);
+      }, 110);
+    } else {
+      setItems([]);
+    }
   }
 
   function goHome() {
@@ -1913,9 +1948,15 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
     clearSessionRoute();
     setHeroHomeGeneration((g) => g + 1);
     setItems([]);
+    setSessionLoading(false);
+    setSessionFadingOut(false);
     setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
@@ -1970,6 +2011,7 @@ export function App() {
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
+      setSessionLoading(false);
       void loadSessionsList(true);
       return;
     }
@@ -2005,6 +2047,7 @@ export function App() {
           shadowSnap.length > 0
         ) {
           setItems([...shadowSnap]);
+          setSessionLoading(false);
         } else {
           const loaded = await loadMessages();
           if (lifecycle.signal.aborted) {
@@ -2014,6 +2057,7 @@ export function App() {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
               setItems([...sh]);
+              setSessionLoading(false);
             }
           }
           if (
@@ -2032,9 +2076,11 @@ export function App() {
         ) {
           if (shElse && shElse.length > 0) {
             setItems([...shElse]);
+            setSessionLoading(false);
           }
         } else {
           setItems([]);
+          setSessionLoading(false);
         }
       }
     })();
@@ -3003,6 +3049,8 @@ export function App() {
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          sessionLoading={sessionLoading}
+          sessionFadingOut={sessionFadingOut}
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}

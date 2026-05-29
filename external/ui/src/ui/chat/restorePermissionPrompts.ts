@@ -1,4 +1,5 @@
 import { DEFAULT_PERMISSION_OPTIONS } from "./permissionDefaults";
+import { resolvedPermissionToolCallIds } from "./permissionPromptSessionStore";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { stablePermissionPromptItemId } from "./transcriptItemIds";
 import type { TranscriptItem } from "./types";
@@ -92,12 +93,13 @@ export function restorePermissionPromptsForPendingTools(
       .map((x) => x.payload.toolCall.toolCallId.trim())
       .filter(Boolean),
   );
+  const alreadyResolved = resolvedPermissionToolCallIds(sid);
 
   let out = [...items];
   for (const row of items) {
     if (!isPendingPermissionTool(row, policy)) continue;
     const tcid = row.toolCallId.trim();
-    if (!tcid || have.has(tcid)) continue;
+    if (!tcid || have.has(tcid) || alreadyResolved.has(tcid)) continue;
     have.add(tcid);
     const idx = out.findIndex(
       (x) => x.type === "tool_call" && x.toolCallId === tcid,

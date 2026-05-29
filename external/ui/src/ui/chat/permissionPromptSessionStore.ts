@@ -137,6 +137,17 @@ export function mergeStoredPermissionPromptsIntoTranscript(
   return out;
 }
 
+export function resolvedPermissionToolCallIds(
+  sessionId: string,
+): ReadonlySet<string> {
+  const records = loadPermissionPromptRecords(sessionId);
+  const out = new Set<string>();
+  for (const rec of records) {
+    if (rec.resolved) out.add(rec.toolCallId.trim());
+  }
+  return out;
+}
+
 /** Stored SSE rows, then pending tool_call synthesis (reload / server restart). */
 /** Session ids with unresolved rows in localStorage (sidebar ? after reload). */
 export function permissionPendingSessionIdsFromStorage(): ReadonlySet<string> {

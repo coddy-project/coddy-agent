@@ -1015,10 +1015,76 @@ a.rail-brand {
   flex-direction: column;
   padding: 14px 14px 18px;
   min-height: 0;
+  transition: opacity 0.11s ease-out;
 }
 
 .main.is-empty {
   padding-top: 24px;
+}
+
+.main.session-fading-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes chat-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chat-skeleton {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 28px;
+  padding: 28px 20px 20px;
+  animation: chat-fade-in 0.18s ease-out both;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.chat-skeleton-header {
+  padding-bottom: 4px;
+}
+
+.chat-skeleton-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.chat-skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-skeleton-row--user {
+  align-items: flex-end;
+}
+
+.chat-skeleton-bar {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 0%,
+    rgba(255, 255, 255, 0.09) 40%,
+    rgba(255, 255, 255, 0.04) 80%
+  );
+  background-size: 300% 100%;
+  animation: chat-skeleton-shimmer 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes chat-skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 .chat-header {
@@ -1195,6 +1261,7 @@ a.rail-brand {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  animation: chat-fade-in 0.22s ease-out both;
   /* Match native scrollbar gutters so the docked composer does not paint over the scroll track */
   --coddy-chat-scrollbar-gutter: 14px;
 }
