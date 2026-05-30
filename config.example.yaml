@@ -1,3 +1,16 @@
+# .env file support
+# If $CODDY_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
+# Variables already set in the process environment are NOT overridden — .env is a fallback only.
+# Use it to keep secrets out of config.yaml without touching your shell profile:
+#
+#   ~/.coddy/.env
+#   ──────────────
+#   OPENAI_API_KEY=sk-...
+#   TELEGRAM_BOT_TOKEN=8992982910:AAF...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#
+# Supported syntax: KEY=value, export KEY=value, "quoted values", # comments.
+
 # api_key must be the provider secret string (often starts with sk-...), a "${ENV}" reference, or empty to use NAME_API_KEY at runtime; never a web page URL.
 providers:
   - name: openai

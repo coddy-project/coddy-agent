@@ -14,6 +14,9 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Load $CODDY_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
+	// Existing process environment always takes precedence over .env.
+	loadDotEnv(paths.Home)
 	explicitConfig := strings.TrimSpace(cli.Config) != ""
 	if !explicitConfig {
 		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {

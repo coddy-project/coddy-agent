@@ -257,6 +257,46 @@ gateways:
 
 See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
+## `.env` file
+
+If **`$CODDY_HOME/.env`** exists, it is read at startup **before** `config.yaml` is parsed. This lets you keep all secrets in one place without touching shell profiles or Docker compose environment blocks.
+
+```sh
+# ~/.coddy/.env
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+TELEGRAM_BOT_TOKEN=8992982910:AAF...
+```
+
+Then in `config.yaml` reference them as usual:
+
+```yaml
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+```
+
+**Rules:**
+
+- Variables that are **already set** in the process environment are **never overridden** — the process environment always wins. `.env` is a fallback only.
+- A missing `.env` is silently ignored (not an error).
+- The file is resolved relative to the effective `CODDY_HOME` (`~/.coddy` by default, or the path from `--home` / `CODDY_HOME` env var).
+
+**Supported syntax:**
+
+| Line form | Example |
+|-----------|---------|
+| `KEY=value` | `OPENAI_API_KEY=sk-abc` |
+| `export KEY=value` | `export DEBUG=true` |
+| Double-quoted value | `MSG="hello world"` |
+| Single-quoted value | `PATH='no escape \n here'` |
+| Escape sequences in `"…"` | `NOTE="line1\nline2"` → real newline |
+| Inline comment (unquoted) | `KEY=val # this is ignored` |
+| Comment line | `# full-line comment` |
+
+Values already in the process environment (e.g. set by the shell, Docker, systemd) take priority and are never changed by `.env`.
+
 ## Environment Variable References
 
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
