@@ -569,6 +569,7 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 		return string(acp.StopReasonEndTurn), nil
 	}, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(func() { srv.waitPermissionResumeDrained() })
 	provider := &capturingHTTPProvider{reply: "continued after reject"}
 	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
 		return provider, nil
@@ -620,6 +621,7 @@ func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *tes
 					t.Fatalf("rejected permission executed the tool: %+v", m)
 				}
 			}
+			srv.waitPermissionResumeDrained()
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

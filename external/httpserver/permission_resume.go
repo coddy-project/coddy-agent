@@ -47,8 +47,20 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 	if strings.TrimSpace(pending.ToolCall.ToolCallID) != toolCallID {
 		return false
 	}
-	go s.runPermissionResume(context.WithoutCancel(ctx), sessionID, toolCallID, res)
+	s.permissionResumeWG.Add(1)
+	go func() {
+		defer s.permissionResumeWG.Done()
+		s.runPermissionResume(context.WithoutCancel(ctx), sessionID, toolCallID, res)
+	}()
 	return true
+}
+
+// waitPermissionResumeDrained blocks until in-flight persisted permission resume goroutines finish.
+func (s *Server) waitPermissionResumeDrained() {
+	if s == nil {
+		return
+	}
+	s.permissionResumeWG.Wait()
 }
 
 func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID string, res *acp.PermissionResult) {

@@ -45,6 +45,8 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	permissionResumeWG sync.WaitGroup
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
