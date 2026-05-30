@@ -275,7 +275,9 @@ body {
   display: flex;
   justify-content: stretch;
   min-height: 0;
-  z-index: 30;
+  /* Above backdrop (40) so rail stays unscrimmed and clickable while drawers are open;
+     below drawers (50) so panels don't hide behind the rail. */
+  z-index: 45;
 }
 
 .rail-pill {
