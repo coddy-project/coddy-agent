@@ -303,3 +303,43 @@ test("apply_patch with V4A patch format renders DiffView", () => {
   expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
   expect(container.querySelector(".tool-result-pre")).toBeNull();
 });
+
+test("apply_patch shows error text in body when execution fails", () => {
+  const patch = "@@ -1 +1 @@\n-old\n+new";
+  const argsText = JSON.stringify({ filePath: "src/x.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-err"
+      title="apply_patch"
+      kind="write"
+      status="failed"
+      argsText={argsText}
+      resultText="error: file not found: src/x.ts"
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".tool-result-pre")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+  expect(container.querySelector(".tool-result-pre")?.textContent).toContain("file not found");
+});
+
+test("apply_patch with error shows diff alongside error text", () => {
+  const patch = "@@ -1 +1 @@\n-old\n+new";
+  const argsText = JSON.stringify({ filePath: "src/y.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-err2"
+      title="apply_patch"
+      kind="write"
+      status="failed"
+      argsText={argsText}
+      resultText="hunk mismatch at line 1"
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".tool-result-pre")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+});

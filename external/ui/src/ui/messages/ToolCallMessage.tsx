@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -213,6 +214,19 @@ export function ToolCallMessage(props: {
     setLoadingFull(false);
   }, [props.toolCallId]);
 
+  // Auto-fetch full args for patch tools. argsPreview from the sessions list is truncated
+  // (200 chars) which makes the JSON unparseable; we need the full args to render the diff.
+  const fetchFn = props.onFetchToolCallFull;
+  const fetchAttemptedRef = useRef(false);
+  useEffect(() => {
+    fetchAttemptedRef.current = false;
+  }, [props.toolCallId]);
+  useEffect(() => {
+    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    fetchAttemptedRef.current = true;
+    void fetchFn(props.toolCallId);
+  }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
+
   const canExpand =
     !isQuestionTool &&
     props.resultWasTruncated === true &&
@@ -279,12 +293,17 @@ export function ToolCallMessage(props: {
 
   const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
   const showDiffView = isPatchTool && !!patchContent;
+  const showPatchResult =
+    isPatchTool &&
+    !!resultBody &&
+    !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showJsonResult =
     !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
   const hasBody =
     isQuestionTool ||
     showJsonArgs ||
     showDiffView ||
+    showPatchResult ||
     showJsonResult ||
     !!toggleLink;
 
@@ -313,7 +332,7 @@ export function ToolCallMessage(props: {
           <div
             className={[
               "thinking-body coddy-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !isQuestionTool
+              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
                 ? "coddy-tool-call-body--diff"
                 : "",
             ]
@@ -335,6 +354,14 @@ export function ToolCallMessage(props: {
             ) : null}
             {showDiffView && patchContent ? (
               <DiffView patch={patchContent} filePath={args} />
+            ) : null}
+            {showPatchResult ? (
+              <div
+                className="tool-block tool-result tool-result-raw"
+                aria-label="Tool result"
+              >
+                <pre className="tool-result-pre">{resultBody}</pre>
+              </div>
             ) : null}
             {showJsonResult ? (
               <div

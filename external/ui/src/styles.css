@@ -1802,7 +1802,7 @@ a.rail-brand {
   position: absolute;
   left: 0;
   top: 50%;
-  width: 14px;
+  width: 16px;
   height: 14px;
   display: inline-flex;
   align-items: center;
@@ -1845,7 +1845,7 @@ a.rail-brand {
 }
 
 .thinking-body {
-  margin: 8px 0 0;
+  margin: 8px 0 0 12px;
   padding: 10px 13px;
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
@@ -2002,10 +2002,18 @@ a.rail-brand {
   background: transparent;
 }
 
-/* Diff-only body: flush edges, rounded corners from parent handle the clip. */
+/* Diff-only body: body retains its padding (keeps correct left alignment with
+   summary text), but the diff-block breaks out via negative margins so the
+   diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
+   clips the diff to the parent's border-radius. */
 .coddy-tool-call-body--diff {
-  padding: 0;
   overflow: hidden;
+  padding: 0;
+  margin-left: 14px;
+}
+
+.coddy-tool-call-body--diff .diff-block {
+  /*margin: -10px -13px;*/
 }
 
 .md {
