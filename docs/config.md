@@ -10,7 +10,7 @@ Resolved locations use environment variables and flags (see README). In short:
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
-When the primary file exists but is invalid (YAML parse or validation error), the loader may recover from **`config.lastgood.yaml`** in the same directory (see **`internal/config/recovery.go`**). After a successful load, the server refreshes **`config.lastgood.yaml`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also maintains **`config.prev.yaml`** before overwriting the primary file.
+When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
 

@@ -110,7 +110,7 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "serialize yaml")
 		return
 	}
-	if err := config.BackupConfigPrev(cfgPath); err != nil {
+	if err := config.BackupCurrent(cfgPath); err != nil {
 		s.log.Error("coddy config backup", "error", err)
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "backup failed")
 		return
@@ -123,8 +123,8 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 	reloaded, err := config.LoadWithPaths(paths)
 	if err != nil {
 		s.log.Error("coddy config reload after write", "error", err)
-		if prev, er2 := os.ReadFile(config.PrevConfigPath(cfgPath)); er2 == nil {
-			if er3 := config.AtomicWriteConfigYAML(cfgPath, prev); er3 != nil {
+		if bak, er2 := os.ReadFile(config.BackupPath(cfgPath)); er2 == nil {
+			if er3 := config.AtomicWriteConfigYAML(cfgPath, bak); er3 != nil {
 				s.log.Error("coddy config rollback", "error", er3)
 			}
 		}
@@ -135,9 +135,6 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 			"error": err.Error(),
 		})
 		return
-	}
-	if diskBytes, err := os.ReadFile(cfgPath); err == nil {
-		_ = config.WriteLastGoodAtomic(cfgPath, diskBytes)
 	}
 	s.ReplaceConfig(reloaded)
 	s.mgr.ReplaceConfig(reloaded)

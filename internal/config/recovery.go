@@ -11,33 +11,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Sidecar filenames next to the active config.yaml.
-const (
-	lastGoodFileName = "config.lastgood.yaml"
-	prevConfigName   = "config.prev.yaml"
-)
+// backupFileName is the single config backup sidecar written next to config.yaml.
+const backupFileName = "config.yaml.bak"
 
-// LastGoodPath returns the path to the last-known-good config backup for the given config file path.
-func LastGoodPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), lastGoodFileName)
+// BackupPath returns the path to the config backup file for the given config file path.
+func BackupPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), backupFileName)
 }
 
-// PrevConfigPath returns the path to the rotated previous config copy.
-func PrevConfigPath(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), prevConfigName)
-}
-
-// WriteLastGoodAtomic writes a copy of the primary config bytes to config.lastgood.yaml in the same directory.
-func WriteLastGoodAtomic(configPath string, primaryBytes []byte) error {
+// WriteBackup writes data to config.yaml.bak atomically.
+// Called after every successful config load and after a successful HTTP PUT.
+func WriteBackup(configPath string, data []byte) error {
 	if strings.TrimSpace(configPath) == "" {
 		return fmt.Errorf("config path is empty")
 	}
-	dst := LastGoodPath(configPath)
-	return atomicWriteFile(dst, primaryBytes, 0o644)
+	return atomicWriteFile(BackupPath(configPath), data, 0o644)
 }
 
-// BackupConfigPrev copies the current config file to config.prev.yaml if it exists.
-func BackupConfigPrev(configPath string) error {
+// BackupCurrent copies the current config file to config.yaml.bak.
+// Used by the HTTP PUT handler before overwriting config.yaml so rollback is possible.
+func BackupCurrent(configPath string) error {
 	src := strings.TrimSpace(configPath)
 	if src == "" {
 		return fmt.Errorf("config path is empty")
@@ -56,7 +49,7 @@ func BackupConfigPrev(configPath string) error {
 	if err != nil {
 		return err
 	}
-	return atomicWriteFile(PrevConfigPath(src), data, st.Mode().Perm()&0o666)
+	return atomicWriteFile(BackupPath(src), data, 0o644)
 }
 
 // AtomicWriteConfigYAML writes yamlBytes to configPath using a temp file and rename.
@@ -110,10 +103,10 @@ func parseValidateYAMLBytes(expanded string, paths Paths) (*Config, error) {
 	return &cfg, nil
 }
 
-// tryRecoverFromLastGood loads config.lastgood.yaml; if valid, restores it over configPath and returns the config.
-func tryRecoverFromLastGood(paths Paths) (*Config, error) {
-	lg := LastGoodPath(paths.ConfigPath)
-	raw, err := os.ReadFile(lg)
+// tryRecoverFromBackup loads config.yaml.bak; if valid, restores it over configPath and returns the config.
+func tryRecoverFromBackup(paths Paths) (*Config, error) {
+	bak := BackupPath(paths.ConfigPath)
+	raw, err := os.ReadFile(bak)
 	if err != nil {
 		return nil, err
 	}

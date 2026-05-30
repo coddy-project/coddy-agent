@@ -62,13 +62,13 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
-		rec, rerr := tryRecoverFromLastGood(paths)
+		rec, rerr := tryRecoverFromBackup(paths)
 		if rerr == nil && rec != nil {
 			return rec, nil
 		}
 		return nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
 	}
-	_ = WriteLastGoodAtomic(paths.ConfigPath, originalData)
+	_ = WriteBackup(paths.ConfigPath, originalData)
 	return cfg, nil
 }
 

@@ -396,7 +396,7 @@ memory:
 	}
 }
 
-func TestRecoverFromLastGoodRestoresPrimary(t *testing.T) {
+func TestRecoverFromBackupRestoresPrimary(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)
 	t.Setenv(config.EnvCODDYConfig, "")
@@ -415,7 +415,7 @@ models:
 agent:
   model: "openai/gpt-4o"
 `
-	if err := os.WriteFile(filepath.Join(home, "config.lastgood.yaml"), []byte(lastGood), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "config.yaml.bak"), []byte(lastGood), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	badPrimary := "[unclosed\n"

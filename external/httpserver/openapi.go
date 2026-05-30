@@ -384,7 +384,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically, updates **config.lastgood.yaml**, rotates **config.prev.yaml**, reloads in-process config. On reload failure after write, restores **config.prev.yaml** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically, reloads in-process config. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "coddyConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
