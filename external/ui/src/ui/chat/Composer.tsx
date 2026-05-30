@@ -86,6 +86,8 @@ export function Composer(props: {
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
+  /** Fired when the user opens the context breakdown popover (refresh stats). */
+  onContextRingOpen?: () => void;
   onModeChange: (mode: string) => void;
   onChange: (v: string) => void;
   onSend: (text: string) => void;
@@ -1244,6 +1246,7 @@ export function Composer(props: {
                   if (contextPopoverOpen) {
                     closeContextPopover();
                   } else {
+                    props.onContextRingOpen?.();
                     setContextPopoverOpen(true);
                   }
                 }}
@@ -1253,6 +1256,7 @@ export function Composer(props: {
                     if (contextPopoverOpen) {
                       closeContextPopover();
                     } else {
+                      props.onContextRingOpen?.();
                       setContextPopoverOpen(true);
                     }
                   }
@@ -1268,10 +1272,10 @@ export function Composer(props: {
               <button
                 type="button"
                 className={[
-                  "composer-icon",
+                  "composer-icon composer-run-icon",
                   props.generating
-                    ? "composer-send-stop"
-                    : "composer-send-play",
+                    ? "composer-send-stop composer-run-icon--stop"
+                    : "composer-send-play composer-run-icon--play",
                 ].join(" ")}
                 id="btn-send"
                 aria-label={props.generating ? "Stop generation" : "Send"}
@@ -1288,9 +1292,17 @@ export function Composer(props: {
                   props.onSend(txt);
                 }}
               >
-                <span className="composer-send-glyph" aria-hidden="true">
-                  {props.generating ? "■" : "▶"}
-                </span>
+                {props.generating ? (
+                  <span className="composer-send-glyph" aria-hidden="true">
+                    <span className="composer-stop-square" />
+                  </span>
+                ) : (
+                  <span className="composer-send-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 12 12" fill="currentColor" width="17" height="17">
+                      <path d="M2 0L11 6L2 12Z" />
+                    </svg>
+                  </span>
+                )}
               </button>
             </div>
           </div>

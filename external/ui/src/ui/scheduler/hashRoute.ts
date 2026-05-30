@@ -7,6 +7,7 @@
 export type ParsedAppHash =
   | { branch: "none"; historyOpen: boolean }
   | { branch: "session"; sessionId: string; historyOpen: boolean }
+  | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
   | {
       branch: "scheduler";
@@ -112,7 +113,44 @@ export function parseAppHash(): ParsedAppHash {
       historyOpen,
     };
   }
+  const draft = /^draft\/([^/]+)$/.exec(h);
+  if (draft && draft[1]) {
+    return {
+      branch: "draft",
+      draftId: decodeURIComponent(draft[1]),
+      historyOpen,
+    };
+  }
   return { branch: "none", historyOpen };
+}
+
+export function setDraftHashInLocation(
+  draftId: string,
+  opts?: { historySidebar?: boolean },
+): void {
+  const id = draftId.trim();
+  if (!id) {
+    setSessionHashInLocation("", opts);
+    return;
+  }
+  const base = `#/draft/${encodeURIComponent(id)}`;
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function appNavHrefDraft(draftId: string): string {
+  const id = draftId.trim();
+  if (!id) {
+    return "#/";
+  }
+  return `#/draft/${encodeURIComponent(id)}`;
 }
 
 export function setSessionHashInLocation(

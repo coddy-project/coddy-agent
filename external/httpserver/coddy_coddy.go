@@ -227,11 +227,16 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 			opt = "allow"
 		}
 	}
-	ok := CompletePermissionAnswer(id, tcid, &acp.PermissionResult{
+	res := &acp.PermissionResult{
 		Outcome:  out,
 		OptionID: opt,
-	})
+	}
+	ok := CompletePermissionAnswer(id, tcid, res)
 	if !ok {
+		if s.tryResumePendingPermission(r.Context(), id, tcid, res) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		http.Error(w, `{"error":{"message":"no pending permission for this toolCallId"}}`, http.StatusNotFound)
 		return
 	}
@@ -737,6 +742,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 			ent["activitySeq"] = actSeq
 			ent["readActivitySeq"] = readSeq
 			ent["unreadComplete"] = actSeq > readSeq && !turnActive
+			ent["permissionPending"] = session.PendingPermissionHeld(dir)
 		}
 		sessions = append(sessions, ent)
 	}

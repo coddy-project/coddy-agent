@@ -9,8 +9,8 @@ import (
 )
 
 func TestSearchWebMockedBackend(t *testing.T) {
-	old := ddgSearchFunc
-	defer func() { ddgSearchFunc = old }()
+	oldDDG, oldGoogle, oldBing := ddgSearchFunc, googleSearchFunc, bingSearchFunc
+	defer func() { ddgSearchFunc = oldDDG; googleSearchFunc = oldGoogle; bingSearchFunc = oldBing }()
 	ddgSearchFunc = func(ctx context.Context, params *ddgsearch.SearchParams) (*ddgsearch.SearchResponse, error) {
 		_ = ctx
 		if params.Query != "qtest" {
@@ -21,6 +21,12 @@ func TestSearchWebMockedBackend(t *testing.T) {
 				{Title: "A", URL: "https://a.example", Description: "d1"},
 			},
 		}, nil
+	}
+	googleSearchFunc = func(_ context.Context, _ string, _, _ int) ([]googleResult, error) {
+		return nil, nil
+	}
+	bingSearchFunc = func(_ context.Context, _ string, _, _ int) ([]bingResult, error) {
+		return nil, nil
 	}
 	tool := WebSearchTool()
 	out, err := tool.Execute(context.Background(), `{"query":"qtest","page":1}`, nil)

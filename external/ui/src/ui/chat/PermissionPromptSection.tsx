@@ -1,10 +1,14 @@
 import { useCallback, useState, startTransition } from "react";
 
+import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import {
+  permissionPromptDetail,
+  permissionPromptTitle,
+} from "./permissionPromptDisplay";
 import type {
   CoddyPermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
-import { permissionBodyText } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
 
 const HDR = "X-Coddy-Session-ID";
@@ -20,10 +24,13 @@ export type PermissionPromptSectionProps = {
 export function PermissionPromptSection(props: PermissionPromptSectionProps) {
   const { payload, resolved, onResolved } = props;
   const [submitting, setSubmitting] = useState(false);
-  const body = permissionBodyText(payload);
-  const title =
-    (payload.toolCall.title || "").trim() ||
-    `Run: ${(payload.toolCall.kind || "tool").trim()}`;
+
+  if (resolved) {
+    return null;
+  }
+
+  const title = permissionPromptTitle(payload);
+  const detail = permissionPromptDetail(payload);
 
   const choose = useCallback(
     async (optionId: string, label: string) => {
@@ -57,32 +64,30 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
     [onResolved, payload],
   );
 
-  if (resolved) {
-    return (
-      <div className="permission-prompt-frame">
-        <div className="permission-prompt-card permission-prompt-card--resolved">
-          <div className="permission-prompt-head">
-            <span className="permission-prompt-title">{title}</span>
-            <span className="permission-prompt-resolved-badge">
-              {resolved.summaryLine}
-            </span>
-          </div>
-          {body ? (
-            <pre className="permission-prompt-body">{body}</pre>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="permission-prompt-frame">
+    <div
+      className="permission-prompt-frame"
+      data-testid="permission-prompt-card"
+    >
       <div className="permission-prompt-card">
         <div className="permission-prompt-head">
-          <span className="permission-prompt-icon" aria-hidden />
+          <span
+            className="permission-prompt-icon permission-prompt-icon--question"
+            aria-hidden
+          >
+            ?
+          </span>
           <span className="permission-prompt-title">{title}</span>
         </div>
-        {body ? <pre className="permission-prompt-body">{body}</pre> : null}
+        {detail ? (
+          <div className="permission-prompt-quote-wrap">
+            <CodeBlockCopyButton
+              textToCopy={detail}
+              dataTestId="permission-prompt-copy"
+            />
+            <pre className="permission-prompt-quote-text">{detail}</pre>
+          </div>
+        ) : null}
         <div className="permission-prompt-actions">
           {payload.options.map((opt) => {
             const isReject = opt.optionId === "reject";

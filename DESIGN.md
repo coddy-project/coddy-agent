@@ -277,7 +277,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
-- **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`~17px`** **■** (dense glyph, avoids clipping inside the circle). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
+- **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
 - Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
 Composer mode selector

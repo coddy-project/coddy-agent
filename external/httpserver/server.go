@@ -30,12 +30,13 @@ var errInvalidSessionHeader = errors.New("invalid X-Coddy-Session-ID")
 
 // Server serves OpenAI-compatible HTTP endpoints.
 type Server struct {
-	cfgAt           atomic.Pointer[config.Config]
-	mgr             *session.Manager
-	log             *slog.Logger
-	defaultCWD      string
-	mux             *http.ServeMux
-	providerFactory func(*config.Config) (llm.Provider, error)
+	cfgAt                atomic.Pointer[config.Config]
+	mgr                  *session.Manager
+	log                  *slog.Logger
+	defaultCWD           string
+	mux                  *http.ServeMux
+	providerFactory      func(*config.Config) (llm.Provider, error)
+	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 
@@ -44,18 +45,21 @@ type Server struct {
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	permissionResumeWG sync.WaitGroup
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
 func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD string) *Server {
 	s := &Server{
-		mgr:             mgr,
-		log:             log,
-		defaultCWD:      defaultCWD,
-		mux:             http.NewServeMux(),
-		providerFactory: defaultProviderFromAgentModel,
-		makeLLMFromYAML: defaultMakeLLMFromYAML,
-		slashCache:      make(map[string]slashListCacheEntry),
+		mgr:                  mgr,
+		log:                  log,
+		defaultCWD:           defaultCWD,
+		mux:                  http.NewServeMux(),
+		providerFactory:      defaultProviderFromAgentModel,
+		agentProviderFactory: llm.NewProvider,
+		makeLLMFromYAML:      defaultMakeLLMFromYAML,
+		slashCache:           make(map[string]slashListCacheEntry),
 	}
 	s.cfgAt.Store(cfg)
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
@@ -327,6 +331,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}
+		wireBridgeSession(bridge, st)
 		var promptOpts *session.PromptRunOpts
 		if req.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
@@ -645,6 +650,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			bridge = NewSender(s.activeCfg(), nil, false, model)
 		}
+		wireBridgeSession(bridge, st)
 		var promptOpts *session.PromptRunOpts
 		if body.Stream {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}

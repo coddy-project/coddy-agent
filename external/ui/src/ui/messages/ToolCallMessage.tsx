@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -10,6 +11,8 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
+import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
+import { DiffView } from "./DiffView";
 
 function safePrettyJSON(text: string): string {
   try {
@@ -90,11 +93,17 @@ export function ToolCallMessage(props: {
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
+  /** When true, wall-clock label stops (e.g. awaiting permission). */
+  permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
   const args = useMemo(
-    () => (props.argsText ? safePrettyJSON(props.argsText) : ""),
-    [props.argsText],
+    () =>
+      toolCallArgsDisplay(props.argsText, {
+        kind: props.kind,
+        title: props.title,
+      }),
+    [props.argsText, props.kind, props.title],
   );
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
@@ -109,6 +118,22 @@ export function ToolCallMessage(props: {
     rawName.toLowerCase() === "question" ||
     (props.kind || "").toLowerCase() === "question";
 
+  const isPatchTool = rawName.toLowerCase() === "apply_patch";
+
+  const patchContent = useMemo(() => {
+    if (!isPatchTool || !props.argsText) return null;
+    try {
+      const parsed = JSON.parse(props.argsText) as Record<string, unknown>;
+      return typeof parsed.patch === "string"
+        ? parsed.patch
+        : typeof parsed.diff === "string"
+          ? parsed.diff
+          : null;
+    } catch {
+      return null;
+    }
+  }, [isPatchTool, props.argsText]);
+
   const displayLabel = useMemo(() => {
     if (isQuestionTool) {
       return "question";
@@ -116,13 +141,28 @@ export function ToolCallMessage(props: {
     return pendingLike ? `${rawName || "tool"}...` : rawName || "tool";
   }, [isQuestionTool, pendingLike, rawName]);
 
+  const permissionWaiting = props.permissionWaiting === true;
+
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [frozenElapsedMs, setFrozenElapsedMs] = useState<number | null>(null);
+
   useEffect(() => {
-    if (isQuestionTool) return;
+    if (!permissionWaiting) {
+      setFrozenElapsedMs(null);
+      return;
+    }
+    if (typeof props.startedAtMs !== "number") {
+      return;
+    }
+    setFrozenElapsedMs(Math.max(0, Date.now() - props.startedAtMs));
+  }, [permissionWaiting, props.startedAtMs, props.toolCallId]);
+
+  useEffect(() => {
+    if (isQuestionTool || permissionWaiting) return;
     if (!pendingLike || typeof props.startedAtMs !== "number") return;
     const h = window.setInterval(() => setNowMs(Date.now()), 160);
     return () => window.clearInterval(h);
-  }, [isQuestionTool, pendingLike, props.startedAtMs]);
+  }, [isQuestionTool, permissionWaiting, pendingLike, props.startedAtMs]);
 
   const durationLabel = useMemo(() => {
     if (isQuestionTool) {
@@ -140,6 +180,9 @@ export function ToolCallMessage(props: {
       }
       return "-";
     }
+    if (permissionWaiting && frozenElapsedMs !== null) {
+      return formatDuration(frozenElapsedMs);
+    }
     if (
       typeof props.startedAtMs === "number" &&
       Number.isFinite(props.startedAtMs)
@@ -153,7 +196,15 @@ export function ToolCallMessage(props: {
       return formatDuration(props.durationMs);
     }
     return "-";
-  }, [isQuestionTool, props.durationMs, props.startedAtMs, props.status, nowMs]);
+  }, [
+    frozenElapsedMs,
+    isQuestionTool,
+    permissionWaiting,
+    props.durationMs,
+    props.startedAtMs,
+    props.status,
+    nowMs,
+  ]);
 
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -162,6 +213,19 @@ export function ToolCallMessage(props: {
     setShowExpanded(false);
     setLoadingFull(false);
   }, [props.toolCallId]);
+
+  // Auto-fetch full args for patch tools. argsPreview from the sessions list is truncated
+  // (200 chars) which makes the JSON unparseable; we need the full args to render the diff.
+  const fetchFn = props.onFetchToolCallFull;
+  const fetchAttemptedRef = useRef(false);
+  useEffect(() => {
+    fetchAttemptedRef.current = false;
+  }, [props.toolCallId]);
+  useEffect(() => {
+    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    fetchAttemptedRef.current = true;
+    void fetchFn(props.toolCallId);
+  }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
 
   const canExpand =
     !isQuestionTool &&
@@ -227,12 +291,19 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool;
+  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
+  const showDiffView = isPatchTool && !!patchContent;
+  const showPatchResult =
+    isPatchTool &&
+    !!resultBody &&
+    !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showJsonResult =
-    !isQuestionTool && !!(resultBody && resultBody.length > 0);
+    !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
   const hasBody =
     isQuestionTool ||
     showJsonArgs ||
+    showDiffView ||
+    showPatchResult ||
     showJsonResult ||
     !!toggleLink;
 
@@ -259,7 +330,14 @@ export function ToolCallMessage(props: {
         </summary>
         {hasBody ? (
           <div
-            className="thinking-body coddy-tool-call-body"
+            className={[
+              "thinking-body coddy-tool-call-body",
+              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
+                ? "coddy-tool-call-body--diff"
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             aria-label="Tool call details"
           >
             {isQuestionTool ? (
@@ -273,6 +351,17 @@ export function ToolCallMessage(props: {
               <pre className="tool-block" aria-label="Tool arguments">
                 {args}
               </pre>
+            ) : null}
+            {showDiffView && patchContent ? (
+              <DiffView patch={patchContent} filePath={args} />
+            ) : null}
+            {showPatchResult ? (
+              <div
+                className="tool-block tool-result tool-result-raw"
+                aria-label="Tool result"
+              >
+                <pre className="tool-result-pre">{resultBody}</pre>
+              </div>
             ) : null}
             {showJsonResult ? (
               <div

@@ -50,22 +50,32 @@ type SessionState interface {
 
 // Agent runs the ReAct loop for a single session turn.
 type Agent struct {
-	cfg      *config.Config
-	state    SessionState
-	server   acp.UpdateSender
-	log      *slog.Logger
-	registry *tools.Registry
+	cfg             *config.Config
+	state           SessionState
+	server          acp.UpdateSender
+	log             *slog.Logger
+	registry        *tools.Registry
+	providerFactory func(llm.ProviderInput) (llm.Provider, error)
 }
 
 // NewAgent creates an Agent for a prompt turn.
 func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
 	return &Agent{
-		cfg:      cfg,
-		state:    state,
-		server:   server,
-		log:      log,
-		registry: tools.NewRegistryFor(cfg),
+		cfg:             cfg,
+		state:           state,
+		server:          server,
+		log:             log,
+		registry:        tools.NewRegistryFor(cfg),
+		providerFactory: llm.NewProvider,
 	}
+}
+
+// SetProviderFactory replaces the LLM provider factory used by subsequent turns.
+func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, error)) {
+	if a == nil || mk == nil {
+		return
+	}
+	a.providerFactory = mk
 }
 
 // Run executes the ReAct loop and returns the stop reason.
@@ -156,11 +166,25 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
 
+	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+}
+
+func (a *Agent) runReActLoop(
+	ctx context.Context,
+	mode string,
+	messages []llm.Message,
+	toolDefs []llm.ToolDefinition,
+	provider llm.Provider,
+	toolEnv *tools.Env,
+	sd, userText string,
+	contextFiles []string,
+	activeSkills []*skills.Skill,
+	maxTurns int,
+) (string, error) {
 	var totalInputTokens, totalOutputTokens int
 	var turnIndex int
 	var lastStatsWrite time.Time
 
-	// ReAct loop.
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -370,7 +394,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 				return string(acp.StopReasonCancelled), nil
 			}
 
-			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID())
+			result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), false)
 
 			var toolResultMsg llm.Message
 			if execErr != nil {
@@ -396,7 +420,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 }
 
 // executeToolCall runs a single tool call and reports updates to the client.
-func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string) (string, error) {
+func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
 
@@ -455,7 +479,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		requiresPerm = true
 	}
 
-	if requiresPerm {
+	if requiresPerm && !skipPermission {
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -589,7 +613,11 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 		return nil, err
 	}
 
-	return llm.NewProvider(a.llmProviderInput(rm))
+	mk := a.providerFactory
+	if mk == nil {
+		mk = llm.NewProvider
+	}
+	return mk(a.llmProviderInput(rm))
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {

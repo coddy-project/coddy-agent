@@ -115,20 +115,58 @@ test("send play disabled when input empty", () => {
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
 });
 
-test("send play enabled when draft has text", () => {
-  render(
-    <Composer
-      value="hi"
-      isEmpty={true}
-      mode="agent"
-      modes={["agent", "plan"]}
-      onModeChange={() => {}}
-      onChange={() => {}}
-      onSend={() => {}}
-    />,
-  );
-  expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
-});
+  test("send play enabled when draft has text", () => {
+    render(
+      <Composer
+        value="hi"
+        isEmpty={true}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+  });
+
+  test("click Send button calls onSend with trimmed text", () => {
+    const onSend = vi.fn();
+    render(
+      <Composer
+        value="  hello world  "
+        isEmpty={true}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={onSend}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: "Send" });
+    fireEvent.click(btn);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("hello world");
+  });
+
+  test("pressing Enter calls onSend with trimmed text", () => {
+    const onSend = vi.fn();
+    render(
+      <Composer
+        value="  test input  "
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={onSend}
+      />,
+    );
+    const ta = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.keyDown(ta, { key: "Enter", code: "Enter", charCode: 13 });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend).toHaveBeenCalledWith("test input");
+  });
 
 test("composer highlights only the active slash draft at caret", () => {
   const s = "asdfasf /find-skills asdfasdf";
@@ -256,6 +294,9 @@ test("generating shows stop and calls onStop", () => {
   );
   const b = screen.getByRole("button", { name: "Stop generation" });
   expect(b).not.toBeDisabled();
+  expect(b).toHaveClass("composer-send-stop");
+  expect(b.querySelector(".composer-send-glyph .composer-stop-square")).toBeTruthy();
+  expect(b.closest(".composer-bar-actions")).toBeTruthy();
   fireEvent.click(b);
   expect(stopped).toBe(true);
 });

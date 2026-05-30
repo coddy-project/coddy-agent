@@ -170,7 +170,7 @@ export function SchedulerJobsDrawer(props: {
               {j.running ? (
                 <button
                   type="button"
-                  className="composer-icon composer-send-stop scheduler-job-run-icon"
+                  className="composer-icon composer-run-icon composer-send-stop scheduler-job-run-icon composer-run-icon--stop"
                   aria-label="Stop job"
                   data-testid={`scheduler-stop-${j.job_id}`}
                   onClick={(ev) => {
@@ -185,7 +185,7 @@ export function SchedulerJobsDrawer(props: {
               ) : (
                 <button
                   type="button"
-                  className="composer-icon composer-send-play scheduler-job-run-icon"
+                  className="composer-icon composer-run-icon composer-send-play scheduler-job-run-icon composer-run-icon--play"
                   aria-label="Run job now"
                   disabled={j.paused}
                   data-testid={`scheduler-run-${j.job_id}`}
@@ -195,7 +195,9 @@ export function SchedulerJobsDrawer(props: {
                   }}
                 >
                   <span className="composer-send-glyph" aria-hidden="true">
-                    ▶
+                    <svg viewBox="0 0 12 12" fill="currentColor" width="14" height="14">
+                      <path d="M2 0L12 6L2 12Z" />
+                    </svg>
                   </span>
                 </button>
               )}

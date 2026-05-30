@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -129,6 +130,21 @@ func (p fakeProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinit
 }
 
 func (p fakeProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
+}
+
+type capturingHTTPProvider struct {
+	reply string
+	seen  []llm.Message
+}
+
+func (p *capturingHTTPProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
+}
+
+func (p *capturingHTTPProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.seen = append([]llm.Message(nil), messages...)
+	onChunk(llm.StreamChunk{TextDelta: p.reply})
 	return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
 }
 
@@ -491,6 +507,128 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	}
 }
 
+func TestCoddySessionPermissionPostRejectResumesPersistedGateAfterRestart(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: "/tmp"},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	store := &session.FileStore{Root: sessRoot}
+	sid := "sess_permission_restart"
+	sd, err := store.EnsureLayout(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{
+		ID:         sid,
+		CWD:        "/tmp",
+		Mode:       session.ModeAgent,
+		SessionDir: sd,
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run blocked command then continue"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_blocked",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	if err := store.Save(st); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.WritePendingPermission(sd, acp.PermissionRequestParams{
+		SessionID: sid,
+		ToolCall: acp.PermissionToolCall{
+			ToolCallID: "call_blocked",
+			Title:      "Run: run_command",
+			Kind:       "run_command",
+			Status:     "pending",
+		},
+		Options: []acp.PermissionOption{
+			{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+			{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+		},
+	}, "run_command", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := session.NewManager(cfg, noopSender{}, func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}, slog.Default(), "/tmp", store)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(func() { srv.waitPermissionResumeDrained() })
+	provider := &capturingHTTPProvider{reply: "continued after reject"}
+	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		ts.URL+"/coddy/sessions/"+url.PathEscape(sid)+"/permission",
+		strings.NewReader(`{"toolCallId":"call_blocked","optionId":"reject"}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := ioReadAllClose(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("status %d body %s", res.StatusCode, body)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snap, err := store.ReadSnapshot(sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snap.Messages) >= 4 && snap.Messages[len(snap.Messages)-1].Content == "continued after reject" {
+			if session.PendingPermissionHeld(sd) {
+				t.Fatal("pending permission was not cleared")
+			}
+			if len(provider.seen) == 0 {
+				t.Fatal("provider was not called")
+			}
+			lastSeen := provider.seen[len(provider.seen)-1]
+			if lastSeen.Role != llm.RoleTool || lastSeen.ToolCallID != "call_blocked" || lastSeen.Content != "permission denied by user" {
+				t.Fatalf("provider latest message %+v", lastSeen)
+			}
+			for _, m := range snap.Messages {
+				if m.Role == llm.RoleTool && strings.Contains(m.Content, "SHOULD_NOT_RUN") {
+					t.Fatalf("rejected permission executed the tool: %+v", m)
+				}
+			}
+			srv.waitPermissionResumeDrained()
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for permission resume continuation")
+}
+
 func TestCoddySessionsList(t *testing.T) {
 	mgr, srv, _ := testHTTPServerPersist(t)
 	ctx := context.Background()
@@ -563,12 +701,12 @@ func TestCoddySessionActivityGet(t *testing.T) {
 		t.Fatalf("status %d %s", resHTTP.StatusCode, b)
 	}
 	var parsed struct {
-		Object           string `json:"object"`
-		SessionID        string `json:"sessionId"`
-		TurnActive       bool   `json:"turnActive"`
-		ActivitySeq      uint64 `json:"activitySeq"`
-		ReadActivitySeq  uint64 `json:"readActivitySeq"`
-		UnreadComplete   bool   `json:"unreadComplete"`
+		Object          string `json:"object"`
+		SessionID       string `json:"sessionId"`
+		TurnActive      bool   `json:"turnActive"`
+		ActivitySeq     uint64 `json:"activitySeq"`
+		ReadActivitySeq uint64 `json:"readActivitySeq"`
+		UnreadComplete  bool   `json:"unreadComplete"`
 	}
 	if err := json.Unmarshal(b, &parsed); err != nil {
 		t.Fatal(err)
@@ -1080,8 +1218,8 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 		t.Fatalf("messages A status %d %s", msgResA.StatusCode, bA)
 	}
 	var bodyA struct {
-		Model            string `json:"model"`
-		SelectedModelID  string `json:"selectedModelId"`
+		Model           string `json:"model"`
+		SelectedModelID string `json:"selectedModelId"`
 	}
 	if err := json.Unmarshal(bA, &bodyA); err != nil {
 		t.Fatal(err)

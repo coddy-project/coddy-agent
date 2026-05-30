@@ -25,12 +25,30 @@ import {
   parseCoddyQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
-import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import {
+  preserveTranscriptItemIds,
+  stableAssistantItemId,
+  stablePermissionPromptItemId,
+  stableThinkingItemId,
+  stableToolCallItemId,
+  stableUserItemId,
+} from "./chat/transcriptItemIds";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
 } from "./chat/transcriptServerSnapshot";
+import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import {
+  mergePermissionPromptsIntoTranscript,
+  permissionPendingSessionIdsFromStorage,
+  upsertPermissionPromptRecord,
+} from "./chat/permissionPromptSessionStore";
+import {
+  parseToolsPermissionPolicy,
+  type ToolsPermissionPolicy,
+} from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import {
   clearQuestionPromptRecords,
@@ -55,6 +73,16 @@ import {
   shouldSuppressShellBackdropClose,
 } from "./sessions/sessionDeleteBackdropSuppress";
 import type { SessionRow } from "./sessions/types";
+import {
+  isClientDraftSessionId,
+  mergeSessionsWithDrafts,
+  newClientDraftId,
+  readClientDraftSessions,
+  removeClientDraftSession,
+  upsertClientDraftSession,
+  type ClientDraftSession,
+} from "./sessions/draftSessions";
+import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
 import {
@@ -65,6 +93,7 @@ import {
 import { schedulerCancelJob, schedulerListJobs, schedulerRunJob } from "./scheduler/api";
 import {
   parseAppHash,
+  setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
   schedulerEditorFromParsedHash,
@@ -284,12 +313,16 @@ function memoryTranscriptFromApi(
     recallReasoning: row.recallReasoningText || "",
     persistText: row.persistJudgeText || "",
     persistReasoning: "",
-    recallDurationMs: row.recallDurationMs,
-    persistDurationMs: row.persistDurationMs,
+    ...(typeof row.recallDurationMs === "number"
+      ? { recallDurationMs: row.recallDurationMs }
+      : {}),
+    ...(typeof row.persistDurationMs === "number"
+      ? { persistDurationMs: row.persistDurationMs }
+      : {}),
     ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    persistSaved: row.persistSaved,
-    persistRelativePath: row.persistRelativePath,
-    persistTitle: row.persistTitle,
+    ...(typeof row.persistSaved === "boolean" ? { persistSaved: row.persistSaved } : {}),
+    ...(row.persistRelativePath ? { persistRelativePath: row.persistRelativePath } : {}),
+    ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
     ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
     ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
   };
@@ -304,7 +337,14 @@ function applyMemoryPhaseToItems(
     (x) => x.type === "memory_copilot" && x.memoryRowId === p.memoryRowId,
   );
   const next = [...prev];
-  const uidx = prev.findLastIndex((x) => x.type === "user_message");
+  let uidx = -1;
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const it = prev[i];
+    if (it && it.type === "user_message") {
+      uidx = i;
+      break;
+    }
+  }
   const insertAt = uidx >= 0 ? uidx + 1 : next.length;
 
   const baseMemory = (): Extract<
@@ -334,11 +374,11 @@ function applyMemoryPhaseToItems(
   }
 
   const cur = next[idx];
-  if (cur.type !== "memory_copilot") {
+  if (!cur || cur.type !== "memory_copilot") {
     return prev;
   }
 
-  let patch = { ...cur };
+  let patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
   const st = (p.status || "").trim();
 
   if (p.phase === "memory") {
@@ -447,9 +487,9 @@ function applyMemoryChunkToItems(
   );
   if (idx < 0) return prev;
   const cur = prev[idx];
-  if (cur.type !== "memory_copilot") return prev;
+  if (!cur || cur.type !== "memory_copilot") return prev;
   const next = [...prev];
-  const patch = { ...cur };
+  const patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
   const ph = (c.phase || "").trim();
   const kd = (c.kind || "").trim();
   const d = typeof c.delta === "string" ? c.delta : "";
@@ -472,13 +512,22 @@ function freezeMemoryWallWhenThinkingAfterRecall(
   items: TranscriptItem[],
   freezeAtMs: number,
 ): TranscriptItem[] {
-  const userIdx = items.findLastIndex((x) => x.type === "user_message");
+  let userIdx = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (!it) continue;
+    if (it && it.type === "user_message") {
+      userIdx = i;
+      break;
+    }
+  }
   if (userIdx < 0) return items;
 
   let memIdx = -1;
   let thinkingIdx = -1;
   for (let i = userIdx + 1; i < items.length; i++) {
     const it = items[i];
+    if (!it) continue;
     if (it.type === "user_message") break;
     if (it.type === "memory_copilot") memIdx = i;
     if (it.type === "thinking" && it.status === "in_progress") {
@@ -489,7 +538,7 @@ function freezeMemoryWallWhenThinkingAfterRecall(
   if (memIdx < 0 || thinkingIdx < 0) return items;
 
   const m = items[memIdx];
-  if (m.type !== "memory_copilot") return items;
+  if (!m || m.type !== "memory_copilot") return items;
 
   const memBusy =
     m.memoryStatus === "in_progress" ||
@@ -528,12 +577,28 @@ export function App() {
   const sessionsCursorRef = useRef<string | null>(null);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [items, setItems] = useState<TranscriptItem[]>([]);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionFadingOut, setSessionFadingOut] = useState(false);
+  const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
   const [draft, setDraft] = useState("");
+  const [clientDraftSessions, setClientDraftSessions] = useState<
+    ClientDraftSession[]
+  >(() => readClientDraftSessions());
+  const [activeDraftId, setActiveDraftId] = useState("");
+  const [permissionPendingSids, setPermissionPendingSids] = useState<
+    Set<string>
+  >(() => new Set(permissionPendingSessionIdsFromStorage()));
+  const [toolsPermissionPolicy, setToolsPermissionPolicy] =
+    useState<ToolsPermissionPolicy | null>(null);
+  const toolsPermissionPolicyRef = useRef<ToolsPermissionPolicy | null>(null);
+  const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [contextBreakdown, setContextBreakdown] = useState<
-    SessionStats["contextBreakdown"] | null
+    NonNullable<SessionStats["contextBreakdown"]> | null
   >(null);
 
   const applySessionStatsPayload = useCallback(
@@ -556,8 +621,6 @@ export function App() {
       }
       if (stats?.contextBreakdown) {
         setContextBreakdown(stats.contextBreakdown);
-      } else {
-        setContextBreakdown(null);
       }
     },
     [],
@@ -583,6 +646,21 @@ export function App() {
     },
     [applySessionStatsPayload],
   );
+
+  const debouncedRefreshSessionStats = useMemo(
+    () =>
+      createDebouncedSessionStatsRefresh((sid) => {
+        void refreshSessionStats(sid);
+      }),
+    [refreshSessionStats],
+  );
+
+  const markViewedSessionActivityRead = useCallback((sid: string) => {
+    const key = sid.trim();
+    if (!key) return;
+    if (viewedSessionIdRef.current.trim() !== key) return;
+    void markCoddySessionActivityRead(key);
+  }, []);
   const tokenBaselineRef = useRef<{
     input: number;
     output: number;
@@ -656,6 +734,25 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || !generating) {
+      return;
+    }
+    void refreshSessionStats(sid);
+    const timer = window.setInterval(() => {
+      void refreshSessionStats(sid);
+    }, 800);
+    return () => window.clearInterval(timer);
+  }, [sessionId, generating, refreshSessionStats]);
+
+  const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
+
+  const sessionsForSidebar = useMemo(
+    () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
+    [sessions, clientDraftSessions],
+  );
+
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
@@ -688,7 +785,6 @@ export function App() {
   const sessionsHasMoreRef = useRef(false);
   const sessionsLoadingMoreRef = useRef(false);
   const [viewportXL, setViewportXL] = useState(false);
-  const [drawersWide, setDrawersWide] = useState(false);
   const [railLabelsWide, setRailLabelsWide] = useState(false);
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
@@ -709,6 +805,11 @@ export function App() {
       if (!p) return;
       const key = p.sessionId.trim();
       if (!key) return;
+      setQuestionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
       upsertQuestionPromptRecord(key, {
         requestId: p.requestId.trim(),
         payload: p,
@@ -746,6 +847,11 @@ export function App() {
       const key = p.sessionId.trim();
       if (!key) return;
       const tcid = p.toolCall.toolCallId.trim();
+      setPermissionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
       applyStreamItemsForSession(key, (prev) => {
         const withoutStalePending = prev.filter(
           (x) => !(x.type === "permission_prompt" && !x.resolved),
@@ -757,14 +863,25 @@ export function App() {
               x.payload.toolCall.toolCallId === tcid
             ),
         );
-        return [
-          ...withoutDup,
-          {
-            id: `pp_${tcid}`,
-            type: "permission_prompt" as const,
-            payload: p,
-          },
-        ];
+        const row = {
+          id: stablePermissionPromptItemId(tcid),
+          type: "permission_prompt" as const,
+          payload: p,
+        };
+        upsertPermissionPromptRecord(key, {
+          toolCallId: tcid,
+          payload: p,
+        });
+        // Insert right after the corresponding tool_call if it's already in the transcript.
+        const tcIdx = withoutDup.findIndex(
+          (x) => x.type === "tool_call" && x.toolCallId === tcid,
+        );
+        if (tcIdx >= 0) {
+          const result = [...withoutDup];
+          result.splice(tcIdx + 1, 0, row);
+          return result;
+        }
+        return [...withoutDup, row];
       });
     },
     [],
@@ -778,6 +895,11 @@ export function App() {
     ) => {
       const key = sessionId.trim();
       if (!key) return;
+      setQuestionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
       applyStreamItemsForSession(key, (prev) => {
         const next = prev.map((x) =>
           x.id === itemId && x.type === "question_prompt"
@@ -810,13 +932,37 @@ export function App() {
     ) => {
       const key = sessionId.trim();
       if (!key) return;
-      applyStreamItemsForSession(key, (prev) =>
-        prev.map((x) =>
-          x.id === itemId && x.type === "permission_prompt"
-            ? { ...x, resolved }
-            : x,
-        ),
-      );
+      setPermissionPendingSids((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      applyStreamItemsForSession(key, (prev) => {
+        const hit = prev.find(
+          (x) => x.type === "permission_prompt" && x.id === itemId,
+        );
+        if (hit?.type === "permission_prompt") {
+          // Keep the record marked as resolved so restorePermissionPromptsForPendingTools
+          // won't re-synthesize a prompt for the same tool call on subsequent loadMessages.
+          upsertPermissionPromptRecord(key, {
+            toolCallId: hit.payload.toolCall.toolCallId.trim(),
+            payload: hit.payload,
+            resolved,
+          });
+        }
+        return prev.filter(
+          (x) => !(x.type === "permission_prompt" && x.id === itemId),
+        );
+      });
+      for (const delayMs of [0, 250, 900]) {
+        window.setTimeout(() => {
+          void loadMessages(key, {
+            preserveOnError: true,
+            skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          });
+          void loadSessionsList(true);
+        }, delayMs);
+      }
     },
     [],
   );
@@ -925,11 +1071,28 @@ export function App() {
     const p = parseAppHash();
     if (p.branch === "session") {
       setSettingsRoute(false);
+      setActiveDraftId("");
       viewedSessionIdRef.current = p.sessionId.trim();
       setSessionId(p.sessionId);
+      setSessionLoading(true);
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setSessionsOpen(!!p.historyOpen);
+      return;
+    }
+    if (p.branch === "draft") {
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setSessionId("");
+      viewedSessionIdRef.current = "";
+      setActiveDraftId(p.draftId.trim());
+      const row = readClientDraftSessions().find(
+        (r) => r.localId === p.draftId.trim(),
+      );
+      setDraft(row?.draftText || "");
+      setItems([]);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -944,7 +1107,7 @@ export function App() {
       setSettingsRoute(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setSessionsOpen(!!p.historyOpen);
+      setSessionsOpen(false);
       return;
     }
     if (p.branch === "scheduler") {
@@ -968,20 +1131,22 @@ export function App() {
         return;
       }
       setSchedulerOpen(true);
-      setSessionsOpen(!!p.historyOpen && drawersWide);
+      setSessionsOpen(false);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
     viewedSessionIdRef.current = "";
     setSessionId("");
+    setActiveDraftId("");
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSessionsOpen(!!p.historyOpen);
-  }, [schedulerHttpLinked, sessionId, drawersWide]);
+  }, [schedulerHttpLinked, sessionId]);
 
   const openSessionFromRoute = useCallback(
     (id: string, opts?: { historySidebar?: boolean }) => {
+      setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       viewedSessionIdRef.current = id.trim();
@@ -998,6 +1163,7 @@ export function App() {
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
+    setActiveDraftId("");
   }, []);
 
   const closeSchedulerDrawer = useCallback(() => {
@@ -1161,14 +1327,6 @@ export function App() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1200px)");
-    const apply = () => setDrawersWide(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
   useLayoutEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked !== true) {
       setSchedDockClusterWidthPx(0);
@@ -1233,10 +1391,7 @@ export function App() {
       }
       if (schedulerEditor) {
         setSchedulerEditor(null);
-        const hp = parseAppHash();
-        const hist =
-          hp.branch === "scheduler" && hp.historyOpen;
-        setSchedulerListHash({ historySidebar: hist });
+        setSchedulerListHash();
         return;
       }
       if (schedulerOpen) {
@@ -1317,6 +1472,64 @@ export function App() {
     },
     [sessionFilterQ, headers],
   );
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetchJSON<Record<string, unknown>>("/coddy/config", {
+        headers,
+      });
+      if (res.ok && res.data) {
+        const policy = parseToolsPermissionPolicy(res.data);
+        toolsPermissionPolicyRef.current = policy;
+        setToolsPermissionPolicy(policy);
+      }
+    })();
+  }, [headers]);
+
+  useEffect(() => {
+    const ids = new Set(permissionPendingSessionIdsFromStorage());
+    for (const row of sessions) {
+      if (row.permissionPending) {
+        ids.add(row.id);
+      }
+    }
+    const sid = sessionId.trim();
+    if (
+      sid &&
+      items.some((x) => x.type === "permission_prompt" && !x.resolved)
+    ) {
+      ids.add(sid);
+    }
+    setPermissionPendingSids(ids);
+  }, [sessions, items, sessionId]);
+
+  // /coddy/config may resolve after the first loadMessages; re-synthesize permission_prompt rows then.
+  useEffect(() => {
+    const sid = sessionId.trim();
+    if (!sid || !toolsPermissionPolicy) {
+      return;
+    }
+    setItems((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const merged = mergePermissionPromptsIntoTranscript(
+        prev,
+        sid,
+        toolsPermissionPolicy,
+      );
+      const hadPending = prev.some(
+        (x) => x.type === "permission_prompt" && !x.resolved,
+      );
+      const hasPending = merged.some(
+        (x) => x.type === "permission_prompt" && !x.resolved,
+      );
+      if (hadPending === hasPending && merged.length === prev.length) {
+        return prev;
+      }
+      return merged;
+    });
+  }, [toolsPermissionPolicy, sessionId]);
 
   useEffect(() => {
     const hasBackgroundTurn = sessions.some(
@@ -1436,13 +1649,23 @@ export function App() {
     };
     const toolIdx = new Map<string, number>();
     let userTurnIdx = 0;
+    let thinkingInTurn = 0;
+    let assistantInTurn = 0;
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
+        // Flush notices for the previous turn before starting a new one so
+        // error notices land at the end of the turn they belong to, not at
+        // the top of the next one.
+        if (userTurnIdx > 0) {
+          pushUiNoticesForTurn(userTurnIdx);
+        }
         userTurnIdx++;
+        thinkingInTurn = 0;
+        assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         next.push({
-          id: newId("u"),
+          id: stableUserItemId(userTurnIdx),
           type: "user_message",
           content: m.content || "",
           ...(cat ? { createdAtUtc: cat } : {}),
@@ -1451,7 +1674,6 @@ export function App() {
         if (mt) {
           next.push(memoryTranscriptFromApi(mt));
         }
-        pushUiNoticesForTurn(userTurnIdx);
         continue;
       }
       if (role === "assistant") {
@@ -1503,7 +1725,7 @@ export function App() {
             reasoningDurationMsByContentRef.current.set(dk, fromApi);
           }
           next.push({
-            id: newId("r"),
+            id: stableThinkingItemId(userTurnIdx, thinkingInTurn++),
             type: "thinking",
             status: "completed",
             content: reasoning,
@@ -1514,7 +1736,7 @@ export function App() {
         if (content) {
           const acat = readMessageCreatedAtUTC(m as Record<string, unknown>);
           next.push({
-            id: newId("a"),
+            id: stableAssistantItemId(userTurnIdx, assistantInTurn++),
             type: "assistant_message",
             content,
             ...(acat ? { createdAtUtc: acat } : {}),
@@ -1529,7 +1751,7 @@ export function App() {
           if (!id) continue;
           if (toolIdx.has(id)) continue;
           const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: newId("t"),
+            id: stableToolCallItemId(id),
             type: "tool_call",
             toolCallId: id,
             status: "pending",
@@ -1547,7 +1769,7 @@ export function App() {
         const idx = toolIdx.get(id);
         if (idx === undefined) {
           const it: Extract<TranscriptItem, { type: "tool_call" }> = {
-            id: newId("t"),
+            id: stableToolCallItemId(id),
             type: "tool_call",
             toolCallId: id,
             status: "completed",
@@ -1565,6 +1787,8 @@ export function App() {
         };
       }
     }
+    // Flush notices for the last turn (no subsequent user message to trigger it).
+    pushUiNoticesForTurn(userTurnIdx);
 
     // Enrich tool calls with persisted previews when available.
     const tcRes = await fetchJSON<{ toolCalls: ToolCallListRow[] }>(
@@ -1617,6 +1841,11 @@ export function App() {
           : undefined;
     const mergedBase = mergeTranscriptPreferLocalSuffix(next, localForMerge);
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
+    merged = mergePermissionPromptsIntoTranscript(
+      merged,
+      sid,
+      toolsPermissionPolicyRef.current,
+    );
     merged = mergeStoredQuestionPromptsIntoTranscript(merged, sid);
     merged = patchQuestionToolArgsFromPromptRecords(merged, sid);
     const appliedRaw =
@@ -1627,28 +1856,106 @@ export function App() {
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
-    const applied = dedupeAdjacentDuplicateThinkingCompleted(appliedRaw);
+    const withStableIds = preserveTranscriptItemIds(
+      appliedRaw,
+      localForMerge ?? prevShadow ?? itemsRef.current,
+    );
+    const applied = dedupeAdjacentDuplicateThinkingCompleted(withStableIds);
+    const hasPendingPermission = applied.some(
+      (x) => x.type === "permission_prompt" && !x.resolved,
+    );
+    setPermissionPendingSids((prev) => {
+      const next = new Set(prev);
+      if (hasPendingPermission) {
+        next.add(sid);
+      } else {
+        next.delete(sid);
+      }
+      return next;
+    });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
       return applied;
     }
     streamShadowBySidRef.current.set(sid, applied);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    setSessionFadingOut(false);
     setItems(applied);
+    setSessionLoading(false);
     return applied;
   }
 
-  function pickSession(id: string) {
-    reasoningDurationMsByContentRef.current = new Map();
-    setItems([]);
-    openSessionFromRoute(id, {
-      historySidebar: sessionsOpen,
+  function persistComposerDraftBeforeLeave() {
+    if (sessionId.trim()) {
+      return;
+    }
+    const text = draft.trim();
+    const existing = activeDraftId.trim();
+    if (!text && !existing) {
+      return;
+    }
+    const localId = existing || newClientDraftId();
+    const rows = upsertClientDraftSession({
+      localId,
+      draftText: text,
+      updatedAt: new Date().toISOString(),
     });
+    setClientDraftSessions(rows);
+  }
+
+  function pickSession(id: string) {
+    if (isRedundantSessionPick(id, sessionId)) {
+      return;
+    }
+    persistComposerDraftBeforeLeave();
+    reasoningDurationMsByContentRef.current = new Map();
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
+    if (isClientDraftSessionId(id)) {
+      setSessionFadingOut(false);
+      setItems([]);
+      setActiveDraftId(id);
+      setSessionId("");
+      viewedSessionIdRef.current = "";
+      const row = readClientDraftSessions().find((r) => r.localId === id);
+      setDraft(row?.draftText || "");
+      setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      return;
+    }
+    setSessionLoading(true);
+    setActiveDraftId("");
+    openSessionFromRoute(id, { historySidebar: sessionsOpen });
+    if (itemsRef.current.length > 0) {
+      setSessionFadingOut(true);
+      fadeOutTimerRef.current = setTimeout(() => {
+        fadeOutTimerRef.current = null;
+        setSessionFadingOut(false);
+        setItems([]);
+      }, 110);
+    } else {
+      setItems([]);
+    }
   }
 
   function goHome() {
+    persistComposerDraftBeforeLeave();
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    if (fadeOutTimerRef.current !== null) {
+      clearTimeout(fadeOutTimerRef.current);
+      fadeOutTimerRef.current = null;
+    }
     clearSessionRoute();
     setHeroHomeGeneration((g) => g + 1);
     setItems([]);
+    setSessionLoading(false);
+    setSessionFadingOut(false);
     setDraft("");
     setTokenUsage(null);
     setContextBreakdown(null);
@@ -1666,6 +1973,20 @@ export function App() {
   }
 
   async function deleteSession(id: string) {
+    if (isClientDraftSessionId(id)) {
+      const ok = window.confirm("Delete draft");
+      if (!ok) {
+        return;
+      }
+      armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+      const rows = removeClientDraftSession(id);
+      setClientDraftSessions(rows);
+      if (id === activeDraftId || id === sidebarActiveId) {
+        setSessionsOpen(false);
+        goHome();
+      }
+      return;
+    }
     const ok = window.confirm("Delete chat");
     if (!ok) {
       return;
@@ -1677,7 +1998,8 @@ export function App() {
       headers,
     });
     setSessions((prev) => prev.filter((s) => s.id !== id));
-    if (id === sessionId) {
+    const viewingId = sidebarActiveId.trim();
+    if (id === viewingId) {
       setSessionsOpen(false);
       goHome();
       return;
@@ -1688,6 +2010,7 @@ export function App() {
   useEffect(() => {
     if (!sessionId) {
       setItems([]);
+      setSessionLoading(false);
       void loadSessionsList(true);
       return;
     }
@@ -1723,6 +2046,7 @@ export function App() {
           shadowSnap.length > 0
         ) {
           setItems([...shadowSnap]);
+          setSessionLoading(false);
         } else {
           const loaded = await loadMessages();
           if (lifecycle.signal.aborted) {
@@ -1732,6 +2056,7 @@ export function App() {
             const sh = streamShadowBySidRef.current.get(sessionId);
             if (sh && sh.length > 0) {
               setItems([...sh]);
+              setSessionLoading(false);
             }
           }
           if (
@@ -1750,9 +2075,11 @@ export function App() {
         ) {
           if (shElse && shElse.length > 0) {
             setItems([...shElse]);
+            setSessionLoading(false);
           }
         } else {
           setItems([]);
+          setSessionLoading(false);
         }
       }
     })();
@@ -1859,6 +2186,7 @@ export function App() {
       if (u === null) return;
       if (viewedSessionIdRef.current.trim() === key) {
         setTokenUsage(u);
+        debouncedRefreshSessionStats(key);
       }
     };
 
@@ -1986,6 +2314,7 @@ export function App() {
       const viewing = viewedSessionIdRef.current.trim();
       void loadMessages(key, { skipSetItems: viewing !== key });
       void refreshSessionStats(key);
+      markViewedSessionActivityRead(key);
     }
   }
 
@@ -2012,6 +2341,10 @@ export function App() {
       if (!sid) {
         sid = randomSessionId();
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
+        if (activeDraftId.trim()) {
+          setClientDraftSessions(removeClientDraftSession(activeDraftId.trim()));
+          setActiveDraftId("");
+        }
         openSessionFromRoute(sid);
       }
       sidEffective = sid;
@@ -2029,6 +2362,7 @@ export function App() {
         if (u === null) return;
         if (viewedSessionIdRef.current.trim() === streamKey) {
           setTokenUsage(u);
+          debouncedRefreshSessionStats(streamKey);
         }
       };
 
@@ -2086,7 +2420,6 @@ export function App() {
       }
       if (viewingNow === streamKey) {
         setTokenUsage(null);
-        setContextBreakdown(null);
       }
 
       const reqBody: Record<string, unknown> = {
@@ -2331,6 +2664,7 @@ export function App() {
         preserveOnError: true,
       });
       void refreshSessionStats(sidEffective);
+      markViewedSessionActivityRead(sidEffective);
       completedNormally = true;
     } catch (_err: unknown) {
       // AbortError stops the stream client-side after optional POST cancel
@@ -2367,6 +2701,7 @@ export function App() {
           preserveOnError: true,
         });
         void loadSessionsList(true);
+        markViewedSessionActivityRead(postSessionKey.trim());
       }
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
@@ -2445,24 +2780,18 @@ export function App() {
     if (schedulerHttpLinked !== true) {
       return;
     }
-    const hist = drawersWide && sessionsOpen;
-    if (!drawersWide) {
-      setSessionsOpen(false);
-    }
+    setSessionsOpen(false);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
-    setSchedulerListHash({ historySidebar: hist });
-  }, [schedulerHttpLinked, drawersWide, sessionsOpen]);
+    setSchedulerListHash();
+  }, [schedulerHttpLinked]);
 
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
-    if (!drawersWide) {
-      setSessionsOpen(false);
-    }
-    const hist = drawersWide && sessionsOpen;
-    setSettingsHash({ historySidebar: hist });
-  }, [drawersWide, sessionsOpen]);
+    setSessionsOpen(false);
+    setSettingsHash();
+  }, []);
 
   const onCloseSettings = useCallback(() => {
     const sid = sessionId.trim();
@@ -2474,34 +2803,12 @@ export function App() {
   }, [sessionId, clearSessionRoute]);
 
   const onOpenHistoryFromNav = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
     setSessionsOpen(true);
-    if (parseAppHash().branch === "settings") {
-      if (drawersWide) {
-        setSettingsHash({ historySidebar: true });
-      } else {
-        setHistoryHash();
-      }
-      return;
-    }
-    if (drawersWide && schedulerOpen && schedulerHttpLinked === true) {
-      if (schedulerEditor?.mode === "edit") {
-        setSchedulerJobHash(schedulerEditor.jobId, { historySidebar: true });
-      } else {
-        setSchedulerListHash({ historySidebar: true });
-      }
-      return;
-    }
-    if (!drawersWide && schedulerOpen) {
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-    }
     setHistoryHash();
-  }, [
-    drawersWide,
-    schedulerOpen,
-    schedulerHttpLinked,
-    schedulerEditor,
-  ]);
+  }, []);
 
   const shellBackdropOpen =
     sessionsOpen ||
@@ -2520,27 +2827,23 @@ export function App() {
     });
   }, [schedulerJobs, schedulerFilterQ]);
 
-  const historyDrawerBesideScheduler =
-    drawersWide &&
-    sessionsOpen &&
-    schedulerOpen &&
-    schedulerHttpLinked === true;
-
   const sessionPanelShared = {
-    sessionId,
-    sessions,
-    error: sessionsError,
+    sessionId: sidebarActiveId,
+    permissionPendingSessionIds: permissionPendingSids,
+    questionPendingSessionIds: questionPendingSids,
+    sessions: sessionsForSidebar,
+    ...(sessionsError ? { error: sessionsError } : {}),
     open: sessionsOpen,
-    className: historyDrawerBesideScheduler
-      ? "sessions-drawer-beside-scheduler"
-      : undefined,
     onClose: () => {
       setSessionsOpen(false);
       const p = parseAppHash();
       if (p.branch === "history") {
         const sid = sessionId.trim();
+        const did = activeDraftId.trim();
         if (sid) {
           setSessionHashInLocation(sid);
+        } else if (did) {
+          setDraftHashInLocation(did);
         } else if (window.location.hash) {
           history.replaceState(
             null,
@@ -2597,7 +2900,7 @@ export function App() {
       <div
         className={[
           "shell-main",
-          historyDrawerBesideScheduler ? "shell-history-beside-scheduler" : "",
+          sessionsOpen ? "shell-history-open" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -2652,18 +2955,11 @@ export function App() {
               listError={schedulerListError}
               loading={schedulerListLoading}
               onAddJob={() => {
-                const hp = parseAppHash();
-                setSchedulerCreateHash({
-                  historySidebar:
-                    hp.branch === "scheduler" && hp.historyOpen,
-                });
+                setSchedulerCreateHash();
               }}
               onOpenJob={(jid) => {
                 setSchedulerEditor({ mode: "edit", jobId: jid });
-                const hp = parseAppHash();
-                const hist =
-                  hp.branch === "scheduler" && hp.historyOpen;
-                setSchedulerJobHash(jid, { historySidebar: hist });
+                setSchedulerJobHash(jid);
               }}
               onRunJob={(jid) => void onSchedulerRunJob(jid)}
               onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
@@ -2683,10 +2979,7 @@ export function App() {
               currentCwd={currentSessionCwd}
               onClose={() => {
                 setSchedulerEditor(null);
-                const hp = parseAppHash();
-                const hist =
-                  hp.branch === "scheduler" && hp.historyOpen;
-                setSchedulerListHash({ historySidebar: hist });
+                setSchedulerListHash();
               }}
               onSaved={(createdId) => {
                 void refreshSchedulerJobs({ silent: true });
@@ -2706,6 +2999,8 @@ export function App() {
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          sessionLoading={sessionLoading}
+          sessionFadingOut={sessionFadingOut}
           heroAccentVerb={heroAccentVerb}
           heroComposerFocusEpoch={heroHomeGeneration}
           onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
@@ -2723,6 +3018,12 @@ export function App() {
           onModeChange={setMode}
           onDraftChange={setDraft}
           generating={generating}
+          onContextRingOpen={() => {
+            const sid = sessionId.trim();
+            if (sid) {
+              void refreshSessionStats(sid);
+            }
+          }}
           onStop={() => stopActiveGeneration()}
           onQuestionPromptResolved={resolveQuestionPrompt}
           onPermissionPromptResolved={resolvePermissionPrompt}

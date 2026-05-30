@@ -28,6 +28,11 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({ branch: "history" });
   });
 
+  test("parses home hash with history sidebar query only", () => {
+    setHash("#?history=1");
+    expect(parseAppHash()).toEqual({ branch: "none", historyOpen: true });
+  });
+
   test("parses scheduler list with history sidebar flag", () => {
     setHash("#/scheduler?history=1");
     expect(parseAppHash()).toEqual({

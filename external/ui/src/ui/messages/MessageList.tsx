@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+
+import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
 import { QuestionPromptSection } from "../chat/QuestionPromptSection";
@@ -9,6 +12,7 @@ import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
 /** True while the main-model thinking row above assistant text is streaming for this memory row's turn (same bubble as memory). */
@@ -24,8 +28,15 @@ function mainThinkingOverlapsMemory(
   return false;
 }
 
+function hasStreamingAssistant(items: TranscriptItem[]): boolean {
+  return items.some(
+    (it) => it.type === "assistant_message" && it.streaming === true,
+  );
+}
+
 export function MessageList(props: {
   items: TranscriptItem[];
+  generating?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
     sessionId: string,
@@ -42,6 +53,11 @@ export function MessageList(props: {
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
 }) {
+  const permissionWaitingToolCallIds = useMemo(
+    () => permissionPendingToolCallIds(props.items),
+    [props.items],
+  );
+
   return (
     <>
       {props.items.map((it, idx) => {
@@ -225,12 +241,18 @@ export function MessageList(props: {
             {...(typeof it.startedAtMs === "number"
               ? { startedAtMs: it.startedAtMs }
               : {})}
+            {...(permissionWaitingToolCallIds.has(it.toolCallId)
+              ? { permissionWaiting: true }
+              : {})}
             {...(props.onFetchToolCallFull
               ? { onFetchToolCallFull: props.onFetchToolCallFull }
               : {})}
           />
         );
       })}
+      {props.generating === true && !hasStreamingAssistant(props.items) ? (
+        <TypingDotsMessage />
+      ) : null}
     </>
   );
 }

@@ -15,19 +15,21 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // Sender implements acp.UpdateSender for HTTP (streaming SSE or silent non-stream).
 type Sender struct {
 	cfg *config.Config
 
-	mu      sync.Mutex
-	stream  bool
-	w       io.Writer
-	flusher http.Flusher
-	chatID  string
-	created int64
-	model   string
+	mu         sync.Mutex
+	stream     bool
+	w          io.Writer
+	flusher    http.Flusher
+	chatID     string
+	created    int64
+	model      string
+	sessionDir string
 }
 
 // NewSender creates a bridge. Pass w=nil when stream is false.
@@ -46,6 +48,19 @@ func NewSender(cfg *config.Config, w http.ResponseWriter, stream bool, model str
 		}
 	}
 	return s
+}
+
+// SetSessionDir sets the persisted session directory for permission persistence across restarts.
+func (s *Sender) SetSessionDir(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionDir = strings.TrimSpace(dir)
+}
+
+func wireBridgeSession(bridge *Sender, st *session.State) {
+	if bridge != nil && st != nil {
+		bridge.SetSessionDir(st.GetPersistedSessionDir())
+	}
 }
 
 // SendSessionUpdate forwards agent chunks to SSE when streaming.
@@ -146,8 +161,26 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if sid == "" || tcid == "" {
 		return nil, fmt.Errorf("sessionId and toolCall.toolCallId are required")
 	}
-	ch := registerPermissionWait(sid, tcid)
-	defer unregisterPermissionWait(sid, tcid)
+	s.mu.Lock()
+	sd := s.sessionDir
+	s.mu.Unlock()
+	toolName := ""
+	argsJSON := ""
+	if len(params.ToolCall.Content) > 0 {
+		argsJSON = strings.TrimSpace(params.ToolCall.Content[0].Content.Text)
+	}
+	if t := strings.TrimSpace(params.ToolCall.Title); t != "" {
+		if after, ok := strings.CutPrefix(t, "Run:"); ok {
+			toolName = strings.TrimSpace(after)
+		} else if after, ok := strings.CutPrefix(t, "run:"); ok {
+			toolName = strings.TrimSpace(after)
+		}
+	}
+	if sd != "" {
+		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
+	}
+	ch := registerPermissionWait(sid, tcid, sd)
+	defer unregisterPermissionWait(sid, tcid, sd)
 	if err := s.writeNamedEventJSON("permission", params); err != nil {
 		return nil, err
 	}
@@ -155,6 +188,9 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	case res := <-ch:
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+		}
+		if sd != "" {
+			_ = session.ClearPendingPermission(sd)
 		}
 		return res, nil
 	case <-ctx.Done():

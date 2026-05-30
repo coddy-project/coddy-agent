@@ -31,7 +31,7 @@ You are in PLAN mode. Think deeply before acting.
 ### How to plan well
 
 1. Start by reading the most relevant files to understand the current state
-2. Use **`websearch`** / **`webfetch`** when fresh external facts help (API behavior, release notes, standards). Rephrase the query up to a few times if results are weak; paginate with **`page`** when needed
+2. Use **`websearch`** / **`webfetch`** when fresh external facts help (API behavior, release notes, standards). if results are empty, try one differently-worded query and stop — never repeat the same query; paginate with **`page`** when needed
 3. Use **`run_command`** or MCP tools only when they clearly reduce guesswork (for example read-only **`git`** or **`rg`** invocations). Prefer **`read`** / **`grep`** for static code review
 4. Identify what needs to change and why
 5. Consider edge cases and potential issues

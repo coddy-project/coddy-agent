@@ -55,6 +55,9 @@ Narrow-rail tooltips (desktop)
 - Session id is generated client side only after the first message is sent from a new chat.
 - Session id is persisted in the URL fragment.
   - Recommended format `#/s/<sessionId>`
+- Unsent composer text may be kept as a client-only draft session.
+  - Draft sessions use `#/draft/<draftId>` and are stored in `localStorage` under `coddy_draft_sessions_v1`.
+  - History rows show a `Draft:` title prefix.
 - Session id is sent in the `X-Coddy-Session-ID` header for chat transport.
 - Session id validation matches `internal/session/ValidateFolderSessionID`.
 - Session persisted files live under the session directory and are deleted together when the session is deleted.
@@ -83,6 +86,10 @@ Session title
 - **History** panel lists sessions via `GET /coddy/sessions` (still a **drawer**, not a persistent second column).
 - Pagination uses `limit` and `cursor`, with **infinite scroll** for older rows.
 - Optional **`q`** query string (**title substring or first **`user`** message content substring only**, case insensitive; **not** full-chat search). Search input updates use client debouncing.
+- Indicators
+  - A spinner appears on rows for sessions that are still generating in the background.
+  - A violet dot appears only when a background session completed while it was not the active chat.
+  - A question mark icon appears when a session is waiting for user permission.
 - CRUD
   - Rename via `PATCH /coddy/sessions/{id}` setting `title`.
   - Delete via `DELETE /coddy/sessions/{id}`.
@@ -134,7 +141,7 @@ Shape and glyphs
 - The control sits to the **right** of the context ring (**`.composer-icon`** on **`Composer.tsx`**).
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
-- **Stop** (**while streaming`): Unicode **`■`**, **~17–18px** so the block fills the circle without clipping.
+- **Stop** (**while streaming**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring.
 - **Disabled** idle state when textarea is whitespace-only (**`:disabled`** on **`composer-send-play`**).
 
 Behavior (unchanged summary)

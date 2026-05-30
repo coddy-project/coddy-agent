@@ -7,4 +7,5 @@ export type SessionRow = {
   activitySeq?: number;
   readActivitySeq?: number;
   unreadComplete?: boolean;
+  permissionPending?: boolean;
 };

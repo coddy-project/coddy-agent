@@ -192,3 +192,154 @@ test("in-progress tool shows ellipsis on label and elapsed from startedAtMs", ()
   const dur = container.querySelector(".thinking-dur")?.textContent ?? "";
   expect(dur).toMatch(/^\d+ms$|^\d/);
 });
+
+test("elapsed freezes while permission is pending", () => {
+  vi.useFakeTimers();
+  const t0 = Date.now() - 5000;
+  const { container, rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-perm"
+      title="run_command"
+      status="in_progress"
+      startedAtMs={t0}
+      permissionWaiting
+      argsText="{}"
+    />,
+  );
+  const durBefore = container.querySelector(".thinking-dur")?.textContent ?? "";
+  vi.advanceTimersByTime(10_000);
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-perm"
+      title="run_command"
+      status="in_progress"
+      startedAtMs={t0}
+      permissionWaiting
+      argsText="{}"
+    />,
+  );
+  expect(container.querySelector(".thinking-dur")?.textContent).toBe(durBefore);
+  vi.useRealTimers();
+});
+
+test("apply_patch renders DiffView instead of raw args JSON", () => {
+  const patch = [
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,2 +1,3 @@",
+    " line1",
+    "+added",
+    " line2",
+  ].join("\n");
+  const argsText = JSON.stringify({ filePath: "src/app.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-1"
+      title="apply_patch"
+      kind="write"
+      status="completed"
+      argsText={argsText}
+      resultText="patch applied successfully to src/app.ts"
+      durationMs={12}
+    />,
+  );
+  openToolDetails();
+  // DiffView rendered
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  // file path shown
+  expect(container.querySelector(".diff-file-path")?.textContent).toContain("src/app.ts");
+  // add line class present
+  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  // raw args JSON not shown
+  expect(container.querySelector("pre.tool-block[aria-label='Tool arguments']")).toBeNull();
+});
+
+test("apply_patch omits raw result text and has no tool-result-pre", () => {
+  const patch = "@@ -1 +1 @@\n+new";
+  const argsText = JSON.stringify({ filePath: "x.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-2"
+      title="apply_patch"
+      kind="write"
+      status="completed"
+      argsText={argsText}
+      resultText="patch applied successfully to x.ts"
+      durationMs={5}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
+test("apply_patch with V4A patch format renders DiffView", () => {
+  const v4aPatch = [
+    "*** Begin Patch",
+    "*** Update File: src/app.ts",
+    "@@",
+    " line1",
+    "-old",
+    "+new",
+    " line3",
+    "*** End Patch",
+  ].join("\n");
+  const argsText = JSON.stringify({ filePath: "src/app.ts", patch: v4aPatch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-v4a"
+      title="apply_patch"
+      kind="write"
+      status="completed"
+      argsText={argsText}
+      resultText="patch applied successfully to src/app.ts"
+      durationMs={8}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelectorAll(".diff-line--del").length).toBeGreaterThanOrEqual(1);
+  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(container.querySelector(".tool-result-pre")).toBeNull();
+});
+
+test("apply_patch shows error text in body when execution fails", () => {
+  const patch = "@@ -1 +1 @@\n-old\n+new";
+  const argsText = JSON.stringify({ filePath: "src/x.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-err"
+      title="apply_patch"
+      kind="write"
+      status="failed"
+      argsText={argsText}
+      resultText="error: file not found: src/x.ts"
+      durationMs={3}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".tool-result-pre")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+  expect(container.querySelector(".tool-result-pre")?.textContent).toContain("file not found");
+});
+
+test("apply_patch with error shows diff alongside error text", () => {
+  const patch = "@@ -1 +1 @@\n-old\n+new";
+  const argsText = JSON.stringify({ filePath: "src/y.ts", patch });
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-err2"
+      title="apply_patch"
+      kind="write"
+      status="failed"
+      argsText={argsText}
+      resultText="hunk mismatch at line 1"
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".tool-result-pre")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+});

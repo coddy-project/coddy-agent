@@ -1,14 +1,34 @@
-import { useEffect, useRef } from "react";
-import { appNavHrefSession } from "../scheduler/hashRoute";
+import { useEffect, useRef, type MouseEvent } from "react";
+import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
+import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
 import {
+  sessionRowShowsPermissionPending,
+  sessionRowShowsQuestionPending,
   sessionRowShowsSpinner,
   sessionRowShowsUnreadDot,
 } from "./sessionRowActivity";
 import type { SessionRow } from "./types";
 
+function pickFromSessionRowClick(
+  ev: MouseEvent<HTMLDivElement>,
+  action: () => void,
+): void {
+  if (ev.defaultPrevented || ev.button !== 0) {
+    return;
+  }
+  if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) {
+    return;
+  }
+  action();
+}
+
 export function SessionsSidebar(props: {
   sessionId: string;
+  /** Session ids with an unresolved permission_prompt in the composer. */
+  permissionPendingSessionIds?: ReadonlySet<string>;
+  /** Session ids with an unresolved question_prompt in the composer. */
+  questionPendingSessionIds?: ReadonlySet<string>;
   sessions: SessionRow[];
   error?: string | null;
   open?: boolean;
@@ -28,6 +48,9 @@ export function SessionsSidebar(props: {
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const isOpen = !!props.open;
+  const permissionPending =
+    props.permissionPendingSessionIds ?? new Set<string>();
+  const questionPending = props.questionPendingSessionIds ?? new Set<string>();
 
   useEffect(() => {
     const root = listRef.current;
@@ -115,24 +138,62 @@ export function SessionsSidebar(props: {
           </div>
         ) : null}
         {props.sessions.map((s) => (
-          <a
+          <div
             key={s.id}
-            href={appNavHrefSession(s.id)}
             className={`session-item ${s.id === props.sessionId ? "active" : ""}`}
+            data-testid={`session-row-${s.id}`}
             onClick={(ev) =>
-              sameTabInAppNavClick(ev, () => {
+              pickFromSessionRowClick(ev, () => {
                 props.onPick(s.id);
               })
             }
           >
-            <div className="session-row">
+            <a
+              href={
+                isClientDraftSessionId(s.id)
+                  ? appNavHrefDraft(s.id)
+                  : appNavHrefSession(s.id)
+              }
+              className="session-row-link"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                sameTabInAppNavClick(ev, () => {
+                  props.onPick(s.id);
+                });
+              }}
+            >
               <div className="session-row-leading">
-                {sessionRowShowsSpinner(s, props.sessionId) ? (
+                {sessionRowShowsSpinner(
+                  s,
+                  props.sessionId,
+                  permissionPending,
+                  questionPending,
+                ) ? (
                   <span
                     className="session-activity-spinner"
                     aria-hidden
                     data-testid={`session-spinner-${s.id}`}
                   />
+                ) : null}
+                {sessionRowShowsPermissionPending(s, permissionPending) ? (
+                  <span
+                    className="session-permission-icon"
+                    aria-label="Permission required"
+                    data-testid={`session-permission-${s.id}`}
+                    title="Permission required"
+                  >
+                    ?
+                  </span>
+                ) : null}
+                {sessionRowShowsQuestionPending(s, questionPending) ? (
+                  <span
+                    className="session-question-icon"
+                    aria-label="Question pending"
+                    data-testid={`session-question-${s.id}`}
+                    title="Question pending"
+                  >
+                    ?
+                  </span>
                 ) : null}
                 {sessionRowShowsUnreadDot(s, props.sessionId) ? (
                   <span
@@ -145,22 +206,22 @@ export function SessionsSidebar(props: {
                   {s.title || "New chat"}
                 </span>
               </div>
-              <button
-                className="session-trash"
-                type="button"
-                aria-label="Delete conversation"
-                title="Delete"
-                data-testid={`session-delete-${s.id}`}
-                onMouseDown={(ev) => ev.stopPropagation()}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  void props.onDelete(s.id);
-                }}
-              >
-                🗑
-              </button>
-            </div>
-          </a>
+            </a>
+            <button
+              className="session-trash"
+              type="button"
+              aria-label="Delete conversation"
+              title="Delete"
+              data-testid={`session-delete-${s.id}`}
+              onClick={(ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                void props.onDelete(s.id);
+              }}
+            >
+              🗑
+            </button>
+          </div>
         ))}
         <div
           ref={sentinelRef}

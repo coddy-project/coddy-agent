@@ -58,6 +58,7 @@ export function ChatScreen(props: {
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string) => void;
+  onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
@@ -75,10 +76,13 @@ export function ChatScreen(props: {
   onPlanDocumentExpanded?: (itemId: string, expanded: boolean) => void;
   onPlanDocumentRun?: (slug: string) => void;
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
+  sessionLoading?: boolean;
+  sessionFadingOut?: boolean;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
+  const showSkeleton = isEmpty && !!props.sessionLoading;
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const [composerReserve, setComposerReserve] = useState(200);
@@ -150,9 +154,38 @@ export function ChatScreen(props: {
     return () => el?.removeEventListener("scroll", onScroll);
   }, [isEmpty, mobileDocScroll]);
 
+  const mainClassName = [
+    "main",
+    isEmpty && !showSkeleton ? "is-empty" : "",
+    props.sessionFadingOut ? "session-fading-out" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <main className={`main ${isEmpty ? "is-empty" : ""}`}>
-      {isEmpty ? (
+    <main className={mainClassName}>
+      {showSkeleton ? (
+        <div className="chat-skeleton" aria-hidden="true">
+          <div className="chat-skeleton-header">
+            <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
+          </div>
+          <div className="chat-skeleton-messages">
+            <div className="chat-skeleton-row chat-skeleton-row--user">
+              <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+            </div>
+            <div className="chat-skeleton-row">
+              <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
+              <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
+              <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
+            </div>
+            <div className="chat-skeleton-row chat-skeleton-row--user">
+              <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
+            </div>
+            <div className="chat-skeleton-row">
+              <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
+              <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+            </div>
+          </div>
+        </div>
+      ) : isEmpty ? (
         <div className="hero" id="hero">
           <h1 className="hero-title">
             <span className="hero-title-muted">
@@ -197,6 +230,7 @@ export function ChatScreen(props: {
               onModeChange={props.onModeChange}
               onChange={props.onDraftChange}
               onSend={props.onSend}
+              {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
               {...(props.generating === true && props.onStop !== undefined
                 ? { generating: true, onStop: props.onStop }
                 : {})}
@@ -231,6 +265,7 @@ export function ChatScreen(props: {
               <MessageList
                 items={props.items}
                 sessionId={props.sessionId}
+                generating={props.generating === true}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}
@@ -288,6 +323,7 @@ export function ChatScreen(props: {
                 onModeChange={props.onModeChange}
                 onChange={props.onDraftChange}
                 onSend={props.onSend}
+                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
                 {...(props.generating === true && props.onStop !== undefined
                   ? { generating: true, onStop: props.onStop }
                   : {})}
