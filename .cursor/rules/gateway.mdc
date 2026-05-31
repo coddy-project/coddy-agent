@@ -1,0 +1,73 @@
+---
+description: Messenger gateway architecture, session store, and Telegram adapter conventions
+globs: external/gateway/**/*.go, internal/config/gateway.go
+alwaysApply: false
+---
+
+# Messenger Gateway (`external/gateway`)
+
+Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). Without these tags `coddy gateway` is present in the binary but returns a "not compiled" error.
+
+## Package layout
+
+| Package | Role |
+|---------|------|
+| `external/gateway` | `Adapter` interface, `Hub`, `IncomingMessage`, `OutgoingMessage` |
+| `external/gateway/access` | `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` — ACL helpers |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; persisted to `gateway_sessions.json` |
+| `external/gateway/proxyutil` | `BuildHTTPClient` — HTTP/SOCKS5 proxy support for outbound adapter requests |
+| `external/gateway/telegram` | `Bot` (polling, dispatch, ACL), `Sender` (streaming output), `commands.go` (inline keyboards), `markdown.go` (md → Telegram format) |
+
+## Session store
+
+`sessionstore.NewPersisted(path)` loads/saves a JSON map of key→session-ID on every mutation. The file lives at `$CODDY_HOME/sessions/gateway_sessions.json` (set in `external/gateway/start.go`). On restart the bot reloads the map so existing conversations continue without re-sending the one-time initialization hint.
+
+`KnownIDs()` is called at startup to pre-populate the `seenSessions` set (prevents re-injecting the Telegram formatting hint into existing sessions after a restart).
+
+## SessionRunner interface
+
+Adapters call the session manager through `SessionRunner` (defined in `external/gateway/telegram/bot.go`). `session.Manager` satisfies this interface directly:
+
+```go
+type SessionRunner interface {
+    EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
+    HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
+    ForgetLiveSession(sessionID string)
+    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
+    HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    Cfg() *config.Config
+}
+```
+
+## Telegram Sender streaming
+
+`Sender` (`external/gateway/telegram/sender.go`) implements `acp.UpdateSender`:
+
+- First text token → sends a new Telegram message and saves the message ID.
+- Subsequent tokens → `editMessageText`, throttled to ~1.5 s to avoid Telegram rate limits.
+- Tool execution in progress → replaces live message with "⚙️ toolname…" indicator; this line is NOT included in the final `Flush()` output.
+- `Flush()` → replaces the live message with the final formatted text, converted to Telegram legacy Markdown via `markdown.go`.
+- `RequestPermission` auto-approves (the admin configured the bot deliberately).
+
+## Markdown conversion
+
+`markdown.go` converts standard Markdown to Telegram legacy format: ATX headers → `*bold*`, `**text**` → `*text*`, bullet `* item` → `• item`, tables → plain text, horizontal rules → separator. Fenced code blocks are preserved verbatim.
+
+## Proxy
+
+`proxyutil.BuildHTTPClient(url)` handles http, https, socks5, socks5h. An empty string returns `http.DefaultClient` unchanged. The Telegram adapter passes `cfg.Proxy` to this function in `Start()`.
+
+## Adding a new adapter
+
+1. Create `external/gateway/<name>/bot.go` with `//go:build gateway || gateway.<name>`.
+2. Implement `gateway.Adapter` (`Name() string`, `Start(ctx) error`).
+3. Implement `acp.UpdateSender` (see `telegram/sender.go`).
+4. Add `sessionstore.NewPersisted(storePath)` for key→session-ID persistence.
+5. In `external/gateway/start.go`, append your adapter when its config is enabled.
+6. Update the build constraint on `start.go` / `start_stub.go` to include the new tag.
+
+## References
+
+@docs/gateway.md
+@architecture.mdc
+@internal/config/gateway.go

@@ -10,6 +10,7 @@ This repository keeps detailed project rules in `.cursor/rules/*.mdc`. Claude Co
 | [api-layer.mdc](../.cursor/rules/api-layer.mdc) | HTTP API handlers, OpenAPI, HTTP docs |
 | [code-style.mdc](../.cursor/rules/code-style.mdc) | Go formatting, linting, code comments |
 | [core-modules.mdc](../.cursor/rules/core-modules.mdc) | Main `internal/*` package boundaries |
+| [gateway.mdc](../.cursor/rules/gateway.mdc) | Messenger gateway: session store, Telegram adapter, Sender streaming, proxy |
 | [implementation-order.mdc](../.cursor/rules/implementation-order.mdc) | Layered implementation order for new behavior |
 | [testing.mdc](../.cursor/rules/testing.mdc) | Go test commands, tags, and conventions |
 | [ui-spa.mdc](../.cursor/rules/ui-spa.mdc) | Embedded UI source and SPA behavior |

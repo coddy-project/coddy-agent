@@ -12,6 +12,7 @@ Short map for automation-friendly contributors.
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
+| `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
 
 ## Builds
 

@@ -49,7 +49,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - [Rules](#rules)
 - [Skills](#skills)
 - [MCP server integration](#mcp-server-integration)
-- [Messenger gateway (Telegram)](#messenger-gateway-telegram)
+- [Messenger gateway](#messenger-gateway)
 - [Configuration (reference)](#configuration-1)
 - [Architecture](#architecture)
 - [Documentation](#documentation)
@@ -362,7 +362,7 @@ mcp_servers:
 
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
-## Messenger gateway (Telegram)
+## Messenger gateway
 
 Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `coddy gateway`.
 
@@ -379,8 +379,8 @@ gateways:
     enabled: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [YOUR_USER_ID]
-    default_access: "all"           # all | admins | group:<name>
-    default_isolation: "individual" # individual | shared | admin
+    default_access: "admins"   # all | admins | group:<name>
+    default_isolation: "admin" # individual | shared | admin
 ```
 
 Each user or chat gets its own isolated session. In group chats the bot responds only when @mentioned or replied to. `/clear` (no space) starts a fresh session.

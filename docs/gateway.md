@@ -135,6 +135,11 @@ gateways:
     enabled: false
     token: "${TELEGRAM_BOT_TOKEN}"
 
+    # Optional outbound proxy for Telegram API requests.
+    # Supported schemes: http, https, socks5, socks5h.
+    # proxy: "socks5h://127.0.0.1:1080"
+    # proxy: "http://proxy.example.com:3128"
+
     # Telegram user IDs with elevated privileges.
     # Admins always pass every access check regardless of default_access.
     admins: []
@@ -161,6 +166,18 @@ gateways:
         isolation: "admin"
         access: "admins"
 ```
+
+### Proxy
+
+Set `proxy` to route outbound Telegram API requests through an HTTP or SOCKS5 proxy:
+
+```yaml
+gateways:
+  telegram:
+    proxy: "socks5h://127.0.0.1:1080"  # or "http://proxy.example.com:3128"
+```
+
+Supported schemes: `http`, `https`, `socks5`, `socks5h`. `socks5h` resolves hostnames on the proxy side. Leave the field empty (the default) for a direct connection.
 
 ### Access levels
 
@@ -285,8 +302,12 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 
 | Command | Available to | Effect |
 |---------|-------------|--------|
+| `/start` | all users | Greeting and quick introduction. |
+| `/help` | all users | Lists all available commands. |
+| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent` and `plan`. |
+| `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
+| `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |
-| `/start` | all users | Telegram default; silently ignored beyond the access check. |
 
 ---
 
@@ -342,10 +363,13 @@ type SessionRunner interface {
     EnsureHTTPSession(ctx context.Context, sessionID string, defaultCWD string) (*session.State, error)
     HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
     ForgetLiveSession(sessionID string)
+    HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
+    HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
+    Cfg() *config.Config
 }
 ```
 
-`session.Manager` already satisfies this interface — pass it directly.
+`session.Manager` already satisfies this interface — pass it directly. `HandleSessionSetMode` and `HandleSessionSetConfigOption` are needed for `/mode` and `/model` inline keyboard commands; `Cfg()` returns the loaded config (used by `/model` to list available models).
 
 ### 2. Register in Start()
 
@@ -408,24 +432,32 @@ sessionstore.SessionKey(gateway, chatID, userID, isolationMode, isGroup)
         │  returns a string key like "tg:chat:-100:user:42"
         ▼
 store.Get(key)
-        │  returns existing session ID, or mints a new one on first call
+        │  returns existing session ID (from gateway_sessions.json),
+        │  or mints a new one on first use
         ▼
 manager.EnsureHTTPSession(ctx, sessionID, cwd)
         │  loads from disk if persisted, creates fresh otherwise
         ▼
 manager.HandleSessionPromptWithSender(ctx, params, sender, nil)
         │  runs the ReAct loop; sends stream events to Sender
+        │  Sender streams tokens: first chunk → new Telegram message;
+        │  subsequent chunks → progressive editMessageText (throttled);
+        │  tool executions → shows "⚙️ toolname…" indicator in the live message.
         ▼
 sender.Flush()
-        │  sends buffered text to the chat
+        │  replaces the live streaming message with the final formatted text
+        │  (Telegram-compatible markdown; headers, double-star bold, and tables
+        │   converted to Telegram legacy format)
         ▼
 Session bundle written to disk ($CODDY_HOME/sessions/<id>/)
 ```
 
+**Session store persistence** — The key→session-ID mapping is persisted in `gateway_sessions.json` inside `$CODDY_HOME/sessions/` (same directory as session bundles). On restart the bot reloads this file and continues existing conversations seamlessly, without re-sending the one-time formatting hint to sessions that already received it.
+
 **`/clear` flow:**
 
 ```
-store.Reset(key)   → replaces stored session ID with a new random one
+store.Reset(key)   → replaces stored session ID in gateway_sessions.json
 manager.ForgetLiveSession(oldID)   → drops the in-memory session (disk persists)
 Next message → EnsureHTTPSession creates a fresh session for the new ID
 ```

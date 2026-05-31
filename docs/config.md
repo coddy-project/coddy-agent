@@ -216,6 +216,9 @@ gateways:
     # Bot token from @BotFather. Never hard-code; always use an env reference.
     token: "${TELEGRAM_BOT_TOKEN}"
 
+    # Optional outbound proxy for Telegram API requests (http, https, socks5, socks5h).
+    # proxy: "socks5h://127.0.0.1:1080"
+
     # Telegram user IDs with admin privileges.
     # Admins bypass every access check and can always interact with the bot.
     admins: []
@@ -253,7 +256,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enabled: true`. The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enabled: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 
