@@ -8,6 +8,7 @@ WORKDIR /ui
 COPY external/ui/package.json external/ui/package-lock.json ./
 RUN npm ci --no-fund --no-audit
 COPY external/ui/ ./
+COPY docs/assets/coddy-logo-mark-flat.svg docs/assets/favicon-32.png docs/assets/favicon.ico docs/assets/apple-touch-icon.png /docs/assets/
 RUN npm run build:go
 
 
