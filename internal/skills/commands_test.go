@@ -1,57 +1,40 @@
 package skills_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
-func TestUninstallRemovesSkillDir(t *testing.T) {
+func TestEnableDisableRoundtrip(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.Home = tmp
+
+	if err := skills.Disable(cfg, "my-skill"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+	if err := skills.Enable(cfg, "my-skill"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
 
 	managedDir := cfg.Skills.ManagedDir(tmp)
-	skillDir := filepath.Join(managedDir, "my-skill")
-	if err := os.MkdirAll(skillDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := skills.Uninstall(cfg, "my-skill"); err != nil {
-		t.Fatalf("Uninstall: %v", err)
-	}
-	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
-		t.Fatal("expected skill dir removed")
+	disabled := skills.ReadDisabled(managedDir)
+	if skills.IsDisabled(disabled, "my-skill") {
+		t.Error("skill should be enabled after Enable()")
 	}
 }
 
-func TestUninstallNotFound(t *testing.T) {
-	tmp := t.TempDir()
-	cfg := &config.Config{}
-	cfg.Paths.Home = tmp
-
-	err := skills.Uninstall(cfg, "missing")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
-
-func TestUninstallRejectsPathLikeName(t *testing.T) {
+func TestEnableDisableRejectsPathLikeName(t *testing.T) {
 	tmp := t.TempDir()
 	cfg := &config.Config{}
 	cfg.Paths.Home = tmp
 
 	for _, name := range []string{"a/b", "../x", "", "  "} {
 		t.Run(name, func(t *testing.T) {
-			err := skills.Uninstall(cfg, name)
-			if err == nil {
-				t.Fatal("expected error")
+			if err := skills.Disable(cfg, name); err == nil {
+				t.Fatal("expected error for invalid skill name")
 			}
 		})
 	}
