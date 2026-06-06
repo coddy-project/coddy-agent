@@ -124,7 +124,7 @@ Malformed ids (**HTTP 400**). Dedicated **`/coddy/*`** helpers return **503** if
 
 Matches `external/memory/README.md`: **`global`** uses configured **`memory.dir`** (fallback **`$CODDY_HOME/memory`**). **`workspace`** resolves to **`$CWD/memory`** for that session bundle. **`agentMemory`** placeholders remain agent-only (`session.json`), not REST-editable here.
 
-Interactive tool permission prompts are bypassed whenever **`tools.permission_master_key`** is enabled. Otherwise the bundled UI shows **`event: permission`** during **`POST /v1/responses`** (**`stream: true`**) and completes the turn via **`POST /coddy/sessions/{id}/permission`** (same pattern as **`question`**).
+Interactive tool permission prompts are bypassed when **`tools.permission_mode`** is **`bypass`**. Otherwise the bundled UI shows **`event: permission`** during **`POST /v1/responses`** (**`stream: true`**) and completes the turn via **`POST /coddy/sessions/{id}/permission`** (same pattern as **`question`**).
 
 ## CLI flags
 

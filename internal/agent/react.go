@@ -134,7 +134,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	toolEnv := &tools.Env{
 		CWD:              a.state.GetCWD(),
-		RestrictToCWD:    a.cfg.Tools.RestrictToCWD,
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
 		SessionID:                    a.state.GetID(),
@@ -490,11 +489,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
-	}
-
-	// Outside CWD when restrict_to_cwd is false - still require explicit approval.
-	if !env.RestrictToCWD && tools.ToolPathsEscapeCWD(tc.Name, tc.InputJSON, env.CWD) {
-		requiresPerm = true
 	}
 
 	if requiresPerm && !skipPermission {

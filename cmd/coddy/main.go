@@ -15,7 +15,6 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -47,7 +46,7 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if permission.MasterKeyActive(r.liveCfg()) {
+	if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	s := *r.p

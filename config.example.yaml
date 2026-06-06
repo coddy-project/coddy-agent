@@ -102,9 +102,6 @@ tools:
   # accept_edits: auto-approve file writes; prompt for commands
   # bypass: never ask for permission
   permission_mode: ask
-  # When true, file tools reject paths outside cwd. When false, those paths are allowed
-  # only after the user approves a permission prompt for that path.
-  restrict_to_cwd: true
 
   # Commands that never require user permission.
   # Supports exact match and prefix match (prefix + space + any args).

@@ -30,9 +30,7 @@ skills:
 mcp_servers: []
 
 tools:
-  require_permission_for_commands: false
-  require_permission_for_writes: false
-  restrict_to_cwd: true
+  permission_mode: bypass
 
 memory:
   enabled: true

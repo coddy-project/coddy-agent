@@ -206,6 +206,31 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
           "description": "openai"
         }
       ]
+    },
+    {
+      "id": "permission_mode",
+      "name": "Permission mode",
+      "description": "Controls when the agent asks for user approval before running tools.",
+      "category": "permissions",
+      "type": "select",
+      "currentValue": "ask",
+      "options": [
+        {
+          "value": "ask",
+          "name": "Ask",
+          "description": "Always ask before running commands or writing files"
+        },
+        {
+          "value": "accept_edits",
+          "name": "Accept edits",
+          "description": "Auto-approve file writes; ask before running commands"
+        },
+        {
+          "value": "bypass",
+          "name": "Bypass",
+          "description": "Never ask for permission"
+        }
+      ]
     }
   ],
   "modes": {
@@ -252,7 +277,7 @@ Lists persisted sessions found under the configured sessions root (see README). 
 
 When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
 
-- `session.json` - id, cwd, mode, model override, agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
+- `session.json` - id, cwd, mode, model override, permission mode override (`permissionMode`), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
 - `messages.json` - LLM message history (roles user, assistant, tool)
 - `assets/` - reserved for future session-scoped files
 - `todos/active.md` - current todo checklist synced from plan tools
@@ -352,16 +377,18 @@ When the mode changes, the agent also sends a `session/update` with `config_opti
 
 ### `session/set_config_option`
 
-Change a session configuration option (ACP Session Config Options). Used for **mode** and **model** when the client exposes selectors.
+Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`permission_mode`**.
 
 **Request params:**
 ```json
 {
   "sessionId": "sess_abc123def456",
-  "configId": "model",
-  "value": "anthropic/claude-3-5-sonnet"
+  "configId": "permission_mode",
+  "value": "accept_edits"
 }
 ```
+
+Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and persisted in `session.json`; it takes precedence over the `tools.permission_mode` config file value.
 
 **Response result:** full `configOptions` array with updated `currentValue` fields:
 
@@ -511,12 +538,23 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
       "type": "select",
       "currentValue": "openai/gpt-4o",
       "options": [ ... ]
+    },
+    {
+      "id": "permission_mode",
+      "name": "Permission mode",
+      "category": "permissions",
+      "type": "select",
+      "currentValue": "accept_edits",
+      "options": [ ... ]
     }
   ]
 }
 ```
 
 ## Permission Requests (Agent -> Client, expects response)
+
+These requests are sent only when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). When `permission_mode` is `bypass`, the agent never sends `session/request_permission`. Set the mode via `session/set_config_option` or `tools.permission_mode` in `config.yaml`.
+
 
 ```json
 {

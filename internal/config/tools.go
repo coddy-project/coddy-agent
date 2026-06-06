@@ -16,13 +16,8 @@ const (
 type Tools struct {
 	// PermissionMode controls when the agent asks for user approval before running tools.
 	// Values: "ask" (default), "accept_edits", "bypass".
-	PermissionMode string `yaml:"permission_mode"`
-
-	RestrictToCWD    bool     `yaml:"restrict_to_cwd"`
+	PermissionMode   string   `yaml:"permission_mode"`
 	CommandAllowlist []string `yaml:"command_allowlist"`
-	// PermissionMasterKey when non-empty bypasses all tool permission prompts for HTTP clients
-	// that supply this key in the X-Permission-Key header (dangerous; use only in trusted environments).
-	PermissionMasterKey string `yaml:"permission_master_key"`
 }
 
 // ResolvedPermMode returns PermissionMode with a safe default of PermModeAsk.
@@ -37,7 +32,6 @@ func (c *Tools) ResolvedPermMode() string {
 
 // Validate trims allowlist entries in place and normalises PermissionMode.
 func (c *Tools) Validate() error {
-	c.PermissionMasterKey = strings.TrimSpace(c.PermissionMasterKey)
 	if c.PermissionMode == "" {
 		c.PermissionMode = PermModeAsk
 	}

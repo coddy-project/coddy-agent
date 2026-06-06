@@ -48,11 +48,6 @@ func executeWrite(_ context.Context, argsJSON string, env *tooling.Env) (string,
 	}
 
 	path := ResolvePath(args.FilePath, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("write mkdir: %w", err)

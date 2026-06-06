@@ -88,10 +88,8 @@ type HTTPHeaderJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode      string   `json:"permission_mode,omitempty"`
-	RestrictToCWD       bool     `json:"restrict_to_cwd,omitempty"`
-	CommandAllowlist    []string `json:"command_allowlist,omitempty"`
-	PermissionMasterKey string   `json:"permission_master_key,omitempty"`
+	PermissionMode   string   `json:"permission_mode,omitempty"`
+	CommandAllowlist []string `json:"command_allowlist,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -175,10 +173,8 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.MCPServers = append(out.MCPServers, mj)
 	}
 	out.Tools = ToolsJSON{
-		PermissionMode:      c.Tools.ResolvedPermMode(),
-		RestrictToCWD:       c.Tools.RestrictToCWD,
-		CommandAllowlist:    append([]string(nil), c.Tools.CommandAllowlist...),
-		PermissionMasterKey: c.Tools.PermissionMasterKey,
+		PermissionMode:   c.Tools.ResolvedPermMode(),
+		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -236,10 +232,8 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
 	cfg.Tools = Tools{
-		PermissionMode:      j.Tools.PermissionMode,
-		RestrictToCWD:       j.Tools.RestrictToCWD,
-		CommandAllowlist:    append([]string(nil), j.Tools.CommandAllowlist...),
-		PermissionMasterKey: j.Tools.PermissionMasterKey,
+		PermissionMode:   j.Tools.PermissionMode,
+		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),

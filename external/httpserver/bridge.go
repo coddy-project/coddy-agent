@@ -14,7 +14,6 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -148,9 +147,9 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	return nil
 }
 
-// RequestPermission allows all tools when master key is set; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
+// RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if permission.MasterKeyActive(s.cfg) {
+	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if !s.stream || s.w == nil {

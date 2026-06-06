@@ -46,11 +46,6 @@ func executeMkdir(_ context.Context, argsJSON string, env *tooling.Env) (string,
 	}
 
 	path := ResolvePath(args.Path, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	parents := true
 	if args.Parents != nil {

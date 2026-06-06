@@ -12,9 +12,6 @@ type Env struct {
 	// CWD is the session working directory.
 	CWD string
 
-	// RestrictToCWD prevents operations outside the working directory.
-	RestrictToCWD bool
-
 	// PermissionMode controls when the agent requests user approval before running a tool.
 	// Values mirror config.PermMode* constants: "ask", "accept_edits", "bypass".
 	PermissionMode string

@@ -46,11 +46,6 @@ func executeRemove(_ context.Context, argsJSON string, env *tooling.Env) (string
 	}
 
 	path := ResolvePath(args.Path, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	recursive := false
 	if args.Recursive != nil {

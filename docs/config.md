@@ -144,17 +144,12 @@ mcp_servers:
 
 # Tool configuration (Go: config.Tools, internal/config/tools.go)
 tools:
-  # Require explicit user permission before running shell commands
-  require_permission_for_commands: true
-
-  # Require permission before writing files
-  require_permission_for_writes: false
-
-  # Working directory restriction: only allow operations within session cwd
-  restrict_to_cwd: true
-
-  # When non-empty, auto-approve all tool permission prompts (ACP and HTTP). Use only in trusted environments.
-  # permission_master_key: "${CODDY_PERMISSION_MASTER_KEY}"
+  # Controls when the agent asks for user approval before running tools.
+  # ask          - always prompt for commands and file writes (default)
+  # accept_edits - auto-approve file writes; prompt for shell commands
+  # bypass       - never ask for permission (use only in trusted environments)
+  # Overridable per session via ACP session/set_config_option with configId "permission_mode".
+  permission_mode: ask
 
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:

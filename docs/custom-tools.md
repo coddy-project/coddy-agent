@@ -79,11 +79,9 @@ The `Env` struct is passed to every `Execute` call and provides session context:
 
 ```go
 type Env struct {
-    CWD                          string   // session working directory
-    RestrictToCWD                bool     // deny paths outside CWD
-    RequirePermissionForCommands bool     // force permission for run_command
-    RequirePermissionForWrites   bool     // force permission for write_file
-    CommandAllowlist             []string // commands that skip permission checks
+    CWD              string   // session working directory
+    PermissionMode   string   // "ask", "accept_edits", or "bypass"
+    CommandAllowlist []string // commands that skip permission checks
 
     // Plan/todo support (always populated by the ReAct agent):
     SessionID string                      // current session ID

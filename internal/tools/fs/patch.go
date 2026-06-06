@@ -56,11 +56,6 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 	}
 
 	path := ResolvePath(args.FilePath, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {

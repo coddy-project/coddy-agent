@@ -64,12 +64,6 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 	if args.Path != "" {
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(searchPath, env.CWD); err != nil {
-			return "", err
-		}
-	}
-
 	st, err := os.Stat(searchPath)
 	if err != nil {
 		return "", fmt.Errorf("glob: %w", err)

@@ -7,14 +7,8 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
-
-// MasterKeyActive reports whether tools.permission_master_key is set (bypasses prompts).
-func MasterKeyActive(cfg *config.Config) bool {
-	return cfg != nil && strings.TrimSpace(cfg.Tools.PermissionMasterKey) != ""
-}
 
 // CommandAllowedWithSession merges config command_allowlist with session-scoped grants (same matching rules).
 func CommandAllowedWithSession(env *tooling.Env, sessionCmdGrants []string, cmd string) bool {

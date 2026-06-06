@@ -49,14 +49,6 @@ func executeMove(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 
 	src := ResolvePath(args.Src, env.CWD)
 	dst := ResolvePath(args.Dst, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(src, env.CWD); err != nil {
-			return "", err
-		}
-		if err := CheckInsideCWD(dst, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	if err := movePath(src, dst); err != nil {
 		return "", fmt.Errorf("mv: %w", err)

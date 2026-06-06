@@ -49,12 +49,3 @@ func ResolvePath(path, cwd string) string {
 	return toolfs.ResolvePath(path, cwd)
 }
 
-// PathEscapesCWD reports whether an absolute-resolved path leaves the cwd tree.
-func PathEscapesCWD(path, cwd string) bool {
-	return toolfs.PathEscapesCWD(path, cwd)
-}
-
-// ToolPathsEscapeCWD detects path fields in built-in JSON args that escape cwd.
-func ToolPathsEscapeCWD(toolName, argsJSON, cwd string) bool {
-	return toolfs.ToolPathsEscapeCWD(toolName, argsJSON, cwd)
-}

@@ -81,11 +81,6 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 
 	path := ResolvePath(args.FilePath, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	st, err := os.Stat(path)
 	if err != nil {

@@ -14,8 +14,7 @@ import (
 func makeEnv(t *testing.T) *tools.Env {
 	t.Helper()
 	return &tools.Env{
-		CWD:           t.TempDir(),
-		RestrictToCWD: true,
+		CWD: t.TempDir(),
 	}
 }
 
@@ -108,17 +107,6 @@ func TestWriteFileCreatesDirectories(t *testing.T) {
 	}
 	if string(data) != "nested content" {
 		t.Errorf("nested file content mismatch: %q", string(data))
-	}
-}
-
-func TestReadFileOutsideCWD(t *testing.T) {
-	env := makeEnv(t)
-	reg := tools.NewRegistry()
-
-	args, _ := json.Marshal(map[string]interface{}{"filePath": "/etc/passwd"})
-	_, err := reg.Execute(context.Background(), "read", string(args), env)
-	if err == nil {
-		t.Error("expected error when reading outside CWD")
 	}
 }
 

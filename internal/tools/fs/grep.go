@@ -66,12 +66,6 @@ func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string
 	if args.Path != "" {
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(searchPath, env.CWD); err != nil {
-			return "", err
-		}
-	}
-
 	maxResults := 100
 	if args.MaxResults > 0 {
 		maxResults = args.MaxResults

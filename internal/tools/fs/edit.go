@@ -59,11 +59,6 @@ func executeEdit(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	}
 
 	path := ResolvePath(args.FilePath, env.CWD)
-	if env.RestrictToCWD {
-		if err := CheckInsideCWD(path, env.CWD); err != nil {
-			return "", err
-		}
-	}
 
 	if args.OldString == args.NewString && args.OldString != "" {
 		return "", fmt.Errorf("edit: oldString and newString must differ")
