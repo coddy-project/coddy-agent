@@ -92,11 +92,10 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 	return &tools.Env{
-		CWD:                          a.state.GetCWD(),
-		RestrictToCWD:                a.cfg.Tools.RestrictToCWD,
-		RequirePermissionForCommands: a.cfg.Tools.RequirePermissionForCommands,
-		RequirePermissionForWrites:   a.cfg.Tools.RequirePermissionForWrites,
-		CommandAllowlist:             a.cfg.Tools.CommandAllowlist,
+		CWD:              a.state.GetCWD(),
+		RestrictToCWD:    a.cfg.Tools.RestrictToCWD,
+		PermissionMode:   effectivePermMode(a.state, a.cfg),
+		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
 		SessionID:                    a.state.GetID(),
 		SessionDir:                   sessionDir,
 		ArchiveActiveMarkdown: func() error {

@@ -85,6 +85,10 @@ type State struct {
 	SchedulerEndedAt    string // RFC3339 UTC when terminal
 	SchedulerStopStatus string // running | completed | failed | cancelled
 
+	// PermissionMode is the session-level override for tools.permission_mode.
+	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
+	PermissionMode string
+
 	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
@@ -211,6 +215,21 @@ func (s *State) GetMode() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return string(s.Mode)
+}
+
+// SetPermissionMode updates the session-level permission mode override.
+func (s *State) SetPermissionMode(mode string) {
+	s.mu.Lock()
+	s.PermissionMode = mode
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// GetPermissionMode returns the session-level permission mode override (empty = use config default).
+func (s *State) GetPermissionMode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.PermissionMode
 }
 
 // GetSelectedModelID returns the session model override, or empty if defaults apply.
@@ -503,12 +522,13 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	s.mu.Unlock()
 }
 
-// RestoreMetaWithoutPersist restores mode and model/memory fields from disk (no persistence callback).
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, agentMemory string) {
+// RestoreMetaWithoutPersist restores mode, model/memory, and permission mode from disk (no persistence callback).
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, agentMemory, permissionMode string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
 	s.AgentMemory = agentMemory
+	s.PermissionMode = permissionMode
 	s.mu.Unlock()
 }
 

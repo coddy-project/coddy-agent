@@ -46,6 +46,7 @@ type SessionState interface {
 	AppendPlanDocument(plans.Document)
 	DiscardedPlanSlugs() []string
 	TakePendingPlanContext() string
+	GetPermissionMode() string
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -132,11 +133,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 
 	toolEnv := &tools.Env{
-		CWD:                          a.state.GetCWD(),
-		RestrictToCWD:                a.cfg.Tools.RestrictToCWD,
-		RequirePermissionForCommands: a.cfg.Tools.RequirePermissionForCommands,
-		RequirePermissionForWrites:   a.cfg.Tools.RequirePermissionForWrites,
-		CommandAllowlist:             a.cfg.Tools.CommandAllowlist,
+		CWD:              a.state.GetCWD(),
+		RestrictToCWD:    a.cfg.Tools.RestrictToCWD,
+		PermissionMode:   effectivePermMode(a.state, a.cfg),
+		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
 		SessionID:                    a.state.GetID(),
 		SessionDir:                   sd,
 		ArchiveActiveMarkdown: func() error {
@@ -455,22 +455,40 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 
 	if tc.Name == "run_command" {
-		if env.RequirePermissionForCommands {
+		switch env.PermissionMode {
+		case config.PermModeBypass:
+			requiresPerm = false
+		case config.PermModeAcceptEdits:
 			cmd := permission.ExtractRunCommand(tc.InputJSON)
 			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
 				requiresPerm = false
 			} else {
 				requiresPerm = true
 			}
-		} else {
-			requiresPerm = false
+		default: // ask
+			cmd := permission.ExtractRunCommand(tc.InputJSON)
+			if permission.CommandAllowedWithSession(env, sessCmdGrants, cmd) {
+				requiresPerm = false
+			} else {
+				requiresPerm = true
+			}
 		}
-	} else if filesystemWriteTool(tc.Name) && env.RequirePermissionForWrites {
-		keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
-		if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
-			requiresPerm = false
-		} else {
-			requiresPerm = true
+	} else if filesystemWriteTool(tc.Name) {
+		switch env.PermissionMode {
+		case config.PermModeBypass, config.PermModeAcceptEdits:
+			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
+			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
+				requiresPerm = false
+			} else {
+				requiresPerm = false // auto-approve
+			}
+		default: // ask
+			keys := permission.WriteGrantKeys(tc.Name, tc.InputJSON, env.CWD)
+			if permission.AllWriteKeysGranted(sessWriteGrants, keys) {
+				requiresPerm = false
+			} else {
+				requiresPerm = true
+			}
 		}
 	}
 
@@ -717,6 +735,14 @@ func filesystemWriteTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// effectivePermMode returns the session-level permission mode override, falling back to the config default.
+func effectivePermMode(state SessionState, cfg *config.Config) string {
+	if m := state.GetPermissionMode(); m != "" {
+		return m
+	}
+	return cfg.Tools.ResolvedPermMode()
 }
 
 // extractCommand parses the "command" field from run_command JSON args.

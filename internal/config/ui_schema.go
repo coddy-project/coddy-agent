@@ -284,10 +284,12 @@ func UISchemaMap() map[string]interface{} {
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
-				"require_permission_for_commands": boolProp("Confirm shell commands",
-					"When true, the user must approve each shell invocation."),
-				"require_permission_for_writes": boolProp("Confirm writes",
-					"When true, the user must approve mutating file operations."),
+				"permission_mode": map[string]interface{}{
+					"type":        "string",
+					"title":       "Permission mode",
+					"description": "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
+					"enum":        []string{PermModeAsk, PermModeAcceptEdits, PermModeBypass},
+				},
 				"restrict_to_cwd": boolProp("Restrict to session cwd",
 					"When true, file tools stay under the session working directory."),
 				"command_allowlist": map[string]interface{}{
@@ -297,9 +299,9 @@ func UISchemaMap() map[string]interface{} {
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"permission_master_key": strProp("Permission master key",
-					"Optional shared secret to auto-approve permission prompts when the client supplies it."),
+					"Optional shared secret to auto-approve permission prompts for HTTP clients that supply it."),
 			},
-			[]string{"require_permission_for_commands", "require_permission_for_writes", "restrict_to_cwd", "command_allowlist", "permission_master_key"},
+			[]string{"permission_mode", "restrict_to_cwd", "command_allowlist", "permission_master_key"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",

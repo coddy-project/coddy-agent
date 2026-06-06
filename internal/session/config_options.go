@@ -54,5 +54,24 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 		CurrentValue: current,
 		Options:      opts,
 	}
-	return append(out, modelOpt)
+	out = append(out, modelOpt)
+
+	effectivePerm := state.GetPermissionMode()
+	if effectivePerm == "" {
+		effectivePerm = cfg.Tools.ResolvedPermMode()
+	}
+	permOpt := acp.ConfigOption{
+		ID:           "permission_mode",
+		Name:         "Permission mode",
+		Description:  "Controls when the agent asks for user approval before running tools.",
+		Category:     "permissions",
+		Type:         "select",
+		CurrentValue: effectivePerm,
+		Options: []acp.ConfigOptionValue{
+			{Value: config.PermModeAsk, Name: "Ask", Description: "Always ask before running commands or writing files"},
+			{Value: config.PermModeAcceptEdits, Name: "Accept edits", Description: "Auto-approve file writes; ask before running commands"},
+			{Value: config.PermModeBypass, Name: "Bypass", Description: "Never ask for permission"},
+		},
+	}
+	return append(out, permOpt)
 }

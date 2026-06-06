@@ -78,7 +78,7 @@ sessions:
   dir: "${CODDY_HOME}/mysess"
 
 tools:
-  require_permission_for_commands: true
+  permission_mode: ask
   command_allowlist:
     - "  go test  "
 
@@ -135,8 +135,8 @@ logger:
 	if len(cfg.Tools.CommandAllowlist) != 1 || cfg.Tools.CommandAllowlist[0] != "go test" {
 		t.Errorf("tools.command_allowlist trimmed: got %#v", cfg.Tools.CommandAllowlist)
 	}
-	if !cfg.Tools.RequirePermissionForCommands {
-		t.Error("tools.require_permission_for_commands")
+	if cfg.Tools.PermissionMode != config.PermModeAsk {
+		t.Errorf("tools.permission_mode: got %q want %q", cfg.Tools.PermissionMode, config.PermModeAsk)
 	}
 
 	if cfg.Logger.Level != "warn" || cfg.Logger.Format != "json" {

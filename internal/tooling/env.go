@@ -15,11 +15,9 @@ type Env struct {
 	// RestrictToCWD prevents operations outside the working directory.
 	RestrictToCWD bool
 
-	// RequirePermissionForCommands enables permission prompts for commands.
-	RequirePermissionForCommands bool
-
-	// RequirePermissionForWrites enables permission prompts for writes.
-	RequirePermissionForWrites bool
+	// PermissionMode controls when the agent requests user approval before running a tool.
+	// Values mirror config.PermMode* constants: "ask", "accept_edits", "bypass".
+	PermissionMode string
 
 	// CommandAllowlist contains command prefixes/exact commands that never
 	// require permission. Checked via CommandAllowed().

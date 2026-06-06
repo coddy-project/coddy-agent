@@ -39,11 +39,10 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		MCPServers: []MCPServerJSON{},
 		Tools: ToolsJSON{
-			RequirePermissionForCommands: false,
-			RequirePermissionForWrites:   false,
-			RestrictToCWD:                false,
-			CommandAllowlist:             nil,
-			PermissionMasterKey:          "",
+			PermissionMode:      PermModeAsk,
+			RestrictToCWD:       false,
+			CommandAllowlist:    nil,
+			PermissionMasterKey: "",
 		},
 		Logger: LoggerJSON{
 			Level:    LogLevelInfo,

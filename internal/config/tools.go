@@ -2,19 +2,45 @@ package config
 
 import "strings"
 
+// Permission mode constants for tools.permission_mode.
+const (
+	// PermModeAsk asks for user approval before each shell command and each file write.
+	PermModeAsk = "ask"
+	// PermModeAcceptEdits auto-approves file writes but still asks for shell commands.
+	PermModeAcceptEdits = "accept_edits"
+	// PermModeBypass skips all permission prompts (use only in fully trusted environments).
+	PermModeBypass = "bypass"
+)
+
 // Tools is the YAML tools section (key tools).
 type Tools struct {
-	RequirePermissionForCommands bool     `yaml:"require_permission_for_commands"`
-	RequirePermissionForWrites   bool     `yaml:"require_permission_for_writes"`
-	RestrictToCWD                bool     `yaml:"restrict_to_cwd"`
-	CommandAllowlist             []string `yaml:"command_allowlist"`
-	// PermissionMasterKey when non-empty bypasses all tool permission prompts (dangerous; use only in trusted environments).
+	// PermissionMode controls when the agent asks for user approval before running tools.
+	// Values: "ask" (default), "accept_edits", "bypass".
+	PermissionMode string `yaml:"permission_mode"`
+
+	RestrictToCWD    bool     `yaml:"restrict_to_cwd"`
+	CommandAllowlist []string `yaml:"command_allowlist"`
+	// PermissionMasterKey when non-empty bypasses all tool permission prompts for HTTP clients
+	// that supply this key in the X-Permission-Key header (dangerous; use only in trusted environments).
 	PermissionMasterKey string `yaml:"permission_master_key"`
 }
 
-// Validate trims allowlist entries in place.
+// ResolvedPermMode returns PermissionMode with a safe default of PermModeAsk.
+func (c *Tools) ResolvedPermMode() string {
+	switch c.PermissionMode {
+	case PermModeAsk, PermModeAcceptEdits, PermModeBypass:
+		return c.PermissionMode
+	default:
+		return PermModeAsk
+	}
+}
+
+// Validate trims allowlist entries in place and normalises PermissionMode.
 func (c *Tools) Validate() error {
 	c.PermissionMasterKey = strings.TrimSpace(c.PermissionMasterKey)
+	if c.PermissionMode == "" {
+		c.PermissionMode = PermModeAsk
+	}
 	for i := range c.CommandAllowlist {
 		c.CommandAllowlist[i] = strings.TrimSpace(c.CommandAllowlist[i])
 	}

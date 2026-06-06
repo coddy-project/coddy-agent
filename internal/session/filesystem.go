@@ -117,6 +117,8 @@ type SessionMeta struct {
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
 	ReadActivitySeq uint64 `json:"readActivitySeq,omitempty"`
+	// PermissionMode is the session-level override for tools.permission_mode.
+	PermissionMode string `json:"permissionMode,omitempty"`
 }
 
 // ExcludedFromComposerSessionList reports whether this session should not appear on default composer UI lists (GET /coddy/sessions).
@@ -402,6 +404,7 @@ func (f *FileStore) Save(state *State) error {
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
+	meta.PermissionMode = state.GetPermissionMode()
 	if err := writeJSONAtomic(metaPath, meta); err != nil {
 		return err
 	}

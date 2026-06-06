@@ -314,7 +314,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	if mode != ModeAgent && mode != ModePlan {
 		mode = ModeAgent
 	}
-	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.AgentMemory)
+	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -631,6 +631,13 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 			return nil, fmt.Errorf("unknown model value: %q", params.Value)
 		}
 		state.SetSelectedModelID(params.Value)
+	case "permission_mode":
+		switch params.Value {
+		case config.PermModeAsk, config.PermModeAcceptEdits, config.PermModeBypass:
+		default:
+			return nil, fmt.Errorf("invalid permission_mode value: %q", params.Value)
+		}
+		state.SetPermissionMode(params.Value)
 	default:
 		return nil, fmt.Errorf("unknown config option: %q", params.ConfigID)
 	}

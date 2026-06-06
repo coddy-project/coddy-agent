@@ -88,11 +88,10 @@ type HTTPHeaderJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	RequirePermissionForCommands bool     `json:"require_permission_for_commands,omitempty"`
-	RequirePermissionForWrites   bool     `json:"require_permission_for_writes,omitempty"`
-	RestrictToCWD                bool     `json:"restrict_to_cwd,omitempty"`
-	CommandAllowlist             []string `json:"command_allowlist,omitempty"`
-	PermissionMasterKey          string   `json:"permission_master_key,omitempty"`
+	PermissionMode      string   `json:"permission_mode,omitempty"`
+	RestrictToCWD       bool     `json:"restrict_to_cwd,omitempty"`
+	CommandAllowlist    []string `json:"command_allowlist,omitempty"`
+	PermissionMasterKey string   `json:"permission_master_key,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -176,11 +175,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.MCPServers = append(out.MCPServers, mj)
 	}
 	out.Tools = ToolsJSON{
-		RequirePermissionForCommands: c.Tools.RequirePermissionForCommands,
-		RequirePermissionForWrites:   c.Tools.RequirePermissionForWrites,
-		RestrictToCWD:                c.Tools.RestrictToCWD,
-		CommandAllowlist:             append([]string(nil), c.Tools.CommandAllowlist...),
-		PermissionMasterKey:          c.Tools.PermissionMasterKey,
+		PermissionMode:      c.Tools.ResolvedPermMode(),
+		RestrictToCWD:       c.Tools.RestrictToCWD,
+		CommandAllowlist:    append([]string(nil), c.Tools.CommandAllowlist...),
+		PermissionMasterKey: c.Tools.PermissionMasterKey,
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -238,11 +236,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
 	cfg.Tools = Tools{
-		RequirePermissionForCommands: j.Tools.RequirePermissionForCommands,
-		RequirePermissionForWrites:   j.Tools.RequirePermissionForWrites,
-		RestrictToCWD:                j.Tools.RestrictToCWD,
-		CommandAllowlist:             append([]string(nil), j.Tools.CommandAllowlist...),
-		PermissionMasterKey:          j.Tools.PermissionMasterKey,
+		PermissionMode:      j.Tools.PermissionMode,
+		RestrictToCWD:       j.Tools.RestrictToCWD,
+		CommandAllowlist:    append([]string(nil), j.Tools.CommandAllowlist...),
+		PermissionMasterKey: j.Tools.PermissionMasterKey,
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
