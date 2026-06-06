@@ -1,7 +1,9 @@
 ---
 description: BDD-style workflow, HTTP OpenAPI sync before lint, final checks
-globs: **/*.go, docs/**/*.md, README.md
-alwaysApply: true
+paths:
+  - "**/*.go"
+  - "docs/**/*.md"
+  - "README.md"
 ---
 
 # Workflow (features, bugs, finish)
@@ -33,16 +35,4 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`make test`** green.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`make lint`** clean.
-- **Rules sync** — if any `.cursor/rules/*.mdc` file was added or changed, propagate to `.claude/rules/`: copy the content body, replace `globs:`/`alwaysApply:` with Claude-compatible `paths:` (list form), rename to `.md`. Files with `alwaysApply: true` keep `paths:` matching the globs.
-
-## References
-
-@testing.mdc
-@code-style.mdc
-@architecture.mdc
-@api-layer.mdc
-@implementation-order.mdc
-@Makefile
-@docs/http-api.md
-@external/httpserver/server.go
-@external/httpserver/openapi.go
+- **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.

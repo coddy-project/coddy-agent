@@ -1,0 +1,20 @@
+---
+description: Embedded SPA chat UI conventions (thinking row, context meter, rebuild)
+paths:
+  - "external/ui/**/*"
+---
+
+# Embedded UI (`external/ui`)
+
+- Rebuild **`go:embed`** assets after UI changes: **`make build TAGS="http ui"`** (runs **`ui-build`**).
+- **Thinking disclosure row** - duration must sit **next to** the **thinking** label, not at the trailing edge of the column. Markup keeps **`.thinking-dur`** inside **`.thinking-left`** in **`ThinkingMessage.tsx`**. Styles use **`.thinking-left { gap: 0 5px; }`** in **`styles.css`**. Do not drive label vs timer spacing with **`justify-content: space-between`** on **`summary.thinking-summary`**.
+- **Composer context ring** (indicator left of Send in **`Composer.tsx`**)
+  - The ring itself is **only** a stroked arc (relative context fill). Do **not** place a numeric percent label inside or on top of it. Percent usage and token counts belong in the tooltip only.
+  - **Idle home** (**`contextIdle`** when there is **no** `sessionId`): keep the arc at **zero** fill. Tooltip body is **exactly**: first line **`No context usage yet`**, second line **`Max context <n>`** (no session usage lines, **no** model name line).
+  - With an active session (including hero with **`#/s/...`** in the hash): show fill from **`tokenUsage`** vs **`maxContextTokens`**. Tooltip lists percent line, optional Input/Output/Total line(s) when **`tokenUsage`** is present, then Max context line. Do **not** add a **`Model …`** line in this tooltip (**Mode** exposes **`agent`** / **`plan`**; **`Model`** is the YAML backend pill next to it).
+  - Tooltip **presentation**: reuse the **`rail-tip`** styling (same family as narrow **navbar** hints). Anchor it **above** the ring, **horizontally centered** on it, with a **comfortable width** (use **`composer-context-tip-host`** / **`composer-context-tip`** rules in **`styles.css`**; avoid a cramped single-column tooltip).
+  - Prefer no extra chrome on the meter (no bordered "button tile" behind the SVG); **`.context-ring`** styling stays minimal. Stroke colors come from **`--coddy-context-ring-inner`** / **`--coddy-context-ring-fg`** (defined per theme in **`styles.css`**).
+- **Send/stop circle** (**`Composer.tsx`** **`#btn-send`**) - **`composer-icon`** is a **perfect circle** (**`border-radius: 50%`**, square box). The shared **`composer-run-icon`** class is also used by scheduler run/stop buttons. **Play** uses **~22px** **▶**; **stop** uses **`.composer-stop-square`** (**14x14px**, centered). Ring + stop stay in **`composer-bar-actions`** on the right (**`DESIGN.md`**, Composer primary action).
+- **Tool call timer** - while an unresolved **`permission_prompt`** references a tool call id, **`ToolCallMessage`** freezes the **`thinking-dur`** label (**`permissionWaiting`** via **`permissionPendingToolCallIds`**).
+- **Permission after reload** - SSE rows persist in **`localStorage`** (**`permissionPromptSessionStore.ts`**); pending **`run_command`** / fs tools without a tool result also get a synthetic **`permission_prompt`** on **`GET .../messages`** merge (**`restorePermissionPrompts.ts`**). Stop glyph is **`.composer-send-glyph` > `.composer-stop-square`** (never both classes on one node).
+- Authoritative layout and tokens remain in the repo root **`DESIGN.md`**.

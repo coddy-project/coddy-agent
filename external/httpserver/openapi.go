@@ -606,6 +606,62 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/skills": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List skills",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`).",
+					"operationId": "listSkills",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Skill list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/SkillList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a skill",
+					"description": "Removes **{name}** from the disabled list so the skill is loaded on the next session turn.",
+					"operationId": "enableSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Skill enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a skill",
+					"description": "Adds **{name}** to the disabled list so the skill is skipped during loading. The skill files are not removed.",
+					"operationId": "disableSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Skill disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
@@ -637,6 +693,30 @@ func openAPISpec() map[string]interface{} {
 							"properties": map[string]interface{}{
 								"message": map[string]string{"type": "string"},
 							},
+						},
+					},
+				},
+				"SkillRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Canonical skill name."},
+						"description": map[string]string{"type": "string"},
+						"file_path":   map[string]string{"type": "string"},
+						"always_apply": map[string]interface{}{"type": "boolean"},
+						"globs": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]string{"type": "string"},
+						},
+						"disabled": map[string]interface{}{"type": "boolean", "description": "True when the skill is in the disabled list."},
+					},
+				},
+				"SkillList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.skills_list"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillRow"},
 						},
 					},
 				},
