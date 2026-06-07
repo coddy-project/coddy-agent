@@ -13,28 +13,12 @@ import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
-import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
+import {
+  subscribeShellStack,
+  snapshotShellStack,
+  serverSnapshotShellStack,
+} from "../shellBreakpoint";
 import { transcriptItemsAffectAutoScroll } from "./transcriptAutoScroll";
-
-const DOC_SCROLL_SHELL_STACK_MQ = shellStackMaxWidthMediaQuery;
-
-function subscribeMobileDocScroll(cb: () => void) {
-  if (typeof window === "undefined") return () => {};
-  const mq = window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ);
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
-}
-
-function snapshotMobileDocScroll() {
-  return (
-    typeof window !== "undefined" &&
-    window.matchMedia(DOC_SCROLL_SHELL_STACK_MQ).matches
-  );
-}
-
-function serverSnapshotMobileDocScroll() {
-  return false;
-}
 
 export function ChatScreen(props: {
   title: string;
@@ -55,9 +39,11 @@ export function ChatScreen(props: {
   llmModels?: string[];
   llmModel?: string;
   onLlmModelChange?: (modelId: string) => void;
+  /** Whether the currently selected model accepts image/file inputs. */
+  llmModelMultimodal?: boolean;
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, files?: File[]) => void;
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
@@ -90,9 +76,9 @@ export function ChatScreen(props: {
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const [composerReserve, setComposerReserve] = useState(200);
   const mobileDocScroll = useSyncExternalStore(
-    subscribeMobileDocScroll,
-    snapshotMobileDocScroll,
-    serverSnapshotMobileDocScroll,
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
   );
 
   useLayoutEffect(() => {
@@ -228,6 +214,7 @@ export function ChatScreen(props: {
                     llmModels: props.llmModels,
                     llmModel: props.llmModel,
                     onLlmModelChange: props.onLlmModelChange,
+                    llmModelMultimodal: props.llmModelMultimodal,
                   }
                 : {})}
               onModeChange={props.onModeChange}
@@ -239,6 +226,11 @@ export function ChatScreen(props: {
                 : {})}
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
             />
+          </div>
+          <div className="hero-footer">
+            <a href="https://github.com/coddy-project/coddy-agent" target="_blank" rel="noopener">GitHub</a>
+            <span className="hero-footer-sep" aria-hidden>|</span>
+            <a href="/docs/" target="_blank" rel="noopener">API docs</a>
           </div>
         </div>
       ) : (
@@ -327,6 +319,7 @@ export function ChatScreen(props: {
                       llmModels: props.llmModels,
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
+                      llmModelMultimodal: props.llmModelMultimodal,
                     }
                   : {})}
                 onModeChange={props.onModeChange}

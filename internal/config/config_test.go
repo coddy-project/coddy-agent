@@ -484,3 +484,40 @@ agent:
 		t.Fatalf("dir %q want %q", cfg.Scheduler.Dir, wantDir)
 	}
 }
+
+func TestModelEntryMultimodalParsedFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+providers:
+  - name: openai
+    type: openai
+    api_key: test-key
+models:
+  - model: openai/gpt-4o
+    max_tokens: 1024
+    temperature: 0.2
+    multimodal: true
+  - model: openai/gpt-4o-mini
+    max_tokens: 512
+    temperature: 0.5
+agent:
+  model: openai/gpt-4o
+`
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(cfg.Models))
+	}
+	if !cfg.Models[0].Multimodal {
+		t.Errorf("models[0] (gpt-4o): want multimodal=true")
+	}
+	if cfg.Models[1].Multimodal {
+		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
+	}
+}

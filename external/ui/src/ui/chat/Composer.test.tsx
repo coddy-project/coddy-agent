@@ -530,3 +530,183 @@ test("context meter fill width reflects usage percent", () => {
   const fill = screen.getByTestId("context-meter-fill");
   expect(fill.style.width).toBe("10%");
 });
+function stubMatchMediaMobile(isMobile: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: isMobile,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+test("desktop: Ctrl+Enter calls onSend", () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter", ctrlKey: true });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("desktop: Shift+Enter does not call onSend", () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter", shiftKey: true });
+  expect(onSend).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
+
+test("mobile: Enter does not call onSend (newline only)", () => {
+  stubMatchMediaMobile(true);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onSend).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
+
+test("mobile: clicking Send button calls onSend", () => {
+  stubMatchMediaMobile(true);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith("hello");
+  vi.unstubAllGlobals();
+});
+
+test("attach button hidden when llmModelMultimodal is false", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={false}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.queryByTestId("composer-attach-btn")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("attach button visible when llmModelMultimodal is true", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModels={["openai/gpt-4o"]}
+      llmModel="openai/gpt-4o"
+      llmModelMultimodal={true}
+      onLlmModelChange={() => {}}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("composer-attach-btn")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("selecting a file shows attachment chip", async () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value="hello"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const fileInput = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const file = new File(["content"], "photo.png", { type: "image/png" });
+  fireEvent.change(fileInput, { target: { files: [file] } });
+  await waitFor(() => {
+    expect(screen.getByText("photo.png")).toBeTruthy();
+  });
+  vi.unstubAllGlobals();
+});
+
+test("send with attached file passes files to onSend", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value="describe this"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const fileInput = screen.getByTestId("composer-file-input") as HTMLInputElement;
+  const file = new File(["data"], "img.png", { type: "image/png" });
+  fireEvent.change(fileInput, { target: { files: [file] } });
+  await waitFor(() => screen.getByText("img.png"));
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledWith("describe this", [file]);
+  vi.unstubAllGlobals();
+});

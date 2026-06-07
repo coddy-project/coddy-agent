@@ -183,7 +183,21 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		case RoleSystem:
 			oaiMessages = append(oaiMessages, openai.SystemMessage(m.Content))
 		case RoleUser:
-			oaiMessages = append(oaiMessages, openai.UserMessage(m.Content))
+			if len(m.ImageParts) > 0 {
+				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, 1+len(m.ImageParts))
+				if m.Content != "" {
+					parts = append(parts, openai.TextContentPart(m.Content))
+				}
+				for _, ip := range m.ImageParts {
+					parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+						URL:    ip.DataURL,
+						Detail: "auto",
+					}))
+				}
+				oaiMessages = append(oaiMessages, openai.UserMessage(parts))
+			} else {
+				oaiMessages = append(oaiMessages, openai.UserMessage(m.Content))
+			}
 		case RoleAssistant:
 			if len(m.ToolCalls) > 0 {
 				calls := make([]openai.ChatCompletionMessageToolCallParam, len(m.ToolCalls))

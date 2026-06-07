@@ -98,6 +98,62 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}
 }
 
+func TestGETModelsMultimodalField(t *testing.T) {
+	cfg := &config.Config{
+		Agent: config.Agent{Model: "openai/gpt-4o"},
+		Models: []config.ModelEntry{
+			{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: false},
+			{Model: "openai/gpt-4o-vision", MaxTokens: 100, Temperature: 0.2, Multimodal: true},
+		},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		Data []struct {
+			ID         string `json:"id"`
+			OwnedBy    string `json:"owned_by"`
+			Multimodal bool   `json:"multimodal"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	type want struct {
+		id         string
+		multimodal bool
+	}
+	wantRows := []want{
+		{id: string(session.ModeAgent)},
+		{id: string(session.ModePlan)},
+		{id: "openai/gpt-4o", multimodal: false},
+		{id: "openai/gpt-4o-vision", multimodal: true},
+	}
+	if len(body.Data) != len(wantRows) {
+		t.Fatalf("want %d rows, got %d: %+v", len(wantRows), len(body.Data), body.Data)
+	}
+	for i, w := range wantRows {
+		row := body.Data[i]
+		if row.ID != w.id {
+			t.Errorf("row %d: want id=%q got %q", i, w.id, row.ID)
+		}
+		if row.Multimodal != w.multimodal {
+			t.Errorf("row %d (id=%q): want multimodal=%v got %v", i, w.id, w.multimodal, row.Multimodal)
+		}
+	}
+}
+
 func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	doc := openAPISpec()
 	if doc["openapi"] != "3.0.3" {
@@ -1718,6 +1774,68 @@ agent:
 	}
 	if mgr.Cfg().Agent.MaxTurns != 12 {
 		t.Fatalf("mgr max_turns %d", mgr.Cfg().Agent.MaxTurns)
+	}
+}
+
+// TestResponsesInlineFilesDirectModel verifies that inline_files reach the
+// provider as ImageParts on the user message for a direct YAML model call.
+func TestResponsesInlineFilesDirectModel(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model":"openai/gpt-4o","input":"describe","stream":true,` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d", res.StatusCode)
+	}
+
+	msgs := cp.seen
+	var userMsg *llm.Message
+	for i := range msgs {
+		if msgs[i].Role == llm.RoleUser {
+			userMsg = &msgs[i]
+		}
+	}
+	if userMsg == nil {
+		t.Fatal("no user message found")
+	}
+	if len(userMsg.ImageParts) != 1 {
+		t.Fatalf("want 1 image part, got %d", len(userMsg.ImageParts))
+	}
+	if userMsg.ImageParts[0].DataURL != "data:image/png;base64,abc" {
+		t.Fatalf("unexpected data_url: %s", userMsg.ImageParts[0].DataURL)
+	}
+	if userMsg.ImageParts[0].Name != "img.png" {
+		t.Fatalf("unexpected name: %s", userMsg.ImageParts[0].Name)
+	}
+}
+
+// TestResponsesInlineFilesRejectedForAgent verifies that inline_files are
+// rejected when used with agent/plan mode.
+func TestResponsesInlineFilesRejectedForAgent(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model":"agent","input":"hi","stream":false,` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d: %s", res.StatusCode, b)
 	}
 }
 

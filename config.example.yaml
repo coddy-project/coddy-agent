@@ -46,10 +46,12 @@ models:
   - model: "openai/gpt-4o"
     max_tokens: 8192
     temperature: 0.2
+    multimodal: true              # model accepts image/file inputs; UI shows file attachment button
 
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
+  #   multimodal: false
 
 agent:
   model: "openai/gpt-4o"

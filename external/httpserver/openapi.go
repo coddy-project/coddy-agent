@@ -744,6 +744,7 @@ func openAPISpec() map[string]interface{} {
 									"created":            map[string]string{"type": "integer", "format": "int64"},
 									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
 									"max_context_tokens": map[string]string{"type": "integer"},
+									"multimodal":         map[string]string{"type": "boolean"},
 								},
 							},
 						},
@@ -857,6 +858,11 @@ func openAPISpec() map[string]interface{} {
 							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
+						"inline_files": map[string]interface{}{
+							"type":        "array",
+							"description": "Allowed only for direct YAML model calls (not **`agent`** or **`plan`**). Each entry is a base64 data URI sent to the model as an image content part.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
+						},
 					},
 					"required": []string{"model", "input"},
 				},
@@ -877,6 +883,20 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"required": []string{"path"},
+				},
+				"ResponsesInlineFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]string{
+							"type":        "string",
+							"description": "Original file name (e.g. `photo.png`). Informational only.",
+						},
+						"data_url": map[string]string{
+							"type":        "string",
+							"description": "Data URI: `data:<mime>;base64,<bytes>` or an HTTPS image URL.",
+						},
+					},
+					"required": []string{"data_url"},
 				},
 				"ResponsesCreateResponse": map[string]interface{}{
 					"type": "object",

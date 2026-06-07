@@ -229,6 +229,7 @@ type ModelInfo = {
   id: string;
   ownedBy?: string;
   maxContextTokens?: number | undefined;
+  multimodal?: boolean;
 };
 
 const PROFILE_MODES = ["agent", "plan"] as const;
@@ -769,6 +770,7 @@ export function App() {
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
+  const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1301,6 +1303,7 @@ export function App() {
           id?: string;
           owned_by?: string;
           max_context_tokens?: number;
+          multimodal?: boolean;
         }>;
       }>("/v1/models");
       if (!res.ok || !res.data?.data) {
@@ -1313,10 +1316,11 @@ export function App() {
           ...(d.max_context_tokens !== undefined
             ? { maxContextTokens: d.max_context_tokens }
             : {}),
+          multimodal: !!d.multimodal,
         }))
         .filter((d) => d.id);
       const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy };
+        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy, multimodal: d.multimodal };
         if (d.maxContextTokens !== undefined) {
           m.maxContextTokens = d.maxContextTokens;
         }
@@ -1339,7 +1343,9 @@ export function App() {
         );
       }
     })();
-  }, []);
+  // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelsEpoch]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -2488,7 +2494,7 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string },
+    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
   ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
@@ -2603,6 +2609,21 @@ export function App() {
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+      }
+      if (opts?.files && opts.files.length > 0 && !profileModel) {
+        const inlineFiles = await Promise.all(
+          opts.files.map(
+            (f) =>
+              new Promise<{ name: string; data_url: string }>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () =>
+                  resolve({ name: f.name, data_url: reader.result as string });
+                reader.onerror = reject;
+                reader.readAsDataURL(f);
+              }),
+          ),
+        );
+        reqBody.inline_files = inlineFiles;
       }
       const yamlSel = llmModel.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
@@ -2892,6 +2913,11 @@ export function App() {
   const maxContextTokens = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
+  }, [modelInfos, llmModel]);
+
+  const llmModelMultimodal = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
   const onLlmModelChange = useCallback(
@@ -3210,6 +3236,7 @@ export function App() {
               onToggleAppearance={onToggleAppearance}
               skillsOpen={skillsPanelOpen}
               onToggleSkills={onToggleSkillsPanel}
+              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
             />
             {appearanceOpen ? (
               <AppearanceSheet onClose={onCloseAppearance} />
@@ -3236,7 +3263,7 @@ export function App() {
           mode={mode}
           modes={[...PROFILE_MODES]}
           {...(llmModelIds.length > 0
-            ? { llmModels: llmModelIds, llmModel, onLlmModelChange }
+            ? { llmModels: llmModelIds, llmModel, onLlmModelChange, llmModelMultimodal }
             : {})}
           onModeChange={setMode}
           onDraftChange={setDraft}
@@ -3299,7 +3326,7 @@ export function App() {
           }}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onSend={(text: string) => {
+          onSend={(text: string, files?: File[]) => {
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())
@@ -3312,7 +3339,7 @@ export function App() {
               setEditingUserMsgIdx(null);
               void handleBranchSend(text, idx);
             } else {
-              void streamResponses(text);
+              void streamResponses(text, files ? { files } : undefined);
             }
           }}
           onFetchToolCallFull={async (toolCallId: string) => {

@@ -7,26 +7,6 @@ import {
 } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "./sameTabInAppNav";
 
-/** Octicon-style mark, integer geometry (reads clearly at 18px). */
-function IconGitHub(props: { className?: string }) {
-  return (
-    <svg
-      className={props.className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.604-3.369-1.341-3.369-1.341-.454-1.155-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844a9.59 9.59 0 012.504.337c1.909-1.296 2.748-1.027 2.748-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.919.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.579.688.481A10.02 10.02 0 0022 12c0-5.523-4.477-10-10-10z"
-      />
-    </svg>
-  );
-}
-
 function IconBook(props: { className?: string }) {
   return (
     <svg
@@ -70,27 +50,6 @@ function IconScheduler(props: { className?: string }) {
     >
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v4l2.5 2.5" />
-    </svg>
-  );
-}
-
-function IconApi(props: { className?: string }) {
-  return (
-    <svg
-      className={props.className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      aria-hidden
-    >
-      <path
-        d="M14 7h2a5 5 0 015 5v0a5 5 0 01-5 5h-2M10 17H8A5 5 0 013 12v0a5 5 0 015-5h2M8 12h8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -341,50 +300,6 @@ export function NavRail(props: {
           ) : null}
 
           <div className="rail-spacer rail-spacer-between" aria-hidden />
-
-          <div className="rail-link-stack">
-            <div className="rail-tip-host">
-              <a
-                className={navLinkCls}
-                href="https://github.com/coddy-project/coddy-agent"
-                target="_blank"
-                rel="noopener"
-                aria-label="GitHub repository"
-                data-testid="nav-github"
-              >
-                <IconGitHub className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? (
-                  <span className="rail-nav-label">GitHub</span>
-                ) : null}
-              </a>
-              {!pillWide ? (
-                <span className="rail-tip" role="tooltip">
-                  GitHub
-                </span>
-              ) : null}
-            </div>
-
-            <div className="rail-tip-host">
-              <a
-                className={navLinkCls}
-                href="/docs/"
-                target="_blank"
-                rel="noopener"
-                aria-label="API documentation"
-                data-testid="nav-api-docs"
-              >
-                <IconApi className="rail-svg rail-nav-hit-svg" />
-                {pillWide ? (
-                  <span className="rail-nav-label">API docs</span>
-                ) : null}
-              </a>
-              {!pillWide ? (
-                <span className="rail-tip" role="tooltip">
-                  API docs
-                </span>
-              ) : null}
-            </div>
-          </div>
 
           <div className="rail-tip-host">
             <a

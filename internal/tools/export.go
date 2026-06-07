@@ -50,4 +50,3 @@ func NewRegistryFor(cfg *config.Config) *Registry {
 func ResolvePath(path, cwd string) string {
 	return toolfs.ResolvePath(path, cwd)
 }
-
