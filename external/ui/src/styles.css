@@ -3694,6 +3694,17 @@ textarea#composer {
     width: 100%;
     align-items: stretch;
   }
+  /* Override the min-width:761px .rail-pill:not(.is-wide){width:76px} — same specificity but later in file wins */
+  .rail-pill:not(.is-wide) {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Override the min-width:761px .rail-pill:not(.is-wide) .rail-tip-host{width:100%} — match specificity (0,3,0) */
+  .rail-pill:not(.is-wide) .rail-tip-host {
+    width: auto;
+    max-width: none;
+    align-self: center;
+  }
   .rail-header-wide {
     width: auto;
     max-width: none;
