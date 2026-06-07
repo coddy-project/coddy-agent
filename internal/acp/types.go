@@ -234,9 +234,18 @@ type SessionListResult struct {
 
 // SessionPromptParams are the parameters for session/prompt.
 type SessionPromptParams struct {
-	SessionID string                 `json:"sessionId"`
-	Prompt    []ContentBlock         `json:"prompt"`
-	Meta      map[string]interface{} `json:"_meta,omitempty"`
+	SessionID  string                 `json:"sessionId"`
+	Prompt     []ContentBlock         `json:"prompt"`
+	Meta       map[string]interface{} `json:"_meta,omitempty"`
+	ImageParts []ImagePartRef         `json:"imageParts,omitempty"`
+}
+
+// ImagePartRef carries an inline image or file for a multimodal agent prompt.
+type ImagePartRef struct {
+	// DataURL is a data URI ("data:<mime>;base64,<bytes>") or an HTTPS image URL.
+	DataURL string `json:"data_url"`
+	// Name is the original file name (informational).
+	Name string `json:"name,omitempty"`
 }
 
 // SessionPromptResult is the response to session/prompt.

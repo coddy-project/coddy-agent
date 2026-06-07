@@ -44,6 +44,7 @@ type ModelJSON struct {
 	MaxTokens        int     `json:"max_tokens"`
 	Temperature      float64 `json:"temperature"`
 	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
+	Multimodal       bool    `json:"multimodal,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs.

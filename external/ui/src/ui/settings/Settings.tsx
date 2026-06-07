@@ -64,6 +64,8 @@ export function Settings(props: {
   onToggleAppearance: () => void;
   skillsOpen: boolean;
   onToggleSkills: () => void;
+  /** Called after the config is successfully saved so the app can re-fetch model metadata. */
+  onConfigSaved?: () => void;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -123,6 +125,7 @@ export function Settings(props: {
         return;
       }
       setMessage("Saved. In-process config reloaded.");
+      props.onConfigSaved?.();
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "request failed");

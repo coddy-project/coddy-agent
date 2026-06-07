@@ -42,6 +42,8 @@ export type TranscriptItem =
       content: string;
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
+      /** Inline file attachments sent with this message. */
+      files?: { name: string; mimeType: string; sizeBytes?: number }[];
     }
   | {
       id: string;
@@ -82,6 +84,7 @@ export type TranscriptItem =
       type: "system_notice";
       level: "error";
       message: string;
+      createdAtUtc?: string;
     }
   | {
       id: string;

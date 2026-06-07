@@ -1544,6 +1544,35 @@ a.rail-brand {
   width: min(720px, 100%);
 }
 
+.hero-footer {
+  position: fixed;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 35%, var(--coddy-blend-base));
+  pointer-events: none;
+}
+
+.hero-footer a {
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+.hero-footer a:hover {
+  color: color-mix(in srgb, var(--text) 65%, var(--coddy-blend-base));
+  text-decoration: underline;
+}
+
+.hero-footer-sep {
+  opacity: 0.5;
+}
+
 .hero-title {
   margin: 0 0 18px;
   font-size: clamp(26px, 5vw, 44px);
@@ -1737,7 +1766,45 @@ a.rail-brand {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: flex-end;
+}
+
+.msg-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  justify-content: flex-end;
+}
+
+.msg-user-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 130px;
+  min-height: 36px;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-radius: 10px;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 75%, var(--coddy-blend-base));
+  cursor: default;
+  box-sizing: border-box;
+}
+
+.msg-user-file-chip-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.msg-user-file-chip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .msg-user-foot {
@@ -1972,6 +2039,12 @@ a.rail-brand {
   box-shadow: none;
 }
 
+.msg-system-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .msg-system {
   align-self: flex-start;
   background: rgba(40, 18, 18, 0.55);
@@ -1996,6 +2069,26 @@ a.rail-brand {
   font-size: 12px;
   line-height: 1.45;
   color: rgba(248, 220, 220, 0.92);
+}
+
+.msg-system-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 28px;
+  box-sizing: border-box;
+}
+
+.msg-system-time {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 168, 168, 0.55);
+  user-select: none;
+  white-space: nowrap;
+  cursor: help;
 }
 
 .tool-block {
@@ -3159,6 +3252,79 @@ textarea#composer {
   background: var(--coddy-surface-raised);
 }
 
+.composer-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 140px;
+  min-height: 40px;
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-radius: 10px;
+  padding: 6px 8px 6px 10px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  cursor: default;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+  position: relative;
+}
+
+.composer-attachment-chip:hover {
+  border-color: color-mix(in srgb, var(--text) 28%, var(--coddy-blend-base));
+}
+
+.composer-attachment-chip-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+}
+
+.composer-attachment-chip-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.composer-attachment-chip-remove {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.composer-attachment-chip-remove:hover {
+  color: var(--text);
+}
+
+.composer-attachment-chip--locked {
+  opacity: 0.75;
+  padding-right: 10px;
+}
+
 .composer-bar-actions {
   display: flex;
   align-items: center;
@@ -3616,6 +3782,17 @@ textarea#composer {
   .rail-pill.is-wide {
     width: 100%;
     align-items: stretch;
+  }
+  /* Override the min-width:761px .rail-pill:not(.is-wide){width:76px} — same specificity but later in file wins */
+  .rail-pill:not(.is-wide) {
+    width: 100%;
+    max-width: 100%;
+  }
+  /* Override the min-width:761px .rail-pill:not(.is-wide) .rail-tip-host{width:100%} — match specificity (0,3,0) */
+  .rail-pill:not(.is-wide) .rail-tip-host {
+    width: auto;
+    max-width: none;
+    align-self: center;
   }
   .rail-header-wide {
     width: auto;
@@ -5693,6 +5870,34 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex: 0 0 auto;
   height: 100%;
   max-height: none;
+}
+
+/* On mobile the rail is a full-width top bar, so the desktop left offset would be
+   equal to the viewport width and push the cluster off-screen. Reset the cluster
+   to cover the full viewport and restore fixed positioning on the inner drawer so
+   the standard mobile drawer placement rule (top-inset / safe-area margins) applies. */
+@media (max-width: 1199px) {
+  .settings-dock-cluster {
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 70;
+  }
+  .settings-dock-cluster .settings.drawer,
+  .settings-dock-cluster .settings-appearance-dock {
+    position: fixed;
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    bottom: 14px;
+    width: auto;
+    height: auto;
+    pointer-events: auto;
+  }
+  .settings-dock-cluster .settings-appearance-dock {
+    z-index: 80;
+  }
 }
 
 /* Appearance side panel — mirrors .scheduler-job-editor-dock */

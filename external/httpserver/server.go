@@ -47,6 +47,13 @@ type Server struct {
 	composerRelays  map[string]*composerStreamRelay
 
 	permissionResumeWG sync.WaitGroup
+	bgWG               sync.WaitGroup
+}
+
+// Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
+// Call after closing the HTTP server and before tearing down any session directories.
+func (s *Server) Drain() {
+	s.bgWG.Wait()
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).
@@ -131,10 +138,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	if err != nil {
 		return nil, err
 	}
-	maxTok := rm.MaxTokens
-	if maxTok <= 0 || maxTok > 96 {
-		maxTok = 96
-	}
+	maxTok := resolveDirectYAMLMaxTokens(rm)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
 		Type:        rm.ProviderType,
 		Model:       rm.Model,
@@ -170,6 +174,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		Created          int64  `json:"created"`
 		OwnedBy          string `json:"owned_by"`
 		MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+		Multimodal       bool   `json:"multimodal,omitempty"`
 	}
 	out := struct {
 		Object            string     `json:"object"`
@@ -211,6 +216,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				Created:          0,
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
+				Multimodal:       ent.Multimodal,
 			})
 		}
 	}
@@ -521,6 +527,25 @@ func stringContent(raw json.RawMessage) (string, error) {
 	return string(raw), nil
 }
 
+// inlineFileJSON is a base64-encoded file sent from the browser file picker.
+type inlineFileJSON struct {
+	// Name is the original file name (e.g. "photo.png").
+	Name string `json:"name"`
+	// DataURL is a data URI: "data:<mime>;base64,<bytes>".
+	DataURL string `json:"data_url"`
+}
+
+func inlineFilesToImageParts(files []inlineFileJSON) []llm.ImagePart {
+	if len(files) == 0 {
+		return nil
+	}
+	parts := make([]llm.ImagePart, len(files))
+	for i, f := range files {
+		parts[i] = llm.ImagePart{DataURL: f.DataURL, Name: f.Name}
+	}
+	return parts
+}
+
 func lastAssistantContent(st *session.State) string {
 	msgs := st.GetMessages()
 	for i := len(msgs) - 1; i >= 0; i-- {
@@ -543,7 +568,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		Stream      bool                           `json:"stream"`
 		Metadata    json.RawMessage                `json:"metadata,omitempty"`
 		Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
+		// InlineFiles carries base64 data URIs from the browser file picker.
+		// Only supported for direct YAML model calls (not agent/plan).
+		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
 		return
@@ -597,6 +626,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
 		return
 	}
+	// inline_files are supported for both direct YAML calls and agent/plan mode.
 
 	if httpModelIsCoddyProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())
@@ -658,11 +688,18 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
 		}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
 			Prompt:    promptBlocks,
 			Meta:      sessionPromptMetaFromHTTP(body.Metadata),
-		}, bridge, promptOpts); err != nil {
+		}
+		if len(body.InlineFiles) > 0 {
+			promptParams.ImageParts = make([]acp.ImagePartRef, len(body.InlineFiles))
+			for i, f := range body.InlineFiles {
+				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
+			}
+		}
+		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
 			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
 				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
@@ -709,9 +746,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
 	st.AddMessage(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   strings.TrimSpace(body.Input),
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role:       llm.RoleUser,
+		Content:    strings.TrimSpace(body.Input),
+		ImageParts: inlineFilesToImageParts(body.InlineFiles),
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)

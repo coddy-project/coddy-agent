@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -183,7 +184,32 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		case RoleSystem:
 			oaiMessages = append(oaiMessages, openai.SystemMessage(m.Content))
 		case RoleUser:
-			oaiMessages = append(oaiMessages, openai.UserMessage(m.Content))
+			if len(m.ImageParts) > 0 {
+				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, 1+len(m.ImageParts))
+				if m.Content != "" {
+					parts = append(parts, openai.TextContentPart(m.Content))
+				}
+				for _, ip := range m.ImageParts {
+					mime := dataURLMIME(ip.DataURL)
+					if strings.HasPrefix(mime, "image/") || (!strings.HasPrefix(ip.DataURL, "data:") && strings.HasPrefix(ip.DataURL, "https://")) {
+						parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+							URL:    ip.DataURL,
+							Detail: "auto",
+						}))
+					} else {
+						// Non-image data URL: decode and inject as labelled text block.
+						decoded := decodeDataURL(ip.DataURL)
+						label := ip.Name
+						if label == "" {
+							label = "file"
+						}
+						parts = append(parts, openai.TextContentPart(fmt.Sprintf("[File: %s]\n%s", label, decoded)))
+					}
+				}
+				oaiMessages = append(oaiMessages, openai.UserMessage(parts))
+			} else {
+				oaiMessages = append(oaiMessages, openai.UserMessage(m.Content))
+			}
 		case RoleAssistant:
 			if len(m.ToolCalls) > 0 {
 				calls := make([]openai.ChatCompletionMessageToolCallParam, len(m.ToolCalls))
@@ -204,6 +230,11 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 					asst.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
 						OfString: openai.String(m.Content),
 					}
+				}
+				if m.Reasoning != "" {
+					asst.SetExtraFields(map[string]any{
+						"reasoning_content": m.Reasoning,
+					})
 				}
 				oaiMessages = append(oaiMessages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			} else {
@@ -290,4 +321,39 @@ func mapOpenAIStopReason(reason string) string {
 	default:
 		return reason
 	}
+}
+
+// dataURLMIME extracts the MIME type from a data URI (e.g. "data:text/plain;base64,...").
+// Returns empty string for non-data URIs.
+func dataURLMIME(dataURL string) string {
+	if !strings.HasPrefix(dataURL, "data:") {
+		return ""
+	}
+	rest := dataURL[5:]
+	semi := strings.IndexByte(rest, ';')
+	comma := strings.IndexByte(rest, ',')
+	if semi > 0 && (comma < 0 || semi < comma) {
+		return rest[:semi]
+	}
+	if comma > 0 {
+		return rest[:comma]
+	}
+	return ""
+}
+
+// decodeDataURL extracts and base64-decodes the payload from a data URI.
+// Returns the raw string on failure (best-effort).
+func decodeDataURL(dataURL string) string {
+	comma := strings.IndexByte(dataURL, ',')
+	if comma < 0 {
+		return dataURL
+	}
+	payload := dataURL[comma+1:]
+	if strings.Contains(dataURL[:comma], ";base64") {
+		decoded, err := base64.StdEncoding.DecodeString(payload)
+		if err == nil {
+			return string(decoded)
+		}
+	}
+	return payload
 }

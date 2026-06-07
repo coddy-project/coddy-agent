@@ -744,6 +744,7 @@ func openAPISpec() map[string]interface{} {
 									"created":            map[string]string{"type": "integer", "format": "int64"},
 									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
 									"max_context_tokens": map[string]string{"type": "integer"},
+									"multimodal":         map[string]string{"type": "boolean"},
 								},
 							},
 						},
@@ -857,6 +858,11 @@ func openAPISpec() map[string]interface{} {
 							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
+						"inline_files": map[string]interface{}{
+							"type":        "array",
+							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.coddy/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
+						},
 					},
 					"required": []string{"model", "input"},
 				},
@@ -877,6 +883,20 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"required": []string{"path"},
+				},
+				"ResponsesInlineFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]string{
+							"type":        "string",
+							"description": "Original file name (e.g. `photo.png`). Informational only.",
+						},
+						"data_url": map[string]string{
+							"type":        "string",
+							"description": "Data URI: `data:<mime>;base64,<bytes>` or an HTTPS image URL.",
+						},
+					},
+					"required": []string{"data_url"},
 				},
 				"ResponsesCreateResponse": map[string]interface{}{
 					"type": "object",

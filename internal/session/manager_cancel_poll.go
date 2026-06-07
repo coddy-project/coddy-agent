@@ -22,6 +22,7 @@ func (m *Manager) runCrossProcessCancelPoll(turnCtx context.Context, st *State, 
 			if err != nil || !ok {
 				continue
 			}
+			st.SetUserCancelledTurn()
 			st.Cancel()
 			_ = ClearCancelRequest(dir)
 		}

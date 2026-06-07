@@ -177,6 +177,34 @@ export function mergeTranscriptPreferLocalSuffix(
 }
 
 /**
+ * Copies client-only `files` metadata from local user_message items into merged items.
+ * The server never persists `files`, so after a merge the field would be lost.
+ * We match by position (nth user_message in local → nth user_message in merged).
+ */
+export function preserveUserMessageFiles(
+  merged: TranscriptItem[],
+  local: TranscriptItem[] | undefined,
+): TranscriptItem[] {
+  if (!local || local.length === 0) return merged;
+  const localFiles: NonNullable<Extract<TranscriptItem, { type: "user_message" }>["files"]>[] = [];
+  for (const it of local) {
+    if (it.type === "user_message" && it.files && it.files.length > 0) {
+      localFiles.push(it.files);
+    } else if (it.type === "user_message") {
+      localFiles.push([]);
+    }
+  }
+  if (localFiles.every((f) => f.length === 0)) return merged;
+  let userIdx = 0;
+  return merged.map((it) => {
+    if (it.type !== "user_message") return it;
+    const files = localFiles[userIdx++];
+    if (!files || files.length === 0) return it;
+    return { ...it, files };
+  });
+}
+
+/**
  * When GET /messages returns an empty transcript but we already have local rows
  * (shadow or on-screen items for this session), keep local state. This avoids wiping
  * the UI after client-side cancel races a stale or incomplete server read.

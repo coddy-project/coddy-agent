@@ -16,10 +16,26 @@ const (
 	RoleTool      Role = "tool"
 )
 
+// ImagePart is an image or file included in a multimodal user message.
+type ImagePart struct {
+	// DataURL is a data URI ("data:<mime>;base64,<bytes>") or an HTTPS image URL.
+	DataURL string `json:"data_url"`
+	// Name is the original file name (informational; not sent to the provider).
+	Name string `json:"name,omitempty"`
+	// FilePath is the absolute path where this file was saved on disk (session assets/).
+	// When set the agent informs the model of this location so it can reference the file
+	// directly without re-reading the base64 payload.
+	FilePath string `json:"file_path,omitempty"`
+}
+
 // Message is a single turn in a conversation.
 type Message struct {
 	Role      Role   `json:"role"`
 	Content   string `json:"content"`
+	// ImageParts, when non-empty, make this a multimodal user message. Only
+	// supported for RoleUser; ignored on other roles and by providers that do
+	// not support vision.
+	ImageParts []ImagePart `json:"image_parts,omitempty"`
 	Reasoning string `json:"reasoning,omitempty"`
 	// ReasoningDurationMs wall clock between first streamed reasoning delta and UI-equivalent finish
 	// (first non-whitespace text delta or first tool-call chunk); omitted when unset or zero.

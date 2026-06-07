@@ -75,6 +75,9 @@ type State struct {
 	// pendingPlanContext is injected into the next agent system prompt (Run plan); not persisted.
 	pendingPlanContext string
 
+	// pendingImageParts are image attachments for the next user message (from inline_files in agent mode); not persisted.
+	pendingImageParts []llm.ImagePart
+
 	// SessionDir is the persisted session bundle directory (<sessionsRoot>/<id>/).
 	SessionDir string
 
@@ -104,6 +107,10 @@ type State struct {
 
 	// cancel cancels the active prompt turn.
 	cancel context.CancelFunc
+
+	// userCancelledTurn is set when the user explicitly requested cancellation (via Stop or cross-process signal).
+	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
+	userCancelledTurn bool
 }
 
 // GetID returns the session ID.
@@ -364,6 +371,22 @@ func (s *State) TakePendingPlanContext() string {
 	return out
 }
 
+// SetPendingImageParts stores image parts to be attached to the next user message.
+func (s *State) SetPendingImageParts(parts []llm.ImagePart) {
+	s.mu.Lock()
+	s.pendingImageParts = parts
+	s.mu.Unlock()
+}
+
+// TakePendingImageParts returns and clears the pending image parts.
+func (s *State) TakePendingImageParts() []llm.ImagePart {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.pendingImageParts
+	s.pendingImageParts = nil
+	return out
+}
+
 // AppendPlanDocument adds a UI transcript row for a design plan file.
 func (s *State) AppendPlanDocument(doc plans.Document) {
 	s.mu.Lock()
@@ -591,11 +614,26 @@ func (s *State) SetLastContextBreakdown(b *ContextBreakdown) {
 	s.LastContextBreakdown = &cp
 }
 
-// SetCancel stores a cancel function for the active prompt turn.
+// SetCancel stores a cancel function for the active prompt turn and resets the user-cancelled flag.
 func (s *State) SetCancel(cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancel = cancel
+	s.userCancelledTurn = false
+}
+
+// SetUserCancelledTurn marks the current turn as explicitly cancelled by the user.
+func (s *State) SetUserCancelledTurn() {
+	s.mu.Lock()
+	s.userCancelledTurn = true
+	s.mu.Unlock()
+}
+
+// IsUserCancelledTurn reports whether the current turn was explicitly cancelled by the user.
+func (s *State) IsUserCancelledTurn() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.userCancelledTurn
 }
 
 // Cancel cancels the active prompt turn if any.

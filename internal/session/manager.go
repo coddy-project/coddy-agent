@@ -14,6 +14,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -535,6 +536,17 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
 	}
 
+	if len(params.ImageParts) > 0 {
+		parts := make([]llm.ImagePart, len(params.ImageParts))
+		for i, p := range params.ImageParts {
+			parts[i] = llm.ImagePart{DataURL: p.DataURL, Name: p.Name}
+		}
+		if err := SavePartsToAssets(parts, sessionDir); err != nil {
+			m.log.Warn("save uploaded files to assets", "error", err)
+		}
+		state.SetPendingImageParts(parts)
+	}
+
 	cwdAbs, err := filepath.Abs(state.GetCWD())
 	if err != nil {
 		return nil, fmt.Errorf("session cwd: %w", err)
@@ -662,6 +674,7 @@ func (m *Manager) HandleSessionCancel(params acp.SessionCancelParams) {
 	_ = m.WriteCrossProcessCancelRequest(params.SessionID)
 	state := m.getSession(params.SessionID)
 	if state != nil {
+		state.SetUserCancelledTurn()
 		state.Cancel()
 	}
 	m.log.Info("session cancelled", "id", params.SessionID)

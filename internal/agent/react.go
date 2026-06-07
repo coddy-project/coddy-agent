@@ -46,7 +46,9 @@ type SessionState interface {
 	AppendPlanDocument(plans.Document)
 	DiscardedPlanSlugs() []string
 	TakePendingPlanContext() string
+	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	IsUserCancelledTurn() bool
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -86,10 +88,16 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
+	imageParts := a.state.TakePendingImageParts()
+	messageContent := userText
+	if note := filePathsNote(imageParts); note != "" {
+		messageContent = userText + "\n\n" + note
+	}
 	a.state.AddMessage(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   userText,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role:       llm.RoleUser,
+		Content:    messageContent,
+		ImageParts: imageParts,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	a.runMemoryBeforeTurn(ctx, userText)
 
@@ -214,7 +222,14 @@ func (a *Agent) runReActLoop(
 		}
 
 		sessionID := a.state.GetID()
+
+		// Cancel the stream if no tokens arrive within 90 s (API hang guard).
+		const firstTokenTimeout = 90 * time.Second
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		firstTokenTimer := time.AfterFunc(firstTokenTimeout, streamCancel)
+
 		emitReason := func(d string, now time.Time) {
+			firstTokenTimer.Stop()
 			reasoningBuf.WriteString(d)
 			if reasonClockStart.IsZero() {
 				reasonClockStart = now
@@ -225,6 +240,7 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
+			firstTokenTimer.Stop()
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -234,8 +250,8 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		response, streamErr = provider.Stream(ctx, messages, toolDefs, func(chunk llm.StreamChunk) {
-			if ctx.Err() != nil {
+		response, streamErr = provider.Stream(streamCtx, messages, toolDefs, func(chunk llm.StreamChunk) {
+			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
@@ -266,8 +282,21 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
+				firstTokenTimer.Stop()
 			}
 		})
+		firstTokenTimer.Stop()
+		streamCancel()
+
+		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
+		// surface a timeout error instead of a silent failure.
+		if streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
+			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
+				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+			if !hasAnyOutput {
+				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
+			}
+		}
 
 		if streamErr != nil {
 			if errors.Is(streamErr, context.Canceled) && response != nil {
@@ -299,11 +328,20 @@ func (a *Agent) runReActLoop(
 					a.state.AddMessage(assistantMsg)
 				}
 			}
-			if ctx.Err() != nil {
-				return string(acp.StopReasonCancelled), nil
-			}
 			if errors.Is(streamErr, context.Canceled) {
-				return string(acp.StopReasonCancelled), nil
+				// If output was already streamed, treat as a clean user-stop regardless.
+				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
+					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+				if hasAnyOutput || a.state.IsUserCancelledTurn() {
+					return string(acp.StopReasonCancelled), nil
+				}
+				// Stream was interrupted before producing any output and the user did not stop it —
+				// surface an error so the UI can show feedback instead of silently completing.
+				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response")
+			}
+			if ctx.Err() != nil {
+				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
+				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 		}
@@ -802,4 +840,34 @@ func sessionStatePtr(s SessionState) *session.State {
 		return nil
 	}
 	return st
+}
+
+// filePathsNote builds an XML annotation listing the on-disk paths where
+// uploaded files were saved.  Returns an empty string when no part has a
+// FilePath set (e.g. sessions without a persistent directory).
+// The tag is stripped from the user-visible bubble by the SPA's
+// stripCoddyAttachmentsForUserDisplay function.
+func filePathsNote(parts []llm.ImagePart) string {
+	var lines []string
+	for _, p := range parts {
+		if p.FilePath == "" {
+			continue
+		}
+		line := "- " + p.FilePath
+		if p.Name != "" && p.Name != filepath.Base(p.FilePath) {
+			line += " (" + p.Name + ")"
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<coddy_session_assets>Uploaded files saved to session assets (read-only). You can read or copy them:\n")
+	for _, l := range lines {
+		b.WriteString(l)
+		b.WriteByte('\n')
+	}
+	b.WriteString("</coddy_session_assets>")
+	return b.String()
 }

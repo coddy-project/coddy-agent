@@ -87,6 +87,7 @@ export function MessageList(props: {
               {...(props.onEdit
                 ? { onEdit: (c) => props.onEdit!(c, myIdx) }
                 : {})}
+              {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
             />
           );
         }
@@ -186,6 +187,7 @@ export function MessageList(props: {
               key={it.id}
               level={it.level}
               message={it.message}
+              createdAtUtc={it.createdAtUtc}
             />
           );
         }

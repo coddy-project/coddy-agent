@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
@@ -71,6 +72,17 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	return resp, nil
+}
+
+// resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM
+// for a direct single-turn YAML model completion (non-agent, non-plan).
+// The configured value is used as-is; zero or negative falls back to 0 so the
+// provider applies its own internal default.
+func resolveDirectYAMLMaxTokens(rm *config.ResolvedLLM) int {
+	if rm == nil || rm.MaxTokens <= 0 {
+		return 0
+	}
+	return rm.MaxTokens
 }
 
 func maxContextDefault(s *Server) int {

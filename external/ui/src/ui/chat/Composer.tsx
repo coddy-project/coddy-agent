@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
@@ -29,8 +30,20 @@ import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "../skills/workspaceAtRecents";
-import { shellStackMaxWidthMediaQuery } from "../shellBreakpoint";
+import {
+  shellStackMaxWidthMediaQuery,
+  subscribeShellStack,
+  snapshotShellStack,
+  serverSnapshotShellStack,
+} from "../shellBreakpoint";
 import { contextUsagePercent } from "./contextUsage";
+import { fileTypeIcon } from "../messages/fileTypeIcon";
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
@@ -80,6 +93,10 @@ export function Composer(props: {
   /** Selected **`models[].model`** id (`metadata.model` on profile requests). */
   llmModel?: string;
   onLlmModelChange?: (modelId: string) => void;
+  /** Whether the currently selected model accepts image/file inputs. */
+  llmModelMultimodal?: boolean;
+  /** Files carried over from the message being edited — shown as read-only chips. */
+  editingFiles?: { name: string; mimeType: string }[];
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
@@ -92,21 +109,29 @@ export function Composer(props: {
   knownSkillNames?: Set<string>;
   onModeChange: (mode: string) => void;
   onChange: (v: string) => void;
-  onSend: (text: string) => void;
+  /** files is non-empty only when the user attached files via the file picker. */
+  onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
   onStop?: () => void;
 }) {
   const idleSendDisabled = props.value.trim() === "";
+  const isMobileShell = useSyncExternalStore(
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
+  );
   const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
 
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerFieldWrapRef = useRef<HTMLDivElement | null>(null);
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
@@ -1009,6 +1034,39 @@ export function Composer(props: {
           Message
         </label>
         <div className="composer-card" ref={composerCardRef}>
+          {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (
+            <div className="composer-attachments" aria-label="Attached files">
+              {(props.editingFiles || []).map((f, idx) => {
+                const { svg } = fileTypeIcon(f.mimeType, f.name);
+                return (
+                  <span key={`ef-${idx}`} className="composer-attachment-chip composer-attachment-chip--locked" title={f.name}>
+                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
+                    <span className="composer-attachment-chip-name">{f.name}</span>
+                  </span>
+                );
+              })}
+              {attachedFiles.map((f, idx) => {
+                const { svg, label } = fileTypeIcon(f.type, f.name);
+                const tip = `${f.name}\n${label} · ${fmtBytes(f.size)}`;
+                return (
+                  <span key={idx} className="composer-attachment-chip" title={tip}>
+                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
+                    <span className="composer-attachment-chip-name">{f.name}</span>
+                    <button
+                      type="button"
+                      className="composer-attachment-chip-remove"
+                      aria-label={`Remove ${f.name}`}
+                      onClick={() =>
+                        setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
             <div className="composer-stack">
               {maskComposerText ? (
@@ -1148,7 +1206,16 @@ export function Composer(props: {
                     }
                     return;
                   }
-                  if (ev.key === "Enter" && !ev.shiftKey) {
+                  if (ev.key === "Enter") {
+                    if (isMobileShell) {
+                      // On mobile: Enter inserts a newline (browser default). Send is button-only.
+                      return;
+                    }
+                    // Desktop: Shift+Enter = newline (browser default, not intercepted).
+                    if (ev.shiftKey) {
+                      return;
+                    }
+                    // Desktop: Enter or Ctrl+Enter = send.
                     ev.preventDefault();
                     if (props.generating) {
                       return;
@@ -1157,15 +1224,53 @@ export function Composer(props: {
                     if (!txt) {
                       return;
                     }
-                    props.onSend(txt);
+                    if (attachedFiles.length > 0) {
+                      const files = [...attachedFiles];
+                      setAttachedFiles([]);
+                      props.onSend(txt, files);
+                    } else {
+                      props.onSend(txt);
+                    }
                   }
                 }}
               />
             </div>
           </div>
 
+
           <div className="composer-bar">
             <div className="composer-tabs" aria-label="Composer options">
+              {props.llmModelMultimodal ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="sr-only"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    data-testid="composer-file-input"
+                    onChange={(ev) => {
+                      const files = ev.target.files;
+                      if (!files || files.length === 0) return;
+                      setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
+                      ev.target.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="composer-tab composer-attach-btn"
+                    aria-label="Attach file"
+                    title="Attach file"
+                    data-testid="composer-attach-btn"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden="true">
+                      <path d="M13.5 7.5l-6 6A4 4 0 012 8l7-7a2.5 2.5 0 013.5 3.5l-6 6A1 1 0 015 9l5-5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </>
+              ) : null}
               <div className="mode">
                 <button
                   type="button"
@@ -1308,7 +1413,13 @@ export function Composer(props: {
                   if (!txt) {
                     return;
                   }
-                  props.onSend(txt);
+                  if (attachedFiles.length > 0) {
+                    const files = [...attachedFiles];
+                    setAttachedFiles([]);
+                    props.onSend(txt, files);
+                  } else {
+                    props.onSend(txt);
+                  }
                 }}
               >
                 {props.generating ? (

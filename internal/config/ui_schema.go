@@ -205,6 +205,8 @@ func UISchemaMap() map[string]interface{} {
 			"Sampling temperature for this logical model (0 = deterministic, higher = more random)."),
 		"max_context_tokens": intProp("Max context tokens (UI hint)",
 			"Optional UI hint for composer context bar; 0 means derive from provider metadata when available."),
+		"multimodal": boolProp("Multimodal",
+			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
 	}
 	envProps := map[string]interface{}{
 		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
@@ -263,7 +265,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct agent", "Defaults for the main agent loop (model id and safety caps).",

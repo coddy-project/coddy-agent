@@ -13,6 +13,9 @@ type ModelEntry struct {
 	MaxTokens        int     `yaml:"max_tokens"`
 	Temperature      float64 `yaml:"temperature"`
 	MaxContextTokens int     `yaml:"max_context_tokens"`
+	// Multimodal declares that this model accepts image/file inputs in addition to text.
+	// When true the UI may offer file attachment for messages sent with this model.
+	Multimodal bool `yaml:"multimodal"`
 }
 
 // SplitModelRef parses model into provider name and API model id.

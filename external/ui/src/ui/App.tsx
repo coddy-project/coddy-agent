@@ -38,6 +38,7 @@ import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
+  preserveUserMessageFiles,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import {
@@ -87,6 +88,11 @@ import {
 import { isRedundantSessionPick } from "./sessions/pickSessionGuard";
 import { startSuggestSessionTitle } from "./sessionTitleSuggest";
 import { extractAtFileAttachments } from "./skills/draftAt";
+import {
+  extractSessionAssetsXml,
+  parseSessionAssetFiles,
+  stripCoddyAttachmentsForUserDisplay,
+} from "./skills/stripCoddyAttachments";
 import {
   migrateWorkspaceAtRecents,
   recordWorkspaceAtRecent,
@@ -229,6 +235,7 @@ type ModelInfo = {
   id: string;
   ownedBy?: string;
   maxContextTokens?: number | undefined;
+  multimodal?: boolean;
 };
 
 const PROFILE_MODES = ["agent", "plan"] as const;
@@ -591,6 +598,8 @@ export function App() {
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
   const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(null);
+  const [editingAssetNote, setEditingAssetNote] = useState("");
+  const [editingFiles, setEditingFiles] = useState<{ name: string; mimeType: string }[]>([]);
   const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(null);
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
@@ -769,6 +778,7 @@ export function App() {
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
+  const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1301,6 +1311,7 @@ export function App() {
           id?: string;
           owned_by?: string;
           max_context_tokens?: number;
+          multimodal?: boolean;
         }>;
       }>("/v1/models");
       if (!res.ok || !res.data?.data) {
@@ -1313,10 +1324,11 @@ export function App() {
           ...(d.max_context_tokens !== undefined
             ? { maxContextTokens: d.max_context_tokens }
             : {}),
+          multimodal: !!d.multimodal,
         }))
         .filter((d) => d.id);
       const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy };
+        const m: ModelInfo = { id: d.id, ownedBy: d.ownedBy, multimodal: d.multimodal };
         if (d.maxContextTokens !== undefined) {
           m.maxContextTokens = d.maxContextTokens;
         }
@@ -1339,7 +1351,9 @@ export function App() {
         );
       }
     })();
-  }, []);
+  // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelsEpoch]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -1670,6 +1684,7 @@ export function App() {
           type: "system_notice",
           level: "error",
           message: row.message,
+          createdAtUtc: row.createdAt,
         });
       }
     };
@@ -1690,11 +1705,14 @@ export function App() {
         thinkingInTurn = 0;
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+        const rawContent = m.content || "";
+        const parsedAssets = parseSessionAssetFiles(rawContent);
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
-          content: m.content || "",
+          content: rawContent,
           ...(cat ? { createdAtUtc: cat } : {}),
+          ...(parsedAssets.length > 0 ? { files: parsedAssets } : {}),
         });
         const mt = memByTurn.get(userTurnIdx);
         if (mt) {
@@ -1869,7 +1887,10 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
-    const mergedBase = mergeTranscriptPreferLocalSuffix(next, localForMerge);
+    const mergedBase = preserveUserMessageFiles(
+      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      localForMerge,
+    );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
     merged = mergePermissionPromptsIntoTranscript(
       merged,
@@ -2070,7 +2091,7 @@ export function App() {
     const showBranchError = (msg: string) => {
       applyStreamItemsForSession(sourceSid, (prev) => [
         ...prev,
-        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg },
+        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg, createdAtUtc: new Date().toISOString() },
       ]);
     };
 
@@ -2109,6 +2130,8 @@ export function App() {
 
   useEffect(() => {
     setEditingUserMsgIdx(null);
+    setEditingAssetNote("");
+    setEditingFiles([]);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -2446,6 +2469,7 @@ export function App() {
               type: "system_notice",
               level: "error" as const,
               message: errText,
+              createdAtUtc: new Date().toISOString(),
             },
           ];
         });
@@ -2488,7 +2512,7 @@ export function App() {
 
   async function streamResponses(
     text: string,
-    opts?: { modeOverride?: string; runPlanSlug?: string },
+    opts?: { modeOverride?: string; runPlanSlug?: string; files?: File[] },
   ) {
     const abortCtl = new AbortController();
     let postSessionKey = "";
@@ -2568,6 +2592,15 @@ export function App() {
         type: "user_message",
         content: text,
         createdAtUtc: new Date().toISOString(),
+        ...(opts?.files && opts.files.length > 0
+          ? {
+              files: opts.files.map((f) => ({
+                name: f.name,
+                mimeType: f.type || "application/octet-stream",
+                sizeBytes: f.size,
+              })),
+            }
+          : {}),
       };
       const assistantId = newId("a");
       assistantStreamId = assistantId;
@@ -2603,6 +2636,21 @@ export function App() {
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
         }
+      }
+      if (opts?.files && opts.files.length > 0) {
+        const inlineFiles = await Promise.all(
+          opts.files.map(
+            (f) =>
+              new Promise<{ name: string; data_url: string }>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () =>
+                  resolve({ name: f.name, data_url: reader.result as string });
+                reader.onerror = reject;
+                reader.readAsDataURL(f);
+              }),
+          ),
+        );
+        reqBody.inline_files = inlineFiles;
       }
       const yamlSel = llmModel.trim();
       const runSlug = (opts?.runPlanSlug || "").trim();
@@ -2642,6 +2690,7 @@ export function App() {
             type: "system_notice",
             level: "error" as const,
             message: msg,
+            createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
@@ -2692,6 +2741,7 @@ export function App() {
             type: "system_notice",
             level: "error" as const,
             message: msg,
+            createdAtUtc: new Date().toISOString(),
           },
         ]);
         postAbortBySidRef.current.delete(postSessionKey);
@@ -2781,6 +2831,7 @@ export function App() {
               type: "system_notice",
               level: "error" as const,
               message: errText,
+              createdAtUtc: new Date().toISOString(),
             },
           ];
         });
@@ -2880,18 +2931,23 @@ export function App() {
   function stopActiveGeneration(): void {
     const sid = sessionId.trim();
     if (!sid) return;
-    const ctl = postAbortBySidRef.current.get(sid);
-    if (!ctl) return;
+    // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
       headers: { [HDR]: sid },
     });
-    ctl.abort();
+    // Also abort the in-progress fetch request if we have one from this page session.
+    postAbortBySidRef.current.get(sid)?.abort();
   }
 
   const maxContextTokens = useMemo(() => {
     const row = modelInfos.find((m) => m.id === llmModel);
     return row?.maxContextTokens || 128000;
+  }, [modelInfos, llmModel]);
+
+  const llmModelMultimodal = useMemo(() => {
+    const row = modelInfos.find((m) => m.id === llmModel);
+    return row?.multimodal ?? false;
   }, [modelInfos, llmModel]);
 
   const onLlmModelChange = useCallback(
@@ -3210,6 +3266,7 @@ export function App() {
               onToggleAppearance={onToggleAppearance}
               skillsOpen={skillsPanelOpen}
               onToggleSkills={onToggleSkillsPanel}
+              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
             />
             {appearanceOpen ? (
               <AppearanceSheet onClose={onCloseAppearance} />
@@ -3236,7 +3293,7 @@ export function App() {
           mode={mode}
           modes={[...PROFILE_MODES]}
           {...(llmModelIds.length > 0
-            ? { llmModels: llmModelIds, llmModel, onLlmModelChange }
+            ? { llmModels: llmModelIds, llmModel, onLlmModelChange, llmModelMultimodal }
             : {})}
           onModeChange={setMode}
           onDraftChange={setDraft}
@@ -3294,12 +3351,16 @@ export function App() {
             );
           }}
           onEdit={(content, userMsgIdx) => {
-            setDraft(content);
+            const assetNote = extractSessionAssetsXml(content);
+            setDraft(stripCoddyAttachmentsForUserDisplay(content));
             setEditingUserMsgIdx(userMsgIdx);
+            setEditingAssetNote(assetNote);
+            setEditingFiles(parseSessionAssetFiles(content));
           }}
+          {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onSend={(text: string) => {
+          onSend={(text: string, files?: File[]) => {
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())
@@ -3309,10 +3370,14 @@ export function App() {
             setDraft("");
             if (editingUserMsgIdx !== null) {
               const idx = editingUserMsgIdx;
+              const note = editingAssetNote;
               setEditingUserMsgIdx(null);
-              void handleBranchSend(text, idx);
+              setEditingAssetNote("");
+              setEditingFiles([]);
+              const textWithAssets = note ? `${text}\n${note}` : text;
+              void handleBranchSend(textWithAssets, idx);
             } else {
-              void streamResponses(text);
+              void streamResponses(text, files ? { files } : undefined);
             }
           }}
           onFetchToolCallFull={async (toolCallId: string) => {
