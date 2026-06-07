@@ -2931,13 +2931,13 @@ export function App() {
   function stopActiveGeneration(): void {
     const sid = sessionId.trim();
     if (!sid) return;
-    const ctl = postAbortBySidRef.current.get(sid);
-    if (!ctl) return;
+    // Always send the server-side cancel so Stop works even after page reload.
     void fetch(`/coddy/sessions/${encodeURIComponent(sid)}/cancel`, {
       method: "POST",
       headers: { [HDR]: sid },
     });
-    ctl.abort();
+    // Also abort the in-progress fetch request if we have one from this page session.
+    postAbortBySidRef.current.get(sid)?.abort();
   }
 
   const maxContextTokens = useMemo(() => {

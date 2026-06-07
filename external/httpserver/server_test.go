@@ -465,6 +465,7 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
 	return mgr, srv, sessRoot
 }
 
@@ -500,6 +501,7 @@ func TestCoddySessionCancelHTTP_StopsBlockedAgentTurn(t *testing.T) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -980,6 +982,7 @@ func TestCoddyMessagesIncludesUILogAfterAgentError(t *testing.T) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1165,6 +1168,7 @@ func TestResponsesProfileMetadataSelectsYAML(t *testing.T) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1224,6 +1228,7 @@ func TestCoddySessionMessagesIncludesSessionModel(t *testing.T) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", store)
 	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	t.Cleanup(srv.Drain)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1672,6 +1677,7 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	store := &session.FileStore{Root: sessRoot}
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, store)
 	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

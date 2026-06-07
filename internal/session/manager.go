@@ -674,6 +674,7 @@ func (m *Manager) HandleSessionCancel(params acp.SessionCancelParams) {
 	_ = m.WriteCrossProcessCancelRequest(params.SessionID)
 	state := m.getSession(params.SessionID)
 	if state != nil {
+		state.SetUserCancelledTurn()
 		state.Cancel()
 	}
 	m.log.Info("session cancelled", "id", params.SessionID)

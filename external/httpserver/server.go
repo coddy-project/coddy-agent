@@ -47,6 +47,13 @@ type Server struct {
 	composerRelays  map[string]*composerStreamRelay
 
 	permissionResumeWG sync.WaitGroup
+	bgWG               sync.WaitGroup
+}
+
+// Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
+// Call after closing the HTTP server and before tearing down any session directories.
+func (s *Server) Drain() {
+	s.bgWG.Wait()
 }
 
 // New creates an HTTP server wrapper (handlers registered on mux).

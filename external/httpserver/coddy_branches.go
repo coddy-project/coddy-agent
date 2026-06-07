@@ -20,7 +20,9 @@ func (s *Server) captureAndStoreTurnDiff(st *session.State, before *session.Work
 	if sd == "" || cwd == "" {
 		return
 	}
+	s.bgWG.Add(1)
 	go func() {
+		defer s.bgWG.Done()
 		turnN := session.TurnNumber(st.GetMessages())
 		diff, err := session.ComputeWorkspaceDiff(cwd, before)
 		if err != nil {

@@ -460,10 +460,34 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
-			return truncateRunes(strings.TrimSpace(msg.Content), 120)
+			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			return truncateRunes(text, 120)
 		}
 	}
 	return ""
+}
+
+// stripCoddySessionAssetsXML removes <coddy_session_assets>...</coddy_session_assets> blocks from s.
+func stripCoddySessionAssetsXML(s string) string {
+	const open = "<coddy_session_assets>"
+	const close = "</coddy_session_assets>"
+	for {
+		start := strings.Index(strings.ToLower(s), strings.ToLower(open))
+		if start < 0 {
+			break
+		}
+		end := strings.Index(strings.ToLower(s[start:]), strings.ToLower(close))
+		if end < 0 {
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[start+end+len(close):]
+	}
+	return s
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.

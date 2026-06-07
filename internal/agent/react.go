@@ -48,6 +48,7 @@ type SessionState interface {
 	TakePendingPlanContext() string
 	TakePendingImageParts() []llm.ImagePart
 	GetPermissionMode() string
+	IsUserCancelledTurn() bool
 }
 
 // Agent runs the ReAct loop for a single session turn.
@@ -221,7 +222,14 @@ func (a *Agent) runReActLoop(
 		}
 
 		sessionID := a.state.GetID()
+
+		// Cancel the stream if no tokens arrive within 90 s (API hang guard).
+		const firstTokenTimeout = 90 * time.Second
+		streamCtx, streamCancel := context.WithCancel(ctx)
+		firstTokenTimer := time.AfterFunc(firstTokenTimeout, streamCancel)
+
 		emitReason := func(d string, now time.Time) {
+			firstTokenTimer.Stop()
 			reasoningBuf.WriteString(d)
 			if reasonClockStart.IsZero() {
 				reasonClockStart = now
@@ -232,6 +240,7 @@ func (a *Agent) runReActLoop(
 			})
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
+			firstTokenTimer.Stop()
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -241,8 +250,8 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		response, streamErr = provider.Stream(ctx, messages, toolDefs, func(chunk llm.StreamChunk) {
-			if ctx.Err() != nil {
+		response, streamErr = provider.Stream(streamCtx, messages, toolDefs, func(chunk llm.StreamChunk) {
+			if streamCtx.Err() != nil {
 				return
 			}
 			now := time.Now()
@@ -273,8 +282,21 @@ func (a *Agent) runReActLoop(
 					Kind:          toolKind(chunk.ToolCall.Name),
 					Status:        "pending",
 				})
+				firstTokenTimer.Stop()
 			}
 		})
+		firstTokenTimer.Stop()
+		streamCancel()
+
+		// If the stream was cancelled by the first-token timer (no output produced, no user cancel),
+		// surface a timeout error instead of a silent failure.
+		if streamErr != nil && errors.Is(streamErr, context.Canceled) && !a.state.IsUserCancelledTurn() {
+			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
+				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+			if !hasAnyOutput {
+				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
+			}
+		}
 
 		if streamErr != nil {
 			if errors.Is(streamErr, context.Canceled) && response != nil {
@@ -306,11 +328,20 @@ func (a *Agent) runReActLoop(
 					a.state.AddMessage(assistantMsg)
 				}
 			}
-			if ctx.Err() != nil {
-				return string(acp.StopReasonCancelled), nil
-			}
 			if errors.Is(streamErr, context.Canceled) {
-				return string(acp.StopReasonCancelled), nil
+				// If output was already streamed, treat as a clean user-stop regardless.
+				hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
+					len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
+				if hasAnyOutput || a.state.IsUserCancelledTurn() {
+					return string(acp.StopReasonCancelled), nil
+				}
+				// Stream was interrupted before producing any output and the user did not stop it —
+				// surface an error so the UI can show feedback instead of silently completing.
+				return string(acp.StopReasonRefused), fmt.Errorf("generation was interrupted before producing a response")
+			}
+			if ctx.Err() != nil {
+				// Context cancelled for non-context-Canceled stream error: still propagate the real error.
+				return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 			}
 			return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", streamErr)
 		}

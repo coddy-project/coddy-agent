@@ -107,6 +107,10 @@ type State struct {
 
 	// cancel cancels the active prompt turn.
 	cancel context.CancelFunc
+
+	// userCancelledTurn is set when the user explicitly requested cancellation (via Stop or cross-process signal).
+	// Cleared at the start of each new turn via SetCancel. Used to distinguish intentional stop from unexpected interruption.
+	userCancelledTurn bool
 }
 
 // GetID returns the session ID.
@@ -610,11 +614,26 @@ func (s *State) SetLastContextBreakdown(b *ContextBreakdown) {
 	s.LastContextBreakdown = &cp
 }
 
-// SetCancel stores a cancel function for the active prompt turn.
+// SetCancel stores a cancel function for the active prompt turn and resets the user-cancelled flag.
 func (s *State) SetCancel(cancel context.CancelFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cancel = cancel
+	s.userCancelledTurn = false
+}
+
+// SetUserCancelledTurn marks the current turn as explicitly cancelled by the user.
+func (s *State) SetUserCancelledTurn() {
+	s.mu.Lock()
+	s.userCancelledTurn = true
+	s.mu.Unlock()
+}
+
+// IsUserCancelledTurn reports whether the current turn was explicitly cancelled by the user.
+func (s *State) IsUserCancelledTurn() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.userCancelledTurn
 }
 
 // Cancel cancels the active prompt turn if any.
