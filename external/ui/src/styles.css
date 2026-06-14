@@ -1677,6 +1677,10 @@ a.rail-brand {
   z-index: 4;
   flex-shrink: 0;
   padding: 0 0 16px;
+  /* Opaque canvas backing: pinned title stays on top while transcript
+     scrolls behind it (no see-through bleed). Matches canvas top color so
+     the shield is invisible against the page in every theme. */
+  background-color: var(--coddy-canvas-gradient-top);
 }
 
 /* Same max-width as .chat-bottom-inner / transcript column so title and composer share one vertical stripe */
@@ -2605,7 +2609,7 @@ a.rail-brand {
   border-left: 3px solid rgba(167, 139, 250, 0.55);
   background: var(--coddy-surface-subtle);
   border-radius: 12px;
-  color: rgba(229, 231, 235, 0.9);
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
 .md :where(hr) {
