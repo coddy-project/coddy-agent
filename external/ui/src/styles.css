@@ -3278,6 +3278,13 @@ textarea#composer {
   max-width: min(360px, calc(100vw - 24px));
 }
 
+/* Fixed desktop dropdown width so filtering down to a few rows does not shrink
+ * the panel (shrink-to-fit would otherwise resize it between min/max-width).
+ * The mobile sheet keeps its own full-width sizing below. */
+.mode-menu--portal.mode-menu--llm {
+  width: min(360px, calc(100vw - 24px));
+}
+
 .mode-menu-filter {
   width: 100%;
   box-sizing: border-box;
