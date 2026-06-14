@@ -48,6 +48,14 @@ models:
     temperature: 0.2
     multimodal: true              # model accepts image/file inputs; UI shows file attachment button
 
+  # Reasoning models expose a reasoning-level selector in the composer.
+  # Levels are auto-detected from the model id (gpt-5* -> minimal,low,medium,high;
+  # o-series and Claude thinking models -> low,medium,high). Override or disable below.
+  # - model: "openai/gpt-5"
+  #   max_tokens: 8192
+  #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
+  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
+
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2

@@ -37,26 +37,71 @@ func profileMetadataPatch(cfg *config.Config, st *session.State, raw json.RawMes
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return false, err
 	}
-	v, ok := m["model"]
-	if !ok {
-		return false, nil
+	if v, ok := m["model"]; ok {
+		if string(v) == "null" {
+			return false, ErrInvalidMetadataModel
+		}
+		var s string
+		if err := json.Unmarshal(v, &s); err != nil {
+			return false, err
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return false, ErrInvalidMetadataModel
+		}
+		if cfg == nil || cfg.FindModelEntry(s) == nil {
+			return false, ErrUnknownMetadataModel
+		}
+		st.SetSelectedModelID(s)
+		touched = true
 	}
+	// Reasoning is resolved after any model change so it validates against the new model.
+	if v, ok := m["reasoning"]; ok {
+		if err := applySessionReasoningRaw(cfg, st, v); err != nil {
+			return false, err
+		}
+		touched = true
+	}
+	return touched, nil
+}
+
+// applySessionReasoningRaw validates a metadata.reasoning JSON value and applies it to the session.
+// A null or empty string clears the override; any other value must be a level supported by the
+// session's effective model.
+func applySessionReasoningRaw(cfg *config.Config, st *session.State, v json.RawMessage) error {
 	if string(v) == "null" {
-		return false, ErrInvalidMetadataModel
+		st.SetSelectedReasoning("")
+		return nil
 	}
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return false, err
+	var level string
+	if err := json.Unmarshal(v, &level); err != nil {
+		return err
 	}
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return false, ErrInvalidMetadataModel
+	return applySessionReasoning(cfg, st, level)
+}
+
+// applySessionReasoning sets or clears the session reasoning override (empty clears).
+// A non-empty level must be one of the effective model's resolved reasoning levels.
+func applySessionReasoning(cfg *config.Config, st *session.State, level string) error {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		st.SetSelectedReasoning("")
+		return nil
 	}
-	if cfg == nil || cfg.FindModelEntry(s) == nil {
-		return false, ErrUnknownMetadataModel
+	if cfg == nil {
+		return ErrUnknownReasoningLevel
 	}
-	st.SetSelectedModelID(s)
-	return true, nil
+	ent := cfg.FindModelEntry(st.EffectiveModelID(cfg))
+	if ent == nil {
+		return ErrUnknownReasoningLevel
+	}
+	for _, lv := range ent.ResolvedReasoningLevels() {
+		if lv == level {
+			st.SetSelectedReasoning(level)
+			return nil
+		}
+	}
+	return ErrUnknownReasoningLevel
 }
 
 // completionMetadataForbidden returns true when JSON metadata contains a model key (not allowed for direct completion).
@@ -86,6 +131,9 @@ var ErrInvalidMetadataModel = errors.New("invalid metadata.model")
 
 // ErrUnknownMetadataModel is returned when metadata.model is not listed in configuration.
 var ErrUnknownMetadataModel = errors.New("unknown metadata.model")
+
+// ErrUnknownReasoningLevel is returned when metadata.reasoning is not a level supported by the model.
+var ErrUnknownReasoningLevel = errors.New("unknown reasoning level for model")
 
 func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 	if cfg == nil {

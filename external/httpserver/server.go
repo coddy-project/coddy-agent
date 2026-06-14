@@ -169,12 +169,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type modelObj struct {
-		ID               string `json:"id"`
-		Object           string `json:"object"`
-		Created          int64  `json:"created"`
-		OwnedBy          string `json:"owned_by"`
-		MaxContextTokens int    `json:"max_context_tokens,omitempty"`
-		Multimodal       bool   `json:"multimodal,omitempty"`
+		ID               string   `json:"id"`
+		Object           string   `json:"object"`
+		Created          int64    `json:"created"`
+		OwnedBy          string   `json:"owned_by"`
+		MaxContextTokens int      `json:"max_context_tokens,omitempty"`
+		Multimodal       bool     `json:"multimodal,omitempty"`
+		ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
+		ReasoningDefault string   `json:"reasoning_default,omitempty"`
 	}
 	out := struct {
 		Object            string     `json:"object"`
@@ -217,6 +219,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
 				Multimodal:       ent.Multimodal,
+				ReasoningLevels:  ent.ResolvedReasoningLevels(),
+				ReasoningDefault: ent.DefaultReasoningLevel(),
 			})
 		}
 	}

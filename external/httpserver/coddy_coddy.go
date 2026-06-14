@@ -871,6 +871,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
+		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
@@ -904,6 +905,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		Title             string  `json:"title"`
 		MarkActivityRead  bool    `json:"markActivityRead"`
 		SelectedModelID   *string `json:"selectedModelId"`
+		SelectedReasoning *string `json:"selectedReasoning"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, `{"error":{"message":"invalid JSON"}}`, http.StatusBadRequest)
@@ -934,6 +936,14 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 			resp["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		}
 	}
+	if body.SelectedReasoning != nil {
+		if err := applySessionReasoning(s.activeCfg(), st, *body.SelectedReasoning); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+		did = true
+		resp["selectedReasoning"] = strings.TrimSpace(st.GetSelectedReasoning())
+	}
 	if body.MarkActivityRead {
 		st.MarkActivityReadSynced()
 		did = true
@@ -952,7 +962,7 @@ func (s *Server) coddySessionPatch(w http.ResponseWriter, r *http.Request) {
 		resp["title"] = t
 	}
 	if !did {
-		http.Error(w, `{"error":{"message":"title, markActivityRead, or selectedModelId required"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"title, markActivityRead, selectedModelId, or selectedReasoning required"}}`, http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

@@ -41,6 +41,10 @@ export function ChatScreen(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Reasoning levels offered by the current model (empty hides the selector). */
+  llmReasoningLevels?: string[];
+  llmReasoning?: string;
+  onLlmReasoningChange?: (level: string) => void;
   onModeChange: (mode: string) => void;
   onDraftChange: (v: string) => void;
   onSend: (text: string, files?: File[]) => void;
@@ -216,6 +220,15 @@ export function ChatScreen(props: {
                     llmModel: props.llmModel,
                     onLlmModelChange: props.onLlmModelChange,
                     llmModelMultimodal: props.llmModelMultimodal,
+                    ...(props.llmReasoningLevels !== undefined &&
+                    props.llmReasoningLevels.length > 0 &&
+                    props.onLlmReasoningChange !== undefined
+                      ? {
+                          llmReasoningLevels: props.llmReasoningLevels,
+                          llmReasoning: props.llmReasoning,
+                          onLlmReasoningChange: props.onLlmReasoningChange,
+                        }
+                      : {}),
                   }
                 : {})}
               onModeChange={props.onModeChange}
@@ -321,6 +334,15 @@ export function ChatScreen(props: {
                       llmModel: props.llmModel,
                       onLlmModelChange: props.onLlmModelChange,
                       llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevels !== undefined &&
+                      props.llmReasoningLevels.length > 0 &&
+                      props.onLlmReasoningChange !== undefined
+                        ? {
+                            llmReasoningLevels: props.llmReasoningLevels,
+                            llmReasoning: props.llmReasoning,
+                            onLlmReasoningChange: props.onLlmReasoningChange,
+                          }
+                        : {}),
                     }
                   : {})}
                 onModeChange={props.onModeChange}

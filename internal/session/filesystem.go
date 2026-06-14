@@ -98,15 +98,16 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 
 // SessionMeta is persisted in session.json.
 type SessionMeta struct {
-	Version         int    `json:"version"`
-	ID              string `json:"id"`
-	CWD             string `json:"cwd"`
-	Mode            string `json:"mode"`
-	SelectedModelID string `json:"selectedModelId,omitempty"`
-	AgentMemory     string `json:"agentMemory,omitempty"`
-	Title           string `json:"title,omitempty"`
-	TitlePinned     string `json:"titlePinned,omitempty"`
-	UpdatedAt       string `json:"updatedAt,omitempty"`
+	Version           int    `json:"version"`
+	ID                string `json:"id"`
+	CWD               string `json:"cwd"`
+	Mode              string `json:"mode"`
+	SelectedModelID   string `json:"selectedModelId,omitempty"`
+	SelectedReasoning string `json:"selectedReasoning,omitempty"`
+	AgentMemory       string `json:"agentMemory,omitempty"`
+	Title             string `json:"title,omitempty"`
+	TitlePinned       string `json:"titlePinned,omitempty"`
+	UpdatedAt         string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
@@ -385,15 +386,16 @@ func (f *FileStore) Save(state *State) error {
 	}
 
 	meta := SessionMeta{
-		Version:         sessionFileLayout,
-		ID:              state.ID,
-		CWD:             state.CWD,
-		Mode:            state.GetMode(),
-		SelectedModelID: state.GetSelectedModelID(),
-		AgentMemory:     state.GetAgentMemory(),
-		Title:           title,
-		TitlePinned:     strings.TrimSpace(state.GetTitlePinned()),
-		UpdatedAt:       updatedAt,
+		Version:           sessionFileLayout,
+		ID:                state.ID,
+		CWD:               state.CWD,
+		Mode:              state.GetMode(),
+		SelectedModelID:   state.GetSelectedModelID(),
+		SelectedReasoning: state.GetSelectedReasoning(),
+		AgentMemory:       state.GetAgentMemory(),
+		Title:             title,
+		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
+		UpdatedAt:         updatedAt,
 	}
 	if state.GetSchedulerRun() {
 		meta.SchedulerRun = true

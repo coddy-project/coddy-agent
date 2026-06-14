@@ -14,13 +14,14 @@ import (
 
 // anthropicProvider implements Provider using the Anthropic API.
 type anthropicProvider struct {
-	client    anthropic.Client
-	model     string
-	maxTokens int
-	temp      float64
+	client          anthropic.Client
+	model           string
+	maxTokens       int
+	temp            float64
+	reasoningEffort string
 }
 
-func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64) *anthropicProvider {
+func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
@@ -32,11 +33,50 @@ func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxToke
 		maxTokens = 8192
 	}
 	return &anthropicProvider{
-		client:    anthropic.NewClient(opts...),
-		model:     model,
-		maxTokens: maxTokens,
-		temp:      temp,
+		client:          anthropic.NewClient(opts...),
+		model:           model,
+		maxTokens:       maxTokens,
+		temp:            temp,
+		reasoningEffort: reasoningEffort,
 	}
+}
+
+// anthropicMinThinkingBudget is the smallest budget the Anthropic API accepts for extended thinking.
+const anthropicMinThinkingBudget int64 = 1024
+
+// thinkingEnabled reports whether this request enables extended thinking.
+func (p *anthropicProvider) thinkingEnabled() bool {
+	return anthropicThinkingBudget(p.reasoningEffort, p.maxTokens) >= anthropicMinThinkingBudget
+}
+
+// anthropicThinkingBudget maps a reasoning level to an extended-thinking token budget.
+// Returns 0 when the level is empty/unknown (thinking disabled). The budget is a
+// fraction of maxTokens, floored at the API minimum; callers must still ensure
+// max_tokens stays strictly greater than the returned budget.
+func anthropicThinkingBudget(level string, maxTokens int) int64 {
+	if maxTokens <= 0 {
+		maxTokens = 8192
+	}
+	var frac float64
+	switch level {
+	case "minimal":
+		return anthropicMinThinkingBudget
+	case "low":
+		frac = 0.25
+	case "medium":
+		frac = 0.5
+	case "high":
+		frac = 0.75
+	default:
+		return 0
+	}
+	b := int64(float64(maxTokens) * frac)
+	if b < anthropicMinThinkingBudget {
+		b = anthropicMinThinkingBudget
+	}
+	// No upper clamp here: buildParams guarantees max_tokens stays greater than the budget
+	// (bumping max_tokens when needed), so the budget never drops below the API minimum.
+	return b
 }
 
 func (p *anthropicProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
@@ -60,6 +100,8 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens int
+	var thinkingBuf strings.Builder
+	var thinkingSig string
 
 	// Accumulate tool use blocks by index.
 	type toolUseAccum struct {
@@ -89,6 +131,11 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			case anthropic.TextDelta:
 				fullContent += d.Text
 				onChunk(StreamChunk{TextDelta: d.Text})
+			case anthropic.ThinkingDelta:
+				thinkingBuf.WriteString(d.Thinking)
+				onChunk(StreamChunk{ReasoningDelta: d.Thinking})
+			case anthropic.SignatureDelta:
+				thinkingSig = d.Signature
 			case anthropic.InputJSONDelta:
 				if acc, ok := toolUseMap[e.Index]; ok {
 					acc.input += d.PartialJSON
@@ -126,11 +173,13 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 					}
 				}
 				return &Response{
-					Content:      fullContent,
-					ToolCalls:    partialTools,
-					StopReason:   sr,
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
+					Content:            fullContent,
+					ToolCalls:          partialTools,
+					Reasoning:          thinkingBuf.String(),
+					ReasoningSignature: thinkingSig,
+					StopReason:         sr,
+					InputTokens:        inputTokens,
+					OutputTokens:       outputTokens,
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
@@ -152,11 +201,13 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 	}
 
 	return &Response{
-		Content:      fullContent,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		Content:            fullContent,
+		ToolCalls:          toolCalls,
+		Reasoning:          thinkingBuf.String(),
+		ReasoningSignature: thinkingSig,
+		StopReason:         stopReason,
+		InputTokens:        inputTokens,
+		OutputTokens:       outputTokens,
 	}, nil
 }
 
@@ -176,20 +227,25 @@ func (p *anthropicProvider) splitMessages(messages []Message) (string, []anthrop
 			result = append(result, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
 
 		case RoleAssistant:
-			if len(m.ToolCalls) > 0 {
-				var blocks []anthropic.ContentBlockParamUnion
-				if m.Content != "" {
-					blocks = append(blocks, anthropic.NewTextBlock(m.Content))
-				}
-				for _, tc := range m.ToolCalls {
-					var inputMap map[string]interface{}
-					_ = json.Unmarshal([]byte(tc.InputJSON), &inputMap)
-					blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, inputMap, tc.Name))
-				}
-				result = append(result, anthropic.NewAssistantMessage(blocks...))
-			} else {
-				result = append(result, anthropic.NewAssistantMessage(anthropic.NewTextBlock(m.Content)))
+			var blocks []anthropic.ContentBlockParamUnion
+			// Extended thinking requires the signed thinking block to be replayed (first,
+			// before tool_use) when thinking is enabled, or the API rejects the turn. The text
+			// must be the exact unmodified reasoning so the signature validates.
+			if p.thinkingEnabled() && m.ReasoningSignature != "" && m.Reasoning != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.Reasoning))
 			}
+			if m.Content != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			}
+			for _, tc := range m.ToolCalls {
+				var inputMap map[string]interface{}
+				_ = json.Unmarshal([]byte(tc.InputJSON), &inputMap)
+				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, inputMap, tc.Name))
+			}
+			if len(blocks) == 0 {
+				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			}
+			result = append(result, anthropic.NewAssistantMessage(blocks...))
 
 		case RoleTool:
 			result = append(result, anthropic.NewUserMessage(
@@ -211,7 +267,16 @@ func (p *anthropicProvider) buildParams(system string, messages []anthropic.Mess
 	if system != "" {
 		params.System = []anthropic.TextBlockParam{{Type: "text", Text: system}}
 	}
-	if p.temp > 0 {
+
+	budget := anthropicThinkingBudget(p.reasoningEffort, p.maxTokens)
+	if budget >= anthropicMinThinkingBudget {
+		// Extended thinking requires room for a response beyond the thinking budget
+		// and forbids a custom temperature (only the default is allowed).
+		if params.MaxTokens <= budget {
+			params.MaxTokens = budget + anthropicMinThinkingBudget
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+	} else if p.temp > 0 {
 		params.Temperature = anthropic.Float(p.temp)
 	}
 
@@ -254,6 +319,10 @@ func (p *anthropicProvider) parseResponse(resp anthropic.Message) (*Response, er
 		switch b := block.AsAny().(type) {
 		case anthropic.TextBlock:
 			r.Content += b.Text
+		case anthropic.ThinkingBlock:
+			r.Reasoning += b.Thinking
+			// Last signature wins; the common case is a single thinking block per turn.
+			r.ReasoningSignature = b.Signature
 		case anthropic.ToolUseBlock:
 			r.ToolCalls = append(r.ToolCalls, ToolCall{
 				ID:        b.ID,

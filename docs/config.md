@@ -58,6 +58,11 @@ models:
     temperature: 0.2
     multimodal: true
 
+  - model: "openai/gpt-5"
+    max_tokens: 8192
+    reasoning_default: medium     # level pre-selected for new chats (composer reasoning selector)
+    # reasoning_levels: [low, high]  # optional override of offered levels; [] hides the selector
+
   - model: "local/qwen2.5-coder:14b"
     max_tokens: 4096
     temperature: 0.1
@@ -348,7 +353,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (OpenAI-compatible base URL, Ollama host without **`/v1`**, etc.), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only).
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

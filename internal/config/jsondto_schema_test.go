@@ -60,6 +60,23 @@ func TestUISchemaAgentFieldHasDescription(t *testing.T) {
 	}
 }
 
+func TestUISchemaModelHasReasoningFields(t *testing.T) {
+	doc := config.UISchemaMap()
+	models := doc["properties"].(map[string]interface{})["models"].(map[string]interface{})
+	items := models["items"].(map[string]interface{})
+	mprops := items["properties"].(map[string]interface{})
+	rl, ok := mprops["reasoning_levels"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected reasoning_levels in model schema")
+	}
+	if rl["type"] != "array" {
+		t.Fatalf("reasoning_levels type %v want array", rl["type"])
+	}
+	if _, ok := mprops["reasoning_default"].(map[string]interface{}); !ok {
+		t.Fatal("expected reasoning_default in model schema")
+	}
+}
+
 func TestConfigJSONRoundTripAndYAML(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(config.EnvCODDYHome, home)

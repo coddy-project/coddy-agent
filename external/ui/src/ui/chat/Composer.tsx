@@ -95,6 +95,11 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
+  llmReasoningLevels?: string[];
+  /** Selected reasoning level (`metadata.reasoning`). */
+  llmReasoning?: string;
+  onLlmReasoningChange?: (level: string) => void;
   /** Files carried over from the message being edited — shown as read-only chips. */
   editingFiles?: { name: string; mimeType: string }[];
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
@@ -120,7 +125,11 @@ export function Composer(props: {
     snapshotShellStack,
     serverSnapshotShellStack,
   );
-  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | null>(null);
+  const [menuOpen, setMenuOpen] = useState<"mode" | "llm" | "reasoning" | null>(
+    null,
+  );
+  /** Screen rect of the open trigger, so the portaled menu (frosted glass over chat) can anchor to it. */
+  const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   const [contextPopoverOpen, setContextPopoverOpen] = useState(false);
   /** After closing the breakdown, hide hover tooltip until pointer leaves the ring. */
   const [contextTipSuppressed, setContextTipSuppressed] = useState(false);
@@ -869,6 +878,13 @@ export function Composer(props: {
   const showLlm = llmList.length > 0;
   const llmVal = (props.llmModel || "").trim();
 
+  const reasoningLevels = props.llmReasoningLevels ?? [];
+  const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
+  const reasoningVal = (props.llmReasoning || "").trim();
+  const reasoningLabel = reasoningVal
+    ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
+    : "Reasoning";
+
   function displayMode(id: string): string {
     const m = id || "agent";
     if (m === "plan" || m === "agent") {
@@ -899,6 +915,23 @@ export function Composer(props: {
     : clamp01(typeof pct === "number" ? pct / 100 : 0);
   const usage = contextIdle ? null : props.tokenUsage || null;
   const modeMenuDirClass = props.isEmpty ? "opens-down" : "opens-up";
+
+  function closeMenu() {
+    setMenuOpen(null);
+    setMenuAnchorRect(null);
+  }
+
+  function toggleMenu(
+    type: "mode" | "llm" | "reasoning",
+    trigger: HTMLElement,
+  ) {
+    if (menuOpen === type) {
+      closeMenu();
+    } else {
+      setMenuAnchorRect(trigger.getBoundingClientRect());
+      setMenuOpen(type);
+    }
+  }
   const tip = contextIdle
     ? ["No context usage yet", `Max context ${fmtInt(maxCtx)}`].join("\n")
     : [
@@ -1279,33 +1312,10 @@ export function Composer(props: {
                   title="Mode"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen === "mode"}
-                  onClick={() =>
-                    setMenuOpen((cur) => (cur === "mode" ? null : "mode"))
-                  }
+                  onClick={(e) => toggleMenu("mode", e.currentTarget)}
                 >
                   {modeLabel}
                 </button>
-                {menuOpen === "mode" ? (
-                  <div className={`mode-menu ${modeMenuDirClass}`} role="menu">
-                    {props.modes.map((m) => {
-                      const label = displayMode(m);
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          role="menuitem"
-                          className={`mode-item ${m === props.mode ? "is-selected" : ""}`}
-                          onClick={() => {
-                            props.onModeChange(m);
-                            setMenuOpen(null);
-                          }}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
               </div>
 
               {showLlm && props.onLlmModelChange ? (
@@ -1317,37 +1327,26 @@ export function Composer(props: {
                     title="YAML backend (metadata.model)"
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "llm"}
-                    onClick={() =>
-                      setMenuOpen((cur) => (cur === "llm" ? null : "llm"))
-                    }
+                    onClick={(e) => toggleMenu("llm", e.currentTarget)}
                   >
                     {llmLabel}
                   </button>
-                  {menuOpen === "llm" ? (
-                    <div
-                      className={`mode-menu ${modeMenuDirClass}`}
-                      role="menu"
-                    >
-                      {llmList.map((mid) => {
-                        const label = displayLlmId(mid);
-                        return (
-                          <button
-                            key={mid}
-                            type="button"
-                            role="menuitem"
-                            title={mid}
-                            className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
-                            onClick={() => {
-                              props.onLlmModelChange?.(mid);
-                              setMenuOpen(null);
-                            }}
-                          >
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                </div>
+              ) : null}
+
+              {showReasoning ? (
+                <div className="mode">
+                  <button
+                    type="button"
+                    className="composer-tab mode-btn mode-reasoning"
+                    aria-label="Reasoning level"
+                    title="Reasoning level (metadata.reasoning)"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === "reasoning"}
+                    onClick={(e) => toggleMenu("reasoning", e.currentTarget)}
+                  >
+                    {reasoningLabel}
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1452,6 +1451,90 @@ export function Composer(props: {
           breakdown={props.contextBreakdown}
         />
       ) : null}
+      {menuOpen && menuAnchorRect
+        ? createPortal(
+            <>
+              <button
+                type="button"
+                className="mode-menu-backdrop"
+                aria-hidden="true"
+                tabIndex={-1}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  closeMenu();
+                }}
+              />
+              <div
+                className={`mode-menu mode-menu--portal ${modeMenuDirClass}`}
+                role="menu"
+                style={
+                  modeMenuDirClass === "opens-up"
+                    ? {
+                        left: menuAnchorRect.left,
+                        bottom:
+                          window.innerHeight - menuAnchorRect.top + 8,
+                      }
+                    : {
+                        left: menuAnchorRect.left,
+                        top: menuAnchorRect.bottom + 8,
+                      }
+                }
+              >
+                {menuOpen === "mode"
+                  ? props.modes.map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="menuitem"
+                        className={`mode-item ${m === props.mode ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.onModeChange(m);
+                          closeMenu();
+                        }}
+                      >
+                        {displayMode(m)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "llm"
+                  ? llmList.map((mid) => (
+                      <button
+                        key={mid}
+                        type="button"
+                        role="menuitem"
+                        title={mid}
+                        className={`mode-item ${mid === llmVal ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.onLlmModelChange?.(mid);
+                          closeMenu();
+                        }}
+                      >
+                        {displayLlmId(mid)}
+                      </button>
+                    ))
+                  : null}
+                {menuOpen === "reasoning"
+                  ? reasoningLevels.map((lv) => (
+                      <button
+                        key={lv}
+                        type="button"
+                        role="menuitem"
+                        title={lv}
+                        className={`mode-item ${lv === reasoningVal ? "is-selected" : ""}`}
+                        onClick={() => {
+                          props.onLlmReasoningChange?.(lv);
+                          closeMenu();
+                        }}
+                      >
+                        {lv.slice(0, 1).toUpperCase() + lv.slice(1)}
+                      </button>
+                    ))
+                  : null}
+              </div>
+            </>,
+            document.body,
+          )
+        : null}
       {pickerOpen
         ? createPortal(
             pickerUseSheet ? (

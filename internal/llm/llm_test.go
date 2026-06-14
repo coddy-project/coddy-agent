@@ -21,7 +21,7 @@ func TestWrappedStreamCancelIsCanceled(t *testing.T) {
 // ImageParts is serialised as an array of content parts (text + image_url)
 // rather than a plain string.
 func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0)
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "describe this", ImageParts: []ImagePart{
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
@@ -47,7 +47,7 @@ func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {
-	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0)
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.0, "")
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}

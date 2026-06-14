@@ -41,6 +41,10 @@ type State struct {
 	// when non-empty. Empty means use config defaults for the current mode.
 	SelectedModelID string
 
+	// SelectedReasoning overrides the reasoning level for LLM calls when non-empty.
+	// Resolved against the effective model's levels by EffectiveReasoning.
+	SelectedReasoning string
+
 	// Messages is the conversation history.
 	Messages []llm.Message
 
@@ -252,6 +256,47 @@ func (s *State) SetSelectedModelID(id string) {
 	s.SelectedModelID = id
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// GetSelectedReasoning returns the session reasoning override, or empty.
+func (s *State) GetSelectedReasoning() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SelectedReasoning
+}
+
+// SetSelectedReasoning sets the session reasoning override (empty to use the model default).
+func (s *State) SetSelectedReasoning(level string) {
+	s.mu.Lock()
+	s.SelectedReasoning = level
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// EffectiveReasoning returns the reasoning level for LLM calls for this session.
+// Returns empty when the effective model has no reasoning support. A valid session
+// selection wins; otherwise the model's configured default is used (may be empty).
+func (s *State) EffectiveReasoning(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	ent := cfg.FindModelEntry(s.EffectiveModelID(cfg))
+	if ent == nil {
+		return ""
+	}
+	levels := ent.ResolvedReasoningLevels()
+	if len(levels) == 0 {
+		return ""
+	}
+	s.mu.RLock()
+	sel := strings.TrimSpace(s.SelectedReasoning)
+	s.mu.RUnlock()
+	for _, lv := range levels {
+		if lv == sel {
+			return sel
+		}
+	}
+	return ent.DefaultReasoningLevel()
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
@@ -545,11 +590,12 @@ func (s *State) ReplaceMessagesWithoutPersist(msgs []llm.Message) {
 	s.mu.Unlock()
 }
 
-// RestoreMetaWithoutPersist restores mode, model/memory, and permission mode from disk (no persistence callback).
-func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, agentMemory, permissionMode string) {
+// RestoreMetaWithoutPersist restores mode, model/reasoning/memory, and permission mode from disk (no persistence callback).
+func (s *State) RestoreMetaWithoutPersist(mode Mode, selectedModelID, selectedReasoning, agentMemory, permissionMode string) {
 	s.mu.Lock()
 	s.Mode = mode
 	s.SelectedModelID = selectedModelID
+	s.SelectedReasoning = selectedReasoning
 	s.AgentMemory = agentMemory
 	s.PermissionMode = permissionMode
 	s.mu.Unlock()

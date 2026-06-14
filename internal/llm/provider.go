@@ -30,13 +30,17 @@ type ImagePart struct {
 
 // Message is a single turn in a conversation.
 type Message struct {
-	Role      Role   `json:"role"`
-	Content   string `json:"content"`
+	Role    Role   `json:"role"`
+	Content string `json:"content"`
 	// ImageParts, when non-empty, make this a multimodal user message. Only
 	// supported for RoleUser; ignored on other roles and by providers that do
 	// not support vision.
 	ImageParts []ImagePart `json:"image_parts,omitempty"`
-	Reasoning string `json:"reasoning,omitempty"`
+	Reasoning  string      `json:"reasoning,omitempty"`
+	// ReasoningSignature is the provider signature for the reasoning block (Anthropic extended
+	// thinking). It is replayed unmodified with the exact Reasoning text on later requests when
+	// thinking is enabled and the turn has tool calls; otherwise the Anthropic API rejects it.
+	ReasoningSignature string `json:"reasoning_signature,omitempty"`
 	// ReasoningDurationMs wall clock between first streamed reasoning delta and UI-equivalent finish
 	// (first non-whitespace text delta or first tool-call chunk); omitted when unset or zero.
 	ReasoningDurationMs int64      `json:"reasoning_duration_ms,omitempty"`
@@ -80,6 +84,10 @@ type ToolDefinition struct {
 type Response struct {
 	Content   string
 	ToolCalls []ToolCall
+	// Reasoning is the exact (unmodified) reasoning text, when the provider returns one.
+	Reasoning string
+	// ReasoningSignature pairs with Reasoning for providers that sign reasoning blocks (Anthropic).
+	ReasoningSignature string
 	// StopReason explains why generation stopped.
 	// "end_turn" | "tool_use" | "max_tokens"
 	StopReason string
@@ -116,6 +124,9 @@ type ProviderInput struct {
 	ProxyURL    string
 	MaxTokens   int
 	Temperature float64
+	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
+	// OpenAI maps it to reasoning_effort; Anthropic maps it to an extended-thinking token budget.
+	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
 	RetryMax int
 	// RetryBase is the initial backoff between retries (default 1s).
@@ -135,9 +146,9 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature)
+		inner = newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature)
+		inner = newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

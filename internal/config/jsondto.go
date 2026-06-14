@@ -9,19 +9,19 @@ import (
 
 // ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
 type ConfigJSON struct {
-	Providers    []ProviderJSON  `json:"providers,omitempty"`
-	Models       []ModelJSON     `json:"models,omitempty"`
-	Agent        AgentJSON       `json:"agent,omitempty"`
-	Prompts      PromptsJSON     `json:"prompts,omitempty"`
+	Providers    []ProviderJSON   `json:"providers,omitempty"`
+	Models       []ModelJSON      `json:"models,omitempty"`
+	Agent        AgentJSON        `json:"agent,omitempty"`
+	Prompts      PromptsJSON      `json:"prompts,omitempty"`
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
-	Skills       SkillsJSON      `json:"skills,omitempty"`
-	MCPServers   []MCPServerJSON `json:"mcp_servers,omitempty"`
-	Tools        ToolsJSON       `json:"tools,omitempty"`
-	Logger       LoggerJSON      `json:"logger,omitempty"`
-	Sessions     SessionsJSON    `json:"sessions,omitempty"`
-	Memory       MemoryJSON      `json:"memory,omitempty"`
-	HTTPServer   HTTPServerJSON  `json:"httpserver,omitempty"`
-	Scheduler    SchedulerJSON   `json:"scheduler,omitempty"`
+	Skills       SkillsJSON       `json:"skills,omitempty"`
+	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
+	Tools        ToolsJSON        `json:"tools,omitempty"`
+	Logger       LoggerJSON       `json:"logger,omitempty"`
+	Sessions     SessionsJSON     `json:"sessions,omitempty"`
+	Memory       MemoryJSON       `json:"memory,omitempty"`
+	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
+	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 }
 
 // InstructionsJSON mirrors Instructions for JSON APIs.
@@ -39,12 +39,15 @@ type ProviderJSON struct {
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.
+// Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string  `json:"model"`
-	MaxTokens        int     `json:"max_tokens"`
-	Temperature      float64 `json:"temperature"`
-	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
-	Multimodal       bool    `json:"multimodal,omitempty"`
+	Model            string   `json:"model"`
+	MaxTokens        int      `json:"max_tokens"`
+	Temperature      float64  `json:"temperature"`
+	MaxContextTokens int      `json:"max_context_tokens,omitempty"`
+	Multimodal       bool     `json:"multimodal,omitempty"`
+	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs.

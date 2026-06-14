@@ -207,6 +207,14 @@ func UISchemaMap() map[string]interface{} {
 			"Optional UI hint for composer context bar; 0 means derive from provider metadata when available."),
 		"multimodal": boolProp("Multimodal",
 			"When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model."),
+		"reasoning_levels": map[string]interface{}{
+			"type":        "array",
+			"title":       "Reasoning levels",
+			"description": "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+			"items":       map[string]interface{}{"type": "string"},
+		},
+		"reasoning_default": strProp("Default reasoning level",
+			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
 	}
 	envProps := map[string]interface{}{
 		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
@@ -265,7 +273,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "reasoning_levels", "reasoning_default"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct agent", "Defaults for the main agent loop (model id and safety caps).",

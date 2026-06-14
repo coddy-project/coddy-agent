@@ -32,6 +32,7 @@ type SessionState interface {
 	GetMode() string
 	SetMode(mode string)
 	EffectiveModelID(cfg *config.Config) string
+	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
 	GetMCPClients() []*mcp.Client
@@ -144,8 +145,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sd,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sd,
 		ArchiveActiveMarkdown: func() error {
 			if sd == "" {
 				return nil
@@ -316,10 +317,12 @@ func (a *Agent) runReActLoop(
 						}
 						reasoningMs = d.Milliseconds()
 					}
+					reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
 					assistantMsg := llm.Message{
 						Role:                llm.RoleAssistant,
 						Content:             response.Content,
-						Reasoning:           reasonTrim,
+						Reasoning:           reasonStore,
+						ReasoningSignature:  reasonSig,
 						ToolCalls:           response.ToolCalls,
 						ReasoningDurationMs: reasoningMs,
 						Model:               a.state.EffectiveModelID(a.cfg),
@@ -402,10 +405,12 @@ func (a *Agent) runReActLoop(
 		}
 
 		// Append assistant message to history.
+		reasonStore, reasonSig := reasoningForStorage(reasonTrim, reasoningBuf.String(), response)
 		assistantMsg := llm.Message{
 			Role:                llm.RoleAssistant,
 			Content:             response.Content,
-			Reasoning:           reasonTrim,
+			Reasoning:           reasonStore,
+			ReasoningSignature:  reasonSig,
 			ToolCalls:           response.ToolCalls,
 			ReasoningDurationMs: reasoningMs,
 			Model:               a.state.EffectiveModelID(a.cfg),
@@ -703,6 +708,16 @@ func (a *Agent) sendPlan(sessionID string, entries []acp.PlanEntry) error {
 	})
 }
 
+// reasoningForStorage picks the reasoning text and signature to persist on an assistant message.
+// When the provider signs the reasoning (Anthropic extended thinking), the exact unmodified text
+// must be stored so the signature validates on replay; otherwise the trimmed text is used for display.
+func reasoningForStorage(trimmed, exact string, response *llm.Response) (text, signature string) {
+	if response != nil && response.ReasoningSignature != "" {
+		return exact, response.ReasoningSignature
+	}
+	return trimmed, ""
+}
+
 // getProvider creates the LLM provider for the given mode.
 func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 	modelID := a.state.EffectiveModelID(a.cfg)
@@ -719,7 +734,9 @@ func (a *Agent) getProvider(mode string) (llm.Provider, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	return mk(a.llmProviderInput(rm))
+	in := a.llmProviderInput(rm)
+	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
+	return mk(in)
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {

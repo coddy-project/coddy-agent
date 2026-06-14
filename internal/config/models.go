@@ -16,6 +16,13 @@ type ModelEntry struct {
 	// Multimodal declares that this model accepts image/file inputs in addition to text.
 	// When true the UI may offer file attachment for messages sent with this model.
 	Multimodal bool `yaml:"multimodal"`
+	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
+	// When nil the levels are auto-detected from the API model id (see ResolvedReasoningLevels).
+	// An explicit empty list disables the reasoning selector even for a reasoning-capable model.
+	ReasoningLevels []string `yaml:"reasoning_levels"`
+	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
+	// Ignored when not one of the resolved levels.
+	ReasoningDefault string `yaml:"reasoning_default"`
 }
 
 // SplitModelRef parses model into provider name and API model id.

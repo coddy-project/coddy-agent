@@ -2892,6 +2892,29 @@ a.rail-brand {
   background: var(--coddy-overlay-scrim-bg);
 }
 
+/* Transparent catch-all so an open mode/model/reasoning menu closes on outside click. */
+.mode-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+/*
+ * Portaled under document.body (not inside .composer-card) so the menu's own
+ * backdrop-filter blurs the chat behind it as frosted glass — a nested
+ * backdrop-filter would only frost the composer card's tint and read as solid.
+ * Position comes from the trigger rect via inline left/top/bottom.
+ */
+.mode-menu.mode-menu--portal {
+  position: fixed;
+  z-index: 101;
+}
+
 /* Shell holds surface (frosted) + inner scroll — scroll must not live on backdrop-filter layer */
 .slash-menu {
   position: relative;

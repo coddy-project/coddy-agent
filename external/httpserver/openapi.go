@@ -22,6 +22,7 @@ func openAPISpec() map[string]interface{} {
 			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
 				"Classify POST **model** values: **agent** / **plan** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
+				"**`metadata.reasoning`** (optional, agent/plan only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
 				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
@@ -462,7 +463,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
-					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
+					"description": "Set **title** (pinned title), **selectedModelId** (YAML **`models[].model`** selector for this session), **selectedReasoning** (reasoning level; must be one of the effective model's **`reasoning_levels`**, empty to clear), and/or **markActivityRead** (boolean) to advance the read cursor for **activitySeq**. **markActivityRead** updates only activity counters in **session.json** and does not change **updatedAt** (history order stays stable until new chat content is saved).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -479,6 +480,7 @@ func openAPISpec() map[string]interface{} {
 									"properties": map[string]interface{}{
 										"title":             map[string]string{"type": "string"},
 										"selectedModelId":   map[string]string{"type": "string"},
+										"selectedReasoning": map[string]string{"type": "string"},
 										"markActivityRead":  map[string]string{"type": "boolean"},
 									},
 								},
@@ -590,7 +592,7 @@ func openAPISpec() map[string]interface{} {
 										"answers": map[string]interface{}{
 											"type": "array",
 											"items": map[string]interface{}{
-												"type": "array",
+												"type":  "array",
 												"items": map[string]string{"type": "string"},
 											},
 										},
@@ -702,7 +704,7 @@ func openAPISpec() map[string]interface{} {
 						"name":        map[string]string{"type": "string", "description": "Canonical skill name."},
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
-						"enabled": map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
 					},
 				},
 				"SkillList": map[string]interface{}{
@@ -745,6 +747,15 @@ func openAPISpec() map[string]interface{} {
 									"owned_by":           map[string]string{"type": "string", "example": "coddy"},
 									"max_context_tokens": map[string]string{"type": "integer"},
 									"multimodal":         map[string]string{"type": "boolean"},
+									"reasoning_levels": map[string]interface{}{
+										"type":        "array",
+										"items":       map[string]string{"type": "string"},
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Omitted for non-reasoning models.",
+									},
+									"reasoning_default": map[string]string{
+										"type":        "string",
+										"description": "Reasoning level pre-selected for new chats with this model. Omitted when none is configured.",
+									},
 								},
 							},
 						},
