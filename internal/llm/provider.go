@@ -148,7 +148,7 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "openai":
 		inner = newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newAnthropicProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

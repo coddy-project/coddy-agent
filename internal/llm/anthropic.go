@@ -21,10 +21,13 @@ type anthropicProvider struct {
 	reasoningEffort string
 }
 
-func newAnthropicProvider(model, apiKey string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
+func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
 	opts := []option.RequestOption{}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
+	}
+	if baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
 	}
 	if httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(httpClient))

@@ -46,7 +46,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 }
 
 func TestAnthropicBuildParamsThinking(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", nil, 8192, 0.7, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high")
 	params := p.buildParams("", nil, nil)
 
 	if params.Thinking.OfEnabled == nil {
@@ -62,7 +62,7 @@ func TestAnthropicBuildParamsThinking(t *testing.T) {
 }
 
 func TestAnthropicBuildParamsNoThinkingKeepsTemperature(t *testing.T) {
-	p := newAnthropicProvider("claude-3-5-sonnet", "", nil, 8192, 0.7, "")
+	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "")
 	params := p.buildParams("", nil, nil)
 	if params.Thinking.OfEnabled != nil {
 		t.Error("thinking must be disabled when no reasoning level set")
@@ -75,7 +75,7 @@ func TestAnthropicBuildParamsNoThinkingKeepsTemperature(t *testing.T) {
 func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 	// Extended thinking + tool use requires the signed thinking block to be replayed
 	// first, with the exact reasoning text, or the Anthropic API rejects the turn.
-	p := newAnthropicProvider("claude-sonnet-4-5", "", nil, 8192, 0.7, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0.7, "high")
 	msgs := []Message{
 		{
 			Role:               RoleAssistant,
@@ -109,7 +109,7 @@ func TestAnthropicReplaysSignedThinkingBlockBeforeToolUse(t *testing.T) {
 
 func TestAnthropicOmitsThinkingBlockWhenDisabled(t *testing.T) {
 	// With no reasoning level, the stored signature must NOT be replayed (thinking off).
-	p := newAnthropicProvider("claude-3-5-sonnet", "", nil, 8192, 0.7, "")
+	p := newAnthropicProvider("claude-3-5-sonnet", "", "", nil, 8192, 0.7, "")
 	msgs := []Message{
 		{Role: RoleAssistant, Content: "hi", Reasoning: "x", ReasoningSignature: "sig", ToolCalls: []ToolCall{{ID: "t1", Name: "read", InputJSON: "{}"}}},
 	}
@@ -121,7 +121,7 @@ func TestAnthropicOmitsThinkingBlockWhenDisabled(t *testing.T) {
 }
 
 func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
-	p := newAnthropicProvider("claude-sonnet-4-5", "", nil, 8192, 0, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 8192, 0, "high")
 	var resp anthropic.Message
 	raw := `{"content":[{"type":"thinking","thinking":"because","signature":"sig-xyz"},{"type":"text","text":"answer"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}}`
 	if err := json.Unmarshal([]byte(raw), &resp); err != nil {
@@ -141,7 +141,7 @@ func TestAnthropicParseResponseCapturesThinking(t *testing.T) {
 
 func TestAnthropicThinkingBudgetBumpsMaxTokens(t *testing.T) {
 	// Tiny max_tokens still yields a valid budget < max_tokens after bump.
-	p := newAnthropicProvider("claude-sonnet-4-5", "", nil, 512, 0, "high")
+	p := newAnthropicProvider("claude-sonnet-4-5", "", "", nil, 512, 0, "high")
 	params := p.buildParams("", nil, nil)
 	if params.Thinking.OfEnabled == nil {
 		t.Fatal("expected thinking enabled")

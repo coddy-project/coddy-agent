@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestWrappedStreamCancelIsCanceled(t *testing.T) {
@@ -41,6 +46,51 @@ func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
 	}
 	if !strings.Contains(s, `"describe this"`) {
 		t.Errorf("expected text content, got: %s", s)
+	}
+}
+
+// TestNewProviderAnthropicHonorsBaseURL verifies that an Anthropic provider built
+// through NewProvider routes requests to the configured api_base (BaseURL) instead of
+// the hard-coded https://api.anthropic.com default. Regression test: BaseURL used to be
+// dropped on the Anthropic branch, so OpenAI-compatible api_base overrides were ignored.
+func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
+	var mu sync.Mutex
+	hit := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hit = true
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-test",`+
+			`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",`+
+			`"usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer srv.Close()
+
+	prov, err := NewProvider(ProviderInput{
+		Type:    "anthropic",
+		Model:   "claude-test",
+		APIKey:  "test-key",
+		BaseURL: srv.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := prov.Complete(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !hit {
+		t.Fatal("Anthropic provider ignored api_base: request did not reach the configured BaseURL server")
+	}
+	if resp.Content != "ok" {
+		t.Errorf("unexpected content %q, want %q", resp.Content, "ok")
 	}
 }
 
