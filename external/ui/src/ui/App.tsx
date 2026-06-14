@@ -819,6 +819,16 @@ export function App() {
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [llmReasoning, setLlmReasoning] = useState("");
+  /**
+   * Raw model/reasoning stored on the opened session. Held until the backends
+   * list (`llmModelIds`) is available so the restore survives whichever of
+   * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
+   */
+  const [openSessionSelection, setOpenSessionSelection] = useState<{
+    sid: string;
+    model: string;
+    reasoning: string;
+  } | null>(null);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
