@@ -22,6 +22,38 @@ type ConfigJSON struct {
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
+	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
+}
+
+// GatewaysJSON mirrors GatewayConfig for JSON APIs.
+type GatewaysJSON struct {
+	Telegram TelegramGatewayJSON `json:"telegram,omitempty"`
+}
+
+// TelegramGatewayJSON mirrors TelegramGatewayConfig.
+type TelegramGatewayJSON struct {
+	Enabled          bool                    `json:"enabled,omitempty"`
+	Token            string                  `json:"token,omitempty"`
+	Proxy            string                  `json:"proxy,omitempty"`
+	RichMessages     bool                    `json:"rich_messages,omitempty"`
+	Admins           []int64                 `json:"admins,omitempty"`
+	DefaultAccess    string                  `json:"default_access,omitempty"`
+	DefaultIsolation string                  `json:"default_isolation,omitempty"`
+	UserGroups       []TelegramUserGroupJSON `json:"user_groups,omitempty"`
+	Chats            []TelegramChatJSON      `json:"chats,omitempty"`
+}
+
+// TelegramUserGroupJSON mirrors TelegramUserGroup.
+type TelegramUserGroupJSON struct {
+	Name    string  `json:"name"`
+	UserIDs []int64 `json:"user_ids,omitempty"`
+}
+
+// TelegramChatJSON mirrors TelegramChatConfig.
+type TelegramChatJSON struct {
+	ChatID    int64  `json:"chat_id"`
+	Isolation string `json:"isolation,omitempty"`
+	Access    string `json:"access,omitempty"`
 }
 
 // InstructionsJSON mirrors Instructions for JSON APIs.
@@ -202,6 +234,24 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
 	}
+	tg := c.Gateways.Telegram
+	tgJSON := TelegramGatewayJSON{
+		Enabled: tg.Enabled, Token: tg.Token, Proxy: tg.Proxy, RichMessages: tg.RichMessages,
+		Admins:           append([]int64(nil), tg.Admins...),
+		DefaultAccess:    string(tg.DefaultAccess),
+		DefaultIsolation: string(tg.DefaultIsolation),
+	}
+	for _, g := range tg.UserGroups {
+		tgJSON.UserGroups = append(tgJSON.UserGroups, TelegramUserGroupJSON{
+			Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...),
+		})
+	}
+	for _, ch := range tg.Chats {
+		tgJSON.Chats = append(tgJSON.Chats, TelegramChatJSON{
+			ChatID: ch.ChatID, Isolation: string(ch.Isolation), Access: string(ch.Access),
+		})
+	}
+	out.Gateways = GatewaysJSON{Telegram: tgJSON}
 	return out
 }
 
@@ -264,6 +314,24 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
 	}
+	jt := j.Gateways.Telegram
+	tg := TelegramGatewayConfig{
+		Enabled: jt.Enabled, Token: jt.Token, Proxy: jt.Proxy, RichMessages: jt.RichMessages,
+		Admins:           append([]int64(nil), jt.Admins...),
+		DefaultAccess:    AccessLevel(jt.DefaultAccess),
+		DefaultIsolation: IsolationMode(jt.DefaultIsolation),
+	}
+	for _, g := range jt.UserGroups {
+		tg.UserGroups = append(tg.UserGroups, TelegramUserGroup{
+			Name: g.Name, UserIDs: append([]int64(nil), g.UserIDs...),
+		})
+	}
+	for _, ch := range jt.Chats {
+		tg.Chats = append(tg.Chats, TelegramChatConfig{
+			ChatID: ch.ChatID, Isolation: IsolationMode(ch.Isolation), Access: AccessLevel(ch.Access),
+		})
+	}
+	cfg.Gateways = GatewayConfig{Telegram: tg}
 	return cfg
 }
 

@@ -67,6 +67,15 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Timeout:        "30m",
 			RetainSessions: 5,
 		},
+		Gateways: GatewaysJSON{
+			Telegram: TelegramGatewayJSON{
+				Enabled:          false,
+				Token:            "${TELEGRAM_BOT_TOKEN}",
+				RichMessages:     true,
+				DefaultAccess:    string(AccessAll),
+				DefaultIsolation: string(IsolationIndividual),
+			},
+		},
 	}
 }
 

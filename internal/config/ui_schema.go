@@ -259,6 +259,62 @@ func UISchemaMap() map[string]interface{} {
 		},
 	}
 
+	isolationEnum := []string{string(IsolationIndividual), string(IsolationShared), string(IsolationAdmin)}
+	telegramUserGroupProps := map[string]interface{}{
+		"name": strProp("Group name", "Name referenced by access as group:<name>."),
+		"user_ids": map[string]interface{}{
+			"type":        "array",
+			"title":       "User IDs",
+			"description": "Telegram numeric user IDs that belong to this group.",
+			"items":       map[string]interface{}{"type": "integer"},
+		},
+	}
+	telegramChatProps := map[string]interface{}{
+		"chat_id": intProp("Chat ID", "Telegram chat id; negative for groups and supergroups."),
+		"isolation": map[string]interface{}{
+			"type": "string", "title": "Isolation",
+			"description": "Per-chat session isolation override.",
+			"enum":        isolationEnum,
+		},
+		"access": strProp("Access", "Per-chat access override: all, admins, or group:<name>."),
+	}
+	telegramProps := map[string]interface{}{
+		"enabled": boolProp("Enabled", "Run the Telegram bot (requires the gateway or gateway.telegram build tag)."),
+		"token": strProp("Bot token",
+			"BotFather token. Secret — prefer ${TELEGRAM_BOT_TOKEN} in YAML; it is shown in full here."),
+		"rich_messages": boolProp("Rich messages",
+			"Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported."),
+		"proxy": strProp("Proxy",
+			"Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h."),
+		"admins": map[string]interface{}{
+			"type":        "array",
+			"title":       "Admins",
+			"description": "Telegram user IDs with elevated rights; admins always pass access checks.",
+			"items":       map[string]interface{}{"type": "integer"},
+		},
+		"default_access": strProp("Default access",
+			"Fallback access level for chats without an override: all, admins, or group:<name>."),
+		"default_isolation": map[string]interface{}{
+			"type": "string", "title": "Default isolation",
+			"description": "Fallback session isolation for group chats.",
+			"enum":        isolationEnum,
+		},
+		"user_groups": map[string]interface{}{
+			"type":        "array",
+			"title":       "User groups",
+			"description": "Named sets of user IDs referenced by access as group:<name>.",
+			"items": objectSchema("", "", telegramUserGroupProps,
+				[]string{"name", "user_ids"}, []string{"name"}),
+		},
+		"chats": map[string]interface{}{
+			"type":        "array",
+			"title":       "Per-chat overrides",
+			"description": "Override isolation and access for specific chats.",
+			"items": objectSchema("", "", telegramChatProps,
+				[]string{"chat_id", "isolation", "access"}, []string{"chat_id"}),
+		},
+	}
+
 	props := map[string]interface{}{
 		"providers": map[string]interface{}{
 			"type":        "array",
@@ -409,11 +465,19 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dir"},
 			nil),
+		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
+			map[string]interface{}{
+				"telegram": objectSchema("Telegram", "Telegram bot adapter settings.", telegramProps,
+					[]string{"enabled", "token", "rich_messages", "proxy", "admins", "default_access", "default_isolation", "user_groups", "chats"},
+					nil),
+			},
+			[]string{"telegram"},
+			nil),
 	}
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions",
+		"prompts", "instructions", "logger", "sessions", "gateways",
 	}
 
 	doc := map[string]interface{}{
