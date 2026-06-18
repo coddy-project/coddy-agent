@@ -16,6 +16,11 @@ providers:
   - name: openai
     type: openai
     api_key: "${OPENAI_API_KEY}"
+    # Optional credential helper: when api_key is empty, this command is run via the
+    # shell and its trimmed stdout is used as the key (like git/docker credential
+    # helpers or AWS credential_process). Lets a provider fetch short-lived or
+    # login-issued keys without storing a static secret. Falls back to NAME_API_KEY.
+    # api_key_command: "my-cli print-token"
     # Optional outbound proxy for this provider only (http, https, socks5, socks5h).
     # proxy: "http://127.0.0.1:8888"
     # proxy: "socks5h://127.0.0.1:1080"

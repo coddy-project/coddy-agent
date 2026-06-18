@@ -62,12 +62,14 @@ type InstructionsJSON struct {
 }
 
 // ProviderJSON mirrors ProviderConfig for JSON APIs.
+// Field order and types must match ProviderConfig (direct struct conversion is used below).
 type ProviderJSON struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	APIBase string `json:"api_base,omitempty"`
-	APIKey  string `json:"api_key,omitempty"`
-	Proxy   string `json:"proxy,omitempty"`
+	Name          string `json:"name"`
+	Type          string `json:"type"`
+	APIBase       string `json:"api_base,omitempty"`
+	APIKey        string `json:"api_key,omitempty"`
+	APIKeyCommand string `json:"api_key_command,omitempty"`
+	Proxy         string `json:"proxy,omitempty"`
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.

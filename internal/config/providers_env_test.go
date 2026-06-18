@@ -44,6 +44,30 @@ func TestProviderConfigEffectiveAPIKey(t *testing.T) {
 	}
 }
 
+func TestProviderConfigEffectiveAPIKeyCommand(t *testing.T) {
+	// api_key_command stdout (trimmed) becomes the key when api_key is empty.
+	p := &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "printf 'k-from-cmd\\n'"}
+	if got := p.EffectiveAPIKey(); got != "k-from-cmd" {
+		t.Fatalf("EffectiveAPIKey command: got %q want k-from-cmd", got)
+	}
+	// A literal api_key wins over the command.
+	p.APIKey = "literal"
+	if got := p.EffectiveAPIKey(); got != "literal" {
+		t.Fatalf("literal should win over command: got %q", got)
+	}
+	// The command wins over the conventional env var.
+	t.Setenv("RPA_API_KEY", "from-env")
+	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "printf 'k-from-cmd'"}
+	if got := p.EffectiveAPIKey(); got != "k-from-cmd" {
+		t.Fatalf("command should win over env: got %q", got)
+	}
+	// A failing/empty command falls back to the env var (best-effort helper).
+	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "exit 3"}
+	if got := p.EffectiveAPIKey(); got != "from-env" {
+		t.Fatalf("failed command should fall back to env: got %q", got)
+	}
+}
+
 func TestResolveLLMUsesEffectiveAPIKey(t *testing.T) {
 	t.Setenv("RPA_API_KEY", "k-env")
 	cfg := &Config{
