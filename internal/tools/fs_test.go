@@ -27,7 +27,7 @@ func TestReadFile(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"filePath": "test.txt"})
+	args, _ := json.Marshal(map[string]interface{}{"path": "test.txt"})
 	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -47,9 +47,9 @@ func TestReadFileLines(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	args, _ := json.Marshal(map[string]interface{}{
-		"filePath": "test.txt",
-		"offset":   2,
-		"limit":    2,
+		"path":   "test.txt",
+		"offset": 2,
+		"limit":  2,
 	})
 	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
@@ -125,7 +125,7 @@ func TestReadDirListing(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"filePath": "."})
+	args, _ := json.Marshal(map[string]interface{}{"path": "."})
 	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
@@ -151,7 +151,7 @@ func TestReadDirHiddenDefault(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"filePath": "."})
+	args, _ := json.Marshal(map[string]interface{}{"path": "."})
 	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -163,7 +163,7 @@ func TestReadDirHiddenDefault(t *testing.T) {
 		t.Errorf("did not expect hidden entries by default: %q", result)
 	}
 
-	args, _ = json.Marshal(map[string]interface{}{"filePath": ".", "show_hidden": true})
+	args, _ = json.Marshal(map[string]interface{}{"path": ".", "show_hidden": true})
 	result, err = reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
 		t.Fatalf("read show_hidden: %v", err)
@@ -184,7 +184,7 @@ func TestReadDirRecursiveSkipsHiddenSubtree(t *testing.T) {
 	}
 
 	reg := tools.NewRegistry()
-	args, _ := json.Marshal(map[string]interface{}{"filePath": "outer", "recursive": true})
+	args, _ := json.Marshal(map[string]interface{}{"path": "outer", "recursive": true})
 	result, err := reg.Execute(context.Background(), "read", string(args), env)
 	if err != nil {
 		t.Fatalf("read: %v", err)
