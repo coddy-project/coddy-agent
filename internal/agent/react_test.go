@@ -1,11 +1,76 @@
 package agent
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools"
 )
+
+// --- Shared test doubles ---------------------------------------------------
+
+type resumePermissionSender struct{}
+
+func (resumePermissionSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (resumePermissionSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+}
+
+func (resumePermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+type resumePermissionProvider struct {
+	t    *testing.T
+	seen []llm.Message
+}
+
+func (p *resumePermissionProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	p.t.Fatal("Complete must not be used by ResumeAfterPermission")
+	return nil, nil
+}
+
+func (p *resumePermissionProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.seen = append([]llm.Message(nil), messages...)
+	onChunk(llm.StreamChunk{TextDelta: "continued"})
+	return &llm.Response{Content: "continued", StopReason: "end_turn"}, nil
+}
+
+// emptyThenAnswerProvider mimics a gpt-oss / harmony endpoint that ends its first turn
+// with only internal reasoning (a tool call that leaked into the reasoning channel) and
+// an empty content / empty tool_calls response, then answers normally when re-prompted.
+// Without a continuation nudge the ReAct loop would dead-end the turn on a lone
+// "thinking" bubble, leaving the user with no visible answer.
+type emptyThenAnswerProvider struct {
+	calls int
+}
+
+func (p *emptyThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *emptyThenAnswerProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	if p.calls == 1 {
+		// Reasoning only, with the tool call leaked into the analysis channel as text;
+		// no final content and no structured tool_calls.
+		onChunk(llm.StreamChunk{ReasoningDelta: `Let's search config for moonshot.{"path":"/cfg","pattern":"moonshot","max_results":20}`})
+		return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+	}
+	onChunk(llm.StreamChunk{TextDelta: "Here is the real answer."})
+	return &llm.Response{Content: "Here is the real answer.", StopReason: "end_turn"}, nil
+}
+
+// --- react.go: content blocks, context files, tool kind, command, memory ---
 
 func TestContentBlocksToText_textAndResource(t *testing.T) {
 	blocks := []acp.ContentBlock{
@@ -72,5 +137,368 @@ func TestFormatMergedMemory(t *testing.T) {
 	want := "facts\n\nSession notes:\nnote"
 	if g := formatMergedMemory("note", "facts"); g != want {
 		t.Fatalf("got %q want %q", g, want)
+	}
+}
+
+// --- react.go: ReAct loop empty-turn recovery ------------------------------
+
+func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_empty_turn",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &emptyThenAnswerProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason = %q, want end_turn", stop)
+	}
+	if provider.calls < 2 {
+		t.Fatalf("provider called %d times; expected the loop to re-prompt after an empty (reasoning-only) turn", provider.calls)
+	}
+	msgs := st.GetMessages()
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || last.Content != "Here is the real answer." {
+		t.Fatalf("conversation dead-ended on a thinking-only turn: last message = %+v", last)
+	}
+}
+
+// --- resume_permission.go --------------------------------------------------
+
+func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) {
+	sessionDir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_resume_reject",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: sessionDir,
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run blocked command then continue"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_blocked",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_blocked", &acp.PermissionResult{
+		Outcome:  "cancelled",
+		OptionID: "reject",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason %q", stop)
+	}
+	var toolMsg *llm.Message
+	for i := range st.GetMessages() {
+		m := st.GetMessages()[i]
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_blocked" {
+			toolMsg = &m
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("missing resumed tool result message")
+	}
+	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
+		t.Fatalf("rejected permission executed the tool: %q", toolMsg.Content)
+	}
+	if toolMsg.Content != "permission denied by user" {
+		t.Fatalf("tool result %q", toolMsg.Content)
+	}
+	if len(provider.seen) == 0 {
+		t.Fatal("provider was not called to continue after rejected permission")
+	}
+	last := provider.seen[len(provider.seen)-1]
+	if last.Role != llm.RoleTool || last.ToolCallID != "call_blocked" || last.Content != "permission denied by user" {
+		t.Fatalf("provider did not receive denied tool result as latest message: %+v", last)
+	}
+	if got := st.GetMessages()[len(st.GetMessages())-1]; got.Role != llm.RoleAssistant || got.Content != "continued" {
+		t.Fatalf("missing continuation assistant message: %+v", got)
+	}
+}
+
+// --- system_prompt.go: context breakdown -----------------------------------
+
+func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+	toolsMD := "## Tools\n\ntool_a: does things"
+	_ = toolsMD
+	_ = a.buildSystemPrompt("agent", nil, []llm.ToolDefinition{{Name: "tool_a", Description: "does things"}}, "", nil)
+	b := st.GetLastContextBreakdown()
+	if b == nil {
+		t.Fatal("expected breakdown")
+	}
+	if b.SystemPrompt <= 0 {
+		t.Fatalf("expected system prompt tokens > 0, got %+v", b)
+	}
+	if b.ToolDefinitions <= 0 {
+		t.Fatalf("expected tool definition tokens > 0, got %+v", b)
+	}
+	// Sanity: system includes agent.md body text.
+	if b.SystemPrompt < 100 {
+		t.Fatalf("system prompt estimate too small: %d", b.SystemPrompt)
+	}
+}
+
+func TestComputeContextBreakdownSubtractsParts(t *testing.T) {
+	full := strings.Repeat("x", 400) + "\n\n" + strings.Repeat("y", 200)
+	skillsText := strings.Repeat("s", 100)
+	toolsText := strings.Repeat("t", 80)
+	rules := strings.Repeat("r", 40)
+	b := computeContextBreakdown(full, skillsText, toolsText, rules, nil, nil)
+	if b.SystemPrompt <= 0 {
+		t.Fatalf("system tokens: %d", b.SystemPrompt)
+	}
+	if b.Skills != session.EstimateTokens(skillsText) {
+		t.Fatalf("skills: got %d", b.Skills)
+	}
+}
+
+// --- system_prompt.go: rules block -----------------------------------------
+
+func TestBuildSystemPromptIncludesRulesBlock(t *testing.T) {
+	tmp := t.TempDir()
+	rulePath := filepath.Join(tmp, ".coddy", "rules")
+	if err := os.MkdirAll(rulePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nalwaysApply: true\nglobs: ['**/*.go']\n---\nRULE_GLOB_TOKEN:xyz\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "go.mdc"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(&config.Config{}, tmp))
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "main.go")})
+	if !strings.Contains(prompt, "RULE_GLOB_TOKEN") {
+		t.Fatal("expected rule token in prompt")
+	}
+	if strings.Contains(prompt, "## Active Skills") {
+		t.Fatal("rule token should be under Rules not Skills heading")
+	}
+}
+
+func TestBuildSystemPromptMentionOnlyRule(t *testing.T) {
+	tmp := t.TempDir()
+	rulePath := filepath.Join(tmp, ".coddy", "rules")
+	if err := os.MkdirAll(rulePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nalwaysApply: false\ndescription: mention only\n---\nRULE_MENTION_ONLY:secret\n"
+	if err := os.WriteFile(filepath.Join(rulePath, "mention_demo.mdc"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(&config.Config{}, tmp))
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+	without := a.buildSystemPrompt("agent", nil, nil, "hello", nil)
+	if strings.Contains(without, "RULE_MENTION_ONLY") {
+		t.Fatal("mention-only rule must not appear without @mention")
+	}
+	with := a.buildSystemPrompt("agent", nil, nil, "please @mention_demo now", nil)
+	if !strings.Contains(with, "RULE_MENTION_ONLY") {
+		t.Fatal("expected mention-only rule body with @mention_demo")
+	}
+}
+
+func TestBuildSystemPromptProjectDocsInRules(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("AGENTS_DOC_TOKEN"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "DESIGN.md"), []byte("DESIGN_DOC_TOKEN"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(&config.Config{}, tmp))
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	a := NewAgent(cfg, st, nil, nil)
+	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	if !strings.Contains(prompt, "AGENTS_DOC_TOKEN") || !strings.Contains(prompt, "DESIGN_DOC_TOKEN") {
+		t.Fatal("expected project docs in rules block")
+	}
+	agentsIdx := strings.Index(prompt, "AGENTS_DOC_TOKEN")
+	designIdx := strings.Index(prompt, "DESIGN_DOC_TOKEN")
+	if agentsIdx < 0 || designIdx < 0 || agentsIdx > designIdx {
+		t.Fatal("expected AGENTS.md before DESIGN.md in prompt")
+	}
+}
+
+// --- system_prompt.go: skills injection ------------------------------------
+
+// TestAugmentUserMessageWithInvokedSkills_bodyInjected verifies that when a user
+// explicitly invokes a slash command (/find-skills), its body is prepended to the
+// user message sent to the LLM. The chat display (stored Content) remains unchanged.
+//
+// Regression: previously the body was never emitted because filteredInvoke compared
+// against activeGlobCanon which always included no-glob skills, preventing injection
+// in both the system-prompt ephemeral section and (by extension) the user message.
+func TestAugmentUserMessageWithInvokedSkills_bodyInjected(t *testing.T) {
+	const body = "UNIQUE_FIND_SKILLS_BODY_TOKEN"
+	sk := &skills.Skill{
+		Name:        "SKILL",
+		FilePath:    filepath.Join("skills", "find-skills", "SKILL.md"),
+		Description: "find skills",
+		Content:     body,
+	}
+
+	userText := "/find-skills search pdf"
+	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
+
+	if !strings.Contains(result, body) {
+		t.Fatalf("expected skill body %q to be prepended to user message; got:\n%s", body, result)
+	}
+	if !strings.Contains(result, userText) {
+		t.Fatalf("expected original user text %q to be preserved in result; got:\n%s", userText, result)
+	}
+	// Skill body must come BEFORE the original user text.
+	if strings.Index(result, body) > strings.Index(result, userText) {
+		t.Fatalf("skill body should appear before user text in augmented message")
+	}
+}
+
+// TestAugmentUserMessageWithInvokedSkills_noSkillMatch returns userText unchanged when
+// the invoked name does not match any loaded skill.
+func TestAugmentUserMessageWithInvokedSkills_noSkillMatch(t *testing.T) {
+	sk := &skills.Skill{
+		Name:     "SKILL",
+		FilePath: filepath.Join("skills", "other", "SKILL.md"),
+		Content:  "other body",
+	}
+	userText := "/find-skills pdf"
+	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
+	if result != userText {
+		t.Fatalf("expected unchanged userText when no skill matches; got:\n%s", result)
+	}
+}
+
+// TestAugmentUserMessageWithInvokedSkills_noSlashCommand returns userText unchanged when
+// the message contains no slash command.
+func TestAugmentUserMessageWithInvokedSkills_noSlashCommand(t *testing.T) {
+	sk := &skills.Skill{
+		Name:     "SKILL",
+		FilePath: filepath.Join("skills", "find-skills", "SKILL.md"),
+		Content:  "body",
+	}
+	userText := "поищи что-нибудь"
+	result := augmentUserMessageWithInvokedSkills(userText, []*skills.Skill{sk})
+	if result != userText {
+		t.Fatalf("expected unchanged userText when no slash command; got:\n%s", result)
+	}
+}
+
+// TestBuildSkillsPromptMarkdown_catalogSkillBodyNotInSystemPrompt verifies that slash
+// command skill bodies are NOT injected into the system prompt; only the catalog listing
+// appears there. Bodies travel via user message augmentation instead.
+func TestBuildSkillsPromptMarkdown_catalogSkillBodyNotInSystemPrompt(t *testing.T) {
+	const body = "UNIQUE_FIND_SKILLS_BODY_TOKEN"
+	sk := &skills.Skill{
+		Name:        "SKILL",
+		FilePath:    filepath.Join("skills", "find-skills", "SKILL.md"),
+		Description: "find skills",
+		Content:     body,
+	}
+
+	allLoaded := []*skills.Skill{sk}
+	active := skills.FilterForContext(allLoaded, nil)
+
+	result := buildSkillsPromptMarkdown(allLoaded, active)
+
+	if strings.Contains(result, body) {
+		t.Fatalf("slash command skill body should NOT be in system prompt; got:\n%s", result)
+	}
+	if !strings.Contains(result, "find-skills") {
+		t.Fatalf("skill name should appear in the slash catalog; got:\n%s", result)
+	}
+}
+
+// TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt verifies that a
+// skill with no globs that is NOT in the catalog has its body in the system prompt.
+func TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt(t *testing.T) {
+	const body = "NO_GLOB_NON_CATALOG_BODY"
+	// This skill uses a path that doesn't become a slash command name in the catalog.
+	sk := &skills.Skill{
+		Name:     "my-always-rule",
+		FilePath: filepath.Join("rules", "my-always-rule.md"),
+		Content:  body,
+	}
+
+	allLoaded := []*skills.Skill{sk}
+	active := skills.FilterForContext(allLoaded, nil)
+
+	result := buildSkillsPromptMarkdown(allLoaded, active)
+
+	if !strings.Contains(result, body) {
+		t.Fatalf("always-apply non-catalog skill body should be in system prompt; got:\n%s", result)
+	}
+}
+
+// --- toolsets.go -----------------------------------------------------------
+
+func TestPlanToolSetFiltersToReadWebAndShell(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("plan")
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	got := make(map[string]bool)
+	for _, d := range filtered {
+		got[d.Name] = true
+	}
+	for _, want := range []string{"read", "glob", "grep", "websearch", "webfetch", "run_command", "question", "plan_write", "plan_list", "plan_read"} {
+		if !got[want] {
+			t.Errorf("plan toolset should include %q", want)
+		}
+	}
+	for _, forbid := range []string{"write", "coddy_todo_plan_read"} {
+		if got[forbid] {
+			t.Errorf("plan toolset should not include %q", forbid)
+		}
+	}
+}
+
+func TestToolSetForAgentIsUnrestricted(t *testing.T) {
+	set := ToolSetForMode("agent")
+	if !set.Unrestricted() {
+		t.Fatal("agent mode should use unrestricted tool set")
 	}
 }

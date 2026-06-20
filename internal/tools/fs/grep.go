@@ -66,6 +66,7 @@ func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string
 	if args.Path != "" {
 		searchPath = ResolvePath(args.Path, env.CWD)
 	}
+	storeRoot := sessionStoreRoot(env.SessionDir)
 	maxResults := 100
 	if args.MaxResults > 0 {
 		maxResults = args.MaxResults
@@ -98,16 +99,26 @@ func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string
 			return "no matches found", nil
 		}
 		if strings.Contains(err.Error(), "executable file not found") {
-			return grepWithGrepFallback(ctx, args, searchPath, env)
+			out, ferr := grepWithGrepFallback(ctx, args, searchPath, env)
+			if ferr != nil {
+				return "", ferr
+			}
+			return grepResultOrEmpty(dropStoreLines(out, storeRoot)), nil
 		}
 		return "", fmt.Errorf("grep rg: %s", stderr.String())
 	}
 
-	result := stdout.String()
-	if result == "" {
-		return "no matches found", nil
+	// Hide Coddy's own session store so other sessions' transcripts never leak in.
+	return grepResultOrEmpty(dropStoreLines(stdout.String(), storeRoot)), nil
+}
+
+// grepResultOrEmpty normalizes empty/whitespace-only grep output to the canonical
+// "no matches found" sentinel.
+func grepResultOrEmpty(result string) string {
+	if strings.TrimSpace(result) == "" {
+		return "no matches found"
 	}
-	return result, nil
+	return result
 }
 
 func grepWithGrepFallback(ctx context.Context, args grepArgs, searchPath string, _ *tooling.Env) (string, error) {

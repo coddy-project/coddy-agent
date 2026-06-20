@@ -35,7 +35,7 @@ func ReadTool() *tooling.Tool {
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"filePath": map[string]interface{}{
+					"path": map[string]interface{}{
 						"type":        "string",
 						"description": "Path to a file or directory (absolute or relative to working directory)",
 					},
@@ -56,7 +56,7 @@ func ReadTool() *tooling.Tool {
 						"description": "For directories: include dotfiles and dot-directories (default: false)",
 					},
 				},
-				"required": []string{"filePath"},
+				"required": []string{"path"},
 			},
 		},
 		Execute: executeRead,
@@ -64,7 +64,7 @@ func ReadTool() *tooling.Tool {
 }
 
 type readArgs struct {
-	FilePath    string `json:"filePath"`
+	Path        string `json:"path"`
 	Offset      int    `json:"offset"`
 	Limit       int    `json:"limit"`
 	Recursive   bool   `json:"recursive"`
@@ -76,11 +76,11 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(args.FilePath) == "" {
-		return "", fmt.Errorf("read: filePath is required")
+	if strings.TrimSpace(args.Path) == "" {
+		return "", fmt.Errorf("read: path is required")
 	}
 
-	path := ResolvePath(args.FilePath, env.CWD)
+	path := ResolvePath(args.Path, env.CWD)
 
 	st, err := os.Stat(path)
 	if err != nil {

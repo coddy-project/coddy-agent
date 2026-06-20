@@ -178,6 +178,18 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
 
+// maxEmptyAssistantContinuations bounds how many times the ReAct loop re-prompts a model
+// that ended a turn with no visible answer and no tool call (only reasoning, or nothing).
+// It guards against dead-ending the conversation on a thinking-only bubble — seen with
+// gpt-oss / harmony endpoints that leak a tool call into the reasoning channel — while
+// preventing an unbounded empty-turn loop.
+const maxEmptyAssistantContinuations = 2
+
+// emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
+// persisted to the transcript) to prompt the model to produce its answer or a tool call
+// after an empty turn.
+const emptyAssistantContinuationNudge = "Your previous message had no answer text and no tool call. Continue now: call the appropriate tool to act, or write your reply to the user."
+
 func (a *Agent) runReActLoop(
 	ctx context.Context,
 	mode string,
@@ -193,6 +205,7 @@ func (a *Agent) runReActLoop(
 	var totalInputTokens, totalOutputTokens int
 	var turnIndex int
 	var lastStatsWrite time.Time
+	var emptyContinuations int
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -419,13 +432,23 @@ func (a *Agent) runReActLoop(
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
 
-		// If no tool calls, we're done.
+		// If no tool calls, we're done — unless the model produced no visible answer at
+		// all (empty content). Some models (notably gpt-oss / harmony endpoints) sometimes
+		// end a turn with only internal reasoning — occasionally leaking a tool call into
+		// the reasoning channel — emitting neither final content nor a tool_calls array.
+		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
+		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
-			stopReason := response.StopReason
-			if stopReason == "" || stopReason == "end_turn" {
-				return string(acp.StopReasonEndTurn), nil
+			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
+				emptyContinuations++
+				// LLM-facing only; never persisted to the transcript.
+				messages = append(messages, llm.Message{
+					Role:    llm.RoleUser,
+					Content: emptyAssistantContinuationNudge,
+				})
+				continue
 			}
-			if stopReason == "max_tokens" {
+			if response.StopReason == "max_tokens" {
 				return string(acp.StopReasonMaxTokens), nil
 			}
 			return string(acp.StopReasonEndTurn), nil
