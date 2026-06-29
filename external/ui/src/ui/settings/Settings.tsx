@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { SchemaForm, type JsonSchema } from "./SchemaForm";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type JsonSchema } from "./SchemaForm";
+import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
+import { SettingsNav } from "./SettingsNav";
+import { SettingsSection } from "./SettingsSection";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
@@ -60,10 +63,6 @@ function IconRefresh(props: { className?: string }) {
 
 export function Settings(props: {
   onClose: () => void;
-  appearanceOpen: boolean;
-  onToggleAppearance: () => void;
-  skillsOpen: boolean;
-  onToggleSkills: () => void;
   /** Called after the config is successfully saved so the app can re-fetch model metadata. */
   onConfigSaved?: () => void;
 }) {
@@ -73,6 +72,18 @@ export function Settings(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("");
+  // Animation feedback: bump reloadKey to replay the form dissolve/reappear on
+  // reload; reloading spins the refresh icon; justSaved pulses the save button.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [reloading, setReloading] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  // Section id whose Save button just succeeded (drives the per-section save pulse).
+  const [savedSection, setSavedSection] = useState<string | null>(null);
+
+  const sections = useMemo(() => deriveSettingsSections(schema), [schema]);
+  const activeSection =
+    sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -94,6 +105,21 @@ export function Settings(props: {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Reload with visible feedback: spin the refresh icon and replay the form
+  // dissolve/reappear animation (key bump remounts the content) while re-fetching.
+  const onReload = useCallback(async () => {
+    setReloading(true);
+    setReloadKey((k) => k + 1);
+    try {
+      await Promise.all([
+        load(),
+        new Promise((r) => window.setTimeout(r, 500)),
+      ]);
+    } finally {
+      setReloading(false);
+    }
   }, [load]);
 
   const onSave = useCallback(async () => {
@@ -124,7 +150,9 @@ export function Settings(props: {
         setBusy(false);
         return;
       }
-      setMessage("Saved. In-process config reloaded.");
+      setMessage("Saved all sections. In-process config reloaded.");
+      setJustSaved(true);
+      window.setTimeout(() => setJustSaved(false), 1100);
       props.onConfigSaved?.();
       await load();
     } catch (e) {
@@ -132,7 +160,71 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, load]);
+  }, [doc, load, props]);
+
+  // Persist only one section: overlay this section's values onto the latest
+  // on-disk config and PUT that, so saving one section does not also commit
+  // unsaved edits made in other sections.
+  const onSaveSection = useCallback(
+    async (section: SectionDescriptor) => {
+      const keys =
+        section.kind === "group"
+          ? section.childKeys ?? []
+          : section.kind === "appearance"
+            ? []
+            : [section.schemaKey ?? section.id];
+      if (keys.length === 0) {
+        return;
+      }
+      setBusy(true);
+      setMessage(null);
+      setError(null);
+      try {
+        const fresh = await readJSON<Record<string, unknown>>("/coddy/config");
+        if (!fresh.ok || !fresh.data) {
+          setError(fresh.error || "config");
+          setBusy(false);
+          return;
+        }
+        const merged: Record<string, unknown> = { ...fresh.data };
+        for (const k of keys) {
+          merged[k] = doc[k];
+        }
+        const body = JSON.stringify(merged);
+        const v = await fetch("/coddy/config/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+        const vj = (await v.json()) as ValidateResponse;
+        if (!vj.ok) {
+          setError(vj.error || "validation failed");
+          setBusy(false);
+          return;
+        }
+        const p = await fetch("/coddy/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body,
+        });
+        const pj = (await p.json()) as ValidateResponse;
+        if (!p.ok || !pj.ok) {
+          setError(pj.error || `save failed (${p.status})`);
+          setBusy(false);
+          return;
+        }
+        setMessage(`Saved “${section.label}”. In-process config reloaded.`);
+        setSavedSection(section.id);
+        window.setTimeout(() => setSavedSection(null), 1100);
+        props.onConfigSaved?.();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "request failed");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [doc, props],
+  );
 
   return (
     <aside
@@ -155,26 +247,6 @@ export function Settings(props: {
       </div>
 
       <div className="settings-lead-pane">
-        <button
-          type="button"
-          className={`settings-appearance-row${props.appearanceOpen ? " active" : ""}`}
-          data-testid="settings-appearance-open"
-          aria-pressed={props.appearanceOpen}
-          onClick={props.onToggleAppearance}
-        >
-          <span className="settings-appearance-row-label">Appearance</span>
-          <span className="settings-appearance-row-arrow" aria-hidden>›</span>
-        </button>
-        <button
-          type="button"
-          className={`settings-appearance-row${props.skillsOpen ? " active" : ""}`}
-          data-testid="settings-skills-open"
-          aria-pressed={props.skillsOpen}
-          onClick={props.onToggleSkills}
-        >
-          <span className="settings-appearance-row-label">Skills</span>
-          <span className="settings-appearance-row-arrow" aria-hidden>›</span>
-        </button>
         <p className="settings-lead">
           Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
           use only on trusted networks.
@@ -187,37 +259,83 @@ export function Settings(props: {
       </div>
 
       <div className="settings-stack">
-        {schema ? (
-          <div className="settings-scroll">
-            <div className="settings-body">
-              <SchemaForm schema={schema} value={doc} onChange={setDoc} />
+        <div className="settings-tabs-layout">
+          <SettingsNav
+            sections={sections}
+            active={activeSection ? activeSection.id : ""}
+            onSelect={setActiveTab}
+          />
+          {schema ? (
+            <div className="settings-scroll">
+              <div
+                className={`settings-body${reloadKey > 0 ? " settings-form-anim" : ""}`}
+                key={reloadKey}
+              >
+                {activeSection && activeSection.kind !== "appearance" ? (
+                  <div className="settings-section-actions">
+                    <button
+                      type="button"
+                      className={`settings-btn settings-btn-primary settings-section-save${
+                        savedSection === activeSection.id ? " is-saved" : ""
+                      }`}
+                      data-testid="settings-section-save"
+                      disabled={busy}
+                      title={`Save the ${activeSection.label} section`}
+                      onClick={() => void onSaveSection(activeSection)}
+                    >
+                      Save section
+                    </button>
+                  </div>
+                ) : null}
+                {activeSection ? (
+                  <SettingsSection
+                    section={activeSection}
+                    schema={schema}
+                    doc={doc}
+                    setDoc={setDoc}
+                  />
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : !loadErr ? (
-          <div className="settings-scroll settings-scroll-placeholder">
-            <p className="settings-muted">Loading…</p>
-          </div>
-        ) : null}
+          ) : !loadErr ? (
+            <div className="settings-scroll settings-scroll-placeholder">
+              {activeSection && activeSection.kind === "appearance" ? (
+                <div className="settings-body">
+                  <SettingsSection
+                    section={activeSection}
+                    schema={{ type: "object", properties: {} } as JsonSchema}
+                    doc={doc}
+                    setDoc={setDoc}
+                  />
+                </div>
+              ) : (
+                <p className="settings-muted">Loading…</p>
+              )}
+            </div>
+          ) : null}
+        </div>
 
         <div className="scheduler-drawer-footer settings-footer-actions">
           <button
             type="button"
             className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
-            disabled={busy}
+            disabled={busy || reloading}
             title="Reload from server"
             aria-label="Reload configuration from server"
-            onClick={() => void load()}
+            onClick={() => void onReload()}
           >
-            <IconRefresh className="settings-footer-icon-svg" />
+            <IconRefresh
+              className={`settings-footer-icon-svg${reloading ? " settings-icon-spin" : ""}`}
+            />
           </button>
           <button
             type="button"
-            className="settings-btn settings-btn-primary settings-btn-icon"
+            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
-            title="Save"
-            aria-label="Save configuration"
+            title="Save all sections"
+            aria-label="Save all configuration sections"
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />

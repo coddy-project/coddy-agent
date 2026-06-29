@@ -111,15 +111,12 @@ import {
   setSchedulerJobHash,
   setSchedulerListHash,
   setSettingsHash,
-  setSettingsAppearanceHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
-import { AppearanceSheet } from "./theme/AppearanceModal";
-import { SkillsPanel } from "./skills/SkillsPanel";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -790,8 +787,6 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
-  const [appearanceOpen, setAppearanceOpen] = useState(false);
-  const [skillsPanelOpen, setSkillsPanelOpen] = useState(false);
   const [schedulerEditor, setSchedulerEditor] =
     useState<SchedulerEditorState>(null);
   const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
@@ -1144,7 +1139,6 @@ export function App() {
     }
     if (p.branch === "settings") {
       setSettingsRoute(true);
-      setAppearanceOpen(p.appearanceOpen);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
       setSessionsOpen(false);
@@ -3111,7 +3105,6 @@ export function App() {
   }, []);
 
   const onCloseSettings = useCallback(() => {
-    setAppearanceOpen(false);
     const sid = sessionId.trim();
     if (sid) {
       setSessionHashInLocation(sid);
@@ -3119,36 +3112,6 @@ export function App() {
       clearSessionRoute();
     }
   }, [sessionId, clearSessionRoute]);
-
-  const onCloseAppearance = useCallback(() => {
-    setAppearanceOpen(false);
-    setSettingsHash();
-  }, []);
-
-  const onToggleAppearance = useCallback(() => {
-    setAppearanceOpen((prev) => {
-      if (prev) {
-        setSettingsHash();
-        return false;
-      }
-      setSkillsPanelOpen(false);
-      setSettingsAppearanceHash();
-      return true;
-    });
-  }, []);
-
-  const onCloseSkillsPanel = useCallback(() => {
-    setSkillsPanelOpen(false);
-  }, []);
-
-  const onToggleSkillsPanel = useCallback(() => {
-    setSkillsPanelOpen((prev) => {
-      if (!prev) {
-        setAppearanceOpen(false);
-      }
-      return !prev;
-    });
-  }, []);
 
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
@@ -3344,29 +3307,11 @@ export function App() {
         ) : null}
 
         {settingsRoute ? (
-          <div
-            className={[
-              "settings-dock-cluster",
-              appearanceOpen ? "settings-dock-cluster-appearance-active" : "",
-              skillsPanelOpen ? "settings-dock-cluster-skills-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
+          <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              appearanceOpen={appearanceOpen}
-              onToggleAppearance={onToggleAppearance}
-              skillsOpen={skillsPanelOpen}
-              onToggleSkills={onToggleSkillsPanel}
               onConfigSaved={() => setModelsEpoch((e) => e + 1)}
             />
-            {appearanceOpen ? (
-              <AppearanceSheet onClose={onCloseAppearance} />
-            ) : null}
-            {skillsPanelOpen ? (
-              <SkillsPanel onClose={onCloseSkillsPanel} />
-            ) : null}
           </div>
         ) : null}
         <ChatScreen

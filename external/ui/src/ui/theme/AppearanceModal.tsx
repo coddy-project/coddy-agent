@@ -79,54 +79,33 @@ function ThemeSwatch(props: {
   );
 }
 
-export function AppearanceSheet(props: { onClose: () => void }) {
-  const { onClose } = props;
-
+/** AppearanceThemePicker renders just the theme swatch grid (no panel chrome) so it
+ * can be embedded as a Settings tab. Theme selection applies immediately and is
+ * client-side only (no config save). */
+export function AppearanceThemePicker() {
   const current = useSyncExternalStore(
     subscribeTheme,
     readAppliedUiTheme,
     () => "dark" as UiThemeMode,
   );
 
-  const pick = useCallback(
-    (id: UiThemeMode) => {
-      setUiTheme(id);
-    },
-    [],
-  );
+  const pick = useCallback((id: UiThemeMode) => {
+    setUiTheme(id);
+  }, []);
 
   return (
-    <aside
-      className="settings-appearance-dock"
-      aria-label="Appearance"
-      data-testid="appearance-sheet"
-    >
-      <div className="sessions-head">
-        <span>Appearance</span>
-        <button
-          type="button"
-          className="sessions-close"
-          aria-label="Close appearance"
-          data-testid="appearance-close"
-          onClick={onClose}
-        >
-          ×
-        </button>
+    <div className="appearance-sheet-body" data-testid="appearance-theme-picker">
+      <p className="appearance-section-label">Theme</p>
+      <div className="appearance-swatch-grid" role="group" aria-label="Theme">
+        {UI_THEME_IDS.map((id) => (
+          <ThemeSwatch
+            key={id}
+            id={id}
+            active={current === id}
+            onClick={() => pick(id)}
+          />
+        ))}
       </div>
-
-      <div className="appearance-sheet-body">
-        <p className="appearance-section-label">Theme</p>
-        <div className="appearance-swatch-grid" role="group" aria-label="Theme">
-          {UI_THEME_IDS.map((id) => (
-            <ThemeSwatch
-              key={id}
-              id={id}
-              active={current === id}
-              onClick={() => pick(id)}
-            />
-          ))}
-        </div>
-      </div>
-    </aside>
+    </div>
   );
 }

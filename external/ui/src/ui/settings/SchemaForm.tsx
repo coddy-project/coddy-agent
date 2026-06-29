@@ -1,8 +1,24 @@
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 
+import { Combobox } from "./Combobox";
 import {
   providerApiKeyFieldPlaceholder,
 } from "./providerApiKeyPlaceholder";
+
+/**
+ * FieldOverride lets a caller replace the default control for a specific field.
+ * `path` is the dotted key path relative to the SchemaForm root (array indices are
+ * not included), e.g. `model` for the `model` field of a logical-model item, or
+ * `model` for `agent.model` when the agent sub-schema is rendered as the root.
+ * Return a node to render it instead of the default control, or null to fall back.
+ */
+export type FieldOverride = (ctx: {
+  path: string;
+  schema: JsonSchema;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  parentObj?: Record<string, unknown> | undefined;
+}) => ReactNode | null;
 
 export type JsonSchema = {
   type?: string;
@@ -53,7 +69,7 @@ function placeholderFromDefault(s: JsonSchema): string | undefined {
   return String(s.default);
 }
 
-function defaultForSchema(s: JsonSchema): unknown {
+export function defaultForSchema(s: JsonSchema): unknown {
   if (s.default !== undefined) {
     if (s.type === "array" && Array.isArray(s.default)) {
       return s.default;
@@ -105,11 +121,21 @@ function SchemaField(props: {
   schema: JsonSchema;
   value: unknown;
   onChange: (v: unknown) => void;
-  parentObj?: Record<string, unknown>;
+  parentObj?: Record<string, unknown> | undefined;
+  path?: string | undefined;
+  fieldOverride?: FieldOverride | undefined;
 }) {
-  const { name, schema, value, onChange, parentObj } = props;
+  const { name, schema, value, onChange, parentObj, fieldOverride } = props;
+  const path = props.path ?? name;
   const label = schema.title || name;
   const t = schema.type;
+
+  if (fieldOverride) {
+    const override = fieldOverride({ path, schema, value, onChange, parentObj });
+    if (override != null) {
+      return <>{override}</>;
+    }
+  }
   let ph = placeholderFromDefault(schema);
   if (
     schema["x-coddy-provider-api-key-env-placeholder"] === true &&
@@ -144,6 +170,8 @@ function SchemaField(props: {
               schema={sub}
               value={obj[k]}
               parentObj={obj}
+              path={path ? `${path}.${k}` : k}
+              fieldOverride={fieldOverride}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
             />
           ))}
@@ -168,6 +196,8 @@ function SchemaField(props: {
                 name={`${name}[${i}]`}
                 schema={itemSchema}
                 value={row}
+                path={path}
+                fieldOverride={fieldOverride}
                 parentObj={
                   row !== null &&
                   row !== undefined &&
@@ -246,23 +276,15 @@ function SchemaField(props: {
         {schema.description ? (
           <p className="settings-field-desc">{schema.description}</p>
         ) : null}
-        <select
-          className="settings-input"
+        <Combobox
           value={v}
-          title={schema.description}
-          aria-label={label}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-            const raw = e.target.value;
+          ariaLabel={label}
+          options={schema.enum.map((opt) => ({ value: String(opt) }))}
+          onChange={(raw) => {
             const match = schema.enum!.find((x) => String(x) === raw);
             onChange(match !== undefined ? match : raw);
           }}
-        >
-          {schema.enum.map((opt) => (
-            <option key={String(opt)} value={String(opt)}>
-              {String(opt)}
-            </option>
-          ))}
-        </select>
+        />
       </div>
     );
   }
@@ -336,8 +358,9 @@ export function SchemaForm(props: {
   schema: JsonSchema;
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  fieldOverride?: FieldOverride | undefined;
 }) {
-  const { schema, value, onChange } = props;
+  const { schema, value, onChange, fieldOverride } = props;
   if (schema.type !== "object" || !schema.properties) {
     return (
       <p className="settings-muted">Unsupported schema root (expected object).</p>
@@ -354,6 +377,8 @@ export function SchemaForm(props: {
           name={k}
           schema={sub}
           value={value[k]}
+          path={k}
+          fieldOverride={fieldOverride}
           onChange={(nv) => onChange({ ...value, [k]: nv })}
         />
       ))}

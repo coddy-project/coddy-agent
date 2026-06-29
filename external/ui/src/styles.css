@@ -1079,7 +1079,7 @@ a.rail-brand {
 
 .settings.drawer {
   width: min(
-    560px,
+    960px,
     calc(
       100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
     )
@@ -4893,6 +4893,18 @@ textarea#composer {
   padding: 8px 14px;
   font-size: 0.9rem;
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease, transform 80ms ease;
+}
+
+.settings-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-glass-panel-bg));
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.settings-btn:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .settings-btn:disabled {
@@ -4903,6 +4915,18 @@ textarea#composer {
 .settings-btn-primary {
   border-color: rgba(147, 51, 234, 0.55);
   background: rgba(147, 51, 234, 0.22);
+}
+
+.settings-btn-primary:hover:not(:disabled) {
+  background: rgba(147, 51, 234, 0.34);
+  border-color: rgba(147, 51, 234, 0.75);
+  box-shadow: 0 0 0 1px rgba(147, 51, 234, 0.4);
+}
+
+.settings-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, #f87171 18%, var(--coddy-glass-panel-bg));
+  border-color: rgba(248, 113, 113, 0.7);
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35);
 }
 
 .settings-btn-icon {
@@ -5014,6 +5038,451 @@ textarea#composer {
 .settings-array-row:last-child {
   border-bottom: none;
   padding-bottom: 0;
+}
+
+/* --- Tabbed settings layout: vertical nav + content (desktop), horizontal tab strip (mobile) --- */
+.settings-tabs-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.settings-nav-wrap {
+  flex: 0 0 200px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.settings-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+/* Edge scroll arrows are only shown on the narrow horizontal strip. */
+.settings-nav-arrow {
+  display: none;
+}
+
+.settings-nav-item {
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 80%, var(--coddy-blend-base));
+  border-radius: 10px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-nav-item:hover:not(.is-active) {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.settings-nav-item.is-active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.settings-tabs-layout .settings-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Thin, unobtrusive scrollbars for the settings drawer — vertical nav + content
+   on desktop and the horizontal tab strip on narrow shells. scrollbar-width is an
+   inherited property, so setting it on the drawer covers every scroller inside it
+   (this is the Firefox path; WebKit uses the ::-webkit-scrollbar rules below). */
+.settings.drawer,
+.settings-nav,
+.settings.drawer .settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.settings-nav::-webkit-scrollbar,
+.settings.drawer .settings-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.settings-nav::-webkit-scrollbar-track,
+.settings.drawer .settings-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-nav::-webkit-scrollbar-thumb,
+.settings.drawer .settings-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.settings-nav::-webkit-scrollbar-thumb:hover,
+.settings.drawer .settings-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
+}
+
+/* Reload feedback: the form dissolves then reappears (replayed via key bump). */
+.settings-form-anim {
+  animation: settings-form-refresh 420ms ease both;
+}
+
+@keyframes settings-form-refresh {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  35% {
+    opacity: 0;
+    filter: blur(7px);
+    transform: translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/* Reload feedback: spin the refresh icon while reloading. */
+.settings-icon-spin {
+  animation: settings-spin 0.7s linear infinite;
+  transform-origin: 50% 50%;
+}
+
+@keyframes settings-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Save feedback: the save button pops with a green success flash. */
+.settings-btn-primary.is-saved {
+  animation: settings-save-pop 1s ease;
+}
+
+@keyframes settings-save-pop {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.16);
+    border-color: rgba(34, 197, 94, 0.85);
+    background: rgba(34, 197, 94, 0.32);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3);
+  }
+  60% {
+    transform: scale(1);
+    border-color: rgba(34, 197, 94, 0.7);
+    background: rgba(34, 197, 94, 0.24);
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.22);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-form-anim,
+  .settings-icon-spin,
+  .settings-btn-primary.is-saved {
+    animation: none;
+  }
+}
+
+/* Per-section Save action row (top of each section's content). */
+.settings-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.settings-section-save {
+  font-size: 0.85rem;
+  padding: 6px 14px;
+}
+
+/* Master–detail (providers / models / mcp servers) */
+.settings-master,
+.settings-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-master-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-master-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-master-item {
+  flex: 1 1 auto;
+  text-align: left;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-fieldset);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-master-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.settings-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Logical-model field: provider select + fetch button row */
+.model-field-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.model-field-controls .settings-input,
+.model-field-controls .settings-combobox {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.model-field-controls .settings-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Editable combobox (replaces every plain <select> in settings) */
+.settings-combobox {
+  position: relative;
+  width: 100%;
+}
+
+.settings-combobox-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 28px;
+}
+
+.settings-combobox-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  padding: 4px;
+}
+
+.settings-combobox-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-combobox-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.settings-combobox-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-combobox-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.settings-combobox-option {
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.settings-combobox-option.is-current {
+  color: var(--text);
+}
+
+.settings-combobox-option.is-highlight,
+.settings-combobox-option:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--text);
+}
+
+/* Installed skills list (folded into the Skills tab) */
+.settings-skills-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-skills-installed-label {
+  margin-top: 4px;
+}
+
+.skills-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.skills-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.skills-list-item.is-disabled {
+  opacity: 0.5;
+}
+
+.skills-list-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-list-item-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.skills-list-item-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skills-list-item-toggle {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+}
+
+@media (max-width: 1199px) {
+  .settings-tabs-layout {
+    flex-direction: column;
+  }
+  .settings-nav-wrap {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: stretch;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  }
+  .settings-nav {
+    flex: 1 1 auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* No scrollbar on the strip — paging is done with the edge arrows. */
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .settings-nav-item {
+    flex: 0 0 auto;
+  }
+  .settings-nav-arrow {
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 34px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 120ms ease, opacity 120ms ease;
+  }
+  .settings-nav-arrow:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  }
+  .settings-nav-arrow:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .settings-nav-arrow-left {
+    border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  }
+  .settings-nav-arrow-right {
+    border-left: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  }
 }
 
 .message-row-permission {
@@ -6050,8 +6519,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     bottom: 0;
     z-index: 70;
   }
-  .settings-dock-cluster .settings.drawer,
-  .settings-dock-cluster .settings-appearance-dock {
+  .settings-dock-cluster .settings.drawer {
     position: fixed;
     left: max(10px, env(safe-area-inset-left, 0px));
     right: max(10px, env(safe-area-inset-right, 0px));
@@ -6061,24 +6529,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     height: auto;
     pointer-events: auto;
   }
-  .settings-dock-cluster .settings-appearance-dock {
-    z-index: 80;
-  }
-}
-
-/* Appearance side panel — mirrors .scheduler-job-editor-dock */
-.settings-appearance-dock {
-  display: flex;
-  flex-direction: column;
-  flex: 0 0 auto;
-  width: min(420px, 40vw);
-  border-radius: var(--coddy-glass-panel-radius);
-  border: 1px solid var(--coddy-glass-panel-border);
-  background: var(--coddy-glass-panel-bg);
-  backdrop-filter: var(--coddy-glass-panel-backdrop);
-  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
-  box-shadow: var(--coddy-glass-panel-shadow);
-  overflow: hidden;
 }
 
 .appearance-sheet-body {
@@ -6173,44 +6623,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-top: 1px solid rgba(127, 127, 127, 0.12);
 }
 
-/* Appearance row in settings — session-item style */
-.settings-appearance-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.9rem;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-
-.settings-appearance-row:hover {
-  background: rgba(147, 51, 234, 0.05);
-  border-color: rgba(147, 51, 234, 0.25);
-}
-
-.settings-appearance-row.active {
-  border-color: rgba(147, 51, 234, 0.45);
-  background: rgba(147, 51, 234, 0.08);
-}
-
-.settings-appearance-row-label {
-  flex: 1 1 auto;
-}
-
-.settings-appearance-row-arrow {
-  font-size: 1rem;
-  opacity: 0.45;
-  flex-shrink: 0;
-}
 
 .settings-appearance-swatch-dot {
   width: 12px;
