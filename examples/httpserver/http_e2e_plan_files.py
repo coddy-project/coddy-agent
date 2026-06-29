@@ -62,14 +62,24 @@ def stream_responses(
     base: str,
     body: dict[str, Any],
     deadline_s: float = 420,
+    headers: dict[str, str] | None = None,
 ) -> tuple[str, list[tuple[str, str]]]:
     req = urllib.request.Request(f"{base}/responses", data=_b(json.dumps(body)), method="POST")
     req.add_header("Accept", "text/event-stream")
     req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
 
     events: list[tuple[str, str]] = []
     with urllib.request.urlopen(req, timeout=deadline_s + 30) as resp:
-        sid = (resp.headers.get("X-Coddy-Session-Id") or resp.headers.get("X-Coddy-Session-ID") or "").strip()
+        # The server only echoes X-Coddy-Session-ID when it creates a new session; when we
+        # reuse a session (header sent on the request) fall back to the id we provided.
+        sid = (
+            resp.headers.get("X-Coddy-Session-Id")
+            or resp.headers.get("X-Coddy-Session-ID")
+            or (headers or {}).get("X-Coddy-Session-ID")
+            or ""
+        ).strip()
         if not sid:
             raise RuntimeError("missing X-Coddy-Session-ID header")
 
@@ -141,6 +151,8 @@ def main() -> int:
         if run_path.is_file():
             run_path.unlink()
 
+        # Reuse the plan turn's session so runPlanSlug resolves the session-scoped plan
+        # (a fresh session would not have it; mirrors acp_e2e_plan_files reusing sessionId).
         _, run_events = stream_responses(
             base,
             {
@@ -149,6 +161,7 @@ def main() -> int:
                 "metadata": {"model": yaml_model, "runPlanSlug": PLAN_SLUG},
                 "input": "Implement the plan.",
             },
+            headers={"X-Coddy-Session-ID": sid},
         )
         run_titles = tool_titles_from_sse(run_events)
         if "write" not in run_titles and "run_command" not in run_titles:
