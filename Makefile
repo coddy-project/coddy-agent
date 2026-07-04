@@ -47,9 +47,12 @@ ifneq ($(and $(findstring http,$(TAGS)),$(findstring ui,$(TAGS))),)
 build: ui-build
 endif
 
+# Run npm from inside external/ui (cd + &&) rather than `npm --prefix`: some npm
+# builds (notably on Windows) resolve `--prefix` for the install target but still
+# read package.json from the cwd, failing with ENOENT on the repo root.
 ui-build:
-	npm --prefix external/ui install --no-fund --no-audit
-	npm --prefix external/ui run build:go
+	cd external/ui && npm install --no-fund --no-audit
+	cd external/ui && npm run build:go
 
 # Build the coddy CLI (skills commands + ACP entrypoint; optional modules via TAGS).
 build:

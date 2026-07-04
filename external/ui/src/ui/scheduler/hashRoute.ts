@@ -15,7 +15,7 @@ export type ParsedAppHash =
       createOpen: boolean;
       historyOpen: boolean;
     }
-  | { branch: "settings"; historyOpen: boolean; appearanceOpen: boolean };
+  | { branch: "settings"; historyOpen: boolean; section: string | null };
 
 export type SchedulerEditorRoute =
   | { mode: "create" }
@@ -78,10 +78,15 @@ export function parseAppHash(): ParsedAppHash {
     return { branch: "history" };
   }
   if (h === "settings") {
-    return { branch: "settings", historyOpen, appearanceOpen: false };
+    return { branch: "settings", historyOpen, section: null };
   }
-  if (h === "settings/appearance") {
-    return { branch: "settings", historyOpen, appearanceOpen: true };
+  const settingsSec = /^settings\/(.+)$/.exec(h);
+  if (settingsSec && settingsSec[1]) {
+    return {
+      branch: "settings",
+      historyOpen,
+      section: decodeURIComponent(settingsSec[1]),
+    };
   }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
   if (schedJob && schedJob[1]) {
@@ -232,10 +237,19 @@ export function setSettingsHash(opts?: {
   }
 }
 
-export function setSettingsAppearanceHash(opts?: {
-  historySidebar?: boolean;
-}): void {
-  const next = withHistoryQuery("#/settings/appearance", !!opts?.historySidebar);
+/** `#/settings/<section>` deep link for a specific Settings tab. Empty section
+ * falls back to the bare `#/settings` route. */
+export function setSettingsSectionHash(
+  section: string,
+  opts?: { historySidebar?: boolean },
+): void {
+  const id = section.trim();
+  if (!id) {
+    setSettingsHash(opts);
+    return;
+  }
+  const base = `#/settings/${encodeURIComponent(id)}`;
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
   if (window.location.hash !== next) {
     history.replaceState(
       null,
@@ -292,8 +306,8 @@ export function stripHistorySidebarFromHash(): void {
     return;
   }
   if (p.branch === "settings" && p.historyOpen) {
-    if (p.appearanceOpen) {
-      setSettingsAppearanceHash();
+    if (p.section) {
+      setSettingsSectionHash(p.section);
     } else {
       setSettingsHash();
     }
@@ -313,8 +327,9 @@ export function appNavHrefSettings(): string {
   return "#/settings";
 }
 
-export function appNavHrefSettingsAppearance(): string {
-  return "#/settings/appearance";
+export function appNavHrefSettingsSection(section: string): string {
+  const id = (section || "").trim();
+  return id ? `#/settings/${encodeURIComponent(id)}` : "#/settings";
 }
 
 export function appNavHrefScheduler(): string {

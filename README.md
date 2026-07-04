@@ -507,6 +507,32 @@ When the persisted plan is **non-empty**, the agent injects **`### Current todo 
 
 ## Development
 
+### `make` targets
+
+The [`Makefile`](Makefile) is the entry point for local builds and tests. Its default goal is `build`.
+
+| Target | What it does |
+|--------|--------------|
+| `make` / `make build` | Build `build/coddy` with the current `TAGS` (see [Build tags](#build-tags)). With `http`+`ui` it first runs `ui-build` (installs and bundles the embedded SPA). |
+| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory"`. Lean ACP-only binary: `make build` (no tags). |
+| `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
+| `make test` | Run `go test` across the tag combinations (default, `http`, `scheduler`, `ui`, and mixes) plus `ui-build`. |
+| `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
+| `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory"` first if the binary is missing. |
+| `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
+| `make clean` | Remove the `build/` directory. |
+
+`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
+
+> **Windows note.** The `Makefile` targets need a Unix-like shell — run them from **Git Bash** (or WSL/MSYS2), not `cmd`/PowerShell. Building with the `ui` tag also requires **Node.js/npm** on `PATH`. If `make ui-build` (or `make build TAGS="…ui…"`) fails with `npm error enoent … open '…\package.json'`, you are on an npm that mishandles `--prefix`; build the UI from inside its directory instead:
+>
+> ```bash
+> (cd external/ui && npm install && npm run build:go)
+> make build TAGS="http ui scheduler memory"   # ui-build now sees the prebuilt assets
+> ```
+
+### Common commands
+
 ```bash
 # Run tests
 go test ./...
@@ -525,6 +551,8 @@ coddy acp --log-level debug
 # Single-line sanity check only (responses may omit JSON-RPC "result" for nil payloads; prefer examples/acp/acp_e2e_todo.py)
 echo '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}' | coddy acp
 ```
+
+UI-only iteration (SPA hot-reload against a running backend) is described in [DESIGN.md](DESIGN.md) → *Dev workflow*.
 
 ## License
 

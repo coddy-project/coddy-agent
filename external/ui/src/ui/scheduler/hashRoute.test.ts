@@ -85,7 +85,16 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: true,
-      appearanceOpen: false,
+      section: null,
+    });
+  });
+
+  test("parses settings/<section> into the section id", () => {
+    setHash("#/settings/providers");
+    expect(parseAppHash()).toEqual({
+      branch: "settings",
+      historyOpen: false,
+      section: "providers",
     });
   });
 
@@ -94,16 +103,16 @@ describe("parseAppHash", () => {
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: false,
-      appearanceOpen: true,
+      section: "appearance",
     });
   });
 
-  test("parses settings/appearance with history sidebar", () => {
+  test("parses settings/<section> with history sidebar", () => {
     setHash("#/settings/appearance?history=1");
     expect(parseAppHash()).toEqual({
       branch: "settings",
       historyOpen: true,
-      appearanceOpen: true,
+      section: "appearance",
     });
   });
 });

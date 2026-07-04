@@ -1,5 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
-import { SchemaForm, type JsonSchema } from "./SchemaForm";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import { type JsonSchema } from "./SchemaForm";
+import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
+import { SettingsNav } from "./SettingsNav";
+import { SettingsSection } from "./SettingsSection";
+import { SettingsTileGrid } from "./SettingsTileGrid";
+import {
+  serverSnapshotShellStack,
+  snapshotShellStack,
+  subscribeShellStack,
+} from "../shellBreakpoint";
+import { setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
@@ -58,14 +74,33 @@ function IconRefresh(props: { className?: string }) {
   );
 }
 
+/** Back arrow (lucide arrow-left) for the mobile section-detail header. */
+function IconArrowLeft(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M19 12H5" />
+      <path d="M12 19l-7-7 7-7" />
+    </svg>
+  );
+}
+
 export function Settings(props: {
   onClose: () => void;
-  appearanceOpen: boolean;
-  onToggleAppearance: () => void;
-  skillsOpen: boolean;
-  onToggleSkills: () => void;
   /** Called after the config is successfully saved so the app can re-fetch model metadata. */
   onConfigSaved?: () => void;
+  /** Section id from the `#/settings/<section>` deep link (null = default/grid). */
+  initialSection?: string | null;
 }) {
   const [schema, setSchema] = useState<JsonSchema | null>(null);
   const [doc, setDoc] = useState<Record<string, unknown>>({});
@@ -73,6 +108,52 @@ export function Settings(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<string>(props.initialSection ?? "");
+  // Animation feedback: bump reloadKey to replay the form dissolve/reappear on
+  // reload; reloading spins the refresh icon; justSaved pulses the save button.
+  const [reloadKey, setReloadKey] = useState(0);
+  const [reloading, setReloading] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  // On narrow shells the section picker is a tile grid (master) that opens one
+  // section at a time (detail); `mobileDetailId` null means the grid is showing.
+  const isMobileShell = useSyncExternalStore(
+    subscribeShellStack,
+    snapshotShellStack,
+    serverSnapshotShellStack,
+  );
+  const [mobileDetailId, setMobileDetailId] = useState<string | null>(
+    props.initialSection ?? null,
+  );
+
+  const sections = useMemo(() => deriveSettingsSections(schema), [schema]);
+  const activeSection =
+    sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
+  const mobileSection = mobileDetailId
+    ? sections.find((s) => s.id === mobileDetailId) ?? null
+    : null;
+
+  // Reflect the `#/settings/<section>` deep link (initial load and browser
+  // back/forward) into local tab state; writing the hash below re-enters here
+  // with the same value, so this is a no-op on self-initiated changes.
+  const routeSection = props.initialSection ?? null;
+  useEffect(() => {
+    setActiveTab(routeSection ?? "");
+    setMobileDetailId(routeSection);
+  }, [routeSection]);
+
+  // Selecting a section (desktop tab or mobile tile) anchors it in the URL.
+  const selectSection = useCallback((id: string) => {
+    setActiveTab(id);
+    setMobileDetailId(id);
+    setSettingsSectionHash(id);
+  }, []);
+
+  // Mobile back to the tile grid drops the section anchor.
+  const backToGrid = useCallback(() => {
+    setMobileDetailId(null);
+    setSettingsHash();
+  }, []);
 
   const load = useCallback(async () => {
     setLoadErr(null);
@@ -94,6 +175,21 @@ export function Settings(props: {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Reload with visible feedback: spin the refresh icon and replay the form
+  // dissolve/reappear animation (key bump remounts the content) while re-fetching.
+  const onReload = useCallback(async () => {
+    setReloading(true);
+    setReloadKey((k) => k + 1);
+    try {
+      await Promise.all([
+        load(),
+        new Promise((r) => window.setTimeout(r, 500)),
+      ]);
+    } finally {
+      setReloading(false);
+    }
   }, [load]);
 
   const onSave = useCallback(async () => {
@@ -124,7 +220,9 @@ export function Settings(props: {
         setBusy(false);
         return;
       }
-      setMessage("Saved. In-process config reloaded.");
+      setMessage("Saved all sections. In-process config reloaded.");
+      setJustSaved(true);
+      window.setTimeout(() => setJustSaved(false), 1100);
       props.onConfigSaved?.();
       await load();
     } catch (e) {
@@ -132,7 +230,52 @@ export function Settings(props: {
     } finally {
       setBusy(false);
     }
-  }, [doc, load]);
+  }, [doc, load, props]);
+
+  // Renders the content panel for a section, reusing the schema-present and
+  // appearance-without-schema paths for both the desktop rail and the mobile
+  // tile-grid detail view.
+  const renderSectionBody = (section: SectionDescriptor | null) => {
+    if (schema) {
+      return (
+        <div className="settings-scroll">
+          <div
+            className={`settings-body${reloadKey > 0 ? " settings-form-anim" : ""}`}
+            key={reloadKey}
+          >
+            {section ? (
+              <SettingsSection
+                section={section}
+                schema={schema}
+                doc={doc}
+                setDoc={setDoc}
+                isMobileShell={isMobileShell}
+              />
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+    if (!loadErr) {
+      return (
+        <div className="settings-scroll settings-scroll-placeholder">
+          {section && section.kind === "appearance" ? (
+            <div className="settings-body">
+              <SettingsSection
+                section={section}
+                schema={{ type: "object", properties: {} } as JsonSchema}
+                doc={doc}
+                setDoc={setDoc}
+              />
+            </div>
+          ) : (
+            <p className="settings-muted">Loading…</p>
+          )}
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <aside
@@ -142,7 +285,23 @@ export function Settings(props: {
       data-variant="drawer"
     >
       <div className="sessions-head">
-        <span>Settings</span>
+        {isMobileShell && mobileSection ? (
+          <span className="settings-head-titlegroup">
+            <button
+              type="button"
+              className="settings-head-back"
+              aria-label="Back to sections"
+              title="Back to sections"
+              data-testid="settings-mobile-back"
+              onClick={backToGrid}
+            >
+              <IconArrowLeft />
+            </button>
+            <span className="settings-head-section">{mobileSection.label}</span>
+          </span>
+        ) : (
+          <span>Settings</span>
+        )}
         <button
           type="button"
           className="sessions-close"
@@ -155,26 +314,6 @@ export function Settings(props: {
       </div>
 
       <div className="settings-lead-pane">
-        <button
-          type="button"
-          className={`settings-appearance-row${props.appearanceOpen ? " active" : ""}`}
-          data-testid="settings-appearance-open"
-          aria-pressed={props.appearanceOpen}
-          onClick={props.onToggleAppearance}
-        >
-          <span className="settings-appearance-row-label">Appearance</span>
-          <span className="settings-appearance-row-arrow" aria-hidden>›</span>
-        </button>
-        <button
-          type="button"
-          className={`settings-appearance-row${props.skillsOpen ? " active" : ""}`}
-          data-testid="settings-skills-open"
-          aria-pressed={props.skillsOpen}
-          onClick={props.onToggleSkills}
-        >
-          <span className="settings-appearance-row-label">Skills</span>
-          <span className="settings-appearance-row-arrow" aria-hidden>›</span>
-        </button>
         <p className="settings-lead">
           Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
           use only on trusted networks.
@@ -187,37 +326,46 @@ export function Settings(props: {
       </div>
 
       <div className="settings-stack">
-        {schema ? (
-          <div className="settings-scroll">
-            <div className="settings-body">
-              <SchemaForm schema={schema} value={doc} onChange={setDoc} />
+        {isMobileShell ? (
+          mobileSection ? (
+            <div className="settings-mobile-detail">
+              {renderSectionBody(mobileSection)}
             </div>
+          ) : (
+            <SettingsTileGrid sections={sections} onSelect={selectSection} />
+          )
+        ) : (
+          <div className="settings-tabs-layout">
+            <SettingsNav
+              sections={sections}
+              active={activeSection ? activeSection.id : ""}
+              onSelect={selectSection}
+            />
+            {renderSectionBody(activeSection)}
           </div>
-        ) : !loadErr ? (
-          <div className="settings-scroll settings-scroll-placeholder">
-            <p className="settings-muted">Loading…</p>
-          </div>
-        ) : null}
+        )}
 
         <div className="scheduler-drawer-footer settings-footer-actions">
           <button
             type="button"
             className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
-            disabled={busy}
+            disabled={busy || reloading}
             title="Reload from server"
             aria-label="Reload configuration from server"
-            onClick={() => void load()}
+            onClick={() => void onReload()}
           >
-            <IconRefresh className="settings-footer-icon-svg" />
+            <IconRefresh
+              className={`settings-footer-icon-svg${reloading ? " settings-icon-spin" : ""}`}
+            />
           </button>
           <button
             type="button"
-            className="settings-btn settings-btn-primary settings-btn-icon"
+            className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
-            title="Save"
-            aria-label="Save configuration"
+            title="Save all sections"
+            aria-label="Save all configuration sections"
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />
