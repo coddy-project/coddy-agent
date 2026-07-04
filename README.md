@@ -69,7 +69,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
-- **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, and **`.codex/rules/`** under the session cwd - see [Rules](docs/rules.md)
+- **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
@@ -333,7 +333,7 @@ Use your editor session mode selector (or **`session/set_config_option`**).
 
 ## Rules
 
-Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.coddy/rules`**, **`.cursor/rules`**, **`.claude/rules`**, and **`.codex/rules`** when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
+Project rules (injected as **`{{.Rules}}`**) are discovered under the session working directory from **`.coddy/rules`**, **`.cursor/rules`**, **`.claude/rules`**, **`.codex/rules`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/) convention; the root `AGENTS.md` is injected separately as a project docs preamble) when **`rules.auto_discover`** is true. See **[`docs/rules.md`](docs/rules.md)**.
 
 Rule files often use Cursor-style frontmatter, for example:
 

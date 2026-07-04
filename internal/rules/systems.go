@@ -18,6 +18,8 @@ func ParseSystems(ss []string) []Source {
 			out = append(out, SourceClaude)
 		case "codex":
 			out = append(out, SourceCodex)
+		case "agents":
+			out = append(out, SourceAgents)
 		}
 	}
 	return out

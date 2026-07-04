@@ -13,6 +13,7 @@ type Factory struct {
 // DefaultFactory returns built-in providers in discover precedence order (lowest wins on dedupe).
 func DefaultFactory() *Factory {
 	return NewFactory(
+		&AgentsProvider{},
 		NewMarkdownProvider(SourceCodex, ".codex/rules"),
 		NewMarkdownProvider(SourceClaude, ".claude/rules"),
 		NewMarkdownProvider(SourceCursor, ".cursor/rules"),
@@ -42,12 +43,14 @@ func (f *Factory) Providers() []Provider {
 func sourceRank(s Source) int {
 	switch s {
 	case SourceCoddy:
-		return 4
+		return 5
 	case SourceCursor:
-		return 3
+		return 4
 	case SourceClaude:
-		return 2
+		return 3
 	case SourceCodex:
+		return 2
+	case SourceAgents:
 		return 1
 	default:
 		return 0

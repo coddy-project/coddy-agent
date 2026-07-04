@@ -3,6 +3,7 @@ package rules_test
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -93,6 +94,68 @@ func TestDiscoverPrecedence(t *testing.T) {
 	}
 	if !strings.Contains(got[0].Content, "from coddy") {
 		t.Fatalf("want coddy win, got %q", got[0].Content)
+	}
+}
+
+func TestDiscoverNestedAgentsMD(t *testing.T) {
+	tmp := t.TempDir()
+	// Root AGENTS.md is the unconditional project docs preamble, not a rule.
+	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("root preamble"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"internal/agent", "external/httpserver", ".git/sub", "node_modules/pkg"} {
+		if err := os.MkdirAll(filepath.Join(tmp, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(tmp, "internal", "agent", "AGENTS.md"), []byte("agent loop notes"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "external", "httpserver", "AGENTS.md"), []byte("http notes"), 0o644)
+	// Hidden and dependency dirs must be skipped.
+	_ = os.WriteFile(filepath.Join(tmp, ".git", "sub", "AGENTS.md"), []byte("hidden"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, "node_modules", "pkg", "AGENTS.md"), []byte("dep"), 0o644)
+
+	got, err := rules.DefaultFactory().Discover(tmp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 nested AGENTS.md rules, got %d: %+v", len(got), got)
+	}
+	for _, r := range got {
+		if r.Source != rules.SourceAgents {
+			t.Fatalf("source = %q, want agents", r.Source)
+		}
+		if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto || len(r.Globs) != 0 {
+			t.Fatalf("AGENTS.md rule must be always-loaded: %+v", r)
+		}
+	}
+	names := []string{got[0].CanonicalName(), got[1].CanonicalName()}
+	sort.Strings(names)
+	if names[0] != "external/httpserver/AGENTS.md" || names[1] != "internal/agent/AGENTS.md" {
+		t.Fatalf("names = %v", names)
+	}
+}
+
+func TestDiscoverAgentsMDSystemsFilter(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(tmp, "sub", "AGENTS.md"), []byte("sub notes"), 0o644)
+
+	got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"agents"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("agents filter: expected 1 rule, got %d", len(got))
+	}
+	got, err = rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"coddy"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("coddy filter must exclude agents rules, got %d", len(got))
 	}
 }
 

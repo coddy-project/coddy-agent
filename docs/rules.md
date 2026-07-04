@@ -23,8 +23,11 @@ When `rules.auto_discover` is true (default), Coddy scans:
 | Cursor | `.cursor/rules/` |
 | Claude | `.claude/rules/` |
 | Codex | `.codex/rules/` (markdown only in v1) |
+| Agents | nested `**/AGENTS.md` ([agents.md](https://agents.md/) convention; hidden dirs, `node_modules`, `vendor` skipped) |
 
-Duplicate rule files (same basename) resolve with precedence: **coddy > cursor > claude > codex**.
+Duplicate rule files (same basename) resolve with precedence: **coddy > cursor > claude > codex > agents**. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
+
+Nested `AGENTS.md` files are always-loaded: no frontmatter, no globs, active immediately. The **root** `AGENTS.md` is not part of this set — it already enters the prompt unconditionally as a project docs preamble (below).
 
 CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog.
 
@@ -63,7 +66,7 @@ After each agent turn, Coddy estimates tokens per category (`systemPrompt`, `too
 ```yaml
 rules:
   auto_discover: true
-  systems: []   # optional filter: coddy, cursor, claude, codex
+  systems: []   # optional filter: coddy, cursor, claude, codex, agents
 ```
 
 ## References
