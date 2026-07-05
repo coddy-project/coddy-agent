@@ -6,7 +6,10 @@ import {
   useSyncExternalStore,
 } from "react";
 import { type JsonSchema } from "./SchemaForm";
-import { deriveSettingsSections, type SectionDescriptor } from "./settingsSections";
+import {
+  deriveSettingsSections,
+  type SectionDescriptor,
+} from "./settingsSections";
 import { SettingsNav } from "./SettingsNav";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsTileGrid } from "./SettingsTileGrid";
@@ -15,11 +18,16 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
-import { setSettingsHash, setSettingsSectionHash } from "../scheduler/hashRoute";
+import {
+  setSettingsHash,
+  setSettingsSectionHash,
+} from "../scheduler/hashRoute";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
-async function readJSON<T>(path: string): Promise<{ ok: boolean; data?: T; error?: string }> {
+async function readJSON<T>(
+  path: string,
+): Promise<{ ok: boolean; data?: T; error?: string }> {
   const res = await fetch(path);
   if (!res.ok) {
     return { ok: false, error: `${res.status}` };
@@ -108,7 +116,9 @@ export function Settings(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<string>(props.initialSection ?? "");
+  const [activeTab, setActiveTab] = useState<string>(
+    props.initialSection ?? "",
+  );
   // Animation feedback: bump reloadKey to replay the form dissolve/reappear on
   // reload; reloading spins the refresh icon; justSaved pulses the save button.
   const [reloadKey, setReloadKey] = useState(0);
@@ -130,7 +140,7 @@ export function Settings(props: {
   const activeSection =
     sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
   const mobileSection = mobileDetailId
-    ? sections.find((s) => s.id === mobileDetailId) ?? null
+    ? (sections.find((s) => s.id === mobileDetailId) ?? null)
     : null;
 
   // Reflect the `#/settings/<section>` deep link (initial load and browser
@@ -257,9 +267,13 @@ export function Settings(props: {
       );
     }
     if (!loadErr) {
-      return (
-        <div className="settings-scroll settings-scroll-placeholder">
-          {section && section.kind === "appearance" ? (
+      // Appearance is client-side content (the theme picker), available before
+      // the config schema loads. Render it in the normal scroll flow — NOT the
+      // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
+      // which shrinks and off-centers the swatch grid.
+      if (section && section.kind === "appearance") {
+        return (
+          <div className="settings-scroll">
             <div className="settings-body">
               <SettingsSection
                 section={section}
@@ -268,9 +282,12 @@ export function Settings(props: {
                 setDoc={setDoc}
               />
             </div>
-          ) : (
-            <p className="settings-muted">Loading…</p>
-          )}
+          </div>
+        );
+      }
+      return (
+        <div className="settings-scroll settings-scroll-placeholder">
+          <p className="settings-muted">Loading…</p>
         </div>
       );
     }
@@ -315,8 +332,8 @@ export function Settings(props: {
 
       <div className="settings-lead-pane">
         <p className="settings-lead">
-          Edit configuration from the live JSON schema. Secrets (API keys) are shown in full -
-          use only on trusted networks.
+          Edit configuration from the live JSON schema. Secrets (API keys) are
+          shown in full - use only on trusted networks.
         </p>
         {loadErr ? (
           <p className="settings-error">Failed to load: {loadErr}</p>

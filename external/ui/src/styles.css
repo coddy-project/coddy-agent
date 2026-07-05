@@ -2108,10 +2108,12 @@ a.rail-brand {
   line-height: 1.45;
 }
 
-/* Tool output is always raw text (no Markdown); subtle grey monospace. */
+/* Tool output is always raw text (no Markdown); subtle grey monospace.
+   Uses theme tokens so the Light theme gets readable dark text (the dark values
+   match the previous hardcoded rgba, so dark is unchanged). */
 .tool-block.tool-result-raw {
-  color: rgba(186, 192, 204, 0.88);
-  background: rgba(8, 8, 10, 0.38);
+  color: var(--coddy-surface-code-fg);
+  background: var(--coddy-surface-sunken);
 }
 
 .tool-result-viewport {
@@ -2530,7 +2532,7 @@ a.rail-brand {
   padding: 0;
   margin: 0;
   border-radius: 0;
-  color: rgba(186, 192, 204, 0.88);
+  color: var(--coddy-surface-code-fg);
 }
 
 .coddy-tool-call-body .tool-block + .tool-block {
@@ -4189,6 +4191,28 @@ textarea#composer {
   color: rgba(254, 202, 202, 0.95);
 }
 
+/* Light theme: the scheduler button palette above is tuned for a dark canvas
+   (dark translucent surface, pale-pink danger text). On the Light theme those
+   read as muddy grey boxes with washed-out icons, so re-tint them here. */
+[data-theme="light"] .scheduler-btn {
+  background: var(--coddy-surface-raised);
+}
+
+[data-theme="light"] .scheduler-btn-primary {
+  border-color: rgba(124, 58, 237, 0.4);
+  background: rgba(124, 58, 237, 0.12);
+}
+
+[data-theme="light"] .scheduler-btn-stop {
+  border-color: rgba(220, 38, 38, 0.4);
+  background: rgba(220, 38, 38, 0.1);
+}
+
+[data-theme="light"] .scheduler-btn-danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
 .scheduler-job-list .scheduler-job-row {
   display: flex;
   flex-direction: row;
@@ -5440,6 +5464,12 @@ textarea#composer {
 
 .skills-list-item.is-disabled {
   opacity: 0.5;
+}
+
+/* Keep the leading skill icon square: without this the flex row squeezes the
+   16x16 <svg> horizontally when the name/description is long, slanting it. */
+.skills-list-item > svg {
+  flex-shrink: 0;
 }
 
 .skills-list-item-text {

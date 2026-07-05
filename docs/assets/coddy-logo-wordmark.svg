@@ -48,6 +48,10 @@
     font-weight="650"
     letter-spacing="-0.035em"
     fill="#fafafa"
+    stroke="#101014"
+    stroke-width="2.4"
+    stroke-linejoin="round"
+    paint-order="stroke"
   >
     <tspan>Coddy</tspan>
     <tspan font-size="14.5" font-weight="500" fill="#9ca3af" dx="3">agent</tspan>
