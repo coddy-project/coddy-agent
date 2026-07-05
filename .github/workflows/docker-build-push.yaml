@@ -182,5 +182,9 @@ jobs:
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
             BUILD_TAGS=${{ env.BUILD_TAGS }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No GHA build cache: a multi-arch mode=max export exceeds the 10 GB
+          # per-repo Actions Cache quota, and "failed to reserve cache" then fails
+          # the whole step even after the image is built and pushed. Release builds
+          # are infrequent, so an uncached ~7-8 min build is an acceptable trade.
+          # To re-enable caching later, prefer registry cache (type=registry,
+          # ref=<image>:buildcache) over type=gha to avoid the quota.
