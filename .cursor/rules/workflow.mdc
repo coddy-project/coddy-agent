@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, HTTP OpenAPI sync before lint, final checks
+description: BDD-style workflow, HTTP OpenAPI and config schema sync before lint, final checks
 globs: **/*.go, docs/**/*.md, README.md
 alwaysApply: true
 ---
@@ -15,8 +15,9 @@ When adding or changing behavior (including words like feature, add, implement, 
 3. Implement the smallest change that makes the test pass (green).
 4. Run **`make test`** (default, **`http`**, **`scheduler`**, **`ui-build`** then **`http,ui`**, combined scheduler tags). Everything must pass.
 5. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
-6. Update documentation and specs if needed.
-7. Run **`make lint`** (`golangci-lint`). Fix reported issues.
+6. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`docs/config.schema.json`** and the tables in **`docs/config-reference.md`** to match. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift, but descriptions, defaults, enums-in-prose, and the reference tables are not auto-checked - keep them accurate by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well.
+7. Update documentation and specs if needed.
+8. Run **`make lint`** (`golangci-lint`). Fix reported issues.
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched.
 
@@ -26,12 +27,14 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 2. Fix the code; confirm the new test passes.
 3. Run **`make test`**.
 4. If the bug or fix touches the HTTP API surface, complete step 5 (OpenAPI and docs) from the feature flow.
-5. Run **`make lint`**.
+5. If it touches **`internal/config`** yaml-tagged structs, complete step 6 (config schema sync) from the feature flow.
+6. Run **`make lint`**.
 
 ## Before calling work done
 
 - **`make test`** green.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
+- **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.
 - **Rules sync** — if any `.cursor/rules/*.mdc` file was added or changed, propagate to `.claude/rules/`: copy the content body, replace `globs:`/`alwaysApply:` with Claude-compatible `paths:` (list form), rename to `.md`. Files with `alwaysApply: true` keep `paths:` matching the globs.
 
@@ -46,3 +49,6 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 @docs/http-api.md
 @external/httpserver/server.go
 @external/httpserver/openapi.go
+@docs/config.schema.json
+@docs/config-reference.md
+@internal/config/docs_schema_test.go
