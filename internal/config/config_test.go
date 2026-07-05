@@ -46,6 +46,61 @@ func TestExpandPathHelpers(t *testing.T) {
 			t.Fatalf("got %q", s)
 		}
 	})
+	t.Run("ExpandPathVarsUsesForwardSlashes", func(t *testing.T) {
+		p := config.Paths{Home: `C:\Users\dev\.coddy`, CWD: `C:\work\proj`}
+		got := config.ExpandPathVars(`dirs: ["${CODDY_HOME}/skills", "${CWD}/x"]`, p)
+		want := `dirs: ["C:/Users/dev/.coddy/skills", "C:/work/proj/x"]`
+		if got != want {
+			t.Fatalf("got %q want %q", got, want)
+		}
+	})
+}
+
+// Regression: ${CODDY_HOME} expanded into a double-quoted YAML scalar must not
+// inject backslashes; Windows paths like C:\Users\... were parsed as escape
+// sequences and failed with "did not find expected hexdecimal number".
+func TestLoadFromYAML_BackslashHomeInQuotedScalar(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CODDY_HOME}/extra"
+
+sessions:
+  dir: "${CODDY_HOME}/mysess"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := config.Paths{Home: `C:\Users\dev\.coddy`, CWD: dir, ConfigPath: path}
+	cfg, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+	if len(cfg.Skills.Dirs) != 1 {
+		t.Fatalf("skills.dirs len: got %d", len(cfg.Skills.Dirs))
+	}
+	if got, want := filepath.ToSlash(cfg.Skills.Dirs[0]), "C:/Users/dev/.coddy/extra"; got != want {
+		t.Errorf("skills.dirs[0]: got %q want %q", got, want)
+	}
+	if got, want := filepath.ToSlash(cfg.Sessions.Dir), "C:/Users/dev/.coddy/mysess"; got != want {
+		t.Errorf("sessions.dir: got %q want %q", got, want)
+	}
 }
 
 func TestLoadFromYAML_EndToEnd(t *testing.T) {
