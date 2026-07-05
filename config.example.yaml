@@ -1,3 +1,6 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# Full field reference: docs/config-reference.md
+
 # .env file support
 # If $CODDY_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
 # Variables already set in the process environment are NOT overridden — .env is a fallback only.

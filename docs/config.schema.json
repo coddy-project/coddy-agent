@@ -1,0 +1,538 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json",
+  "title": "Coddy config.yaml",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}; ${CODDY_HOME} and ${CWD} are expanded by the loader.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "providers": {
+      "type": "array",
+      "title": "LLM providers",
+      "description": "API credentials and transport selection for upstream LLM vendors. When api_key is empty, the runtime reads the NAME_API_KEY environment variable (NAME is the provider name in uppercase with hyphens mapped to underscores).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter.",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+          },
+          "type": {
+            "type": "string",
+            "description": "Wire protocol for this provider. Use \"openai\" for any OpenAI-compatible endpoint (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio).",
+            "enum": ["openai", "anthropic"]
+          },
+          "api_base": {
+            "type": "string",
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com)."
+          },
+          "api_key": {
+            "type": "string",
+            "description": "Provider secret. A literal key, a \"${ENV}\" reference expanded at load time, or empty to read NAME_API_KEY at LLM call time. Resolution order: api_key -> api_key_command stdout -> NAME_API_KEY."
+          },
+          "api_key_command": {
+            "type": "string",
+            "description": "Optional credential-helper command. When api_key is empty it runs via the shell and the trimmed stdout is used as the key (like git/docker credential helpers). On failure resolution falls back to NAME_API_KEY."
+          },
+          "proxy": {
+            "type": "string",
+            "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy)."
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "title": "Logical models",
+      "description": "Named model entries the agent and UI can select.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "\"provider_name/api_model_id\": the first path segment must match a providers[].name; the remainder is sent to the LLM API (may itself contain slashes).",
+            "pattern": "^[^/]+/.+$"
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Upper bound on completion tokens per assistant message."
+          },
+          "temperature": {
+            "type": "number",
+            "description": "Sampling temperature (0 = deterministic; higher = more random)."
+          },
+          "max_context_tokens": {
+            "type": "integer",
+            "description": "Optional UI hint for the composer context bar; 0 derives it from provider metadata when available.",
+            "default": 0
+          },
+          "multimodal": {
+            "type": "boolean",
+            "description": "Model accepts image/file inputs in addition to text; the UI shows a file attachment button for this model.",
+            "default": false
+          },
+          "reasoning_levels": {
+            "type": "array",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; o-series and Claude thinking models -> low,medium,high). An explicit empty list hides the selector.",
+            "items": { "type": "string" }
+          },
+          "reasoning_default": {
+            "type": "string",
+            "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "title": "ReAct agent loop",
+      "description": "Defaults for the main agent loop (model id and safety caps).",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Default models[].model id used until the client overrides the model per session. Required when models is non-empty."
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "Hard cap on LLM calls per prompt turn.",
+          "default": 30,
+          "minimum": 0
+        },
+        "max_tokens_per_turn": {
+          "type": "integer",
+          "description": "Max tokens across all LLM calls in one turn.",
+          "default": 200000,
+          "minimum": 0
+        },
+        "llm_retry_max": {
+          "type": "integer",
+          "description": "Retries after retryable LLM errors such as HTTP 429.",
+          "default": 3,
+          "minimum": 0
+        },
+        "llm_retry_base_ms": {
+          "type": "integer",
+          "description": "Initial backoff between LLM retries, in milliseconds.",
+          "default": 1000,
+          "minimum": 0
+        },
+        "llm_min_interval_ms": {
+          "type": "integer",
+          "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
+          "default": 0,
+          "minimum": 0
+        }
+      }
+    },
+    "prompts": {
+      "type": "object",
+      "title": "System prompt templates",
+      "description": "Override the built-in system prompt templates (Go text/template).",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Directory containing prompt template files. Empty uses embedded defaults. Supports ~ and ${CWD} (session cwd at render time).",
+          "default": ""
+        },
+        "agent_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for agent mode.",
+          "default": "agent.md"
+        },
+        "plan_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for plan mode.",
+          "default": "plan.md"
+        }
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "title": "Project instructions",
+      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention).",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "description": "Filenames relative to the session CWD.",
+          "default": ["AGENTS.md"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "skills": {
+      "type": "object",
+      "title": "Skills",
+      "description": "Directories scanned for skills (SKILL.md and root .md/.mdc files).",
+      "additionalProperties": false,
+      "properties": {
+        "dirs": {
+          "type": "array",
+          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} and ${CWD} expand at runtime.",
+          "default": ["~/.agents/skills", "${CODDY_HOME}/skills", "${CWD}/.coddy/skills"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "title": "Project rules",
+      "description": "Discovery of rule files from .coddy/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD. See docs/rules.md.",
+      "additionalProperties": false,
+      "properties": {
+        "auto_discover": {
+          "type": "boolean",
+          "description": "Scan the session CWD rule roots automatically.",
+          "default": true
+        },
+        "systems": {
+          "type": "array",
+          "description": "Restrict which rule systems are loaded: coddy, cursor, claude, codex. Empty means all.",
+          "default": [],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "mcp_servers": {
+      "type": "array",
+      "title": "MCP servers",
+      "description": "Model Context Protocol servers connected for every new session.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
+            "enum": ["stdio", "http"]
+          },
+          "name": {
+            "type": "string",
+            "description": "Stable id referenced by the agent; must be unique in this list."
+          },
+          "command": {
+            "type": "string",
+            "description": "Executable for stdio transport (leave empty when using an http url)."
+          },
+          "args": {
+            "type": "array",
+            "description": "Argv passed after command for stdio servers. ${CWD} expands to the session cwd.",
+            "items": { "type": "string" }
+          },
+          "env": {
+            "type": "array",
+            "description": "Extra environment variables for the stdio child process.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "value"],
+              "properties": {
+                "name": { "type": "string", "description": "Environment variable name." },
+                "value": { "type": "string", "description": "Environment variable value. ${CWD} expands to the session cwd." }
+              }
+            }
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP(S) endpoint when type is \"http\"."
+          },
+          "headers": {
+            "type": "array",
+            "description": "Optional headers sent with MCP HTTP requests.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "value"],
+              "properties": {
+                "name": { "type": "string", "description": "HTTP header name." },
+                "value": { "type": "string", "description": "HTTP header value." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "title": "Tools and permissions",
+      "description": "Filesystem and shell policy for built-in tools.",
+      "additionalProperties": false,
+      "properties": {
+        "permission_mode": {
+          "type": "string",
+          "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
+          "default": "ask",
+          "enum": ["ask", "accept_edits", "bypass"]
+        },
+        "command_allowlist": {
+          "type": "array",
+          "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
+          "items": { "type": "string" }
+        },
+        "ssh_connect_timeout": {
+          "type": "integer",
+          "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
+          "default": 30
+        }
+      }
+    },
+    "logger": {
+      "type": "object",
+      "title": "Logging",
+      "description": "Process log level, outputs, format, and file rotation.",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "description": "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\").",
+          "default": "info",
+          "enum": ["debug", "info", "warn", "warning", "error"]
+        },
+        "outputs": {
+          "type": "array",
+          "description": "Where log records go; any combination of stdout, stderr, file. Empty means stderr only.",
+          "default": ["stderr"],
+          "items": {
+            "type": "string",
+            "enum": ["stdout", "stderr", "file"]
+          }
+        },
+        "file": {
+          "type": "string",
+          "description": "Path for the file sink; required when outputs includes \"file\". Supports ${CODDY_HOME}."
+        },
+        "format": {
+          "type": "string",
+          "description": "Log record format.",
+          "default": "text",
+          "enum": ["text", "json"]
+        },
+        "rotation": {
+          "type": "object",
+          "description": "Size-based rotation for the file sink.",
+          "additionalProperties": false,
+          "properties": {
+            "max_size_mb": {
+              "type": "integer",
+              "description": "Rotate after the file reaches this size in MB; 0 disables size-based rotation.",
+              "default": 0,
+              "minimum": 0
+            },
+            "max_files": {
+              "type": "integer",
+              "description": "Rotated backups to keep when max_size_mb > 0.",
+              "default": 0,
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "sessions": {
+      "type": "object",
+      "title": "Session storage",
+      "description": "Where persisted session bundles are stored.",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "description": "Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~.",
+          "default": ""
+        }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "title": "Long-term memory copilot",
+      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Turn on the memory copilot.",
+          "default": false
+        },
+        "model": {
+          "type": "string",
+          "description": "Exact models[].model id used only for recall/persist LLM calls; empty falls back to agent.model or the session override.",
+          "default": ""
+        },
+        "dir": {
+          "type": "string",
+          "description": "Long-term memory root. Empty resolves to ${CODDY_HOME}/memory. Supports ${CODDY_HOME} and ~.",
+          "default": ""
+        },
+        "recall_max_turns": {
+          "type": "integer",
+          "description": "Bounds recall-side LLM rounds in the memory loop.",
+          "default": 6
+        },
+        "persist_max_turns": {
+          "type": "integer",
+          "description": "Bounds persist-side LLM rounds in the memory loop.",
+          "default": 12
+        },
+        "copilot_max_tokens": {
+          "type": "integer",
+          "description": "Completion token cap for memory copilot LLM calls.",
+          "default": 4096
+        },
+        "max_search_hits": {
+          "type": "integer",
+          "description": "Maximum snippets returned by memory_search.",
+          "default": 8
+        }
+      }
+    },
+    "httpserver": {
+      "type": "object",
+      "title": "HTTP gateway",
+      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Default bind address when coddy http does not pass -H/--host. Empty falls back to 0.0.0.0.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Default listen port when coddy http does not pass -P/--port. 0 falls back to 12345.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "title": "Cron scheduler",
+      "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy acp|http -scheduler-enabled.",
+          "default": false
+        },
+        "dir": {
+          "type": "string",
+          "description": "Directory with *.md job definitions. Empty resolves to ${CODDY_HOME}/scheduler.",
+          "default": ""
+        },
+        "max_queue": {
+          "type": "integer",
+          "description": "Concurrent scheduled runs; when saturated, extra firings are skipped until a slot frees.",
+          "default": 10
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Wall-clock limit for one scheduled agent run, as a Go duration (e.g. \"30m\", \"1h30m\").",
+          "default": "30m"
+        },
+        "retain_sessions": {
+          "type": "integer",
+          "description": "Completed scheduler-run session directories kept per job_id under sessions.dir; older runs are pruned.",
+          "default": 5
+        }
+      }
+    },
+    "gateways": {
+      "type": "object",
+      "title": "Messenger gateways",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with coddy gateway). See docs/gateway.md.",
+      "additionalProperties": false,
+      "properties": {
+        "telegram": {
+          "type": "object",
+          "description": "Telegram bot adapter.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Activate the Telegram adapter when coddy gateway starts.",
+              "default": false
+            },
+            "token": {
+              "type": "string",
+              "description": "Bot token from @BotFather. Leave empty to read the TELEGRAM_BOT_TOKEN environment variable (e.g. via ~/.coddy/.env).",
+              "default": ""
+            },
+            "proxy": {
+              "type": "string",
+              "description": "Optional outbound proxy for Telegram API requests: http, https, socks5, or socks5h URL.",
+              "default": ""
+            },
+            "rich_messages": {
+              "type": "boolean",
+              "description": "Use Bot API 10.1 Rich Messages (native Markdown, streamed thinking placeholder, collapsible tool list). Falls back to legacy formatting when unsupported.",
+              "default": false
+            },
+            "admins": {
+              "type": "array",
+              "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
+              "items": { "type": "integer" }
+            },
+            "default_access": {
+              "type": "string",
+              "description": "Fallback access level for chats without an override: \"all\", \"admins\", or \"group:<name>\".",
+              "default": "all"
+            },
+            "default_isolation": {
+              "type": "string",
+              "description": "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session).",
+              "default": "individual",
+              "enum": ["individual", "shared", "admin"]
+            },
+            "user_groups": {
+              "type": "array",
+              "description": "Named sets of user IDs referenced from access fields as group:<name>.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "description": "Group name referenced as group:<name>." },
+                  "user_ids": {
+                    "type": "array",
+                    "description": "Telegram numeric user IDs in this group.",
+                    "items": { "type": "integer" }
+                  }
+                }
+              }
+            },
+            "chats": {
+              "type": "array",
+              "description": "Per-chat overrides; chat_id is negative for groups and supergroups.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["chat_id"],
+                "properties": {
+                  "chat_id": { "type": "integer", "description": "Telegram chat id (negative for groups/supergroups)." },
+                  "isolation": {
+                    "type": "string",
+                    "description": "Per-chat session isolation override.",
+                    "enum": ["individual", "shared", "admin"]
+                  },
+                  "access": {
+                    "type": "string",
+                    "description": "Per-chat access override: \"all\", \"admins\", or \"group:<name>\"."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

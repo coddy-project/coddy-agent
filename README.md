@@ -431,7 +431,7 @@ Full guide — access levels, group isolation modes, per-chat overrides, and how
 
 ## Configuration
 
-Full configuration reference in [docs/config.md](docs/config.md).
+Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json) enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header (see `config.example.yaml`).
 
 Key settings:
 
@@ -481,7 +481,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
-- [Configuration](docs/config.md) - full config file reference
+- [Configuration](docs/config.md) - full config file reference; [field tables](docs/config-reference.md) and [JSON Schema](docs/config.schema.json) for editor validation
 - [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**); includes **`/coddy/config`** for live YAML editing from the SPA (**#/settings**).
 - [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
