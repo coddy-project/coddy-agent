@@ -9,8 +9,13 @@
 
 name: Tag release on merge
 
+# Uses pull_request_target (not pull_request) so the tag push gets a read-write
+# GITHUB_TOKEN even for fork-originated PRs; plain pull_request forces a read-only
+# token on forks and the "git push origin <tag>" step fails with 403. Safe here:
+# the workflow file is always taken from the base branch (main), and steps only run
+# git tag/push against the already-merged commit, never untrusted PR head scripts.
 on:
-  pull_request:
+  pull_request_target:
     types: [closed]
     branches:
       - main
@@ -45,7 +50,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.ref }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.ref }}
 
       - name: Fetch all tags
         run: git fetch --tags origin

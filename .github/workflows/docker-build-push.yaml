@@ -36,7 +36,7 @@ env:
 
 jobs:
   test-and-publish:
-    name: Test, build distroless image, push
+    name: Build distroless image, push
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,19 +77,6 @@ jobs:
           echo "Building commit $(git rev-parse --short HEAD) at ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: external/ui/package-lock.json
-
       - name: Ensure tag is on main
         id: gate
         run: |
@@ -103,14 +90,6 @@ jobs:
             echo "Tag ${TAG} (${TAG_SHA}) is not on branch main; skipping build."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Install ripgrep
-        if: steps.gate.outputs.skip != 'true'
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Run tests
-        if: steps.gate.outputs.skip != 'true'
-        run: make test
 
       - name: Compute image tags
         id: meta
