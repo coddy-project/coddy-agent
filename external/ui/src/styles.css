@@ -5060,6 +5060,13 @@ textarea#composer {
   font-size: 0.9rem;
 }
 
+/* Read-only settings inputs (e.g. NeuralDeep's fixed API base) read as disabled. */
+.settings-input[readonly] {
+  background: var(--coddy-surface-muted);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
 .settings-array {
   list-style: none;
   margin: 0 0 8px;

@@ -6,6 +6,10 @@ import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
 
+const NEURALDEEP_API_BASE = "https://api.neuraldeep.ru/v1";
+
+type FieldOverrideContext = Parameters<FieldOverride>[0];
+
 function asObject(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" && !Array.isArray(v)
     ? (v as Record<string, unknown>)
@@ -26,6 +30,44 @@ function stringList(v: unknown, key: string): string[] {
       return "";
     })
     .filter((s) => s.trim() !== "");
+}
+
+function NeuralDeepAPIBaseField(props: { ctx: FieldOverrideContext }) {
+  const { schema } = props.ctx;
+  const label = schema.title || "API base URL";
+
+  // NeuralDeep speaks an OpenAI-compatible API at a fixed endpoint; the base URL
+  // is not user-configurable. Show it read-only (greyed) but do NOT persist it
+  // into the config: leaving the stored api_base untouched preserves any value
+  // entered for another provider type, so switching back to openai/anthropic
+  // restores it. The backend pins the endpoint regardless (providerBaseURL).
+  return (
+    <div className="settings-row">
+      <span className="settings-label">{label}</span>
+      {schema.description ? (
+        <p className="settings-field-desc">{schema.description}</p>
+      ) : null}
+      <input
+        className="settings-input"
+        type="text"
+        value={NEURALDEEP_API_BASE}
+        aria-label={label}
+        title={schema.description}
+        readOnly
+      />
+    </div>
+  );
+}
+
+function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
+  const providerType =
+    ctx.parentObj?.type === undefined || ctx.parentObj.type === null
+      ? ""
+      : String(ctx.parentObj.type);
+  if (ctx.path !== "api_base" || providerType !== "neuraldeep") {
+    return null;
+  }
+  return <NeuralDeepAPIBaseField ctx={ctx} />;
 }
 
 /**
@@ -82,13 +124,19 @@ export function SettingsSection(props: {
         ? (ctx) =>
             ctx.path === "model" ? (
               <ModelField
-                value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
+                value={
+                  ctx.value === undefined || ctx.value === null
+                    ? ""
+                    : String(ctx.value)
+                }
                 onChange={(v) => ctx.onChange(v)}
                 providers={providerNames}
                 label={ctx.schema.title || "Model id"}
               />
             ) : null
-        : undefined;
+        : key === "providers"
+          ? neuralDeepAPIBaseOverride
+          : undefined;
     return (
       <SettingsArraySection
         schema={sub}
@@ -135,7 +183,11 @@ export function SettingsSection(props: {
       ? (ctx) =>
           ctx.path === "model" ? (
             <ModelPicker
-              value={ctx.value === undefined || ctx.value === null ? "" : String(ctx.value)}
+              value={
+                ctx.value === undefined || ctx.value === null
+                  ? ""
+                  : String(ctx.value)
+              }
               onChange={(v) => ctx.onChange(v)}
               models={modelIds}
               label={ctx.schema.title || "Default model"}

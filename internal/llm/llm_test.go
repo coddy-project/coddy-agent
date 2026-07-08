@@ -94,6 +94,23 @@ func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
 	}
 }
 
+func TestProviderBaseURLNeuralDeepIsFixed(t *testing.T) {
+	if got := providerBaseURL("neuraldeep", "https://example.invalid/v1"); got != neuralDeepBaseURL {
+		t.Fatalf("providerBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
+	}
+}
+
+func TestNewProviderNeuralDeepIsSupported(t *testing.T) {
+	if _, err := NewProvider(ProviderInput{
+		Type:    "neuraldeep",
+		Model:   "default",
+		APIKey:  "nd-test-key",
+		BaseURL: "https://example.invalid/v1",
+	}); err != nil {
+		t.Fatalf("NewProvider(neuraldeep): %v", err)
+	}
+}
+
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {

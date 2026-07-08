@@ -50,6 +50,10 @@ providers:
     type: "anthropic"
     api_key: "${ANTHROPIC_API_KEY}"
 
+  - name: "neuraldeep"
+    type: "neuraldeep"
+    api_key: "${NEURALDEEP_API_KEY}"
+
   - name: "local"
     type: "openai"
     api_base: "http://localhost:11434/v1"
@@ -86,6 +90,10 @@ models:
   - model: "deepseek/deepseek-coder-v2"
     max_tokens: 8192
     temperature: 0.1
+
+  - model: "neuraldeep/default"
+    max_tokens: 8192
+    temperature: 0.2
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
@@ -365,11 +373,11 @@ Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expand
 
 ## Model Provider Reference
 
-Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**.
+Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, **`anthropic`**, **`neuraldeep`**.
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; ignored by **`type: neuraldeep`**, which always uses **`https://api.neuraldeep.ru/v1`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
 - **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
 
 ### `openai`
@@ -381,6 +389,11 @@ Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`
 
 Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic API base URL (default **`https://api.anthropic.com`**), for example an Anthropic-compatible gateway or relay. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`anthropic/claude-3-5-sonnet-20241022`**, plus **`max_tokens`**, **`temperature`**.
+
+### `neuraldeep`
+NeuralDeep API via its OpenAI-compatible endpoint.
+
+Provider needs **`api_key`**. **`api_base`** is not needed and is ignored; Coddy always sends requests to **`https://api.neuraldeep.ru/v1`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/default`** or another NeuralDeep model id, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

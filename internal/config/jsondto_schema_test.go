@@ -46,6 +46,30 @@ func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
 	}
 }
 
+func TestUISchemaProviderTypeEnumMatchesConfig(t *testing.T) {
+	doc := config.UISchemaMap()
+	providers := doc["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	pprops := items["properties"].(map[string]interface{})
+	typeProp := pprops["type"].(map[string]interface{})
+	raw, ok := typeProp["enum"].([]string)
+	if !ok {
+		t.Fatalf("providers[].type enum = %#v", typeProp["enum"])
+	}
+	got := make(map[string]struct{}, len(raw))
+	for _, v := range raw {
+		got[v] = struct{}{}
+	}
+	if len(got) != len(config.AllowedLLMProviderTypes) {
+		t.Fatalf("providers[].type enum = %v, want keys of %v", raw, config.AllowedLLMProviderTypes)
+	}
+	for want := range config.AllowedLLMProviderTypes {
+		if _, ok := got[want]; !ok {
+			t.Fatalf("providers[].type enum = %v, missing %q", raw, want)
+		}
+	}
+}
+
 func TestUISchemaAgentFieldHasDescription(t *testing.T) {
 	doc := config.UISchemaMap()
 	props := doc["properties"].(map[string]interface{})

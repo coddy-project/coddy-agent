@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -137,6 +138,15 @@ type ProviderInput struct {
 	MinInterval time.Duration
 }
 
+const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
+
+func providerBaseURL(providerType, configured string) string {
+	if providerType == "neuraldeep" {
+		return neuralDeepBaseURL
+	}
+	return strings.TrimSpace(configured)
+}
+
 // NewProvider creates the appropriate Provider from a model definition.
 func NewProvider(p ProviderInput) (Provider, error) {
 	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
@@ -146,9 +156,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	var inner Provider
 	switch p.Type {
 	case "openai":
-		inner = newOpenAIProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "anthropic":
-		inner = newAnthropicProvider(p.Model, p.APIKey, p.BaseURL, hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+	case "neuraldeep":
+		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

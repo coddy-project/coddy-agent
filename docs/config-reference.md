@@ -41,8 +41,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai` or `anthropic`. Use `openai` for any OpenAI-compatible endpoint (DeepSeek, Groq, Ollama, llama.cpp, LM Studio). |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint. |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the shell when `api_key` is empty; trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. |
@@ -58,6 +58,9 @@ providers:
     type: openai
     api_base: "http://localhost:11434/v1"
     api_key: "~"
+  - name: neuraldeep
+    type: neuraldeep
+    api_key: "${NEURALDEEP_API_KEY}"
 ```
 
 ## `models`

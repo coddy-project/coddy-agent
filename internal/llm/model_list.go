@@ -26,22 +26,25 @@ func defaultModelListBaseURL(providerType string) string {
 	switch providerType {
 	case "anthropic":
 		return "https://api.anthropic.com"
+	case "neuraldeep":
+		return neuralDeepBaseURL
 	default: // openai and openai-compatible
 		return "https://api.openai.com/v1"
 	}
 }
 
-// ListModels fetches the models advertised by a provider's HTTP API. openai (and
-// openai-compatible) providers are queried at {base}/models with a Bearer token;
-// anthropic providers at {base}/v1/models with x-api-key + anthropic-version. The
-// response is expected in the common {"data":[{"id":...}]} shape. Entries are
-// de-duplicated and sorted by id. A non-2xx response returns an error so callers
-// can surface auth or connectivity failures (and fall back to manual entry).
+// ListModels fetches the models advertised by a provider's HTTP API. openai,
+// neuraldeep, and other OpenAI-compatible providers are queried at {base}/models
+// with a Bearer token; anthropic providers at {base}/v1/models with x-api-key +
+// anthropic-version. The response is expected in the common {"data":[{"id":...}]}
+// shape. Entries are de-duplicated and sorted by id. A non-2xx response returns
+// an error so callers can surface auth or connectivity failures (and fall back to
+// manual entry).
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	var url string
 	switch in.Type {
-	case "openai", "anthropic":
-		base := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
+	case "openai", "anthropic", "neuraldeep":
+		base := strings.TrimRight(providerBaseURL(in.Type, in.BaseURL), "/")
 		if base == "" {
 			base = defaultModelListBaseURL(in.Type)
 		}

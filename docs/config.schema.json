@@ -22,12 +22,12 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for any OpenAI-compatible endpoint (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio).",
-            "enum": ["openai", "anthropic"]
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, or \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint.",
+            "enum": ["openai", "anthropic", "neuraldeep"]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com)."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1."
           },
           "api_key": {
             "type": "string",

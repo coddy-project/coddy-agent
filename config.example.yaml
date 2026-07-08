@@ -39,16 +39,17 @@ providers:
   #   type: anthropic
   #   api_key: "${ANTHROPIC_API_KEY}"
 
-  # OpenAI-compatible (DeepSeek, Groq, Together, neuraldeep, etc.)
+  # NeuralDeep (OpenAI-compatible endpoint is fixed to https://api.neuraldeep.ru/v1)
+  # - name: neuraldeep
+  #   type: neuraldeep
+  #   api_key: "${NEURALDEEP_API_KEY}"
+
+  # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
   #   type: openai
   #   api_base: "https://api.deepseek.com/v1"
   #   api_key: "${DEEPSEEK_API_KEY}"
-  # - name: neuraldeep
-  #   type: openai
-  #   api_base: "https://api.neuraldeep.ru/v1"
-  #   api_key: "${NEURALDEEP_API_KEY}"
 
 models:
   - model: "openai/gpt-4o"

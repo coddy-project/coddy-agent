@@ -404,6 +404,7 @@ export function SchemaForm(props: {
           name={k}
           schema={sub}
           value={value[k]}
+          parentObj={value}
           path={k}
           fieldOverride={fieldOverride}
           onChange={(nv) => onChange({ ...value, [k]: nv })}

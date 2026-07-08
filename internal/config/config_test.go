@@ -373,6 +373,50 @@ agent:
 	}
 }
 
+func TestLoadNeuralDeepProviderWithoutAPIBase(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
+
+	content := `
+providers:
+  - name: neuraldeep
+    type: neuraldeep
+    api_key: "${NEURALDEEP_API_KEY}"
+
+models:
+  - model: "neuraldeep/default"
+
+agent:
+  model: "neuraldeep/default"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Providers) != 1 {
+		t.Fatalf("providers: got %+v", cfg.Providers)
+	}
+	if cfg.Providers[0].Type != "neuraldeep" {
+		t.Fatalf("provider type = %q, want neuraldeep", cfg.Providers[0].Type)
+	}
+	if cfg.Providers[0].APIBase != "" {
+		t.Fatalf("api_base = %q, want empty for fixed NeuralDeep endpoint", cfg.Providers[0].APIBase)
+	}
+
+	rm, err := cfg.ResolveLLM("neuraldeep/default")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.ProviderType != "neuraldeep" || rm.APIKey != "nd-test-key" {
+		t.Fatalf("resolved LLM = %+v", rm)
+	}
+}
+
 func TestResolvedSessionsRoot(t *testing.T) {
 	t.Run("defaultUnderHome", func(t *testing.T) {
 		home := t.TempDir()

@@ -65,6 +65,12 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 }
 
+func TestDefaultModelListBaseURLNeuralDeep(t *testing.T) {
+	if got := defaultModelListBaseURL("neuraldeep"); got != neuralDeepBaseURL {
+		t.Fatalf("defaultModelListBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
+	}
+}
+
 func TestListModelsNon2xxErrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
