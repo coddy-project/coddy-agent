@@ -9,6 +9,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
+import { WorkspaceChips } from "./WorkspaceChips";
+import type { WorkspaceContext } from "./workspaceContext";
 import {
   ContextBreakdownPopover,
   type ContextBreakdown,
@@ -124,6 +126,14 @@ export function Composer(props: {
   onSend: (text: string, files?: File[]) => void;
   generating?: boolean;
   onStop?: () => void;
+  /** Workspace context chips (folder / branch / worktree) above the field. */
+  workspaceCtx?: WorkspaceContext | null;
+  worktreePref?: boolean;
+  /** The workspace is chosen once: locked as soon as the conversation starts. */
+  workspaceLocked?: boolean;
+  onWorkspacePickFolder?: (path: string) => void;
+  onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorktreeToggle?: () => void;
 }) {
   const idleSendDisabled = props.value.trim() === "";
   const isMobileShell = useSyncExternalStore(
@@ -1111,6 +1121,17 @@ export function Composer(props: {
           Message
         </label>
         <div className="composer-card" ref={composerCardRef}>
+          {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+            <WorkspaceChips
+              context={props.workspaceCtx ?? null}
+              worktreePref={props.worktreePref ?? false}
+              onPickFolder={props.onWorkspacePickFolder}
+              onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+              onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+              opensUp={!props.isEmpty}
+              locked={props.workspaceLocked ?? false}
+            />
+          ) : null}
           {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (
             <div className="composer-attachments" aria-label="Attached files">
               {(props.editingFiles || []).map((f, idx) => {

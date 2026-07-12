@@ -348,6 +348,92 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/workspace/context": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
+					"description": "Describes the workspace of the session in **`X-Coddy-Session-ID`** (or the server default cwd without the header). " +
+						"With **`path`** the given folder is described instead (pre-session preview); a missing folder yields **400**. " +
+						"Inside a git repository the payload adds **`repo_root`**, **`branch`**, **`branches`**, and **`worktrees`** (from `git worktree list`); **`is_worktree`** is true when the workspace is a linked (non-main) worktree.",
+					"operationId": "coddyWorkspaceContextGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is described (ignored when **`path`** is set).",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute folder to describe instead of the session cwd.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Workspace context",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceContext",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/workspace/folders": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List subfolders for the workspace folder picker",
+					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-Coddy-Session-ID`**, else the server default cwd). " +
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+					"operationId": "coddyWorkspaceFoldersGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the default listing root.",
+						},
+						map[string]interface{}{
+							"name": "path", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute folder to list.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Folder listing",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]interface{}{"type": "string", "example": "coddy.workspace_folders"},
+											"path":   map[string]interface{}{"type": "string"},
+											"parent": map[string]interface{}{"type": "string"},
+											"folders": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"name": map[string]interface{}{"type": "string"},
+														"path": map[string]interface{}{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+							"400": errorResponseRef(),
+							"404": errorResponseRef(),
+							"500": errorResponseRef(),
+						},
+					},
+				},
+			},
 			"/coddy/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "JSON Schema for Coddy YAML configuration (UI)",
@@ -491,6 +577,55 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Patched session"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/workspace": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Switch the session workspace folder, git branch, or worktree",
+					"description": "Body **`{\"path\": dir}`** switches the session cwd to an existing folder (skills, project rules, and slash commands are re-derived; the new cwd persists in **session.json**). " +
+						"Body **`{\"branch\": b}`** checks the branch out in place; when the branch is already checked out in another worktree (including the main one) the session cwd jumps there instead. " +
+						"Body **`{\"branch\": b, \"worktree\": true}`** ensures a dedicated worktree for the branch (created under **`<home>/worktrees/<repo>/`** on demand) and moves the session cwd into it. " +
+						"The workspace is chosen **once per session**: as soon as the conversation has messages, switching yields **409** (`workspace is locked once the conversation starts`). " +
+						"A missing folder or a branch switch outside a git repository yields **400**; git checkout/worktree failures yield **409**. The session is created on demand (draft flow). Responds with the fresh workspace context.",
+					"operationId": "coddySessionWorkspacePost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"path":     map[string]string{"type": "string"},
+										"branch":   map[string]string{"type": "string"},
+										"worktree": map[string]string{"type": "boolean"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Workspace context after the switch",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceContext",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -1011,6 +1146,38 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"CoddyWorkspaceContext": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":      map[string]string{"type": "string", "example": "coddy.workspace_context"},
+						"path":        map[string]string{"type": "string"},
+						"name":        map[string]string{"type": "string"},
+						"is_git_repo": map[string]string{"type": "boolean"},
+						"is_worktree": map[string]string{"type": "boolean"},
+						"repo_root":   map[string]string{"type": "string"},
+						"branch":      map[string]string{"type": "string"},
+						"branches": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]string{"type": "string"},
+						},
+						"worktrees": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"path":   map[string]string{"type": "string"},
+									"branch": map[string]string{"type": "string"},
+									"main":   map[string]string{"type": "boolean"},
+								},
+							},
+						},
+						"id": map[string]interface{}{
+							"type":        "string",
+							"description": "Session id (present on POST /coddy/sessions/{id}/workspace responses).",
+						},
+					},
+					"required": []string{"object", "path", "name", "is_git_repo", "is_worktree"},
 				},
 			},
 		},

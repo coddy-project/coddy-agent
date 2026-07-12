@@ -272,6 +272,18 @@ Ordering rules:
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.
 
+### Composer workspace chips (folder / branch / worktree)
+
+A chip row (**`.composer-context-chips`**) renders as the **first child** of **`.composer-card`**, above attachments and the field — mirroring Claude Desktop's workspace chips. Implemented by **`WorkspaceChips.tsx`** (helpers in **`chat/workspaceContext.ts`**); data from **`GET /coddy/workspace/context`** (session header, or **`?path=`** preview before a session exists).
+
+- **Folder chip** (**`composer-workspace-chip`**) — folder icon plus workspace basename (full path in **`title`**). Click opens the **Recent** menu (**`workspace-folder-menu`**, **`mode-menu`** family, Claude Desktop style): a **`Recent`** header, MRU folder rows from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**, cap 8) with the current workspace marked by a **✓** (**`is-selected`**), a separator, and **`Open folder…`** at the bottom.
+- **Open folder…** opens the project-styled **folder browser modal** (**`WorkspaceFolderModal.tsx`**, **`workspace-modal`**, centered over a dim backdrop): path header, **`..`** row, subfolder rows from **`GET /coddy/workspace/folders`** (row click **navigates into** the folder), footer **Cancel** / **Open** (picks the currently browsed folder). The browser starts at the **parent** of the current workspace.
+- **Branch chip** (**`composer-branch-chip`**) — git branch icon plus the current branch; rendered **only** when **`is_git_repo`**. Click opens the branch list (**`workspace-branch-menu`**), current branch first and marked **`is-selected`**. Picking a branch calls **`POST /coddy/sessions/{id}/workspace`** with **`{"branch", "worktree": <checkbox>}`**.
+- **Worktree checkbox** (**`composer-worktree-chip`** label + real **`input[type=checkbox]`** **`composer-worktree-checkbox`**) — the **open-branch-switches-in-a-worktree** preference. When the session already runs inside a worktree it is **checked and disabled** (state, not a choice). Branches already checked out in another worktree jump there regardless of the checkbox.
+- **Chosen once** — folder, branch, and worktree are fixed at session start. As soon as the conversation has messages the chips **lock** (**`workspaceLocked`**: controls disabled, menus do not open); the server enforces the same rule with **409** on **`POST .../workspace`**.
+- **Pre-session (draft/home)** — chips show the server-default workspace. Choices are kept client-side (**pending**) and previewed via **`GET /coddy/workspace/context?path=`**; the first send applies them to the fresh session id (**`POST .../workspace`**) before **`POST /v1/responses`**. Navigating to another session drops pending choices.
+- Menus follow the **`Mode`**/**`Model`** conventions: anchored **`mode-menu--portal`** (**`opens-down`** on the hero, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
+
 ### Composer context meter
 
 Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`ContextUsageRing`**: inner stroke always visible; outer progress arc only when usage **> 0**, flat color (no gradient or shadow), fill from **12 o'clock** clockwise. Colors use **`--coddy-context-ring-inner`** and **`--coddy-context-ring-fg`** (both themes in **`styles.css`**). Dark outer arc **`#f5f3ff`** (logo stroke); light outer arc **`var(--accent)`**.

@@ -127,6 +127,14 @@ func (s *State) GetCWD() string {
 	return s.CWD
 }
 
+// SetCWD updates the session working directory (persisted in session.json).
+func (s *State) SetCWD(dir string) {
+	s.mu.Lock()
+	s.CWD = dir
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
 func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()

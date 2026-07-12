@@ -504,3 +504,58 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected demo and generate-rules, got %+v", slash.AvailableCommands)
 	}
 }
+
+func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
+	cfg := testConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "/tmp", store)
+
+	alpha := filepath.Join(root, "alpha")
+	beta := filepath.Join(root, "beta")
+	for _, d := range []string{alpha, beta} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: alpha})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+	st := m.SessionByID(res.SessionID)
+	if st == nil {
+		t.Fatal("session not registered")
+	}
+
+	if err := m.SetSessionWorkspace(st, beta); err != nil {
+		t.Fatalf("SetSessionWorkspace: %v", err)
+	}
+	if got := st.GetCWD(); got != beta {
+		t.Fatalf("cwd = %q, want %q", got, beta)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(store.Root, res.SessionID, "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta struct {
+		CWD string `json:"cwd"`
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.CWD != beta {
+		t.Fatalf("persisted cwd = %q, want %q", meta.CWD, beta)
+	}
+
+	if err := m.SetSessionWorkspace(st, filepath.Join(root, "missing")); err == nil {
+		t.Fatal("expected error for missing folder")
+	}
+	if got := st.GetCWD(); got != beta {
+		t.Fatalf("cwd changed on failed switch: %q", got)
+	}
+}

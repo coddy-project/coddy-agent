@@ -72,6 +72,14 @@ export function ChatScreen(props: {
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
+  /** Workspace context chips (folder / branch / worktree) above the composer field. */
+  workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
+  worktreePref?: boolean;
+  /** The workspace is chosen once: locked as soon as the conversation starts. */
+  workspaceLocked?: boolean;
+  onWorkspacePickFolder?: (path: string) => void;
+  onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
+  onWorktreeToggle?: () => void;
 }) {
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
@@ -239,6 +247,16 @@ export function ChatScreen(props: {
                 ? { generating: true, onStop: props.onStop }
                 : {})}
               {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.onWorkspacePickFolder
+                ? {
+                    workspaceCtx: props.workspaceCtx ?? null,
+                    worktreePref: props.worktreePref ?? false,
+                    workspaceLocked: props.workspaceLocked ?? false,
+                    onWorkspacePickFolder: props.onWorkspacePickFolder,
+                    onWorkspacePickBranch: props.onWorkspacePickBranch,
+                    onWorktreeToggle: props.onWorktreeToggle,
+                  }
+                : {})}
             />
           </div>
           <div className="hero-footer">
@@ -355,6 +373,16 @@ export function ChatScreen(props: {
                 {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
                 {...(props.editingFiles && props.editingFiles.length > 0
                   ? { editingFiles: props.editingFiles }
+                  : {})}
+                {...(props.onWorkspacePickFolder
+                  ? {
+                      workspaceCtx: props.workspaceCtx ?? null,
+                      worktreePref: props.worktreePref ?? false,
+                      workspaceLocked: props.workspaceLocked ?? false,
+                      onWorkspacePickFolder: props.onWorkspacePickFolder,
+                      onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorktreeToggle: props.onWorktreeToggle,
+                    }
                   : {})}
               />
             </div>
