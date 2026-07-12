@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -182,6 +183,15 @@ func (s *wsFeatureState) sessionRootedAt(name string) error {
 		return err
 	}
 	s.sessionID = res.SessionID
+	return nil
+}
+
+func (s *wsFeatureState) sessionHasUserMessage() error {
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
 	return nil
 }
 
@@ -443,6 +453,7 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a workspace git repository "([^"]+)" with branches "([^"]+)"$`, s.gitRepo)
 	sc.Step(`^a session rooted at folder "([^"]+)"$`, s.sessionRootedAt)
 	sc.Step(`^the session switched to branch "([^"]+)" in a worktree$`, s.alreadySwitchedToWorktree)
+	sc.Step(`^the session already has a user message$`, s.sessionHasUserMessage)
 
 	sc.Step(`^I request the workspace context$`, s.requestContext)
 	sc.Step(`^I switch the session workspace to folder "([^"]+)"$`, s.switchToFolder)

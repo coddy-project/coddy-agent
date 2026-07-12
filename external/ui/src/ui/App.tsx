@@ -3442,6 +3442,7 @@ export function App() {
           sessionId={sessionId}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
+          workspaceLocked={items.length > 0}
           onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
           onWorkspacePickBranch={(b: string, wt: boolean) =>
             void switchWorkspace({ branch: b, worktree: wt })

@@ -75,6 +75,8 @@ export function ChatScreen(props: {
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
+  /** The workspace is chosen once: locked as soon as the conversation starts. */
+  workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
@@ -249,6 +251,7 @@ export function ChatScreen(props: {
                 ? {
                     workspaceCtx: props.workspaceCtx ?? null,
                     worktreePref: props.worktreePref ?? false,
+                    workspaceLocked: props.workspaceLocked ?? false,
                     onWorkspacePickFolder: props.onWorkspacePickFolder,
                     onWorkspacePickBranch: props.onWorkspacePickBranch,
                     onWorktreeToggle: props.onWorktreeToggle,
@@ -375,6 +378,7 @@ export function ChatScreen(props: {
                   ? {
                       workspaceCtx: props.workspaceCtx ?? null,
                       worktreePref: props.worktreePref ?? false,
+                      workspaceLocked: props.workspaceLocked ?? false,
                       onWorkspacePickFolder: props.onWorkspacePickFolder,
                       onWorkspacePickBranch: props.onWorkspacePickBranch,
                       onWorktreeToggle: props.onWorktreeToggle,

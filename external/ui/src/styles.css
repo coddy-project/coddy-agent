@@ -3467,9 +3467,182 @@ textarea#composer {
   white-space: nowrap;
 }
 
-.workspace-chip--toggle.is-active {
+.workspace-chip--check {
+  gap: 6px;
+  user-select: none;
+}
+
+.workspace-chip--check.is-active {
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   color: var(--accent);
+}
+
+.workspace-chip--check.is-locked {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.workspace-chip-checkbox {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  background: transparent;
+  cursor: inherit;
+  display: inline-block;
+  position: relative;
+  flex: none;
+}
+
+.workspace-chip-checkbox:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.workspace-chip-checkbox:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 4px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+.workspace-recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-recent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-recent-check {
+  flex: none;
+  color: var(--accent);
+}
+
+.workspace-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+}
+
+.workspace-open-folder {
+  color: var(--muted);
+}
+
+.workspace-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.workspace-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  background: var(--bg);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.workspace-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.workspace-modal-path {
+  padding: 0 14px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.workspace-modal-list {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 0 8px;
+}
+
+.workspace-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-modal-row:hover {
+  background: color-mix(in srgb, var(--muted) 14%, transparent);
+}
+
+.workspace-modal-row--up {
+  color: var(--muted);
+}
+
+.workspace-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px 12px;
+}
+
+.workspace-modal-btn {
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  padding: 6px 14px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.workspace-modal-btn--primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.workspace-modal-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .workspace-menu {

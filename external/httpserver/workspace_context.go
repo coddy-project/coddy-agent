@@ -147,6 +147,12 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
+	// Folder, branch, and worktree are fixed at session start: once the
+	// conversation has messages, the workspace no longer moves under it.
+	if len(st.GetMessages()) > 0 {
+		http.Error(w, `{"error":{"message":"workspace is locked once the conversation starts"}}`, http.StatusConflict)
+		return
+	}
 
 	switch {
 	case strings.TrimSpace(body.Path) != "":

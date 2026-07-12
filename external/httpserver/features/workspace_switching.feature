@@ -50,6 +50,15 @@ Feature: Workspace switching
     Then the context reports a git repository on branch "main"
     And the context reports the session is not in a worktree
 
+  Scenario: Workspace is locked once the conversation starts
+    Given a workspace folder "alpha" without git
+    And a workspace folder "beta" without git
+    And a session rooted at folder "alpha"
+    And the session already has a user message
+    When I switch the session workspace to folder "beta"
+    Then the workspace request fails with status 409
+    And the context path points to folder "alpha"
+
   Scenario: Browse folders for the workspace picker
     Given a workspace folder "parent" containing subfolders "one, two"
     When I browse workspace folders under "parent"

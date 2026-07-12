@@ -129,6 +129,8 @@ export function Composer(props: {
   /** Workspace context chips (folder / branch / worktree) above the field. */
   workspaceCtx?: WorkspaceContext | null;
   worktreePref?: boolean;
+  /** The workspace is chosen once: locked as soon as the conversation starts. */
+  workspaceLocked?: boolean;
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
@@ -1127,6 +1129,7 @@ export function Composer(props: {
               onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
               onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
               opensUp={!props.isEmpty}
+              locked={props.workspaceLocked ?? false}
             />
           ) : null}
           {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (

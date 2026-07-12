@@ -4,11 +4,17 @@ import {
   branchChipVisible,
   folderChipLabel,
   isWorktreeBadgeActive,
+  pathBasename,
   pathParent,
   sortedBranches,
   type WorkspaceContext,
-  type WorkspaceFolderListing,
 } from "./workspaceContext";
+import {
+  pushWorkspaceRecent,
+  readWorkspaceRecents,
+  type WorkspaceRecent,
+} from "./workspaceRecents";
+import { WorkspaceFolderModal } from "./WorkspaceFolderModal";
 import {
   serverSnapshotShellStack,
   snapshotShellStack,
@@ -23,19 +29,20 @@ type Props = {
   onWorktreeToggle: () => void;
   // Anchored dropdown direction; the docked composer opens the menu upward.
   opensUp?: boolean;
-  disabled?: boolean;
+  // The workspace is chosen once: locked as soon as the conversation starts.
+  locked?: boolean;
 };
 
 type MenuKind = "folder" | "branch" | null;
 
 // WorkspaceChips renders the workspace context row above the composer field:
-// a folder chip (opens the folder picker), a branch chip (opens the branch
-// list inside git repos), and a worktree toggle chip.
+// a folder chip (recent folders + "Open folder…" browser), a branch chip
+// (branch list inside git repos), and a worktree checkbox.
 export function WorkspaceChips(props: Props) {
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
-  const [listing, setListing] = useState<WorkspaceFolderListing | null>(null);
-  const [listingError, setListingError] = useState("");
+  const [recents, setRecents] = useState<WorkspaceRecent[]>([]);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -47,32 +54,17 @@ export function WorkspaceChips(props: Props) {
   if (!ctx) {
     return null;
   }
+  const locked = Boolean(props.locked);
 
   const closeMenu = () => {
     setMenuOpen(null);
     setMenuAnchorRect(null);
-    setListing(null);
-    setListingError("");
-  };
-
-  const browseFolders = async (path: string) => {
-    try {
-      const res = await fetch(
-        "/coddy/workspace/folders?path=" + encodeURIComponent(path),
-      );
-      if (!res.ok) {
-        setListingError("Cannot list " + path);
-        return;
-      }
-      const body = (await res.json()) as WorkspaceFolderListing;
-      setListing(body);
-      setListingError("");
-    } catch {
-      setListingError("Cannot list " + path);
-    }
   };
 
   const toggleMenu = (kind: Exclude<MenuKind, null>, trigger: HTMLElement) => {
+    if (locked) {
+      return;
+    }
     if (menuOpen === kind) {
       closeMenu();
       return;
@@ -80,10 +72,21 @@ export function WorkspaceChips(props: Props) {
     setMenuOpen(kind);
     setMenuAnchorRect(trigger.getBoundingClientRect());
     if (kind === "folder") {
-      // The picker opens at the parent so sibling projects are one click away.
-      void browseFolders(pathParent(ctx.path));
+      setRecents(readWorkspaceRecents());
     }
   };
+
+  const pickFolder = (path: string) => {
+    props.onPickFolder(path);
+    setRecents(pushWorkspaceRecent({ path, name: pathBasename(path) || path }));
+    setFolderModalOpen(false);
+    closeMenu();
+  };
+
+  // The current workspace always appears in the Recent list (checked).
+  const recentRows: WorkspaceRecent[] = recents.some((r) => r.path === ctx.path)
+    ? recents
+    : [{ path: ctx.path, name: folderChipLabel(ctx) }, ...recents];
 
   const dirClass = props.opensUp ? "opens-up" : "opens-down";
   const menuStyle =
@@ -107,7 +110,7 @@ export function WorkspaceChips(props: Props) {
         data-testid="composer-workspace-chip"
         title={ctx.path}
         aria-haspopup="menu"
-        disabled={props.disabled}
+        disabled={locked}
         onClick={(e) => toggleMenu("folder", e.currentTarget)}
       >
         <span className="workspace-chip-icon" aria-hidden="true">
@@ -125,7 +128,7 @@ export function WorkspaceChips(props: Props) {
           data-testid="composer-branch-chip"
           title={ctx.branch || "detached"}
           aria-haspopup="menu"
-          disabled={props.disabled}
+          disabled={locked}
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
         >
           <span className="workspace-chip-icon" aria-hidden="true">
@@ -138,21 +141,25 @@ export function WorkspaceChips(props: Props) {
       ) : null}
 
       {showBranch ? (
-        <button
-          type="button"
-          className={`workspace-chip workspace-chip--toggle ${worktreeActive ? "is-active" : ""}`}
+        <label
+          className={`workspace-chip workspace-chip--check ${worktreeActive ? "is-active" : ""} ${locked || ctx.is_worktree ? "is-locked" : ""}`}
           data-testid="composer-worktree-chip"
           title={
             ctx.is_worktree
               ? "This session works in a dedicated worktree"
               : "Open branch switches in a dedicated worktree"
           }
-          aria-pressed={worktreeActive}
-          disabled={props.disabled || ctx.is_worktree}
-          onClick={() => props.onWorktreeToggle()}
         >
+          <input
+            type="checkbox"
+            className="workspace-chip-checkbox"
+            data-testid="composer-worktree-checkbox"
+            checked={worktreeActive}
+            disabled={locked || ctx.is_worktree}
+            onChange={() => props.onWorktreeToggle()}
+          />
           <span className="workspace-chip-label">worktree</span>
-        </button>
+        </label>
       ) : null}
 
       {menuOpen && (menuUseSheet || menuAnchorRect)
@@ -180,55 +187,46 @@ export function WorkspaceChips(props: Props) {
               >
                 {menuOpen === "folder" ? (
                   <>
-                    <div className="workspace-menu-path" title={listing?.path || ""}>
-                      {listing?.path || ctx.path}
-                    </div>
+                    <div className="mode-menu-group-label">Recent</div>
                     <div className="mode-menu-scroll">
-                      {listingError ? (
-                        <div className="mode-menu-empty">{listingError}</div>
-                      ) : null}
-                      {listing && listing.path !== listing.parent ? (
+                      {recentRows.map((r) => (
                         <button
+                          key={r.path}
                           type="button"
                           role="menuitem"
-                          className="mode-item workspace-folder-up"
-                          data-testid="workspace-folder-up"
-                          onClick={() => void browseFolders(listing.parent)}
-                        >
-                          ..
-                        </button>
-                      ) : null}
-                      {(listing?.folders || []).map((f) => (
-                        <div key={f.path} className="workspace-folder-row">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            className={`mode-item ${f.path === ctx.path ? "is-selected" : ""}`}
-                            data-testid={`workspace-folder-row-${f.name}`}
-                            title={f.path}
-                            onClick={() => {
-                              props.onPickFolder(f.path);
+                          className={`mode-item workspace-recent-item ${r.path === ctx.path ? "is-selected" : ""}`}
+                          data-testid={`workspace-recent-row-${r.name}`}
+                          title={r.path}
+                          onClick={() => {
+                            if (r.path !== ctx.path) {
+                              pickFolder(r.path);
+                            } else {
                               closeMenu();
-                            }}
-                          >
-                            {f.name}
-                          </button>
-                          <button
-                            type="button"
-                            className="workspace-folder-browse"
-                            data-testid={`workspace-folder-browse-${f.name}`}
-                            aria-label={`Browse into ${f.name}`}
-                            title={`Browse into ${f.name}`}
-                            onClick={() => void browseFolders(f.path)}
-                          >
-                            ›
-                          </button>
-                        </div>
+                            }
+                          }}
+                        >
+                          <span className="workspace-recent-name">{r.name}</span>
+                          {r.path === ctx.path ? (
+                            <span className="workspace-recent-check" aria-hidden="true">
+                              ✓
+                            </span>
+                          ) : null}
+                        </button>
                       ))}
-                      {listing && listing.folders.length === 0 && !listingError ? (
-                        <div className="mode-menu-empty">No subfolders</div>
-                      ) : null}
                     </div>
+                    <div className="workspace-menu-sep" aria-hidden="true" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="mode-item workspace-open-folder"
+                      data-testid="workspace-open-folder"
+                      onClick={() => {
+                        closeMenu();
+                        setFolderModalOpen(true);
+                      }}
+                    >
+                      Open folder…
+                    </button>
                   </>
                 ) : null}
                 {menuOpen === "branch" ? (
@@ -261,6 +259,13 @@ export function WorkspaceChips(props: Props) {
             document.body,
           )
         : null}
+
+      <WorkspaceFolderModal
+        open={folderModalOpen}
+        startPath={pathParent(ctx.path)}
+        onClose={() => setFolderModalOpen(false)}
+        onPick={pickFolder}
+      />
     </div>
   );
 }
