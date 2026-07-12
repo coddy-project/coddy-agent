@@ -46,12 +46,29 @@ func workspaceContextPayload(cwd string) map[string]interface{} {
 	return payload
 }
 
-// coddyWorkspaceContextGet reports the workspace state for the session in
-// X-Coddy-Session-ID (or the server default cwd without the header).
+// coddyWorkspaceContextGet reports the workspace state for ?path= when given
+// (pre-session preview), otherwise for the session in X-Coddy-Session-ID
+// (or the server default cwd without the header).
 func (s *Server) coddyWorkspaceContextGet(w http.ResponseWriter, r *http.Request) {
-	cwd, ok := s.resolveSlashListCWD(w, r)
-	if !ok {
-		return
+	cwd := strings.TrimSpace(r.URL.Query().Get("path"))
+	if cwd != "" {
+		abs, err := filepath.Abs(cwd)
+		if err != nil {
+			http.Error(w, `{"error":{"message":"invalid path"}}`, http.StatusBadRequest)
+			return
+		}
+		fi, err := os.Stat(abs)
+		if err != nil || !fi.IsDir() {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, "folder not found: "+abs), http.StatusBadRequest)
+			return
+		}
+		cwd = abs
+	} else {
+		resolved, ok := s.resolveSlashListCWD(w, r)
+		if !ok {
+			return
+		}
+		cwd = resolved
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(workspaceContextPayload(cwd))

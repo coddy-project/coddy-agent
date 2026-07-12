@@ -1886,3 +1886,42 @@ func shorten(s string, max int) string {
 	}
 	return s[:max] + "..."
 }
+
+func TestCoddyWorkspaceContextPathParam(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	dir := t.TempDir()
+	res, err := http.Get(ts.URL + "/coddy/workspace/context?path=" + url.QueryEscape(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", res.StatusCode)
+	}
+	var body struct {
+		Path      string `json:"path"`
+		Name      string `json:"name"`
+		IsGitRepo bool   `json:"is_git_repo"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Path != dir || body.IsGitRepo {
+		t.Fatalf("unexpected context: %+v", body)
+	}
+	if body.Name != filepath.Base(dir) {
+		t.Fatalf("name = %q", body.Name)
+	}
+
+	res2, err := http.Get(ts.URL + "/coddy/workspace/context?path=" + url.QueryEscape(filepath.Join(dir, "missing")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing path status = %d", res2.StatusCode)
+	}
+}
