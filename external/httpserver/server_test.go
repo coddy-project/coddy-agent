@@ -1925,3 +1925,99 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
 	}
 }
+
+// TestCoddySkillsSourcesSyncDelete exercises the remote-skill management routes
+// without any network: add a source (persisted to config.yaml), an empty sync,
+// and delete of a pre-seeded remote skill.
+func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home) // keep ManagedDir() inside the temp home
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Add a source; it should persist to config.yaml (no sync).
+	addBody := `{"source":"owner/repo"}`
+	addReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/sources", strings.NewReader(addBody))
+	addReq.Header.Set("Content-Type", "application/json")
+	addRes, err := http.DefaultClient.Do(addReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ab, _ := ioReadAllClose(addRes.Body)
+	if addRes.StatusCode != http.StatusOK {
+		t.Fatalf("add source status %d %s", addRes.StatusCode, ab)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "owner/repo") {
+		t.Fatalf("source not persisted: %s", data)
+	}
+
+	// Empty sync (no reachable sources fetched here beyond the one we just added,
+	// which would need network) — assert the endpoint responds with a result shape.
+	// Reset sources to empty so sync does no network and returns ok cleanly.
+	srv.activeCfg().Skills.Sources = nil
+	syncReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/sync", nil)
+	syncRes, err := http.DefaultClient.Do(syncReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(syncRes.Body)
+	if syncRes.StatusCode != http.StatusOK {
+		t.Fatalf("sync status %d %s", syncRes.StatusCode, sb)
+	}
+	var syncOut struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(sb, &syncOut); err != nil || !syncOut.OK {
+		t.Fatalf("sync response %s err %v", sb, err)
+	}
+
+	// Seed a remote skill + lockfile, then DELETE it.
+	managed := srv.activeCfg().Skills.ManagedDir(srv.activeCfg().Paths.Home)
+	skillDir := filepath.Join(managed, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, ".remote.json"), []byte(`{"demo":{"source":"owner/repo"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/demo", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d %s", delRes.StatusCode, db)
+	}
+	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+		t.Fatalf("skill dir should be gone, err=%v", err)
+	}
+
+	// Deleting a non-remote skill fails with 400.
+	del2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/nope", nil)
+	del2Res, err := http.DefaultClient.Do(del2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(del2Res.Body)
+	if del2Res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete unknown status %d, want 400", del2Res.StatusCode)
+	}
+}

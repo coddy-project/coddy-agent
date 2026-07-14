@@ -95,6 +95,13 @@ skills:
   # Searched in order. When empty, defaults are
   # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs: []
+  # sources lists remote skill sources installed on demand with `coddy skills sync`
+  # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
+  # a git URL, or an http(s) URL to an agents-standard marketplace.json.
+  # sources:
+  #   - "EvilFreelancer/rpa-skills"
+  #   - "https://example.com/skills/marketplace.json"
+  sources: []
 
 mcp_servers: []
   # Example: filesystem MCP server

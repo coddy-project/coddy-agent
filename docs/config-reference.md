@@ -126,6 +126,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dirs` | string list | no | `["~/.agents/skills", "${CODDY_HOME}/skills", "${CWD}/.coddy/skills"]` | Directories scanned for skills. Later entries have **higher** priority on name conflicts. `${CODDY_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`). |
+| `sources` | string list | no | `[]` | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard `marketplace.json`. Cloned/copied into `${CODDY_HOME}/skills/`, then picked up like any local skill. See [skills.md](skills.md). |
 
 ## `rules`
 

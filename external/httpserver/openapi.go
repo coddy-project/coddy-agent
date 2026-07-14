@@ -818,6 +818,69 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/skills/sync": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Sync remote skill sources",
+					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"operationId": "syncSkills",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Sync result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/sources": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Add a remote skill source",
+					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
+					"operationId": "addSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding."},
+									},
+									"required": []interface{}{"source"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill",
+					"description": "Deletes a remote (synced) skill's directory and its provenance entry. Fails with 400 for skills that were not installed from a remote source (e.g. local or bundled skills).",
+					"operationId": "removeRemoteSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Remote skill removed."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
@@ -859,6 +922,25 @@ func openAPISpec() map[string]interface{} {
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
+						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
+					},
+				},
+				"SkillSyncResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":      map[string]interface{}{"type": "boolean"},
+						"added":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"updated": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"failed": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"source": map[string]string{"type": "string"},
+									"error":  map[string]string{"type": "string"},
+								},
+							},
+						},
 					},
 				},
 				"SkillList": map[string]interface{}{

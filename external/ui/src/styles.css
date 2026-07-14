@@ -5774,6 +5774,37 @@ textarea#composer {
   padding: 4px 10px;
 }
 
+.skills-list-item-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* Add-source / sync controls above the installed list. */
+.settings-skills-source-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.settings-skills-source-row .settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.settings-skills-source-row .settings-btn {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 1199px) {
   .settings-tabs-layout {
     flex-direction: column;

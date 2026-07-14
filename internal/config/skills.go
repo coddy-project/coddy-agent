@@ -9,6 +9,11 @@ import (
 // Skills is the YAML skills section (key skills).
 type Skills struct {
 	Dirs []string `yaml:"dirs"`
+
+	// Sources lists remote skill sources to install from (GitHub repos, git URLs,
+	// or an http(s) URL to an agents-standard marketplace.json). Fetched on demand
+	// via `coddy skills sync` (never automatically), materialized into ManagedDir.
+	Sources []string `yaml:"sources"`
 }
 
 // ManagedDir returns the directory used for coddy-managed skills (enable/disable state,

@@ -57,6 +57,45 @@ You can also browse and install through the Coddy web UI: **Settings → Skills 
 
 ---
 
+## Install from a repository or marketplace API (agents standard)
+
+Coddy can fetch skills itself, without any external CLI, from a **GitHub repo**, a **git URL**, or an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. Configure sources under `skills.sources` and install them on demand — nothing is fetched automatically.
+
+```yaml
+skills:
+  sources:
+    - "EvilFreelancer/rpa-skills"                    # owner/repo shorthand (GitHub)
+    - "artwist-polyakov/polyakov-claude-skills"      # a marketplace monorepo
+    - "owner/repo@v1.2"                              # pin a branch or tag
+    - "https://github.com/owner/single-skill.git"    # any git URL
+    - "https://example.com/skills/marketplace.json"  # an API marketplace URL
+```
+
+Commands:
+
+```bash
+coddy skills add <owner/repo | git-url | marketplace-url>   # append a source to config.yaml
+coddy skills sync                                           # fetch/refresh all sources
+coddy skills remove <name>                                  # delete a synced skill
+```
+
+Or use the web UI: **Settings → Skills → Remote skill sources** (add a source, then **Sync**).
+
+### How a source is resolved
+
+1. `owner/repo` shorthands and git URLs are cloned (`git clone --depth 1`, refreshed with `git pull --ff-only`); an API URL is downloaded as JSON.
+2. If the repo (or API response) is an agents-standard **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
+   - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
+   - a **relative** source (`"./plugins/foo"`) is read from inside the marketplace repo.
+3. If there is **no manifest**, the repo is scanned directly for `SKILL.md`.
+4. Every discovered skill directory (root `SKILL.md`, `skills/<name>/`, `.claude/skills/<name>/`, or `plugins/<p>/skills/<s>/`) is copied — with its sibling `scripts/`, `references/`, `examples/` — into `${CODDY_HOME}/skills/<name>/`, where the normal loader picks it up.
+
+Provenance is tracked in `${CODDY_HOME}/skills/.remote.json`. Because synced skills live in a normal skills directory, `enable`/`disable` work on them like any other skill; `remove` deletes the copy (re-running `sync` re-installs it unless you also drop the source from `skills.sources`).
+
+Private repositories rely on your ambient `git` credentials; API URLs are checked against the same SSRF guard used by the `webfetch` tool.
+
+---
+
 ## Directory layout
 
 Coddy searches all directories in `skills.dirs` and deduplicates by skill name. **Later directories have higher priority** — if the same skill name appears in multiple directories, the version from the directory listed last wins.

@@ -15,8 +15,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
-	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -121,6 +121,9 @@ func printUsage(w *os.File) {
   %[1]s skills list
   %[1]s skills enable <name>
   %[1]s skills disable <name>
+  %[1]s skills add <owner/repo | git-url | marketplace-url>
+  %[1]s skills sync
+  %[1]s skills remove <name>
   %[1]s rules list [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
@@ -297,7 +300,7 @@ func runSessions(args []string) error {
 
 func runSkills(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s skills list|enable|disable", os.Args[0])
+		return fmt.Errorf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
 	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
@@ -324,8 +327,51 @@ func runSkills(args []string) error {
 		}
 		fmt.Printf("Disabled skill %q\n", args[1])
 		return nil
+	case "add":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: %s skills add <owner/repo | git-url | marketplace-url>", os.Args[0])
+		}
+		added, err := skills.AddSource(cfg, args[1])
+		if err != nil {
+			return err
+		}
+		if added {
+			fmt.Printf("Added skill source %q. Run `%s skills sync` to install.\n", args[1], os.Args[0])
+		} else {
+			fmt.Printf("Source %q already configured.\n", args[1])
+		}
+		return nil
+	case "sync":
+		res, err := skills.Sync(context.Background(), cfg)
+		if err != nil {
+			return err
+		}
+		printSyncResult(res)
+		return nil
+	case "remove":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: %s skills remove <name>", os.Args[0])
+		}
+		if err := skills.RemoveRemote(cfg, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Removed remote skill %q\n", args[1])
+		return nil
 	default:
 		return fmt.Errorf("unknown skills subcommand %q", args[0])
+	}
+}
+
+func printSyncResult(res *skills.SyncResult) {
+	fmt.Printf("Synced: %d added, %d updated, %d failed.\n", len(res.Added), len(res.Updated), len(res.Failed))
+	for _, n := range res.Added {
+		fmt.Printf("  + %s\n", n)
+	}
+	for _, n := range res.Updated {
+		fmt.Printf("  ~ %s\n", n)
+	}
+	for _, f := range res.Failed {
+		fmt.Printf("  ! %s: %s\n", f.Source, f.Error)
 	}
 }
 

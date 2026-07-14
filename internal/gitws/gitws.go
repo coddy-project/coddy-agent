@@ -44,6 +44,34 @@ func runGit(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Clone shallow-clones url into dest. When ref is non-empty it clones that
+// branch or tag. dest must not already exist.
+func Clone(url, ref, dest string) error {
+	if !GitAvailable() {
+		return fmt.Errorf("git binary not found on PATH")
+	}
+	if strings.TrimSpace(url) == "" {
+		return fmt.Errorf("empty clone url")
+	}
+	args := []string{"clone", "--depth", "1"}
+	if strings.TrimSpace(ref) != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, url, dest)
+	// Run from the parent so a relative dest resolves predictably.
+	_, err := runGit(filepath.Dir(dest), args...)
+	return err
+}
+
+// Pull fast-forwards the working copy at dir. Used to refresh an existing clone.
+func Pull(dir string) error {
+	if !GitAvailable() {
+		return fmt.Errorf("git binary not found on PATH")
+	}
+	_, err := runGit(dir, "pull", "--ff-only")
+	return err
+}
+
 // Describe inspects dir. It never fails on plain folders: a non-repo dir
 // (or a missing git binary) yields Info{IsGitRepo: false}.
 func Describe(dir string) Info {

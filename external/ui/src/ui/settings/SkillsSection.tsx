@@ -6,6 +6,7 @@ type InstalledSkill = {
   description: string;
   file_path: string;
   enabled: boolean;
+  source?: string;
 };
 
 async function fetchInstalled(): Promise<InstalledSkill[]> {
@@ -15,8 +16,17 @@ async function fetchInstalled(): Promise<InstalledSkill[]> {
   return data.items ?? [];
 }
 
-async function apiPost(path: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(path, { method: "POST" });
+async function apiSend(
+  path: string,
+  method: "POST" | "DELETE",
+  body?: unknown,
+): Promise<{ ok: boolean; error?: string }> {
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.headers = { "Content-Type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
   if (!res.ok) {
     try {
       const j = (await res.json()) as { error?: { message?: string } };
@@ -53,7 +63,10 @@ export function SkillsSection(props: {
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sourceInput, setSourceInput] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const loadInstalled = useCallback(async () => {
     setLoading(true);
@@ -71,7 +84,7 @@ export function SkillsSection(props: {
     setError(null);
     void (async () => {
       const action = skill.enabled ? "disable" : "enable";
-      const res = await apiPost(`/coddy/skills/${encodeURIComponent(skill.name)}/${action}`);
+      const res = await apiSend(`/coddy/skills/${encodeURIComponent(skill.name)}/${action}`, "POST");
       if (!res.ok) {
         setError(res.error || `Failed to ${action}`);
       } else {
@@ -81,18 +94,110 @@ export function SkillsSection(props: {
     })();
   };
 
+  const onRemove = (skill: InstalledSkill) => {
+    setBusy((p) => ({ ...p, [skill.name]: true }));
+    setError(null);
+    void (async () => {
+      const res = await apiSend(`/coddy/skills/${encodeURIComponent(skill.name)}`, "DELETE");
+      if (!res.ok) {
+        setError(res.error || "Failed to remove");
+      } else {
+        await loadInstalled();
+      }
+      setBusy((p) => ({ ...p, [skill.name]: false }));
+    })();
+  };
+
+  const onSync = () => {
+    setSyncing(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      const res = await apiSend("/coddy/skills/sync", "POST");
+      if (!res.ok) setError(res.error || "Sync failed");
+      else {
+        setStatus("Sync complete.");
+        await loadInstalled();
+      }
+      setSyncing(false);
+    })();
+  };
+
+  const onAddSource = () => {
+    const source = sourceInput.trim();
+    if (!source) return;
+    setSyncing(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      const res = await apiSend("/coddy/skills/sources", "POST", { source, sync: true });
+      if (!res.ok) setError(res.error || "Failed to add source");
+      else {
+        setSourceInput("");
+        setStatus(`Added and synced ${source}.`);
+        await loadInstalled();
+      }
+      setSyncing(false);
+    })();
+  };
+
   return (
     <div className="settings-skills-section">
       <SchemaForm schema={schema} value={value} onChange={onChange} />
 
       <p className="appearance-section-label settings-skills-installed-label">
+        Remote skill sources
+      </p>
+      <p className="settings-field-desc">
+        Install skills from a GitHub repo (<code>owner/repo</code>), a git URL, or an{" "}
+        <a href="https://agents.md" target="_blank" rel="noreferrer">agents-standard</a>{" "}
+        <code>marketplace.json</code> URL. Sources are saved to <code>skills.sources</code> and
+        fetched only when you sync.
+      </p>
+      <div className="settings-skills-source-row">
+        <input
+          className="settings-input"
+          type="text"
+          placeholder="owner/repo  ·  https://…/marketplace.json"
+          value={sourceInput}
+          onChange={(e) => setSourceInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onAddSource();
+            }
+          }}
+          disabled={syncing}
+          data-testid="skills-source-input"
+        />
+        <button
+          type="button"
+          className="settings-btn settings-btn-primary"
+          disabled={syncing || !sourceInput.trim()}
+          onClick={onAddSource}
+        >
+          Add &amp; sync
+        </button>
+        <button
+          type="button"
+          className="settings-btn"
+          disabled={syncing}
+          onClick={onSync}
+          title="Fetch all configured sources"
+        >
+          {syncing ? "Syncing…" : "Sync"}
+        </button>
+      </div>
+
+      <p className="appearance-section-label settings-skills-installed-label">
         Installed skills
       </p>
       <p className="settings-field-desc">
-        Install skills via <code>npx skills</code> or <code>npx skillsbd</code> — they land in{" "}
-        <code>~/.agents/skills/</code> and are picked up automatically.
+        You can also install skills via <code>npx skills</code> or <code>npx skillsbd</code> — they
+        land in <code>~/.agents/skills/</code> and are picked up automatically.
       </p>
       {error ? <p className="settings-error">{error}</p> : null}
+      {status ? <p className="settings-muted">{status}</p> : null}
 
       {loading ? (
         <p className="settings-muted">Loading…</p>
@@ -109,7 +214,14 @@ export function SkillsSection(props: {
             >
               <IconPlug />
               <div className="skills-list-item-text">
-                <div className="skills-list-item-name">{sk.name}</div>
+                <div className="skills-list-item-name">
+                  {sk.name}
+                  {sk.source ? (
+                    <span className="skills-list-item-badge" title={`Synced from ${sk.source}`}>
+                      remote
+                    </span>
+                  ) : null}
+                </div>
                 {sk.description ? (
                   <div className="skills-list-item-desc">{sk.description}</div>
                 ) : null}
@@ -123,6 +235,17 @@ export function SkillsSection(props: {
               >
                 {sk.enabled ? "Disable" : "Enable"}
               </button>
+              {sk.source ? (
+                <button
+                  type="button"
+                  className="settings-btn settings-btn-danger skills-list-item-toggle"
+                  disabled={!!busy[sk.name]}
+                  onClick={() => onRemove(sk)}
+                  title="Remove synced skill"
+                >
+                  Remove
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

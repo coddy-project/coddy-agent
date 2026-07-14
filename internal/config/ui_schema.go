@@ -383,8 +383,14 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"sources": map[string]interface{}{
+					"type":        "array",
+					"title":       "Remote skill sources",
+					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
 			},
-			[]string{"dirs"},
+			[]string{"dirs", "sources"},
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
