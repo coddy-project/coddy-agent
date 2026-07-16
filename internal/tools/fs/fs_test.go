@@ -141,17 +141,17 @@ func TestSessionStoreRootAndIsWithinDir(t *testing.T) {
 	if got := sessionStoreRoot(""); got != "" {
 		t.Fatalf("empty SessionDir should disable filtering, got %q", got)
 	}
-	root := sessionStoreRoot("/home/u/.coddy/sessions/sess_abc")
-	if root != "/home/u/.coddy/sessions" {
+	root := sessionStoreRoot(filepath.FromSlash("/home/u/.coddy/sessions/sess_abc"))
+	if root != filepath.FromSlash("/home/u/.coddy/sessions") {
 		t.Fatalf("store root = %q", root)
 	}
-	if !isWithinDir("/home/u/.coddy/sessions/sess_x/messages.json", root) {
+	if !isWithinDir(filepath.FromSlash("/home/u/.coddy/sessions/sess_x/messages.json"), root) {
 		t.Fatal("store file should be within store root")
 	}
-	if isWithinDir("/home/u/.coddy/config.yaml", root) {
+	if isWithinDir(filepath.FromSlash("/home/u/.coddy/config.yaml"), root) {
 		t.Fatal("sibling config must not be treated as within the store")
 	}
-	if isWithinDir("/home/u/.coddy/sessions-archive/x", root) {
+	if isWithinDir(filepath.FromSlash("/home/u/.coddy/sessions-archive/x"), root) {
 		t.Fatal("prefix-similar sibling dir must not match")
 	}
 }
@@ -168,6 +168,13 @@ func TestDropStoreLinesKeepsNonPathLines(t *testing.T) {
 	}
 	if !strings.Contains(out, "main.go") || !strings.Contains(out, "no matches found") {
 		t.Fatalf("non-store lines must be kept: %q", out)
+	}
+}
+
+func TestGrepLineFilePathWindowsDrive(t *testing.T) {
+	line := `C:\work\src\main.go:42:func main() {}`
+	if got := grepLineFilePath(line); got != `C:\work\src\main.go` {
+		t.Fatalf("grepLineFilePath() = %q", got)
 	}
 }
 

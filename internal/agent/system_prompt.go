@@ -86,6 +86,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		Instructions:   instructionsMD,
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
+	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	if rs, ok := a.state.(rulesState); ok {
 		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
 	}

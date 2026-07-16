@@ -35,7 +35,7 @@
           },
           "api_key_command": {
             "type": "string",
-            "description": "Optional credential-helper command. When api_key is empty it runs via the shell and the trimmed stdout is used as the key (like git/docker credential helpers). On failure resolution falls back to NAME_API_KEY."
+            "description": "Optional credential-helper command. When api_key is empty it runs via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and the trimmed stdout is used as the key. On failure resolution falls back to NAME_API_KEY."
           },
           "proxy": {
             "type": "string",

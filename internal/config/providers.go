@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // apiKeyCommandTimeout bounds how long a provider api_key_command may run.
@@ -74,13 +76,15 @@ func (p *ProviderConfig) EffectiveAPIKey() string {
 	return strings.TrimSpace(os.Getenv(env))
 }
 
-// runAPIKeyCommand executes a provider credential-helper command via the shell and
+// runAPIKeyCommand executes a provider credential-helper command via the detected host shell and
 // returns its trimmed stdout. It returns "" on any error (non-zero exit, timeout,
 // spawn failure) so EffectiveAPIKey can fall back to the conventional env var.
 func runAPIKeyCommand(command string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), apiKeyCommandTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "sh", "-c", command).Output()
+	commandShell := platform.CurrentShell()
+	executable, args := commandShell.Command(command)
+	out, err := exec.CommandContext(ctx, executable, args...).Output()
 	if err != nil {
 		return ""
 	}

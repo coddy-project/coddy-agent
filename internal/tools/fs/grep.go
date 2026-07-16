@@ -1,146 +1,24 @@
 package fs
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"os/exec"
-	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// GrepTool returns the grep built-in (ripgrep content search).
+// GrepTool is the compatibility name for the portable rg_tool implementation.
 func GrepTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "grep",
-			Description: "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
-			InputSchema: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"pattern": map[string]interface{}{
-						"type":        "string",
-						"description": "Search pattern (regex or literal string)",
-					},
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "Directory or file to search (default: working directory)",
-					},
-					"glob": map[string]interface{}{
-						"type":        "string",
-						"description": "File glob filter, e.g. '*.go' or '**/*.ts'",
-					},
-					"case_sensitive": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Enable case-sensitive matching (default: false)",
-					},
-					"max_results": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum number of results to return (default: 100)",
-					},
-				},
-				"required": []string{"pattern"},
-			},
+			Description: "Compatibility alias for rg_tool. Search file contents recursively with POSIX extended regular expressions.",
+			InputSchema: RGTool().Definition.InputSchema,
 		},
 		Execute: executeGrep,
 	}
 }
 
-type grepArgs struct {
-	Pattern       string `json:"pattern"`
-	Path          string `json:"path"`
-	Glob          string `json:"glob"`
-	CaseSensitive bool   `json:"case_sensitive"`
-	MaxResults    int    `json:"max_results"`
-}
-
 func executeGrep(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
-	args, err := tooling.ParseArgs[grepArgs](argsJSON)
-	if err != nil {
-		return "", err
-	}
-
-	searchPath := env.CWD
-	if args.Path != "" {
-		searchPath = ResolvePath(args.Path, env.CWD)
-	}
-	storeRoot := sessionStoreRoot(env.SessionDir)
-	maxResults := 100
-	if args.MaxResults > 0 {
-		maxResults = args.MaxResults
-	}
-
-	rgArgs := []string{
-		"--line-number",
-		"--no-heading",
-		"--color=never",
-		fmt.Sprintf("--max-count=%d", maxResults),
-	}
-
-	if !args.CaseSensitive {
-		rgArgs = append(rgArgs, "--ignore-case")
-	}
-
-	if args.Glob != "" {
-		rgArgs = append(rgArgs, "--glob", args.Glob)
-	}
-
-	rgArgs = append(rgArgs, args.Pattern, searchPath)
-
-	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return "no matches found", nil
-		}
-		if strings.Contains(err.Error(), "executable file not found") {
-			out, ferr := grepWithGrepFallback(ctx, args, searchPath, env)
-			if ferr != nil {
-				return "", ferr
-			}
-			return grepResultOrEmpty(dropStoreLines(out, storeRoot)), nil
-		}
-		return "", fmt.Errorf("grep rg: %s", stderr.String())
-	}
-
-	// Hide Coddy's own session store so other sessions' transcripts never leak in.
-	return grepResultOrEmpty(dropStoreLines(stdout.String(), storeRoot)), nil
-}
-
-// grepResultOrEmpty normalizes empty/whitespace-only grep output to the canonical
-// "no matches found" sentinel.
-func grepResultOrEmpty(result string) string {
-	if strings.TrimSpace(result) == "" {
-		return "no matches found"
-	}
-	return result
-}
-
-func grepWithGrepFallback(ctx context.Context, args grepArgs, searchPath string, _ *tooling.Env) (string, error) {
-	grepArgs := []string{"-rn"}
-	if args.Glob != "" {
-		grepArgs = append(grepArgs, "--include="+args.Glob)
-	}
-	if !args.CaseSensitive {
-		grepArgs = append(grepArgs, "-i")
-	}
-	grepArgs = append(grepArgs, args.Pattern, searchPath)
-
-	cmd := exec.CommandContext(ctx, "grep", grepArgs...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return "no matches found", nil
-		}
-		return "", fmt.Errorf("grep: %w", err)
-	}
-
-	return stdout.String(), nil
+	return executeRGTool(ctx, argsJSON, env)
 }

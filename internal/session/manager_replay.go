@@ -238,7 +238,7 @@ func (m *Manager) replayMemoryTrace(sessionID string, row *MemoryTurnTraceJSON) 
 
 func replayToolKind(name string) string {
 	switch name {
-	case "read", "glob", "grep":
+	case "read", "glob", "grep", "rg_tool":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
 		return "write"
