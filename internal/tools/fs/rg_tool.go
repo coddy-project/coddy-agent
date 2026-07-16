@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
+	"github.com/bmatcuk/doublestar/v4"
 )
 
 const (
@@ -297,15 +297,8 @@ func validateSearchGlob(pattern string) error {
 	if strings.TrimSpace(pattern) == "" {
 		return nil
 	}
-	for _, segment := range strings.Split(filepath.ToSlash(pattern), "/") {
-		if segment == "**" {
-			continue
-		}
-		if _, err := path.Match(segment, "candidate"); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := doublestar.Match(filepath.ToSlash(pattern), "candidate")
+	return err
 }
 
 func searchGlobMatches(pattern, relativePath string) bool {
@@ -315,24 +308,11 @@ func searchGlobMatches(pattern, relativePath string) bool {
 		return true
 	}
 	if !strings.Contains(pattern, "/") {
-		matched, _ := path.Match(pattern, path.Base(relativePath))
+		matched, _ := doublestar.Match(pattern, filepath.Base(relativePath))
 		return matched
 	}
-	return matchGlobSegments(strings.Split(pattern, "/"), strings.Split(relativePath, "/"))
-}
-
-func matchGlobSegments(pattern, value []string) bool {
-	if len(pattern) == 0 {
-		return len(value) == 0
-	}
-	if pattern[0] == "**" {
-		return matchGlobSegments(pattern[1:], value) || (len(value) > 0 && matchGlobSegments(pattern, value[1:]))
-	}
-	if len(value) == 0 {
-		return false
-	}
-	matched, err := path.Match(pattern[0], value[0])
-	return err == nil && matched && matchGlobSegments(pattern[1:], value[1:])
+	matched, _ := doublestar.Match(pattern, relativePath)
+	return matched
 }
 
 func limitSearchLines(output string, maxResults int) string {

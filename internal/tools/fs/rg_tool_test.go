@@ -149,6 +149,23 @@ func TestNativeGlobSupportsDoubleStarWithoutRipgrep(t *testing.T) {
 	}
 }
 
+func TestNativeGlobSupportsDoublestarAlternatives(t *testing.T) {
+	root := t.TempDir()
+	goFile := filepath.Join(root, "nested", "file.go")
+	markdownFile := filepath.Join(root, "README.md")
+	writeSearchFixture(t, goFile, "package nested\n")
+	writeSearchFixture(t, markdownFile, "# Readme\n")
+	writeSearchFixture(t, filepath.Join(root, "notes.txt"), "notes\n")
+
+	paths, err := nativeGlob(context.Background(), root, "**/*.{go,md}", "")
+	if err != nil {
+		t.Fatalf("nativeGlob: %v", err)
+	}
+	if len(paths) != 2 || paths[0] != markdownFile || paths[1] != goFile {
+		t.Fatalf("paths = %#v, want %#v", paths, []string{markdownFile, goFile})
+	}
+}
+
 func nativeOnlyRGRunner() rgRunner {
 	return rgRunner{
 		lookPath: func(string) (string, error) { return "", errors.New("not found") },
