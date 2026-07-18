@@ -33,7 +33,9 @@ func newCodexTestProvider(t *testing.T, baseURL string) *codexProvider {
 			AccountID:    "acct-1",
 		},
 	})
-	p := newCodexProvider("gpt-5.6", path, baseURL, http.DefaultClient, 0, "")
+	// A non-zero generic max token limit must still be omitted from the Codex
+	// request because its Responses endpoint rejects max_output_tokens.
+	p := newCodexProvider("gpt-5.6", path, baseURL, http.DefaultClient, 4096, "")
 	return p
 }
 
@@ -77,7 +79,9 @@ func TestCodexProviderStreamsTextAndToolCalls(t *testing.T) {
 	resp, err := p.Stream(context.Background(),
 		[]Message{
 			{Role: RoleSystem, Content: "be brief"},
-			{Role: RoleUser, Content: "hi"},
+			{Role: RoleUser, Content: "first"},
+			{Role: RoleAssistant, Content: "first answer"},
+			{Role: RoleUser, Content: "second"},
 		},
 		[]ToolDefinition{{
 			Name:        "get_weather",
@@ -133,6 +137,25 @@ func TestCodexProviderStreamsTextAndToolCalls(t *testing.T) {
 	}
 	if _, ok := reqBody["input"]; !ok {
 		t.Error("request missing input")
+	}
+	input, ok := reqBody["input"].([]any)
+	if !ok || len(input) != 3 {
+		t.Fatalf("input = %#v, want three conversation messages", reqBody["input"])
+	}
+	assistant, ok := input[1].(map[string]any)
+	if !ok || assistant["role"] != "assistant" {
+		t.Fatalf("assistant history item = %#v", input[1])
+	}
+	content, ok := assistant["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("assistant content = %#v", assistant["content"])
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok || part["type"] != "output_text" {
+		t.Fatalf("assistant content part = %#v, want type=output_text", content[0])
+	}
+	if _, ok := reqBody["max_output_tokens"]; ok {
+		t.Errorf("request contains max_output_tokens, which the Codex backend rejects: %v", reqBody["max_output_tokens"])
 	}
 }
 

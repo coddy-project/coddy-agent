@@ -11,6 +11,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 )
@@ -23,22 +24,20 @@ type codexProvider struct {
 	baseURL         string
 	httpClient      *http.Client
 	model           string
-	maxTokens       int
 	reasoningEffort string
 	sessionID       string
 }
 
-func newCodexProvider(model, authPath, baseURL string, httpClient *http.Client, maxTokens int, reasoningEffort string) *codexProvider {
+func newCodexProvider(model, authPath, baseURL string, httpClient *http.Client, _ int, reasoningEffort string) *codexProvider {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
 		base = codexDefaultBaseURL
 	}
 	return &codexProvider{
-		auth:            newCodexAuthSource(authPath, httpClient),
+		auth:            newManagedCodexAuthSource(authPath, httpClient),
 		baseURL:         base,
 		httpClient:      httpClient,
 		model:           model,
-		maxTokens:       maxTokens,
 		reasoningEffort: reasoningEffort,
 		sessionID:       newCodexSessionID(),
 	}
@@ -185,10 +184,7 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 				}, "user"))
 		case RoleAssistant:
 			if strings.TrimSpace(m.Content) != "" {
-				items = append(items, responses.ResponseInputItemParamOfInputMessage(
-					responses.ResponseInputMessageContentListParam{
-						responses.ResponseInputContentParamOfInputText(m.Content),
-					}, "assistant"))
+				items = append(items, codexAssistantOutputMessage(m.Content))
 			}
 			for _, tc := range m.ToolCalls {
 				args := tc.InputJSON
@@ -213,9 +209,6 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 	if p.reasoningEffort != "" {
 		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(p.reasoningEffort)}
 	}
-	if p.maxTokens > 0 {
-		params.MaxOutputTokens = openai.Int(int64(p.maxTokens))
-	}
 	if len(tools) > 0 {
 		oaiTools := make([]responses.ToolUnionParam, 0, len(tools))
 		for _, t := range tools {
@@ -231,6 +224,22 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 		params.Tools = oaiTools
 	}
 	return params
+}
+
+// codexAssistantOutputMessage preserves prior assistant turns using the wire
+// shape expected by the Codex Responses backend. The public SDK's input-message
+// helper always emits input_text, which is valid for user/developer messages but
+// rejected for assistant history; assistant content must be output_text.
+func codexAssistantOutputMessage(text string) responses.ResponseInputItemUnionParam {
+	raw, _ := json.Marshal(map[string]any{
+		"type": "message",
+		"role": "assistant",
+		"content": []map[string]string{{
+			"type": "output_text",
+			"text": text,
+		}},
+	})
+	return param.Override[responses.ResponseInputItemUnionParam](json.RawMessage(raw))
 }
 
 // newCodexSessionID returns a random UUIDv4 string for the session_id header.

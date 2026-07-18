@@ -46,6 +46,10 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	codexAuthIssuer string
+	codexAuthMu     sync.Mutex
+	codexAuthLogins map[string]*codexAuthLoginAttempt
+
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
 }
@@ -67,6 +71,8 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		slashCache:           make(map[string]slashListCacheEntry),
+		codexAuthIssuer:      "https://auth.openai.com",
+		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
@@ -122,6 +128,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -146,6 +153,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))

@@ -784,7 +784,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**). The provider is resolved from the saved config, so its credentials (`api_key` / `api_key_command` / `NAME_API_KEY`) and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -797,6 +797,66 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get Codex OAuth status",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove Coddy-managed Codex OAuth credentials",
+					"description": "Deletes only the credential stored under `CODDY_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"operationId": "deleteProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start Codex ChatGPT device authorization",
+					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"operationId": "startProviderCodexDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll Codex device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Token values are never returned.",
+					"operationId": "getProviderCodexDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -881,6 +941,39 @@ func openAPISpec() map[string]interface{} {
 						"ok":    map[string]string{"type": "boolean"},
 						"error": map[string]string{"type": "string"},
 					},
+				},
+				"CodexAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"source": map[string]interface{}{
+							"type": "string", "enum": []string{"coddy", "codex_cli"},
+						},
+						"account_id": map[string]string{"type": "string"},
+					},
+					"required": []string{"connected"},
+				},
+				"CodexAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id":         map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{"type": "string", "format": "uri"},
+						"user_code":        map[string]string{"type": "string"},
+						"status":           map[string]string{"type": "string", "example": "pending"},
+						"connected":        map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"CodexAuthDeviceStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"status": map[string]interface{}{
+							"type": "string", "enum": []string{"pending", "completed", "failed"},
+						},
+						"connected": map[string]string{"type": "boolean"},
+						"error":     map[string]string{"type": "string"},
+					},
+					"required": []string{"status", "connected"},
 				},
 				"ModelList": map[string]interface{}{
 					"type": "object",
@@ -1195,6 +1288,27 @@ func errorResponseRef() map[string]interface{} {
 				"schema": map[string]interface{}{
 					"$ref": "#/components/schemas/ErrorEnvelope",
 				},
+			},
+		},
+	}
+}
+
+func codexProviderNameParameter() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        "name",
+		"in":          "path",
+		"required":    true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+	}
+}
+
+func jsonSchemaResponse(description, ref string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": ref},
 			},
 		},
 	}

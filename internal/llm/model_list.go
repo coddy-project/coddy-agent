@@ -21,6 +21,11 @@ type ModelEntry struct {
 // modelListTimeout bounds a single provider model-listing request.
 const modelListTimeout = 15 * time.Second
 
+// codexModelsClientVersion is the numeric compatibility sentinel accepted by
+// the Codex models endpoint and used by Codex source/test builds. It is a Codex
+// protocol version, not the independently versioned Coddy application version.
+const codexModelsClientVersion = "0.0.0"
+
 // defaultModelListBaseURL returns the base URL used for model listing when the
 // provider config leaves api_base empty.
 func defaultModelListBaseURL(providerType string) string {
@@ -43,6 +48,9 @@ func defaultModelListBaseURL(providerType string) string {
 // manual entry).
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	if in.Type == "codex" {
+		if strings.TrimSpace(in.AuthPath) != "" {
+			return listCodexModelsOnline(ctx, in, codexDefaultBaseURL)
+		}
 		return listCodexModels()
 	}
 	var url string
@@ -129,6 +137,76 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	return out, nil
 }
 
+// listCodexModelsOnline fetches the model catalog with the same OAuth
+// credential used for completions. The base URL is a parameter only for tests;
+// ListModels always supplies the fixed official Codex backend.
+func listCodexModelsOnline(ctx context.Context, in ProviderInput, baseURL string) ([]ModelEntry, error) {
+	hc, err := HTTPClientForOptionalProxy(in.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
+	if hc == nil {
+		hc = &http.Client{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, modelListTimeout)
+	defer cancel()
+	cred, err := newManagedCodexAuthSource(in.AuthPath, hc).Credential(ctx)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := strings.TrimRight(baseURL, "/") + "/models?client_version=" + codexModelsClientVersion
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
+	req.Header.Set("OpenAI-Beta", "responses=experimental")
+	req.Header.Set("originator", "codex_cli_rs")
+	if strings.TrimSpace(cred.AccountID) != "" {
+		req.Header.Set("chatgpt-account-id", cred.AccountID)
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("list models: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	var parsed struct {
+		Models []codexModelCacheEntry `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("list models: decode: %w", err)
+	}
+	return normalizeCodexModels(parsed.Models), nil
+}
+
+type codexModelCacheEntry struct {
+	Slug        string `json:"slug"`
+	DisplayName string `json:"display_name"`
+}
+
+func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
+	seen := make(map[string]struct{}, len(models))
+	out := make([]ModelEntry, 0, len(models))
+	for _, m := range models {
+		id := strings.TrimSpace(m.Slug)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, ModelEntry{ID: id, Name: strings.TrimSpace(m.DisplayName)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
 // listCodexModels reads the models the Codex CLI advertises from its local cache
 // (~/.codex/models_cache.json), which is maintained by `codex`. The Codex backend
 // has no plain {base}/models endpoint, so this offline cache is the model source.
@@ -143,27 +221,10 @@ func listCodexModels() ([]ModelEntry, error) {
 		return nil, fmt.Errorf("list models: read %s (run `codex` once to populate): %w", path, err)
 	}
 	var cache struct {
-		Models []struct {
-			Slug        string `json:"slug"`
-			DisplayName string `json:"display_name"`
-		} `json:"models"`
+		Models []codexModelCacheEntry `json:"models"`
 	}
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, fmt.Errorf("list models: parse %s: %w", path, err)
 	}
-	seen := make(map[string]struct{}, len(cache.Models))
-	out := make([]ModelEntry, 0, len(cache.Models))
-	for _, m := range cache.Models {
-		id := strings.TrimSpace(m.Slug)
-		if id == "" {
-			continue
-		}
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, ModelEntry{ID: id, Name: strings.TrimSpace(m.DisplayName)})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	return normalizeCodexModels(cache.Models), nil
 }

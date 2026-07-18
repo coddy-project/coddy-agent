@@ -22,12 +22,12 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint, or \"codex\" to reuse Codex CLI ChatGPT (OAuth) credentials from ~/.codex/auth.json against the ChatGPT Codex backend (Responses API).",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint, or \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API).",
             "enum": ["openai", "anthropic", "neuraldeep", "codex"]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1. For type \"codex\" it overrides the ChatGPT Codex backend (default https://chatgpt.com/backend-api/codex)."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\" and type \"codex\", which always use fixed official endpoints."
           },
           "api_key": {
             "type": "string",
@@ -60,7 +60,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message."
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
           },
           "temperature": {
             "type": "number",

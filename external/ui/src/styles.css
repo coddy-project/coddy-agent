@@ -5275,6 +5275,37 @@ textarea#composer {
   color: var(--muted);
 }
 
+.codex-auth-status {
+  margin: 0;
+}
+
+.codex-auth-device {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.codex-auth-device .settings-field-desc {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+.codex-auth-code {
+  padding: 9px 12px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: var(--coddy-glass-panel-bg);
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+}
+
+.codex-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .settings-body {
   max-width: 960px;
   margin: 0 auto;
