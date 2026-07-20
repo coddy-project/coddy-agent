@@ -845,7 +845,7 @@ func extractContextFiles(blocks []acp.ContentBlock) []string {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "glob", "grep", "rg_tool", "websearch", "webfetch":
+	case "read", "glob", "grep", "websearch", "webfetch":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
 		return "write"

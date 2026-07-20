@@ -3,6 +3,7 @@ package fs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,5 +210,186 @@ func TestGlobHidesSessionStore(t *testing.T) {
 	}
 	if strings.Contains(out, "messages.json") {
 		t.Fatalf("session store leaked into glob results: %q", out)
+	}
+}
+
+// --- grep.go / search.go: portable content search ---------------------------
+
+func TestGrepNativeFallbackSearch(t *testing.T) {
+	root := t.TempDir()
+	writeSearchFixture(t, filepath.Join(root, "words.txt"), "farm\nfirm\nform\nfoam\n")
+	writeSearchFixture(t, filepath.Join(root, "skip.md"), "farm\n")
+
+	args, _ := json.Marshal(map[string]any{
+		"pattern":     `^f(a|i|o)rm$`,
+		"path":        root,
+		"glob":        "**/*.txt",
+		"max_results": 10,
+	})
+	out, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, nativeOnlyGrepRunner())
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	for _, want := range []string{"words.txt:1:farm", "words.txt:2:firm", "words.txt:3:form"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output does not contain %q: %q", want, out)
+		}
+	}
+	if strings.Contains(out, "foam") || strings.Contains(out, "skip.md") {
+		t.Fatalf("unexpected match: %q", out)
+	}
+}
+
+func TestGrepNativeFallbackSupportsCommonEscapes(t *testing.T) {
+	// \d, \s, \w and friends are what models actually emit; the built-in
+	// engine must accept them just like ripgrep does.
+	root := t.TempDir()
+	writeSearchFixture(t, filepath.Join(root, "main.go"), "func main() {\n\tport := 8080\n}\n")
+
+	args, _ := json.Marshal(map[string]any{"pattern": `\w+ := \d+`, "path": root})
+	out, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, nativeOnlyGrepRunner())
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	if !strings.Contains(out, "main.go:2:") {
+		t.Fatalf("expected a \\d/\\w match, got: %q", out)
+	}
+}
+
+func TestGrepNativeFallbackCaseInsensitiveAndLimited(t *testing.T) {
+	root := t.TempDir()
+	writeSearchFixture(t, filepath.Join(root, "a.txt"), "Alpha\nALPHA\nalpha\n")
+	args, _ := json.Marshal(map[string]any{
+		"pattern":     `^alpha$`,
+		"path":        root,
+		"max_results": 2,
+	})
+
+	out, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, nativeOnlyGrepRunner())
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	if got := len(strings.Split(strings.TrimSpace(out), "\n")); got != 2 {
+		t.Fatalf("result count = %d, want 2: %q", got, out)
+	}
+}
+
+func TestGrepNativeFallbackRejectsInvalidPattern(t *testing.T) {
+	root := t.TempDir()
+	args, _ := json.Marshal(map[string]any{"pattern": `foo(`, "path": root})
+	_, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, nativeOnlyGrepRunner())
+	if err == nil || !strings.Contains(err.Error(), "invalid regular expression") {
+		t.Fatalf("error = %v, want invalid regular expression", err)
+	}
+}
+
+func TestGrepPassesPatternToSystemRipgrepUntouched(t *testing.T) {
+	root := t.TempDir()
+	args, _ := json.Marshal(map[string]any{"pattern": `\d+`, "path": root})
+	var executable string
+	var gotArgs []string
+	runner := grepRunner{
+		lookPath: func(name string) (string, error) {
+			if name != "rg" {
+				t.Fatalf("lookPath(%q), want rg", name)
+			}
+			return "/tools/rg", nil
+		},
+		run: func(_ context.Context, exe string, cmdArgs []string) (string, int, error) {
+			executable = exe
+			gotArgs = cmdArgs
+			return filepath.Join(root, "words.txt") + ":1:42\n", 0, nil
+		},
+	}
+
+	out, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, runner)
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	if executable != "/tools/rg" || !strings.Contains(out, "42") {
+		t.Fatalf("system backend not used: executable=%q output=%q", executable, out)
+	}
+	// The pattern must reach ripgrep as-is, after a "--" separator so leading
+	// dashes cannot be parsed as flags.
+	sep := -1
+	for i, a := range gotArgs {
+		if a == "--" {
+			sep = i
+			break
+		}
+	}
+	if sep < 0 || sep+1 >= len(gotArgs) || gotArgs[sep+1] != `\d+` {
+		t.Fatalf("pattern not passed through after --: %v", gotArgs)
+	}
+}
+
+func TestGrepFallsBackWhenRipgrepDisappears(t *testing.T) {
+	root := t.TempDir()
+	writeSearchFixture(t, filepath.Join(root, "a.txt"), "needle\n")
+	args, _ := json.Marshal(map[string]any{"pattern": "needle", "path": root})
+	runner := grepRunner{
+		lookPath: func(string) (string, error) { return "/tools/rg", nil },
+		run: func(context.Context, string, []string) (string, int, error) {
+			return "", -1, errors.New("binary vanished")
+		},
+	}
+
+	out, err := executeGrepWithRunner(context.Background(), string(args), &tooling.Env{CWD: root}, runner)
+	if err != nil {
+		t.Fatalf("grep: %v", err)
+	}
+	if !strings.Contains(out, "a.txt:1:needle") {
+		t.Fatalf("native fallback not used: %q", out)
+	}
+}
+
+func TestNativeGlobSupportsDoubleStarWithoutRipgrep(t *testing.T) {
+	root := t.TempDir()
+	want := filepath.Join(root, "nested", "file.go")
+	writeSearchFixture(t, want, "package nested\n")
+	writeSearchFixture(t, filepath.Join(root, "file.txt"), "not go\n")
+
+	paths, err := nativeGlob(context.Background(), root, "**/*.go", "")
+	if err != nil {
+		t.Fatalf("nativeGlob: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != want {
+		t.Fatalf("paths = %#v, want %#v", paths, []string{want})
+	}
+}
+
+func TestNativeGlobSupportsDoublestarAlternatives(t *testing.T) {
+	root := t.TempDir()
+	goFile := filepath.Join(root, "nested", "file.go")
+	markdownFile := filepath.Join(root, "README.md")
+	writeSearchFixture(t, goFile, "package nested\n")
+	writeSearchFixture(t, markdownFile, "# Readme\n")
+	writeSearchFixture(t, filepath.Join(root, "notes.txt"), "notes\n")
+
+	paths, err := nativeGlob(context.Background(), root, "**/*.{go,md}", "")
+	if err != nil {
+		t.Fatalf("nativeGlob: %v", err)
+	}
+	if len(paths) != 2 || paths[0] != markdownFile || paths[1] != goFile {
+		t.Fatalf("paths = %#v, want %#v", paths, []string{markdownFile, goFile})
+	}
+}
+
+func nativeOnlyGrepRunner() grepRunner {
+	return grepRunner{
+		lookPath: func(string) (string, error) { return "", errors.New("not found") },
+		run: func(context.Context, string, []string) (string, int, error) {
+			return "", 0, errors.New("must not run")
+		},
+	}
+}
+
+func writeSearchFixture(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

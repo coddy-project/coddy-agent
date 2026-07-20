@@ -17,7 +17,7 @@ func TestAllToolDefinitionsIncludesReadAndWriteText(t *testing.T) {
 	for _, d := range r.AllToolDefinitions() {
 		names[d.Name] = true
 	}
-	if !names["read"] || !names["glob"] || !names["grep"] || !names["rg_tool"] || !names["write"] {
-		t.Fatalf("expected read, glob, grep, rg_tool, write in full set: missing from %+v", names)
+	if !names["read"] || !names["glob"] || !names["grep"] || !names["write"] {
+		t.Fatalf("expected read, glob, grep, write in full set: missing from %+v", names)
 	}
 }

@@ -197,13 +197,13 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 }
 ```
 
-### `rg_tool`
+### `grep`
 ```json
 {
-  "name": "rg_tool",
-  "description": "Search files with POSIX extended regular expressions (system ripgrep with a built-in fallback)",
+  "name": "grep",
+  "description": "Search file contents recursively (system ripgrep with a built-in fallback)",
   "parameters": {
-    "pattern": { "type": "string", "description": "POSIX extended regular expression" },
+    "pattern": { "type": "string", "description": "Regex or literal search pattern" },
     "path": { "type": "string", "description": "Directory to search in (default: cwd)" },
     "glob": { "type": "string", "description": "File glob filter (e.g. '**/*.go')" },
     "case_sensitive": { "type": "boolean", "default": false },

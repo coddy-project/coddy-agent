@@ -9,7 +9,6 @@ func RegisterBuiltins(add func(*tooling.Tool)) {
 	for _, ctor := range []func() *tooling.Tool{
 		ReadTool,
 		GlobTool,
-		RGTool,
 		GrepTool,
 		EditTool,
 		WriteTool,

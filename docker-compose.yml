@@ -8,6 +8,11 @@
 services:
   coddy:
     image: ${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}
+    # Default runs `coddy http`. Override to run another mode, e.g. the messenger gateway:
+    #   CODDY_COMMAND="gateway --cwd /workspace" docker compose up -d
+    # Note: the published GHCR image is built WITHOUT the `gateway` tag, so gateway mode
+    # needs an image built with it (docker-compose.dev.yml, or a custom BUILD_TAGS).
+    command: ${CODDY_COMMAND:-http -H 0.0.0.0 -P 12345}
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace
@@ -18,6 +23,8 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY-}
+      # Messenger gateway bot token (used only in gateway mode; empty if unset).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
     volumes:
       - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy/config.yaml:ro
       - ${CODDY_CWD-./workspace}:/workspace
