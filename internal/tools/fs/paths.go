@@ -41,13 +41,25 @@ func isWithinDir(path, dir string) bool {
 }
 
 // grepLineFilePath extracts the file path from a ripgrep/grep "path:line:content"
-// record. POSIX absolute paths contain no ':' before the line-number separator.
+// record, including records whose Windows drive path contains a colon.
 func grepLineFilePath(line string) string {
-	idx := strings.IndexByte(line, ':')
-	if idx <= 0 {
-		return ""
+	for start := 0; start < len(line); {
+		idx := strings.IndexByte(line[start:], ':')
+		if idx < 0 {
+			break
+		}
+		idx += start
+		numberStart := idx + 1
+		numberEnd := numberStart
+		for numberEnd < len(line) && line[numberEnd] >= '0' && line[numberEnd] <= '9' {
+			numberEnd++
+		}
+		if numberEnd > numberStart && numberEnd < len(line) && line[numberEnd] == ':' {
+			return line[:idx]
+		}
+		start = idx + 1
 	}
-	return line[:idx]
+	return ""
 }
 
 // dropStoreLines removes grep result lines whose file path is inside storeRoot.
@@ -80,4 +92,3 @@ func dropStorePaths(paths []string, storeRoot string) []string {
 	}
 	return out
 }
-

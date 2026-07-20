@@ -294,22 +294,35 @@ coddy gateway \
 
 The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own goroutine with automatic restart on error (5-second backoff). Send `Ctrl+C` for a clean shutdown.
 
-**With Docker Compose** — add a second service to your `docker-compose.yml`:
+**With Docker Compose** — the repo's compose files run `coddy http` by default and expose a `CODDY_COMMAND` override so the same service can run the gateway instead. Build from source (the dev image includes the `gateway` tag by default) and override the command:
+
+```bash
+export TELEGRAM_BOT_TOKEN="<bot-token>"          # or leave it in $CODDY_HOME/.env
+export CODDY_COMMAND="gateway --cwd /workspace"
+docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot connected"
+```
+
+To run a **dedicated** gateway service alongside the HTTP one, add a second service to a `docker-compose.override.yml` (the `ENTRYPOINT` is already `/bin/coddy`, so `command` holds only the subcommand):
 
 ```yaml
 services:
   gateway:
-    image: ghcr.io/coddy-project/coddy-agent   # build with gateway tag, see below
-    command: ["coddy", "gateway", "--config", "/config/config.yaml"]
-    volumes:
-      - ./config.yaml:/config/config.yaml:ro
-      - coddy_home:/var/lib/coddy
+    image: coddy-agent:dev            # built from Dockerfile with the gateway tag
+    command: ["gateway", "--cwd", "/workspace"]
+    working_dir: /workspace
     environment:
-      - TELEGRAM_BOT_TOKEN
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy.yaml
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
+    volumes:
+      - ./config.yaml:/home/user/.coddy.yaml:ro
+      - ./coddy_home:/home/user/.coddy
+      - ./workspace:/workspace
     restart: unless-stopped
 ```
 
-> The published Docker image does not include the `gateway` tag by default. Build a custom image with `BUILD_TAGS=http,ui,scheduler,memory,gateway` (see `Dockerfile`).
+> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The **published GHCR image still ships without it** (CI sets `BUILD_TAGS=http,scheduler,ui,memory`), so with `docker-compose.yml` you must build a custom image (`BUILD_TAGS=http,ui,scheduler,memory,gateway`) and point `CODDY_IMAGE` at it. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
 
 ---
 
