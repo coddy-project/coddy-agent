@@ -34,7 +34,7 @@ Agent name, title, and build version are not configurable here. They are fixed i
 # Each providers[].name must match ^[a-zA-Z][a-zA-Z0-9_-]*$ (ASCII letter first, then letters, digits, hyphen, underscore).
 # api_key may be a literal, "${ENV}" expanded when the file loads, or empty to read NAME_API_KEY at LLM call time
 # (NAME is the provider name in uppercase with hyphens mapped to underscores, for example rpa -> RPA_API_KEY).
-# api_key_command (optional): when api_key is empty, this command is run via the shell and its trimmed stdout is
+# api_key_command (optional): when api_key is empty, this command is run via the detected host shell and its trimmed stdout is
 # used as the key (credential helper, like git/docker helpers or AWS credential_process). It lets a provider fetch
 # short-lived or login-issued keys without storing a static secret. On failure resolution falls back to NAME_API_KEY.
 # Resolution order: literal api_key -> api_key_command stdout -> NAME_API_KEY env.
@@ -43,7 +43,7 @@ providers:
     type: "openai"
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
-    # api_key_command: "my-cli print-token"  # optional credential helper; used when api_key is empty
+    # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
 
   - name: "anthropic"

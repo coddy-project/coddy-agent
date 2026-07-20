@@ -10,6 +10,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
@@ -270,6 +271,26 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	// Sanity: system includes agent.md body text.
 	if b.SystemPrompt < 100 {
 		t.Fatalf("system prompt estimate too small: %d", b.SystemPrompt)
+	}
+}
+
+func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+	a.environment = platform.Environment{
+		OS:    "windows",
+		Arch:  "amd64",
+		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
+	}
+
+	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt does not contain %q", want)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	toolfs "github.com/EvilFreelancer/coddy-agent/internal/tools/fs"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
@@ -24,9 +25,14 @@ func NewRegistry() *Registry {
 
 // NewRegistryFor returns built-in tools plus optional scheduler tools when cfg enables scheduler.
 func NewRegistryFor(cfg *config.Config) *Registry {
+	return NewRegistryForEnvironment(cfg, platform.CurrentEnvironment())
+}
+
+// NewRegistryForEnvironment returns built-ins bound to the detected host environment.
+func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environment) *Registry {
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
-	r.Register(shell.RunCommandTool())
+	r.Register(shell.RunCommandToolForShell(environment.Shell))
 	r.Register(QuestionTool())
 	r.Register(PlanExitTool())
 	r.Register(PlanWriteTool())
