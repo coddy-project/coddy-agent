@@ -44,6 +44,13 @@ providers:
   #   type: neuraldeep
   #   api_key: "${NEURALDEEP_API_KEY}"
 
+  # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
+  # Sign In with ChatGPT. Coddy stores tokens under $CODDY_HOME/providers/codex/
+  # with restrictive file permissions (no api_key or api_base needed). A Codex CLI
+  # login remains a compatibility fallback when no Coddy-managed token exists.
+  # - name: codex
+  #   type: codex
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -64,6 +71,10 @@ models:
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
+
+  # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
+  #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
+  #   reasoning_default: medium
 
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192

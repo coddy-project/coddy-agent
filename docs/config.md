@@ -15,7 +15,7 @@ The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMa
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
+- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
 
@@ -53,6 +53,11 @@ providers:
   - name: "neuraldeep"
     type: "neuraldeep"
     api_key: "${NEURALDEEP_API_KEY}"
+
+  # In the bundled web UI, select codex and use Sign In with ChatGPT. Tokens are
+  # stored at $CODDY_HOME/providers/codex/codex-auth.json, not in config.yaml.
+  - name: "codex"
+    type: "codex"
 
   - name: "local"
     type: "openai"
@@ -94,6 +99,9 @@ models:
   - model: "neuraldeep/default"
     max_tokens: 8192
     temperature: 0.2
+
+  - model: "codex/gpt-5.6-sol"
+    max_tokens: 8192
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
@@ -387,7 +395,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; ignored by **`type: neuraldeep`**, which always uses **`https://api.neuraldeep.ru/v1`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

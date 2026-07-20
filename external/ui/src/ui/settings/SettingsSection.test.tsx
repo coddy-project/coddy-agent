@@ -1,5 +1,5 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -11,7 +11,11 @@ import { SettingsSection } from "./SettingsSection";
 import type { JsonSchema } from "./SchemaForm";
 import type { SectionDescriptor } from "./settingsSections";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const providersSection: SectionDescriptor = {
   id: "providers",
@@ -34,12 +38,19 @@ const rootSchema: JsonSchema = {
           type: {
             type: "string",
             title: "Provider type",
-            enum: ["openai", "anthropic", "neuraldeep"],
+            enum: ["openai", "anthropic", "neuraldeep", "codex"],
           },
           api_base: { type: "string", title: "API base URL" },
           api_key: { type: "string", title: "API key" },
+          api_key_command: { type: "string", title: "API key command" },
         },
-        "x-coddy-property-order": ["name", "type", "api_base", "api_key"],
+        "x-coddy-property-order": [
+          "name",
+          "type",
+          "api_base",
+          "api_key",
+          "api_key_command",
+        ],
       },
     },
   },
@@ -79,6 +90,83 @@ test("NeuralDeep provider shows a read-only API base URL pinned to the fixed end
   // Editing is rejected: the field stays pinned to the fixed endpoint.
   fireEvent.change(base, { target: { value: "https://custom.example/v1" } });
   expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+});
+
+test("Codex provider replaces API credentials with ChatGPT sign in", async () => {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    json: async () => ({ connected: false, source: "" }),
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(
+    <Harness
+      provider={{
+        name: "codex",
+        type: "codex",
+        api_base: "https://must-not-be-shown.example",
+        api_key: "must-not-be-shown",
+        api_key_command: "must-not-be-shown",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  expect(await screen.findByTestId("codex-auth-sign-in")).toHaveTextContent(
+    "Sign In with ChatGPT",
+  );
+  expect(screen.queryByLabelText("API base URL")).toBeNull();
+  expect(screen.queryByLabelText("API key")).toBeNull();
+  expect(screen.queryByLabelText("API key command")).toBeNull();
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/codex/codex-auth",
+    expect.anything(),
+  );
+});
+
+test("Codex Sign In opens ChatGPT and completes device authorization", async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "login-1",
+            verification_url: "https://auth.openai.test/codex/device",
+            user_code: "ABCD-EFGH",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.endsWith("/device/login-1")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "completed", connected: true }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const openMock = vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness provider={{ name: "codex", type: "codex" }} />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("codex-auth-sign-in"));
+
+  expect(await screen.findByText("ABCD-EFGH")).toBeInTheDocument();
+  expect(openMock).toHaveBeenCalledWith(
+    "https://auth.openai.test/codex/device",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  expect(
+    await screen.findByText("Connected with ChatGPT.", {}, { timeout: 2000 }),
+  ).toBeInTheDocument();
 });
 
 const modelsSection: SectionDescriptor = {

@@ -118,11 +118,14 @@ type Provider interface {
 
 // ProviderInput selects an LLM backend and connection parameters.
 type ProviderInput struct {
-	Type        string
-	Model       string
-	APIKey      string
-	BaseURL     string
-	ProxyURL    string
+	Type     string
+	Model    string
+	APIKey   string
+	BaseURL  string
+	ProxyURL string
+	// AuthPath is the Coddy-managed OAuth credential file for providers that use
+	// browser sign-in instead of an API key.
+	AuthPath    string
 	MaxTokens   int
 	Temperature float64
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
@@ -161,6 +164,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "neuraldeep":
 		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+	case "codex":
+		// Codex uses ChatGPT OAuth credentials. APIKey and BaseURL are intentionally
+		// ignored: OAuth tokens must only be sent to the official Codex backend.
+		inner = newCodexProvider(p.Model, p.AuthPath, codexDefaultBaseURL, hc, p.MaxTokens, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}
