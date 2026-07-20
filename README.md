@@ -105,7 +105,7 @@ irm https://coddy.dev/install.ps1 | iex
 
 Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
 
-> **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
+> **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). Runtime commands select `pwsh`, then Windows PowerShell, then `cmd.exe`; Unix builds select `bash`, then `sh`. The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
 
 Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
 

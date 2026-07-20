@@ -52,9 +52,15 @@ Working directory: {{.CWD}}
 
 ## Current UTC time
 {{.UTCNow}}
+
+<environment_context>
+<os>...</os>
+<arch>...</arch>
+<shell>...</shell>
+</environment_context>
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
+The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
