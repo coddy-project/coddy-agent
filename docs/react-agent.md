@@ -197,16 +197,17 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 }
 ```
 
-### `search_files`
+### `grep`
 ```json
 {
-  "name": "search_files",
-  "description": "Search for a pattern in files (uses ripgrep)",
+  "name": "grep",
+  "description": "Search file contents recursively (system ripgrep with a built-in fallback)",
   "parameters": {
     "pattern": { "type": "string", "description": "Regex or literal search pattern" },
     "path": { "type": "string", "description": "Directory to search in (default: cwd)" },
-    "glob": { "type": "string", "description": "File glob filter (e.g. '*.go')" },
-    "case_sensitive": { "type": "boolean", "default": false }
+    "glob": { "type": "string", "description": "File glob filter (e.g. '**/*.go')" },
+    "case_sensitive": { "type": "boolean", "default": false },
+    "max_results": { "type": "integer", "default": 100 }
   },
   "required": ["pattern"]
 }

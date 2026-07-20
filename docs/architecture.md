@@ -120,6 +120,10 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`read.go` **`read`**, **`glob.go`** **`glob`**,
   **`grep.go`** **`grep`**, **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
   **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
+  **`grep`** uses a system **`rg`** when one is available (the pattern is passed to it untouched)
+  and otherwise falls back to the built-in Go walker/matcher in **`search.go`**. **`glob`** uses
+  the same built-in walker when **`rg`** is unavailable, so filesystem discovery also works in
+  Windows and distroless binaries without sidecar executables.
 - **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
 - **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
 - **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
