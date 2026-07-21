@@ -1,11 +1,34 @@
 # Remote Control & local/remote operation (design)
 
-Status: **design / roadmap**. Phase 1 is being implemented on branch
-`feature/remote-control`; Phase 2 is planned and decomposed below. This document is the
-contract that implementation follows; sections marked *planned* are not yet in the binary.
+Status: **partially shipped**. This document is the design/roadmap; the sections below keep the
+full plan for context, with the note here on what actually landed on branch
+`feature/remote-control`.
 
 This design was cross-reviewed by two external code agents (Codex, Cursor) against the live
 codebase; their corrections are folded in and called out where they changed the plan.
+
+### Implemented (this branch)
+
+The operator chose the **direct remote-API** direction: run `coddy http` on the remote box and
+point the UI at it from another origin. Shipped:
+
+- **Optional bearer auth** for `coddy http` — a single `httpserver.auth_token` (also
+  `--auth-token` / `CODDY_HTTP_TOKEN`), per-request gate, config-token redaction, hot reload
+  (§3, simplified to one token instead of a list).
+- **CORS** (`httpserver.cors`) + a client **remotes** list (`httpserver.remotes`) + a
+  route-scoped `?access_token=` on the composer-stream SSE GET.
+- **UI environment selector** (Settings → Environment): a global `fetch` shim points the SPA at a
+  remote `coddy http` + bearer token (stored client-side), or back to Local.
+- **e2e parity proof**: `external/httpserver/features/remote_api.feature` (godog) +
+  `examples/httpserver/http_e2e_remote.py` — remote == local for auth, cwd change, session load,
+  streaming, config redaction, and local fallback.
+
+### Deferred (not built here)
+
+- **Optional TLS/encryption** for `coddy http` — designed in §3.4, kept for a follow-up.
+- **Remote Control reverse tunnel** (`coddy rc` + hub + agent registry, §4) — deferred; the
+  direct authenticated-API approach covers the operator's need without a relay service.
+- **SSH environment** (§7) and the **multi-agent ACP client** (§8) — think-only, not scheduled.
 
 ## 1. Goal & the environment model
 
@@ -16,8 +39,8 @@ authentication and **optional** encryption throughout.
 | Environment            | What it is                                                | Status       |
 |------------------------|-----------------------------------------------------------|--------------|
 | Local                  | `coddy http` on loopback, UI + API                        | exists       |
-| Remote via API         | `coddy http` reachable off-box, protected by opt-in auth+TLS | **Phase 1** |
-| Remote Control (tunnel)| `coddy rc` dials OUT to a hub; drive from a remote client  | **Phase 2**  |
+| Remote via API         | `coddy http` off-box + opt-in bearer auth + CORS; UI env selector | **shipped** (TLS deferred) |
+| Remote Control (tunnel)| `coddy rc` dials OUT to a hub; drive from a remote client  | deferred §4  |
 | SSH                    | drive a remote agent over SSH                             | think-only §7 |
 | Multi-agent ACP client | Coddy UI orchestrates several ACP agent processes         | think-only §8 |
 
