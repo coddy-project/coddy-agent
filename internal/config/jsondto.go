@@ -20,6 +20,7 @@ type ConfigJSON struct {
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
+	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
@@ -156,6 +157,15 @@ type SessionsJSON struct {
 	Dir string `json:"dir,omitempty"`
 }
 
+// CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
+// distinction (enabled defaults to true, keep_recent_turns to 2).
+type CompactionJSON struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	Model            string `json:"model,omitempty"`
+}
+
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
 	Enabled          bool   `json:"enabled,omitempty"`
@@ -246,6 +256,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
+	out.Compaction = CompactionJSON{
+		Enabled:          cloneBoolPtr(c.Compaction.Enabled),
+		ThresholdPercent: c.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(c.Compaction.KeepRecentTurns),
+		Model:            c.Compaction.Model,
+	}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
@@ -340,6 +356,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
+	cfg.Compaction = Compaction{
+		Enabled:          cloneBoolPtr(j.Compaction.Enabled),
+		ThresholdPercent: j.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(j.Compaction.KeepRecentTurns),
+		Model:            j.Compaction.Model,
+	}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
@@ -382,6 +404,22 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Gateways = GatewayConfig{Telegram: tg}
 	return cfg
+}
+
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.

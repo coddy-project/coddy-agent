@@ -70,6 +70,7 @@ python3 "$HTTP_DIR/http_e2e_memory.py"
 python3 "$HTTP_DIR/http_e2e_skills_slash.py"
 python3 "$HTTP_DIR/http_e2e_rules.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
+python3 "$HTTP_DIR/http_e2e_compact.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
 # Self-contained: boots its own authenticated + local coddy http instances.

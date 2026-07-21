@@ -13,7 +13,10 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "type"],
+        "required": [
+          "name",
+          "type"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -23,7 +26,11 @@
           "type": {
             "type": "string",
             "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, or \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint.",
-            "enum": ["openai", "anthropic", "neuraldeep"]
+            "enum": [
+              "openai",
+              "anthropic",
+              "neuraldeep"
+            ]
           },
           "api_base": {
             "type": "string",
@@ -51,7 +58,9 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["model"],
+        "required": [
+          "model"
+        ],
         "properties": {
           "model": {
             "type": "string",
@@ -79,7 +88,9 @@
           "reasoning_levels": {
             "type": "array",
             "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; o-series and Claude thinking models -> low,medium,high). An explicit empty list hides the selector.",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "reasoning_default": {
             "type": "string",
@@ -162,8 +173,12 @@
         "files": {
           "type": "array",
           "description": "Filenames relative to the session CWD.",
-          "default": ["AGENTS.md"],
-          "items": { "type": "string" }
+          "default": [
+            "AGENTS.md"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -176,8 +191,14 @@
         "dirs": {
           "type": "array",
           "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} and ${CWD} expand at runtime.",
-          "default": ["~/.agents/skills", "${CODDY_HOME}/skills", "${CWD}/.coddy/skills"],
-          "items": { "type": "string" }
+          "default": [
+            "~/.agents/skills",
+            "${CODDY_HOME}/skills",
+            "${CWD}/.coddy/skills"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -196,7 +217,9 @@
           "type": "array",
           "description": "Restrict which rule systems are loaded: coddy, cursor, claude, codex. Empty means all.",
           "default": [],
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -207,12 +230,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "type": {
             "type": "string",
             "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
-            "enum": ["stdio", "http"]
+            "enum": [
+              "stdio",
+              "http"
+            ]
           },
           "name": {
             "type": "string",
@@ -225,7 +253,9 @@
           "args": {
             "type": "array",
             "description": "Argv passed after command for stdio servers. ${CWD} expands to the session cwd.",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           },
           "env": {
             "type": "array",
@@ -233,10 +263,19 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "value"],
+              "required": [
+                "name",
+                "value"
+              ],
               "properties": {
-                "name": { "type": "string", "description": "Environment variable name." },
-                "value": { "type": "string", "description": "Environment variable value. ${CWD} expands to the session cwd." }
+                "name": {
+                  "type": "string",
+                  "description": "Environment variable name."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "Environment variable value. ${CWD} expands to the session cwd."
+                }
               }
             }
           },
@@ -250,10 +289,19 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "value"],
+              "required": [
+                "name",
+                "value"
+              ],
               "properties": {
-                "name": { "type": "string", "description": "HTTP header name." },
-                "value": { "type": "string", "description": "HTTP header value." }
+                "name": {
+                  "type": "string",
+                  "description": "HTTP header name."
+                },
+                "value": {
+                  "type": "string",
+                  "description": "HTTP header value."
+                }
               }
             }
           }
@@ -270,12 +318,18 @@
           "type": "string",
           "description": "When the agent asks for user approval: \"ask\" prompts for commands and file writes; \"accept_edits\" auto-approves writes but prompts for commands; \"bypass\" never asks (trusted environments only).",
           "default": "ask",
-          "enum": ["ask", "accept_edits", "bypass"]
+          "enum": [
+            "ask",
+            "accept_edits",
+            "bypass"
+          ]
         },
         "command_allowlist": {
           "type": "array",
           "description": "Commands that never require permission. Exact or prefix match (prefix + space + any args). \"*\" allows all commands.",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "ssh_connect_timeout": {
           "type": "integer",
@@ -294,15 +348,27 @@
           "type": "string",
           "description": "Minimum severity written to the configured outputs (\"warning\" is accepted as an alias of \"warn\").",
           "default": "info",
-          "enum": ["debug", "info", "warn", "warning", "error"]
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error"
+          ]
         },
         "outputs": {
           "type": "array",
           "description": "Where log records go; any combination of stdout, stderr, file. Empty means stderr only.",
-          "default": ["stderr"],
+          "default": [
+            "stderr"
+          ],
           "items": {
             "type": "string",
-            "enum": ["stdout", "stderr", "file"]
+            "enum": [
+              "stdout",
+              "stderr",
+              "file"
+            ]
           }
         },
         "file": {
@@ -313,7 +379,10 @@
           "type": "string",
           "description": "Log record format.",
           "default": "text",
-          "enum": ["text", "json"]
+          "enum": [
+            "text",
+            "json"
+          ]
         },
         "rotation": {
           "type": "object",
@@ -345,6 +414,37 @@
         "dir": {
           "type": "string",
           "description": "Sessions root directory. Empty resolves to ${CODDY_HOME}/sessions. Supports ${CODDY_HOME} and ~.",
+          "default": ""
+        }
+      }
+    },
+    "compaction": {
+      "type": "object",
+      "title": "Context compaction",
+      "description": "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's max_context_tokens.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
+          "default": true
+        },
+        "threshold_percent": {
+          "type": "integer",
+          "description": "Auto-compaction fires when the estimated context usage reaches this percent of the effective model's max_context_tokens (1..100). Models without max_context_tokens skip auto-compaction; the manual command still works.",
+          "default": 80,
+          "minimum": 1,
+          "maximum": 100
+        },
+        "keep_recent_turns": {
+          "type": "integer",
+          "description": "How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; only history before that boundary is summarized. 0 summarizes the whole window.",
+          "default": 2,
+          "minimum": 0
+        },
+        "model": {
+          "type": "string",
+          "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
         }
       }
@@ -439,7 +539,9 @@
             "allowed_origins": {
               "type": "array",
               "description": "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin.",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "default": []
             }
           }
@@ -451,8 +553,14 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "name": { "type": "string", "description": "Display label for the remote." },
-              "url": { "type": "string", "description": "Base URL of the remote coddy http server, e.g. \"https://box.example:12345\"." }
+              "name": {
+                "type": "string",
+                "description": "Display label for the remote."
+              },
+              "url": {
+                "type": "string",
+                "description": "Base URL of the remote coddy http server, e.g. \"https://box.example:12345\"."
+              }
             }
           },
           "default": []
@@ -539,7 +647,9 @@
             "admins": {
               "type": "array",
               "description": "Telegram user IDs with elevated rights; admins always pass access checks.",
-              "items": { "type": "integer" }
+              "items": {
+                "type": "integer"
+              }
             },
             "default_access": {
               "type": "string",
@@ -550,7 +660,11 @@
               "type": "string",
               "description": "Fallback session isolation for group chats: \"individual\" (session per user), \"shared\" (one session for all), \"admin\" (admins only, shared session).",
               "default": "individual",
-              "enum": ["individual", "shared", "admin"]
+              "enum": [
+                "individual",
+                "shared",
+                "admin"
+              ]
             },
             "user_groups": {
               "type": "array",
@@ -558,13 +672,20 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["name"],
+                "required": [
+                  "name"
+                ],
                 "properties": {
-                  "name": { "type": "string", "description": "Group name referenced as group:<name>." },
+                  "name": {
+                    "type": "string",
+                    "description": "Group name referenced as group:<name>."
+                  },
                   "user_ids": {
                     "type": "array",
                     "description": "Telegram numeric user IDs in this group.",
-                    "items": { "type": "integer" }
+                    "items": {
+                      "type": "integer"
+                    }
                   }
                 }
               }
@@ -575,13 +696,22 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["chat_id"],
+                "required": [
+                  "chat_id"
+                ],
                 "properties": {
-                  "chat_id": { "type": "integer", "description": "Telegram chat id (negative for groups/supergroups)." },
+                  "chat_id": {
+                    "type": "integer",
+                    "description": "Telegram chat id (negative for groups/supergroups)."
+                  },
                   "isolation": {
                     "type": "string",
                     "description": "Per-chat session isolation override.",
-                    "enum": ["individual", "shared", "admin"]
+                    "enum": [
+                      "individual",
+                      "shared",
+                      "admin"
+                    ]
                   },
                   "access": {
                     "type": "string",

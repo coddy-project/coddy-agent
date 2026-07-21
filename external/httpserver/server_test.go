@@ -2207,3 +2207,129 @@ func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
 		t.Fatalf("non-SSE route accepted query token: %d want 401", got)
 	}
 }
+
+// --- POST /coddy/sessions/{id}/compact --------------------------------------
+
+func newCompactTestServer(t *testing.T, comp config.Compaction) (*httptest.Server, *session.Manager, func()) {
+	t.Helper()
+	cfg := &config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: comp,
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	// A real FileStore gives sessions a bundle dir, so the composer turn lock
+	// uses the non-blocking flock path (busy -> ErrSessionTurnBusy -> 409).
+	store := &session.FileStore{Root: t.TempDir()}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return cannedSummaryProvider{}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	return ts, mgr, func() { ts.Close(); srv.Drain() }
+}
+
+func compactSeedSession(t *testing.T, mgr *session.Manager, exchanges int) string {
+	t.Helper()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+	for i := 1; i <= exchanges; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("q%d", i)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("a%d", i)})
+	}
+	return res.SessionID
+}
+
+func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int, map[string]interface{}) {
+	t.Helper()
+	res, err := http.Post(ts.URL+"/coddy/sessions/"+sessionID+"/compact", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var parsed map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&parsed)
+	return res.StatusCode, parsed
+}
+
+func TestCompactEndpointUnknownSession(t *testing.T) {
+	ts, _, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	code, _ := postCompact(t, ts, "sess_does_not_exist", `{}`)
+	if code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", code)
+	}
+}
+
+func TestCompactEndpointNothingToCompact(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 1)
+	code, body := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); compacted {
+		t.Fatalf("compacted = true, want false: %v", body)
+	}
+	if reason, _ := body["reason"].(string); reason != "nothing_to_compact" {
+		t.Fatalf("reason = %v", body)
+	}
+}
+
+func TestCompactEndpointDisabled(t *testing.T) {
+	off := false
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{Enabled: &off})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+func TestCompactEndpointBusy(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", code)
+	}
+}
+
+func TestCompactEndpointSuccessCounts(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 4)
+	code, body := postCompact(t, ts, sid, `{"instructions":"keep decisions"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); !compacted {
+		t.Fatalf("compacted != true: %v", body)
+	}
+	// 4 exchanges with default keep 2: head = 4 messages, kept = 4 messages.
+	if n, _ := body["compacted_messages"].(float64); int(n) != 4 {
+		t.Fatalf("compacted_messages = %v", body)
+	}
+	if n, _ := body["kept_messages"].(float64); int(n) != 4 {
+		t.Fatalf("kept_messages = %v", body)
+	}
+	msgs := mgr.SessionByID(sid).GetMessages()
+	if len(msgs) != 9 || !msgs[4].CompactionSummary {
+		t.Fatalf("summary row not inserted: len=%d", len(msgs))
+	}
+}

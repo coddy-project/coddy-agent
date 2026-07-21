@@ -844,6 +844,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/compact": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Compact (summarize) older session history",
+					"description": "Summarizes conversation history older than the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) into a single summary row inserted into the transcript. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"instructions": map[string]string{
+											"type":        "string",
+											"description": "Optional extra guidance for the summarizer (what to emphasize).",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Compaction outcome.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CompactResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
 			"securitySchemes": map[string]interface{}{
@@ -863,6 +907,21 @@ func openAPISpec() map[string]interface{} {
 								"message": map[string]string{"type": "string"},
 							},
 						},
+					},
+				},
+				"CompactResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"compacted": map[string]interface{}{"type": "boolean", "description": "False when there was nothing to compact."},
+						"reason":    map[string]string{"type": "string", "description": "Set to nothing_to_compact when compacted is false."},
+						"summary":   map[string]string{"type": "string", "description": "Generated summary text (without the transcript preamble)."},
+						"compacted_messages": map[string]interface{}{
+							"type": "integer", "description": "How many history messages were folded into the summary.",
+						},
+						"kept_messages": map[string]interface{}{
+							"type": "integer", "description": "How many messages after the summary stayed verbatim.",
+						},
+						"model": map[string]string{"type": "string", "description": "models[].model that produced the summary."},
 					},
 				},
 				"SkillRow": map[string]interface{}{
@@ -958,6 +1017,10 @@ func openAPISpec() map[string]interface{} {
 						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
+						"compaction_summary": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
+						},
 					},
 					"required": []string{"role"},
 				},

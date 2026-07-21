@@ -467,6 +467,15 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dir"},
 			nil),
+		"compaction": objectSchema("Context compaction", "Summarize older conversation history so long sessions keep fitting the model context window.",
+			map[string]interface{}{
+				"enabled":           boolProp("Enabled", "Master switch for compaction (manual command and automatic trigger). Defaults to true."),
+				"threshold_percent": intProp("Auto threshold (%)", "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction."),
+				"keep_recent_turns": intProp("Keep recent turns", "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything)."),
+				"model":             strProp("Summarizer model", "Optional models[].model for the summarization call; empty uses the session model."),
+			},
+			[]string{"enabled", "threshold_percent", "keep_recent_turns", "model"},
+			nil),
 		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
 			map[string]interface{}{
 				"telegram": objectSchema("Telegram", "Telegram bot adapter settings.", telegramProps,
@@ -479,7 +488,7 @@ func UISchemaMap() map[string]interface{} {
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways",
+		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
 	}
 
 	doc := map[string]interface{}{

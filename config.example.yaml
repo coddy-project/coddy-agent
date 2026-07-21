@@ -80,6 +80,14 @@ sessions:
   # Leave empty to use default $CODDY_HOME/sessions.
   dir: ""
 
+# Context compaction: summarize older history so long sessions keep fitting the
+# model context window. Manual /compact command plus automatic trigger.
+# compaction:
+#   enabled: true            # master switch (manual command and automation)
+#   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+#   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+#   model: ""                # optional models[].model for the summarizer; empty = session model
+
 prompts:
   # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).

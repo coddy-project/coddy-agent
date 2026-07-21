@@ -16,6 +16,7 @@ type Config struct {
 	Tools        Tools             `yaml:"tools"`
 	Logger       Logger            `yaml:"logger"`
 	Sessions     Sessions          `yaml:"sessions"`
+	Compaction   Compaction        `yaml:"compaction"`
 	Memory       MemoryConfig      `yaml:"memory"`
 	HTTPServer   HTTPServerConfig  `yaml:"httpserver"`
 	UI           UIConfig          `yaml:"ui"`

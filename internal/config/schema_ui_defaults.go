@@ -1,5 +1,9 @@
 package config
 
+func boolPtr(v bool) *bool { return &v }
+
+func intPtr(v int) *int { return &v }
+
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
 // and field semantics where possible.
@@ -51,6 +55,12 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			Rotation: LoggerRotationJSON{MaxSizeMB: 0, MaxFiles: 0},
 		},
 		Sessions: SessionsJSON{Dir: ""},
+		Compaction: CompactionJSON{
+			Enabled:          boolPtr(true),
+			ThresholdPercent: CompactionDefaultThresholdPercent,
+			KeepRecentTurns:  intPtr(CompactionDefaultKeepRecentTurns),
+			Model:            "",
+		},
 		Memory: MemoryJSON{
 			Enabled:          false,
 			Model:            "",

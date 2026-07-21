@@ -698,7 +698,13 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		return
 	}
 	sums := skills.ListSkills(st.GetSkills())
-	cmds := make([]acp.AvailableCommand, 0, len(sums))
+	cmds := make([]acp.AvailableCommand, 0, len(sums)+1)
+	if m.activeCfg().Compaction.IsEnabled() {
+		cmds = append(cmds, acp.AvailableCommand{
+			Name:        "compact",
+			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
+		})
+	}
 	for _, s := range sums {
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}

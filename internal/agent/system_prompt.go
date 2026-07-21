@@ -88,7 +88,9 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
 	if rs, ok := a.state.(rulesState); ok {
-		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.state.GetMessages(), toolDefs))
+		// The Conversation estimate mirrors what buildMessages sends: only the
+		// LLM-visible window after the last compaction summary.
+		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, session.MessagesForLLM(a.state.GetMessages()), toolDefs))
 	}
 	return full
 }

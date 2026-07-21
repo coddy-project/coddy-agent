@@ -76,6 +76,7 @@ func TestSSHRunCommandToolDefinition(t *testing.T) {
 	tool := SSHRunCommandTool()
 	if tool == nil {
 		t.Fatal("SSHRunCommandTool() returned nil")
+		return
 	}
 	if tool.Definition.Name != "ssh_run_command" {
 		t.Errorf("tool name = %q, want %q", tool.Definition.Name, "ssh_run_command")

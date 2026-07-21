@@ -27,6 +27,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
+| [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
 | [`httpserver`](#httpserver) | object | OpenAI-compatible HTTP API defaults | `http` |
 | [`scheduler`](#scheduler) | object | Cron scheduler | `scheduler` |
@@ -187,6 +188,17 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dir` | string | no | `""` → `${CODDY_HOME}/sessions` | Sessions root. Supports `${CODDY_HOME}` and `~`. Overridden by the `--sessions-dir` flag. |
+
+## `compaction`
+
+Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch for compaction (manual command and automation). |
+| `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
+| `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
+| `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
 
 ## `memory`
 

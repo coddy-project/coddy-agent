@@ -36,6 +36,7 @@ type SessionState interface {
 	EffectiveReasoning(cfg *config.Config) string
 	AddMessage(msg llm.Message)
 	GetMessages() []llm.Message
+	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
@@ -66,6 +67,9 @@ type Agent struct {
 
 // NewAgent creates an Agent for a prompt turn.
 func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, log *slog.Logger) *Agent {
+	if log == nil {
+		log = slog.Default()
+	}
 	environment := platform.CurrentEnvironment()
 	return &Agent{
 		cfg:             cfg,
@@ -93,6 +97,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
+
+	// The built-in /compact command compacts history instead of running the
+	// ReAct loop; the command text itself never enters the transcript.
+	if instructions, ok := parseCompactCommand(userText); ok {
+		return a.runCompactCommand(ctx, instructions)
+	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
 	if note := filePathsNote(imageParts); note != "" {
@@ -137,6 +147,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 
 	// Build the full message list starting with system prompt (refreshed each ReAct turn).
 	messages := a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+
+	// buildSystemPrompt refreshed the context breakdown; compact before the
+	// first LLM call when the estimate crossed the auto-compaction threshold.
+	if a.maybeAutoCompact(ctx) {
+		messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
+	}
 
 	maxTurns := a.cfg.Agent.MaxTurns
 	if maxTurns <= 0 {
@@ -220,6 +236,15 @@ func (a *Agent) runReActLoop(
 		// state after coddy_todo_* tools in the same user turn.
 		if len(messages) > 0 && messages[0].Role == llm.RoleSystem {
 			messages[0].Content = a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles)
+		}
+
+		// Tool results can grow the context mid-turn; compact between LLM calls
+		// when the refreshed estimate crossed the threshold. Run already checked
+		// before the first call. Ephemeral continuation nudges are not part of
+		// persisted state and are dropped by the rebuild (acceptable: the model
+		// answered or called a tool since then).
+		if turn > 0 && a.maybeAutoCompact(ctx) {
+			messages = a.buildMessages(a.buildSystemPrompt(mode, activeSkills, toolDefs, userText, contextFiles))
 		}
 
 		// Call LLM and stream response.
@@ -661,7 +686,9 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 // so the LLM sees the full skill instructions immediately before the user's request.
 // The stored history content is never modified — only the slice sent to the LLM differs.
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
-	history := a.state.GetMessages()
+	// After a compaction only the last summary and the messages after it are
+	// replayed to the LLM; earlier history stays in the transcript for the UI.
+	history := session.MessagesForLLM(a.state.GetMessages())
 	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
 	msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: systemPrompt})
