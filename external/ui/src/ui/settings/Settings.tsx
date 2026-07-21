@@ -271,7 +271,10 @@ export function Settings(props: {
       // the config schema loads. Render it in the normal scroll flow — NOT the
       // centered `settings-scroll-placeholder` used for the "Loading…" spinner,
       // which shrinks and off-centers the swatch grid.
-      if (section && section.kind === "appearance") {
+      if (
+        section &&
+        (section.kind === "appearance" || section.kind === "environment")
+      ) {
         return (
           <div className="settings-scroll">
             <div className="settings-body">

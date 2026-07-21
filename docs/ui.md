@@ -19,6 +19,14 @@ This page captures the original UI requirements and the intended end state. It i
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
 
+## Environment (local / remote server)
+
+- **Tab:** **Settings** (**`#/settings`**) → **Environment** (**`#/settings/environment`**, **`data-testid="environment-section"`**), a client-side tab like Appearance (present even before the config schema loads).
+- **Purpose:** point the UI at a remote, already-running **`coddy http`** server, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url}]`**); the user may also enter a **Custom remote** URL.
+- **Auth token:** the remote's **`auth_token`** is entered here and stored **client-side only** (**`localStorage`** key **`coddy_env`**), never persisted to server config. Leave empty for a remote without auth.
+- **Mechanism:** a global **`fetch`** shim (**`external/ui/src/ui/env/remoteEnv.ts`**, installed in **`main.tsx`**) rewrites same-origin API requests (**`/v1/*`**, **`/coddy/*`**, **`/openapi*`**) to the selected remote base URL and adds **`Authorization: Bearer <token>`**. Local mode is a transparent pass-through. **Connect** persists the choice and reloads so all state re-fetches from the chosen backend.
+- **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** (see [http-api.md](http-api.md)). SSE re-attach (**`GET /coddy/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
+
 ## Layout
 
 Desktop layout

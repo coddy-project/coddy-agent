@@ -1,6 +1,12 @@
 import type { JsonSchema } from "./SchemaForm";
 
-export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
+export type SectionKind =
+  | "array"
+  | "object"
+  | "group"
+  | "skills"
+  | "appearance"
+  | "environment";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -26,6 +32,7 @@ export type SectionDescriptor = {
  */
 export const SECTION_DESCRIPTIONS: Record<string, string> = {
   appearance: "Theme & color mode",
+  environment: "Local or remote server",
   providers: "LLM API connections",
   models: "Named model configs",
   agent: "ReAct agent defaults",
@@ -70,9 +77,16 @@ export function deriveSettingsSections(
     description: SECTION_DESCRIPTIONS.appearance,
     kind: "appearance",
   };
+  // Synthetic client-side tab: choose the local server or a remote coddy http (localStorage).
+  const environment: SectionDescriptor = {
+    id: "environment",
+    label: "Environment",
+    description: SECTION_DESCRIPTIONS.environment,
+    kind: "environment",
+  };
 
   if (!schema || schema.type !== "object" || !schema.properties) {
-    return [appearance];
+    return [appearance, environment];
   }
 
   const props = schema.properties;
@@ -145,5 +159,5 @@ export function deriveSettingsSections(
     emit(key);
   }
 
-  return [appearance, ...out];
+  return [appearance, environment, ...out];
 }
