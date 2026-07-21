@@ -3364,6 +3364,149 @@ textarea#composer {
   margin-top: 2px;
 }
 
+/* Environment selector: workspace-row chip + local/remote menu. */
+
+/* Top workspace-context row now hosts the env chip alongside folder/branch/worktree. */
+.composer-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+.composer-context-row > .composer-context-chips {
+  padding: 0;
+}
+.workspace-chip-wrap {
+  display: inline-flex;
+}
+
+.workspace-chip--env {
+  gap: 6px;
+}
+
+.mode-env-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.mode-env-dot[data-remote="1"] {
+  background: #f59e0b; /* amber when driving a remote server */
+  opacity: 1;
+}
+
+.mode-menu--env {
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 24px));
+}
+
+.mode-menu--portal.mode-menu--env {
+  width: min(300px, calc(100vw - 24px));
+}
+
+/* Menu rows: [status dot] [name] … [host]. */
+.mode-env-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-env-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-env-sub {
+  margin-left: auto;
+  font-size: 0.85em;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+/* Reachability dots: green up, red down, amber while probing (local is always up). */
+.env-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+.env-status[data-state="up"],
+.env-status[data-state="local"] {
+  background: #22c55e;
+}
+.env-status[data-state="down"] {
+  background: #ef4444;
+}
+.env-status[data-state="checking"] {
+  background: #f59e0b;
+}
+
+/* Persistent alert when the active remote environment is unreachable/unauthorized (issue #60). */
+.env-health-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  color: #fff;
+  background: color-mix(in srgb, #ef4444 88%, #000);
+  border-bottom: 1px solid color-mix(in srgb, #ef4444 60%, #000);
+}
+.env-health-banner code {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.env-health-banner-btn {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.env-health-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.mode-menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+
+.mode-menu-form-title {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.mode-menu-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-menu-form-actions .mode-item {
+  flex: 1;
+  justify-content: center;
+  text-align: center;
+}
+
 .mode-menu-empty {
   padding: 12px 10px;
   font-size: 13px;

@@ -9,12 +9,16 @@ import {
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
 import { contextUsagePercent } from "./chat/contextUsage";
-import {
-  HERO_ACCENT_VERBS,
-  pickHeroAccentVerb,
-} from "./chat/heroTitleWords";
+import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
+import { getEnv } from "./env/remoteEnv";
+import {
+  isAbortError,
+  remoteHttpErrorMessage,
+  remoteSendErrorMessage,
+} from "./env/remoteErrors";
+import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { parseSSEBlocks } from "./chat/sse";
 import { consumeComposerSseReader } from "./chat/consumeComposerSse";
 import {
@@ -62,7 +66,11 @@ import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
 import type { WorkspaceContext } from "./chat/workspaceContext";
-import { injectBranchNavItems, deduplicateBranchNavs, type BranchPointData } from "./chat/branchInject";
+import {
+  injectBranchNavItems,
+  deduplicateBranchNavs,
+  type BranchPointData,
+} from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
@@ -71,7 +79,10 @@ import {
   pickDefaultLlmModelForNewChat,
   pickLlmModelForOpenSession,
 } from "./chat/llmModelSelection";
-import { readReasoningCookie, writeReasoningCookie } from "./chat/reasoningCookie";
+import {
+  readReasoningCookie,
+  writeReasoningCookie,
+} from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import {
@@ -101,7 +112,11 @@ import {
   recordWorkspaceAtRecent,
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "./skills/workspaceAtRecents";
-import { schedulerCancelJob, schedulerListJobs, schedulerRunJob } from "./scheduler/api";
+import {
+  schedulerCancelJob,
+  schedulerListJobs,
+  schedulerRunJob,
+} from "./scheduler/api";
 import {
   parseAppHash,
   setDraftHashInLocation,
@@ -178,7 +193,9 @@ type ToolCallListRow = {
   resultPreviewTruncated?: boolean;
 };
 
-function readMessageCreatedAtUTC(m: Record<string, unknown>): string | undefined {
+function readMessageCreatedAtUTC(
+  m: Record<string, unknown>,
+): string | undefined {
   const raw = m.created_at ?? m.createdAt;
   if (typeof raw !== "string") {
     return undefined;
@@ -334,8 +351,12 @@ function memoryTranscriptFromApi(
       ? { persistDurationMs: row.persistDurationMs }
       : {}),
     ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    ...(typeof row.persistSaved === "boolean" ? { persistSaved: row.persistSaved } : {}),
-    ...(row.persistRelativePath ? { persistRelativePath: row.persistRelativePath } : {}),
+    ...(typeof row.persistSaved === "boolean"
+      ? { persistSaved: row.persistSaved }
+      : {}),
+    ...(row.persistRelativePath
+      ? { persistRelativePath: row.persistRelativePath }
+      : {}),
     ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
     ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
     ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
@@ -599,15 +620,23 @@ export function App() {
   const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const itemsRef = useRef<TranscriptItem[]>([]);
   itemsRef.current = items;
-  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(null);
+  const [editingUserMsgIdx, setEditingUserMsgIdx] = useState<number | null>(
+    null,
+  );
   const [editingAssetNote, setEditingAssetNote] = useState("");
-  const [editingFiles, setEditingFiles] = useState<{ name: string; mimeType: string }[]>([]);
-  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(null);
+  const [editingFiles, setEditingFiles] = useState<
+    { name: string; mimeType: string }[]
+  >([]);
+  const pendingBranchSendRef = useRef<{ text: string; sid: string } | null>(
+    null,
+  );
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
   // Workspace context chips: folder / git branch / worktree state per session.
-  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(null);
+  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
+    null,
+  );
   const [worktreePref, setWorktreePref] = useState(false);
   // Pre-session workspace choices, applied right before the first send creates the session.
   const pendingWorkspaceRef = useRef<{
@@ -629,9 +658,9 @@ export function App() {
     () => new Set(),
   );
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
-  const [contextBreakdown, setContextBreakdown] = useState<
-    NonNullable<SessionStats["contextBreakdown"]> | null
-  >(null);
+  const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
+    SessionStats["contextBreakdown"]
+  > | null>(null);
 
   const applySessionStatsPayload = useCallback(
     (stats: SessionStats | null | undefined, viewing: boolean) => {
@@ -863,11 +892,7 @@ export function App() {
       applyStreamItemsForSession(key, (prev) => {
         const ridInner = p.requestId;
         const withoutStalePending = prev.filter(
-          (x) =>
-            !(
-              x.type === "question_prompt" &&
-              !x.resolved
-            ),
+          (x) => !(x.type === "question_prompt" && !x.resolved),
         );
         const withoutDup = withoutStalePending.filter(
           (x) =>
@@ -934,11 +959,7 @@ export function App() {
   );
 
   const resolveQuestionPrompt = useCallback(
-    (
-      sessionId: string,
-      itemId: string,
-      resolved: QuestionResolvedState,
-    ) => {
+    (sessionId: string, itemId: string, resolved: QuestionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
       setQuestionPendingSids((prev) => {
@@ -959,9 +980,7 @@ export function App() {
           upsertQuestionPromptRecord(key, {
             requestId: hit.payload.requestId.trim(),
             payload: hit.payload,
-            ...(hit.resolved !== undefined
-              ? { resolved: hit.resolved }
-              : {}),
+            ...(hit.resolved !== undefined ? { resolved: hit.resolved } : {}),
           });
         }
         return next;
@@ -971,11 +990,7 @@ export function App() {
   );
 
   const resolvePermissionPrompt = useCallback(
-    (
-      sessionId: string,
-      itemId: string,
-      resolved: PermissionResolvedState,
-    ) => {
+    (sessionId: string, itemId: string, resolved: PermissionResolvedState) => {
       const key = sessionId.trim();
       if (!key) return;
       setPermissionPendingSids((prev) => {
@@ -1493,8 +1508,8 @@ export function App() {
         );
       }
     })();
-  // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelsEpoch]);
 
   // Apply the opened session's saved model/reasoning once the backends list is
@@ -1607,12 +1622,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    sessionsOpen,
-    schedulerOpen,
-    schedulerEditor,
-    closeSchedulerDrawer,
-  ]);
+  }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
 
   const loadSessionsList = useCallback(
     async (reset: boolean): Promise<SessionRow[] | null> => {
@@ -1757,7 +1767,11 @@ export function App() {
 
   async function loadMessages(
     idOverride?: string,
-    opts?: { skipSetItems?: boolean; preserveOnError?: boolean; freshLoad?: boolean },
+    opts?: {
+      skipSetItems?: boolean;
+      preserveOnError?: boolean;
+      freshLoad?: boolean;
+    },
   ): Promise<TranscriptItem[] | null> {
     const sid = (idOverride ?? sessionId).trim();
     if (!sid) {
@@ -1899,9 +1913,7 @@ export function App() {
               expanded: false,
               ...(pd.path ? { path: String(pd.path) } : {}),
               ...(pd.discarded === true ? { discarded: true } : {}),
-              ...(pd.updatedAt
-                ? { updatedAtUtc: String(pd.updatedAt) }
-                : {}),
+              ...(pd.updatedAt ? { updatedAtUtc: String(pd.updatedAt) } : {}),
             });
           }
         }
@@ -2099,10 +2111,12 @@ export function App() {
         { headers: sid === sessionId ? headers : { [HDR]: sid } },
       );
       if (brRes.ok && brRes.data?.branchPoints?.length) {
-        withBranches = deduplicateBranchNavs(injectBranchNavItems(
-          applied.filter((it) => it.type !== "branch_nav"),
-          brRes.data.branchPoints,
-        ));
+        withBranches = deduplicateBranchNavs(
+          injectBranchNavItems(
+            applied.filter((it) => it.type !== "branch_nav"),
+            brRes.data.branchPoints,
+          ),
+        );
         if (sid === viewedSessionIdRef.current.trim()) {
           setSessionHashInLocation(sid, { historySidebar: sessionsOpen });
         }
@@ -2220,7 +2234,9 @@ export function App() {
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+      armSessionDeleteBackdropSuppressUntil(
+        sessionDeleteBackdropSuppressUntilRef,
+      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2233,7 +2249,9 @@ export function App() {
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(sessionDeleteBackdropSuppressUntilRef);
+    armSessionDeleteBackdropSuppressUntil(
+      sessionDeleteBackdropSuppressUntilRef,
+    );
     clearQuestionPromptRecords(id);
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2256,7 +2274,13 @@ export function App() {
     const showBranchError = (msg: string) => {
       applyStreamItemsForSession(sourceSid, (prev) => [
         ...prev,
-        { id: newId("s"), type: "system_notice" as const, level: "error" as const, message: msg, createdAtUtc: new Date().toISOString() },
+        {
+          id: newId("s"),
+          type: "system_notice" as const,
+          level: "error" as const,
+          message: msg,
+          createdAtUtc: new Date().toISOString(),
+        },
       ]);
     };
 
@@ -2275,13 +2299,17 @@ export function App() {
         try {
           const body = (await res.json()) as { error?: { message?: string } };
           if (body?.error?.message) errMsg = body.error.message;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         showBranchError(errMsg);
         return;
       }
       data = (await res.json()) as { newSessionId?: string };
     } catch (err) {
-      showBranchError(`Branch creation error: ${err instanceof Error ? err.message : String(err)}`);
+      showBranchError(
+        `Branch creation error: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return;
     }
     const newSid = (data.newSessionId || "").trim();
@@ -2325,13 +2353,17 @@ export function App() {
             );
             if (brRes.ok && brRes.data?.branchPoints?.length) {
               applyStreamItemsForSession(branchSid, (prev) =>
-                deduplicateBranchNavs(injectBranchNavItems(
-                  prev.filter((it) => it.type !== "branch_nav"),
-                  brRes.data!.branchPoints!,
-                )),
+                deduplicateBranchNavs(
+                  injectBranchNavItems(
+                    prev.filter((it) => it.type !== "branch_nav"),
+                    brRes.data!.branchPoints!,
+                  ),
+                ),
               );
               if (branchSid === viewedSessionIdRef.current.trim()) {
-                setSessionHashInLocation(branchSid, { historySidebar: sessionsOpen });
+                setSessionHashInLocation(branchSid, {
+                  historySidebar: sessionsOpen,
+                });
               }
             }
           } catch {
@@ -2355,18 +2387,18 @@ export function App() {
       if (!skipLeaf) {
         // Resolve the most-recently-active leaf in the branch tree.
         // If a more recent thread exists, navigate there instead of loading this one.
-        const leafId = await resolveLatestLeaf(
-          sessionId,
-          async (sid) => {
-            const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
-              `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
-              { headers: { [HDR]: sid } },
-            );
-            return r.ok ? (r.data ?? null) : null;
-          },
-        );
+        const leafId = await resolveLatestLeaf(sessionId, async (sid) => {
+          const r = await fetchJSON<{ branchPoints?: BranchPointData[] }>(
+            `/coddy/sessions/${encodeURIComponent(sid)}/branches`,
+            { headers: { [HDR]: sid } },
+          );
+          return r.ok ? (r.data ?? null) : null;
+        });
         if (lifecycle.signal.aborted) return;
-        if (leafId !== sessionId && viewedSessionIdRef.current.trim() === sessionId) {
+        if (
+          leafId !== sessionId &&
+          viewedSessionIdRef.current.trim() === sessionId
+        ) {
           openSessionFromRoute(leafId, { historySidebar: sessionsOpen });
           return;
         }
@@ -2535,8 +2567,9 @@ export function App() {
       setItems([...baseline]);
     }
 
-    const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
-      applyStreamItemsForSession(key, fn);
+    const applyStreamItems = (
+      fn: (prev: TranscriptItem[]) => TranscriptItem[],
+    ) => applyStreamItemsForSession(key, fn);
 
     const branchTokenUsage = (u: TokenUsage | null) => {
       if (u === null) return;
@@ -2592,7 +2625,9 @@ export function App() {
             const c = (m.content || "").trim();
             if (c) {
               last = c;
-              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+              lastCreated = readMessageCreatedAtUTC(
+                m as Record<string, unknown>,
+              );
             }
           }
           if (!last) return false;
@@ -2700,7 +2735,9 @@ export function App() {
         migrateWorkspaceAtRecents(WORKSPACE_AT_RECENTS_NO_SESSION_KEY, sid);
         await applyPendingWorkspace(sid);
         if (activeDraftId.trim()) {
-          setClientDraftSessions(removeClientDraftSession(activeDraftId.trim()));
+          setClientDraftSessions(
+            removeClientDraftSession(activeDraftId.trim()),
+          );
           setActiveDraftId("");
         }
         openSessionFromRoute(sid);
@@ -2713,8 +2750,9 @@ export function App() {
       relayAbortBySidRef.current.delete(postSessionKey);
 
       let streamKey = postSessionKey;
-      const applyStreamItems = (fn: (prev: TranscriptItem[]) => TranscriptItem[]) =>
-        applyStreamItemsForSession(streamKey, fn);
+      const applyStreamItems = (
+        fn: (prev: TranscriptItem[]) => TranscriptItem[],
+      ) => applyStreamItemsForSession(streamKey, fn);
 
       const branchTokenUsage = (u: TokenUsage | null) => {
         if (u === null) return;
@@ -2807,13 +2845,18 @@ export function App() {
         const inlineFiles = await Promise.all(
           opts.files.map(
             (f) =>
-              new Promise<{ name: string; data_url: string }>((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () =>
-                  resolve({ name: f.name, data_url: reader.result as string });
-                reader.onerror = reject;
-                reader.readAsDataURL(f);
-              }),
+              new Promise<{ name: string; data_url: string }>(
+                (resolve, reject) => {
+                  const reader = new FileReader();
+                  reader.onload = () =>
+                    resolve({
+                      name: f.name,
+                      data_url: reader.result as string,
+                    });
+                  reader.onerror = reject;
+                  reader.readAsDataURL(f);
+                },
+              ),
           ),
         );
         reqBody.inline_files = inlineFiles;
@@ -2838,8 +2881,7 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg =
-          "This chat is busy in another client. Try again in a moment.";
+        let msg = "This chat is busy in another client. Try again in a moment.";
         try {
           const body = (await res.json()) as {
             error?: { message?: string };
@@ -2901,7 +2943,7 @@ export function App() {
       if (!res.ok || !res.body) {
         const msg = !res.body
           ? "Empty response body"
-          : `Request failed (${res.status})`;
+          : remoteHttpErrorMessage(res.status, getEnv());
         applyStreamItems((prev) => [
           ...prev,
           {
@@ -2957,7 +2999,9 @@ export function App() {
             const c = (m.content || "").trim();
             if (c) {
               last = c;
-              lastCreated = readMessageCreatedAtUTC(m as Record<string, unknown>);
+              lastCreated = readMessageCreatedAtUTC(
+                m as Record<string, unknown>,
+              );
             }
           }
           if (!last) return false;
@@ -3053,8 +3097,28 @@ export function App() {
       void refreshSessionStats(sidEffective);
       markViewedSessionActivityRead(sidEffective);
       completedNormally = true;
-    } catch (_err: unknown) {
-      // AbortError stops the stream client-side after optional POST cancel
+    } catch (err: unknown) {
+      // Stay silent only for the user's own Stop (AbortError). Surface real transport failures —
+      // an unreachable remote, DNS/TLS error, refused connection, or a CORS-blocked response all
+      // reject fetch() with no Response, so without this they vanish (issue #60).
+      // applyStreamItems is scoped to the try block; use the component-level session helper here
+      // (same one the finally uses), keyed by the session this turn targeted.
+      if (
+        !isAbortError(err) &&
+        !abortCtl.signal.aborted &&
+        postSessionKey.trim() !== ""
+      ) {
+        applyStreamItemsForSession(postSessionKey, (prev) => [
+          ...prev,
+          {
+            id: newId("s"),
+            type: "system_notice",
+            level: "error" as const,
+            message: remoteSendErrorMessage(err, getEnv()),
+            createdAtUtc: new Date().toISOString(),
+          },
+        ]);
+      }
     } finally {
       postAbortBySidRef.current.delete(postSessionKey);
       if (!completedNormally && assistantStreamId) {
@@ -3316,6 +3380,7 @@ export function App() {
         .filter(Boolean)
         .join(" ")}
     >
+      <EnvHealthBanner />
       <NavRail
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
@@ -3331,10 +3396,7 @@ export function App() {
       />
 
       <div
-        className={[
-          "shell-main",
-          sessionsOpen ? "shell-history-open" : "",
-        ]
+        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -3377,9 +3439,7 @@ export function App() {
             <SchedulerJobsDrawer
               open={schedulerOpen}
               selectedJobId={
-                schedulerEditor?.mode === "edit"
-                  ? schedulerEditor.jobId
-                  : null
+                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
               }
               className="scheduler-dock-drawer"
               onClose={closeSchedulerDrawer}
@@ -3443,7 +3503,9 @@ export function App() {
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) => void switchWorkspace({ path: p })}
+          onWorkspacePickFolder={(p: string) =>
+            void switchWorkspace({ path: p })
+          }
           onWorkspacePickBranch={(b: string, wt: boolean) =>
             void switchWorkspace({ branch: b, worktree: wt })
           }

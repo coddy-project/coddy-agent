@@ -10,6 +10,7 @@ import {
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
+import { EnvironmentChip } from "./EnvironmentChip";
 import type { WorkspaceContext } from "./workspaceContext";
 import {
   ContextBreakdownPopover,
@@ -268,7 +269,9 @@ export function Composer(props: {
     }
     const el =
       composerCardRef.current ??
-      document.querySelector<HTMLElement>(".composer-wrap-docked .composer-card");
+      document.querySelector<HTMLElement>(
+        ".composer-wrap-docked .composer-card",
+      );
     if (!el) {
       setSheetBottomPx(null);
       return;
@@ -294,14 +297,18 @@ export function Composer(props: {
       return;
     }
     if (typeof window !== "undefined") {
-      setPickerUseSheet(window.matchMedia(shellStackMaxWidthMediaQuery).matches);
+      setPickerUseSheet(
+        window.matchMedia(shellStackMaxWidthMediaQuery).matches,
+      );
     }
     measureSheetBottom();
     window.addEventListener("resize", measureSheetBottom);
     window.addEventListener("scroll", measureSheetBottom, { passive: true });
     const card =
       composerCardRef.current ??
-      document.querySelector<HTMLElement>(".composer-wrap-docked .composer-card");
+      document.querySelector<HTMLElement>(
+        ".composer-wrap-docked .composer-card",
+      );
     const ro =
       typeof ResizeObserver !== "undefined" && card
         ? new ResizeObserver(() => measureSheetBottom())
@@ -398,12 +405,7 @@ export function Composer(props: {
         msgEl?.removeEventListener("scroll", onMsgs);
       }
     };
-  }, [
-    pickerOpen,
-    pickerUseSheet,
-    measurePickerFloat,
-    props.isEmpty,
-  ]);
+  }, [pickerOpen, pickerUseSheet, measurePickerFloat, props.isEmpty]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -927,7 +929,8 @@ export function Composer(props: {
   }
 
   const reasoningLevels = props.llmReasoningLevels ?? [];
-  const showReasoning = reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
+  const showReasoning =
+    reasoningLevels.length > 0 && !!props.onLlmReasoningChange;
   const reasoningVal = (props.llmReasoning || "").trim();
   const reasoningLabel = reasoningVal
     ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
@@ -1083,7 +1086,9 @@ export function Composer(props: {
                 }}
               >
                 <span className="slash-row-name">@{row.path_rel}</span>
-                <span className="slash-row-desc">{workspacePickRowSubtitle(row)}</span>
+                <span className="slash-row-desc">
+                  {workspacePickRowSubtitle(row)}
+                </span>
               </button>
             </li>
           ))}
@@ -1121,25 +1126,40 @@ export function Composer(props: {
           Message
         </label>
         <div className="composer-card" ref={composerCardRef}>
-          {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-            <WorkspaceChips
-              context={props.workspaceCtx ?? null}
-              worktreePref={props.worktreePref ?? false}
-              onPickFolder={props.onWorkspacePickFolder}
-              onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-              onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-              opensUp={!props.isEmpty}
-              locked={props.workspaceLocked ?? false}
-            />
-          ) : null}
-          {(props.editingFiles && props.editingFiles.length > 0) || attachedFiles.length > 0 ? (
+          <div className="composer-context-row">
+            <EnvironmentChip />
+            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+              <WorkspaceChips
+                context={props.workspaceCtx ?? null}
+                worktreePref={props.worktreePref ?? false}
+                onPickFolder={props.onWorkspacePickFolder}
+                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+                opensUp={!props.isEmpty}
+                locked={props.workspaceLocked ?? false}
+              />
+            ) : null}
+          </div>
+          {(props.editingFiles && props.editingFiles.length > 0) ||
+          attachedFiles.length > 0 ? (
             <div className="composer-attachments" aria-label="Attached files">
               {(props.editingFiles || []).map((f, idx) => {
                 const { svg } = fileTypeIcon(f.mimeType, f.name);
                 return (
-                  <span key={`ef-${idx}`} className="composer-attachment-chip composer-attachment-chip--locked" title={f.name}>
-                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
-                    <span className="composer-attachment-chip-name">{f.name}</span>
+                  <span
+                    key={`ef-${idx}`}
+                    className="composer-attachment-chip composer-attachment-chip--locked"
+                    title={f.name}
+                  >
+                    <span
+                      className="composer-attachment-chip-icon"
+                      aria-hidden="true"
+                    >
+                      {svg}
+                    </span>
+                    <span className="composer-attachment-chip-name">
+                      {f.name}
+                    </span>
                   </span>
                 );
               })}
@@ -1147,15 +1167,28 @@ export function Composer(props: {
                 const { svg, label } = fileTypeIcon(f.type, f.name);
                 const tip = `${f.name}\n${label} · ${fmtBytes(f.size)}`;
                 return (
-                  <span key={idx} className="composer-attachment-chip" title={tip}>
-                    <span className="composer-attachment-chip-icon" aria-hidden="true">{svg}</span>
-                    <span className="composer-attachment-chip-name">{f.name}</span>
+                  <span
+                    key={idx}
+                    className="composer-attachment-chip"
+                    title={tip}
+                  >
+                    <span
+                      className="composer-attachment-chip-icon"
+                      aria-hidden="true"
+                    >
+                      {svg}
+                    </span>
+                    <span className="composer-attachment-chip-name">
+                      {f.name}
+                    </span>
                     <button
                       type="button"
                       className="composer-attachment-chip-remove"
                       aria-label={`Remove ${f.name}`}
                       onClick={() =>
-                        setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                        setAttachedFiles((prev) =>
+                          prev.filter((_, i) => i !== idx),
+                        )
                       }
                     >
                       ×
@@ -1206,7 +1239,9 @@ export function Composer(props: {
                 className={maskComposerText ? "composer-ta-masked" : undefined}
                 rows={props.isEmpty ? 5 : 2}
                 placeholder={
-                  props.isEmpty ? "Plan, Build, / for skills, @ for files" : "Add a follow-up"
+                  props.isEmpty
+                    ? "Plan, Build, / for skills, @ for files"
+                    : "Add a follow-up"
                 }
                 autoComplete="off"
                 value={props.value}
@@ -1260,7 +1295,12 @@ export function Composer(props: {
                     dismissSlashAtPickers();
                     return;
                   }
-                  if (ev.key === "Tab" && atOpen && atItems.length > 0 && !props.generating) {
+                  if (
+                    ev.key === "Tab" &&
+                    atOpen &&
+                    atItems.length > 0 &&
+                    !props.generating
+                  ) {
                     ev.preventDefault();
                     const row0 = atItems[0];
                     if (row0) {
@@ -1268,7 +1308,12 @@ export function Composer(props: {
                     }
                     return;
                   }
-                  if (ev.key === "Tab" && slashOpen && slashItems.length > 0 && !props.generating) {
+                  if (
+                    ev.key === "Tab" &&
+                    slashOpen &&
+                    slashItems.length > 0 &&
+                    !props.generating
+                  ) {
                     ev.preventDefault();
                     const row0 = slashItems[0];
                     if (row0) {
@@ -1335,7 +1380,6 @@ export function Composer(props: {
             </div>
           </div>
 
-
           <div className="composer-bar">
             <div className="composer-tabs" aria-label="Composer options">
               {props.llmModelMultimodal ? (
@@ -1351,7 +1395,10 @@ export function Composer(props: {
                     onChange={(ev) => {
                       const files = ev.target.files;
                       if (!files || files.length === 0) return;
-                      setAttachedFiles((prev) => [...prev, ...Array.from(files)]);
+                      setAttachedFiles((prev) => [
+                        ...prev,
+                        ...Array.from(files),
+                      ]);
                       ev.target.value = "";
                     }}
                   />
@@ -1363,8 +1410,20 @@ export function Composer(props: {
                     data-testid="composer-attach-btn"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="14" height="14" aria-hidden="true">
-                      <path d="M13.5 7.5l-6 6A4 4 0 012 8l7-7a2.5 2.5 0 013.5 3.5l-6 6A1 1 0 015 9l5-5" strokeLinecap="round" strokeLinejoin="round"/>
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      width="14"
+                      height="14"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M13.5 7.5l-6 6A4 4 0 012 8l7-7a2.5 2.5 0 013.5 3.5l-6 6A1 1 0 015 9l5-5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   </button>
                 </>
@@ -1452,7 +1511,10 @@ export function Composer(props: {
               >
                 <ContextUsageRing fill01={pct01} />
                 {!contextPopoverOpen && !contextTipSuppressed ? (
-                  <span className="rail-tip composer-context-tip" role="tooltip">
+                  <span
+                    className="rail-tip composer-context-tip"
+                    role="tooltip"
+                  >
                     {tip}
                   </span>
                 ) : null}
@@ -1492,7 +1554,12 @@ export function Composer(props: {
                   </span>
                 ) : (
                   <span className="composer-send-glyph" aria-hidden="true">
-                    <svg viewBox="0 0 12 12" fill="currentColor" width="17" height="17">
+                    <svg
+                      viewBox="0 0 12 12"
+                      fill="currentColor"
+                      width="17"
+                      height="17"
+                    >
                       <path d="M2 0L11 6L2 12Z" />
                     </svg>
                   </span>
@@ -1536,15 +1603,14 @@ export function Composer(props: {
                   menuUseSheet || !menuAnchorRect
                     ? undefined
                     : modeMenuDirClass === "opens-up"
-                    ? {
-                        left: menuAnchorRect.left,
-                        bottom:
-                          window.innerHeight - menuAnchorRect.top + 8,
-                      }
-                    : {
-                        left: menuAnchorRect.left,
-                        top: menuAnchorRect.bottom + 8,
-                      }
+                      ? {
+                          left: menuAnchorRect.left,
+                          bottom: window.innerHeight - menuAnchorRect.top + 8,
+                        }
+                      : {
+                          left: menuAnchorRect.left,
+                          top: menuAnchorRect.bottom + 8,
+                        }
                 }
               >
                 {menuOpen === "mode"
@@ -1603,7 +1669,10 @@ export function Composer(props: {
                         </div>
                       ) : llmGrouped ? (
                         llmGroups.map((g) => (
-                          <div key={g.vendor || "_"} className="mode-menu-group">
+                          <div
+                            key={g.vendor || "_"}
+                            className="mode-menu-group"
+                          >
                             <div className="mode-menu-group-label">
                               {g.vendor || "Other"}
                             </div>

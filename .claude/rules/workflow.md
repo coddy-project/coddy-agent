@@ -8,11 +8,28 @@ paths:
 
 # Workflow (features, bugs, finish)
 
+## Specifications live in `features/` (BDD)
+
+Executable specifications for **feature behavior** and the **happy path of a bug fix** are
+Gherkin `.feature` files in the **repository-root `features/`** directory, run by a godog harness
+(step definitions in the package that owns the behavior, e.g. `external/httpserver/bdd_*_test.go`,
+pointing `Options.Paths` at `../../features/<name>.feature`).
+
+- **New feature** → add or extend the feature's `.feature` spec in `features/` describing the
+  scenario as it works when correct (the happy path), so the behavior is reproducible.
+- **Bug fix** → add a scenario (or feature) in `features/` that reproduces the problem as a
+  happy-path expectation, then make it pass.
+- **Boundary / edge / error cases** → do **not** put these in `features/`; cover them with ordinary
+  **unit tests** next to the code. Keep `.feature` files focused on the correct-behavior story.
+- Keep specs deterministic and LLM-free where possible (use a stub runner, as the existing
+  harnesses do). Step definitions may live near the code; the `.feature` specs stay in `features/`.
+
 ## New behavior (TDD / BDD)
 
 When adding or changing behavior (including words like feature, add, implement, фича, добавить):
 
-1. Add or extend a **failing** test that asserts the observable outcome (red).
+1. Add or extend the **happy-path `.feature` spec** in `features/` (and/or a **failing** unit test)
+   that asserts the observable outcome (red). Edge cases go in unit tests, not the spec.
 2. Run the narrowest test scope that proves the failure is real.
 3. Implement the smallest change that makes the test pass (green).
 4. Run **`make test`** (default, **`http`**, **`scheduler`**, **`ui-build`** then **`http,ui`**, combined scheduler tags). Everything must pass.
