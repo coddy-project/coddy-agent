@@ -3041,10 +3041,7 @@ a.rail-brand {
 }
 
 .slash-row-btn {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 10px;
-  align-items: start;
+  display: block;
   width: 100%;
   text-align: left;
   border: none;
@@ -3059,25 +3056,26 @@ a.rail-brand {
   background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
+/* Name and description flow as one inline block: the description begins right
+   after the /name and wraps onto the next line, clamped to 2 lines with an
+   ellipsis for anything that does not fit. */
+.slash-row-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
 .slash-row-name {
   font-weight: 600;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .slash-row-desc {
   font-size: 12px;
   opacity: 0.72;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
 }
 
 .slash-load-more {
@@ -6056,8 +6054,11 @@ textarea#composer {
 }
 
 /* Install control at the top of the Installed skills box: a filter input over a
-   dropdown of installable marketplace plugins, each with a Download/install. */
+   floating dropdown of installable marketplace plugins, each with a
+   Download/install. The results float (absolute) so they never reflow the
+   installed list beneath them. */
 .skills-install {
+  position: relative;
   margin-bottom: 12px;
 }
 
@@ -6068,17 +6069,25 @@ textarea#composer {
 }
 
 .skills-install-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
   list-style: none;
-  margin: 6px 0 0;
+  margin: 0;
   padding: 4px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 240px;
+  max-height: 320px;
   overflow-y: auto;
   border: 1px solid var(--coddy-glass-panel-border);
-  border-radius: 8px;
-  background: var(--coddy-surface-field);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
 }
 
 .skills-install-result {

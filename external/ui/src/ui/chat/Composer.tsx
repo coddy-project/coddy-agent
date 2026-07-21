@@ -1029,8 +1029,15 @@ export function Composer(props: {
                   applySlashChoice(row.name);
                 }}
               >
-                <span className="slash-row-name">/{row.name}</span>
-                <span className="slash-row-desc">{row.description}</span>
+                <span className="slash-row-line">
+                  <span className="slash-row-name">/{row.name}</span>
+                  {row.description ? (
+                    <>
+                      {" "}
+                      <span className="slash-row-desc">{row.description}</span>
+                    </>
+                  ) : null}
+                </span>
               </button>
             </li>
           ))}

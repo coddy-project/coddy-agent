@@ -21,3 +21,13 @@ test("skills list leading icon does not shrink in the flex row", () => {
     /\.skills-list-item\s*>\s*svg\s*\{[^}]*flex-shrink:\s*0/s,
   );
 });
+
+// Contract: the install-results menu floats (absolute) over the installed list
+// so it never reflows the rows beneath it, and its anchor is positioned.
+test("install results dropdown floats over the list, anchored to the control", () => {
+  const css = cssText();
+  expect(css).toMatch(/\.skills-install\s*\{[^}]*position:\s*relative/s);
+  expect(css).toMatch(/\.skills-install-results\s*\{[^}]*position:\s*absolute/s);
+  // Sits above the following static list rows.
+  expect(css).toMatch(/\.skills-install-results\s*\{[^}]*z-index:\s*\d+/s);
+});
