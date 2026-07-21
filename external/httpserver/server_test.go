@@ -1925,3 +1925,192 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
 	}
 }
+
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+
+func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("wrong token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "s3cret"); got != http.StatusOK {
+		t.Fatalf("valid token: status %d want 200", got)
+	}
+	// The SPA shell stays public even with auth enabled (no-ui build returns a 404 notice, not 401).
+	if got := authGET(t, ts.URL+"/", ""); got == http.StatusUnauthorized {
+		t.Fatal("SPA root must be public, got 401")
+	}
+}
+
+func TestHTTPAuthChallengeHeader(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d want 401", res.StatusCode)
+	}
+	if !strings.HasPrefix(res.Header.Get("WWW-Authenticate"), "Bearer") {
+		t.Fatalf("missing WWW-Authenticate challenge: %q", res.Header.Get("WWW-Authenticate"))
+	}
+}
+
+func TestHTTPAuthDisabledByDefault(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("auth disabled: status %d want 200", got)
+	}
+}
+
+func TestHTTPAuthHotReloadEnableRotateDisable(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("start disabled: %d", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokA"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("after enable, no token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusOK {
+		t.Fatalf("after enable, tokA: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokB"))
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusUnauthorized {
+		t.Fatalf("after rotate, old token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokB"); got != http.StatusOK {
+		t.Fatalf("after rotate, new token: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("after disable: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthExtraTokensEnableAuth(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	srv.SetExtraAuthTokens([]string{"cli-token"})
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("an extra (CLI/env) token must enable auth: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "cli-token"); got != http.StatusOK {
+		t.Fatalf("cli token: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthPublicDocs(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusUnauthorized {
+		t.Fatalf("openapi should be protected by default: %d want 401", got)
+	}
+	pd := cfgWithAuth("s3cret")
+	pd.HTTPServer.PublicDocs = true
+	srv.ReplaceConfig(pd)
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusOK {
+		t.Fatalf("public_docs should expose openapi: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthConfigGetRedactsTokens(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("topsecret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/config", nil)
+	req.Header.Set("Authorization", "Bearer topsecret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("config get status %d: %s", res.StatusCode, b)
+	}
+	if strings.Contains(string(b), "topsecret") {
+		t.Fatalf("GET /coddy/config leaked the auth token: %s", b)
+	}
+}
+
+func TestHTTPAuthConfigPutPreservesToken(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n    max_tokens: 4096\n    temperature: 0.1\n" +
+		"agent:\n  model: openai/gpt-4o\n" +
+		"httpserver:\n  auth_token: \"livetoken\"\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// A redacted UI save (auth_configured, no token value) that also changes max_turns.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":15},` +
+		`"httpserver":{"auth_configured":true}}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer livetoken")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d: %s", res.StatusCode, pb)
+	}
+	if srv.activeCfg().Agent.MaxTurns != 15 {
+		t.Fatalf("hot reload max_turns %d", srv.activeCfg().Agent.MaxTurns)
+	}
+	// The token must still authenticate after the redacted save.
+	if got := authGET(t, ts.URL+"/v1/models", "livetoken"); got != http.StatusOK {
+		t.Fatalf("token lost after redacted save: %d", got)
+	}
+}

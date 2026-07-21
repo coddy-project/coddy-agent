@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -618,5 +619,91 @@ agent:
 	}
 	if cfg.Models[1].Multimodal {
 		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
+	}
+}
+
+// httpAuthBaseYAML is a minimal valid config the httpserver.auth tests extend.
+const httpAuthBaseYAML = `
+providers:
+  - name: openai
+    type: openai
+    api_key: k
+models:
+  - model: openai/gpt-4o
+    max_tokens: 1024
+    temperature: 0.2
+agent:
+  model: openai/gpt-4o
+`
+
+func TestHTTPServerAuthTokenParsedFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"s3cret\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load auth_token: %v", err)
+	}
+	if got := cfg.HTTPServer.EffectiveAuthTokens(); len(got) != 1 || got[0] != "s3cret" {
+		t.Fatalf("auth_token not parsed: %v", got)
+	}
+}
+
+func TestHTTPServerAuthTokenRedactedInJSONDTO(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"topsecret\"\n  public_docs: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dto := config.ConfigToJSONDTO(cfg)
+	if dto.HTTPServer.AuthToken != "" {
+		t.Fatalf("GET /coddy/config must not expose auth_token, got %q", dto.HTTPServer.AuthToken)
+	}
+	if !dto.HTTPServer.AuthConfigured {
+		t.Fatal("auth_configured should be reported in the DTO")
+	}
+	if !dto.HTTPServer.PublicDocs {
+		t.Fatal("public_docs should be reported in the DTO")
+	}
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "topsecret") {
+		t.Fatalf("serialized config leaked the token: %s", raw)
+	}
+}
+
+func TestHTTPServerAuthTokenPreservedOnRedactedEdit(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"keepme\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The UI GETs a redacted config (auth_configured, no token value) and saves it back
+	// alongside an unrelated change; the token must survive the round-trip.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":9},` +
+		`"httpserver":{"auth_configured":true}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatalf("preserve parse: %v", err)
+	}
+	if got := next.HTTPServer.EffectiveAuthTokens(); len(got) != 1 || got[0] != "keepme" {
+		t.Fatalf("token not preserved across redacted edit: %v", got)
+	}
+	if next.Agent.MaxTurns != 9 {
+		t.Fatalf("unrelated edit lost: max_turns=%d", next.Agent.MaxTurns)
 	}
 }

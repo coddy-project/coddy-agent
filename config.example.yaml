@@ -139,6 +139,12 @@ tools:
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
+#   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
+#   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
+#   auth_token: "${CODDY_HTTP_TOKEN}"
+#   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
+#   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule

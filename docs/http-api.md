@@ -11,7 +11,26 @@ Specs are regenerated on each request so they stay aligned with handlers.
 - **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).
 - **`GET /docs/`** - Swagger UI (static assets bundled in the binary, no CDN). **`GET /docs`** redirects to **`/docs/`**.
 
-No authentication is enforced. Run behind appropriate network controls.
+## Authentication (optional)
+
+Authentication is **off by default** (historical behavior). Set a bearer token to protect the
+API when exposing it beyond loopback:
+
+- `httpserver.auth_token` in `config.yaml` (supports `${ENV}`), or
+- `--auth-token <token>` on `coddy http`, or
+- the `CODDY_HTTP_TOKEN` environment variable.
+
+When a token is configured, every `/v1/*` and `/coddy/*` route requires
+`Authorization: Bearer <token>` and returns `401` with a `WWW-Authenticate: Bearer` challenge
+otherwise. The SPA shell and static assets stay public so a client can load and prompt for the
+token; `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`. The token is
+never returned by `GET /coddy/config` (redacted; the DTO only reports `auth_configured`). Tokens
+passed via `--auth-token` / `CODDY_HTTP_TOKEN` are never written to `config.yaml` and survive
+`PUT /coddy/config` hot reloads. Prefer TLS (or a TLS-terminating proxy) when using auth over a
+network. Binding a non-loopback address without a token logs a startup warning unless
+`httpserver.allow_insecure: true`.
+
+Without a token the surface is unauthenticated; run behind appropriate network controls.
 
 ## Embedded web UI (**`-tags=http,ui`**)
 
@@ -135,7 +154,7 @@ Interactive tool permission prompts are bypassed when **`tools.permission_mode`*
 
 ## CLI flags
 
-Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--sessions-dir`**, **`--session-id`**, **`--log-*`**, optional **`--scheduler-enabled`**. Networking flags: **`-H` / `--host`**, **`-P` / `--port`**. Defaults fall back to YAML **`httpserver.host` / port** when left at **`0.0.0.0:12345`**.
+Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--sessions-dir`**, **`--session-id`**, **`--log-*`**, optional **`--scheduler-enabled`**. Networking flags: **`-H` / `--host`**, **`-P` / `--port`**. Defaults fall back to YAML **`httpserver.host` / port** when left at **`0.0.0.0:12345`**. Auth: **`--auth-token <token>`** (also **`CODDY_HTTP_TOKEN`**) enables bearer authentication without writing the secret to **`config.yaml`**.
 
 ## Build
 

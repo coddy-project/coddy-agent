@@ -65,7 +65,7 @@ func (s *Server) coddyConfigValidatePost(w http.ResponseWriter, r *http.Request)
 		writeCoddyConfigErr(w, http.StatusBadRequest, "read body")
 		return
 	}
-	if _, err := config.ParseAndValidateConfigJSON(body, c.Paths); err != nil {
+	if _, err := config.ParseConfigJSONPreservingSecrets(body, c.Paths, c); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -95,7 +95,7 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeCoddyConfigErr(w, http.StatusBadRequest, "read body")
 		return
 	}
-	newCfg, err := config.ParseAndValidateConfigJSON(body, paths)
+	newCfg, err := config.ParseConfigJSONPreservingSecrets(body, paths, c)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)

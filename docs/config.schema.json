@@ -409,6 +409,21 @@
           "default": 0,
           "minimum": 0,
           "maximum": 65535
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See docs/remote-control.md.",
+          "default": ""
+        },
+        "public_docs": {
+          "type": "boolean",
+          "description": "When auth is enabled, keep /docs and /openapi.* reachable without a token.",
+          "default": false
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Silence the startup warning about a non-loopback bind without authentication.",
+          "default": false
         }
       }
     },

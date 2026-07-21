@@ -12,11 +12,30 @@ type HTTPServerConfig struct {
 	Host string `yaml:"host"`
 	// Port is the default listen port when coddy http does not override -P/--port. Zero falls back to 12345 in the CLI.
 	Port int `yaml:"port"`
+	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
+	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
+	// never echoes it back through GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to
+	// keep the secret out of config.yaml. See docs/remote-control.md.
+	AuthToken string `yaml:"auth_token"`
+	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
+	PublicDocs bool `yaml:"public_docs"`
+	// AllowInsecure silences the startup warning about a non-loopback bind without authentication.
+	AllowInsecure bool `yaml:"allow_insecure"`
 }
 
-// Normalize trims host.
+// EffectiveAuthTokens returns the configured token as a slice (empty when unset), so callers can
+// union it with out-of-band tokens (--auth-token / CODDY_HTTP_TOKEN) uniformly.
+func (h *HTTPServerConfig) EffectiveAuthTokens() []string {
+	if s := strings.TrimSpace(h.AuthToken); s != "" {
+		return []string{s}
+	}
+	return nil
+}
+
+// Normalize trims host and the auth token.
 func (h *HTTPServerConfig) Normalize() {
 	h.Host = strings.TrimSpace(h.Host)
+	h.AuthToken = strings.TrimSpace(h.AuthToken)
 }
 
 // Validate checks HTTP settings when present in config.

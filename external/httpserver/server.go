@@ -40,6 +40,10 @@ type Server struct {
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 
+	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
+	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
+	extraAuthTokens []string
+
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
@@ -159,9 +163,10 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler.
+// Handler returns the root HTTP handler (auth gate wrapping the route mux). The gate is a
+// no-op unless a bearer-token policy is active, so unauthenticated deployments are unchanged.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.authGate(s.mux)
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
