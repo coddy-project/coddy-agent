@@ -11,12 +11,36 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/web"
 )
+
+// sourceMu serializes mutations of skills.sources (add/remove) so concurrent
+// /plugin commands cannot corrupt the slice or race on the config.yaml write.
+var sourceMu sync.Mutex
+
+// syncMu serializes materialization into the managed skills dir so concurrent
+// Sync/UpdateSkill calls cannot race on the shared staging directories.
+var syncMu sync.Mutex
+
+// safeClone applies the SSRF guard to http(s) clone URLs (blocking loopback /
+// private hosts reachable over http(s), including those coming from a
+// marketplace manifest) before cloning. Operator-chosen local/SSH transports
+// (file://, git@host:path) are cloned as-is — they are not network SSRF vectors
+// and file:// backs offline marketplaces and the tests.
+func safeClone(url, ref, dest string) error {
+	low := strings.ToLower(strings.TrimSpace(url))
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		if _, err := web.ValidateFetchURL(context.Background(), url); err != nil {
+			return fmt.Errorf("clone url not allowed: %w", err)
+		}
+	}
+	return gitws.Clone(url, ref, dest)
+}
 
 // remoteLockFile is the provenance sidecar written into the managed skills dir.
 const remoteLockFile = ".remote.json"
@@ -120,6 +144,8 @@ func isGitCloneURL(lowerURL string) bool {
 // Sync fetches every configured source and materializes skills into the
 // managed dir. It never runs automatically; callers invoke it explicitly.
 func Sync(ctx context.Context, cfg *config.Config) (*SyncResult, error) {
+	syncMu.Lock()
+	defer syncMu.Unlock()
 	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	if err := os.MkdirAll(managedDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create managed dir: %w", err)
@@ -164,7 +190,7 @@ func syncOne(ctx context.Context, src, managedDir string, lock map[string]Remote
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		clone := filepath.Join(tmp, "repo")
-		if err := gitws.Clone(spec.url, spec.ref, clone); err != nil {
+		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			return fmt.Errorf("clone %s: %w", spec.url, err)
 		}
 		base := RemoteEntry{Source: src, Repo: spec.url, Ref: spec.ref}
@@ -215,7 +241,7 @@ func installPlugin(p MarketplacePlugin, repoRoot, src string, base RemoteEntry, 
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		dst := filepath.Join(tmp, "repo")
-		if err := gitws.Clone(cloneURL, p.Source.Ref, dst); err != nil {
+		if err := safeClone(cloneURL, p.Source.Ref, dst); err != nil {
 			return fmt.Errorf("clone plugin %q: %w", p.Name, err)
 		}
 		entry.Repo = cloneURL
@@ -251,16 +277,43 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 		dst := filepath.Join(managedDir, name)
 		_, existed := os.Stat(dst)
-		if err := os.RemoveAll(dst); err != nil && firstErr == nil {
-			firstErr = err
-			continue
-		}
-		if err := copySkillDir(h.dir, dst); err != nil {
+		// Copy into a sibling temp dir, move any existing install aside to a
+		// backup, swap the new copy in, then drop the backup — so neither a copy
+		// nor a rename failure can leave the skill deleted or half-written. Sync
+		// is serialized (syncMu) so these sidecar names never collide.
+		tmpDst := filepath.Join(managedDir, ".tmp-"+name)
+		bakDst := filepath.Join(managedDir, ".bak-"+name)
+		_ = os.RemoveAll(tmpDst)
+		_ = os.RemoveAll(bakDst)
+		if err := copySkillDir(h.dir, tmpDst); err != nil {
+			_ = os.RemoveAll(tmpDst)
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
+		movedAside := false
+		if existed == nil { // dst currently exists
+			if err := os.Rename(dst, bakDst); err != nil {
+				_ = os.RemoveAll(tmpDst)
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue
+			}
+			movedAside = true
+		}
+		if err := os.Rename(tmpDst, dst); err != nil {
+			if movedAside {
+				_ = os.Rename(bakDst, dst) // roll back to the previous install
+			}
+			_ = os.RemoveAll(tmpDst)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		_ = os.RemoveAll(bakDst)
 		ent := entry
 		if ent.Version == "" {
 			ent.Version = skillDirVersion(h.dir)
@@ -360,7 +413,9 @@ func skillNameForDir(dir, root string) string {
 	return filepath.Base(dir)
 }
 
-// copySkillDir recursively copies src to dst, excluding .git.
+// copySkillDir recursively copies src to dst, excluding .git and skipping
+// symlinks (following a link inside an untrusted clone could copy arbitrary
+// host files into the managed skills dir).
 func copySkillDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -369,6 +424,9 @@ func copySkillDir(src, dst string) error {
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
 			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil // never follow links out of the skill directory
 		}
 		if info.IsDir() {
 			if info.Name() == ".git" && rel != "." {
@@ -412,7 +470,20 @@ func fetchManifestHTTP(ctx context.Context, rawURL string) (*Marketplace, error)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "coddy-agent-skills")
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		// Re-run the SSRF guard on every redirect target so a public URL cannot
+		// bounce the request to localhost / private infrastructure.
+		CheckRedirect: func(r *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			if _, err := web.ValidateFetchURL(r.Context(), r.URL.String()); err != nil {
+				return fmt.Errorf("redirect not allowed: %w", err)
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -473,15 +544,42 @@ func AddSource(cfg *config.Config, source string) (bool, error) {
 	if _, err := parseSource(source); err != nil {
 		return false, err
 	}
-	for _, s := range cfg.Skills.Sources {
-		if strings.EqualFold(strings.TrimSpace(s), source) {
-			return false, nil
+	sourceMu.Lock()
+	defer sourceMu.Unlock()
+	return applySourceChange(cfg, func(current []string) ([]string, bool, error) {
+		for _, s := range current {
+			if strings.EqualFold(strings.TrimSpace(s), source) {
+				return current, false, nil
+			}
+		}
+		return append(append([]string(nil), current...), source), true, nil
+	})
+}
+
+// applySourceChange reloads the on-disk config so a stale in-memory *Config
+// cannot clobber unrelated settings, lets mutate compute the new source list
+// from the current on-disk sources, persists only when it changed, and mirrors
+// the result back into cfg. Callers hold sourceMu.
+func applySourceChange(cfg *config.Config, mutate func(current []string) (next []string, changed bool, err error)) (bool, error) {
+	fresh := cfg
+	if strings.TrimSpace(cfg.Paths.ConfigPath) != "" {
+		if reloaded, err := config.LoadWithPaths(cfg.Paths); err == nil && reloaded != nil {
+			fresh = reloaded
 		}
 	}
-	cfg.Skills.Sources = append(cfg.Skills.Sources, source)
-	if err := persistConfig(cfg); err != nil {
+	next, changed, err := mutate(fresh.Skills.Sources)
+	if err != nil {
 		return false, err
 	}
+	if !changed {
+		cfg.Skills.Sources = append([]string(nil), fresh.Skills.Sources...)
+		return false, nil
+	}
+	fresh.Skills.Sources = next
+	if err := persistConfig(fresh); err != nil {
+		return false, err
+	}
+	cfg.Skills.Sources = append([]string(nil), next...)
 	return true, nil
 }
 
@@ -577,6 +675,8 @@ func UpdateSkill(ctx context.Context, cfg *config.Config, skillName string) (*Sy
 	if err != nil {
 		return nil, err
 	}
+	syncMu.Lock()
+	defer syncMu.Unlock()
 	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	lock := readRemoteLock(managedDir)
 	ent, ok := lock[name]
@@ -616,7 +716,7 @@ func sourceManifestVersions(ctx context.Context, source string) (map[string]stri
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		clone := filepath.Join(tmp, "repo")
-		if err := gitws.Clone(spec.url, spec.ref, clone); err != nil {
+		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			return nil, err
 		}
 		if mfPath := findMarketplaceFile(clone); mfPath != "" {
@@ -651,55 +751,115 @@ func marketplaceVersions(mf *Marketplace) map[string]string {
 	return out
 }
 
-// compareVersions returns -1, 0, or 1 comparing two dotted numeric versions
-// (an optional leading "v" and any -prerelease/+build suffix are ignored). When
-// either side is not purely numeric it falls back to a lexical comparison.
+// compareVersions returns -1, 0, or 1 comparing two versions using semantic
+// versioning precedence: numeric core fields compare left to right, and when
+// cores are equal a normal release outranks a prerelease (§11). An optional
+// leading "v" and any +build metadata are ignored. When either side has a
+// non-numeric core it falls back to a lexical comparison.
 func compareVersions(a, b string) int {
-	na, oka := numericVersion(a)
-	nb, okb := numericVersion(b)
+	ca, pa, oka := parseSemver(a)
+	cb, pb, okb := parseSemver(b)
 	if oka && okb {
-		for i := 0; i < len(na) || i < len(nb); i++ {
-			var x, y int
-			if i < len(na) {
-				x = na[i]
-			}
-			if i < len(nb) {
-				y = nb[i]
-			}
-			if x != y {
-				if x < y {
-					return -1
-				}
-				return 1
-			}
+		if c := compareCore(ca, cb); c != 0 {
+			return c
 		}
-		return 0
+		return comparePrerelease(pa, pb)
 	}
 	sa := strings.TrimPrefix(strings.TrimSpace(a), "v")
 	sb := strings.TrimPrefix(strings.TrimSpace(b), "v")
 	return strings.Compare(sa, sb)
 }
 
-// numericVersion parses "v1.2.3" / "1.2.3-rc1" into [1 2 3]; ok is false when a
-// core field is not an integer.
-func numericVersion(v string) ([]int, bool) {
+// parseSemver splits "v1.2.3-rc.1+build" into the numeric core [1 2 3] and the
+// prerelease string ("rc.1"); ok is false when the core is not all-integer.
+func parseSemver(v string) (core []int, prerelease string, ok bool) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 	if v == "" {
-		return nil, false
+		return nil, "", false
 	}
-	if i := strings.IndexAny(v, "-+"); i >= 0 {
+	if i := strings.IndexByte(v, '+'); i >= 0 { // drop build metadata
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 { // split off prerelease
+		prerelease = v[i+1:]
 		v = v[:i]
 	}
 	parts := strings.Split(v, ".")
-	out := make([]int, 0, len(parts))
+	core = make([]int, 0, len(parts))
 	for _, p := range parts {
 		n, err := strconv.Atoi(strings.TrimSpace(p))
 		if err != nil {
-			return nil, false
+			return nil, "", false
 		}
-		out = append(out, n)
+		core = append(core, n)
 	}
-	return out, true
+	return core, prerelease, true
+}
+
+// compareCore compares dotted numeric fields, treating a missing field as 0.
+func compareCore(a, b []int) int {
+	for i := 0; i < len(a) || i < len(b); i++ {
+		var x, y int
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// comparePrerelease implements semver §11 precedence for the prerelease part:
+// an empty prerelease (a release) outranks any prerelease; otherwise dot-
+// separated identifiers compare field by field (numeric < alphanumeric, numeric
+// numerically, alphanumeric lexically), and a shorter set of fields is lower.
+func comparePrerelease(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return 1
+	}
+	if b == "" {
+		return -1
+	}
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		if i >= len(as) {
+			return -1
+		}
+		if i >= len(bs) {
+			return 1
+		}
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		switch {
+		case aerr == nil && berr == nil:
+			if an != bn {
+				if an < bn {
+					return -1
+				}
+				return 1
+			}
+		case aerr == nil: // numeric identifiers are lower than alphanumeric
+			return -1
+		case berr == nil:
+			return 1
+		default:
+			if c := strings.Compare(as[i], bs[i]); c != 0 {
+				return c
+			}
+		}
+	}
+	return 0
 }
 
 // ---- source management ----
@@ -722,23 +882,20 @@ func RemoveSource(cfg *config.Config, source string) (bool, error) {
 	if source == "" {
 		return false, fmt.Errorf("empty source")
 	}
-	kept := make([]string, 0, len(cfg.Skills.Sources))
-	removed := false
-	for _, s := range cfg.Skills.Sources {
-		if strings.EqualFold(strings.TrimSpace(s), source) {
-			removed = true
-			continue
+	sourceMu.Lock()
+	defer sourceMu.Unlock()
+	return applySourceChange(cfg, func(current []string) ([]string, bool, error) {
+		kept := make([]string, 0, len(current))
+		removed := false
+		for _, s := range current {
+			if strings.EqualFold(strings.TrimSpace(s), source) {
+				removed = true
+				continue
+			}
+			kept = append(kept, s)
 		}
-		kept = append(kept, s)
-	}
-	if !removed {
-		return false, nil
-	}
-	cfg.Skills.Sources = kept
-	if err := persistConfig(cfg); err != nil {
-		return false, err
-	}
-	return true, nil
+		return kept, removed, nil
+	})
 }
 
 func persistConfig(cfg *config.Config) error {

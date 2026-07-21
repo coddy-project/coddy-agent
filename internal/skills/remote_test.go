@@ -373,7 +373,11 @@ func TestCompareVersions(t *testing.T) {
 		{"v1.2.3", "1.2.3", 0},  // leading v ignored
 		{"1.0", "1.0.0", 0},     // missing fields treated as zero
 		{"1.0.1", "1.0", 1},
-		{"1.0.0-rc1", "1.0.0", 0}, // prerelease suffix ignored for core compare
+		{"1.0.0-rc1", "1.0.0", -1},  // a prerelease is lower than the release (semver §11)
+		{"1.0.0", "1.0.0-rc1", 1},   // and the release outranks the prerelease
+		{"1.0.0-alpha", "1.0.0-beta", -1}, // prerelease identifiers compare lexically
+		{"1.0.0-rc.1", "1.0.0-rc.2", -1},  // numeric prerelease fields compare numerically
+		{"1.0.0+build", "1.0.0", 0},       // build metadata is ignored
 		{"2.0.0", "1.9.9", 1},
 		{"abc", "abd", -1},    // non-numeric lexical fallback
 		{"1.0.0", "1.0.0a", 0}, // "1.0.0a" not numeric -> both stripped compare "1.0.0" vs "1.0.0a"? see note
@@ -558,5 +562,77 @@ func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
 	// Updating a non-remote skill errors.
 	if _, err := UpdateSkill(context.Background(), cfg, "not-installed"); err == nil {
 		t.Error("expected error updating unknown skill")
+	}
+}
+
+func TestCopySkillDirSkipsSymlinks(t *testing.T) {
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: s\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlink inside the skill dir pointing at a host file must not be copied.
+	secretDir := t.TempDir()
+	secret := filepath.Join(secretDir, "secret.txt")
+	if err := os.WriteFile(secret, []byte("SECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(src, "leak")); err != nil {
+		t.Skip("symlinks not supported on this platform")
+	}
+	dst := filepath.Join(t.TempDir(), "out")
+	if err := copySkillDir(src, dst); err != nil {
+		t.Fatalf("copySkillDir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "SKILL.md")); err != nil {
+		t.Errorf("regular file should be copied: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dst, "leak")); !os.IsNotExist(err) {
+		t.Errorf("symlink should be skipped, err=%v", err)
+	}
+}
+
+func TestSafeCloneBlocksLoopbackHTTP(t *testing.T) {
+	// An http(s) clone URL pointing at loopback/private must be refused by the
+	// SSRF guard before any git process runs.
+	dest := filepath.Join(t.TempDir(), "d")
+	if err := safeClone("http://127.0.0.1/x.git", "", dest); err == nil {
+		t.Error("expected loopback http clone to be blocked")
+	}
+	if err := safeClone("https://localhost/x.git", "", dest); err == nil {
+		t.Error("expected localhost https clone to be blocked")
+	}
+}
+
+func TestAddRemoveSourceDoNotClobberConfig(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	// A config carrying an unrelated field that must survive source mutations.
+	if err := os.WriteFile(cfgPath, []byte("agent:\n  max_turns: 17\nskills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddSource(cfg, "owner/repo"); err != nil {
+		t.Fatalf("AddSource: %v", err)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Agent.MaxTurns != 17 {
+		t.Errorf("unrelated field clobbered: max_turns = %d, want 17", reloaded.Agent.MaxTurns)
+	}
+	if len(reloaded.Skills.Sources) != 1 || reloaded.Skills.Sources[0] != "owner/repo" {
+		t.Errorf("source not persisted: %v", reloaded.Skills.Sources)
+	}
+	// Remove leaves the unrelated field intact too.
+	if _, err := RemoveSource(cfg, "owner/repo"); err != nil {
+		t.Fatalf("RemoveSource: %v", err)
+	}
+	reloaded2, _ := config.Load(cfgPath)
+	if reloaded2.Agent.MaxTurns != 17 || len(reloaded2.Skills.Sources) != 0 {
+		t.Errorf("after remove: max_turns=%d sources=%v", reloaded2.Agent.MaxTurns, reloaded2.Skills.Sources)
 	}
 }

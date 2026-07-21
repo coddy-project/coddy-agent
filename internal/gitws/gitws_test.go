@@ -207,3 +207,18 @@ func TestBranchDirName(t *testing.T) {
 		}
 	}
 }
+
+func TestCloneRejectsOptionLikeArgs(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	dest := filepath.Join(t.TempDir(), "dest")
+	// A URL or ref that starts with "-" must be rejected, not passed to git
+	// where it would be parsed as a flag (option injection).
+	if err := Clone("--upload-pack=touch pwned", "", dest); err == nil {
+		t.Error("expected rejection of option-like url")
+	}
+	if err := Clone("https://example.com/x.git", "--foo", dest); err == nil {
+		t.Error("expected rejection of option-like ref")
+	}
+}

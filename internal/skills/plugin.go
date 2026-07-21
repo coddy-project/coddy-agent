@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
-	"github.com/EvilFreelancer/coddy-agent/internal/gitws"
 )
 
 // SourceStatus describes whether a configured marketplace source resolves to a
@@ -70,7 +69,7 @@ func probeSource(ctx context.Context, src string) SourceStatus {
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		clone := filepath.Join(tmp, "repo")
-		if err := gitws.Clone(spec.url, spec.ref, clone); err != nil {
+		if err := safeClone(spec.url, spec.ref, clone); err != nil {
 			st.Standard = "unreachable"
 			st.Error = err.Error()
 			return st

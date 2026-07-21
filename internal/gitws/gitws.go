@@ -50,14 +50,26 @@ func Clone(url, ref, dest string) error {
 	if !GitAvailable() {
 		return fmt.Errorf("git binary not found on PATH")
 	}
-	if strings.TrimSpace(url) == "" {
+	url = strings.TrimSpace(url)
+	if url == "" {
 		return fmt.Errorf("empty clone url")
 	}
-	args := []string{"clone", "--depth", "1"}
-	if strings.TrimSpace(ref) != "" {
+	// A url or ref beginning with "-" would be parsed as a git option; reject it
+	// rather than let it inject flags (e.g. --upload-pack).
+	if strings.HasPrefix(url, "-") {
+		return fmt.Errorf("refusing clone url that looks like an option: %q", url)
+	}
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("refusing ref that looks like an option: %q", ref)
+	}
+	// Disable the ext:: transport (arbitrary command execution via clone URL).
+	args := []string{"-c", "protocol.ext.allow=never", "clone", "--depth", "1"}
+	if ref != "" {
 		args = append(args, "--branch", ref)
 	}
-	args = append(args, url, dest)
+	// "--" stops option parsing so url/dest are always positional arguments.
+	args = append(args, "--", url, dest)
 	// Run from the parent so a relative dest resolves predictably.
 	_, err := runGit(filepath.Dir(dest), args...)
 	return err

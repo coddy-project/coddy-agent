@@ -145,6 +145,11 @@ func loadFromDir(dir string) ([]*Skill, error) {
 	var skills []*Skill
 	for _, e := range entries {
 		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			// Skip dotfiles/dirs: .git, .remote.json, and the transient
+			// .tmp-/.bak- staging dirs used while syncing remote skills.
+			continue
+		}
 		full := filepath.Join(dir, name)
 		fi, err := os.Stat(full)
 		if err != nil {
