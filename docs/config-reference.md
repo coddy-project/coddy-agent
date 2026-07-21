@@ -218,6 +218,14 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
 | `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
 
+## `ui`
+
+Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful with `-tags http,ui`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
+
 ## `scheduler`
 
 Cron scheduler (`config.SchedulerConfig`, `internal/config/scheduler.go`; `scheduler` build tag). Job file format is described in [config.md](config.md#scheduler-optional-build).

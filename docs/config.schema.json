@@ -459,6 +459,19 @@
         }
       }
     },
+    "ui": {
+      "type": "object",
+      "title": "Embedded web UI",
+      "description": "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui).",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Serve the embedded SPA at GET /. Defaults to true; set false to run an API-only server (the API still requires httpserver.auth_token when configured).",
+          "default": true
+        }
+      }
+    },
     "scheduler": {
       "type": "object",
       "title": "Cron scheduler",

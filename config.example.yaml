@@ -156,6 +156,12 @@ tools:
 #     - name: "prod box"
 #       url: "https://box.example:12345"
 
+# Embedded web UI (only with -tags http,ui). Set enabled: false to run an API-only server
+# (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
+# requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
+# ui:
+#   enabled: true
+
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
 # (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,

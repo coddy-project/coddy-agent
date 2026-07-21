@@ -380,7 +380,7 @@ func TestRemoteAPIFeature(t *testing.T) {
 		ScenarioInitializer: initializeRemoteScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features/remote_api.feature"},
+			Paths:    []string{"../../features/remote_api.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

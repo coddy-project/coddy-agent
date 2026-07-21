@@ -479,7 +479,7 @@ func TestWorkspaceSwitchingFeature(t *testing.T) {
 		ScenarioInitializer: initializeWorkspaceScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features/workspace_switching.feature"},
+			Paths:    []string{"../../features/workspace_switching.feature"},
 			TestingT: t,
 			Strict:   true,
 		},

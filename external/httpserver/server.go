@@ -89,7 +89,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	} else {
 		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
 	}
-	mountEmbeddedSPARoot(s.mux)
+	mountEmbeddedSPARoot(s)
 	return s
 }
 

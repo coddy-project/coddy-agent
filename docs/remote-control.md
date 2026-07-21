@@ -19,7 +19,7 @@ point the UI at it from another origin. Shipped:
   route-scoped `?access_token=` on the composer-stream SSE GET.
 - **UI environment selector** (Settings → Environment): a global `fetch` shim points the SPA at a
   remote `coddy http` + bearer token (stored client-side), or back to Local.
-- **e2e parity proof**: `external/httpserver/features/remote_api.feature` (godog) +
+- **e2e parity proof**: `features/remote_api.feature` (godog) +
   `examples/httpserver/http_e2e_remote.py` — remote == local for auth, cwd change, session load,
   streaming, config redaction, and local fallback.
 
