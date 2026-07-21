@@ -15,7 +15,9 @@ import (
 func (s *Server) registerSkillsManagementRoutes() {
 	s.mux.HandleFunc("GET /coddy/skills", s.coddySkillsGet)
 	s.mux.HandleFunc("GET /coddy/skills/updates", s.coddySkillsUpdatesGet)
+	s.mux.HandleFunc("GET /coddy/skills/available", s.coddySkillsAvailableGet)
 	s.mux.HandleFunc("GET /coddy/skills/sources", s.coddySkillsSourcesGet)
+	s.mux.HandleFunc("POST /coddy/skills/install", s.coddySkillsInstallPost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/enable", s.coddySkillsEnablePost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/disable", s.coddySkillsDisablePost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/update", s.coddySkillsUpdatePost)
@@ -235,6 +237,60 @@ func (s *Server) coddySkillsUpdatesGet(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"object": "coddy.skills_updates",
 		"items":  statuses,
+	})
+}
+
+// coddySkillsAvailableGet lists installable plugins advertised by the configured
+// marketplaces (network / git access), each flagged with whether it is already
+// installed. Backs the browse/filter install control.
+func (s *Server) coddySkillsAvailableGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	items, err := skills.AvailablePlugins(r.Context(), s.activeCfg(), s.defaultCWD)
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "coddy.skills_available",
+		"items":  items,
+	})
+}
+
+type skillInstallRequest struct {
+	Source string `json:"source"`
+	Plugin string `json:"plugin"`
+}
+
+// coddySkillsInstallPost installs a single plugin from a marketplace source.
+func (s *Server) coddySkillsInstallPost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var req skillInstallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error":{"message":"invalid request body"}}`, http.StatusBadRequest)
+		return
+	}
+	res, err := skills.InstallPlugin(r.Context(), s.activeCfg(), req.Source, req.Plugin)
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusBadRequest)
+		return
+	}
+	s.invalidateSlashCache()
+	slog.Info("plugin installed", "source", req.Source, "plugin", req.Plugin, "added", len(res.Added), "updated", len(res.Updated))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"added":   res.Added,
+		"updated": res.Updated,
+		"failed":  res.Failed,
 	})
 }
 

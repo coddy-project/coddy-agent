@@ -698,3 +698,55 @@ func TestSyncSourceSingle(t *testing.T) {
 		t.Errorf("demo not installed by SyncSource: %v", err)
 	}
 }
+
+func TestAvailablePluginsAndInstallPlugin(t *testing.T) {
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	repo := t.TempDir()
+	writeMarketplaceManifest(t, repo, "demo", "1.0.0")
+	gitCommitAllRepo(t, repo, true, "v1")
+
+	home := t.TempDir()
+	fileURL := "file://" + filepath.ToSlash(repo)
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home},
+		Skills: config.Skills{Dirs: []string{filepath.Join(home, "skills")}, Sources: []string{fileURL}},
+	}
+	ctx := context.Background()
+
+	// Before install: demo is available and not installed.
+	avail, err := AvailablePlugins(ctx, cfg, ".")
+	if err != nil {
+		t.Fatalf("AvailablePlugins: %v", err)
+	}
+	if len(avail) != 1 || avail[0].Name != "demo" || avail[0].Installed {
+		t.Fatalf("unexpected available: %+v", avail)
+	}
+
+	// Install just that plugin.
+	res, err := InstallPlugin(ctx, cfg, fileURL, "demo")
+	if err != nil {
+		t.Fatalf("InstallPlugin: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("install failures: %+v", res.Failed)
+	}
+	if _, err := os.Stat(filepath.Join(home, "skills", "demo", "SKILL.md")); err != nil {
+		t.Fatalf("demo not installed: %v", err)
+	}
+
+	// After install: demo is marked installed.
+	avail2, err := AvailablePlugins(ctx, cfg, ".")
+	if err != nil {
+		t.Fatalf("AvailablePlugins 2: %v", err)
+	}
+	if len(avail2) != 1 || !avail2[0].Installed {
+		t.Fatalf("demo should be installed: %+v", avail2)
+	}
+
+	// Installing an unknown plugin errors.
+	if _, err := InstallPlugin(ctx, cfg, fileURL, "nope"); err == nil {
+		t.Error("expected error installing unknown plugin")
+	}
+}

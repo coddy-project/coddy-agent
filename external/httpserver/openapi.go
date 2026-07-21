@@ -913,6 +913,43 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/skills/available": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List installable marketplace plugins",
+					"description": "Fetches every configured marketplace manifest (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"operationId": "listAvailablePlugins",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/install": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Install one plugin from a marketplace",
+					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises).",
+					"operationId": "installPlugin",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "Configured marketplace source the plugin comes from."},
+										"plugin": map[string]string{"type": "string", "description": "Plugin name to install."},
+									},
+									"required": []interface{}{"source", "plugin"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Install result (added/updated/failed)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/skills/updates": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Check installed remote skills for updates",

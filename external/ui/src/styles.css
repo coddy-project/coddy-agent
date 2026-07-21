@@ -6031,6 +6031,57 @@ textarea#composer {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* Install control at the top of the Installed skills box: a filter input over a
+   dropdown of installable marketplace plugins, each with a Download/install. */
+.skills-install {
+  margin-bottom: 12px;
+}
+
+.skills-install-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-install-results {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 8px;
+  background: var(--coddy-surface-field);
+}
+
+.skills-install-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.skills-install-result:hover {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.skills-install-result-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-install-result > button {
+  flex: 0 0 auto;
+}
+
+.skills-install-empty {
+  padding: 8px;
+}
+
 @media (max-width: 1199px) {
   .settings-tabs-layout {
     flex-direction: column;

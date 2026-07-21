@@ -817,6 +817,164 @@ func UpdateSkill(ctx context.Context, cfg *config.Config, skillName string) (*Sy
 	return res, nil
 }
 
+// AvailablePlugin is one installable plugin advertised by a configured
+// marketplace, for the "install skills" browse/filter UI.
+type AvailablePlugin struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version,omitempty"`
+	Source      string `json:"source"`    // the configured source it comes from
+	Installed   bool   `json:"installed"` // already present on disk
+}
+
+// AvailablePlugins fetches every configured marketplace manifest (network / git)
+// and returns the plugins they advertise, flagged with whether each is already
+// installed. Sources that cannot be reached are skipped best-effort.
+func AvailablePlugins(ctx context.Context, cfg *config.Config, cwd string) ([]AvailablePlugin, error) {
+	if strings.TrimSpace(cwd) == "" {
+		cwd = "."
+	}
+	installed := map[string]bool{}
+	loader := NewLoader(cfg.Skills.Dirs)
+	if loaded, err := loader.LoadAll(cwd, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home)); err == nil {
+		for _, sk := range loaded {
+			installed[CanonicalCommandName(sk)] = true
+		}
+	}
+	seen := map[string]bool{}
+	out := []AvailablePlugin{}
+	for _, src := range ListSources(cfg) {
+		mf, err := fetchSourceManifest(ctx, src)
+		if err != nil || mf == nil {
+			continue
+		}
+		for _, p := range mf.Plugins {
+			name := strings.TrimSpace(p.Name)
+			if name == "" {
+				continue
+			}
+			key := src + "\x00" + name
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, AvailablePlugin{
+				Name:        name,
+				Description: strings.TrimSpace(p.Description),
+				Version:     strings.TrimSpace(p.Version),
+				Source:      src,
+				Installed:   installed[name],
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// InstallPlugin installs a single plugin from a marketplace source (rather than
+// syncing every plugin the source advertises). Backs the browse/filter install UI.
+func InstallPlugin(ctx context.Context, cfg *config.Config, source, pluginName string) (*SyncResult, error) {
+	source = strings.TrimSpace(source)
+	pluginName = strings.TrimSpace(pluginName)
+	if source == "" || pluginName == "" {
+		return nil, fmt.Errorf("install requires a source and a plugin name")
+	}
+	spec, err := parseSource(source)
+	if err != nil {
+		return nil, err
+	}
+	syncMu.Lock()
+	defer syncMu.Unlock()
+	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	if err := os.MkdirAll(managedDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create managed dir: %w", err)
+	}
+	lock := readRemoteLock(managedDir)
+	res := &SyncResult{}
+
+	var mf *Marketplace
+	repoRoot := ""
+	base := RemoteEntry{Source: source}
+	switch spec.kind {
+	case "api":
+		if mf, err = fetchManifestHTTP(ctx, spec.url); err != nil {
+			return nil, err
+		}
+		base.URL = spec.url
+	case "git":
+		tmp, err := os.MkdirTemp("", "coddy-installplugin-")
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		clone := filepath.Join(tmp, "repo")
+		if err := safeClone(spec.url, spec.ref, clone); err != nil {
+			return nil, fmt.Errorf("clone %s: %w", spec.url, err)
+		}
+		base.Repo = spec.url
+		base.Ref = spec.ref
+		mfPath := findMarketplaceFile(clone)
+		if mfPath == "" {
+			return nil, fmt.Errorf("source %q has no marketplace.json to install a named plugin from", source)
+		}
+		if mf, err = parseMarketplace(mfPath); err != nil {
+			return nil, err
+		}
+		repoRoot = clone
+	default:
+		return nil, fmt.Errorf("unsupported source kind %q", spec.kind)
+	}
+
+	var target *MarketplacePlugin
+	for i := range mf.Plugins {
+		if strings.EqualFold(strings.TrimSpace(mf.Plugins[i].Name), pluginName) {
+			target = &mf.Plugins[i]
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("plugin %q not found in %s", pluginName, source)
+	}
+	if err := installPlugin(*target, repoRoot, source, base, managedDir, lock, res); err != nil {
+		res.Failed = append(res.Failed, SyncFailure{Source: source, Error: err.Error()})
+	}
+	if err := writeRemoteLock(managedDir, lock); err != nil {
+		return res, fmt.Errorf("write lock: %w", err)
+	}
+	return res, nil
+}
+
+// fetchSourceManifest fetches a source's agents-standard marketplace manifest
+// (HTTP for API sources, a shallow clone for git sources). Returns an error when
+// the source has no manifest.
+func fetchSourceManifest(ctx context.Context, source string) (*Marketplace, error) {
+	spec, err := parseSource(source)
+	if err != nil {
+		return nil, err
+	}
+	switch spec.kind {
+	case "api":
+		return fetchManifestHTTP(ctx, spec.url)
+	case "git":
+		tmp, err := os.MkdirTemp("", "coddy-mf-")
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		clone := filepath.Join(tmp, "repo")
+		if err := safeClone(spec.url, spec.ref, clone); err != nil {
+			return nil, err
+		}
+		mfPath := findMarketplaceFile(clone)
+		if mfPath == "" {
+			return nil, fmt.Errorf("no marketplace.json in %s", source)
+		}
+		return parseMarketplace(mfPath)
+	default:
+		return nil, fmt.Errorf("unsupported source kind %q", spec.kind)
+	}
+}
+
 // sourceManifestVersions fetches a source's marketplace manifest and returns a
 // pluginName -> version map. For a plain repo with no manifest it maps each
 // discovered skill's frontmatter version by skill name instead.
