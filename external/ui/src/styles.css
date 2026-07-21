@@ -6012,6 +6012,13 @@ textarea#composer {
   width: 100%;
 }
 
+/* Inputs in array rows (dirs / sources) match the 40px icon buttons beside
+   them, so field and buttons line up instead of the input sitting short. */
+.settings-array-row .settings-input {
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
 /* Trailing action buttons in a skill row never shrink, so the Update / switch /
    Delete controls keep a consistent size regardless of description length. */
 .skills-list-item > button {
