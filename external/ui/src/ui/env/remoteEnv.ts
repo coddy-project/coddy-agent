@@ -86,6 +86,13 @@ export function snapshotEnv(): CoddyEnv {
   return getEnv();
 }
 
+/** envStorageSuffix is a stable per-environment key for namespacing browser storage (e.g. the
+ * workspace folder recents), so each remote remembers its own last paths. */
+export function envStorageSuffix(): string {
+  const env = getEnv();
+  return env.mode === "local" ? "local" : "remote:" + env.baseUrl;
+}
+
 // Per-remote bearer tokens, kept in this browser only, so re-selecting a known remote from the
 // composer menu is one click instead of re-typing the token every time.
 const TOKENS_KEY = "coddy_env_tokens";

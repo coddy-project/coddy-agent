@@ -3364,10 +3364,24 @@ textarea#composer {
   margin-top: 2px;
 }
 
-/* Environment chip (composer bar): local / remote coddy http selector. */
-.composer-tab.mode-btn.mode-env {
-  display: inline-flex;
+/* Environment selector: workspace-row chip + local/remote menu. */
+
+/* Top workspace-context row now hosts the env chip alongside folder/branch/worktree. */
+.composer-context-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+.composer-context-row > .composer-context-chips {
+  padding: 0;
+}
+.workspace-chip-wrap {
+  display: inline-flex;
+}
+
+.workspace-chip--env {
   gap: 6px;
 }
 
@@ -3393,10 +3407,44 @@ textarea#composer {
   width: min(300px, calc(100vw - 24px));
 }
 
+/* Menu rows: [status dot] [name] … [host]. */
+.mode-env-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-env-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-env-sub {
-  margin-left: 6px;
+  margin-left: auto;
   font-size: 0.85em;
-  opacity: 0.55;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+/* Reachability dots: green up, red down, amber while probing (local is always up). */
+.env-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+.env-status[data-state="up"],
+.env-status[data-state="local"] {
+  background: #22c55e;
+}
+.env-status[data-state="down"] {
+  background: #ef4444;
+}
+.env-status[data-state="checking"] {
+  background: #f59e0b;
 }
 
 .mode-menu-form {

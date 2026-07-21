@@ -4,7 +4,6 @@ import {
   connectLocal,
   connectRemote,
   getRemoteToken,
-  hasRemoteToken,
   localFetch,
   snapshotEnv,
   subscribeEnv,
@@ -16,20 +15,21 @@ import {
 } from "../shellBreakpoint";
 
 type Remote = { name: string; url: string };
+type Health = "checking" | "up" | "down";
 
 function hostLabel(url: string): string {
   return url.replace(/^https?:\/\//, "");
 }
-
 function normUrl(url: string): string {
   return url.trim().replace(/\/+$/, "");
 }
 
 /**
- * EnvironmentChip is the composer-bar environment selector (Claude-Code style): a chip that opens
- * a menu to point the UI at the local server or a remote coddy http, without leaving the composer.
- * The choice and per-remote bearer tokens are stored in this browser only; connecting reloads so
- * every request targets the chosen backend.
+ * EnvironmentChip is the composer environment selector, shown in the workspace-context row above
+ * the input (next to the folder / branch / worktree chips), Claude-Code style. Selecting an entry
+ * connects immediately (no confirm step): the choice and per-remote token live in this browser
+ * only, and the app reloads so sessions, models, and mode all come from the chosen backend. The
+ * menu shows a reachability dot per remote (green up, red down, yellow while probing).
  */
 export function EnvironmentChip() {
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
@@ -41,10 +41,7 @@ export function EnvironmentChip() {
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const [pending, setPending] = useState<{ url: string; name: string } | null>(
-    null,
-  );
-  const [pendingToken, setPendingToken] = useState("");
+  const [health, setHealth] = useState<Record<string, Health>>({});
   const [adding, setAdding] = useState(false);
   const [addName, setAddName] = useState("");
   const [addUrl, setAddUrl] = useState("");
@@ -77,39 +74,46 @@ export function EnvironmentChip() {
     };
   }, []);
 
-  const label =
-    env.mode === "local" ? "Local" : env.name || hostLabel(env.baseUrl);
+  // Probe a remote's reachability (cross-origin, so it also verifies CORS + the saved token).
+  const probe = (url: string) => {
+    const key = normUrl(url);
+    setHealth((h) => ({ ...h, [key]: "checking" }));
+    const token = getRemoteToken(url);
+    localFetch(key + "/v1/models", {
+      headers: token ? { Authorization: "Bearer " + token } : {},
+      signal: AbortSignal.timeout(4000),
+    })
+      .then((res) =>
+        setHealth((h) => ({ ...h, [key]: res.ok ? "up" : "down" })),
+      )
+      .catch(() => setHealth((h) => ({ ...h, [key]: "down" })));
+  };
 
   const openMenu = () => {
     if (btnRef.current) setAnchor(btnRef.current.getBoundingClientRect());
-    setPending(null);
     setAdding(false);
     setOpen(true);
+    remotes.forEach((r) => probe(r.url));
   };
   const closeMenu = () => {
     setOpen(false);
-    setPending(null);
     setAdding(false);
   };
 
-  const chooseRemote = (r: Remote) => {
-    if (hasRemoteToken(r.url)) {
-      connectRemote(r.url, getRemoteToken(r.url), r.name);
-      return;
-    }
-    setAdding(false);
-    setPendingToken("");
-    setPending({ url: r.url, name: r.name });
-  };
-
+  const label =
+    env.mode === "local" ? "Local" : env.name || hostLabel(env.baseUrl);
   const useSheet = isMobileShell;
 
+  const dot = (state: Health | "local") => (
+    <span className="env-status" data-state={state} aria-hidden="true" />
+  );
+
   return (
-    <div className="mode">
+    <div className="workspace-chip-wrap">
       <button
         ref={btnRef}
         type="button"
-        className="composer-tab mode-btn mode-env"
+        className="workspace-chip workspace-chip--env"
         aria-label="Environment"
         title="Environment (local or remote coddy http)"
         aria-haspopup="menu"
@@ -117,12 +121,17 @@ export function EnvironmentChip() {
         data-testid="composer-env-btn"
         onClick={() => (open ? closeMenu() : openMenu())}
       >
+        <span className="workspace-chip-icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+            <path d="M2.5 2.75c0-.41.34-.75.75-.75h9.5c.41 0 .75.34.75.75v7.5c0 .41-.34.75-.75.75h-9.5a.75.75 0 0 1-.75-.75v-7.5Zm1 .75v6h8v-6h-8ZM1 12.5h14v1H1v-1Z" />
+          </svg>
+        </span>
+        <span className="workspace-chip-label">{label}</span>
         <span
           className="mode-env-dot"
           aria-hidden="true"
           data-remote={env.mode === "remote" ? "1" : undefined}
         />
-        {label}
       </button>
       {open && (useSheet || anchor)
         ? createPortal(
@@ -160,11 +169,12 @@ export function EnvironmentChip() {
                 <button
                   type="button"
                   role="menuitem"
-                  className={`mode-item ${env.mode === "local" ? "is-selected" : ""}`}
+                  className={`mode-item mode-env-item ${env.mode === "local" ? "is-selected" : ""}`}
                   data-testid="composer-env-local"
                   onClick={() => connectLocal()}
                 >
-                  Local (this origin)
+                  {dot("local")}
+                  <span className="mode-env-name">Local (this origin)</span>
                 </button>
 
                 {remotes.length ? (
@@ -178,64 +188,22 @@ export function EnvironmentChip() {
                       key={r.url}
                       type="button"
                       role="menuitem"
-                      className={`mode-item ${active ? "is-selected" : ""}`}
+                      className={`mode-item mode-env-item ${active ? "is-selected" : ""}`}
                       title={r.url}
-                      onClick={() => chooseRemote(r)}
+                      onClick={() =>
+                        connectRemote(r.url, getRemoteToken(r.url), r.name)
+                      }
                     >
-                      {r.name || hostLabel(r.url)}
-                      <span className="mode-env-sub">— {hostLabel(r.url)}</span>
+                      {dot(health[normUrl(r.url)] ?? "checking")}
+                      <span className="mode-env-name">
+                        {r.name || hostLabel(r.url)}
+                      </span>
+                      <span className="mode-env-sub">{hostLabel(r.url)}</span>
                     </button>
                   );
                 })}
 
-                {pending ? (
-                  <div className="mode-menu-form">
-                    <div className="mode-menu-form-title">
-                      Token for {pending.name || hostLabel(pending.url)}
-                    </div>
-                    <input
-                      className="mode-menu-filter"
-                      type="password"
-                      autoComplete="off"
-                      autoFocus
-                      placeholder="bearer token (empty if none)"
-                      value={pendingToken}
-                      onChange={(e) => setPendingToken(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          connectRemote(
-                            pending.url,
-                            pendingToken.trim(),
-                            pending.name,
-                          );
-                        }
-                      }}
-                    />
-                    <div className="mode-menu-form-actions">
-                      <button
-                        type="button"
-                        className="mode-item"
-                        onClick={() =>
-                          connectRemote(
-                            pending.url,
-                            pendingToken.trim(),
-                            pending.name,
-                          )
-                        }
-                      >
-                        Connect
-                      </button>
-                      <button
-                        type="button"
-                        className="mode-item"
-                        onClick={() => setPending(null)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : adding ? (
+                {adding ? (
                   <div className="mode-menu-form">
                     <div className="mode-menu-form-title">Add a remote</div>
                     <input
@@ -260,6 +228,16 @@ export function EnvironmentChip() {
                       placeholder="bearer token (empty if none)"
                       value={addToken}
                       onChange={(e) => setAddToken(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && addUrl.trim()) {
+                          e.preventDefault();
+                          connectRemote(
+                            addUrl.trim(),
+                            addToken.trim(),
+                            addName.trim() || addUrl.trim(),
+                          );
+                        }
+                      }}
                     />
                     <div className="mode-menu-form-actions">
                       <button
@@ -291,10 +269,7 @@ export function EnvironmentChip() {
                     role="menuitem"
                     className="mode-item mode-env-add"
                     data-testid="composer-env-add"
-                    onClick={() => {
-                      setPending(null);
-                      setAdding(true);
-                    }}
+                    onClick={() => setAdding(true)}
                   >
                     + Add remote…
                   </button>

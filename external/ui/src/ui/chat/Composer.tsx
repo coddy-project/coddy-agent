@@ -1126,17 +1126,20 @@ export function Composer(props: {
           Message
         </label>
         <div className="composer-card" ref={composerCardRef}>
-          {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
-            <WorkspaceChips
-              context={props.workspaceCtx ?? null}
-              worktreePref={props.worktreePref ?? false}
-              onPickFolder={props.onWorkspacePickFolder}
-              onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
-              onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
-              opensUp={!props.isEmpty}
-              locked={props.workspaceLocked ?? false}
-            />
-          ) : null}
+          <div className="composer-context-row">
+            <EnvironmentChip />
+            {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
+              <WorkspaceChips
+                context={props.workspaceCtx ?? null}
+                worktreePref={props.worktreePref ?? false}
+                onPickFolder={props.onWorkspacePickFolder}
+                onPickBranch={props.onWorkspacePickBranch ?? (() => {})}
+                onWorktreeToggle={props.onWorktreeToggle ?? (() => {})}
+                opensUp={!props.isEmpty}
+                locked={props.workspaceLocked ?? false}
+              />
+            ) : null}
+          </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
             <div className="composer-attachments" aria-label="Attached files">
@@ -1379,7 +1382,6 @@ export function Composer(props: {
 
           <div className="composer-bar">
             <div className="composer-tabs" aria-label="Composer options">
-              <EnvironmentChip />
               {props.llmModelMultimodal ? (
                 <>
                   <input
