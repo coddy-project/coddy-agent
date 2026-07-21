@@ -6006,6 +6006,24 @@ textarea#composer {
   flex-shrink: 0;
 }
 
+/* Full-width source input in the Remote skill sources editor (the field flexes,
+   but a bare <input> is content-width unless told to fill). */
+.settings-array-row-field > .settings-input {
+  width: 100%;
+}
+
+/* Trailing action buttons in a skill row never shrink, so the Update / switch /
+   Delete controls keep a consistent size regardless of description length. */
+.skills-list-item > button {
+  flex: 0 0 auto;
+}
+
+/* Transient success state on a Sync button (checkmark flash after a sync). */
+.settings-btn.is-synced {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 @media (max-width: 1199px) {
   .settings-tabs-layout {
     flex-direction: column;
