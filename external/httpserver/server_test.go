@@ -2429,3 +2429,76 @@ func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
 		t.Fatalf("delete unknown status %d, want 400", del2Res.StatusCode)
 	}
 }
+
+// TestCoddySkillsNewRoutesEdgeCases covers error paths for the version/update
+// and source-management routes without network access.
+func TestCoddySkillsNewRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// GET sources on empty config returns an empty list.
+	res, err := http.Get(ts.URL + "/coddy/skills/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET sources status %d %s", res.StatusCode, sb)
+	}
+	var srcOut struct {
+		Items []string `json:"items"`
+	}
+	if err := json.Unmarshal(sb, &srcOut); err != nil {
+		t.Fatalf("sources body %s: %v", sb, err)
+	}
+	if len(srcOut.Items) != 0 {
+		t.Fatalf("expected no sources, got %v", srcOut.Items)
+	}
+
+	// GET updates with nothing installed returns an empty items list.
+	res2, err := http.Get(ts.URL + "/coddy/skills/updates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ub, _ := ioReadAllClose(res2.Body)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("GET updates status %d %s", res2.StatusCode, ub)
+	}
+
+	// Updating a skill that was never installed from a source fails with 400.
+	upReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/ghost/update", nil)
+	upRes, err := http.DefaultClient.Do(upReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(upRes.Body)
+	if upRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("update unknown skill status %d, want 400", upRes.StatusCode)
+	}
+
+	// Deleting a source without the query parameter fails with 400.
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/sources", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete source without query status %d, want 400", delRes.StatusCode)
+	}
+}

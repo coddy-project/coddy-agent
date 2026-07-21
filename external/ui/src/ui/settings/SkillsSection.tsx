@@ -6,13 +6,36 @@ type InstalledSkill = {
   description: string;
   file_path: string;
   enabled: boolean;
+  version?: string;
   source?: string;
+};
+
+type SkillUpdate = {
+  name: string;
+  source: string;
+  version: string;
+  latest: string;
+  update_available: boolean;
 };
 
 async function fetchInstalled(): Promise<InstalledSkill[]> {
   const res = await fetch("/coddy/skills");
   if (!res.ok) return [];
   const data = (await res.json()) as { items?: InstalledSkill[] };
+  return data.items ?? [];
+}
+
+async function fetchSources(): Promise<string[]> {
+  const res = await fetch("/coddy/skills/sources");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { items?: string[] };
+  return data.items ?? [];
+}
+
+async function fetchUpdates(): Promise<SkillUpdate[]> {
+  const res = await fetch("/coddy/skills/updates");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { items?: SkillUpdate[] };
   return data.items ?? [];
 }
 
@@ -49,10 +72,32 @@ function IconPlug() {
   );
 }
 
+function IconRefresh() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <polyline points="21 3 21 9 15 9" />
+    </svg>
+  );
+}
+
+function IconUpdate() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3v12" />
+      <polyline points="7 10 12 15 17 10" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
 /**
  * SkillsSection is the combined Skills tab: the schema-driven `skills.dirs`
- * editor plus the installed-skills list with enable/disable toggles (folded in
- * from the former Skills flyout).
+ * editor, remote marketplace source management (add / list / remove / sync),
+ * and the installed-skills list with versions, enable/disable, remove, and a
+ * per-skill Update action shown when a newer version is available upstream.
  */
 export function SkillsSection(props: {
   schema: JsonSchema;
@@ -61,18 +106,30 @@ export function SkillsSection(props: {
 }) {
   const { schema, value, onChange } = props;
   const [installed, setInstalled] = useState<InstalledSkill[]>([]);
+  const [sources, setSources] = useState<string[]>([]);
+  const [updates, setUpdates] = useState<Record<string, SkillUpdate>>({});
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sourceInput, setSourceInput] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   const loadInstalled = useCallback(async () => {
     setLoading(true);
-    const data = await fetchInstalled();
+    const [data, srcs] = await Promise.all([fetchInstalled(), fetchSources()]);
     setInstalled(data);
+    setSources(srcs);
     setLoading(false);
+  }, []);
+
+  const refreshUpdates = useCallback(async () => {
+    const ups = await fetchUpdates();
+    const map: Record<string, SkillUpdate> = {};
+    for (const u of ups) map[u.name] = u;
+    setUpdates(map);
+    return map;
   }, []);
 
   useEffect(() => {
@@ -108,6 +165,23 @@ export function SkillsSection(props: {
     })();
   };
 
+  const onUpdateSkill = (skill: InstalledSkill) => {
+    setBusy((p) => ({ ...p, [skill.name]: true }));
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      const res = await apiSend(`/coddy/skills/${encodeURIComponent(skill.name)}/update`, "POST");
+      if (!res.ok) {
+        setError(res.error || "Update failed");
+      } else {
+        setStatus(`Updated ${skill.name}.`);
+        await loadInstalled();
+        await refreshUpdates();
+      }
+      setBusy((p) => ({ ...p, [skill.name]: false }));
+    })();
+  };
+
   const onSync = () => {
     setSyncing(true);
     setError(null);
@@ -118,8 +192,22 @@ export function SkillsSection(props: {
       else {
         setStatus("Sync complete.");
         await loadInstalled();
+        await refreshUpdates();
       }
       setSyncing(false);
+    })();
+  };
+
+  // Refresh the installed list and check every source for newer versions.
+  const onRefresh = () => {
+    setChecking(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      await loadInstalled();
+      await refreshUpdates();
+      setStatus("Skill list refreshed.");
+      setChecking(false);
     })();
   };
 
@@ -135,6 +223,22 @@ export function SkillsSection(props: {
       else {
         setSourceInput("");
         setStatus(`Added and synced ${source}.`);
+        await loadInstalled();
+        await refreshUpdates();
+      }
+      setSyncing(false);
+    })();
+  };
+
+  const onRemoveSource = (source: string) => {
+    setSyncing(true);
+    setError(null);
+    setStatus(null);
+    void (async () => {
+      const res = await apiSend(`/coddy/skills/sources?source=${encodeURIComponent(source)}`, "DELETE");
+      if (!res.ok) setError(res.error || "Failed to remove source");
+      else {
+        setStatus(`Removed source ${source}.`);
         await loadInstalled();
       }
       setSyncing(false);
@@ -189,9 +293,43 @@ export function SkillsSection(props: {
         </button>
       </div>
 
-      <p className="appearance-section-label settings-skills-installed-label">
-        Installed skills
-      </p>
+      {sources.length > 0 ? (
+        <ul className="skills-source-list" data-testid="skills-source-list">
+          {sources.map((src) => (
+            <li key={src} className="skills-source-item">
+              <span className="skills-source-item-name" title={src}>{src}</span>
+              <button
+                type="button"
+                className="settings-btn settings-btn-danger skills-source-item-remove"
+                disabled={syncing}
+                onClick={() => onRemoveSource(src)}
+                title={`Remove source ${src}`}
+                aria-label={`Remove source ${src}`}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div className="skills-installed-header">
+        <p className="appearance-section-label settings-skills-installed-label">
+          Installed skills
+        </p>
+        <button
+          type="button"
+          className="settings-btn skills-refresh-btn"
+          disabled={checking || loading}
+          onClick={onRefresh}
+          title="Refresh the skill list and check sources for newer versions"
+          aria-label="Refresh skills and check for updates"
+          data-testid="skills-refresh"
+        >
+          <IconRefresh />
+          <span>{checking ? "Checking…" : "Refresh"}</span>
+        </button>
+      </div>
       <p className="settings-field-desc">
         You can also install skills via <code>npx skills</code> or <code>npx skillsbd</code> — they
         land in <code>~/.agents/skills/</code> and are picked up automatically.
@@ -207,47 +345,68 @@ export function SkillsSection(props: {
         </p>
       ) : (
         <ul className="skills-list">
-          {installed.map((sk) => (
-            <li
-              key={sk.name}
-              className={`skills-list-item${sk.enabled ? "" : " is-disabled"}`}
-            >
-              <IconPlug />
-              <div className="skills-list-item-text">
-                <div className="skills-list-item-name">
-                  {sk.name}
-                  {sk.source ? (
-                    <span className="skills-list-item-badge" title={`Synced from ${sk.source}`}>
-                      remote
-                    </span>
+          {installed.map((sk) => {
+            const upd = updates[sk.name];
+            const hasUpdate = !!upd?.update_available;
+            return (
+              <li
+                key={sk.name}
+                className={`skills-list-item${sk.enabled ? "" : " is-disabled"}`}
+              >
+                <IconPlug />
+                <div className="skills-list-item-text">
+                  <div className="skills-list-item-name">
+                    {sk.name}
+                    {sk.version ? (
+                      <span className="skills-list-item-version">v{sk.version}</span>
+                    ) : null}
+                    {sk.source ? (
+                      <span className="skills-list-item-badge" title={`Synced from ${sk.source}`}>
+                        remote
+                      </span>
+                    ) : null}
+                  </div>
+                  {sk.description ? (
+                    <div className="skills-list-item-desc">{sk.description}</div>
                   ) : null}
                 </div>
-                {sk.description ? (
-                  <div className="skills-list-item-desc">{sk.description}</div>
+                {hasUpdate ? (
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-primary skills-update-btn"
+                    disabled={!!busy[sk.name]}
+                    onClick={() => onUpdateSkill(sk)}
+                    title={`Update ${sk.name} from v${upd?.version || sk.version || "?"} to v${upd?.latest}`}
+                    aria-label={`Update ${sk.name} to version ${upd?.latest}`}
+                    data-testid={`skills-update-${sk.name}`}
+                  >
+                    <IconUpdate />
+                    <span>Update</span>
+                  </button>
                 ) : null}
-              </div>
-              <button
-                type="button"
-                className="settings-btn skills-list-item-toggle"
-                disabled={!!busy[sk.name]}
-                onClick={() => onToggle(sk)}
-                title={sk.enabled ? "Disable" : "Enable"}
-              >
-                {sk.enabled ? "Disable" : "Enable"}
-              </button>
-              {sk.source ? (
                 <button
                   type="button"
-                  className="settings-btn settings-btn-danger skills-list-item-toggle"
+                  className="settings-btn skills-list-item-toggle"
                   disabled={!!busy[sk.name]}
-                  onClick={() => onRemove(sk)}
-                  title="Remove synced skill"
+                  onClick={() => onToggle(sk)}
+                  title={sk.enabled ? "Disable" : "Enable"}
                 >
-                  Remove
+                  {sk.enabled ? "Disable" : "Enable"}
                 </button>
-              ) : null}
-            </li>
-          ))}
+                {sk.source ? (
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn-danger skills-list-item-toggle"
+                    disabled={!!busy[sk.name]}
+                    onClick={() => onRemove(sk)}
+                    title="Remove synced skill"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

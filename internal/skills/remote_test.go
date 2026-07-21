@@ -360,3 +360,203 @@ func TestAddSourceAndRemoveRemote(t *testing.T) {
 		t.Errorf("expected error removing unknown remote skill")
 	}
 }
+
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		{"1.0.0", "1.0.0", 0},
+		{"1.0.0", "2.0.0", -1},
+		{"2.0.0", "1.0.0", 1},
+		{"1.2.0", "1.10.0", -1}, // numeric, not lexical
+		{"v1.2.3", "1.2.3", 0},  // leading v ignored
+		{"1.0", "1.0.0", 0},     // missing fields treated as zero
+		{"1.0.1", "1.0", 1},
+		{"1.0.0-rc1", "1.0.0", 0}, // prerelease suffix ignored for core compare
+		{"2.0.0", "1.9.9", 1},
+		{"abc", "abd", -1},    // non-numeric lexical fallback
+		{"1.0.0", "1.0.0a", 0}, // "1.0.0a" not numeric -> both stripped compare "1.0.0" vs "1.0.0a"? see note
+	}
+	for _, tc := range tests {
+		got := compareVersions(tc.a, tc.b)
+		// last case: "1.0.0" vs "1.0.0a": a is numeric, b is not -> lexical fallback compares "1.0.0" < "1.0.0a"
+		if tc.a == "1.0.0" && tc.b == "1.0.0a" {
+			if got >= 0 {
+				t.Errorf("compareVersions(%q,%q)=%d, want <0", tc.a, tc.b, got)
+			}
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("compareVersions(%q,%q)=%d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+func TestInstalledVersionPrecedence(t *testing.T) {
+	remote := map[string]RemoteEntry{"synced": {Source: "owner/repo", Version: "1.2.3"}}
+	sk := &Skill{Name: "synced", Version: "9.9.9"}
+	if got := InstalledVersion(remote, "synced", sk); got != "1.2.3" {
+		t.Errorf("lock version should win: got %q", got)
+	}
+	// Falls back to frontmatter when not in the lock.
+	local := &Skill{Name: "local", Version: "0.4.0"}
+	if got := InstalledVersion(remote, "local", local); got != "0.4.0" {
+		t.Errorf("frontmatter fallback: got %q", got)
+	}
+	// Empty when neither known.
+	if got := InstalledVersion(remote, "bare", &Skill{Name: "bare"}); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+	// Lock entry with empty version falls through to frontmatter.
+	remote2 := map[string]RemoteEntry{"x": {Source: "s"}}
+	if got := InstalledVersion(remote2, "x", &Skill{Name: "x", Version: "3.0.0"}); got != "3.0.0" {
+		t.Errorf("empty lock version should fall back: got %q", got)
+	}
+}
+
+func TestMarketplaceVersionsOmitsEmpty(t *testing.T) {
+	mf := &Marketplace{Plugins: []MarketplacePlugin{
+		{Name: "a", Version: "1.0.0"},
+		{Name: "b"}, // no version -> omitted (no false-positive updates)
+		{Name: "c", Version: "2.1.0"},
+	}}
+	got := marketplaceVersions(mf)
+	if got["a"] != "1.0.0" || got["c"] != "2.1.0" {
+		t.Errorf("unexpected versions: %v", got)
+	}
+	if _, ok := got["b"]; ok {
+		t.Errorf("version-less plugin should be omitted: %v", got)
+	}
+}
+
+func TestListSourcesAndRemoveSource(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources:\n    - owner/one\n    - owner/two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, ConfigPath: cfgPath},
+		Skills: config.Skills{Sources: []string{"owner/one", " ", "owner/two"}},
+	}
+
+	// ListSources trims blanks.
+	got := ListSources(cfg)
+	if len(got) != 2 || got[0] != "owner/one" || got[1] != "owner/two" {
+		t.Fatalf("ListSources = %v", got)
+	}
+
+	// Removing an unknown source is a no-op (removed=false, no error).
+	removed, err := RemoveSource(cfg, "owner/missing")
+	if err != nil || removed {
+		t.Fatalf("remove unknown: removed=%v err=%v", removed, err)
+	}
+
+	// Empty source is an error.
+	if _, err := RemoveSource(cfg, "  "); err == nil {
+		t.Fatal("expected error for empty source")
+	}
+
+	// Case-insensitive match, persisted to disk.
+	removed, err = RemoveSource(cfg, "OWNER/ONE")
+	if err != nil || !removed {
+		t.Fatalf("remove existing: removed=%v err=%v", removed, err)
+	}
+	if got := ListSources(cfg); len(got) != 1 || got[0] != "owner/two" {
+		t.Errorf("after remove ListSources = %v", got)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(data), "owner/one") {
+		t.Errorf("removed source still on disk: %s", data)
+	}
+}
+
+// gitCommitAllRepo initializes (if needed) and commits everything in repo.
+func gitCommitAllRepo(t *testing.T, repo string, init bool, msg string) {
+	t.Helper()
+	git := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if init {
+		git("init", "-b", "main")
+	}
+	git("-c", "user.email=c@t", "-c", "user.name=c", "add", "-A")
+	git("-c", "user.email=c@t", "-c", "user.name=c", "commit", "-m", msg)
+}
+
+func writeMarketplaceManifest(t *testing.T, repo, skill, version string) {
+	t.Helper()
+	writeSkill(t, filepath.Join(repo, "skills", skill), skill)
+	if err := os.MkdirAll(filepath.Join(repo, ".claude-plugin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"name":"m","metadata":{"version":"` + version + `"},"plugins":[` +
+		`{"name":"` + skill + `","source":"./skills/` + skill + `","version":"` + version + `"}]}`
+	if err := os.WriteFile(filepath.Join(repo, ".claude-plugin", "marketplace.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSyncRecordsVersionThenCheckAndUpdate(t *testing.T) {
+	if !gitws.GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	repo := t.TempDir()
+	writeMarketplaceManifest(t, repo, "demo", "1.0.0")
+	gitCommitAllRepo(t, repo, true, "v1")
+
+	home := t.TempDir()
+	fileURL := "file://" + filepath.ToSlash(repo)
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home},
+		Skills: config.Skills{Sources: []string{fileURL}},
+	}
+
+	if _, err := Sync(context.Background(), cfg); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	managed := cfg.Skills.ManagedDir(home)
+	if ent := readRemoteLock(managed)["demo"]; ent.Version != "1.0.0" {
+		t.Fatalf("lock version = %q, want 1.0.0", ent.Version)
+	}
+
+	// No update available right after install.
+	ups, err := CheckUpdates(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("CheckUpdates: %v", err)
+	}
+	if len(ups) != 1 || ups[0].Name != "demo" || ups[0].UpdateAvailable {
+		t.Fatalf("unexpected updates: %+v", ups)
+	}
+
+	// Publish a newer version upstream.
+	writeMarketplaceManifest(t, repo, "demo", "2.0.0")
+	gitCommitAllRepo(t, repo, false, "v2")
+
+	ups, err = CheckUpdates(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("CheckUpdates 2: %v", err)
+	}
+	if len(ups) != 1 || !ups[0].UpdateAvailable || ups[0].Latest != "2.0.0" {
+		t.Fatalf("expected update to 2.0.0: %+v", ups)
+	}
+
+	// Applying the update installs it and clears the flag.
+	if _, err := UpdateSkill(context.Background(), cfg, "demo"); err != nil {
+		t.Fatalf("UpdateSkill: %v", err)
+	}
+	if ent := readRemoteLock(managed)["demo"]; ent.Version != "2.0.0" {
+		t.Fatalf("post-update lock version = %q, want 2.0.0", ent.Version)
+	}
+
+	// Updating a non-remote skill errors.
+	if _, err := UpdateSkill(context.Background(), cfg, "not-installed"); err == nil {
+		t.Error("expected error updating unknown skill")
+	}
+}

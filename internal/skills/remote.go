@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,10 +29,12 @@ const maxWalkDepth = 6
 
 // RemoteEntry records where an installed skill came from (one per skill dir).
 type RemoteEntry struct {
-	Source string `json:"source"`         // the configured source string
-	Repo   string `json:"repo,omitempty"` // git URL the skill was cloned from
-	Ref    string `json:"ref,omitempty"`  // branch or tag
-	URL    string `json:"url,omitempty"`  // API marketplace URL, when applicable
+	Source  string `json:"source"`            // the configured source string
+	Repo    string `json:"repo,omitempty"`    // git URL the skill was cloned from
+	Ref     string `json:"ref,omitempty"`     // branch or tag
+	URL     string `json:"url,omitempty"`     // API marketplace URL, when applicable
+	Plugin  string `json:"plugin,omitempty"`  // marketplace plugin entry name (for update lookup)
+	Version string `json:"version,omitempty"` // installed version, as declared at sync time
 }
 
 // SyncResult summarizes a Sync run.
@@ -193,6 +196,10 @@ func installMarketplace(mf *Marketplace, repoRoot, src string, base RemoteEntry,
 }
 
 func installPlugin(p MarketplacePlugin, repoRoot, src string, base RemoteEntry, managedDir string, lock map[string]RemoteEntry, res *SyncResult) error {
+	entry := base
+	entry.Plugin = strings.TrimSpace(p.Name)
+	entry.Version = strings.TrimSpace(p.Version)
+
 	switch p.Source.Kind {
 	case "github", "url":
 		cloneURL := p.Source.URL
@@ -211,7 +218,6 @@ func installPlugin(p MarketplacePlugin, repoRoot, src string, base RemoteEntry, 
 		if err := gitws.Clone(cloneURL, p.Source.Ref, dst); err != nil {
 			return fmt.Errorf("clone plugin %q: %w", p.Name, err)
 		}
-		entry := base
 		entry.Repo = cloneURL
 		entry.Ref = p.Source.Ref
 		return installFromDir(dst, entry, managedDir, lock, res)
@@ -221,7 +227,7 @@ func installPlugin(p MarketplacePlugin, repoRoot, src string, base RemoteEntry, 
 			return fmt.Errorf("plugin %q: relative path source requires a repository (not supported for API sources)", p.Name)
 		}
 		dir := filepath.Join(repoRoot, filepath.Clean("/"+p.Source.Path))
-		return installFromDir(dir, base, managedDir, lock, res)
+		return installFromDir(dir, entry, managedDir, lock, res)
 
 	default:
 		return fmt.Errorf("plugin %q: unsupported source kind %q", p.Name, p.Source.Kind)
@@ -255,7 +261,11 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 			}
 			continue
 		}
-		lock[name] = entry
+		ent := entry
+		if ent.Version == "" {
+			ent.Version = skillDirVersion(h.dir)
+		}
+		lock[name] = ent
 		if existed == nil {
 			res.Updated = append(res.Updated, name)
 		} else {
@@ -263,6 +273,15 @@ func installFromDir(root string, entry RemoteEntry, managedDir string, lock map[
 		}
 	}
 	return firstErr
+}
+
+// skillDirVersion reads the optional version from a skill directory's SKILL.md
+// frontmatter. Used when a marketplace plugin entry does not declare a version.
+func skillDirVersion(dir string) string {
+	if s, err := loadFile(filepath.Join(dir, "SKILL.md")); err == nil {
+		return strings.TrimSpace(s.Version)
+	}
+	return ""
 }
 
 // skillHit is a discovered skill directory (the one holding SKILL.md).
@@ -482,6 +501,244 @@ func RemoveRemote(cfg *config.Config, skillName string) error {
 	}
 	delete(lock, name)
 	return writeRemoteLock(managedDir, lock)
+}
+
+// ---- version display ----
+
+// InstalledVersion returns the version to display for a loaded skill: the
+// version recorded in the remote lockfile when the skill was synced, else the
+// skill's own SKILL.md frontmatter version. Empty when neither is known.
+func InstalledVersion(remote map[string]RemoteEntry, name string, sk *Skill) string {
+	if ent, ok := remote[name]; ok && strings.TrimSpace(ent.Version) != "" {
+		return ent.Version
+	}
+	if sk != nil {
+		return strings.TrimSpace(sk.Version)
+	}
+	return ""
+}
+
+// ---- update detection ----
+
+// UpdateStatus reports whether a newer version of an installed remote skill is
+// available in its marketplace source.
+type UpdateStatus struct {
+	Name            string `json:"name"`
+	Source          string `json:"source"`
+	Version         string `json:"version"` // installed
+	Latest          string `json:"latest"`  // latest declared upstream
+	UpdateAvailable bool   `json:"update_available"`
+}
+
+// CheckUpdates fetches the manifest for every remote source and reports, per
+// installed remote skill, whether a newer version is available. It performs
+// network / git access but never modifies installed skills. Sources that cannot
+// be reached are treated as "no update" rather than failing the whole check.
+func CheckUpdates(ctx context.Context, cfg *config.Config) ([]UpdateStatus, error) {
+	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	lock := readRemoteLock(managedDir)
+	if len(lock) == 0 {
+		return nil, nil
+	}
+	names := make([]string, 0, len(lock))
+	for n := range lock {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+
+	cache := map[string]map[string]string{} // source -> (plugin/skill name -> version)
+	out := make([]UpdateStatus, 0, len(names))
+	for _, name := range names {
+		ent := lock[name]
+		st := UpdateStatus{Name: name, Source: ent.Source, Version: ent.Version, Latest: ent.Version}
+		versions, ok := cache[ent.Source]
+		if !ok {
+			versions, _ = sourceManifestVersions(ctx, ent.Source) // best-effort
+			cache[ent.Source] = versions
+		}
+		key := ent.Plugin
+		if key == "" {
+			key = name
+		}
+		if latest := strings.TrimSpace(versions[key]); latest != "" {
+			st.Latest = latest
+			st.UpdateAvailable = compareVersions(latest, ent.Version) > 0
+		}
+		out = append(out, st)
+	}
+	return out, nil
+}
+
+// UpdateSkill re-syncs the source that provides skillName, installing whatever
+// version that source currently declares. Fails if the skill was not installed
+// from a remote source.
+func UpdateSkill(ctx context.Context, cfg *config.Config, skillName string) (*SyncResult, error) {
+	name, err := sanitizeSkillName(skillName)
+	if err != nil {
+		return nil, err
+	}
+	managedDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
+	lock := readRemoteLock(managedDir)
+	ent, ok := lock[name]
+	if !ok {
+		return nil, fmt.Errorf("skill %q is not a remote (synced) skill", name)
+	}
+	res := &SyncResult{}
+	if err := syncOne(ctx, ent.Source, managedDir, lock, res); err != nil {
+		res.Failed = append(res.Failed, SyncFailure{Source: ent.Source, Error: err.Error()})
+	}
+	if err := writeRemoteLock(managedDir, lock); err != nil {
+		return res, fmt.Errorf("write lock: %w", err)
+	}
+	return res, nil
+}
+
+// sourceManifestVersions fetches a source's marketplace manifest and returns a
+// pluginName -> version map. For a plain repo with no manifest it maps each
+// discovered skill's frontmatter version by skill name instead.
+func sourceManifestVersions(ctx context.Context, source string) (map[string]string, error) {
+	spec, err := parseSource(source)
+	if err != nil {
+		return nil, err
+	}
+	switch spec.kind {
+	case "api":
+		mf, err := fetchManifestHTTP(ctx, spec.url)
+		if err != nil {
+			return nil, err
+		}
+		return marketplaceVersions(mf), nil
+
+	case "git":
+		tmp, err := os.MkdirTemp("", "coddy-skillcheck-")
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = os.RemoveAll(tmp) }()
+		clone := filepath.Join(tmp, "repo")
+		if err := gitws.Clone(spec.url, spec.ref, clone); err != nil {
+			return nil, err
+		}
+		if mfPath := findMarketplaceFile(clone); mfPath != "" {
+			mf, err := parseMarketplace(mfPath)
+			if err != nil {
+				return nil, err
+			}
+			return marketplaceVersions(mf), nil
+		}
+		out := map[string]string{}
+		for _, h := range locateSkillDirs(clone) {
+			if v := skillDirVersion(h.dir); v != "" {
+				out[h.name] = v
+			}
+		}
+		return out, nil
+
+	default:
+		return map[string]string{}, nil
+	}
+}
+
+// marketplaceVersions maps each plugin name to its declared version (entries
+// without a version are omitted, so update detection has no false positives).
+func marketplaceVersions(mf *Marketplace) map[string]string {
+	out := map[string]string{}
+	for _, p := range mf.Plugins {
+		if v := strings.TrimSpace(p.Version); v != "" {
+			out[strings.TrimSpace(p.Name)] = v
+		}
+	}
+	return out
+}
+
+// compareVersions returns -1, 0, or 1 comparing two dotted numeric versions
+// (an optional leading "v" and any -prerelease/+build suffix are ignored). When
+// either side is not purely numeric it falls back to a lexical comparison.
+func compareVersions(a, b string) int {
+	na, oka := numericVersion(a)
+	nb, okb := numericVersion(b)
+	if oka && okb {
+		for i := 0; i < len(na) || i < len(nb); i++ {
+			var x, y int
+			if i < len(na) {
+				x = na[i]
+			}
+			if i < len(nb) {
+				y = nb[i]
+			}
+			if x != y {
+				if x < y {
+					return -1
+				}
+				return 1
+			}
+		}
+		return 0
+	}
+	sa := strings.TrimPrefix(strings.TrimSpace(a), "v")
+	sb := strings.TrimPrefix(strings.TrimSpace(b), "v")
+	return strings.Compare(sa, sb)
+}
+
+// numericVersion parses "v1.2.3" / "1.2.3-rc1" into [1 2 3]; ok is false when a
+// core field is not an integer.
+func numericVersion(v string) ([]int, bool) {
+	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	if v == "" {
+		return nil, false
+	}
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, true
+}
+
+// ---- source management ----
+
+// ListSources returns the configured remote skill sources (trimmed, non-empty).
+func ListSources(cfg *config.Config) []string {
+	out := make([]string, 0, len(cfg.Skills.Sources))
+	for _, s := range cfg.Skills.Sources {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// RemoveSource drops a source from skills.sources and persists config.yaml.
+// It reports whether a matching source was found and removed.
+func RemoveSource(cfg *config.Config, source string) (bool, error) {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false, fmt.Errorf("empty source")
+	}
+	kept := make([]string, 0, len(cfg.Skills.Sources))
+	removed := false
+	for _, s := range cfg.Skills.Sources {
+		if strings.EqualFold(strings.TrimSpace(s), source) {
+			removed = true
+			continue
+		}
+		kept = append(kept, s)
+	}
+	if !removed {
+		return false, nil
+	}
+	cfg.Skills.Sources = kept
+	if err := persistConfig(cfg); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func persistConfig(cfg *config.Config) error {

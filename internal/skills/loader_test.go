@@ -26,6 +26,7 @@ func TestLoadSkillWithFrontmatter(t *testing.T) {
 	content := `---
 name: "go-standards"
 description: "Go coding standards"
+version: "1.4.2"
 ---
 
 # Go Standards
@@ -56,6 +57,9 @@ Use fmt.Errorf for error wrapping.
 	}
 	if s.Description != "Go coding standards" {
 		t.Errorf("expected description %q, got %q", "Go coding standards", s.Description)
+	}
+	if s.Version != "1.4.2" {
+		t.Errorf("expected version %q from frontmatter, got %q", "1.4.2", s.Version)
 	}
 	if !strings.Contains(s.Content, "Write comments") {
 		t.Errorf("expected content in skill body, got: %q", s.Content)

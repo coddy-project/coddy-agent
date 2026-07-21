@@ -5931,6 +5931,92 @@ textarea#composer {
   background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
 
+/* Version tag next to a skill name (monospace so semver reads cleanly). */
+.skills-list-item-version {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  color: var(--muted);
+}
+
+/* Per-skill Update action (icon + label), only shown when an update exists. */
+.skills-update-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+}
+
+.skills-update-btn > svg {
+  flex-shrink: 0;
+}
+
+/* "Installed skills" heading row with the Refresh action on the right. */
+.skills-installed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.skills-installed-header .settings-skills-installed-label {
+  margin: 0;
+}
+
+.skills-refresh-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+}
+
+.skills-refresh-btn > svg {
+  flex-shrink: 0;
+}
+
+/* Configured marketplace sources, each with a remove control. */
+.skills-source-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skills-source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.skills-source-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skills-source-item-remove {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+}
+
 /* Add-source / sync controls above the installed list. */
 .settings-skills-source-row {
   display: flex;

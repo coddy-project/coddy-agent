@@ -843,6 +843,27 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"/coddy/skills/sources": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List remote skill sources",
+					"description": "Returns the configured **`skills.sources`** entries (GitHub repos, git URLs, or marketplace.json URLs).",
+					"operationId": "listSkillSources",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Configured sources.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "coddy.skills_sources"},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
 				"post": map[string]interface{}{
 					"summary":     "Add a remote skill source",
 					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
@@ -866,6 +887,65 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
 						"400": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill source",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"operationId": "removeSkillSource",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "source", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The exact configured source string to remove.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source removed (or absent, with removed:false)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/updates": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check installed remote skills for updates",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists.",
+					"operationId": "checkSkillUpdates",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Per-skill update status.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillUpdateList"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}/update": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Update a skill to its latest version",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. Fails with 400 when the skill was not installed from a remote source.",
+					"operationId": "updateSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Update result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
 					},
 				},
 			},
@@ -994,6 +1074,7 @@ func openAPISpec() map[string]interface{} {
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
+						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else the SKILL.md frontmatter version. Absent when unknown."},
 						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
 					},
 				},
@@ -1022,6 +1103,25 @@ func openAPISpec() map[string]interface{} {
 						"items": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillRow"},
+						},
+					},
+				},
+				"SkillUpdateList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.skills_updates"},
+						"items": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"name":             map[string]string{"type": "string", "description": "Installed remote skill name."},
+									"source":           map[string]string{"type": "string", "description": "Configured source it was installed from."},
+									"version":          map[string]string{"type": "string", "description": "Installed version."},
+									"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
+									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version."},
+								},
+							},
 						},
 					},
 				},

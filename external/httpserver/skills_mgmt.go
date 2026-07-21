@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -13,10 +14,14 @@ import (
 
 func (s *Server) registerSkillsManagementRoutes() {
 	s.mux.HandleFunc("GET /coddy/skills", s.coddySkillsGet)
+	s.mux.HandleFunc("GET /coddy/skills/updates", s.coddySkillsUpdatesGet)
+	s.mux.HandleFunc("GET /coddy/skills/sources", s.coddySkillsSourcesGet)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/enable", s.coddySkillsEnablePost)
 	s.mux.HandleFunc("POST /coddy/skills/{name}/disable", s.coddySkillsDisablePost)
+	s.mux.HandleFunc("POST /coddy/skills/{name}/update", s.coddySkillsUpdatePost)
 	s.mux.HandleFunc("POST /coddy/skills/sync", s.coddySkillsSyncPost)
 	s.mux.HandleFunc("POST /coddy/skills/sources", s.coddySkillsSourcesPost)
+	s.mux.HandleFunc("DELETE /coddy/skills/sources", s.coddySkillsSourcesDelete)
 	s.mux.HandleFunc("DELETE /coddy/skills/{name}", s.coddySkillsDelete)
 }
 
@@ -25,7 +30,8 @@ type skillRowResponse struct {
 	Description string `json:"description"`
 	FilePath    string `json:"file_path"`
 	Enabled     bool   `json:"enabled"`
-	Source      string `json:"source,omitempty"` // configured source string when remote-synced
+	Version     string `json:"version,omitempty"` // installed version, when known
+	Source      string `json:"source,omitempty"`  // configured source string when remote-synced
 }
 
 // coddySkillsGet lists all skills with their enabled/disabled state.
@@ -62,6 +68,7 @@ func (s *Server) coddySkillsGet(w http.ResponseWriter, r *http.Request) {
 			Name:        sum.Name,
 			Description: sum.Description,
 			Enabled:     !skills.IsDisabled(disabled, sum.Name),
+			Version:     skills.InstalledVersion(remote, sum.Name, sk),
 		}
 		if sk != nil {
 			row.FilePath = sk.FilePath
@@ -200,6 +207,87 @@ func (s *Server) coddySkillsDelete(w http.ResponseWriter, r *http.Request) {
 	slog.Info("remote skill removed", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+}
+
+// coddySkillsUpdatesGet reports, per installed remote skill, whether a newer
+// version is available in its marketplace source (performs network/git access).
+func (s *Server) coddySkillsUpdatesGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	statuses, err := skills.CheckUpdates(r.Context(), s.activeCfg())
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "coddy.skills_updates",
+		"items":  statuses,
+	})
+}
+
+// coddySkillsSourcesGet lists configured remote skill sources.
+func (s *Server) coddySkillsSourcesGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "coddy.skills_sources",
+		"items":  skills.ListSources(s.activeCfg()),
+	})
+}
+
+// coddySkillsUpdatePost re-syncs the source that provides {name}, installing the
+// version that source currently declares.
+func (s *Server) coddySkillsUpdatePost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	name := r.PathValue("name")
+	res, err := skills.UpdateSkill(r.Context(), s.activeCfg(), name)
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusBadRequest)
+		return
+	}
+	s.invalidateSlashCache()
+	slog.Info("skill updated", "name", name, "added", len(res.Added), "updated", len(res.Updated), "failed", len(res.Failed))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":      true,
+		"added":   res.Added,
+		"updated": res.Updated,
+		"failed":  res.Failed,
+	})
+}
+
+// coddySkillsSourcesDelete removes a source from skills.sources (query ?source=).
+func (s *Server) coddySkillsSourcesDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.NotFound(w, r)
+		return
+	}
+	source := strings.TrimSpace(r.URL.Query().Get("source"))
+	if source == "" {
+		http.Error(w, `{"error":{"message":"missing source query parameter"}}`, http.StatusBadRequest)
+		return
+	}
+	removed, err := skills.RemoveSource(s.activeCfg(), source)
+	if err != nil {
+		body, _ := json.Marshal(map[string]interface{}{"error": map[string]string{"message": err.Error()}})
+		http.Error(w, string(body), http.StatusBadRequest)
+		return
+	}
+	s.reloadConfigFromDisk()
+	slog.Info("skill source removed", "source", source, "removed", removed)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
 func (s *Server) invalidateSlashCache() {

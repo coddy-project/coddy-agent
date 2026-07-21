@@ -9,17 +9,27 @@ import (
 
 // Marketplace is an agents-standard marketplace manifest, discovered at
 // .agents/plugins/marketplace.json or .claude-plugin/marketplace.json.
-// Unknown top-level fields ($schema, owner, version, interface, metadata, ...)
-// are ignored so both observed shapes parse.
+// Unknown top-level fields ($schema, owner, interface, ...) are ignored so
+// both observed shapes parse.
 type Marketplace struct {
-	Name    string              `json:"name"`
-	Plugins []MarketplacePlugin `json:"plugins"`
+	Name     string              `json:"name"`
+	Metadata MarketplaceMetadata `json:"metadata"`
+	Plugins  []MarketplacePlugin `json:"plugins"`
 }
 
-// MarketplacePlugin is one entry in a marketplace manifest.
+// MarketplaceMetadata carries collection-level fields; only the version is used
+// (as a fallback when a plugin entry omits its own version).
+type MarketplaceMetadata struct {
+	Version     string `json:"version"`
+	Description string `json:"description"`
+}
+
+// MarketplacePlugin is one entry in a marketplace manifest. Version is an
+// optional semantic version used for display and update detection.
 type MarketplacePlugin struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
+	Version     string       `json:"version"`
 	Source      PluginSource `json:"source"`
 }
 

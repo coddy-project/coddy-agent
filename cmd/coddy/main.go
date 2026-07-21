@@ -122,8 +122,12 @@ func printUsage(w *os.File) {
   %[1]s skills enable <name>
   %[1]s skills disable <name>
   %[1]s skills add <owner/repo | git-url | marketplace-url>
+  %[1]s skills install <owner/repo | git-url | marketplace-url>
   %[1]s skills sync
+  %[1]s skills update [name]
   %[1]s skills remove <name>
+  %[1]s skills sources
+  %[1]s skills remove-source <owner/repo | git-url | marketplace-url>
   %[1]s rules list [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
@@ -300,7 +304,7 @@ func runSessions(args []string) error {
 
 func runSkills(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s skills list|enable|disable|add|sync|remove", os.Args[0])
+		return fmt.Errorf("usage: %s skills list|enable|disable|add|install|sync|update|remove|sources|remove-source", os.Args[0])
 	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{})
 	if err != nil {
@@ -341,12 +345,73 @@ func runSkills(args []string) error {
 			fmt.Printf("Source %q already configured.\n", args[1])
 		}
 		return nil
+	case "install":
+		// Codex-style one-shot: register the source and fetch it immediately.
+		if len(args) < 2 {
+			return fmt.Errorf("usage: %s skills install <owner/repo | git-url | marketplace-url>", os.Args[0])
+		}
+		added, err := skills.AddSource(cfg, args[1])
+		if err != nil {
+			return err
+		}
+		if added {
+			fmt.Printf("Added skill source %q.\n", args[1])
+		} else {
+			fmt.Printf("Source %q already configured; syncing.\n", args[1])
+		}
+		res, err := skills.Sync(context.Background(), cfg)
+		if err != nil {
+			return err
+		}
+		printSyncResult(res)
+		return nil
 	case "sync":
 		res, err := skills.Sync(context.Background(), cfg)
 		if err != nil {
 			return err
 		}
 		printSyncResult(res)
+		return nil
+	case "update":
+		// No name: report available updates. With a name: install the newest version.
+		if len(args) < 2 {
+			statuses, err := skills.CheckUpdates(context.Background(), cfg)
+			if err != nil {
+				return err
+			}
+			printUpdateStatuses(statuses)
+			return nil
+		}
+		res, err := skills.UpdateSkill(context.Background(), cfg, args[1])
+		if err != nil {
+			return err
+		}
+		printSyncResult(res)
+		return nil
+	case "sources":
+		srcs := skills.ListSources(cfg)
+		if len(srcs) == 0 {
+			fmt.Println("No skill sources configured.")
+			return nil
+		}
+		fmt.Printf("%d skill source(s):\n", len(srcs))
+		for _, src := range srcs {
+			fmt.Printf("  %s\n", src)
+		}
+		return nil
+	case "remove-source":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: %s skills remove-source <owner/repo | git-url | marketplace-url>", os.Args[0])
+		}
+		removed, err := skills.RemoveSource(cfg, args[1])
+		if err != nil {
+			return err
+		}
+		if removed {
+			fmt.Printf("Removed skill source %q. Installed skills remain until you remove them.\n", args[1])
+		} else {
+			fmt.Printf("Source %q was not configured.\n", args[1])
+		}
 		return nil
 	case "remove":
 		if len(args) < 2 {
@@ -360,6 +425,33 @@ func runSkills(args []string) error {
 	default:
 		return fmt.Errorf("unknown skills subcommand %q", args[0])
 	}
+}
+
+// printUpdateStatuses prints the result of `coddy skills update` (no name).
+func printUpdateStatuses(statuses []skills.UpdateStatus) {
+	if len(statuses) == 0 {
+		fmt.Println("No remote skills installed.")
+		return
+	}
+	updates := 0
+	for _, st := range statuses {
+		version := st.Version
+		if version == "" {
+			version = "-"
+		}
+		if st.UpdateAvailable {
+			updates++
+			fmt.Printf("  %s %s -> %s (update available)\n", st.Name, version, st.Latest)
+		} else {
+			fmt.Printf("  %s %s (up to date)\n", st.Name, version)
+		}
+	}
+	if updates == 0 {
+		fmt.Println("All remote skills are up to date.")
+		return
+	}
+	fmt.Printf("%d update(s) available. Run `%s skills update <name>` to install, or `%s skills sync` for all.\n",
+		updates, os.Args[0], os.Args[0])
 }
 
 func printSyncResult(res *skills.SyncResult) {
