@@ -6031,6 +6031,13 @@ textarea#composer {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* A <fieldset> defaults to min-inline-size: min-content, so a skill row with a
+   long nowrap description would widen the box past its container and force a
+   horizontal scrollbar. Let the box shrink so descriptions ellipsize instead. */
+.skills-installed-box {
+  min-inline-size: 0;
+}
+
 /* Install control at the top of the Installed skills box: a filter input over a
    dropdown of installable marketplace plugins, each with a Download/install. */
 .skills-install {
