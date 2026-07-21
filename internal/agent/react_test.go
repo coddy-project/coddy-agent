@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -521,5 +523,147 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	set := ToolSetForMode("agent")
 	if !set.Unrestricted() {
 		t.Fatal("agent mode should use unrestricted tool set")
+	}
+}
+
+// --- compact.go: CompactSession ---------------------------------------------
+
+// compactCannedProvider serves Complete (summarization) with a canned summary
+// and fails the test if Stream is called.
+type compactCannedProvider struct {
+	t        *testing.T
+	summary  string
+	err      error
+	requests [][]llm.Message
+}
+
+func (p *compactCannedProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
+	if p.err != nil {
+		return nil, p.err
+	}
+	return &llm.Response{Content: p.summary, StopReason: "end_turn"}, nil
+}
+
+func (p *compactCannedProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	p.t.Fatal("Stream must not be called by CompactSession")
+	return nil, nil
+}
+
+func compactTestAgent(t *testing.T, st *session.State, comp config.Compaction, provider llm.Provider) *Agent {
+	t.Helper()
+	ag := NewAgent(&config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: comp,
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+	return ag
+}
+
+func seededCompactState(t *testing.T, exchanges int) *session.State {
+	t.Helper()
+	st := &session.State{
+		ID:   "sess_compact_unit",
+		CWD:  t.TempDir(),
+		Mode: session.ModeAgent,
+	}
+	for i := 1; i <= exchanges; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+	}
+	return st
+}
+
+func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "dense summary"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	res, err := ag.CompactSession(context.Background(), "focus on file paths")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "dense summary" {
+		t.Fatalf("summary = %q", res.Summary)
+	}
+	if res.CompactedMessages != 4 || res.KeptMessages != 2 {
+		t.Fatalf("counts = %d/%d, want 4/2", res.CompactedMessages, res.KeptMessages)
+	}
+
+	msgs := st.GetMessages()
+	if len(msgs) != 7 {
+		t.Fatalf("len = %d, want 7", len(msgs))
+	}
+	if !msgs[4].CompactionSummary {
+		t.Fatalf("summary not inserted before the kept tail: %+v", msgs[4])
+	}
+
+	// The summarization request must carry the head transcript and the extra instructions.
+	if len(provider.requests) != 1 {
+		t.Fatalf("Complete called %d times", len(provider.requests))
+	}
+	req := transcriptText(provider.requests[0])
+	for _, want := range []string{"question 1", "answer 2", "focus on file paths"} {
+		if !strings.Contains(req, want) {
+			t.Fatalf("summarization request misses %q:\n%s", want, req)
+		}
+	}
+	if strings.Contains(req, "question 3") {
+		t.Fatalf("kept tail leaked into the summarization request:\n%s", req)
+	}
+}
+
+func TestCompactSessionNothingToCompact(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 2
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
+
+	if _, err := ag.CompactSession(context.Background(), ""); !errors.Is(err, ErrNothingToCompact) {
+		t.Fatalf("err = %v, want ErrNothingToCompact", err)
+	}
+	if len(st.GetMessages()) != 4 {
+		t.Fatal("history must stay untouched")
+	}
+}
+
+func TestCompactSessionDisabled(t *testing.T) {
+	st := seededCompactState(t, 3)
+	off := false
+	ag := compactTestAgent(t, st, config.Compaction{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
+
+	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+		t.Fatal("disabled compaction must error")
+	}
+}
+
+func TestCompactSessionEmptySummaryFails(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "   "})
+
+	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+		t.Fatal("empty summary must error")
+	}
+	if len(st.GetMessages()) != 6 {
+		t.Fatal("failed compaction must not mutate history")
+	}
+}
+
+func TestCompactSessionProviderErrorKeepsHistory(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, err: errors.New("boom")}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+		t.Fatal("provider error must propagate")
+	}
+	if len(st.GetMessages()) != 6 {
+		t.Fatal("failed compaction must not mutate history")
 	}
 }

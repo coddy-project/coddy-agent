@@ -97,6 +97,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Sessions.Validate(); err != nil {
 		return fmt.Errorf("sessions: %w", err)
 	}
+	if err := cfg.Compaction.Validate(); err != nil {
+		return fmt.Errorf("compaction: %w", err)
+	}
 	if err := cfg.Memory.Validate(cfg); err != nil {
 		return fmt.Errorf("memory: %w", err)
 	}
@@ -135,6 +138,9 @@ func applyDefaults(cfg *Config) {
 	} else {
 		cfg.Sessions.Dir = ""
 	}
+
+	cfg.Compaction.Normalize()
+	cfg.Compaction.ApplyDefaults()
 
 	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
 		return ExpandCODDYHomeOnly(s, p)
