@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -31,8 +32,32 @@ const (
 )
 
 // FileStore persists session state under Root/<sessionId>/.
+//
+// Always use *FileStore, never a copy: the embedded mutex must not be copied.
 type FileStore struct {
 	Root string
+
+	locksMu sync.Mutex
+	locks   map[string]*sync.Mutex
+}
+
+// pathMutex returns a per-path mutex, creating it on first use. Holding it
+// across a read-modify-write cycle serializes concurrent writers to the same
+// file, preventing lost updates and avoiding the atomic rename racing another
+// open handle on the destination (which Windows rejects with "Access is
+// denied" / "sharing violation").
+func (f *FileStore) pathMutex(path string) *sync.Mutex {
+	f.locksMu.Lock()
+	defer f.locksMu.Unlock()
+	if f.locks == nil {
+		f.locks = make(map[string]*sync.Mutex)
+	}
+	m, ok := f.locks[path]
+	if !ok {
+		m = &sync.Mutex{}
+		f.locks[path] = m
+	}
+	return m
 }
 
 // SessionPath returns the directory for a session id.
@@ -446,6 +471,13 @@ func (f *FileStore) PatchSessionMetaActivitySync(st *State) error {
 		return fmt.Errorf("session has no SessionDir")
 	}
 	path := filepath.Join(dir, sessionMetaFile)
+
+	// Serialize the whole read-modify-write against concurrent patchers of the
+	// same file (e.g. markActivityRead from parallel UI tabs).
+	mu := f.pathMutex(path)
+	mu.Lock()
+	defer mu.Unlock()
+
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -542,11 +574,27 @@ func writeBytesAtomic(path string, data []byte) error {
 	if err := os.Chmod(tmpPath, 0o644); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := renameWithRetry(tmpPath, path); err != nil {
 		return err
 	}
 	committed = true
 	return nil
+}
+
+// renameWithRetry renames tmpPath over path, retrying briefly on transient
+// Windows sharing errors that occur when another handle holds the destination
+// open. On POSIX isRetryableRenameError is always false, so this is a single
+// os.Rename with no behavior change.
+func renameWithRetry(tmpPath, path string) error {
+	const maxAttempts = 20
+	var err error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if err = os.Rename(tmpPath, path); err == nil || !isRetryableRenameError(err) {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return err
 }
 
 func writeJSONAtomic(path string, v interface{}) error {

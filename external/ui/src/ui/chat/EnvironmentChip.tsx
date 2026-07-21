@@ -13,6 +13,7 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
+import { useActiveEnvHealth } from "../env/activeHealth";
 
 type Remote = { name: string; url: string };
 type Health = "checking" | "up" | "down";
@@ -33,6 +34,7 @@ function normUrl(url: string): string {
  */
 export function EnvironmentChip() {
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
+  const activeHealth = useActiveEnvHealth();
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -128,9 +130,9 @@ export function EnvironmentChip() {
         </span>
         <span className="workspace-chip-label">{label}</span>
         <span
-          className="mode-env-dot"
+          className="env-status"
           aria-hidden="true"
-          data-remote={env.mode === "remote" ? "1" : undefined}
+          data-state={env.mode === "local" ? "local" : activeHealth}
         />
       </button>
       {open && (useSheet || anchor)

@@ -12,6 +12,73 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
+// --- edit.go: exact replacement with line-ending preservation --------------
+
+func TestEditNormalizesLineEndingsAndPreservesFileStyle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		content    string
+		oldString  string
+		newString  string
+		replaceAll bool
+		want       string
+	}{
+		{
+			name:      "LF arguments edit CRLF file",
+			content:   "before\r\n  function changePrBill(){\r\n\t\ttoggleBillColumns();\r\n\t}\r\nafter\r\n",
+			oldString: "  function changePrBill(){\n\t\ttoggleBillColumns();\n\t}",
+			newString: "  function changePrBill(){\n\t\ttoggleBillColumns();\n\t\trefreshBill();\n\t}",
+			want:      "before\r\n  function changePrBill(){\r\n\t\ttoggleBillColumns();\r\n\t\trefreshBill();\r\n\t}\r\nafter\r\n",
+		},
+		{
+			name:      "CRLF arguments edit LF file",
+			content:   "alpha\nbeta\ngamma\n",
+			oldString: "alpha\r\nbeta",
+			newString: "alpha\r\nBETA",
+			want:      "alpha\nBETA\ngamma\n",
+		},
+		{
+			name:       "replace all preserves CRLF",
+			content:    "alpha\r\nbeta\r\nalpha\r\nbeta\r\n",
+			oldString:  "alpha\nbeta",
+			newString:  "alpha\nBETA",
+			replaceAll: true,
+			want:       "alpha\r\nBETA\r\nalpha\r\nBETA\r\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			args, err := json.Marshal(editArgs{
+				Path:       path,
+				OldString:  tt.oldString,
+				NewString:  tt.newString,
+				ReplaceAll: &tt.replaceAll,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := executeEdit(context.Background(), string(args), &tooling.Env{}); err != nil {
+				t.Fatalf("executeEdit: %v", err)
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReadOffsetBeyondEndReturnsError(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "short.txt")
@@ -132,7 +199,7 @@ func TestApplyUnifiedDiff_replaceMiddleLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyUnifiedDiff: %v", err)
 	}
-	want := "line1\nnewline2\nline3"
+	want := "line1\nnewline2\nline3\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
@@ -183,7 +250,110 @@ func TestApplyV4APatch_bareHunkHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("applyPatch: %v", err)
 	}
-	want := "alpha\nBETA\ngamma"
+	want := "alpha\nBETA\ngamma\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestApplyPatchPreservesCRLFAndFinalNewline(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{
+			name:  "unified diff",
+			patch: "@@ -2,1 +2,1 @@\n-beta\n+BETA\n",
+		},
+		{
+			name: "V4A patch",
+			patch: strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: file.txt",
+				"@@",
+				"-beta",
+				"+BETA",
+				"*** End Patch",
+			}, "\n"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := applyPatch("alpha\r\nbeta\r\ngamma\r\n", tt.patch)
+			if err != nil {
+				t.Fatalf("applyPatch: %v", err)
+			}
+			want := "alpha\r\nBETA\r\ngamma\r\n"
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestApplyPatchPreservesTrailingBlankLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{name: "unified diff", patch: "@@ -2,1 +2,1 @@\n-beta\n+BETA\n"},
+		{name: "V4A patch", patch: "@@\n-beta\n+BETA\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := applyPatch("alpha\r\nbeta\r\n\r\n", tt.patch)
+			if err != nil {
+				t.Fatalf("applyPatch: %v", err)
+			}
+			want := "alpha\r\nBETA\r\n\r\n"
+			if got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestApplyUnifiedDiffRejectsMismatchedDeletedLine(t *testing.T) {
+	t.Parallel()
+
+	_, err := applyUnifiedDiff("alpha\nbeta\ngamma\n", "@@ -2,1 +2,1 @@\n-wrong\n+BETA\n")
+	if err == nil {
+		t.Fatal("expected mismatched deleted line to fail")
+	}
+	if !strings.Contains(err.Error(), "wrong") || !strings.Contains(err.Error(), "beta") {
+		t.Fatalf("error should show expected and actual lines, got: %v", err)
+	}
+}
+
+func TestApplyUnifiedDiffMultipleHunksValidateContext(t *testing.T) {
+	t.Parallel()
+
+	original := "one\ntwo\nthree\nfour\nfive\n"
+	diff := strings.Join([]string{
+		"--- a/file.txt",
+		"+++ b/file.txt",
+		"@@ -1,2 +1,2 @@",
+		" one",
+		"-two",
+		"+TWO",
+		"@@ -4,2 +4,2 @@",
+		" four",
+		"-five",
+		"+FIVE",
+	}, "\n")
+
+	got, err := applyUnifiedDiff(original, diff)
+	if err != nil {
+		t.Fatalf("applyUnifiedDiff: %v", err)
+	}
+	want := "one\nTWO\nthree\nfour\nFIVE\n"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
