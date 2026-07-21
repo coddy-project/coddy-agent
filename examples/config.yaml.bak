@@ -1,0 +1,56 @@
+providers:
+  - name: rpa
+    type: openai
+    api_base: "https://api.rpa.icu"
+    api_key: "https://t.me/evilfreelancer"
+
+models:
+  - model: "rpa/gpt-oss:120b"
+    max_tokens: 131072
+    temperature: 0.2
+    max_context_tokens: 131072
+  - model: "rpa/gpt-oss:20b"
+    max_tokens: 8192
+    temperature: 0.2
+    max_context_tokens: 8192
+
+agent:
+  model: "rpa/gpt-oss:120b"
+  max_turns: 35
+  max_tokens_per_turn: 128000
+
+sessions:
+  dir: ""
+
+skills:
+  install_dir: "${CODDY_HOME}/skills_fixture"
+  dirs:
+    - "${CODDY_HOME}/skills_fixture"
+
+mcp_servers: []
+
+tools:
+  permission_mode: bypass
+
+memory:
+  enabled: true
+  model: "rpa/gpt-oss:120b"
+
+httpserver:
+  host: "0.0.0.0"
+  port: 19946
+
+scheduler:
+  enabled: true
+  dir: ""
+  max_queue: 10
+  timeout: "6m"
+
+logger:
+  level: "debug"
+  outputs: ["stderr", "file"]
+  file: "__E2E_LOG_PATH__"
+  format: "text"
+  rotation:
+    max_size_mb: 0
+    max_files: 0

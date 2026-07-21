@@ -127,6 +127,17 @@ sessions:
   # Empty = default $CODDY_HOME/sessions. Supports ${CODDY_HOME} and ~ in path.
   dir: ""
 
+# Context compaction (Go: config.Compaction, internal/config/compaction.go).
+# Summarizes history older than the keep-recent boundary into one transcript row;
+# later LLM prompts replay only the summary plus the kept tail. Trigger manually
+# with the built-in /compact command (optional trailing summarizer instructions)
+# or automatically at threshold_percent of the model's max_context_tokens.
+compaction:
+  enabled: true            # master switch (manual command and automation)
+  threshold_percent: 80    # auto-compact trigger, 1..100; needs models[].max_context_tokens
+  keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+  model: ""                # models[].model for the summarizer; empty = session model
+
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enabled.
 memory:
