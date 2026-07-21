@@ -18,6 +18,7 @@ type Config struct {
 	Sessions     Sessions          `yaml:"sessions"`
 	Memory       MemoryConfig      `yaml:"memory"`
 	HTTPServer   HTTPServerConfig  `yaml:"httpserver"`
+	UI           UIConfig          `yaml:"ui"`
 	Scheduler    SchedulerConfig   `yaml:"scheduler"`
 	Gateways     GatewayConfig     `yaml:"gateways"`
 }

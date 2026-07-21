@@ -21,11 +21,23 @@ const rootSchema: JsonSchema = {
     "gateways",
   ],
   properties: {
-    providers: { type: "array", title: "LLM providers", items: { type: "object" } },
-    models: { type: "array", title: "Logical models", items: { type: "object" } },
+    providers: {
+      type: "array",
+      title: "LLM providers",
+      items: { type: "object" },
+    },
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: { type: "object" },
+    },
     agent: { type: "object", title: "ReAct agent", properties: {} },
     tools: { type: "object", title: "Tools and permissions", properties: {} },
-    mcp_servers: { type: "array", title: "MCP servers", items: { type: "object" } },
+    mcp_servers: {
+      type: "array",
+      title: "MCP servers",
+      items: { type: "object" },
+    },
     skills: { type: "object", title: "Skills", properties: {} },
     memory: { type: "object", title: "Long-term memory", properties: {} },
     scheduler: { type: "object", title: "Scheduler", properties: {} },
@@ -54,7 +66,9 @@ test("derives tabs in schema order with Appearance first and System group", () =
 });
 
 test("array sections carry their label field", () => {
-  const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
   expect(byId.providers.kind).toBe("array");
   expect(byId.providers.labelField).toBe("name");
   expect(byId.models.kind).toBe("array");
@@ -63,7 +77,9 @@ test("array sections carry their label field", () => {
 });
 
 test("System group folds the rarely edited tail keys", () => {
-  const system = deriveSettingsSections(rootSchema).find((s) => s.id === "system");
+  const system = deriveSettingsSections(rootSchema).find(
+    (s) => s.id === "system",
+  );
   expect(system?.kind).toBe("group");
   expect(system?.childKeys).toEqual([
     "scheduler",
@@ -76,7 +92,9 @@ test("System group folds the rarely edited tail keys", () => {
 });
 
 test("skills is its own combined tab; labels come from schema titles", () => {
-  const byId = Object.fromEntries(deriveSettingsSections(rootSchema).map((s) => [s.id, s]));
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
   expect(byId.skills.kind).toBe("skills");
   expect(byId.agent.kind).toBe("object");
   expect(byId.agent.label).toBe("ReAct agent");

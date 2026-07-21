@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -166,10 +167,29 @@ type MemoryJSON struct {
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
 }
 
-// HTTPServerJSON mirrors HTTPServerConfig.
+// HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
+// populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Host string `json:"host,omitempty"`
-	Port int    `json:"port,omitempty"`
+	Host           string           `json:"host,omitempty"`
+	Port           int              `json:"port,omitempty"`
+	AuthToken      string           `json:"auth_token,omitempty"`
+	AuthConfigured bool             `json:"auth_configured,omitempty"`
+	PublicDocs     bool             `json:"public_docs,omitempty"`
+	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
+	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+}
+
+// HTTPCORSJSON mirrors HTTPCORSConfig.
+type HTTPCORSJSON struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+}
+
+// HTTPRemoteJSON mirrors HTTPRemote.
+type HTTPRemoteJSON struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // SchedulerJSON mirrors SchedulerConfig.
@@ -231,7 +251,21 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
-	out.HTTPServer = HTTPServerJSON{Host: c.HTTPServer.Host, Port: c.HTTPServer.Port}
+	out.HTTPServer = HTTPServerJSON{
+		Host:          c.HTTPServer.Host,
+		Port:          c.HTTPServer.Port,
+		PublicDocs:    c.HTTPServer.PublicDocs,
+		AllowInsecure: c.HTTPServer.AllowInsecure,
+		// AuthToken is intentionally redacted; report only whether one is configured.
+		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
+		CORS: HTTPCORSJSON{
+			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range c.HTTPServer.Remotes {
+		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
+	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -311,7 +345,20 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
-	cfg.HTTPServer = HTTPServerConfig{Host: j.HTTPServer.Host, Port: j.HTTPServer.Port}
+	cfg.HTTPServer = HTTPServerConfig{
+		Host:          j.HTTPServer.Host,
+		Port:          j.HTTPServer.Port,
+		AuthToken:     j.HTTPServer.AuthToken,
+		PublicDocs:    j.HTTPServer.PublicDocs,
+		AllowInsecure: j.HTTPServer.AllowInsecure,
+		CORS: HTTPCORSConfig{
+			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range j.HTTPServer.Remotes {
+		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -339,16 +386,36 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
 func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
+	return ParseConfigJSONPreservingSecrets(data, paths, nil)
+}
+
+// ParseConfigJSONPreservingSecrets is like ParseAndValidateConfigJSON but, when current is
+// non-nil, carries write-only secrets that GET /coddy/config redacts (currently the
+// httpserver auth tokens) from current into the incoming config when the payload omitted them.
+// This lets the UI save an edited, redacted config without wiping tokens it never received.
+func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)
+	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// preserveRedactedSecrets copies redacted, write-only secrets from current into next when next
+// left them empty. GET /coddy/config never returns these, so a plain round-trip would drop them.
+func preserveRedactedSecrets(next, current *Config) {
+	if next == nil || current == nil {
+		return
+	}
+	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
+		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
+	}
 }
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).

@@ -210,6 +210,21 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 |---|---|---|---|---|
 | `host` | string | no | `""` → `0.0.0.0` | Default bind address when `coddy http` does not pass `-H/--host`. |
 | `port` | int | no | `0` → `12345` | Default listen port when `coddy http` does not pass `-P/--port`. Range 0–65535. |
+| `auth_token` | string | no | `""` | Optional bearer credential. Empty means no auth (historical default). Enables auth on `/v1/*` and `/coddy/*`. Supports `${ENV}`. Never returned by `GET /coddy/config`. Prefer `--auth-token` / `CODDY_HTTP_TOKEN`. |
+| `public_docs` | bool | no | `false` | When auth is enabled, keep `/docs` and `/openapi.*` reachable without a token. |
+| `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the API (e.g. `http://localhost:12345`). A single `*` allows any origin; bearer auth still applies. |
+| `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
+| `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
+
+## `ui`
+
+Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful with `-tags http,ui`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
 
 ## `scheduler`
 

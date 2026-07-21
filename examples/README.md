@@ -17,6 +17,7 @@ Paired HTTP and ACP scripts share the same stem after the prefix:
 | **`e2e_scheduler_api`** | **`httpserver/http_e2e_scheduler_api.py`** | (REST is HTTP-only) |
 | **`e2e_scheduler_agent`** | **`httpserver/http_e2e_scheduler_agent.py`** | **`acp/acp_e2e_scheduler_agent.py`** |
 | **`e2e_plan_files`** | **`httpserver/http_e2e_plan_files.py`** | **`acp/acp_e2e_plan_files.py`** |
+| **`e2e_remote`** | **`httpserver/http_e2e_remote.py`** (self-boots authenticated + local servers) | (HTTP-only) |
 
 ## Layout
 

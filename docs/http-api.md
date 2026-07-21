@@ -11,11 +11,58 @@ Specs are regenerated on each request so they stay aligned with handlers.
 - **`GET /openapi.yaml`** - OpenAPI 3.0 (YAML); **`GET /openapi.json`** mirrors it in JSON (both **`Content-Disposition: inline`**).
 - **`GET /docs/`** - Swagger UI (static assets bundled in the binary, no CDN). **`GET /docs`** redirects to **`/docs/`**.
 
-No authentication is enforced. Run behind appropriate network controls.
+## Authentication (optional)
+
+Authentication is **off by default** (historical behavior). Set a bearer token to protect the
+API when exposing it beyond loopback:
+
+- `httpserver.auth_token` in `config.yaml` (supports `${ENV}`), or
+- `--auth-token <token>` on `coddy http`, or
+- the `CODDY_HTTP_TOKEN` environment variable.
+
+When a token is configured, every `/v1/*` and `/coddy/*` route requires
+`Authorization: Bearer <token>` and returns `401` with a `WWW-Authenticate: Bearer` challenge
+otherwise. The SPA shell and static assets stay public so a client can load and prompt for the
+token; `/docs` and `/openapi.*` are protected unless `httpserver.public_docs: true`. The token is
+never returned by `GET /coddy/config` (redacted; the DTO only reports `auth_configured`). Tokens
+passed via `--auth-token` / `CODDY_HTTP_TOKEN` are never written to `config.yaml` and survive
+`PUT /coddy/config` hot reloads. Prefer TLS (or a TLS-terminating proxy) when using auth over a
+network. Binding a non-loopback address without a token logs a startup warning unless
+`httpserver.allow_insecure: true`.
+
+Without a token the surface is unauthenticated; run behind appropriate network controls.
+
+### Cross-origin access and the remote UI
+
+The bundled UI can point at a **remote** `coddy http` server (an environment selector switches
+the API base URL and sends the remote's bearer token). Because that is a cross-origin call, the
+remote server must opt into CORS:
+
+```yaml
+httpserver:
+  auth_token: "${CODDY_HTTP_TOKEN}"
+  cors:
+    enabled: true
+    allowed_origins: ["http://localhost:12345", "https://my-ui.example"]   # or ["*"]
+  remotes:                       # optional: offered in the UI environment selector
+    - name: "prod box"
+      url: "https://box.example:12345"
+```
+
+When `cors.enabled` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
+`Access-Control-Allow-Origin` (echoed origin, or `*` when configured) and
+`Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
+receive no CORS headers. Bearer auth still applies to the actual request. Tokens for remotes are
+**not** stored in `httpserver.remotes`; the UI keeps them client-side per remote.
+
+Because `EventSource` cannot send an `Authorization` header cross-origin, the composer-stream
+re-attach route **`GET /coddy/sessions/{id}/composer-stream`** (and only that route) also accepts
+the token as a `?access_token=` query parameter.
 
 ## Embedded web UI (**`-tags=http,ui`**)
 
 - **`GET /`** serves **`index.html`**, **`styles.css`**, and **`app.js`** from **`external/ui/`** (`go:embed`) when **`ui`** is set at link time with **`http`**. Responses for **`/`**, **`/index.html`**, **`/app.js`**, and **`/styles.css`** include **`Cache-Control: no-cache`** so a normal reload picks up assets after you rebuild the binary (fixed URLs, no fingerprint).
+- **API-only mode**: set **`ui.enabled: false`** in config to run the server without the SPA even when the **`ui`** tag is compiled in. **`GET /`** then returns a short plaintext notice (HTTP 404) instead of the UI; every **`/v1/*`** and **`/coddy/*`** route keeps working and keeps requiring **`httpserver.auth_token`** when set. Useful for a headless remote box other UIs connect to.
 - Recommended session URL pattern: **`#/s/<sessionId>`** (client-only history). For **`POST /v1/responses`** and **`POST /v1/chat/completions`**, send **`X-Coddy-Session-ID`** with a **`sess_<hex>`** id that satisfies server-side validation (`internal/session/validate.go`).
 - **`GET /coddy/sessions`**, **`PATCH /coddy/sessions/{id}`**, and other **`/coddy/sessions/{id}/...`** routes identify the session **only** by the **`{id}`** path segment (no duplicate header in OpenAPI; clients may still send **`X-Coddy-Session-ID`**, it is not used to pick the resource for those URLs).
 - The bundled UI calls **`POST /v1/responses`** with **`stream: true`**. If **`GET /coddy/sessions`** reports **`turnActive`** for the open session (for example after a full tab reload while another client or the same server process still runs the turn), the UI subscribes to **`GET /coddy/sessions/{id}/composer-stream`** (SSE) to replay bytes already emitted for that turn and continue receiving live chunks until **`data: [DONE]`** or an error event. Starting a new **`POST /v1/responses`** cancels that relay subscription client-side. For ReAct (**`model`** **`agent`** or **`plan`**), it sends optional **`metadata.model`** with the selected YAML **`models[].model`** **`id`** and optional **`metadata.runPlanSlug`** to implement a saved design plan (**`coddy.dev/runPlanSlug`** on ACP **`session/prompt`**) (from **`GET /v1/models`**, **`owned_by`** not **`coddy`**); default follows **`default_agent_model`**, persisted choice in **`coddy_llm_model`**. When the selected model exposes **`reasoning_levels`**, it also sends optional **`metadata.reasoning`** with the chosen level; default follows the model's **`reasoning_default`**, persisted choice in **`coddy_llm_reasoning`**. It derives **`attachments`** from **`@path`** mentions in **`input`** (files only); **`GET /coddy/workspace/files`** powers the **`@`** picker. SSE **default** chunks follow **`chat.completion.chunk`** deltas (**`delta.content`** for assistant text, **`delta.reasoning_content`** for streamed model reasoning so the UI can keep the **thinking** foldout separate). Named **`event:`** lines (**`tool_call`**, **`tool_call_update`**, **`plan`**, **`token_usage`**, **`available_commands`**) expose tool progress and incremental token totals between LLM rounds; when **`memory.enabled`** is **true**, the server also emits **`memory_phase`** (**`sessionUpdate`** **`memory_phase`**) and **`memory_chunk`** (**`memory_message_chunk`**) for the unified memory copilot (**one pass before the main model**, recall-or-persist), streamed model text deltas only, without adding rows to **`messages.json`**. **`GET /coddy/sessions/{id}/messages`** may include **`memoryTurns`** (array of persisted per-turn summaries for the bundled UI transcript). **`coddy_meta`** JSON follows the usual rule immediately before **`data: [DONE]`**. **Stop generation** in the composer calls **`POST /coddy/sessions/{id}/cancel`** with **`X-Coddy-Session-ID`** matching **`{id}`**, then **`AbortSignal`** tears down the streamed **`fetch`**. That maps to ACP **`session/cancel`** for the agent turn (**`TurnCtx`** propagation for direct **`models[].model`** completions uses the same cancel hook). Cancel mid-stream still **persists** accumulated assistant **`content`** for that turn; **`GET /coddy/sessions/{id}/messages`** can briefly trail that write, so the SPA **merges** fetched rows with its per-session shadow or on-screen transcript (**`mergeTranscriptPreferLocalSuffix`** in **`external/ui/src/ui/chat/transcriptServerSnapshot.ts`**). More than one session may stream in parallel (**`pickStreamMutationBase`** in **`streamMutationBase.ts`** keeps SSE mutations scoped per **`X-Coddy-Session-ID`**).
@@ -135,7 +182,7 @@ Interactive tool permission prompts are bypassed when **`tools.permission_mode`*
 
 ## CLI flags
 
-Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--sessions-dir`**, **`--session-id`**, **`--log-*`**, optional **`--scheduler-enabled`**. Networking flags: **`-H` / `--host`**, **`-P` / `--port`**. Defaults fall back to YAML **`httpserver.host` / port** when left at **`0.0.0.0:12345`**.
+Equivalent to **`coddy acp`**: **`--config`**, **`--home`**, **`--cwd`**, **`--sessions-dir`**, **`--session-id`**, **`--log-*`**, optional **`--scheduler-enabled`**. Networking flags: **`-H` / `--host`**, **`-P` / `--port`**. Defaults fall back to YAML **`httpserver.host` / port** when left at **`0.0.0.0:12345`**. Auth: **`--auth-token <token>`** (also **`CODDY_HTTP_TOKEN`**) enables bearer authentication without writing the secret to **`config.yaml`**.
 
 ## Build
 

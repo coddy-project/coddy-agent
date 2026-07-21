@@ -139,6 +139,28 @@ tools:
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
+#   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
+#   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
+#   auth_token: "${CODDY_HTTP_TOKEN}"
+#   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
+#   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
+#   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
+#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*".
+#   cors:
+#     enabled: false
+#     allowed_origins: ["http://localhost:12345"]
+#   # Remote coddy http servers offered in the UI environment selector. Tokens are NOT stored here;
+#   # the UI keeps them client-side per remote.
+#   remotes:
+#     - name: "prod box"
+#       url: "https://box.example:12345"
+
+# Embedded web UI (only with -tags http,ui). Set enabled: false to run an API-only server
+# (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
+# requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
+# ui:
+#   enabled: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
