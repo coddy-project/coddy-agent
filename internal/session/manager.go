@@ -705,6 +705,10 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
 		})
 	}
+	cmds = append(cmds, acp.AvailableCommand{
+		Name:        "plugin",
+		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",
+	})
 	for _, s := range sums {
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}

@@ -48,7 +48,6 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
 	r.Register(toolssh.SSHRunCommandTool())
-	r.Register(ManageSkillsTool(cfg))
 	registerSchedulerTools(r, cfg)
 	return r
 }

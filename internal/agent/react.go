@@ -103,6 +103,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	if instructions, ok := parseCompactCommand(userText); ok {
 		return a.runCompactCommand(ctx, instructions)
 	}
+	// The built-in /plugin command manages skill plugins and marketplaces
+	// deterministically, without an LLM turn; the command text stays out of the
+	// transcript too.
+	if args, ok := parsePluginCommand(userText); ok {
+		return a.runPluginCommand(ctx, args)
+	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
 	if note := filePathsNote(imageParts); note != "" {

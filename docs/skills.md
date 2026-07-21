@@ -71,39 +71,54 @@ skills:
     - "https://example.com/skills/marketplace.json"  # an API marketplace URL
 ```
 
-Commands:
+### The `plugin` command (CLI and `/plugin` in chat)
+
+Plugin and marketplace management uses one command surface, available identically as the
+`coddy plugin ...` CLI and the built-in `/plugin` chat command (a deterministic slash command that
+runs without an LLM turn, like `/compact`):
 
 ```bash
-coddy skills add <owner/repo | git-url | marketplace-url>      # append a source to config.yaml
-coddy skills install <owner/repo | git-url | marketplace-url>  # add the source and fetch it now
-coddy skills sync                                              # fetch/refresh all sources
-coddy skills update [name]                                     # list available updates, or install one
-coddy skills remove <name>                                     # delete a synced skill
-coddy skills sources                                           # list configured sources
-coddy skills remove-source <source>                            # drop a source from config.yaml
+coddy plugin marketplace list                         # configured marketplaces + validity status
+coddy plugin marketplace add <owner/repo | url>       # register a marketplace and fetch its skills
+coddy plugin marketplace remove <owner/repo | url>    # drop a marketplace from config.yaml
+coddy plugin marketplace sync                          # refresh all marketplaces
+coddy plugin install <owner/repo | url>               # install (and update) a marketplace's skills
+coddy plugin remove <name>                             # remove an installed skill
+coddy plugin enable <name>   |   plugin disable <name> # toggle a skill
+coddy plugin list                                      # installed skills with versions
 ```
 
-`coddy skills list` shows an installed **VERSION** column. `coddy skills install` is the one-shot
-(Codex-style) equivalent of `add` followed by `sync`.
+In chat, the same words follow `/plugin`, e.g. `/plugin marketplace add EvilFreelancer/rpa-skills`,
+`/plugin install owner/repo`, `/plugin marketplace list`. `marketplace add` accepts both a GitHub
+`owner/repo` shorthand and a direct git or `marketplace.json` URL. `marketplace list` probes each
+source and reports whether it is a **valid marketplace** (agents standard, with its name, version, and
+plugin count), a repo with **no marketplace.json** (skills discovered directly), or **unreachable**.
+
+The lower-level `coddy skills` commands remain for skill files themselves:
+
+```bash
+coddy skills list                                      # all skills (with a VERSION column)
+coddy skills enable <name>  |  disable <name>
+coddy skills add <src>  |  sync  |  remove <name>      # remote source install (see below)
+```
 
 Three surfaces stay in parity — pick whichever fits:
 
-- **CLI** — the subcommands above.
+- **CLI** — `coddy plugin ...` (and `coddy skills ...`).
+- **Chat** — the `/plugin ...` command.
 - **Web UI** — **Settings → Skills → Remote skill sources** (add a source, **Sync**, remove a source,
   **Refresh** to check versions, and a per-skill **Update** button when a newer version exists).
-- **Chat** — ask the agent; the `manage_skills` tool covers `list`, `list_sources`, `add_source`,
-  `remove_source`, `sync`, `check_updates`, and `update` (e.g. "install the EvilFreelancer/rpa-skills
-  marketplace" or "update the rpa-init skill").
 
 ### Versions and updates
 
 A marketplace `marketplace.json` may declare a `version` per plugin (semantic version), and a skill's
 `SKILL.md` frontmatter may carry its own `version:`. Coddy records the installed version in the
-`${CODDY_HOME}/skills/.remote.json` lockfile and shows it in `coddy skills list`, the HTTP skill rows,
-and the Settings UI. `coddy skills update` (or the UI **Refresh** button) re-reads each source's
-manifest and reports which skills have a newer version upstream; `coddy skills update <name>` (or the
-per-skill **Update** button) re-syncs just that skill's source to install it. Version-less plugins are
-shown without a version and are never flagged for updates (no false positives).
+`${CODDY_HOME}/skills/.remote.json` lockfile and shows it in `coddy skills list`, `coddy plugin list`,
+the HTTP skill rows, and the Settings UI. `coddy plugin marketplace sync` (or the UI **Refresh**
+button, backed by `GET /coddy/skills/updates`) re-reads each source's manifest and reports which skills
+have a newer version upstream; the per-skill **Update** button (or `POST /coddy/skills/{name}/update`)
+re-syncs just that skill's source to install it. Version-less plugins are shown without a version and
+are never flagged for updates (no false positives).
 
 ### How a source is resolved
 

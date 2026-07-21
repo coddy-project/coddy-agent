@@ -61,3 +61,6 @@ Thumbs.db
 
 # Config backups written by coddy at startup (internal/config WriteBackup)
 *.bak
+
+# Codex cross-review local state
+.codex-review/
