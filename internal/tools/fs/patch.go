@@ -16,7 +16,7 @@ func ApplyPatchTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "apply_patch",
-			Description: "Apply a patch to a file. Supports unified diff (diff -u / git diff) and Codex/V4A format (*** Begin Patch ... @@ hunks with +/- lines).",
+			Description: "Apply a patch to a file while preserving its line endings and final newline. Supports validated unified diff (diff -u / git diff) and Codex/V4A format (*** Begin Patch ... @@ hunks with +/- lines).",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -47,11 +47,11 @@ func executeApplyPatch(_ context.Context, argsJSON string, env *tooling.Env) (st
 	if err != nil {
 		return "", err
 	}
-	patchBody := strings.TrimSpace(args.Patch)
-	if patchBody == "" {
-		patchBody = strings.TrimSpace(args.Diff)
+	patchBody := args.Patch
+	if strings.TrimSpace(patchBody) == "" {
+		patchBody = args.Diff
 	}
-	if patchBody == "" {
+	if strings.TrimSpace(patchBody) == "" {
 		return "", fmt.Errorf("apply_patch: patch is required")
 	}
 
@@ -81,67 +81,118 @@ func applyPatch(original, diff string) (string, error) {
 	return applyUnifiedDiff(original, diff)
 }
 
-// applyUnifiedDiff is a simple unified diff applicator for standard --- / +++ / @@ hunks.
+// applyUnifiedDiff applies standard --- / +++ / @@ hunks and validates their source lines.
 func applyUnifiedDiff(original, diff string) (string, error) {
-	lines := splitFileLines(original)
-	diffLines := strings.Split(diff, "\n")
+	normalizedOriginal := normalizeLineEndings(original)
+	normalizedDiff := normalizeLineEndings(diff)
+	lines := splitFileLines(normalizedOriginal)
+	diffLines := strings.Split(normalizedDiff, "\n")
+	result := make([]string, 0, len(lines))
+	sourceIndex := 0
+	sawHunk := false
 
-	result := make([]string, len(lines))
-	copy(result, lines)
-
-	var hunkStart, origOffset int
-	inHunk := false
-
-	for _, dl := range diffLines {
-		if strings.HasPrefix(dl, "@@") {
-			origStart, err := parseHunkOrigStart(dl)
-			if err != nil {
-				return "", err
+	for i := 0; i < len(diffLines); {
+		line := diffLines[i]
+		if !strings.HasPrefix(line, "@@") {
+			if !sawHunk && isUnifiedDiffMetadata(line) {
+				i++
+				continue
 			}
-			hunkStart = hunkOrigIndex(origStart)
-			origOffset = 0
-			inHunk = true
-			continue
+			if line == "" {
+				i++
+				continue
+			}
+			return "", fmt.Errorf("patch line %q outside a hunk", line)
 		}
 
-		if !inHunk {
-			continue
+		header, err := parseUnifiedHunkHeader(line)
+		if err != nil {
+			return "", err
+		}
+		hunkStart := hunkOrigIndex(header.oldStart)
+		if hunkStart < sourceIndex {
+			return "", fmt.Errorf("patch hunk at line %d overlaps a previous hunk", header.oldStart)
+		}
+		if hunkStart > len(lines) {
+			return "", fmt.Errorf("patch hunk starts at line %d out of range (file has %d lines)", header.oldStart, len(lines))
+		}
+		result = append(result, lines[sourceIndex:hunkStart]...)
+		sourceIndex = hunkStart
+		sawHunk = true
+		i++
+
+		oldSeen := 0
+		newSeen := 0
+		for i < len(diffLines) && !strings.HasPrefix(diffLines[i], "@@") {
+			hunkLine := diffLines[i]
+			if hunkLine == "" {
+				i++
+				continue
+			}
+			if strings.HasPrefix(hunkLine, `\`) {
+				i++
+				continue
+			}
+
+			text := hunkLine[1:]
+			switch hunkLine[0] {
+			case ' ':
+				if err := verifyUnifiedSourceLine(lines, sourceIndex, text, "context"); err != nil {
+					return "", err
+				}
+				result = append(result, text)
+				sourceIndex++
+				oldSeen++
+				newSeen++
+			case '-':
+				if err := verifyUnifiedSourceLine(lines, sourceIndex, text, "delete"); err != nil {
+					return "", err
+				}
+				sourceIndex++
+				oldSeen++
+			case '+':
+				result = append(result, text)
+				newSeen++
+			default:
+				return "", fmt.Errorf("patch hunk line %q: expected leading ' ', '+', or '-'", hunkLine)
+			}
+			i++
 		}
 
-		if strings.HasPrefix(dl, `\`) {
-			continue
-		}
-
-		switch {
-		case strings.HasPrefix(dl, "---") || strings.HasPrefix(dl, "+++"):
-			continue
-		case strings.HasPrefix(dl, "-"):
-			idx := hunkStart + origOffset
-			if idx < 0 || idx >= len(result) {
-				return "", fmt.Errorf("patch delete at line %d out of range (file has %d lines)", idx+1, len(result))
-			}
-			result = append(result[:idx], result[idx+1:]...)
-		case strings.HasPrefix(dl, "+"):
-			idx := hunkStart + origOffset
-			if idx < 0 {
-				idx = 0
-			}
-			if idx > len(result) {
-				idx = len(result)
-			}
-			newLine := dl[1:]
-			result = append(result[:idx], append([]string{newLine}, result[idx:]...)...)
-			origOffset++
-		case strings.HasPrefix(dl, " "):
-			origOffset++
-		case dl == "":
-			continue
-		default:
-			return "", fmt.Errorf("patch hunk line %q: expected leading ' ', '+', or '-'", dl)
+		if oldSeen != header.oldCount || newSeen != header.newCount {
+			return "", fmt.Errorf(
+				"patch hunk count mismatch: header expects -%d/+%d lines, got -%d/+%d",
+				header.oldCount,
+				header.newCount,
+				oldSeen,
+				newSeen,
+			)
 		}
 	}
 
-	return strings.Join(result, "\n"), nil
+	if !sawHunk {
+		return "", fmt.Errorf("patch contains no hunks")
+	}
+	result = append(result, lines[sourceIndex:]...)
+	return restoreLineEndings(strings.Join(result, "\n"), original), nil
+}
+
+func isUnifiedDiffMetadata(line string) bool {
+	return line == "" ||
+		strings.HasPrefix(line, "diff ") ||
+		strings.HasPrefix(line, "index ") ||
+		strings.HasPrefix(line, "--- ") ||
+		strings.HasPrefix(line, "+++ ")
+}
+
+func verifyUnifiedSourceLine(lines []string, index int, expected, kind string) error {
+	if index >= len(lines) {
+		return fmt.Errorf("patch %s mismatch at line %d: expected %q, found end of file", kind, index+1, expected)
+	}
+	if lines[index] != expected {
+		return fmt.Errorf("patch %s mismatch at line %d: expected %q, found %q", kind, index+1, expected, lines[index])
+	}
+	return nil
 }
 
 // hunkOrigIndex maps unified-diff 1-based origin line (0 = before first line) to a 0-based slice index.
@@ -152,21 +203,52 @@ func hunkOrigIndex(origStart int) int {
 	return origStart - 1
 }
 
-func parseHunkOrigStart(line string) (int, error) {
-	inner := strings.TrimSpace(strings.TrimPrefix(line, "@@"))
-	inner = strings.TrimSpace(strings.TrimSuffix(inner, "@@"))
-	if inner == "" {
-		return 0, fmt.Errorf("invalid hunk header %q", line)
+type unifiedHunkHeader struct {
+	oldStart int
+	oldCount int
+	newCount int
+}
+
+func parseUnifiedHunkHeader(line string) (unifiedHunkHeader, error) {
+	inner := strings.TrimPrefix(line, "@@")
+	end := strings.Index(inner, "@@")
+	if end < 0 {
+		return unifiedHunkHeader{}, fmt.Errorf("invalid hunk header %q", line)
 	}
-	oldPart, _, _ := strings.Cut(inner, " ")
-	oldPart = strings.TrimPrefix(oldPart, "-")
-	if oldPart == "" {
-		return 0, fmt.Errorf("invalid hunk header %q", line)
+	fields := strings.Fields(inner[:end])
+	if len(fields) < 2 {
+		return unifiedHunkHeader{}, fmt.Errorf("invalid hunk header %q", line)
 	}
-	startStr, _, _ := strings.Cut(oldPart, ",")
-	origStart, err := strconv.Atoi(startStr)
+	oldStart, oldCount, err := parseUnifiedRange(fields[0], '-')
 	if err != nil {
-		return 0, fmt.Errorf("invalid hunk header %q: %w", line, err)
+		return unifiedHunkHeader{}, fmt.Errorf("invalid hunk header %q: %w", line, err)
 	}
-	return origStart, nil
+	_, newCount, err := parseUnifiedRange(fields[1], '+')
+	if err != nil {
+		return unifiedHunkHeader{}, fmt.Errorf("invalid hunk header %q: %w", line, err)
+	}
+	return unifiedHunkHeader{oldStart: oldStart, oldCount: oldCount, newCount: newCount}, nil
+}
+
+func parseUnifiedRange(value string, prefix byte) (start, count int, err error) {
+	if len(value) < 2 || value[0] != prefix {
+		return 0, 0, fmt.Errorf("expected %q range, got %q", prefix, value)
+	}
+	rangeText := value[1:]
+	startText, countText, hasCount := strings.Cut(rangeText, ",")
+	start, err = strconv.Atoi(startText)
+	if err != nil {
+		return 0, 0, err
+	}
+	count = 1
+	if hasCount {
+		count, err = strconv.Atoi(countText)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	if start < 0 || count < 0 {
+		return 0, 0, fmt.Errorf("negative range %q", value)
+	}
+	return start, count, nil
 }

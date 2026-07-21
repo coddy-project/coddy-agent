@@ -110,7 +110,7 @@ func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	expanded := os.ExpandEnv(ExpandPathVars(string(raw), paths))
+	expanded := expandEnvEscaped(ExpandPathVars(string(raw), paths))
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
 		return nil, err

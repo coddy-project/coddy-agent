@@ -22,7 +22,10 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
-ARG BUILD_TAGS=http,scheduler,ui,memory
+# Default build includes the messenger gateway so the image can run `coddy gateway`
+# by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
+# to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
+ARG BUILD_TAGS=http,scheduler,ui,memory,gateway
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
@@ -68,4 +71,6 @@ ENV CODDY_CONFIG=/home/user/.coddy.yaml
 EXPOSE 12345
 
 ENTRYPOINT ["/bin/coddy"]
+# Default subcommand. Override to run another mode, e.g. `docker run ... gateway --cwd /workspace`
+# or via compose `command:` / the CODDY_COMMAND override in docker-compose(.dev).yml.
 CMD ["http","-H","0.0.0.0","-P","12345"]

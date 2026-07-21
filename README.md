@@ -2,6 +2,7 @@
   <a href="https://go.dev/doc/go1.25"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go 1.25+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/EvilFreelancer/coddy-agent" alt="MIT License" /></a>
   <a href="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml"><img src="https://github.com/EvilFreelancer/coddy-agent/actions/workflows/tests-on-pr.yaml/badge.svg" alt="Tests on PR" /></a>
+  <a href="https://github.com/coddy-project/coddy-agent/releases"><img src="https://img.shields.io/github/v/release/coddy-project/coddy-agent" alt="Latest release" /></a>
   <a href="https://agentclientprotocol.com/"><img src="https://img.shields.io/badge/ACP-harness-9333EA" alt="ACP harness" /></a>
   <img src="https://img.shields.io/badge/distroless%20ready-252525" alt="distroless-ready" />
   <img src="https://img.shields.io/badge/single%20binary-252525" alt="single binary" />
@@ -12,8 +13,8 @@
 </p>
 
 <p align="center">
-  <strong>Run a full general purpose agent from one static Go binary.</strong><br />
-  ReAct, filesystem and shell tools, MCP, Skills, optional OpenAI-compatible API with an embedded UI, scheduler, and long-term memory.
+  <strong>Run a full general-purpose agent from one static Go binary.</strong><br />
+  ReAct, filesystem and shell tools, MCP, skills, OpenAI-compatible API with an embedded web UI, Telegram gateway, cron scheduler, long-term memory, and context compaction.
 </p>
 
 | Desktop (1920×1080) | Mobile (390×844) |
@@ -37,7 +38,7 @@ Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded
 
 </details>
 
-Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
+Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The same agent core is reachable from an IDE over **ACP**, a browser or any OpenAI client over **HTTP**, **Telegram** through the messenger gateway, and cron through the **scheduler**. The **`grep`** and **`glob`** filesystem tools use system ripgrep when available and fall back to built-in Go implementations when it is not. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
 
 ## Contents
 
@@ -73,6 +74,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
+- **Context compaction** - built-in `/compact [instructions]` command and automatic summarization when the context reaches `compaction.threshold_percent` (default 80%) of the model's `max_context_tokens`; the last `compaction.keep_recent_turns` (default 2) user turns stay verbatim and the full transcript is preserved on disk - see [Configuration](docs/config-reference.md#compaction)
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.coddy/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Reasoning level** - for reasoning models (gpt-5, o-series, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
@@ -105,7 +107,7 @@ irm https://coddy.dev/install.ps1 | iex
 
 Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
 
-> **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
+> **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). Runtime commands select `pwsh`, then Windows PowerShell, then `cmd.exe`; Unix builds select `bash`, then `sh`. The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
 
 Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
 

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,6 +20,7 @@ type ConfigJSON struct {
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
+	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
@@ -155,6 +157,15 @@ type SessionsJSON struct {
 	Dir string `json:"dir,omitempty"`
 }
 
+// CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
+// distinction (enabled defaults to true, keep_recent_turns to 2).
+type CompactionJSON struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	Model            string `json:"model,omitempty"`
+}
+
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
 	Enabled          bool   `json:"enabled,omitempty"`
@@ -166,10 +177,29 @@ type MemoryJSON struct {
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
 }
 
-// HTTPServerJSON mirrors HTTPServerConfig.
+// HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
+// populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Host string `json:"host,omitempty"`
-	Port int    `json:"port,omitempty"`
+	Host           string           `json:"host,omitempty"`
+	Port           int              `json:"port,omitempty"`
+	AuthToken      string           `json:"auth_token,omitempty"`
+	AuthConfigured bool             `json:"auth_configured,omitempty"`
+	PublicDocs     bool             `json:"public_docs,omitempty"`
+	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
+	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+}
+
+// HTTPCORSJSON mirrors HTTPCORSConfig.
+type HTTPCORSJSON struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+}
+
+// HTTPRemoteJSON mirrors HTTPRemote.
+type HTTPRemoteJSON struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // SchedulerJSON mirrors SchedulerConfig.
@@ -226,12 +256,32 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
+	out.Compaction = CompactionJSON{
+		Enabled:          cloneBoolPtr(c.Compaction.Enabled),
+		ThresholdPercent: c.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(c.Compaction.KeepRecentTurns),
+		Model:            c.Compaction.Model,
+	}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
-	out.HTTPServer = HTTPServerJSON{Host: c.HTTPServer.Host, Port: c.HTTPServer.Port}
+	out.HTTPServer = HTTPServerJSON{
+		Host:          c.HTTPServer.Host,
+		Port:          c.HTTPServer.Port,
+		PublicDocs:    c.HTTPServer.PublicDocs,
+		AllowInsecure: c.HTTPServer.AllowInsecure,
+		// AuthToken is intentionally redacted; report only whether one is configured.
+		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
+		CORS: HTTPCORSJSON{
+			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range c.HTTPServer.Remotes {
+		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
+	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -306,12 +356,31 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
+	cfg.Compaction = Compaction{
+		Enabled:          cloneBoolPtr(j.Compaction.Enabled),
+		ThresholdPercent: j.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(j.Compaction.KeepRecentTurns),
+		Model:            j.Compaction.Model,
+	}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
-	cfg.HTTPServer = HTTPServerConfig{Host: j.HTTPServer.Host, Port: j.HTTPServer.Port}
+	cfg.HTTPServer = HTTPServerConfig{
+		Host:          j.HTTPServer.Host,
+		Port:          j.HTTPServer.Port,
+		AuthToken:     j.HTTPServer.AuthToken,
+		PublicDocs:    j.HTTPServer.PublicDocs,
+		AllowInsecure: j.HTTPServer.AllowInsecure,
+		CORS: HTTPCORSConfig{
+			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range j.HTTPServer.Remotes {
+		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -337,13 +406,38 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	return cfg
 }
 
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
 func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
+	return ParseConfigJSONPreservingSecrets(data, paths, nil)
+}
+
+// ParseConfigJSONPreservingSecrets is like ParseAndValidateConfigJSON but, when current is
+// non-nil, carries write-only secrets that GET /coddy/config redacts (currently the
+// httpserver auth tokens) from current into the incoming config when the payload omitted them.
+// This lets the UI save an edited, redacted config without wiping tokens it never received.
+func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)
+	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
@@ -351,10 +445,39 @@ func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
 	return cfg, nil
 }
 
+// preserveRedactedSecrets copies redacted, write-only secrets from current into next when next
+// left them empty. GET /coddy/config never returns these, so a plain round-trip would drop them.
+func preserveRedactedSecrets(next, current *Config) {
+	if next == nil || current == nil {
+		return
+	}
+	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
+		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
+	}
+}
+
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).
+// Always-literal secret fields (proxy URLs) are "$"-escaped so the load-time expansion pass restores
+// them verbatim instead of resolving "$WORD"/"$N" fragments to empty environment variables.
 func MarshalConfigYAML(cfg *Config) ([]byte, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
-	return yaml.Marshal(cfg)
+	return yaml.Marshal(escapeYAMLSecrets(cfg))
+}
+
+// escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
+// It copies only what it mutates (the Providers slice and the gateway proxy string), leaving the
+// caller's in-memory *Config untouched — the live config keeps the real, unescaped values.
+func escapeYAMLSecrets(cfg *Config) *Config {
+	out := *cfg
+	if len(cfg.Providers) > 0 {
+		out.Providers = make([]ProviderConfig, len(cfg.Providers))
+		copy(out.Providers, cfg.Providers)
+		for i := range out.Providers {
+			out.Providers[i].Proxy = escapeYAMLDollar(out.Providers[i].Proxy)
+		}
+	}
+	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	return &out
 }

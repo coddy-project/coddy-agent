@@ -58,7 +58,7 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := os.ExpandEnv(ExpandPathVars(string(data), paths))
+	expanded := expandEnvEscaped(ExpandPathVars(string(data), paths))
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
@@ -96,6 +96,9 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	if err := cfg.Sessions.Validate(); err != nil {
 		return fmt.Errorf("sessions: %w", err)
+	}
+	if err := cfg.Compaction.Validate(); err != nil {
+		return fmt.Errorf("compaction: %w", err)
 	}
 	if err := cfg.Memory.Validate(cfg); err != nil {
 		return fmt.Errorf("memory: %w", err)
@@ -135,6 +138,9 @@ func applyDefaults(cfg *Config) {
 	} else {
 		cfg.Sessions.Dir = ""
 	}
+
+	cfg.Compaction.Normalize()
+	cfg.Compaction.ApplyDefaults()
 
 	cfg.Skills.ApplyDefaults(p.Home, func(s string) string {
 		return ExpandCODDYHomeOnly(s, p)

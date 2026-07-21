@@ -1,6 +1,11 @@
 import type { JsonSchema } from "./SchemaForm";
 
-export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
+export type SectionKind =
+  | "array"
+  | "object"
+  | "group"
+  | "skills"
+  | "appearance";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */

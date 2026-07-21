@@ -53,6 +53,10 @@ type Message struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	// PlanDocument holds a persisted design plan snapshot for the bundled UI (excluded from LLM prompts).
 	PlanDocument *PlanDocumentSnapshot `json:"plan_document,omitempty"`
+	// CompactionSummary marks a generated summary of earlier conversation history.
+	// Messages before the last summary stay in the persisted transcript for UI
+	// replay but are excluded from LLM prompts (see session.MessagesForLLM).
+	CompactionSummary bool `json:"compaction_summary,omitempty"`
 }
 
 // PlanDocumentSnapshot is a persisted design plan row in the session transcript.

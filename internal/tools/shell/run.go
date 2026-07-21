@@ -8,15 +8,21 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
 // RunCommandTool returns the run_command built-in tool.
 func RunCommandTool() *tooling.Tool {
+	return RunCommandToolForShell(platform.CurrentShell())
+}
+
+// RunCommandToolForShell returns run_command bound to a detected shell.
+func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "run_command",
-			Description: "Execute a shell command in the working directory. Returns combined stdout and stderr output.",
+			Description: shellDescription(commandShell),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -37,7 +43,22 @@ func RunCommandTool() *tooling.Tool {
 			},
 		},
 		RequiresPermission: true,
-		Execute:            executeRunCommand,
+		Execute: func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+			return executeRunCommandWithShell(ctx, argsJSON, env, commandShell)
+		},
+	}
+}
+
+func shellDescription(commandShell platform.Shell) string {
+	switch commandShell.Kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		return "Execute a PowerShell command in the working directory. Use native commands such as Get-ChildItem, Select-String, and Get-Process. Returns combined stdout and stderr output."
+	case platform.ShellCmd:
+		return "Execute a cmd.exe command in the working directory. Use Windows commands such as dir, findstr, and tasklist. Returns combined stdout and stderr output."
+	case platform.ShellBash:
+		return "Execute a bash command in the working directory using POSIX command syntax. Returns combined stdout and stderr output."
+	default:
+		return "Execute an sh command in the working directory using POSIX command syntax. Returns combined stdout and stderr output."
 	}
 }
 
@@ -47,7 +68,7 @@ type runCommandArgs struct {
 	TimeoutSeconds      int    `json:"timeout_seconds"`
 }
 
-func executeRunCommand(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooling.Env, commandShell platform.Shell) (string, error) {
 	args, err := tooling.ParseArgs[runCommandArgs](argsJSON)
 	if err != nil {
 		return "", err
@@ -61,7 +82,8 @@ func executeRunCommand(ctx context.Context, argsJSON string, env *tooling.Env) (
 	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, "sh", "-c", args.Command)
+	executable, commandArgs := commandShell.Command(args.Command)
+	cmd := exec.CommandContext(cmdCtx, executable, commandArgs...)
 	cmd.Dir = env.CWD
 
 	var out bytes.Buffer

@@ -34,7 +34,7 @@ Agent name, title, and build version are not configurable here. They are fixed i
 # Each providers[].name must match ^[a-zA-Z][a-zA-Z0-9_-]*$ (ASCII letter first, then letters, digits, hyphen, underscore).
 # api_key may be a literal, "${ENV}" expanded when the file loads, or empty to read NAME_API_KEY at LLM call time
 # (NAME is the provider name in uppercase with hyphens mapped to underscores, for example rpa -> RPA_API_KEY).
-# api_key_command (optional): when api_key is empty, this command is run via the shell and its trimmed stdout is
+# api_key_command (optional): when api_key is empty, this command is run via the detected host shell and its trimmed stdout is
 # used as the key (credential helper, like git/docker helpers or AWS credential_process). It lets a provider fetch
 # short-lived or login-issued keys without storing a static secret. On failure resolution falls back to NAME_API_KEY.
 # Resolution order: literal api_key -> api_key_command stdout -> NAME_API_KEY env.
@@ -43,7 +43,7 @@ providers:
     type: "openai"
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
-    # api_key_command: "my-cli print-token"  # optional credential helper; used when api_key is empty
+    # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
 
   - name: "anthropic"
@@ -126,6 +126,17 @@ prompts:
 sessions:
   # Empty = default $CODDY_HOME/sessions. Supports ${CODDY_HOME} and ~ in path.
   dir: ""
+
+# Context compaction (Go: config.Compaction, internal/config/compaction.go).
+# Summarizes history older than the keep-recent boundary into one transcript row;
+# later LLM prompts replay only the summary plus the kept tail. Trigger manually
+# with the built-in /compact command (optional trailing summarizer instructions)
+# or automatically at threshold_percent of the model's max_context_tokens.
+compaction:
+  enabled: true            # master switch (manual command and automation)
+  threshold_percent: 80    # auto-compact trigger, 1..100; needs models[].max_context_tokens
+  keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+  model: ""                # models[].model for the summarizer; empty = session model
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enabled.
@@ -363,6 +374,15 @@ Values already in the process environment (e.g. set by the shell, Docker, system
 
 Any config value can reference environment variables using `${VAR_NAME}` syntax.
 The agent resolves these at startup.
+
+**Literal `$` in a value:** because expansion runs over the raw file, a value that must contain a
+literal dollar sign (e.g. a proxy or API-key secret like `$2y$10$…`) has to double it as `$$` — `$$`
+expands back to a single `$`, exactly like docker-compose / envsubst. Without this, fragments such as
+`$2y` or `$10` are treated as environment-variable references and resolve to empty strings, silently
+corrupting the secret. The Settings UI does this automatically for the `proxy` fields
+(`providers[].proxy` and `gateways.telegram.proxy`), which are always treated as literal URLs and do
+**not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
+write `$$` by hand.
 
 Special variables in YAML (before parse) and in path strings:
 

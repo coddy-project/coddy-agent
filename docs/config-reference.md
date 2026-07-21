@@ -10,7 +10,7 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference.
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). `${CODDY_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
 
 ## Top-level keys
 
@@ -27,6 +27,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
+| [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
 | [`httpserver`](#httpserver) | object | OpenAI-compatible HTTP API defaults | `http` |
 | [`scheduler`](#scheduler) | object | Cron scheduler | `scheduler` |
@@ -44,8 +45,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint. |
 | `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
-| `api_key_command` | string | no | `""` | — | Credential-helper command run via the shell when `api_key` is empty; trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
-| `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. |
+| `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
+| `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -189,6 +190,17 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 |---|---|---|---|---|
 | `dir` | string | no | `""` → `${CODDY_HOME}/sessions` | Sessions root. Supports `${CODDY_HOME}` and `~`. Overridden by the `--sessions-dir` flag. |
 
+## `compaction`
+
+Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch for compaction (manual command and automation). |
+| `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
+| `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
+| `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
+
 ## `memory`
 
 Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
@@ -211,6 +223,21 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 |---|---|---|---|---|
 | `host` | string | no | `""` → `0.0.0.0` | Default bind address when `coddy http` does not pass `-H/--host`. |
 | `port` | int | no | `0` → `12345` | Default listen port when `coddy http` does not pass `-P/--port`. Range 0–65535. |
+| `auth_token` | string | no | `""` | Optional bearer credential. Empty means no auth (historical default). Enables auth on `/v1/*` and `/coddy/*`. Supports `${ENV}`. Never returned by `GET /coddy/config`. Prefer `--auth-token` / `CODDY_HTTP_TOKEN`. |
+| `public_docs` | bool | no | `false` | When auth is enabled, keep `/docs` and `/openapi.*` reachable without a token. |
+| `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the API (e.g. `http://localhost:12345`). A single `*` allows any origin; bearer auth still applies. |
+| `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
+| `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
+
+## `ui`
+
+Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful with `-tags http,ui`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
 
 ## `scheduler`
 
@@ -234,7 +261,7 @@ Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gatew
 |---|---|---|---|---|---|
 | `enabled` | bool | no | `false` | — | Activate the Telegram adapter. |
 | `token` | string | no | `""` | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather. Empty reads the env var (e.g. via `~/.coddy/.env`). |
-| `proxy` | string | no | direct | — | Outbound proxy: `http`, `https`, `socks5`, `socks5h`. |
+| `proxy` | string | no | direct | — | Outbound proxy: `http`, `https`, `socks5`, `socks5h`. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 | `rich_messages` | bool | no | `false` | — | Bot API 10.1 Rich Messages; falls back to legacy formatting when unsupported. |
 | `admins` | int list | no | `[]` | — | Telegram user IDs with elevated rights; always pass access checks. |
 | `default_access` | string | no | `all` | — | `all`, `admins`, or `group:<name>`. |

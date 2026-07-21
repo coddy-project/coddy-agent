@@ -43,7 +43,7 @@ When working in Codex:
 
 When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 
-- Add or update tests first (red), then implement (green).
+- Add or update tests first (red), then implement (green). The **happy path** of a feature (and a bug's reproduction) is a Gherkin spec in the repo-root **`features/`** directory, run by a godog harness (e.g. `external/httpserver/bdd_*_test.go`); **edge/error cases go in ordinary unit tests**, not `features/`. See **`.cursor/rules/workflow.mdc`** / **`.claude/rules/workflow.md`**.
 - If the external HTTP surface changes, update `external/httpserver/openapi.go` so the served OpenAPI matches handlers in `external/httpserver/server.go`.
 - Keep `docs/http-api.md` aligned with the live behavior.
 - For UI changes, update sources under **`external/ui/src/`** and rebuild embedded assets via **`make build TAGS="http ui"`** (runs **npm** via **make ui-build**).

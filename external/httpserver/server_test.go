@@ -1926,6 +1926,414 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 	}
 }
 
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+
+func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("wrong token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "s3cret"); got != http.StatusOK {
+		t.Fatalf("valid token: status %d want 200", got)
+	}
+	// The SPA shell stays public even with auth enabled (no-ui build returns a 404 notice, not 401).
+	if got := authGET(t, ts.URL+"/", ""); got == http.StatusUnauthorized {
+		t.Fatal("SPA root must be public, got 401")
+	}
+}
+
+func TestHTTPAuthChallengeHeader(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d want 401", res.StatusCode)
+	}
+	if !strings.HasPrefix(res.Header.Get("WWW-Authenticate"), "Bearer") {
+		t.Fatalf("missing WWW-Authenticate challenge: %q", res.Header.Get("WWW-Authenticate"))
+	}
+}
+
+func TestHTTPAuthDisabledByDefault(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("auth disabled: status %d want 200", got)
+	}
+}
+
+func TestHTTPAuthHotReloadEnableRotateDisable(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("start disabled: %d", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokA"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("after enable, no token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusOK {
+		t.Fatalf("after enable, tokA: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokB"))
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusUnauthorized {
+		t.Fatalf("after rotate, old token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokB"); got != http.StatusOK {
+		t.Fatalf("after rotate, new token: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("after disable: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthExtraTokensEnableAuth(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	srv.SetExtraAuthTokens([]string{"cli-token"})
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("an extra (CLI/env) token must enable auth: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "cli-token"); got != http.StatusOK {
+		t.Fatalf("cli token: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthPublicDocs(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusUnauthorized {
+		t.Fatalf("openapi should be protected by default: %d want 401", got)
+	}
+	pd := cfgWithAuth("s3cret")
+	pd.HTTPServer.PublicDocs = true
+	srv.ReplaceConfig(pd)
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusOK {
+		t.Fatalf("public_docs should expose openapi: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthConfigGetRedactsTokens(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("topsecret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/config", nil)
+	req.Header.Set("Authorization", "Bearer topsecret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("config get status %d: %s", res.StatusCode, b)
+	}
+	if strings.Contains(string(b), "topsecret") {
+		t.Fatalf("GET /coddy/config leaked the auth token: %s", b)
+	}
+}
+
+func TestHTTPAuthConfigPutPreservesToken(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n    max_tokens: 4096\n    temperature: 0.1\n" +
+		"agent:\n  model: openai/gpt-4o\n" +
+		"httpserver:\n  auth_token: \"livetoken\"\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// A redacted UI save (auth_configured, no token value) that also changes max_turns.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":15},` +
+		`"httpserver":{"auth_configured":true}}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer livetoken")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d: %s", res.StatusCode, pb)
+	}
+	if srv.activeCfg().Agent.MaxTurns != 15 {
+		t.Fatalf("hot reload max_turns %d", srv.activeCfg().Agent.MaxTurns)
+	}
+	// The token must still authenticate after the redacted save.
+	if got := authGET(t, ts.URL+"/v1/models", "livetoken"); got != http.StatusOK {
+		t.Fatalf("token lost after redacted save: %d", got)
+	}
+}
+
+// ---- CORS + cross-origin remote UI enablers ----
+
+func cfgWithCORS(origins ...string) *config.Config {
+	c := cfgWithAuth("")
+	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}
+	return c
+}
+
+func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight status %d want 204", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "http://ui.local" {
+		t.Fatalf("ACAO = %q want http://ui.local", got)
+	}
+	if !strings.Contains(res.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("ACA-Headers missing Authorization: %q", res.Header.Get("Access-Control-Allow-Headers"))
+	}
+}
+
+func TestHTTPCORSDisallowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin got ACAO %q, want none", got)
+	}
+}
+
+func TestHTTPCORSWildcardActualRequest(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("*"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://anything.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d want 200", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("wildcard ACAO = %q want *", got)
+	}
+}
+
+func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("")) // CORS disabled by default
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("CORS disabled but ACAO set: %q", got)
+	}
+}
+
+func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("stream-secret"))
+	sid := "sess_deadbeefdeadbeef"
+	// Accepted via ?access_token= on the SSE route (unknown session resolves before the wait, not 401).
+	base := ts.URL + "/coddy/sessions/" + sid + "/composer-stream"
+	if got := authGET(t, base+"?access_token=stream-secret", ""); got == http.StatusUnauthorized {
+		t.Fatalf("composer-stream with valid access_token should not be 401")
+	}
+	// Rejected without any credential.
+	if got := authGET(t, base, ""); got != http.StatusUnauthorized {
+		t.Fatalf("composer-stream without token: %d want 401", got)
+	}
+	// The query token is NOT accepted on a non-SSE route.
+	if got := authGET(t, ts.URL+"/coddy/sessions/"+sid+"/messages?access_token=stream-secret", ""); got != http.StatusUnauthorized {
+		t.Fatalf("non-SSE route accepted query token: %d want 401", got)
+	}
+}
+
+// --- POST /coddy/sessions/{id}/compact --------------------------------------
+
+func newCompactTestServer(t *testing.T, comp config.Compaction) (*httptest.Server, *session.Manager, func()) {
+	t.Helper()
+	cfg := &config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: comp,
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	// A real FileStore gives sessions a bundle dir, so the composer turn lock
+	// uses the non-blocking flock path (busy -> ErrSessionTurnBusy -> 409).
+	store := &session.FileStore{Root: t.TempDir()}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return cannedSummaryProvider{}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	return ts, mgr, func() { ts.Close(); srv.Drain() }
+}
+
+func compactSeedSession(t *testing.T, mgr *session.Manager, exchanges int) string {
+	t.Helper()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+	for i := 1; i <= exchanges; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("q%d", i)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("a%d", i)})
+	}
+	return res.SessionID
+}
+
+func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int, map[string]interface{}) {
+	t.Helper()
+	res, err := http.Post(ts.URL+"/coddy/sessions/"+sessionID+"/compact", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var parsed map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&parsed)
+	return res.StatusCode, parsed
+}
+
+func TestCompactEndpointUnknownSession(t *testing.T) {
+	ts, _, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	code, _ := postCompact(t, ts, "sess_does_not_exist", `{}`)
+	if code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", code)
+	}
+}
+
+func TestCompactEndpointNothingToCompact(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 1)
+	code, body := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); compacted {
+		t.Fatalf("compacted = true, want false: %v", body)
+	}
+	if reason, _ := body["reason"].(string); reason != "nothing_to_compact" {
+		t.Fatalf("reason = %v", body)
+	}
+}
+
+func TestCompactEndpointDisabled(t *testing.T) {
+	off := false
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{Enabled: &off})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+func TestCompactEndpointBusy(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", code)
+	}
+}
+
+func TestCompactEndpointSuccessCounts(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 4)
+	code, body := postCompact(t, ts, sid, `{"instructions":"keep decisions"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); !compacted {
+		t.Fatalf("compacted != true: %v", body)
+	}
+	// 4 exchanges with default keep 2: head = 4 messages, kept = 4 messages.
+	if n, _ := body["compacted_messages"].(float64); int(n) != 4 {
+		t.Fatalf("compacted_messages = %v", body)
+	}
+	if n, _ := body["kept_messages"].(float64); int(n) != 4 {
+		t.Fatalf("kept_messages = %v", body)
+	}
+	msgs := mgr.SessionByID(sid).GetMessages()
+	if len(msgs) != 9 || !msgs[4].CompactionSummary {
+		t.Fatalf("summary row not inserted: len=%d", len(msgs))
+	}
+}
+
 // TestCoddySkillsSourcesSyncDelete exercises the remote-skill management routes
 // without any network: add a source (persisted to config.yaml), an empty sync,
 // and delete of a pre-seeded remote skill.

@@ -130,6 +130,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace", s.coddySessionWorkspacePost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/compact", s.coddySessionCompactPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/question", s.coddySessionQuestionPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/permission", s.coddySessionPermissionPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
@@ -838,6 +839,9 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		}
 		if cat := strings.TrimSpace(m.CreatedAt); cat != "" {
 			item["created_at"] = cat
+		}
+		if m.CompactionSummary {
+			item["compaction_summary"] = true
 		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
