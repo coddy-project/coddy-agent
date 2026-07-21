@@ -44,6 +44,9 @@ func (s *Server) coddyConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := config.ConfigToJSONDTO(c)
+	// Report the effective auth state (YAML token or out-of-band --auth-token / CODDY_HTTP_TOKEN),
+	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
+	dto.HTTPServer.AuthConfigured = s.authPolicyNow().enabled
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(dto); err != nil {
 		s.log.Error("coddy config get encode", "error", err)
