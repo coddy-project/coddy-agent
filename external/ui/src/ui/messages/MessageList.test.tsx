@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
 
@@ -46,6 +46,62 @@ test("renders user, assistant, and tool call items", () => {
   expect(screen.getByText("Hi")).toBeInTheDocument();
   expect(screen.getByText("read_file")).toBeInTheDocument();
   expect(screen.getByLabelText("Tool summary")).toBeInTheDocument();
+});
+
+test("permission preview uses the matching tool call arguments", () => {
+  const patch = [
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,2 +1,2 @@",
+    "-oldValue();",
+    "+newValue();",
+    " keep();",
+  ].join("\n");
+  const permissionPayload = {
+    sessionId: "sess_x",
+    toolCall: {
+      toolCallId: "call_patch",
+      title: "Run: apply_patch",
+      kind: "write",
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "Update the requested component" },
+        },
+      ],
+    },
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "allow_always", name: "Allow always", kind: "allow_always" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+  };
+  const items: TranscriptItem[] = [
+    {
+      id: "tool_patch",
+      type: "tool_call",
+      toolCallId: "call_patch",
+      title: "apply_patch",
+      kind: "write",
+      status: "in_progress",
+      argsText: JSON.stringify({ path: "src/app.ts", patch }),
+    },
+    {
+      id: "permission_patch",
+      type: "permission_prompt",
+      payload: permissionPayload,
+    },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.getByText("Apply this patch?")).toBeTruthy();
+  const approvalDiff = within(
+    screen.getByTestId("permission-prompt-card"),
+  ).getByLabelText("Patch preview");
+  expect(within(approvalDiff).getByText("oldValue();")).toBeTruthy();
+  expect(within(approvalDiff).getByText("newValue();")).toBeTruthy();
+  expect(screen.queryByText("Update the requested component")).toBeNull();
 });
 
 test("renders memory copilot foldout", () => {

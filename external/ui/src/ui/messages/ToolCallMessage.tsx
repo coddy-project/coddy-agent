@@ -11,17 +11,8 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
-import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
-import { DiffView } from "./DiffView";
-
-function safePrettyJSON(text: string): string {
-  try {
-    const v = JSON.parse(text);
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return text;
-  }
-}
+import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import { buildToolCallPreview } from "../chat/permissionToolPreview";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -46,7 +37,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         Answer using the Questions card in this chat. This row only mirrors the
         tool state.
       </p>
@@ -97,20 +91,24 @@ export function ToolCallMessage(props: {
   permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
 }) {
-  const args = useMemo(
-    () =>
-      toolCallArgsDisplay(props.argsText, {
-        kind: props.kind,
-        title: props.title,
-      }),
-    [props.argsText, props.kind, props.title],
-  );
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
     [props.resultText],
   );
   const full = props.fullResultText || "";
   const rawName = (props.title || props.kind || "tool").trim();
+  const toolPreview = useMemo(
+    () =>
+      buildToolCallPreview(
+        {
+          title: props.title,
+          kind: props.kind,
+          argsText: props.argsText,
+        },
+        props.argsText || "",
+      ),
+    [props.argsText, props.kind, props.title],
+  );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
 
@@ -222,7 +220,8 @@ export function ToolCallMessage(props: {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
   useEffect(() => {
-    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current)
+      return;
     fetchAttemptedRef.current = true;
     void fetchFn(props.toolCallId);
   }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
@@ -291,20 +290,27 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
-  const showDiffView = isPatchTool && !!patchContent;
+  const toolPreviewHasContent =
+    toolPreview.header.trim() !== "" ||
+    toolPreview.meta.length > 0 ||
+    toolPreview.copyText.trim() !== "" ||
+    (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "move" &&
+      (toolPreview.sourcePath.trim() !== "" ||
+        toolPreview.destinationPath.trim() !== ""));
+  const showToolPreview = !isQuestionTool && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
-  const showJsonResult =
+  const showResult =
     !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
+  const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const hasBody =
     isQuestionTool ||
-    showJsonArgs ||
-    showDiffView ||
+    showToolPreview ||
     showPatchResult ||
-    showJsonResult ||
+    showResult ||
     !!toggleLink;
 
   return (
@@ -332,9 +338,8 @@ export function ToolCallMessage(props: {
           <div
             className={[
               "thinking-body coddy-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
-                ? "coddy-tool-call-body--diff"
-                : "",
+              isQuestionTool && "coddy-tool-call-body--question",
+              hasConnectedResult && "coddy-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -347,34 +352,37 @@ export function ToolCallMessage(props: {
                 status={props.status}
               />
             ) : null}
-            {showJsonArgs ? (
-              <pre className="tool-block" aria-label="Tool arguments">
-                {args}
-              </pre>
+            {showToolPreview ? (
+              <PermissionToolPreview
+                preview={toolPreview}
+                interactive={false}
+              />
             ) : null}
-            {showDiffView && patchContent ? (
-              <DiffView patch={patchContent} filePath={args} />
-            ) : null}
-            {showPatchResult ? (
-              <div
-                className="tool-block tool-result tool-result-raw"
-                aria-label="Tool result"
-              >
-                <pre className="tool-result-pre">{resultBody}</pre>
-              </div>
-            ) : null}
-            {showJsonResult ? (
+            {showPatchResult || showResult ? (
               <div
                 className={[
-                  "tool-block tool-result tool-result-raw",
-                  useTallViewport &&
-                    `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  "tool-call-result-card",
+                  status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-label="Tool result"
               >
-                <pre className="tool-result-pre">{resultBody}</pre>
+                <div className="tool-call-result-head">
+                  <span className="tool-call-result-dot" aria-hidden />
+                  <span>Result</span>
+                </div>
+                <div
+                  className={[
+                    "tool-call-result-content",
+                    useTallViewport &&
+                      `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <pre className="tool-result-pre">{resultBody}</pre>
+                </div>
               </div>
             ) : null}
             {toggleLink ? (
