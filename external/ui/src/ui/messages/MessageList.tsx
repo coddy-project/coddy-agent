@@ -12,6 +12,7 @@ import { AssistantMessage } from "./AssistantMessage";
 import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
+import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
@@ -56,6 +57,8 @@ export function MessageList(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   onBranchSwitch?: (sessionId: string) => void;
+  /** Re-run the last turn; shown as a refresh button on the last system_notice. */
+  onRetryLast?: () => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -117,6 +120,9 @@ export function MessageList(props: {
                 : {})}
             />
           );
+        }
+        if (it.type === "compaction") {
+          return <CompactionMessage key={it.id} summary={it.summary} />;
         }
         if (it.type === "memory_copilot") {
           return (
@@ -182,12 +188,16 @@ export function MessageList(props: {
           );
         }
         if (it.type === "system_notice") {
+          const isLast = idx === props.items.length - 1;
           return (
             <SystemNoticeMessage
               key={it.id}
               level={it.level}
               message={it.message}
-              createdAtUtc={it.createdAtUtc}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
+              {...(isLast && props.onRetryLast
+                ? { onRetry: props.onRetryLast }
+                : {})}
             />
           );
         }

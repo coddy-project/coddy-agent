@@ -25,6 +25,7 @@ import {
   draftExtendsFailedSlashPrefix,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
+import { filterCommandRows } from "../skills/commandRows";
 import { segmentComposerMirrorSpans } from "../skills/composerMirrorSegments";
 import { workspacePickRowSubtitle } from "../skills/workspacePickRowSubtitle";
 import {
@@ -165,6 +166,12 @@ export function Composer(props: {
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
+  /** Index of the keyboard-highlighted row across the flat skills+commands list. */
+  const [slashActive, setSlashActive] = useState(0);
+  /** Built-in deterministic commands (/compact, /plugin) shown as a separate group. */
+  const [commandItems, setCommandItems] = useState<SlashRow[]>([]);
+  const commandItemsRef = useRef<SlashRow[]>([]);
+  const commandsFetchedRef = useRef(false);
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashPrefix, setSlashPrefix] = useState("");
   const [slashLoading, setSlashLoading] = useState(false);
@@ -471,6 +478,33 @@ export function Composer(props: {
     [props.sessionId],
   );
 
+  // Built-in deterministic commands (/compact, /plugin) are static per config, so
+  // fetch them once the first time the slash menu opens and cache the result.
+  const fetchCommandsOnce = useCallback(async () => {
+    if (commandsFetchedRef.current) {
+      return;
+    }
+    commandsFetchedRef.current = true;
+    try {
+      const res = await fetch("/coddy/commands");
+      if (!res.ok) {
+        return;
+      }
+      const body = (await res.json()) as { items?: SlashRow[] };
+      const rows = body.items || [];
+      commandItemsRef.current = rows;
+      setCommandItems(rows);
+    } catch {
+      // Built-in commands are optional; ignore fetch errors.
+    }
+  }, []);
+
+  // Load the built-in commands once on mount so they are ready before the user
+  // narrows the slash prefix (avoids racing the skills-zero auto-close).
+  useEffect(() => {
+    void fetchCommandsOnce();
+  }, [fetchCommandsOnce]);
+
   const fetchAtPage = useCallback(
     async (prefix: string, page: number) => {
       const sp = new URLSearchParams({
@@ -565,9 +599,21 @@ export function Composer(props: {
           setSlashPage(1);
           setSlashHasMore(!!body.has_more);
           if (rows.length === 0) {
-            setSlashNoMatch({ slashIdx: after.slashIdx, prefix: after.prefix });
-            setSlashOpen(false);
-            setSlashReplace(null);
+            // No skills match — but keep the menu open if a built-in command does.
+            const cmdMatches = filterCommandRows(
+              commandItemsRef.current,
+              after.prefix,
+            );
+            if (cmdMatches.length === 0) {
+              setSlashNoMatch({
+                slashIdx: after.slashIdx,
+                prefix: after.prefix,
+              });
+              setSlashOpen(false);
+              setSlashReplace(null);
+            } else {
+              setSlashNoMatch(null);
+            }
           } else {
             setSlashNoMatch(null);
           }
@@ -1001,6 +1047,32 @@ export function Composer(props: {
         .filter(Boolean)
         .join("\n");
 
+  const commandMatches = useMemo(
+    () => (slashOpen ? filterCommandRows(commandItems, slashPrefix) : []),
+    [slashOpen, commandItems, slashPrefix],
+  );
+  // Flat, render-ordered list of selectable rows (skills first, then commands),
+  // used for arrow-key navigation. The highlighted index is clamped to it.
+  const slashRows = useMemo(
+    () => [...slashItems, ...commandMatches],
+    [slashItems, commandMatches],
+  );
+  const slashActiveIdx = slashRows.length
+    ? Math.min(Math.max(slashActive, 0), slashRows.length - 1)
+    : 0;
+  // Reset the highlight to the first row whenever the query changes or the menu
+  // (re)opens, so "first row selected by default" always holds.
+  useEffect(() => {
+    setSlashActive(0);
+  }, [slashPrefix, slashOpen]);
+  // Hide the Skills group when only built-in commands match, so a lone command
+  // does not sit under an empty "Skills" header.
+  const showSkillsSection =
+    slashLoading ||
+    !!slashErr ||
+    slashItems.length > 0 ||
+    commandMatches.length === 0;
+
   const slashMenuChrome = (
     <>
       <div className="slash-menu-surface" aria-hidden />
@@ -1008,51 +1080,97 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">Skills</div>
-        {slashLoading && slashItems.length === 0 ? (
-          <div className="slash-muted">Loading…</div>
-        ) : null}
-        {slashErr ? <div className="slash-err">{slashErr}</div> : null}
-        {!slashLoading && slashItems.length === 0 && !slashErr ? (
-          <div className="slash-muted">No commands</div>
-        ) : null}
-        <ul className="slash-rows">
-          {slashItems.map((row) => (
-            <li key={row.name}>
+        {showSkillsSection ? (
+          <>
+            <div className="slash-menu-title">Skills</div>
+            {slashLoading && slashItems.length === 0 ? (
+              <div className="slash-muted">Loading…</div>
+            ) : null}
+            {slashErr ? <div className="slash-err">{slashErr}</div> : null}
+            {!slashLoading && slashItems.length === 0 && !slashErr ? (
+              <div className="slash-muted">No matching skills</div>
+            ) : null}
+            <ul className="slash-rows">
+              {slashItems.map((row, idx) => (
+                <li key={row.name}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={idx === slashActiveIdx}
+                    className={`slash-row-btn${idx === slashActiveIdx ? " is-active" : ""}`}
+                    data-testid={`slash-command-row-${row.name}`}
+                    onMouseEnter={() => setSlashActive(idx)}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applySlashChoice(row.name);
+                    }}
+                  >
+                    <span className="slash-row-line">
+                      <span className="slash-row-name">/{row.name}</span>
+                      {row.description ? (
+                        <>
+                          {" "}
+                          <span className="slash-row-desc">
+                            {row.description}
+                          </span>
+                        </>
+                      ) : null}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {slashHasMore ? (
               <button
                 type="button"
-                role="option"
-                className="slash-row-btn"
-                data-testid={`slash-command-row-${row.name}`}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  applySlashChoice(row.name);
-                }}
+                className="slash-load-more"
+                disabled={slashLoading}
+                data-testid="slash-command-more"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => loadMoreSlash()}
               >
-                <span className="slash-row-line">
-                  <span className="slash-row-name">/{row.name}</span>
-                  {row.description ? (
-                    <>
-                      {" "}
-                      <span className="slash-row-desc">{row.description}</span>
-                    </>
-                  ) : null}
-                </span>
+                {slashLoading ? "Loading…" : "More"}
               </button>
-            </li>
-          ))}
-        </ul>
-        {slashHasMore ? (
-          <button
-            type="button"
-            className="slash-load-more"
-            disabled={slashLoading}
-            data-testid="slash-command-more"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => loadMoreSlash()}
-          >
-            {slashLoading ? "Loading…" : "More"}
-          </button>
+            ) : null}
+          </>
+        ) : null}
+        {commandMatches.length > 0 ? (
+          <>
+            <div className="slash-menu-title">Commands</div>
+            <ul className="slash-rows">
+              {commandMatches.map((row, idx) => {
+                const gidx = slashItems.length + idx;
+                return (
+                  <li key={`cmd-${row.name}`}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={gidx === slashActiveIdx}
+                      className={`slash-row-btn${gidx === slashActiveIdx ? " is-active" : ""}`}
+                      data-testid={`command-row-${row.name}`}
+                      onMouseEnter={() => setSlashActive(gidx)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        applySlashChoice(row.name);
+                      }}
+                    >
+                      <span className="slash-row-line">
+                        <span className="slash-row-name">/{row.name}</span>
+                        {row.description ? (
+                          <>
+                            {" "}
+                            <span className="slash-row-desc">
+                              {row.description}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
         ) : null}
       </div>
     </>
@@ -1303,6 +1421,23 @@ export function Composer(props: {
                     return;
                   }
                   if (
+                    (ev.key === "ArrowDown" || ev.key === "ArrowUp") &&
+                    slashOpen &&
+                    !atOpen &&
+                    slashRows.length > 0 &&
+                    !props.generating
+                  ) {
+                    ev.preventDefault();
+                    const len = slashRows.length;
+                    setSlashActive((i) => {
+                      const cur = Math.min(Math.max(i, 0), len - 1);
+                      return ev.key === "ArrowDown"
+                        ? (cur + 1) % len
+                        : (cur - 1 + len) % len;
+                    });
+                    return;
+                  }
+                  if (
                     ev.key === "Tab" &&
                     atOpen &&
                     atItems.length > 0 &&
@@ -1318,13 +1453,13 @@ export function Composer(props: {
                   if (
                     ev.key === "Tab" &&
                     slashOpen &&
-                    slashItems.length > 0 &&
+                    (slashItems.length > 0 || commandMatches.length > 0) &&
                     !props.generating
                   ) {
                     ev.preventDefault();
-                    const row0 = slashItems[0];
-                    if (row0) {
-                      applySlashChoice(row0.name);
+                    const pick = slashRows[slashActiveIdx]?.name;
+                    if (pick) {
+                      applySlashChoice(pick);
                     }
                     return;
                   }
@@ -1346,13 +1481,13 @@ export function Composer(props: {
                     ev.key === "Enter" &&
                     !ev.shiftKey &&
                     slashOpen &&
-                    slashItems.length > 0 &&
+                    (slashItems.length > 0 || commandMatches.length > 0) &&
                     !props.generating
                   ) {
                     ev.preventDefault();
-                    const row0 = slashItems[0];
-                    if (row0) {
-                      applySlashChoice(row0.name);
+                    const pick = slashRows[slashActiveIdx]?.name;
+                    if (pick) {
+                      applySlashChoice(pick);
                     }
                     return;
                   }

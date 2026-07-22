@@ -54,6 +54,14 @@ export type TranscriptItem =
       startedAtMs?: number;
     }
   | {
+      /** A compaction summary row (server compaction_summary=true) rendered as a
+          foldout showing what is now in the context. */
+      id: string;
+      type: "compaction";
+      summary: string;
+      createdAtUtc?: string;
+    }
+  | {
       id: string;
       type: "assistant_message";
       content: string;

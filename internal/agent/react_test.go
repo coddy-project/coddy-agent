@@ -179,6 +179,55 @@ func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
 	}
 }
 
+// neverAnswersProvider always ends a turn with only reasoning (a leaked tool call)
+// and never produces content or a structured tool_call, even after the continuation
+// nudges. The loop must then surface a notice instead of returning end_turn with no
+// visible reply.
+type neverAnswersProvider struct{ calls int }
+
+func (p *neverAnswersProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *neverAnswersProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	onChunk(llm.StreamChunk{ReasoningDelta: `We should call run_command.{"command":"ls -R ."}`})
+	return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+}
+
+func TestRunReActLoopSurfacesNoticeWhenModelNeverAnswers(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_never_answers",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &neverAnswersProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected an error surfacing the no-reply turn so the UI shows a notice, got nil")
+	}
+	if !strings.Contains(err.Error(), "no reply") {
+		t.Fatalf("error should explain the empty (reasoning-only) turn: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want refused", stop)
+	}
+	// It should have tried the continuation nudge a bounded number of times first.
+	if provider.calls < maxEmptyAssistantContinuations+1 {
+		t.Fatalf("provider called %d times; expected retries before surfacing the notice", provider.calls)
+	}
+}
+
 // --- resume_permission.go --------------------------------------------------
 
 func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) {
@@ -468,7 +517,7 @@ func TestBuildSkillsPromptMarkdown_catalogSkillBodyNotInSystemPrompt(t *testing.
 	allLoaded := []*skills.Skill{sk}
 	active := skills.FilterForContext(allLoaded, nil)
 
-	result := buildSkillsPromptMarkdown(allLoaded, active)
+	result := buildSkillsPromptMarkdown(allLoaded, active, false)
 
 	if strings.Contains(result, body) {
 		t.Fatalf("slash command skill body should NOT be in system prompt; got:\n%s", result)
@@ -492,10 +541,30 @@ func TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt(t *testing
 	allLoaded := []*skills.Skill{sk}
 	active := skills.FilterForContext(allLoaded, nil)
 
-	result := buildSkillsPromptMarkdown(allLoaded, active)
+	result := buildSkillsPromptMarkdown(allLoaded, active, false)
 
 	if !strings.Contains(result, body) {
 		t.Fatalf("always-apply non-catalog skill body should be in system prompt; got:\n%s", result)
+	}
+}
+
+// TestBuildSkillsPromptMarkdown_loadSkillHintGatedByAutoDiscovery verifies the
+// load_skill hint appears next to the slash catalog only when auto-discovery is on.
+func TestBuildSkillsPromptMarkdown_loadSkillHintGatedByAutoDiscovery(t *testing.T) {
+	sk := &skills.Skill{
+		Name:        "SKILL",
+		FilePath:    filepath.Join("skills", "code-review", "SKILL.md"),
+		Description: "review code",
+		Content:     "body",
+	}
+	loaded := []*skills.Skill{sk}
+	active := skills.FilterForContext(loaded, nil)
+
+	if on := buildSkillsPromptMarkdown(loaded, active, true); !strings.Contains(on, "load_skill") {
+		t.Fatalf("auto-discovery on: expected load_skill hint; got:\n%s", on)
+	}
+	if off := buildSkillsPromptMarkdown(loaded, active, false); strings.Contains(off, "load_skill") {
+		t.Fatalf("auto-discovery off: hint must be absent; got:\n%s", off)
 	}
 }
 
@@ -586,7 +655,7 @@ func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
-	res, err := ag.CompactSession(context.Background(), "focus on file paths")
+	res, err := ag.CompactSession(context.Background(), "focus on file paths", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +694,7 @@ func TestCompactSessionNothingToCompact(t *testing.T) {
 	keep := 2
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), ""); !errors.Is(err, ErrNothingToCompact) {
+	if _, err := ag.CompactSession(context.Background(), "", false); !errors.Is(err, ErrNothingToCompact) {
 		t.Fatalf("err = %v, want ErrNothingToCompact", err)
 	}
 	if len(st.GetMessages()) != 4 {
@@ -638,7 +707,7 @@ func TestCompactSessionDisabled(t *testing.T) {
 	off := false
 	ag := compactTestAgent(t, st, config.Compaction{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
 
-	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
 		t.Fatal("disabled compaction must error")
 	}
 }
@@ -648,7 +717,7 @@ func TestCompactSessionEmptySummaryFails(t *testing.T) {
 	keep := 1
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "   "})
 
-	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
 		t.Fatal("empty summary must error")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -662,7 +731,7 @@ func TestCompactSessionProviderErrorKeepsHistory(t *testing.T) {
 	provider := &compactCannedProvider{t: t, err: errors.New("boom")}
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
 
-	if _, err := ag.CompactSession(context.Background(), ""); err == nil {
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
 		t.Fatal("provider error must propagate")
 	}
 	if len(st.GetMessages()) != 6 {
@@ -694,7 +763,7 @@ func TestParseCompactCommand(t *testing.T) {
 	}
 }
 
-func TestRunCompactCommandDoesNotPersistUserMessage(t *testing.T) {
+func TestRunCompactCommandPersistsUserMessage(t *testing.T) {
 	st := seededCompactState(t, 3)
 	keep := 1
 	provider := &compactCannedProvider{t: t, summary: "dense summary"}
@@ -709,10 +778,14 @@ func TestRunCompactCommandDoesNotPersistUserMessage(t *testing.T) {
 	}
 
 	msgs := st.GetMessages()
+	foundCmd := false
 	for _, m := range msgs {
-		if strings.Contains(m.Content, "/compact") {
-			t.Fatalf("the /compact command leaked into history: %+v", m)
+		if m.Role == llm.RoleUser && strings.TrimSpace(m.Content) == "/compact focus on tests" {
+			foundCmd = true
 		}
+	}
+	if !foundCmd {
+		t.Fatalf("the /compact command must be persisted as a user message so it shows in the transcript: %+v", msgs)
 	}
 	if !msgs[4].CompactionSummary {
 		t.Fatalf("summary not inserted at boundary: %+v", msgs[4])
@@ -726,8 +799,35 @@ func TestRunCompactCommandDoesNotPersistUserMessage(t *testing.T) {
 	}
 }
 
+// TestRunCompactCommandForcesShortChat covers ask: manual /compact must fold even
+// a very short conversation (below the keep-recent boundary), not refuse it.
+func TestRunCompactCommandForcesShortChat(t *testing.T) {
+	st := seededCompactState(t, 1) // one exchange (1 user turn) — below keep=2
+	keep := 2
+	provider := &compactCannedProvider{t: t, summary: "short summary"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+	msgs := st.GetMessages()
+	sawSummary := false
+	for _, m := range msgs {
+		if m.CompactionSummary {
+			sawSummary = true
+		}
+	}
+	if !sawSummary {
+		t.Fatalf("forced /compact must summarize even a short chat: %+v", msgs)
+	}
+}
+
 func TestRunCompactCommandNothingToCompact(t *testing.T) {
-	st := seededCompactState(t, 1)
+	st := seededCompactState(t, 0) // empty history: even forced compaction has nothing to fold
 	keep := 2
 	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
 

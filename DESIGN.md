@@ -265,13 +265,14 @@ Current block types:
   - Summary row matches **thinking** (**chevron**, **tool name**, **duration** beside the label). Details show args and tool **result**. Results are **raw plain text** in a monospace, muted grey panel (**no Markdown**). When **`resultWasTruncated`** is false (output fits the preview cap), the result block grows with content only (no fixed tall viewport, no **Load more results**). When truncated, the capped viewport and **Load more results** / **Hide** match the tool timeline above (REST fetch only on first **Load more results**).
   - Duration label is computed from persisted `tool_calls/<id>/meta.json` `startedAt` and `finishedAt` when available, with live **`startedAtMs`** updates while **`in_progress`**.
 - `assistant_message`
-  - Final assistant output for the turn. UI keeps it last and reconciles it from **`GET /coddy/sessions/{id}/messages`** when streaming ends or after a refetch. After **Stop** mid-stream, that **`GET`** can lag the partial row already on screen; **`mergeTranscriptPreferLocalSuffix`** (see **Multi-session streaming and Stop** above) preserves visible text until the server catches up.
+  - Assistant prose for a turn, split into **one or more** bubbles (a new bubble opens whenever text resumes after a `tool_call` / `thinking` — see **Ordering rules** below). Each is reconciled from **`GET /coddy/sessions/{id}/messages`** when streaming ends or after a refetch. After **Stop** mid-stream, that **`GET`** can lag the partial row already on screen; **`mergeTranscriptPreferLocalSuffix`** (see **Multi-session streaming and Stop** above) preserves visible text until the server catches up.
 
 Ordering rules:
 
+- The transcript renders in **arrival order** (pure array position), during streaming and after completion alike — the list is never re-sorted and tools are never grouped above the reply.
 - `thinking` blocks appear wherever reasoning arrives in the stream.
 - `tool_call` blocks appear where tool events arrive.
-- Final `assistant_message` is appended after tools and any subsequent `thinking` blocks.
+- Assistant text is **segmented**: text that resumes after a `tool_call` or `thinking` row opens a **new** `assistant_message` bubble, so prose interleaves with tools/thinking in the order the model emitted them (preamble → tool → follow-up → tool → …). During streaming this is enforced by **`consumeComposerSse.ts`**: new `tool_call` / `thinking` rows are appended at the **end** (not spliced above the reply) and mark the segment dirty; the next text delta drains the pending tool queue, then opens a fresh assistant segment (**`currentAssistantId`**), with **`lastAssistantId`** returned for the finalize/`syncAssistantFromServer` fill. This matches the chronological ordering **`loadMessages`** reconstructs from **`GET /coddy/sessions/{id}/messages`** on completion (which mints one assistant bubble per server message via **`stableAssistantItemId`**). The **live** stream and the **reloaded** transcript therefore show the **same** interleaving — there are not two different behaviors.
 
 ### Composer pill
 

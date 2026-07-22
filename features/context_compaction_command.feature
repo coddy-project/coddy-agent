@@ -14,7 +14,7 @@ Feature: Manual context compaction command
     Then the prompt response confirms the compaction
     And the session transcript contains a compaction summary row
     And the session transcript still contains all 4 original exchanges
-    And the "/compact" command is not part of the transcript
+    And the "/compact" command is part of the transcript
 
   Scenario: The REST endpoint compacts the session directly
     When the client posts to the session compact endpoint

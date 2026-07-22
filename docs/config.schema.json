@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json",
+  "$id": "https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json",
   "title": "Coddy config.yaml",
   "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}; ${CODDY_HOME} and ${CWD} are expanded by the loader.",
   "type": "object",
@@ -206,6 +206,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "auto_discovery": {
+          "type": "boolean",
+          "title": "Skill auto-discovery",
+          "description": "Offer the model-driven load_skill tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit /name. Defaults to true.",
+          "default": true
         }
       }
     },

@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -754,5 +755,63 @@ func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
 	}
 	if len(back.HTTPServer.Remotes) != 1 || back.HTTPServer.Remotes[0].URL != "https://box.example:12345" {
 		t.Fatalf("remotes lost in round-trip: %+v", back.HTTPServer.Remotes)
+	}
+}
+
+func TestSkillsAutoDiscoveryDefaultsTrue(t *testing.T) {
+	var s config.Skills
+	s.ApplyDefaults("", func(x string) string { return x })
+	if !s.AutoDiscoveryEnabled() {
+		t.Fatal("skills.auto_discovery must default to true")
+	}
+	f := false
+	s2 := config.Skills{AutoDiscovery: &f}
+	if s2.AutoDiscoveryEnabled() {
+		t.Fatal("explicit skills.auto_discovery=false must be respected")
+	}
+}
+
+func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
+	f := false
+	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
+	dto := config.ConfigToJSONDTO(c)
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if back.Skills.AutoDiscoveryEnabled() {
+		t.Fatal("auto_discovery=false must survive the JSON DTO round-trip")
+	}
+}
+
+func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *bool) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		v := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Flag not provided → config value untouched (stays nil = default-on).
+	fs, v := newFS(nil)
+	cfg := &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery != nil {
+		t.Fatalf("unset flag must not touch config, got %v", *cfg.Skills.AutoDiscovery)
+	}
+
+	// -skills-auto-discovery=false → overrides to false.
+	fs, v = newFS([]string{"-skills-auto-discovery=false"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=false must disable auto_discovery")
+	}
+
+	// -skills-auto-discovery=true → explicit enable.
+	fs, v = newFS([]string{"-skills-auto-discovery=true"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery == nil || !cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=true must explicitly enable auto_discovery")
 	}
 }

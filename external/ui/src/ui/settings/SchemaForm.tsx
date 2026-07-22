@@ -4,6 +4,7 @@ import { Combobox } from "./Combobox";
 import {
   providerApiKeyFieldPlaceholder,
 } from "./providerApiKeyPlaceholder";
+import { Switch } from "./Switch";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -270,16 +271,14 @@ function SchemaField(props: {
     const checked = Boolean(value);
     return (
       <div className="settings-row">
-        <label className="settings-row-inline">
-          <input
-            type="checkbox"
+        <div className="settings-row-inline">
+          <Switch
             checked={checked}
-            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-              onChange(e.target.checked)
-            }
+            onChange={(next) => onChange(next)}
+            ariaLabel={label}
           />
           <span>{label}</span>
-        </label>
+        </div>
         {schema.description ? (
           <p className="settings-field-desc settings-field-desc-below-checkbox">
             {schema.description}

@@ -275,13 +275,13 @@ func (s *compactHTTPFeatureState) transcriptKeepsAllExchanges() error {
 	return nil
 }
 
-func (s *compactHTTPFeatureState) transcriptOmitsCompactCommand() error {
+func (s *compactHTTPFeatureState) transcriptShowsCompactCommand() error {
 	raw, err := s.transcriptJSON()
 	if err != nil {
 		return err
 	}
-	if strings.Contains(raw, `"/compact"`) {
-		return fmt.Errorf("the /compact command leaked into the transcript")
+	if !strings.Contains(raw, `"/compact"`) {
+		return fmt.Errorf("the /compact command is missing from the transcript")
 	}
 	return nil
 }
@@ -305,7 +305,7 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the compact response reports the summary and message counts$`, s.compactResponseReportsSummaryAndCounts)
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)
 	sc.Step(`^the session transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptKeepsAllExchanges() })
-	sc.Step(`^the "/compact" command is not part of the transcript$`, s.transcriptOmitsCompactCommand)
+	sc.Step(`^the "/compact" command is part of the transcript$`, s.transcriptShowsCompactCommand)
 }
 
 func TestContextCompactionCommandFeature(t *testing.T) {

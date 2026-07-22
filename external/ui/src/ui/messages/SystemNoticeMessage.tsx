@@ -3,11 +3,14 @@ import {
   formatUtcToLocalHM,
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
+import { MessageRetryIconButton } from "./MessageRetryIconButton";
 
 export function SystemNoticeMessage(props: {
   level: "error";
   message: string;
   createdAtUtc?: string;
+  /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
+  onRetry?: () => void;
 }) {
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
@@ -29,6 +32,14 @@ export function SystemNoticeMessage(props: {
           ariaLabel="Copy error message"
           dataTestId="system-message-copy"
         />
+        {props.onRetry ? (
+          <MessageRetryIconButton
+            onRetry={props.onRetry}
+            tooltip="Refresh"
+            ariaLabel="Retry the last message"
+            dataTestId="system-message-retry"
+          />
+        ) : null}
         {timeHM ? (
           <time
             className="msg-system-time"

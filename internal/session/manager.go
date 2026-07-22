@@ -698,17 +698,11 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		return
 	}
 	sums := skills.ListSkills(st.GetSkills())
-	cmds := make([]acp.AvailableCommand, 0, len(sums)+1)
-	if m.activeCfg().Compaction.IsEnabled() {
-		cmds = append(cmds, acp.AvailableCommand{
-			Name:        "compact",
-			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
-		})
+	builtins := skills.BuiltinCommands(m.activeCfg().Compaction.IsEnabled())
+	cmds := make([]acp.AvailableCommand, 0, len(sums)+len(builtins))
+	for _, b := range builtins {
+		cmds = append(cmds, acp.AvailableCommand{Name: b.Name, Description: b.Description})
 	}
-	cmds = append(cmds, acp.AvailableCommand{
-		Name:        "plugin",
-		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",
-	})
 	for _, s := range sums {
 		cmds = append(cmds, acp.AvailableCommand{Name: s.Name, Description: s.Description})
 	}

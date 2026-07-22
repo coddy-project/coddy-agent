@@ -651,3 +651,40 @@ func writeSearchFixture(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{filepath.Join(root, "sub", "deep"), filepath.Join(root, ".git")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{
+		filepath.Join(root, "a.txt"),
+		filepath.Join(root, "sub", "b.go"),
+		filepath.Join(root, "sub", "deep", "c.md"),
+	} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out, err := executePrintTree(context.Background(), `{"depth":2}`, &tooling.Env{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"a.txt", "sub/", "b.go", "deep/"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("tree missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "c.md") {
+		t.Errorf("depth=2 must not descend to c.md (depth 3):\n%s", out)
+	}
+	if strings.Contains(out, ".git") {
+		t.Errorf(".git must be skipped:\n%s", out)
+	}
+	if !strings.Contains(out, "── ") {
+		t.Errorf("expected tree branch glyphs:\n%s", out)
+	}
+}

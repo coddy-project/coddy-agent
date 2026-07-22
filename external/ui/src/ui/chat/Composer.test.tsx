@@ -313,7 +313,13 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
   fireEvent.change(ta, {
     target: { value: "/adf", selectionStart: 4, selectionEnd: 4 },
   });
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  // The composer also fetches /coddy/commands once on mount, so count only the
+  // skills endpoint to prove the no-match prefix is not refetched.
+  const slashCalls = () =>
+    fetchMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes("/coddy/slash-commands"),
+    ).length;
+  await waitFor(() => expect(slashCalls()).toBe(1));
   fireEvent.change(ta, {
     target: {
       value: "/adfadsfgaf",
@@ -322,9 +328,78 @@ test("extending a no-match prefix does not reopen slash menu or refetch", async 
     },
   });
   await new Promise((r) => setTimeout(r, 250));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(slashCalls()).toBe(1);
   expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
   expect(screen.queryByTestId("composer-skill-chip")).toBeNull();
+
+  vi.unstubAllGlobals();
+});
+
+test("slash menu shows a Commands group from /coddy/commands", async () => {
+  // Force the mobile bottom-sheet menu so the picker renders without needing
+  // getBoundingClientRect (null under jsdom), matching the Tab-picker test.
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).includes("/coddy/commands")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          object: "coddy.commands",
+          items: [
+            { name: "compact", description: "Summarize history" },
+            { name: "plugin", description: "Manage plugins" },
+          ],
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({
+        items: [{ name: "some-skill", description: "A skill" }],
+        has_more: false,
+        page: 1,
+      }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "/", selectionStart: 1, selectionEnd: 1 },
+  });
+
+  // The built-in commands render as their own "Commands" group beside skills.
+  await waitFor(() => {
+    expect(screen.getByTestId("command-row-compact")).toBeTruthy();
+  });
+  expect(screen.getByTestId("command-row-plugin")).toBeTruthy();
+  expect(screen.getByText("Commands")).toBeTruthy();
+  expect(screen.getByTestId("slash-command-row-some-skill")).toBeTruthy();
 
   vi.unstubAllGlobals();
 });
@@ -709,4 +784,83 @@ test("send with attached file passes files to onSend", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
   expect(onSend).toHaveBeenCalledWith("describe this", [file]);
   vi.unstubAllGlobals();
+});
+
+test("arrow keys move the slash highlight and Enter picks the highlighted row", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: true,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).includes("/coddy/commands")) {
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          object: "coddy.commands",
+          items: [
+            { name: "compact", description: "c" },
+            { name: "plugin", description: "p" },
+          ],
+        }),
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({
+        items: [{ name: "review", description: "r" }],
+        has_more: false,
+        page: 1,
+      }),
+    });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const onChange = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={(v) => {
+          setValue(v);
+          onChange(v);
+        }}
+        onSend={() => {}}
+      />
+    );
+  }
+
+  render(<Harness />);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "/", selectionStart: 1, selectionEnd: 1 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("command-row-compact")).toBeTruthy();
+  });
+  // The first row (a skill) is highlighted by default.
+  expect(
+    screen.getByTestId("slash-command-row-review").getAttribute("aria-selected"),
+  ).toBe("true");
+
+  // ArrowDown moves the highlight to the next row (the first command).
+  fireEvent.keyDown(ta, { key: "ArrowDown" });
+  expect(
+    screen.getByTestId("command-row-compact").getAttribute("aria-selected"),
+  ).toBe("true");
+
+  // Enter picks the highlighted row and appends it to the input.
+  fireEvent.keyDown(ta, { key: "Enter" });
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith("/compact "));
 });

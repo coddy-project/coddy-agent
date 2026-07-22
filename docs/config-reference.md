@@ -5,7 +5,7 @@ Field-by-field reference for `~/.coddy/config.yaml`. For narrative documentation
 A machine-readable [JSON Schema](config.schema.json) accompanies this reference. Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 ```
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
@@ -128,6 +128,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 |---|---|---|---|---|
 | `dirs` | string list | no | `["~/.agents/skills", "${CODDY_HOME}/skills", "${CWD}/.coddy/skills"]` | Directories scanned for skills. Later entries have **higher** priority on name conflicts. `${CODDY_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`). |
 | `sources` | string list | no | `[]` | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard `marketplace.json`. Cloned/copied into `${CODDY_HOME}/skills/`, then picked up like any local skill. See [skills.md](skills.md). |
+| `auto_discovery` | bool | no | `true` | Offer the model-driven `load_skill` tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit `/name`. Set `false` to keep skills manual-only. |
 
 ## `rules`
 

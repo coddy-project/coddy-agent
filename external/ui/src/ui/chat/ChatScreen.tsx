@@ -51,6 +51,8 @@ export function ChatScreen(props: {
   onContextRingOpen?: () => void;
   generating?: boolean;
   onStop?: () => void;
+  /** Re-run the last turn; surfaces as a refresh button on the last error notice. */
+  onRetryLast?: () => void;
   /** Fetch persisted full tool output; UI keeps preview in resultText. */
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
   onQuestionPromptResolved?: (
@@ -294,6 +296,9 @@ export function ChatScreen(props: {
                 items={props.items}
                 sessionId={props.sessionId}
                 generating={props.generating === true}
+                {...(props.onRetryLast
+                  ? { onRetryLast: props.onRetryLast }
+                  : {})}
                 {...(props.onFetchToolCallFull
                   ? { onFetchToolCallFull: props.onFetchToolCallFull }
                   : {})}

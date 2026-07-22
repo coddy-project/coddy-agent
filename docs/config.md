@@ -6,7 +6,7 @@ This page is the narrative guide. Two companion artifacts cover the full key lis
 - **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation. Add this header line to your `config.yaml` and any editor with a YAML language server (VS Code YAML extension, IntelliJ, Zed) validates keys and values as you type:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 ```
 
 The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` (`internal/config/docs_schema_test.go`); CI fails when a config field is added or renamed without updating the schema.

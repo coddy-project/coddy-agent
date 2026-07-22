@@ -48,6 +48,10 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
 	r.Register(toolssh.SSHRunCommandTool())
+	// Model-driven skill auto-discovery: offered unless explicitly disabled.
+	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
+		r.Register(LoadSkillTool())
+	}
 	registerSchedulerTools(r, cfg)
 	return r
 }

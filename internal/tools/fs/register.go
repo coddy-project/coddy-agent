@@ -10,6 +10,7 @@ func RegisterBuiltins(add func(*tooling.Tool)) {
 		ReadTool,
 		GlobTool,
 		GrepTool,
+		PrintTreeTool,
 		EditTool,
 		WriteTool,
 		ApplyPatchTool,

@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 # Full field reference: docs/config-reference.md
 
 # .env file support
@@ -110,6 +110,12 @@ skills:
   #   - "EvilFreelancer/rpa-skills"
   #   - "https://example.com/skills/marketplace.json"
   sources: []
+  # auto_discovery offers the model-driven load_skill tool so the agent can pull a
+  # catalogued skill's full instructions into a turn on its own when the request
+  # matches (like Codex / Claude Code / Cursor), instead of only when you type /name.
+  # Defaults to true; set false to keep skills manual-only. Also settable via the
+  # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
+  auto_discovery: true
 
 mcp_servers: []
   # Example: filesystem MCP server

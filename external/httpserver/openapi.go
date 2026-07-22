@@ -299,6 +299,45 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/commands": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List built-in slash commands",
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"operationId": "listBuiltinCommands",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "prefix", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Case-insensitive filter on command name.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Built-in command rows",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"items": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"name":        map[string]string{"type": "string"},
+														"description": map[string]string{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 			"/coddy/workspace/files": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List workspace files under session cwd (paginated)",
@@ -1034,7 +1073,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history older than the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) into a single summary row inserted into the transcript. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",

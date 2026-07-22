@@ -73,7 +73,8 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
 	ag.SetProviderFactory(s.agentProviderFactory)
 
-	res, err := ag.CompactSession(r.Context(), strings.TrimSpace(body.Instructions))
+	// Manual trigger: force compaction (fold whatever exists, even a short chat).
+	res, err := ag.CompactSession(r.Context(), strings.TrimSpace(body.Instructions), true)
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case errors.Is(err, agent.ErrNothingToCompact):

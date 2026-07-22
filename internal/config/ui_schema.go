@@ -389,8 +389,13 @@ func UISchemaMap() map[string]interface{} {
 					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"auto_discovery": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Skill auto-discovery",
+					"description": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
+				},
 			},
-			[]string{"dirs", "sources"},
+			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{

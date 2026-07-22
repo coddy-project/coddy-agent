@@ -203,17 +203,17 @@ func (s *pluginFeatureState) responseMentions(want string) error {
 	return nil
 }
 
-func (s *pluginFeatureState) transcriptOmitsPluginCommand() error {
+func (s *pluginFeatureState) transcriptShowsPluginCommand() error {
 	st := s.mgr.SessionByID(s.sessionID)
 	if st == nil {
 		return fmt.Errorf("session not found")
 	}
 	for _, m := range st.GetMessages() {
-		if strings.Contains(m.Content, "/plugin") {
-			return fmt.Errorf("the /plugin command leaked into the transcript: %q", m.Content)
+		if strings.HasPrefix(strings.TrimSpace(m.Content), "/plugin") {
+			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("the /plugin command is missing from the transcript")
 }
 
 func initializePluginScenario(sc *godog.ScenarioContext) {
@@ -232,7 +232,7 @@ func initializePluginScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I have added the marketplace "([^"]*)" over chat$`, s.addMarketplaceOverChat)
 	sc.Step(`^I send the plugin prompt "(.*)"$`, s.sendPluginPrompt)
 	sc.Step(`^the plugin response mentions "([^"]*)"$`, s.responseMentions)
-	sc.Step(`^the "/plugin" command is not part of the transcript$`, s.transcriptOmitsPluginCommand)
+	sc.Step(`^the "/plugin" command is part of the transcript$`, s.transcriptShowsPluginCommand)
 }
 
 func TestPluginCommandFeature(t *testing.T) {

@@ -99,15 +99,15 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	userText := contentBlocksToText(prompt)
 
 	// The built-in /compact command compacts history instead of running the
-	// ReAct loop; the command text itself never enters the transcript.
+	// ReAct loop. The command text is persisted (so it shows in the transcript
+	// like any other message) by runCompactCommand itself.
 	if instructions, ok := parseCompactCommand(userText); ok {
-		return a.runCompactCommand(ctx, instructions)
+		return a.runCompactCommand(ctx, instructions, userText)
 	}
 	// The built-in /plugin command manages skill plugins and marketplaces
-	// deterministically, without an LLM turn; the command text stays out of the
-	// transcript too.
+	// deterministically, without an LLM turn; the command text is persisted too.
 	if args, ok := parsePluginCommand(userText); ok {
-		return a.runPluginCommand(ctx, args)
+		return a.runPluginCommand(ctx, args, userText)
 	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
@@ -196,6 +196,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			a.state.AppendPlanDocument(doc)
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
+		LoadSkillBody:     a.loadSkillBody,
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -232,6 +233,10 @@ func (a *Agent) runReActLoop(
 	var turnIndex int
 	var lastStatsWrite time.Time
 	var emptyContinuations int
+	// Tracks whether any visible answer text was streamed to the user during this
+	// turn, so an all-reasoning turn that never answers surfaces a notice instead
+	// of dead-ending silently.
+	var turnHadVisibleText bool
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -466,6 +471,9 @@ func (a *Agent) runReActLoop(
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
+		if strings.TrimSpace(response.Content) != "" {
+			turnHadVisibleText = true
+		}
 
 		// If no tool calls, we're done — unless the model produced no visible answer at
 		// all (empty content). Some models (notably gpt-oss / harmony endpoints) sometimes
@@ -485,6 +493,15 @@ func (a *Agent) runReActLoop(
 			}
 			if response.StopReason == "max_tokens" {
 				return string(acp.StopReasonMaxTokens), nil
+			}
+			// The turn produced no visible answer at all (only reasoning / empty
+			// content) and the model never recovered after the continuation nudges.
+			// Surface a clear notice (rendered as a system message with a Retry
+			// control in the UI) instead of dead-ending silently on a thinking-only
+			// turn — otherwise the user sees no assistant reply. Seen with gpt-oss /
+			// harmony endpoints that route the tool call through the reasoning channel.
+			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
+				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
 			}
 			return string(acp.StopReasonEndTurn), nil
 		}

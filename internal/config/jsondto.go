@@ -105,8 +105,9 @@ type PromptsJSON struct {
 
 // SkillsJSON mirrors Skills for JSON APIs.
 type SkillsJSON struct {
-	Dirs    []string `json:"dirs,omitempty"`
-	Sources []string `json:"sources,omitempty"`
+	Dirs          []string `json:"dirs,omitempty"`
+	Sources       []string `json:"sources,omitempty"`
+	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
 }
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
@@ -237,8 +238,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
 	out.Skills = SkillsJSON{
-		Dirs:    append([]string(nil), c.Skills.Dirs...),
-		Sources: append([]string(nil), c.Skills.Sources...),
+		Dirs:          append([]string(nil), c.Skills.Dirs...),
+		Sources:       append([]string(nil), c.Skills.Sources...),
+		AutoDiscovery: cloneBoolPtr(c.Skills.AutoDiscovery),
 	}
 	for _, s := range c.MCPServers {
 		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
@@ -336,8 +338,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
-		Dirs:    append([]string(nil), j.Skills.Dirs...),
-		Sources: append([]string(nil), j.Skills.Sources...),
+		Dirs:          append([]string(nil), j.Skills.Dirs...),
+		Sources:       append([]string(nil), j.Skills.Sources...),
+		AutoDiscovery: cloneBoolPtr(j.Skills.AutoDiscovery),
 	}
 	for _, s := range j.MCPServers {
 		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}

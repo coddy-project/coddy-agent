@@ -157,3 +157,24 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 		"page_size": pageSize,
 	})
 }
+
+// coddyCommandsGet lists the deterministic built-in slash commands (/compact,
+// /plugin) so the composer can surface a "Commands" group alongside skills. These
+// run without an LLM turn and are not part of /coddy/slash-commands (which is
+// skills only). compact appears only while compaction is enabled.
+func (s *Server) coddyCommandsGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	cfg := s.activeCfg()
+	items := skills.BuiltinCommands(cfg != nil && cfg.Compaction.IsEnabled())
+	if prefix := strings.TrimSpace(r.URL.Query().Get("prefix")); prefix != "" {
+		items = skills.FilterSummariesByPrefix(items, prefix)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object": "coddy.commands",
+		"items":  items,
+	})
+}

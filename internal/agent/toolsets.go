@@ -14,6 +14,7 @@ var planToolNames = []string{
 	"read",
 	"glob",
 	"grep",
+	"print_tree",
 	"websearch",
 	"webfetch",
 	"run_command",
@@ -21,6 +22,9 @@ var planToolNames = []string{
 	"plan_write",
 	"plan_list",
 	"plan_read",
+	// Read-only: lets the planner pull a catalogued skill's instructions when
+	// skills.auto_discovery is on (the tool is only registered when enabled).
+	"load_skill",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

@@ -23,10 +23,16 @@ func joinNonEmptyPromptBlocks(parts ...string) string {
 	return strings.Join(b, "\n\n")
 }
 
+// loadSkillHint tells the model it may pull a catalogued skill's full instructions
+// into the turn on its own via the load_skill tool (model-driven auto-discovery).
+const loadSkillHint = "When the user's request matches one of the slash commands above, call the `load_skill` tool with that command's name to load its full instructions before acting."
+
 // buildSkillsPromptMarkdown merges the slash catalog and bodies of context-matched non-command skills.
 // Slash-command bodies (invoked via /name) are NOT included here — they are injected directly into
 // the user message by buildMessages so the LLM sees them close to the user's request.
-func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill) string {
+// When autoDiscovery is set, the catalog is followed by loadSkillHint so the model knows it can
+// fetch a matching skill's body itself instead of waiting for an explicit /name.
+func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill, autoDiscovery bool) string {
 	activeDedup := skills.DedupeSkillsByCanonicalName(active)
 	skillSums := skills.ListSkills(allLoaded)
 	catalogNameSet := make(map[string]struct{}, len(skillSums))
@@ -49,8 +55,26 @@ func buildSkillsPromptMarkdown(allLoaded []*skills.Skill, active []*skills.Skill
 	}
 
 	catalog := skills.BuildSlashCatalogMarkdown(skillSums)
+	if autoDiscovery && len(skillSums) > 0 {
+		catalog = joinNonEmptyPromptBlocks(catalog, loadSkillHint)
+	}
 	section := skills.BuildSystemPromptSection(activeForSection)
 	return joinNonEmptyPromptBlocks(catalog, section)
+}
+
+// loadSkillBody backs the model-driven load_skill tool: it returns a loaded
+// skill's body by canonical command name plus every available command name for
+// the current session cwd.
+func (a *Agent) loadSkillBody(name string) (string, []string, bool) {
+	idx := skills.SkillBySlashName(a.state.GetSkills())
+	available := make([]string, 0, len(idx))
+	for n := range idx {
+		available = append(available, n)
+	}
+	if sk, ok := idx[strings.TrimSpace(name)]; ok {
+		return strings.TrimSpace(sk.Content), available, true
+	}
+	return "", available, false
 }
 
 // buildSystemPrompt constructs the system prompt for the current mode and skills.
@@ -67,7 +91,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if mode == "plan" {
 		discardedPlans = discardedPlansPromptBlock(a.state.DiscardedPlanSlugs())
 	}
-	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills)
+	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	rulesMD := ""
 	if rs, ok := a.state.(rulesState); ok {

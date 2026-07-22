@@ -1527,6 +1527,67 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 	}
 }
 
+// TestCoddyCommandsEndpoint verifies /coddy/commands surfaces the built-in
+// deterministic commands (compact + plugin) for the composer's "Commands" group.
+func TestCoddyCommandsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	for _, d := range []string{filepath.Join(home, "memory"), defaultCWD} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	enabled := true
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: defaultCWD},
+		Compaction: config.Compaction{Enabled: &enabled},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(url string) (int, string, []map[string]string) {
+		res, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Object string              `json:"object"`
+			Items  []map[string]string `json:"items"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, body.Object, body.Items
+	}
+
+	code, obj, items := get("/coddy/commands")
+	if code != http.StatusOK || obj != "coddy.commands" {
+		t.Fatalf("status=%d object=%q", code, obj)
+	}
+	if len(items) != 2 || items[0]["name"] != "compact" || items[1]["name"] != "plugin" {
+		t.Fatalf("commands = %+v, want compact then plugin", items)
+	}
+	for _, it := range items {
+		if strings.TrimSpace(it["description"]) == "" {
+			t.Fatalf("command %q missing description", it["name"])
+		}
+	}
+
+	_, _, pl := get("/coddy/commands?prefix=plug")
+	if len(pl) != 1 || pl[0]["name"] != "plugin" {
+		t.Fatalf("prefix filter = %+v, want only plugin", pl)
+	}
+}
+
 func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -2271,7 +2332,8 @@ func TestCompactEndpointUnknownSession(t *testing.T) {
 func TestCompactEndpointNothingToCompact(t *testing.T) {
 	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
 	defer done()
-	sid := compactSeedSession(t, mgr, 1)
+	// Empty session: even a forced (manual) compaction has nothing to fold.
+	sid := compactSeedSession(t, mgr, 0)
 	code, body := postCompact(t, ts, sid, `{}`)
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%v)", code, body)

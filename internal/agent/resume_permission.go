@@ -119,6 +119,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
+		LoadSkillBody: a.loadSkillBody,
 	}
 }
 

@@ -12,7 +12,7 @@ Feature: Plugin and marketplace management via the /plugin command
     When I send the plugin prompt "/plugin marketplace add <shop>"
     Then the plugin response mentions "Added marketplace"
     And the plugin response mentions "1 added"
-    And the "/plugin" command is not part of the transcript
+    And the "/plugin" command is part of the transcript
 
   Scenario: List marketplaces reports validity status
     Given I have added the marketplace "shop" over chat

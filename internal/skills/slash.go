@@ -20,6 +20,25 @@ type SkillSummary struct {
 	Description string `json:"description"`
 }
 
+// BuiltinCommands returns the deterministic built-in slash commands (they run
+// without an LLM turn, unlike skills). Shared by the ACP available-commands
+// update and the HTTP /coddy/commands endpoint so both surfaces stay in sync.
+// compact is included only when compaction is enabled; plugin is always present.
+func BuiltinCommands(compactionEnabled bool) []SkillSummary {
+	cmds := make([]SkillSummary, 0, 2)
+	if compactionEnabled {
+		cmds = append(cmds, SkillSummary{
+			Name:        "compact",
+			Description: "Summarize older conversation history to free context; recent turns stay verbatim",
+		})
+	}
+	cmds = append(cmds, SkillSummary{
+		Name:        "plugin",
+		Description: "Manage skill plugins and marketplaces: marketplace list|add|remove|sync, install, remove, enable, disable",
+	})
+	return cmds
+}
+
 // CanonicalCommandName returns the slash command identifier for a loaded skill folder/file.
 // Subdirectory layout .../foo/SKILL.md yields "foo". Root *.md yields the file stem.
 func CanonicalCommandName(s *Skill) string {

@@ -111,7 +111,7 @@ func (s *compactionFeatureState) compactSession() error {
 	if s.ag == nil {
 		return fmt.Errorf("no session prepared")
 	}
-	res, err := s.ag.CompactSession(context.Background(), "")
+	res, err := s.ag.CompactSession(context.Background(), "", false)
 	if err != nil {
 		return err
 	}

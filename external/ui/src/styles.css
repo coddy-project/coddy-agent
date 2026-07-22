@@ -3022,6 +3022,13 @@ a.rail-brand {
   padding: 2px 6px 6px;
 }
 
+/* A second section title (e.g. Commands after the Skills list) gets a divider. */
+.slash-rows + .slash-menu-title {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
 .slash-muted,
 .slash-err {
   font-size: 12px;
@@ -3054,6 +3061,12 @@ a.rail-brand {
 
 .slash-row-btn:hover {
   background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+/* Keyboard-highlighted row (arrow-key selection); accent-tinted so it reads as
+   the current choice distinct from a plain hover. */
+.slash-row-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
 }
 
 /* Name and description flow as one inline block: the description begins right
@@ -5916,39 +5929,50 @@ textarea#composer {
 .skill-switch {
   position: relative;
   flex: 0 0 auto;
-  width: 46px;
-  height: 26px;
+  width: 38px;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--text) 24%, transparent);
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
   cursor: pointer;
-  transition: background 0.16s ease;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .skill-switch[aria-checked="true"] {
   background: var(--accent);
+  box-shadow: none;
 }
 
 .skill-switch:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
+}
+
+.skill-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
 }
 
 .skill-switch-thumb {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: transform 0.16s ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
 }
 
 .skill-switch[aria-checked="true"] .skill-switch-thumb {
-  transform: translateX(20px);
+  transform: translateX(16px);
 }
 
 .skills-list-item-badge {

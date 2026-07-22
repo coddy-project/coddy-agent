@@ -106,3 +106,41 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
   // Tool and thinking are sibling foldout rows (same stack rhythm as messages-inner gap).
   expect(wrapper?.nextElementSibling).toHaveClass("thinking-row");
 });
+
+test("retry button surfaces only on the last system_notice", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "s1", type: "system_notice", level: "error", message: "first error" },
+    { id: "u2", type: "user_message", content: "Again" },
+    {
+      id: "s2",
+      type: "system_notice",
+      level: "error",
+      message: "model did not respond",
+    },
+  ];
+  render(<MessageList items={items} onRetryLast={() => {}} />);
+  expect(screen.getAllByTestId("system-message-retry")).toHaveLength(1);
+});
+
+test("no retry button when onRetryLast is not provided", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "s1", type: "system_notice", level: "error", message: "oops" },
+  ];
+  render(<MessageList items={items} />);
+  expect(screen.queryByTestId("system-message-retry")).toBeNull();
+});
+
+test("compaction summary renders as a foldout, not a user bubble", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "c1", type: "compaction", summary: "Key facts preserved here." },
+  ];
+  render(<MessageList items={items} />);
+  expect(screen.getByText("context compacted")).toBeInTheDocument();
+  expect(
+    screen.getByLabelText("Context compacted summary"),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Key facts preserved here/)).toBeInTheDocument();
+});

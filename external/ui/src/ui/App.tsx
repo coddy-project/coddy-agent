@@ -795,6 +795,18 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  // Text of the most recent user turn, used to re-run it from the retry button
+  // on a failed/system notice (e.g. "model did not respond").
+  const lastUserText = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i];
+      if (it && it.type === "user_message") {
+        return typeof it.content === "string" ? it.content : "";
+      }
+    }
+    return "";
+  }, [items]);
+
   useEffect(() => {
     const sid = sessionId.trim();
     if (!sid || !generating) {
@@ -1868,9 +1880,27 @@ export function App() {
     let userTurnIdx = 0;
     let thinkingInTurn = 0;
     let assistantInTurn = 0;
+    const stripCompactionPreamble = (s: string): string => {
+      const marker = "Summary of the compacted part:";
+      const i = s.indexOf(marker);
+      return i >= 0 ? s.slice(i + marker.length).trimStart() : s.trim();
+    };
     for (const m of res.data.messages || []) {
       const role = (m.role || "").trim();
       if (role === "user") {
+        // A compaction summary row is a user-role message flagged by the server;
+        // render it as its own "context compacted" foldout, not a user bubble,
+        // and do not count it as a real user turn.
+        if ((m as Record<string, unknown>).compaction_summary === true) {
+          const ccat = readMessageCreatedAtUTC(m as Record<string, unknown>);
+          next.push({
+            id: newId("compaction"),
+            type: "compaction",
+            summary: stripCompactionPreamble(m.content || ""),
+            ...(ccat ? { createdAtUtc: ccat } : {}),
+          });
+          continue;
+        }
         // Flush notices for the previous turn before starting a new one so
         // error notices land at the end of the turn they belong to, not at
         // the top of the next one.
@@ -2595,6 +2625,7 @@ export function App() {
         flushToolQueue,
         finishThinking,
         ensureAssistant,
+        lastAssistantId,
       } = await consumeComposerSseReader({
         reader,
         dec,
@@ -2634,7 +2665,7 @@ export function App() {
           ensureAssistant();
           applyStreamItems((prev) =>
             prev.map((it) =>
-              it.type === "assistant_message" && it.id === assistantId
+              it.type === "assistant_message" && it.id === lastAssistantId
                 ? {
                     ...it,
                     content: last,
@@ -2658,7 +2689,7 @@ export function App() {
             (it) =>
               !(
                 it.type === "assistant_message" &&
-                it.id === assistantId &&
+                it.id === lastAssistantId &&
                 !it.content.trim()
               ),
           );
@@ -2969,6 +3000,7 @@ export function App() {
         flushToolQueue,
         finishThinking,
         ensureAssistant,
+        lastAssistantId,
       } = await consumeComposerSseReader({
         reader,
         dec,
@@ -3008,7 +3040,7 @@ export function App() {
           ensureAssistant();
           applyStreamItems((prev) =>
             prev.map((it) =>
-              it.type === "assistant_message" && it.id === assistantId
+              it.type === "assistant_message" && it.id === lastAssistantId
                 ? {
                     ...it,
                     content: last,
@@ -3032,7 +3064,7 @@ export function App() {
             (it) =>
               !(
                 it.type === "assistant_message" &&
-                it.id === assistantId &&
+                it.id === lastAssistantId &&
                 !it.content.trim()
               ),
           );
@@ -3541,6 +3573,9 @@ export function App() {
           onModeChange={setMode}
           onDraftChange={setDraft}
           generating={generating}
+          {...(!generating && lastUserText.trim()
+            ? { onRetryLast: () => void streamResponses(lastUserText) }
+            : {})}
           onContextRingOpen={() => {
             const sid = sessionId.trim();
             if (sid) {

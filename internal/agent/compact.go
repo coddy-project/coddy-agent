@@ -50,7 +50,13 @@ Output plain markdown, no preamble and no closing remarks. Do not invent facts t
 // CompactSession summarizes history older than the keep-recent boundary and
 // inserts the summary row at that boundary. instructions optionally augments
 // the summarization request (from the manual compact command arguments).
-func (a *Agent) CompactSession(ctx context.Context, instructions string) (*CompactionResult, error) {
+//
+// When force is set (manual /compact), compaction always folds whatever exists:
+// if the configured keep-recent window leaves nothing to summarize, it retries
+// with progressively fewer kept turns (down to zero) so even a very short
+// conversation compacts. Auto-compaction passes force=false and only runs at the
+// normal boundary.
+func (a *Agent) CompactSession(ctx context.Context, instructions string, force bool) (*CompactionResult, error) {
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
@@ -58,6 +64,11 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string) (*Compa
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
 	splitIdx, ok := session.CompactionSplitIndex(msgs, keep)
+	if !ok && force {
+		for k := keep - 1; k >= 0 && !ok; k-- {
+			splitIdx, ok = session.CompactionSplitIndex(msgs, k)
+		}
+	}
 	if !ok {
 		return nil, ErrNothingToCompact
 	}
@@ -110,15 +121,19 @@ func parseCompactCommand(text string) (instructions string, ok bool) {
 }
 
 // runCompactCommand executes the built-in /compact command for a prompt turn.
-// The command text is never persisted; the outcome is streamed as one agent
-// message chunk and stored as an assistant message so non-streaming surfaces
-// and transcript replay show it.
-func (a *Agent) runCompactCommand(ctx context.Context, instructions string) (string, error) {
-	res, err := a.CompactSession(ctx, instructions)
+// Manual compaction is forced (folds whatever exists, even a short chat). The
+// command text is persisted as a user message so it shows in the transcript; the
+// outcome is streamed as one agent message chunk and stored as an assistant
+// message. The generated summary is inserted as a compaction row, which the UI
+// renders as its own foldout ("what is now in context").
+func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand string) (string, error) {
+	res, err := a.CompactSession(ctx, instructions, true)
+	// Show the command in the transcript, regardless of the outcome.
+	a.addUserCommandMessage(rawCommand)
 	var text string
 	switch {
 	case errors.Is(err, ErrNothingToCompact):
-		text = "Nothing to compact: the conversation still fits within the keep-recent window."
+		text = "Nothing to compact: there is no earlier conversation to summarize yet."
 	case errors.Is(err, ErrCompactionDisabled):
 		text = "Compaction is disabled in the configuration (compaction.enabled: false)."
 	case err != nil:
@@ -137,6 +152,18 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions string) (str
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
 	return string(acp.StopReasonEndTurn), nil
+}
+
+// addUserCommandMessage persists the raw text of a built-in slash command
+// (/compact, /plugin) as a user message so it appears in the transcript like any
+// other user input, instead of vanishing when the client reconciles with the
+// server snapshot.
+func (a *Agent) addUserCommandMessage(text string) {
+	a.state.AddMessage(llm.Message{
+		Role:      llm.RoleUser,
+		Content:   text,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 // maybeAutoCompact runs compaction when the estimated context usage reached
@@ -164,7 +191,7 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	if b.EstimatedTotal*100 < comp.EffectiveThresholdPercent()*ent.MaxContextTokens {
 		return false
 	}
-	res, err := a.CompactSession(ctx, "")
+	res, err := a.CompactSession(ctx, "", false)
 	if err != nil {
 		if !errors.Is(err, ErrNothingToCompact) {
 			a.log.Warn("auto-compaction failed; continuing uncompacted", "error", err)
