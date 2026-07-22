@@ -228,6 +228,67 @@ func TestRunReActLoopSurfacesNoticeWhenModelNeverAnswers(t *testing.T) {
 	}
 }
 
+// progressThenAnswerProvider alternates empty (reasoning-only) turns with real
+// tool calls before finally answering, mimicking a slow multi-step task on a
+// gpt-oss / harmony endpoint. The loop must NOT give up while the model keeps
+// making progress (executing tools) between empty thoughts: the empty-turn
+// counter is for CONSECUTIVE stalls, not cumulative empties across the turn.
+type progressThenAnswerProvider struct{ calls int }
+
+func (p *progressThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *progressThenAnswerProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	switch p.calls {
+	case 2:
+		tc := llm.ToolCall{ID: "tc1", Name: "glob", InputJSON: `{"pattern":"*"}`}
+		onChunk(llm.StreamChunk{ToolCall: &tc})
+		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+	case 5:
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	default: // 1, 3, 4: empty, reasoning-only turns
+		onChunk(llm.StreamChunk{ReasoningDelta: "still thinking"})
+		return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+	}
+}
+
+func TestRunReActLoopResetsEmptyCounterOnToolProgress(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_progress",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &progressThenAnswerProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "convert the file"}})
+	if err != nil {
+		t.Fatalf("loop gave up while the model was still making progress: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn (the model eventually answered)", stop)
+	}
+	if provider.calls < 5 {
+		t.Fatalf("provider called %d times; the loop gave up before the model answered", provider.calls)
+	}
+	msgs := st.GetMessages()
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || !strings.Contains(last.Content, "done") {
+		t.Fatalf("final answer not reached: %+v", last)
+	}
+}
+
 // --- resume_permission.go --------------------------------------------------
 
 func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) {

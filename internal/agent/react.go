@@ -532,6 +532,12 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 		}
+		// The model made progress (executed tool calls), so reset the empty-turn
+		// counter. The give-up notice is for CONSECUTIVE stalls (no answer and no
+		// tool call), not for a slow multi-step task that keeps acting between
+		// reasoning-only thoughts — otherwise a model that alternates thinking and
+		// tool calls (gpt-oss / harmony) is abandoned mid-task.
+		emptyContinuations = 0
 	}
 
 	return string(acp.StopReasonMaxTurns), nil
