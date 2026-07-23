@@ -34,3 +34,30 @@ test("code preview titles align with their content", () => {
   expect(bar?.[0]).toMatch(/padding:\s*6px\s+8px\s+6px\s+12px/);
   expect(code?.[0]).toMatch(/padding:\s*10px\s+12px/);
 });
+
+test("expanded previews stay bounded and scroll internally", () => {
+  const css = cssText();
+  const scrollingViewport = css.match(
+    /\.permission-preview-viewport--scroll\s*\{[^}]*\}/s,
+  );
+  const staticViewport = css.match(
+    /\.permission-preview-viewport--static\s*\{[^}]*\}/s,
+  );
+
+  expect(scrollingViewport?.[0]).toMatch(/overflow-y:\s*auto/);
+  expect(scrollingViewport?.[0]).not.toMatch(/max-height:\s*none/);
+  expect(staticViewport?.[0]).toMatch(/max-height:\s*none/);
+  expect(staticViewport?.[0]).toMatch(/overflow:\s*visible/);
+});
+
+test("overflow toggles are left-aligned and taller on mobile", () => {
+  const css = cssText();
+  const toggle = css.match(/\.tool-overflow-toggle\s*\{[^}]*\}/s);
+  const mobile = css.match(
+    /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.tool-overflow-toggle\s*\{[^}]*\}/,
+  );
+
+  expect(toggle?.[0]).toMatch(/align-self:\s*flex-start/);
+  expect(toggle?.[0]).toMatch(/margin:\s*-1px\s+0\s+0\s+8px/);
+  expect(mobile?.[0]).toMatch(/min-height:\s*36px/);
+});

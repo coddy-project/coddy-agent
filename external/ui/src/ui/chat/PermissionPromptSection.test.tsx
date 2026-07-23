@@ -134,10 +134,17 @@ test("shows More only when the preview actually overflows and toggles to Less", 
     );
     const more = screen.getByRole("button", { name: "More…" });
     expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(more).toHaveClass("tool-overflow-toggle");
+    expect(screen.getByTestId("permission-preview-viewport")).not.toHaveClass(
+      "permission-preview-viewport--scroll",
+    );
     fireEvent.click(more);
     expect(screen.getByRole("button", { name: "Less" })).toHaveAttribute(
       "aria-expanded",
       "true",
+    );
+    expect(screen.getByTestId("permission-preview-viewport")).toHaveClass(
+      "permission-preview-viewport--scroll",
     );
   } finally {
     if (scrollHeight) {

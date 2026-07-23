@@ -254,35 +254,35 @@ export function ToolCallMessage(props: {
     props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
-  let toggleLink: ReactElement | null = null;
+  let toggleButton: ReactElement | null = null;
   if (showToggleRow) {
     if (showExpanded && full) {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-hide-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-less"
           onClick={(e) => {
             e.preventDefault();
             onHide();
           }}
         >
-          Hide
+          Less
         </button>
       );
     } else {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-more-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-more"
           disabled={loadingFull}
           onClick={(e) => {
             e.preventDefault();
             void onLoadMore();
           }}
         >
-          {loadingFull ? "Loading..." : "Load more results"}
+          {loadingFull ? "Loading…" : "More…"}
         </button>
       );
     }
@@ -311,7 +311,7 @@ export function ToolCallMessage(props: {
     showToolPreview ||
     showPatchResult ||
     showResult ||
-    !!toggleLink;
+    !!toggleButton;
 
   return (
     <div
@@ -385,8 +385,8 @@ export function ToolCallMessage(props: {
                 </div>
               </div>
             ) : null}
-            {toggleLink ? (
-              <div className="tool-result-toggle-row">{toggleLink}</div>
+            {toggleButton ? (
+              <div className="tool-result-toggle-row">{toggleButton}</div>
             ) : null}
           </div>
         ) : null}

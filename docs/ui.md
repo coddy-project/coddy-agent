@@ -277,7 +277,7 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`** with the tool name or kind, **`thinking-dur`** for duration or **`-`**).
   - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`read_file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
   - When a structured preview and **Result** are both present, they touch and share the outer corners as one continuous execution card; there is no gap or duplicate border between them.
-  - Details reuse the permission card's tool-specific preview in a static mode: full diff / path / command content, but no copy, **More…**, or approval actions. **read**, **grep**, **glob**, and **print_tree** also receive compact structured argument previews; unknown tools keep a styled monospace fallback. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
+  - Details reuse the permission card's tool-specific preview in a static mode: full diff / path / command content, but no copy, **More…**, or approval actions. **read**, **grep**, **glob**, and **print_tree** also receive compact structured argument previews; unknown tools keep a styled monospace fallback. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no overflow toggle or fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), with **overflow-y** hidden until **More…**. **More…** (**`data-testid="tool-result-more"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both use the shared left-aligned **`tool-overflow-toggle`** button.
 
 ## Tool call card (bundled SPA, current)
 
@@ -291,7 +291,7 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| Full text | First **More…** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
 | CSS | **`styles.css`**: **`.coddy-tool-call-row`**, transparent **`.coddy-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, plus result viewport / toggle classes above |
 
 - `assistant_message`
@@ -306,7 +306,7 @@ The inline approval gate is implemented by **PermissionPromptSection** and **Per
 - Actions use the server-provided labels unchanged (**Allow**, **Allow always**, **Reject**).
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
 - **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.
-- The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; expand inline to **Less** and re-measure after returning to the collapsed state.
+- The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; keep the viewport bounded, switch it to internal vertical scrolling, and change the button to **Less**. Returning to the collapsed state restores clipping and re-measures overflow. The shared button is left-aligned; on phones it has a **36px** minimum height.
 - Restored write permission prompts include **rm** and **rmdir** alongside the other filesystem mutation tools.
 
 Automated checks:
@@ -458,14 +458,14 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - When the user reloads the page
   - Then tool call cards are visible in the transcript
   - And expanding a tool card shows a structured args preview and a separate raw **Result** panel, without approval buttons
-  - And if the server marked the preview truncated, **Load more results** then **Hide** behave as in the table above; if not truncated, there is no **Load more** row and no **`tool-result-viewport--tall`** on the result panel
+  - And if the server marked the preview truncated, **More…** then **Less** behave as in the table above; if not truncated, there is no overflow-toggle row and no **`tool-result-viewport--tall`** on the result panel
 
 - Tool result truncation (Playwright MCP)
   - Given a persisted session whose tool output on disk exceeds the preview line cap
-  - When the user opens the tool card and clicks **Load more results**
-  - Then the link becomes **Hide**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
-  - When the user clicks **Hide**
-  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **Load more results** appears again
+  - When the user opens the tool card and clicks **More…**
+  - Then the button becomes **Less**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
+  - When the user clicks **Less**
+  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
 - Token usage survives restart
   - Given a session has non zero token usage

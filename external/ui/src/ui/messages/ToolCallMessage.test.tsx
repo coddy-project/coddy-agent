@@ -15,7 +15,7 @@ function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
 }
 
-test("truncated tool shows text link, fetches once, then Hide restores preview", async () => {
+test("truncated tool shows the shared More button, fetches once, then Less restores preview", async () => {
   const fetchSpy = vi.fn();
   function Harness() {
     const [full, setFull] = useState<string | undefined>();
@@ -46,8 +46,9 @@ test("truncated tool shows text link, fetches once, then Hide restores preview",
   expect(pre?.textContent ?? "").toMatch(/\n\.\.\.\s*$/);
   expect(pre?.textContent?.split("\n").pop()?.trim()).toBe("...");
 
-  const more = screen.getByTestId("tool-result-more-link");
-  expect(more).toHaveTextContent("Load more results");
+  const more = screen.getByTestId("tool-result-more");
+  expect(more).toHaveTextContent("More…");
+  expect(more).toHaveClass("tool-overflow-toggle");
   expect(
     screen
       .getByLabelText("Tool result")
@@ -62,8 +63,9 @@ test("truncated tool shows text link, fetches once, then Hide restores preview",
   fireEvent.click(more);
   await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("tc-1"));
   await waitFor(() =>
-    expect(screen.getByTestId("tool-result-hide-link")).toBeInTheDocument(),
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
   );
+  expect(screen.getByTestId("tool-result-less")).toHaveTextContent("Less");
   expect(screen.getByText(/full line 3/)).toBeInTheDocument();
   expect(
     screen
@@ -71,9 +73,9 @@ test("truncated tool shows text link, fetches once, then Hide restores preview",
       .querySelector(".tool-call-result-content")?.className,
   ).toContain("tool-result-viewport--scroll");
 
-  fireEvent.click(screen.getByTestId("tool-result-hide-link"));
-  expect(screen.queryByTestId("tool-result-hide-link")).toBeNull();
-  expect(screen.getByTestId("tool-result-more-link")).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(screen.queryByTestId("tool-result-less")).toBeNull();
+  expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
   expect(screen.getByText(/last preview line/)).toBeInTheDocument();
   expect(
     screen
@@ -81,9 +83,9 @@ test("truncated tool shows text link, fetches once, then Hide restores preview",
       .querySelector(".tool-call-result-content")?.className,
   ).toContain("tool-result-viewport--clip");
 
-  fireEvent.click(screen.getByTestId("tool-result-more-link"));
+  fireEvent.click(screen.getByTestId("tool-result-more"));
   await waitFor(() =>
-    expect(screen.getByTestId("tool-result-hide-link")).toBeInTheDocument(),
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
   );
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
@@ -100,7 +102,7 @@ test("no load-more row when preview is not truncated", () => {
     />,
   );
   openToolDetails();
-  expect(screen.queryByTestId("tool-result-more-link")).toBeNull();
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
   expect(screen.getByLabelText("Tool result").className).not.toContain(
     "tool-result-viewport--tall",
   );
@@ -117,7 +119,7 @@ test("truncated tool does not show toggle without fetch handler", () => {
     />,
   );
   openToolDetails();
-  expect(screen.queryByTestId("tool-result-more-link")).toBeNull();
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
 });
 
 test("summary matches thinking-row pattern: chevron, tool name, duration", () => {
@@ -316,7 +318,7 @@ test("apply_patch omits raw result text and has no tool-result-pre", () => {
   expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   expect(container.querySelector(".tool-result-pre")).toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
-  expect(container.querySelector(".permission-preview-more")).toBeNull();
+  expect(container.querySelector(".tool-overflow-toggle")).toBeNull();
   expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
 });
 

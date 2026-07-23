@@ -2172,29 +2172,36 @@ a.rail-brand {
 }
 
 .tool-result-toggle-row {
-  margin: 3px 8px 6px;
+  display: flex;
+  margin: 0 0 6px;
 }
 
-.tool-result-text-link {
-  display: inline;
-  padding: 0;
-  margin: 0;
+.tool-overflow-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  margin: -1px 0 0 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
+  padding: 3px 12px 4px;
   font: inherit;
-  font-size: 12px;
-  color: rgba(140, 175, 255, 0.95);
-  text-decoration: underline;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
   cursor: pointer;
   text-align: left;
   vertical-align: baseline;
-  border: none;
-  background: none;
 }
 
-.tool-result-text-link:hover:not(:disabled) {
-  color: rgba(180, 205, 255, 1);
+.tool-overflow-toggle:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
 }
 
-.tool-result-text-link:disabled {
+.tool-overflow-toggle:disabled {
   opacity: 0.6;
   cursor: wait;
 }
@@ -2662,7 +2669,7 @@ a.rail-brand {
 }
 
 .coddy-tool-call-body > .tool-result-toggle-row {
-  margin: -2px 8px 2px;
+  margin: 0 0 2px;
 }
 
 /* Diff-only body: body retains its padding (keeps correct left alignment with
@@ -6567,7 +6574,11 @@ textarea#composer {
   background: var(--coddy-surface-inset);
 }
 
-.permission-preview-viewport--expanded {
+.permission-preview-viewport--scroll {
+  overflow-y: auto;
+}
+
+.permission-preview-viewport--static {
   max-height: none;
   overflow: visible;
 }
@@ -6645,25 +6656,6 @@ textarea#composer {
   );
 }
 
-.permission-preview-more {
-  align-self: center;
-  margin: -1px 0 0;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  border-top: 0;
-  border-radius: 0 0 9px 9px;
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
-  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
-  padding: 3px 12px 4px;
-  font-size: 10.5px;
-  line-height: 1.2;
-  cursor: pointer;
-}
-
-.permission-preview-more:hover {
-  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
-}
-
 .permission-prompt-actions {
   display: flex;
   flex-wrap: wrap;
@@ -6732,6 +6724,12 @@ textarea#composer {
 
   .permission-preview-viewport {
     max-height: 170px;
+  }
+
+  .tool-overflow-toggle {
+    min-height: 36px;
+    padding: 7px 14px 8px;
+    font-size: 12px;
   }
 
   .permission-prompt-btn {

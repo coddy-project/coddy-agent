@@ -115,7 +115,7 @@ export function PermissionToolPreview({
     return () => observer.disconnect();
   }, [expanded, hasBody, interactive, measure, previewIdentity]);
 
-  const showFullBody = !interactive || expanded;
+  const viewportMode = !interactive ? "static" : expanded ? "scroll" : "clip";
 
   return (
     <div className="permission-preview">
@@ -148,7 +148,7 @@ export function PermissionToolPreview({
             ref={viewportRef}
             className={[
               "permission-preview-viewport",
-              showFullBody && "permission-preview-viewport--expanded",
+              `permission-preview-viewport--${viewportMode}`,
             ]
               .filter(Boolean)
               .join(" ")}
@@ -162,7 +162,7 @@ export function PermissionToolPreview({
           {interactive && overflows ? (
             <button
               type="button"
-              className="permission-preview-more"
+              className="tool-overflow-toggle"
               aria-expanded={expanded}
               onClick={() => setExpanded((value) => !value)}
             >
