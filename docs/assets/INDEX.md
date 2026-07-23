@@ -42,6 +42,8 @@ with representative Coddy filesystem, search, shell, and patch tool payloads.
 
 - `screenshot-tool-previews-light.png` - approval prompts and expanded tool cards in the Light theme
 - `screenshot-tool-previews-dark.png` - approval prompts and expanded tool cards in the Dark theme
+- `screenshot-tool-previews-overflow-light.png` - collapsed `More…` and expanded `Less` states in the Light theme
+- `screenshot-tool-previews-overflow-dark.png` - collapsed `More…` and expanded `Less` states in the Dark theme
 
 ## Primary
 
