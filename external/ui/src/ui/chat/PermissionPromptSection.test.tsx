@@ -90,6 +90,11 @@ test("renders apply_patch as a colored inline diff", () => {
   expect(container.querySelectorAll(".diff-line--ctx")).toHaveLength(2);
   expect(container.querySelectorAll(".diff-line--del")).toHaveLength(1);
   expect(container.querySelectorAll(".diff-line--add")).toHaveLength(1);
+  expect(
+    Array.from(container.querySelectorAll(".diff-no")).map((node) =>
+      node.textContent?.trim(),
+    ),
+  ).toEqual(["4", "4", "5", "", "", "5", "6", "6"]);
 });
 
 test("shows More only when the preview actually overflows and toggles to Less", () => {
