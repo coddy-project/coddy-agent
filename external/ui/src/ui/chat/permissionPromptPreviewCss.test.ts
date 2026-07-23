@@ -53,11 +53,15 @@ test("expanded previews stay bounded and scroll internally", () => {
 test("overflow toggles are left-aligned and taller on mobile", () => {
   const css = cssText();
   const toggle = css.match(/\.tool-overflow-toggle\s*\{[^}]*\}/s);
+  const resultFooter = css.match(
+    /\.coddy-tool-call-body\s*>\s*\.tool-call-result-card\s*\+\s*\.tool-result-toggle-row\s*\{[^}]*\}/s,
+  );
   const mobile = css.match(
     /@media\s*\(max-width:\s*520px\)\s*\{[\s\S]*?\.tool-overflow-toggle\s*\{[^}]*\}/,
   );
 
   expect(toggle?.[0]).toMatch(/align-self:\s*flex-start/);
   expect(toggle?.[0]).toMatch(/margin:\s*-1px\s+0\s+0\s+8px/);
+  expect(resultFooter?.[0]).toMatch(/margin-top:\s*-8px/);
   expect(mobile?.[0]).toMatch(/min-height:\s*36px/);
 });
