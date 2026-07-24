@@ -11,19 +11,32 @@ import {
 function inferToolKind(toolName: string): string {
   const n = toolName.trim().toLowerCase();
   if (n === "run_command") return "shell";
-  if (["write", "edit", "apply_patch", "mkdir", "touch", "mv"].includes(n)) {
+  if (
+    [
+      "write",
+      "edit",
+      "apply_patch",
+      "mkdir",
+      "rmdir",
+      "touch",
+      "rm",
+      "mv",
+    ].includes(n)
+  ) {
     return "fs";
   }
   return "tool";
 }
 
-function toolNameFromRow(title: string | undefined, kind: string | undefined): string {
+function toolNameFromRow(
+  title: string | undefined,
+  kind: string | undefined,
+): string {
   const t = (title || "").trim();
   const stripped = t.replace(/^run:\s*/i, "").trim();
   if (stripped) return stripped;
   return (kind || "tool").trim();
 }
-
 
 export function buildPermissionPayloadFromToolCall(
   sessionId: string,

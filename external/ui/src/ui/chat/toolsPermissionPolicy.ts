@@ -42,7 +42,10 @@ export function commandAllowed(allowlist: string[], command: string): boolean {
   return false;
 }
 
-function toolNameFromRow(title: string | undefined, kind: string | undefined): string {
+function toolNameFromRow(
+  title: string | undefined,
+  kind: string | undefined,
+): string {
   const t = (title || "").trim();
   const stripped = t.replace(/^run:\s*/i, "").trim();
   if (stripped) return stripped;
@@ -101,7 +104,16 @@ export function shouldShowRestoredPermissionPrompt(
     return true;
   }
   if (
-    ["write", "edit", "apply_patch", "mkdir", "touch", "mv"].includes(name)
+    [
+      "write",
+      "edit",
+      "apply_patch",
+      "mkdir",
+      "rmdir",
+      "touch",
+      "rm",
+      "mv",
+    ].includes(name)
   ) {
     return policy.requirePermissionForWrites;
   }

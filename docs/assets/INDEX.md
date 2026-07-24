@@ -35,6 +35,16 @@ Captured at **1920×1080** via Playwright MCP against the embedded SPA (`make bu
 - `screenshot-fullhd-settings-appearance.png` - settings Appearance tab (7 theme swatches)
 - `screenshot-mobile-start.png`, `screenshot-mobile-chat.png` - 390×844 top-bar shell
 
+## Tool approval previews (July 2026)
+
+Captured from the real permission-prompt and expanded transcript-card components
+with representative Coddy filesystem, search, shell, and patch tool payloads.
+
+- `screenshot-tool-previews-light.png` - approval prompts and expanded tool cards in the Light theme
+- `screenshot-tool-previews-dark.png` - approval prompts and expanded tool cards in the Dark theme
+- `screenshot-tool-previews-overflow-light.png` - collapsed `More…` and expanded `Less` states in the Light theme
+- `screenshot-tool-previews-overflow-dark.png` - collapsed `More…` and expanded `Less` states in the Dark theme
+
 ## Primary
 
 - `ref-home-1.png` - landing page with collapsed left rail and centered composer

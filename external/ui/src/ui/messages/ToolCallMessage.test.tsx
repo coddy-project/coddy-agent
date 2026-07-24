@@ -15,7 +15,7 @@ function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
 }
 
-test("truncated tool shows text link, fetches once, then Hide restores preview", async () => {
+test("truncated tool shows the shared More button, fetches once, then Less restores preview", async () => {
   const fetchSpy = vi.fn();
   function Harness() {
     const [full, setFull] = useState<string | undefined>();
@@ -46,36 +46,46 @@ test("truncated tool shows text link, fetches once, then Hide restores preview",
   expect(pre?.textContent ?? "").toMatch(/\n\.\.\.\s*$/);
   expect(pre?.textContent?.split("\n").pop()?.trim()).toBe("...");
 
-  const more = screen.getByTestId("tool-result-more-link");
-  expect(more).toHaveTextContent("Load more results");
-  expect(screen.getByLabelText("Tool result").className).toContain(
-    "tool-result-viewport--tall",
-  );
-  expect(screen.getByLabelText("Tool result").className).toContain(
-    "tool-result-viewport--clip",
-  );
+  const more = screen.getByTestId("tool-result-more");
+  expect(more).toHaveTextContent("More…");
+  expect(more).toHaveClass("tool-overflow-toggle");
+  expect(
+    screen
+      .getByLabelText("Tool result")
+      .querySelector(".tool-call-result-content")?.className,
+  ).toContain("tool-result-viewport--tall");
+  expect(
+    screen
+      .getByLabelText("Tool result")
+      .querySelector(".tool-call-result-content")?.className,
+  ).toContain("tool-result-viewport--clip");
 
   fireEvent.click(more);
   await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("tc-1"));
   await waitFor(() =>
-    expect(screen.getByTestId("tool-result-hide-link")).toBeInTheDocument(),
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
   );
+  expect(screen.getByTestId("tool-result-less")).toHaveTextContent("Less");
   expect(screen.getByText(/full line 3/)).toBeInTheDocument();
-  expect(screen.getByLabelText("Tool result").className).toContain(
-    "tool-result-viewport--scroll",
-  );
+  expect(
+    screen
+      .getByLabelText("Tool result")
+      .querySelector(".tool-call-result-content")?.className,
+  ).toContain("tool-result-viewport--scroll");
 
-  fireEvent.click(screen.getByTestId("tool-result-hide-link"));
-  expect(screen.queryByTestId("tool-result-hide-link")).toBeNull();
-  expect(screen.getByTestId("tool-result-more-link")).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId("tool-result-less"));
+  expect(screen.queryByTestId("tool-result-less")).toBeNull();
+  expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
   expect(screen.getByText(/last preview line/)).toBeInTheDocument();
-  expect(screen.getByLabelText("Tool result").className).toContain(
-    "tool-result-viewport--clip",
-  );
+  expect(
+    screen
+      .getByLabelText("Tool result")
+      .querySelector(".tool-call-result-content")?.className,
+  ).toContain("tool-result-viewport--clip");
 
-  fireEvent.click(screen.getByTestId("tool-result-more-link"));
+  fireEvent.click(screen.getByTestId("tool-result-more"));
   await waitFor(() =>
-    expect(screen.getByTestId("tool-result-hide-link")).toBeInTheDocument(),
+    expect(screen.getByTestId("tool-result-less")).toBeInTheDocument(),
   );
   expect(fetchSpy).toHaveBeenCalledTimes(1);
 });
@@ -92,7 +102,7 @@ test("no load-more row when preview is not truncated", () => {
     />,
   );
   openToolDetails();
-  expect(screen.queryByTestId("tool-result-more-link")).toBeNull();
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
   expect(screen.getByLabelText("Tool result").className).not.toContain(
     "tool-result-viewport--tall",
   );
@@ -109,7 +119,7 @@ test("truncated tool does not show toggle without fetch handler", () => {
     />,
   );
   openToolDetails();
-  expect(screen.queryByTestId("tool-result-more-link")).toBeNull();
+  expect(screen.queryByTestId("tool-result-more")).toBeNull();
 });
 
 test("summary matches thinking-row pattern: chevron, tool name, duration", () => {
@@ -132,6 +142,35 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
   ).toBeTruthy();
   expect(screen.getByText("glob")).toBeInTheDocument();
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("125ms");
+});
+
+test("completed mkdir uses the rich tool preview without approval actions", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-mkdir"
+      title="mkdir"
+      kind="write"
+      status="completed"
+      argsText={JSON.stringify({ parents: true, path: "build" })}
+      resultText={"created directory H:\\workspace\\build"}
+      durationMs={22_000}
+    />,
+  );
+
+  openToolDetails();
+
+  expect(container.querySelector(".permission-preview")).not.toBeNull();
+  expect(
+    container.querySelector(".permission-preview-location")?.textContent,
+  ).toBe("build");
+  expect(
+    container.querySelector(".permission-preview-meta")?.textContent,
+  ).toContain("create parents");
+  expect(container.querySelector("[aria-label='Tool arguments']")).toBeNull();
+  expect(container.querySelector(".permission-prompt-actions")).toBeNull();
+  expect(
+    container.querySelector(".tool-call-result-card")?.textContent,
+  ).toContain("created directory H:\\workspace\\build");
 });
 
 test("question tool omits duration from summary row", () => {
@@ -164,7 +203,9 @@ test("question tool shows human timeline readout instead of raw JSON blobs", () 
       kind="question"
       status="completed"
       argsText={JSON.stringify({
-        questions: [{ question: "Go on?", options: [{ label: "Yes" }, { label: "No" }] }],
+        questions: [
+          { question: "Go on?", options: [{ label: "Yes" }, { label: "No" }] },
+        ],
       })}
       resultText={JSON.stringify({ answers: [["Yes"]] })}
       durationMs={10}
@@ -222,7 +263,7 @@ test("elapsed freezes while permission is pending", () => {
   vi.useRealTimers();
 });
 
-test("apply_patch renders DiffView instead of raw args JSON", () => {
+test("apply_patch renders the shared rich diff instead of raw args JSON", () => {
   const patch = [
     "--- a/src/app.ts",
     "+++ b/src/app.ts",
@@ -244,14 +285,19 @@ test("apply_patch renders DiffView instead of raw args JSON", () => {
     />,
   );
   openToolDetails();
-  // DiffView rendered
-  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   // file path shown
-  expect(container.querySelector(".diff-file-path")?.textContent).toContain("src/app.ts");
+  expect(
+    container.querySelector(".permission-preview-location")?.textContent,
+  ).toContain("src/app.ts");
   // add line class present
-  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(
+    container.querySelectorAll(".diff-line--add").length,
+  ).toBeGreaterThanOrEqual(1);
   // raw args JSON not shown
-  expect(container.querySelector("pre.tool-block[aria-label='Tool arguments']")).toBeNull();
+  expect(
+    container.querySelector("pre.tool-block[aria-label='Tool arguments']"),
+  ).toBeNull();
 });
 
 test("apply_patch omits raw result text and has no tool-result-pre", () => {
@@ -269,12 +315,14 @@ test("apply_patch omits raw result text and has no tool-result-pre", () => {
     />,
   );
   openToolDetails();
-  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   expect(container.querySelector(".tool-result-pre")).toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+  expect(container.querySelector(".tool-overflow-toggle")).toBeNull();
+  expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
 });
 
-test("apply_patch with V4A patch format renders DiffView", () => {
+test("apply_patch with V4A patch format renders the shared rich diff", () => {
   const v4aPatch = [
     "*** Begin Patch",
     "*** Update File: src/app.ts",
@@ -298,9 +346,13 @@ test("apply_patch with V4A patch format renders DiffView", () => {
     />,
   );
   openToolDetails();
-  expect(container.querySelector(".diff-block")).not.toBeNull();
-  expect(container.querySelectorAll(".diff-line--del").length).toBeGreaterThanOrEqual(1);
-  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
+  expect(
+    container.querySelectorAll(".diff-line--del").length,
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    container.querySelectorAll(".diff-line--add").length,
+  ).toBeGreaterThanOrEqual(1);
   expect(container.querySelector(".tool-result-pre")).toBeNull();
 });
 
@@ -321,7 +373,42 @@ test("apply_patch shows error text in body when execution fails", () => {
   openToolDetails();
   expect(container.querySelector(".tool-result-pre")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
-  expect(container.querySelector(".tool-result-pre")?.textContent).toContain("file not found");
+  expect(container.querySelector(".tool-result-pre")?.textContent).toContain(
+    "file not found",
+  );
+  const body = container.querySelector(".coddy-tool-call-body");
+  expect(body).toHaveClass("coddy-tool-call-body--connected-result");
+  expect(
+    body?.querySelector(
+      ":scope > .permission-preview + .tool-call-result-card",
+    ),
+  ).not.toBeNull();
+});
+
+test("failed apply_patch joins an empty diff header directly to its result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-patch-empty-error"
+      title="apply_patch"
+      kind="write"
+      status="failed"
+      argsText={JSON.stringify({
+        filePath: "build/approval-preview.txt",
+        patch: "*** Begin Patch\n*** End Patch",
+      })}
+      resultText="error: file not found: build/approval-preview.txt"
+      durationMs={9_000}
+    />,
+  );
+
+  openToolDetails();
+  expect(container.querySelector(".permission-preview-viewport")).toBeNull();
+  expect(container.querySelector(".permission-preview-bar")).toHaveClass(
+    "permission-preview-bar--standalone",
+  );
+  expect(container.querySelector(".coddy-tool-call-body")).toHaveClass(
+    "coddy-tool-call-body--connected-result",
+  );
 });
 
 test("apply_patch with error shows diff alongside error text", () => {
@@ -339,7 +426,7 @@ test("apply_patch with error shows diff alongside error text", () => {
     />,
   );
   openToolDetails();
-  expect(container.querySelector(".diff-block")).not.toBeNull();
+  expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   expect(container.querySelector(".tool-result-pre")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
 });

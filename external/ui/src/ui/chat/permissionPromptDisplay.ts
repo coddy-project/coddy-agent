@@ -1,34 +1,6 @@
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
 
-function humanizeKind(kind: string): string {
-  const k = kind.trim().toLowerCase();
-  if (!k) return "Tool";
-  if (k === "run_command" || k === "shell") return "Run Command";
-  return k
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
-}
-
-/** Sentence-case title for the permission gate (not RUN: RUN_COMMAND). */
-export function permissionPromptTitle(payload: CoddyPermissionPayload): string {
-  const kind = (payload.toolCall.kind || "").trim();
-  const title = (payload.toolCall.title || "").trim();
-  if (kind) {
-    return humanizeKind(kind);
-  }
-  if (title) {
-    const stripped = title.replace(/^run:\s*/i, "").trim();
-    if (stripped) {
-      return humanizeKind(stripped.replace(/\s+/g, "_"));
-    }
-    return title;
-  }
-  return "Permission";
-}
-
 /** Plain detail text for the quote block (command line, not raw Arguments JSON). */
 export function permissionPromptDetail(
   payload: CoddyPermissionPayload,

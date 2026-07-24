@@ -44,3 +44,28 @@ test("buildPermissionPayloadFromToolCall uses Arguments body", () => {
   });
   expect(p.toolCall.content?.[0]?.content?.text).toContain("Arguments:");
 });
+
+test("restored rm prompt keeps the concrete tool name and arguments", () => {
+  const items: TranscriptItem[] = [
+    {
+      type: "tool_call",
+      id: "tc_rm",
+      toolCallId: "call_rm",
+      title: "rm",
+      kind: "write",
+      status: "pending",
+      argsText: '{"path":"build","recursive":true}',
+    },
+  ];
+  const out = restorePermissionPromptsForPendingTools(items, "sess_x", {
+    ...policy,
+    requirePermissionForWrites: true,
+  });
+  expect(out[1]?.type).toBe("permission_prompt");
+  if (out[1]?.type === "permission_prompt") {
+    expect(out[1].payload.toolCall.title).toBe("rm");
+    expect(out[1].payload.toolCall.content?.[0]?.content?.text).toContain(
+      '"recursive":true',
+    );
+  }
+});
