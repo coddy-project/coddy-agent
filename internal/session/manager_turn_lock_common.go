@@ -7,6 +7,8 @@ import "sync"
 func (m *Manager) acquireStubTurnLock(sessionID string) (unlock func(), _ error) {
 	v, _ := m.stubTurnMu.LoadOrStore(sessionID, &sync.Mutex{})
 	mu := v.(*sync.Mutex)
-	mu.Lock()
+	if !mu.TryLock() {
+		return nil, ErrSessionTurnBusy
+	}
 	return func() { mu.Unlock() }, nil
 }

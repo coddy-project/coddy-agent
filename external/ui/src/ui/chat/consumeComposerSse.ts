@@ -3,6 +3,11 @@ import { openAIStreamErrorMessage } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
 
+export type ContextUsageUpdate = {
+  used: number;
+  size: number;
+};
+
 type ToolCallUpdate = {
   toolCallId: string;
   title?: string;
@@ -107,6 +112,7 @@ export type ConsumeComposerSseParams = {
   assistantId: string;
   applyStreamItems: (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => void;
   setTokenUsage: (u: TokenUsage | null) => void;
+  setContextUsage: (u: ContextUsageUpdate) => void;
   tokenBaselineRef: MutableRefObject<{
     input: number;
     output: number;
@@ -149,6 +155,7 @@ export async function consumeComposerSseReader(
     assistantId,
     applyStreamItems,
     setTokenUsage,
+    setContextUsage,
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
@@ -436,6 +443,25 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "usage_update") {
+            try {
+              const raw = JSON.parse(ev.data) as ContextUsageUpdate;
+              const used = Number(raw.used);
+              const size = Number(raw.size);
+              if (
+                Number.isFinite(used) &&
+                used >= 0 &&
+                Number.isFinite(size) &&
+                size > 0
+              ) {
+                setContextUsage({ used, size });
+              }
             } catch {
               // ignore
             }

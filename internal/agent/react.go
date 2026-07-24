@@ -382,6 +382,7 @@ func (a *Agent) runReActLoop(
 						CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 					}
 					a.state.AddMessage(assistantMsg)
+					a.refreshConversationContextUsage(true)
 				}
 			}
 			if errors.Is(streamErr, context.Canceled) {
@@ -471,6 +472,7 @@ func (a *Agent) runReActLoop(
 		}
 		messages = append(messages, assistantMsg)
 		a.state.AddMessage(assistantMsg)
+		a.refreshConversationContextUsage(true)
 		if strings.TrimSpace(response.Content) != "" {
 			turnHadVisibleText = true
 		}
@@ -531,6 +533,7 @@ func (a *Agent) runReActLoop(
 
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
+			a.refreshConversationContextUsage(true)
 		}
 		// The model made progress (executed tool calls), so reset the empty-turn
 		// counter. The give-up notice is for CONSECUTIVE stalls (no answer and no

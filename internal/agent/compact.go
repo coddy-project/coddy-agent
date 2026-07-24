@@ -89,6 +89,7 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	}
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
+	a.refreshConversationContextUsage(true)
 
 	return &CompactionResult{
 		Summary:           summary,
@@ -151,6 +152,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 		Model:     a.state.EffectiveModelID(a.cfg),
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+	a.refreshConversationContextUsage(true)
 	return string(acp.StopReasonEndTurn), nil
 }
 

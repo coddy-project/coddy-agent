@@ -373,13 +373,13 @@ func TestCompareVersions(t *testing.T) {
 		{"v1.2.3", "1.2.3", 0},  // leading v ignored
 		{"1.0", "1.0.0", 0},     // missing fields treated as zero
 		{"1.0.1", "1.0", 1},
-		{"1.0.0-rc1", "1.0.0", -1},  // a prerelease is lower than the release (semver §11)
-		{"1.0.0", "1.0.0-rc1", 1},   // and the release outranks the prerelease
+		{"1.0.0-rc1", "1.0.0", -1},        // a prerelease is lower than the release (semver §11)
+		{"1.0.0", "1.0.0-rc1", 1},         // and the release outranks the prerelease
 		{"1.0.0-alpha", "1.0.0-beta", -1}, // prerelease identifiers compare lexically
 		{"1.0.0-rc.1", "1.0.0-rc.2", -1},  // numeric prerelease fields compare numerically
 		{"1.0.0+build", "1.0.0", 0},       // build metadata is ignored
 		{"2.0.0", "1.9.9", 1},
-		{"abc", "abd", -1},    // non-numeric lexical fallback
+		{"abc", "abd", -1},     // non-numeric lexical fallback
 		{"1.0.0", "1.0.0a", 0}, // "1.0.0a" not numeric -> both stripped compare "1.0.0" vs "1.0.0a"? see note
 	}
 	for _, tc := range tests {
@@ -641,7 +641,11 @@ func TestSkillReadonly(t *testing.T) {
 	if !SkillReadonly(&Skill{FilePath: filepath.Join("bundled", "x", "SKILL.md")}) {
 		t.Error("bundled (relative path) skill should be read-only")
 	}
-	if SkillReadonly(&Skill{FilePath: string(filepath.Separator) + filepath.Join("abs", "x", "SKILL.md")}) {
+	absolutePath, err := filepath.Abs(filepath.Join("abs", "x", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if SkillReadonly(&Skill{FilePath: absolutePath}) {
 		t.Error("absolute-path skill should be deletable")
 	}
 	if !SkillReadonly(nil) {

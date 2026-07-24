@@ -313,6 +313,7 @@ const (
 	UpdateTypeCurrentModeUpdate       = "current_mode_update"
 	UpdateTypeConfigOptionUpdate      = "config_option_update"
 	UpdateTypeTokenUsage              = "token_usage"
+	UpdateTypeUsage                   = "usage_update"
 	UpdateTypeMemoryPhase             = "memory_phase"
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
@@ -398,6 +399,13 @@ type TokenUsageUpdate struct {
 	InputTokens   int    `json:"inputTokens"`
 	OutputTokens  int    `json:"outputTokens"`
 	TotalTokens   int    `json:"totalTokens"`
+}
+
+// UsageUpdate reports how much of the model context window is currently occupied.
+type UsageUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "usage_update"
+	Used          int    `json:"used"`
+	Size          int    `json:"size"`
 }
 
 // MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.

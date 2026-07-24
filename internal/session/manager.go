@@ -322,6 +322,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
 	st.RestoreUILogWithoutPersist(snap.UILog)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
+	restoreContextBreakdown(st)
 
 	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home, m.activeCfg().Skills.ManagedDir(m.activeCfg().Paths.Home))
 	if err != nil {
@@ -357,6 +358,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.mu.Lock()
 	m.sessions[params.SessionID] = st
 	m.mu.Unlock()
+	m.sendContextUsageUpdate(params.SessionID, st)
 
 	if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
 		m.log.Warn("replay conversation", "error", err)

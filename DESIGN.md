@@ -296,7 +296,7 @@ Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`Contex
 
 - Do **not** put a percent label **on** the ring. Percentages and counters belong **only** in the tooltip (**`rail-tip`** family), above the ring, centered, wide enough via **`composer-context-tip`** CSS.
 - Idle home (**`contextIdle`**): inner ring only (no outer arc); tooltip **`No context usage yet`** plus **`Max context …`** only (no **`Model …`** line).
-- Active session: arc fills from stats; the tooltip may include usage lines but **never** a **`Model …`** line that duplicates **Mode** (the mode dropdown).
+- Active session: arc fills from stats; live **`usage_update`** SSE replaces the current total immediately and refreshes detailed stats, so manual and automatic compaction reduce the displayed window without a reload. The tooltip may include usage lines but **never** a **`Model …`** line that duplicates **Mode** (the mode dropdown).
 - **Click** (or **Enter** / **Space** when focused) on **`.composer-context-tip-host`** opens **`ContextBreakdownPopover`** (**`data-testid="context-breakdown-popover"`**): summary percent, stacked bar, legend (**System prompt**, **Tool definitions**, **Rules**, **Skills**, **MCP**, **Conversation**). **Escape** or **Close** dismisses; hover tooltip returns when closed. Data from **`GET /coddy/sessions/{id}/stats`** field **`contextBreakdown`** (estimated tokens per category).
 
 See **`.cursor/rules/ui-spa.mdc`** for the full wording.

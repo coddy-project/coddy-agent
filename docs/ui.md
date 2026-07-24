@@ -160,6 +160,7 @@ SSE payloads
   - `tool_call_update`
   - `plan`
   - `token_usage`
+  - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
 ## Composer primary action (`#btn-send`)
@@ -168,7 +169,7 @@ Context ring and breakdown popover
 
 - **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet + scrim as slash / **`@`** pickers (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**). **Escape** or **Close** dismisses; hover tooltip returns when closed.
-- Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`).
+- Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
 Shape and glyphs
 

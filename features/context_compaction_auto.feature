@@ -12,3 +12,4 @@ Feature: Automatic context compaction
     Then the agent reply arrives over HTTP
     And the session transcript contains a compaction summary row
     And the session transcript still contains all 4 original exchanges
+    And HTTP session stats match the compacted LLM context
