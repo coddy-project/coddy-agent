@@ -101,6 +101,10 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
+| `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
 
 ## `prompts`
 

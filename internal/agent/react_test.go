@@ -1060,3 +1060,137 @@ func TestRunAutoCompactsBeforeFirstLLMCall(t *testing.T) {
 		t.Fatal("summary missing from the first LLM request")
 	}
 }
+
+// --- loop guard escalation and false-positive safety -----------------------
+
+// alwaysDegeneratingProvider never recovers: every turn degenerates into the same
+// repeated passage. The loop guard must give up after the nudge budget instead of
+// nudging forever.
+type alwaysDegeneratingProvider struct{ calls int }
+
+func (p *alwaysDegeneratingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *alwaysDegeneratingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	var produced strings.Builder
+	for i := 0; i < 200 && ctx.Err() == nil; i++ {
+		produced.WriteString(bddLoopedSentence)
+		onChunk(llm.StreamChunk{TextDelta: bddLoopedSentence})
+	}
+	return &llm.Response{Content: produced.String(), StopReason: "tool_use"}, context.Canceled
+}
+
+func TestLoopGuardStopsTurnAfterNudgeBudget(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_budget",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &alwaysDegeneratingProvider{}
+	nudges := 2
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LoopNudgeMax: &nudges},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected the turn to stop with a notice once the nudge budget ran out")
+	}
+	if !strings.Contains(err.Error(), "repeating") {
+		t.Fatalf("error should explain the loop: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want agent_refused", stop)
+	}
+	// One initial attempt plus one per nudge, and nowhere near max_turns.
+	if provider.calls != nudges+1 {
+		t.Fatalf("provider called %d times, want %d (initial attempt + %d nudges)", provider.calls, nudges+1, nudges)
+	}
+}
+
+func TestLoopGuardDisabledLetsTheStreamRun(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_off",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &bddLoopProvider{
+		channel:      loopAbortText,
+		recoverAfter: 0,
+		realAnswer:   "answered without interference",
+		maxDeltas:    30,
+	}
+	off := false
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", LoopGuard: &off},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("turn failed with the guard disabled: %v", err)
+	}
+	if provider.cancelled != 0 {
+		t.Fatal("the guard cancelled a stream even though loop_guard is false")
+	}
+}
+
+// varyingToolProvider calls the same tool with different arguments every turn.
+// That is ordinary progress, not a loop, and must never be blocked.
+type varyingToolProvider struct{ calls int }
+
+func (p *varyingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *varyingToolProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	if p.calls > 6 {
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":"**/*%d.go"}`, p.calls),
+	}
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_varying",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &varyingToolProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "search for things"}})
+	if err != nil {
+		t.Fatalf("the guard interfered with legitimate varying tool calls: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolLoopNudge || m.Content == toolLoopSkippedResult) {
+			t.Fatal("the loop guard blocked a call with different arguments")
+		}
+	}
+}

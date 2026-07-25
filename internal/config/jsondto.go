@@ -86,14 +86,20 @@ type ModelJSON struct {
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 }
 
-// AgentJSON mirrors Agent for JSON APIs.
+// AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
+// distinction for the loop guard (enabled defaults to true, the counters to
+// 3 / 5 / 2, and an explicit 0 turns a check off).
 type AgentJSON struct {
-	Model            string `json:"model"`
-	MaxTurns         int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn int    `json:"max_tokens_per_turn,omitempty"`
-	LLMRetryMax      int    `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS   int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS int    `json:"llm_min_interval_ms,omitempty"`
+	Model                  string `json:"model"`
+	MaxTurns               int    `json:"max_turns,omitempty"`
+	MaxTokensPerTurn       int    `json:"max_tokens_per_turn,omitempty"`
+	LLMRetryMax            int    `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
+	LoopGuard              *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -226,12 +232,16 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, ModelJSON(m))
 	}
 	out.Agent = AgentJSON{
-		Model:            c.Agent.Model,
-		MaxTurns:         c.Agent.MaxTurns,
-		MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: c.Agent.LLMMinIntervalMS,
+		Model:                  c.Agent.Model,
+		MaxTurns:               c.Agent.MaxTurns,
+		MaxTokensPerTurn:       c.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(c.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(c.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
@@ -326,12 +336,16 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, ModelEntry(m))
 	}
 	cfg.Agent = Agent{
-		Model:            j.Agent.Model,
-		MaxTurns:         j.Agent.MaxTurns,
-		MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: j.Agent.LLMMinIntervalMS,
+		Model:                  j.Agent.Model,
+		MaxTurns:               j.Agent.MaxTurns,
+		MaxTokensPerTurn:       j.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(j.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(j.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(j.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,

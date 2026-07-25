@@ -103,6 +103,10 @@ agent:
   llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
+  loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
+  loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
+  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
 
 # System prompt templates
 prompts:
