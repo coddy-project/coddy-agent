@@ -138,6 +138,29 @@
           "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
           "default": 0,
           "minimum": 0
+        },
+        "loop_guard": {
+          "type": "boolean",
+          "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "default": true
+        },
+        "loop_tool_repeat_limit": {
+          "type": "integer",
+          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stream_repeat_cycles": {
+          "type": "integer",
+          "description": "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check.",
+          "default": 5,
+          "minimum": 0
+        },
+        "loop_nudge_max": {
+          "type": "integer",
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
+          "default": 2,
+          "minimum": 0
         }
       }
     },
