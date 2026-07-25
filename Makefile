@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version
+.PHONY: build build-acp test lint clean install print-version hooks
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -101,3 +101,10 @@ clean:
 # Run the linter (requires golangci-lint).
 lint:
 	golangci-lint run ./...
+
+# Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
+# Bypass a single commit with: git commit --no-verify
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Enabled .githooks — 'git commit' now runs tests + lint (scripts/checks.sh)."
+	@echo "Toggle scope with CODDY_HOOK_TESTS=fast|full and CODDY_HOOK_LINT=0/1; bypass once with --no-verify."
