@@ -758,6 +758,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	env.ToolCallID = strings.TrimSpace(tc.ID)
 	defer func() { env.ToolCallID = "" }()
 
+	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
+	// front so it holds regardless of the outcome below (permission denial,
+	// tool error), and so both callers — the ReAct loop and the resume-after-
+	// permission path — are covered without threading state through.
+	a.activateScopedRulesForToolCall(tc.Name, tc.InputJSON, env.CWD)
+
 	sessionDir := ""
 	if st := sessionStatePtr(a.state); st != nil {
 		sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
@@ -1101,11 +1107,29 @@ func extractContextFiles(blocks []acp.ContentBlock) []string {
 		if b.Type == "resource" && b.Resource != nil {
 			uri := b.Resource.URI
 			if strings.HasPrefix(uri, "file://") {
-				files = append(files, strings.TrimPrefix(uri, "file://"))
+				files = append(files, fileURIPath(uri))
 			}
 		}
 	}
 	return files
+}
+
+// fileURIPath turns a file:// URI into a filesystem path. On Windows the
+// authority-less form is file:///C:/proj/x.go, whose leading slash must go —
+// "/C:/proj/x.go" matches no rule scope and no glob. A POSIX path that merely
+// contains a colon (/a:b) keeps its slash: the drive form requires a separator
+// after the colon, or nothing at all.
+func fileURIPath(uri string) string {
+	p := strings.TrimPrefix(uri, "file://")
+	if len(p) >= 3 && p[0] == '/' && isASCIILetter(p[1]) && p[2] == ':' &&
+		(len(p) == 3 || p[3] == '/' || p[3] == '\\') {
+		p = p[1:]
+	}
+	return p
+}
+
+func isASCIILetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // toolKind maps a tool name to an ACP tool call kind.
