@@ -88,7 +88,7 @@ func runAPIKeyCommand(command string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(platform.DecodeOutput(out))
 }
 
 // Normalize trims string fields in place.
