@@ -101,11 +101,12 @@ function statusTitle(row: MCPServerRow): string {
 type EditorState = { name: string; text: string; isNew: boolean; scope: MCPScope };
 
 /**
- * MCPSection is the Settings -> MCP servers tab: the merged config.yaml +
- * .coddy/mcp.json server list in the Cursor style — status dot, source badge,
- * server switch, expandable per-tool switches, and a JSON editor for
- * project-level entries. All actions talk to /coddy/mcp* directly; nothing
- * here touches the settings document.
+ * MCPSection is the Settings -> MCP servers tab: the merged server list from
+ * config.yaml, the global ~/.coddy/mcp.json, and the local ./.coddy/mcp.json
+ * in the Cursor style — status dot, scope badge, server switch, expandable
+ * per-tool switches, and a JSON editor for mcp.json entries of either scope.
+ * All actions talk to /coddy/mcp* directly; nothing here touches the
+ * settings document.
  */
 export function MCPSection() {
   const [servers, setServers] = useState<MCPServerRow[]>([]);
@@ -269,7 +270,8 @@ export function MCPSection() {
             <p className="settings-muted">Loading…</p>
           ) : (
             <p className="settings-muted">
-              No MCP servers configured. Add one here (saved to <code>.coddy/mcp.json</code>) or
+              No MCP servers configured. Add one here (saved to the local{" "}
+              <code>./.coddy/mcp.json</code> or the global <code>~/.coddy/mcp.json</code>) or
               declare it under <code>mcp_servers</code> in <code>config.yaml</code>.
             </p>
           )

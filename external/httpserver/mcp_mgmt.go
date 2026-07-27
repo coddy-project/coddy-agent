@@ -2,10 +2,11 @@
 
 package httpserver
 
-// MCP management REST surface (/coddy/mcp*): merged server list with probed
-// tool inventories, server/tool disable toggles persisted into the owning
-// file, and CRUD for project-local .coddy/mcp.json entries. Mirrors the
-// skills management surface in skills_mgmt.go.
+// MCP management REST surface (/coddy/mcp*): merged server list (config.yaml
+// + global <home>/mcp.json + project .coddy/mcp.json) with tool inventories
+// probed over each server's transport, server/tool disable toggles persisted
+// into the owning file, and CRUD for mcp.json entries in either scope.
+// Mirrors the skills management surface in skills_mgmt.go.
 
 import (
 	"context"
@@ -53,6 +54,7 @@ type mcpServerRow struct {
 	Args          []string          `json:"args,omitempty"`
 	URL           string            `json:"url,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
+	Headers       map[string]string `json:"headers,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	Status        string            `json:"status"` // connected | error | disabled | unsupported
 	Error         string            `json:"error,omitempty"`
@@ -137,6 +139,12 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 			row.Env = make(map[string]string, len(srv.Config.Env))
 			for _, e := range srv.Config.Env {
 				row.Env[e.Name] = e.Value
+			}
+		}
+		if len(srv.Config.Headers) > 0 {
+			row.Headers = make(map[string]string, len(srv.Config.Headers))
+			for _, h := range srv.Config.Headers {
+				row.Headers[h.Name] = h.Value
 			}
 		}
 		if !mcp.SupportedTransport(transport) {

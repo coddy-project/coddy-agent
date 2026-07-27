@@ -3,8 +3,8 @@
 package httpserver
 
 // Godog harness for features/mcp_management.feature: drives the /coddy/mcp
-// HTTP surface against a project .coddy/mcp.json and a fake stdio MCP server
-// (this test binary re-executed via TestHelperMCPServerHTTP).
+// HTTP surface against project and global mcp.json files and a fake stdio
+// MCP server (this test binary re-executed via TestHelperMCPServerHTTP).
 
 import (
 	"bufio"

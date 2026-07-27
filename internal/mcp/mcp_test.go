@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -383,15 +384,23 @@ func TestValidateServerName(t *testing.T) {
 // fakeStreamableHandler implements a minimal MCP streamable HTTP server: one
 // POST endpoint accepting JSON-RPC, answering initialize/tools/list/tools/call
 // with application/json bodies (or an SSE body when sseResults is set),
-// issuing an Mcp-Session-Id on initialize and requiring it afterwards.
+// issuing an Mcp-Session-Id on initialize and requiring it on every later
+// request (notifications included). With auth set, every request must carry
+// the X-Auth header. The special tool names rpcfail / toolfail exercise the
+// JSON-RPC-error and isError result paths.
 type fakeStreamableHandler struct {
 	sseResults bool
+	auth       string
 	calls      atomic.Int64
 }
 
 func (h *fakeStreamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.auth != "" && r.Header.Get("X-Auth") != h.auth {
+		http.Error(w, "missing auth header", http.StatusUnauthorized)
 		return
 	}
 	body, _ := io.ReadAll(r.Body)
@@ -404,12 +413,12 @@ func (h *fakeStreamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if req.ID == nil { // notification
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
 	if req.Method != "initialize" && r.Header.Get("Mcp-Session-Id") != "sess-123" {
 		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+	if req.ID == nil { // notification
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	respond := func(result interface{}) {
@@ -439,19 +448,37 @@ func (h *fakeStreamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	case "tools/call":
 		h.calls.Add(1)
 		var params struct {
+			Name      string            `json:"name"`
 			Arguments map[string]string `json:"arguments"`
 		}
 		_ = json.Unmarshal(req.Params, &params)
-		respond(map[string]interface{}{
-			"content": []map[string]interface{}{{"type": "text", "text": "remote:" + params.Arguments["text"]}},
-		})
+		switch params.Name {
+		case "rpcfail":
+			msg, _ := json.Marshal(map[string]interface{}{
+				"jsonrpc": "2.0", "id": req.ID,
+				"error": map[string]interface{}{"code": -32602, "message": "invalid params"},
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(msg)
+		case "toolfail":
+			respond(map[string]interface{}{
+				"content": []map[string]interface{}{{"type": "text", "text": "tool blew up"}},
+				"isError": true,
+			})
+		default:
+			respond(map[string]interface{}{
+				"content": []map[string]interface{}{{"type": "text", "text": "remote:" + params.Arguments["text"]}},
+			})
+		}
 	default:
 		respond(nil)
 	}
 }
 
 func TestStreamableHTTPClient(t *testing.T) {
-	h := &fakeStreamableHandler{}
+	// auth makes the fake reject any request missing the configured header,
+	// so this also proves headers are sent on every message.
+	h := &fakeStreamableHandler{auth: "tok"}
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -474,6 +501,39 @@ func TestStreamableHTTPClient(t *testing.T) {
 	}
 	if h.calls.Load() != 1 {
 		t.Fatalf("server saw %d tool calls, want 1", h.calls.Load())
+	}
+
+	// JSON-RPC error responses surface as errors, not silent empty results.
+	if _, err := client.CallTool(testCtx(t), "rpcfail", `{}`); err == nil || !strings.Contains(err.Error(), "jsonrpc error -32602") {
+		t.Fatalf("rpcfail err = %v, want jsonrpc error -32602", err)
+	}
+	// isError tool results surface as errors too.
+	if _, err := client.CallTool(testCtx(t), "toolfail", `{}`); err == nil || !strings.Contains(err.Error(), "tool blew up") {
+		t.Fatalf("toolfail err = %v, want mcp tool error", err)
+	}
+}
+
+func TestStdioClientSurvivesConnectCtxCancel(t *testing.T) {
+	// The connect ctx bounds only the handshake: HTTP-created sessions pass a
+	// request-scoped ctx here, and the subprocess must outlive it or every
+	// turn after the first would hit a dead server.
+	connectCtx, cancel := context.WithCancel(context.Background())
+	srv := fakeServerConfig("fake")
+	client, err := NewStdioClient(connectCtx, srv.Name, srv.Command, srv.Args, []string{"GO_WANT_MCP_HELPER=1"}, slog.Default())
+	if err != nil {
+		t.Fatalf("NewStdioClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	cancel()
+	time.Sleep(100 * time.Millisecond) // give a ctx-tied process time to die
+
+	got, err := client.CallTool(testCtx(t), "echo", `{"text":"still-alive"}`)
+	if err != nil {
+		t.Fatalf("CallTool after connect ctx cancel: %v", err)
+	}
+	if got != "still-alive" {
+		t.Fatalf("result = %q, want still-alive", got)
 	}
 }
 
@@ -528,6 +588,12 @@ func newFakeLegacySSEServer(t *testing.T) *httptest.Server {
 		}
 	})
 	mux.HandleFunc("POST /messages", func(w http.ResponseWriter, r *http.Request) {
+		// The endpoint event announced /messages?session=s1: reject POSTs
+		// that dropped the query so the client's endpoint resolution is real.
+		if r.URL.Query().Get("session") != "s1" {
+			http.Error(w, "missing session query", http.StatusBadRequest)
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
 			ID     interface{}     `json:"id"`
@@ -610,7 +676,7 @@ func TestHTTPClientFallsBackToSSE(t *testing.T) {
 }
 
 func TestConnectDispatchesByType(t *testing.T) {
-	streamable := httptest.NewServer(&fakeStreamableHandler{})
+	streamable := httptest.NewServer(&fakeStreamableHandler{auth: "tok"})
 	defer streamable.Close()
 
 	// stdio (default type) still works through Connect.
@@ -635,8 +701,51 @@ func TestConnectDispatchesByType(t *testing.T) {
 		t.Fatalf("http tools = %+v", httpClient.Tools())
 	}
 
+	// The streamable-http alias reaches the same transport.
+	aliasClient, err := Connect(testCtx(t), config.MCPServerConfig{
+		Name: "alias", Type: "streamable-http", URL: streamable.URL,
+		Headers: []config.HTTPHeaderConfig{{Name: "X-Auth", Value: "tok"}},
+	}, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("Connect streamable-http alias: %v", err)
+	}
+	defer func() { _ = aliasClient.Close() }()
+
+	// Explicit type sse forces the legacy transport (no fallback involved).
+	legacy := newFakeLegacySSEServer(t)
+	defer legacy.Close()
+	sseClient, err := Connect(testCtx(t), config.MCPServerConfig{
+		Name: "legacy", Type: "sse", URL: legacy.URL + "/sse",
+	}, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("Connect sse: %v", err)
+	}
+	defer func() { _ = sseClient.Close() }()
+	if tools := sseClient.Tools(); len(tools) != 1 || tools[0].Name != "sse_echo" {
+		t.Fatalf("sse tools = %+v", tools)
+	}
+
 	if _, err := Connect(testCtx(t), config.MCPServerConfig{Name: "x", Type: "websocket"}, t.TempDir(), slog.Default()); err == nil {
 		t.Fatal("unknown transport must error")
+	}
+}
+
+func TestSSEConnectHonorsCtxOnSilentServer(t *testing.T) {
+	// A server that accepts the connection but never sends response headers
+	// must not hang Connect/probe past the caller's deadline.
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer silent.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := NewSSEClient(ctx, "silent", silent.URL, nil, slog.Default()); err == nil {
+		t.Fatal("silent server must error")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("connect blocked %v past the 300ms deadline", elapsed)
 	}
 }
 

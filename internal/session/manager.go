@@ -131,6 +131,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 		},
 		MCPCapabilities: &acp.MCPCapabilities{
 			HTTP: true,
+			SSE:  true,
 		},
 	}
 	if m.store != nil {

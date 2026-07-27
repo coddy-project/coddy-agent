@@ -91,7 +91,7 @@ mcp_servers:
 
 ### Streamable HTTP (supported)
 
-`type: http` (aliases: `streamable-http`, `streamable_http`) connects to `url` over the
+`type: http` connects to `url` over the
 MCP streamable HTTP transport (2025-03-26 spec): JSON-RPC messages are POSTed to the
 endpoint and answered as `application/json` bodies or `text/event-stream` chunks; the
 `Mcp-Session-Id` issued on initialize is echoed on subsequent requests. `headers` are sent
@@ -99,7 +99,9 @@ with every request (e.g. `Authorization`). URL-only entries (no `command`, no `t
 default to `http`. When the endpoint rejects the handshake (legacy servers answer POST
 with 4xx), the client automatically falls back to the legacy SSE transport at the same
 URL, mirroring Cursor and Claude Code behavior. The agent advertises
-`mcpCapabilities.http: true`.
+`mcpCapabilities.http: true` and `mcpCapabilities.sse: true`. In YAML the `type` value
+must be `stdio`, `http`, or `sse`; mcp.json and ACP entries additionally accept the
+`streamable-http` / `streamable_http` aliases for `http`.
 
 ```yaml
 mcp_servers:

@@ -181,11 +181,23 @@ Some features live under **`external/`** and define tools that are **not** regis
 
 ### MCP Client (`internal/mcp`)
 
-Connects to external MCP servers specified in `session/new`. Supports:
-- stdio transport (always available)
-- HTTP transport (capability: `mcpCapabilities.http`)
+Connects to external MCP servers from three config levels (`config.yaml`
+`mcp_servers`, the global `~/.coddy/mcp.json`, the project `./.coddy/mcp.json`;
+later levels override by name) plus servers specified in `session/new`.
+Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
+- stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
+  transport-owned (the connect ctx only bounds the handshake)
+- streamable HTTP (`type: http`) - JSON-RPC POSTs answered as JSON or SSE
+  chunks, `Mcp-Session-Id` round-trip, automatic legacy-SSE fallback
+  (capability: `mcpCapabilities.http`)
+- legacy HTTP+SSE (`type: sse`) - GET event stream announcing the POST
+  endpoint (capability: `mcpCapabilities.sse`)
 
-Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`plan`** modes (see **`internal/agent/react.go`**).
+`mcp.Probe` backs the `/coddy/mcp` management API (connect, `tools/list`,
+close); `manage.go` resolves which file owns a server for enable/disable
+persistence. Tools from MCP servers are appended to the LLM tool list in
+**`agent`** and **`plan`** modes (see **`internal/agent/react.go`**), filtered
+per turn by the disable switches.
 
 ### Skills loader (`internal/skills`)
 

@@ -866,7 +866,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List MCP servers",
-					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled stdio servers are probed for their tool inventory (spawn, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1342,6 +1342,7 @@ func openAPISpec() map[string]interface{} {
 						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 						"url":       map[string]string{"type": "string"},
 						"env":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":   map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
 						"enabled":   map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
 						"status":    map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type)."},
 						"error":     map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported."},

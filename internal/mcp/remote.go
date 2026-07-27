@@ -64,7 +64,6 @@ type streamableHTTPTransport struct {
 	sessionID string
 
 	closed chan struct{}
-	wg     sync.WaitGroup
 }
 
 // httpStatusError reports a non-2xx response to a JSON-RPC POST.
@@ -114,10 +113,9 @@ func (t *streamableHTTPTransport) Send(ctx context.Context, data []byte) error {
 		return &httpStatusError{status: resp.StatusCode, body: string(body)}
 	case strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
 		// Responses stream in as SSE events; read them in the background
-		// until the server closes this response stream.
-		t.wg.Add(1)
+		// until the server closes this response stream (its lifetime is
+		// bounded by the request ctx of the call that opened it).
 		go func() {
-			defer t.wg.Done()
 			defer func() { _ = resp.Body.Close() }()
 			_ = readSSE(resp.Body, func(event, data string) {
 				t.deliver([]byte(data))
@@ -168,8 +166,13 @@ type sseTransport struct {
 
 func newSSETransport(ctx context.Context, name, rawURL string, headers map[string]string) (*sseTransport, error) {
 	// The event stream must outlive the connect ctx: it carries every later
-	// response, so it gets its own lifetime, cancelled by Close.
+	// response, so it gets its own lifetime, cancelled by Close. The connect
+	// phase (GET headers + endpoint event), however, must honor the caller's
+	// deadline - AfterFunc aborts the stream if ctx dies while connecting, so
+	// a server that accepts TCP but never answers cannot hang Connect/probe.
 	streamCtx, cancel := context.WithCancel(context.Background())
+	stopConnectGuard := context.AfterFunc(ctx, cancel)
+	defer stopConnectGuard()
 
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -204,6 +207,10 @@ func newSSETransport(ctx context.Context, name, rawURL string, headers map[strin
 	endpointCh := make(chan string, 1)
 	go func() {
 		defer func() { _ = resp.Body.Close() }()
+		// This goroutine is the sole msgs writer: closing the channel when
+		// the stream dies fails pending calls fast instead of letting them
+		// hang until their ctx expires.
+		defer close(t.msgs)
 		_ = readSSE(resp.Body, func(event, data string) {
 			if event == "endpoint" {
 				select {

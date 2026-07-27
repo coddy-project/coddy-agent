@@ -35,6 +35,12 @@ type transport interface {
 	Close() error
 }
 
+// rpcResult carries one JSON-RPC outcome to a pending call.
+type rpcResult struct {
+	result json.RawMessage
+	err    error
+}
+
 // Client connects to a single MCP server and exposes its tools.
 type Client struct {
 	name string
@@ -42,7 +48,7 @@ type Client struct {
 	log  *slog.Logger
 
 	nextID  atomic.Int64
-	pending map[interface{}]chan json.RawMessage
+	pending map[interface{}]chan rpcResult
 	mu      sync.Mutex
 
 	tools []ToolInfo
@@ -57,7 +63,7 @@ func newClientWithTransport(ctx context.Context, name string, tr transport, log 
 		name:    name,
 		tr:      tr,
 		log:     log,
-		pending: make(map[interface{}]chan json.RawMessage),
+		pending: make(map[interface{}]chan rpcResult),
 		done:    make(chan struct{}),
 	}
 
@@ -92,7 +98,7 @@ func NewStaticClient(name string, tools []ToolInfo) *Client {
 		name:    name,
 		tools:   tools,
 		log:     slog.Default(),
-		pending: make(map[interface{}]chan json.RawMessage),
+		pending: make(map[interface{}]chan rpcResult),
 		done:    make(chan struct{}),
 	}
 }
@@ -211,7 +217,7 @@ func (c *Client) listTools(ctx context.Context) error {
 
 func (c *Client) call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
 	id := c.nextID.Add(1)
-	ch := make(chan json.RawMessage, 1)
+	ch := make(chan rpcResult, 1)
 
 	c.mu.Lock()
 	c.pending[float64(id)] = ch
@@ -237,8 +243,8 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 	}
 
 	select {
-	case result := <-ch:
-		return result, nil
+	case res := <-ch:
+		return res.result, res.err
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -275,12 +281,28 @@ func (c *Client) readLoop() {
 		select {
 		case data, ok := <-msgs:
 			if !ok {
+				// Transport died: fail every waiter instead of letting calls
+				// hang until their ctx expires.
+				c.failPending(fmt.Errorf("mcp %s: connection closed", c.name))
 				return
 			}
 			c.dispatch(data)
 		case <-c.done:
 			return
 		}
+	}
+}
+
+// failPending resolves every in-flight call with err.
+func (c *Client) failPending(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, ch := range c.pending {
+		select {
+		case ch <- rpcResult{err: err}:
+		default:
+		}
+		delete(c.pending, id)
 	}
 }
 
@@ -327,43 +349,68 @@ func (c *Client) dispatch(data []byte) {
 	}
 
 	if hasResult {
-		ch <- raw["result"]
-	} else {
-		// On error, send empty result.
-		ch <- json.RawMessage(`null`)
+		ch <- rpcResult{result: raw["result"]}
+		return
 	}
+	// Propagate the JSON-RPC error object so callers see real failures
+	// (unknown tool, invalid params) instead of a silent empty success.
+	var rpcErr struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(raw["error"], &rpcErr)
+	ch <- rpcResult{err: fmt.Errorf("mcp %s: jsonrpc error %d: %s", c.name, rpcErr.Code, rpcErr.Message)}
 }
 
 // ---- stdio transport ----
 
 // stdioTransport speaks newline-delimited JSON-RPC with a subprocess.
 type stdioTransport struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	msgs  chan []byte
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	msgs   chan []byte
+	done   chan struct{}
+	cancel context.CancelFunc
 }
 
-func newStdioTransport(ctx context.Context, name, command string, args []string, env []string, log *slog.Logger) (*stdioTransport, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
+// newStdioTransport starts the subprocess on a transport-owned lifetime: the
+// connect ctx only bounds the handshake (in Client.call), never the process.
+// Tying the process to the caller's ctx would kill it as soon as the
+// session-creating HTTP request finishes, breaking every later turn.
+func newStdioTransport(_ context.Context, name, command string, args []string, env []string, log *slog.Logger) (*stdioTransport, error) {
+	procCtx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(procCtx, command, args...)
 	cmd.Env = append(os.Environ(), env...)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("mcp %s: stdin pipe: %w", name, err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("mcp %s: stdout pipe: %w", name, err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		cancel()
 		return nil, fmt.Errorf("mcp %s: start: %w", name, err)
 	}
 
-	t := &stdioTransport{cmd: cmd, stdin: stdin, msgs: make(chan []byte, 16)}
+	t := &stdioTransport{
+		cmd:    cmd,
+		stdin:  stdin,
+		msgs:   make(chan []byte, 16),
+		done:   make(chan struct{}),
+		cancel: cancel,
+	}
 	go func() {
 		defer close(t.msgs)
+		// Reap the subprocess once its stdout closes so it never lingers as
+		// a zombie (probes and session teardown both end up here).
+		defer func() { _ = cmd.Wait() }()
 		reader := bufio.NewReader(stdout)
 		for {
 			line, err := reader.ReadBytes('\n')
@@ -373,7 +420,11 @@ func newStdioTransport(ctx context.Context, name, command string, args []string,
 				}
 				return
 			}
-			t.msgs <- line
+			select {
+			case t.msgs <- line:
+			case <-t.done:
+				return
+			}
 		}
 	}()
 	return t, nil
@@ -387,12 +438,17 @@ func (t *stdioTransport) Send(_ context.Context, data []byte) error {
 func (t *stdioTransport) Messages() <-chan []byte { return t.msgs }
 
 func (t *stdioTransport) Close() error {
+	select {
+	case <-t.done:
+	default:
+		close(t.done)
+	}
 	if t.stdin != nil {
 		_ = t.stdin.Close()
 	}
-	if t.cmd != nil && t.cmd.Process != nil {
-		return t.cmd.Process.Kill()
-	}
+	// Cancel the process lifetime; CommandContext kills it and the reader
+	// goroutine reaps it.
+	t.cancel()
 	return nil
 }
 

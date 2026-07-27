@@ -70,6 +70,26 @@ test("serverRowToEntryJson round-trips through the parser", () => {
   expect(entry?.disabledTools).toEqual(["write"]);
 });
 
+test("serverRowToEntryJson keeps remote transport, url, and headers", () => {
+  const text = serverRowToEntryJson({
+    name: "remote",
+    source: "global",
+    origin: "home",
+    transport: "http",
+    url: "https://mcp.example.com/mcp",
+    headers: { Authorization: "Bearer tok" },
+    enabled: true,
+    status: "connected",
+    tools: [],
+  });
+  const { entry, error } = parseServerEntryJson(text);
+  expect(error).toBeUndefined();
+  expect(entry?.type).toBe("http");
+  expect(entry?.url).toBe("https://mcp.example.com/mcp");
+  // Editing a remote server must not silently drop its auth headers.
+  expect(entry?.headers).toEqual({ Authorization: "Bearer tok" });
+});
+
 test("originLabel names the owning file", async () => {
   const { originLabel } = await import("./mcpServerJson");
   expect(originLabel("config")).toBe("config.yaml");

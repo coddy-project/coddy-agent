@@ -8,13 +8,18 @@ Feature: MCP tool calls reach the model and results reach the answer
   token.
 
   @openai
-  Scenario: HTTP gateway turn calls a streamable HTTP MCP tool
+  Scenario: HTTP gateway turns call MCP tools across transports and honor disable switches
     Given a coddy HTTP server with MCP servers "alpha" over stdio and "beta" over streamable http
     And a scripted model that calls "beta__get_token" and then answers with the tool result
     When I send an agent prompt over POST /v1/responses
     Then the model was offered the tools "alpha__get_token" and "beta__get_token"
     And the final assistant message contains the beta token
     And the "beta" server received exactly one tool call
+    When I send another agent prompt with the model now calling "alpha__get_token"
+    Then the final assistant message contains the alpha token
+    When I disable the tool "get_token" of MCP server "beta" over the management API
+    And I send another agent prompt with the model now calling "alpha__get_token"
+    Then the model was not offered the tool "beta__get_token"
 
   @acp
   Scenario: ACP session turn calls a stdio MCP tool

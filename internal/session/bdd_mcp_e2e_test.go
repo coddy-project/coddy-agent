@@ -185,7 +185,6 @@ type acpMCPE2EState struct {
 	mgr      *session.Manager
 	sid      string
 	state    *session.State
-	prevTok  string
 	cleanup  []func()
 }
 
@@ -205,12 +204,6 @@ func (s *acpMCPE2EState) close() {
 	if s.betaTS != nil {
 		s.betaTS.Close()
 		s.betaTS = nil
-	}
-	if s.prevTok != "" {
-		_ = os.Setenv("MCP_HELPER_TOKEN", s.prevTok)
-		s.prevTok = ""
-	} else {
-		_ = os.Unsetenv("MCP_HELPER_TOKEN")
 	}
 	for _, fn := range s.cleanup {
 		fn()
@@ -234,11 +227,6 @@ func (s *acpMCPE2EState) startManager() error {
 			return err
 		}
 	}
-	s.prevTok = os.Getenv("MCP_HELPER_TOKEN")
-	if err := os.Setenv("MCP_HELPER_TOKEN", acpE2EAlphaToken); err != nil {
-		return err
-	}
-
 	s.beta = &fakeBetaHandler{token: acpE2EBetaToken}
 	s.betaTS = httptest.NewServer(s.beta)
 

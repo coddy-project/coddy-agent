@@ -386,8 +386,14 @@ See **[`docs/skills.md`](docs/skills.md)** for the full reference.
 
 ## MCP Server Integration
 
-Connect external tools via MCP servers. Configured globally in `config.yaml` or
-passed per-session by the ACP client.
+Connect external tools via MCP servers over any transport: `stdio` (local
+command), `http` (streamable HTTP with automatic legacy-SSE fallback), or
+`sse`. Servers are configured globally in `config.yaml` (`mcp_servers`) or the
+Cursor-compatible `~/.coddy/mcp.json`, locally per project in
+`./.coddy/mcp.json` (later levels override by name), or passed per-session by
+the ACP client. Whole servers and individual tools can be switched off from
+the config files, the `/coddy/mcp*` REST API, or the Settings -> MCP servers
+web UI.
 
 Example adding a GitHub MCP server in config:
 
@@ -399,6 +405,17 @@ mcp_servers:
     env:
       - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
         value: "${GITHUB_TOKEN}"
+```
+
+The same server in `.coddy/mcp.json`, plus a remote one:
+
+```json
+{
+  "mcpServers": {
+    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+    "remote-tools": { "url": "https://mcp.example.com/mcp" }
+  }
+}
 ```
 
 See [MCP Integration Guide](docs/mcp-integration.md) for details.

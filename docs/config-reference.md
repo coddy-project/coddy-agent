@@ -154,7 +154,7 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |

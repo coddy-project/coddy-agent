@@ -34,6 +34,7 @@ export type MCPServerRow = {
   args?: string[];
   url?: string;
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   enabled: boolean;
   status: "connected" | "error" | "disabled" | "unsupported";
   error?: string;
@@ -150,6 +151,9 @@ export function serverRowToEntryJson(row: MCPServerRow): string {
   if (row.args && row.args.length > 0) entry.args = row.args;
   if (row.env && Object.keys(row.env).length > 0) entry.env = row.env;
   if (row.url) entry.url = row.url;
+  if (row.headers && Object.keys(row.headers).length > 0) {
+    entry.headers = row.headers;
+  }
   if (!row.enabled) entry.disabled = true;
   if (row.disabled_tools && row.disabled_tools.length > 0) {
     entry.disabledTools = row.disabled_tools;

@@ -91,8 +91,8 @@ func mcpJSONServerToConfig(name string, e MCPJSONServer) MCPServerConfig {
 		DisabledTools: append([]string(nil), e.DisabledTools...),
 	}
 	// Cursor url-only entries carry no explicit type; surface them as http so
-	// the stdio-only connector can reject them gracefully instead of running
-	// an empty command.
+	// the connector picks the streamable HTTP transport (with its legacy-SSE
+	// fallback) instead of running an empty command.
 	if srv.Type == "" && srv.Command == "" && srv.URL != "" {
 		srv.Type = "http"
 	}

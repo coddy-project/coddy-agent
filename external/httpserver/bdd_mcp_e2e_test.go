@@ -38,18 +38,23 @@ const (
 	e2eBetaToken  = "BETA-7"
 )
 
-// mcpScriptedProvider is an in-process llm.Provider: on the first turn it
-// calls the configured namespaced MCP tool; on the second it answers with the
-// tool result it finds in the RoleTool message. It records the tool names it
-// was offered so the harness can assert MCP tools reach the model as native
-// definitions.
+// mcpScriptedProvider is an in-process llm.Provider: on every turn's first
+// LLM call it invokes the configured namespaced MCP tool, on the second it
+// answers with the tool result found in the RoleTool message. Each call
+// records the tool names offered so the harness can assert MCP tools reach
+// the model as native definitions (and disappear once disabled).
 type mcpScriptedProvider struct {
-	tool string
-
 	mu            sync.Mutex
+	tool          string
 	calls         int
 	offeredTools  []string
 	sawToolResult string
+}
+
+func (p *mcpScriptedProvider) setTool(tool string) {
+	p.mu.Lock()
+	p.tool = tool
+	p.mu.Unlock()
 }
 
 func (p *mcpScriptedProvider) Complete(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition) (*llm.Response, error) {
@@ -60,12 +65,12 @@ func (p *mcpScriptedProvider) Stream(_ context.Context, messages []llm.Message, 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
-	if p.calls == 1 {
-		p.offeredTools = nil
-		for _, t := range tools {
-			p.offeredTools = append(p.offeredTools, t.Name)
-		}
-		tc := llm.ToolCall{ID: "call-1", Name: p.tool, InputJSON: `{}`}
+	p.offeredTools = nil
+	for _, t := range tools {
+		p.offeredTools = append(p.offeredTools, t.Name)
+	}
+	if p.calls%2 == 1 { // first LLM call of a turn: request the tool
+		tc := llm.ToolCall{ID: fmt.Sprintf("call-%d", p.calls), Name: p.tool, InputJSON: `{}`}
 		onChunk(llm.StreamChunk{ToolCall: &tc})
 		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
 	}
@@ -141,7 +146,6 @@ type mcpE2EState struct {
 	srv      *Server
 	ts       *httptest.Server
 	prevHOME string
-	prevTok  string
 	sid      string
 }
 
@@ -176,11 +180,6 @@ func (s *mcpE2EState) close() {
 	} else if s.root != "" {
 		_ = os.Unsetenv("CODDY_HOME")
 	}
-	if s.prevTok != "" {
-		_ = os.Setenv("MCP_HELPER_TOKEN", s.prevTok)
-	} else {
-		_ = os.Unsetenv("MCP_HELPER_TOKEN")
-	}
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -202,14 +201,17 @@ func (s *mcpE2EState) startServer() error {
 	if err := os.Setenv("CODDY_HOME", s.home); err != nil {
 		return err
 	}
-	s.prevTok = os.Getenv("MCP_HELPER_TOKEN")
-	if err := os.Setenv("MCP_HELPER_TOKEN", e2eAlphaToken); err != nil {
-		return err
-	}
 
 	s.beta = &fakeBetaMCPHandler{token: e2eBetaToken}
 	s.betaTS = httptest.NewServer(s.beta)
 
+	// alpha comes from config.yaml (its token travels via per-server env, not
+	// the process env, proving the Env plumbing); beta lives in the project
+	// .coddy/mcp.json so the management API can toggle its tools mid-session.
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), "beta",
+		config.MCPJSONServer{Type: "http", URL: s.betaTS.URL}); err != nil {
+		return err
+	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
@@ -225,7 +227,6 @@ func (s *mcpE2EState) startServer() error {
 					{Name: "MCP_HELPER_TOKEN", Value: e2eAlphaToken},
 				},
 			},
-			{Name: "beta", Type: "http", URL: s.betaTS.URL},
 		},
 	}
 
@@ -245,7 +246,7 @@ func (s *mcpE2EState) startServer() error {
 // ---- steps ----
 
 func (s *mcpE2EState) scriptedModelCalls(tool string) error {
-	s.provider.tool = tool
+	s.provider.setTool(tool)
 	return nil
 }
 
@@ -266,6 +267,43 @@ func (s *mcpE2EState) sendAgentPrompt() error {
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d: %s", res.StatusCode, body)
+	}
+	return nil
+}
+
+// sendAnotherPrompt re-targets the scripted model and runs one more turn in
+// the SAME session, proving MCP connections survive across HTTP requests.
+func (s *mcpE2EState) sendAnotherPrompt(tool string) error {
+	s.provider.setTool(tool)
+	return s.sendAgentPrompt()
+}
+
+func (s *mcpE2EState) disableToolViaAPI(tool, server string) error {
+	req, err := http.NewRequest(http.MethodPost,
+		s.ts.URL+"/coddy/mcp/"+server+"/tools/"+tool+"/disable", nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("disable tool status %d: %s", res.StatusCode, body)
+	}
+	return nil
+}
+
+func (s *mcpE2EState) modelNotOfferedTool(name string) error {
+	s.provider.mu.Lock()
+	offered := append([]string(nil), s.provider.offeredTools...)
+	s.provider.mu.Unlock()
+	for _, got := range offered {
+		if got == name {
+			return fmt.Errorf("tool %q was offered to the model after being disabled; offered: %v", name, offered)
+		}
 	}
 	return nil
 }
@@ -332,6 +370,10 @@ func (s *mcpE2EState) finalAnswerContainsBeta() error {
 	return s.finalAnswerContains(e2eBetaToken)
 }
 
+func (s *mcpE2EState) finalAnswerContainsAlpha() error {
+	return s.finalAnswerContains(e2eAlphaToken)
+}
+
 func (s *mcpE2EState) betaReceivedExactlyOneCall() error {
 	if got := s.beta.calls.Load(); got != 1 {
 		return fmt.Errorf("beta tools/call count = %d, want 1", got)
@@ -352,8 +394,12 @@ func initializeMCPE2EScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a coddy HTTP server with MCP servers "alpha" over stdio and "beta" over streamable http$`, s.startServer)
 	sc.Step(`^a scripted model that calls "([^"]*)" and then answers with the tool result$`, s.scriptedModelCalls)
 	sc.Step(`^I send an agent prompt over POST /v1/responses$`, s.sendAgentPrompt)
+	sc.Step(`^I send another agent prompt with the model now calling "([^"]*)"$`, s.sendAnotherPrompt)
+	sc.Step(`^I disable the tool "([^"]*)" of MCP server "([^"]*)" over the management API$`, s.disableToolViaAPI)
 	sc.Step(`^the model was offered the tools "([^"]*)" and "([^"]*)"$`, s.modelOfferedTools)
+	sc.Step(`^the model was not offered the tool "([^"]*)"$`, s.modelNotOfferedTool)
 	sc.Step(`^the final assistant message contains the beta token$`, s.finalAnswerContainsBeta)
+	sc.Step(`^the final assistant message contains the alpha token$`, s.finalAnswerContainsAlpha)
 	sc.Step(`^the "beta" server received exactly one tool call$`, s.betaReceivedExactlyOneCall)
 }
 
