@@ -170,12 +170,14 @@ func SetProjectMCPToolDisabled(cwd, name, tool string, disabled bool) error {
 	if !ok {
 		return fmt.Errorf("mcp server %q not found in %s", name, MCPJSONPath(cwd))
 	}
-	e.DisabledTools = setToolDisabled(e.DisabledTools, tool, disabled)
+	e.DisabledTools = SetToolDisabledList(e.DisabledTools, tool, disabled)
 	entries[name] = e
 	return writeProjectMCPFileEntries(cwd, entries)
 }
 
-func setToolDisabled(tools []string, tool string, disabled bool) []string {
+// SetToolDisabledList adds or removes tool in a disabled-tools list, keeping
+// the result sorted and free of duplicates.
+func SetToolDisabledList(tools []string, tool string, disabled bool) []string {
 	out := make([]string, 0, len(tools)+1)
 	for _, t := range tools {
 		if t != tool {
