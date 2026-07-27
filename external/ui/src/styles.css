@@ -6272,6 +6272,208 @@ textarea#composer {
   padding: 8px;
 }
 
+/* MCP servers tab (Cursor-style server list with per-tool switches). Reuses
+   the skills list typography (.skills-list-item-name/-desc/-badge) so the two
+   management tabs stay visually consistent. */
+.settings-mcp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-servers-box {
+  min-inline-size: 0;
+}
+
+.mcp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-list-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  padding: 4px 0;
+}
+
+.mcp-list-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.mcp-list-item.is-disabled .mcp-list-item-text,
+.mcp-list-item.is-disabled .mcp-list-item-head > svg {
+  opacity: 0.5;
+}
+
+.mcp-list-item-head > svg {
+  flex-shrink: 0;
+}
+
+/* Trailing controls in an MCP row never shrink (same rule as skill rows), so
+   a long command line or error text cannot squeeze the 40px icon buttons. */
+.mcp-list-item-head > button {
+  flex: 0 0 auto;
+}
+
+.mcp-list-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-expand-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mcp-expand-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.mcp-expand-btn svg {
+  transition: transform 120ms ease;
+}
+
+/* Connection status dot (Cursor-style): green connected, red error, gray
+   disabled, amber unsupported transport. */
+.mcp-status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.mcp-status-dot.is-connected {
+  background: #34c759;
+  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+}
+
+.mcp-status-dot.is-error {
+  background: #ff453a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+}
+
+.mcp-status-dot.is-unsupported {
+  background: #ff9f0a;
+}
+
+.mcp-status-dot.is-disabled {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.mcp-command {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.mcp-badge-transport {
+  text-transform: uppercase;
+}
+
+/* Expanded per-tool rows, indented under the server head. */
+.mcp-tools {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0 0 0 39px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.mcp-tool-row.is-disabled .mcp-tool-text {
+  opacity: 0.5;
+}
+
+.mcp-tool-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-tool-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.mcp-tools-empty {
+  margin: 0 0 8px;
+  padding-left: 39px;
+}
+
+/* JSON editor card for one .coddy/mcp.json entry (add or edit). */
+.mcp-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+}
+
+.mcp-editor-json {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 120px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Global / Local scope picker in the add-server editor. */
+.mcp-editor-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.8rem;
+}
+
+.mcp-editor-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mcp-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 @media (max-width: 1199px) {
   .settings-tabs-layout {
     flex-direction: column;

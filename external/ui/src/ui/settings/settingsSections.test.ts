@@ -73,7 +73,13 @@ test("array sections carry their label field", () => {
   expect(byId.providers.labelField).toBe("name");
   expect(byId.models.kind).toBe("array");
   expect(byId.models.labelField).toBe("model");
-  expect(byId.mcp_servers.labelField).toBe("name");
+});
+
+test("mcp_servers is its own managed tab", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.mcp_servers.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {

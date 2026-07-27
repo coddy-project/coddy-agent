@@ -149,20 +149,32 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. See
+`docs/mcp-integration.md`.
 
 ## `tools`
 

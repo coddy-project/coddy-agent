@@ -272,10 +272,11 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
             "enum": [
               "stdio",
-              "http"
+              "http",
+              "sse"
             ]
           },
           "name": {
@@ -339,6 +340,17 @@
                   "description": "HTTP header value."
                 }
               }
+            }
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
             }
           }
         }

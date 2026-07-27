@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -118,6 +119,40 @@ func TestToolKind(t *testing.T) {
 		if g := toolKind(tc.name); g != tc.want {
 			t.Errorf("toolKind(%q) = %q, want %q", tc.name, g, tc.want)
 		}
+	}
+}
+
+func TestMCPToolDefinitionsFilter(t *testing.T) {
+	clients := []*mcp.Client{
+		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
+		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+	}
+	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
+		return server != "srv" || tool != "write"
+	})
+	names := make([]string, 0, len(defs))
+	for _, d := range defs {
+		names = append(names, d.Name)
+	}
+	want := []string{"srv__echo", "other__echo"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("defs = %v, want %v", names, want)
+	}
+}
+
+func TestCallMCPToolDisabledGuard(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_mcp_guard",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		MCPClients: []*mcp.Client{mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}})},
+		MCPFilterFactory: func() func(server, tool string) bool {
+			return func(server, tool string) bool { return false }
+		},
+	}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
+		t.Fatal("disabled MCP tool must be rejected at dispatch")
 	}
 }
 

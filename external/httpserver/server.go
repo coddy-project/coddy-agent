@@ -47,6 +47,11 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
+	// mcpProbeCache holds probed MCP tool inventories for /coddy/mcp (keyed
+	// by server name, invalidated on config fingerprint change or edit).
+	mcpProbeMu    sync.Mutex
+	mcpProbeCache map[string]mcpProbeEntry
+
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 

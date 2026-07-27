@@ -227,7 +227,7 @@ func UISchemaMap() map[string]interface{} {
 		"value": strProp("Header value", "HTTP header value."),
 	}
 	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http connects to a remote MCP endpoint."),
+		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
 		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
 		"args": map[string]interface{}{
@@ -258,6 +258,13 @@ func UISchemaMap() map[string]interface{} {
 				"required":             []interface{}{"name", "value"},
 				"additionalProperties": false,
 			},
+		},
+		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
+		"disabled_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disabled tools",
+			"description": "Tool names of this server hidden from the agent.",
+			"items":       map[string]interface{}{"type": "string"},
 		},
 	}
 
@@ -383,7 +390,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",

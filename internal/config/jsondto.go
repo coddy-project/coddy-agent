@@ -118,13 +118,15 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type    string           `json:"type,omitempty"`
-	Name    string           `json:"name"`
-	Command string           `json:"command,omitempty"`
-	Args    []string         `json:"args,omitempty"`
-	Env     []EnvVarJSON     `json:"env,omitempty"`
-	URL     string           `json:"url,omitempty"`
-	Headers []HTTPHeaderJSON `json:"headers,omitempty"`
+	Type          string           `json:"type,omitempty"`
+	Name          string           `json:"name"`
+	Command       string           `json:"command,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	Env           []EnvVarJSON     `json:"env,omitempty"`
+	URL           string           `json:"url,omitempty"`
+	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	DisabledTools []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -253,7 +255,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AutoDiscovery: cloneBoolPtr(c.Skills.AutoDiscovery),
 	}
 	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mj := MCPServerJSON{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
 		}
@@ -357,7 +364,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AutoDiscovery: cloneBoolPtr(j.Skills.AutoDiscovery),
 	}
 	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mc := MCPServerConfig{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
 		}
