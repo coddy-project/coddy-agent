@@ -1,9 +1,10 @@
 Feature: Shell commands carry special characters verbatim
-  run_command hands a command to the host shell without the shell re-parsing it as a quoted
-  string, so an agent can pass backticks, quotes, asterisks, parentheses and non-ASCII text
-  straight through. On Windows the command reaches PowerShell as a script file rather than a
-  -Command argument, which is what used to fail with a ParserError; on Linux and macOS the
-  POSIX shell is invoked exactly as before. Commands that fail are still reported as failed.
+  run_command embeds the command text untouched - nothing is escaped, quoted, or stripped -
+  so backticks, quotes, asterisks, parentheses and non-ASCII text keep the meaning the host
+  shell would give them at a prompt. On Windows the command is wrapped in a prologue that
+  switches the output encoding to UTF-8, so results no longer come back in the console OEM
+  code page, and an epilogue that reports the command's own exit code instead of collapsing
+  every failure to 1. On Linux and macOS the POSIX shell is invoked exactly as before.
 
   Scenario: A command printing shell special characters returns them verbatim
     Given the host shell detected by the agent
