@@ -52,7 +52,10 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 func shellDescription(commandShell platform.Shell) string {
 	switch commandShell.Kind {
 	case platform.ShellPwsh, platform.ShellPowerShell:
-		return "Execute a PowerShell command in the working directory. Use native commands such as Get-ChildItem, Select-String, and Get-Process. Returns combined stdout and stderr output."
+		return "Execute a PowerShell command in the working directory. Use native commands such as Get-ChildItem, Select-String, and Get-Process. " +
+			"Multi-line commands are supported. To pass text literally, single-quote it ('...') or use a here-string (@'...'@): inside double quotes PowerShell treats the backtick as an escape character, " +
+			"so a value containing backticks, or Markdown such as `code` or **bold**, is altered or fails to parse. Bash heredocs (<< 'EOF') are not PowerShell syntax; write the text to a file and pass the path instead. " +
+			"Returns combined stdout and stderr output."
 	case platform.ShellCmd:
 		return "Execute a cmd.exe command in the working directory. Use Windows commands such as dir, findstr, and tasklist. Returns combined stdout and stderr output."
 	case platform.ShellBash:
@@ -94,10 +97,10 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("command timed out after %d seconds", timeout)
 		}
-		return fmt.Sprintf("command failed: %v\n%s", err, out.String()), nil
+		return fmt.Sprintf("command failed: %v\n%s", err, platform.DecodeOutput(out.Bytes())), nil
 	}
 
-	result := out.String()
+	result := platform.DecodeOutput(out.Bytes())
 	if result == "" {
 		return "(no output)", nil
 	}

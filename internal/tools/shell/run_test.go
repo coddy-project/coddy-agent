@@ -15,7 +15,10 @@ func TestRunCommandToolDescriptionMatchesShell(t *testing.T) {
 		shell platform.Shell
 		want  []string
 	}{
-		{platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"}, []string{"PowerShell", "Get-ChildItem", "Select-String", "Get-Process"}},
+		// The PowerShell description also has to tell the model how to pass literal
+		// text: emitting a backtick inside double quotes is what made run_command
+		// fail in practice.
+		{platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"}, []string{"PowerShell", "Get-ChildItem", "Select-String", "Get-Process", "here-string", "@'...'@", "backtick", "heredoc"}},
 		{platform.Shell{Kind: platform.ShellCmd, Path: "cmd.exe"}, []string{"cmd.exe", "findstr", "tasklist"}},
 		{platform.Shell{Kind: platform.ShellBash, Path: "/bin/bash"}, []string{"bash", "POSIX"}},
 	}
