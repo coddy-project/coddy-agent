@@ -201,21 +201,11 @@ func ValidateServerName(name string) error {
 	return nil
 }
 
-// Probe connects to a stdio MCP server, fetches its tool list, and closes the
-// connection. It is used by the management API to show tools without a session.
+// Probe connects to an MCP server over its configured transport, fetches its
+// tool list, and closes the connection. It is used by the management API to
+// show tools without a session.
 func Probe(ctx context.Context, srv config.MCPServerConfig, cwd string, log *slog.Logger) ([]ToolInfo, error) {
-	if srv.Type != "" && srv.Type != "stdio" {
-		return nil, fmt.Errorf("unsupported MCP transport: %s", srv.Type)
-	}
-	args := make([]string, len(srv.Args))
-	for i, a := range srv.Args {
-		args[i] = config.ExpandCWD(a, cwd)
-	}
-	env := make([]string, len(srv.Env))
-	for i, e := range srv.Env {
-		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
-	}
-	client, err := NewStdioClient(ctx, srv.Name, srv.Command, args, env, log)
+	client, err := Connect(ctx, srv, cwd, log)
 	if err != nil {
 		return nil, err
 	}

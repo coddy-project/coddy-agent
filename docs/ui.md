@@ -410,7 +410,7 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   tooltip naming the owning file), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
-  error), disabled (gray), unsupported transport (amber).
+  error), disabled (gray), unknown transport type (amber, `unsupported`).
 - Server switch toggles `POST /coddy/mcp/{name}/enable|disable`; the change
   persists into the file that defines the server.
 - Expanding a row lists tools with per-tool switches

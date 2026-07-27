@@ -4,8 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -130,13 +136,6 @@ func TestProbeListsTools(t *testing.T) {
 	}
 	if len(tools) != 2 {
 		t.Fatalf("tools = %+v, want 2", tools)
-	}
-}
-
-func TestProbeRejectsNonStdio(t *testing.T) {
-	srv := config.MCPServerConfig{Name: "remote", Type: "http", URL: "https://example.com"}
-	if _, err := Probe(testCtx(t), srv, t.TempDir(), slog.Default()); err == nil {
-		t.Fatal("http transport must be rejected")
 	}
 }
 
@@ -376,5 +375,279 @@ func TestValidateServerName(t *testing.T) {
 		if err := ValidateServerName(bad); err == nil {
 			t.Errorf("ValidateServerName(%q) = nil, want error", bad)
 		}
+	}
+}
+
+// ---- remote transports (streamable HTTP and legacy SSE) ----
+
+// fakeStreamableHandler implements a minimal MCP streamable HTTP server: one
+// POST endpoint accepting JSON-RPC, answering initialize/tools/list/tools/call
+// with application/json bodies (or an SSE body when sseResults is set),
+// issuing an Mcp-Session-Id on initialize and requiring it afterwards.
+type fakeStreamableHandler struct {
+	sseResults bool
+	calls      atomic.Int64
+}
+
+func (h *fakeStreamableHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
+	var req struct {
+		ID     interface{}     `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	if req.ID == nil { // notification
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if req.Method != "initialize" && r.Header.Get("Mcp-Session-Id") != "sess-123" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+	respond := func(result interface{}) {
+		msg, _ := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": req.ID, "result": result})
+		if h.sseResults {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(msg)
+	}
+	switch req.Method {
+	case "initialize":
+		w.Header().Set("Mcp-Session-Id", "sess-123")
+		respond(map[string]interface{}{
+			"protocolVersion": "2025-03-26",
+			"capabilities":    map[string]interface{}{},
+			"serverInfo":      map[string]interface{}{"name": "fake-streamable", "version": "0.0.1"},
+		})
+	case "tools/list":
+		respond(map[string]interface{}{"tools": []map[string]interface{}{{
+			"name":        "remote_echo",
+			"description": "Echo over streamable http",
+			"inputSchema": map[string]interface{}{"type": "object"},
+		}}})
+	case "tools/call":
+		h.calls.Add(1)
+		var params struct {
+			Arguments map[string]string `json:"arguments"`
+		}
+		_ = json.Unmarshal(req.Params, &params)
+		respond(map[string]interface{}{
+			"content": []map[string]interface{}{{"type": "text", "text": "remote:" + params.Arguments["text"]}},
+		})
+	default:
+		respond(nil)
+	}
+}
+
+func TestStreamableHTTPClient(t *testing.T) {
+	h := &fakeStreamableHandler{}
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, map[string]string{"X-Auth": "tok"}, slog.Default())
+	if err != nil {
+		t.Fatalf("NewHTTPClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	tools := client.Tools()
+	if len(tools) != 1 || tools[0].Name != "remote_echo" {
+		t.Fatalf("tools = %+v, want remote_echo", tools)
+	}
+	got, err := client.CallTool(testCtx(t), "remote_echo", `{"text":"hi"}`)
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if got != "remote:hi" {
+		t.Fatalf("result = %q, want remote:hi", got)
+	}
+	if h.calls.Load() != 1 {
+		t.Fatalf("server saw %d tool calls, want 1", h.calls.Load())
+	}
+}
+
+func TestStreamableHTTPClientSSEResponses(t *testing.T) {
+	ts := httptest.NewServer(&fakeStreamableHandler{sseResults: true})
+	defer ts.Close()
+
+	client, err := NewHTTPClient(testCtx(t), "remote", ts.URL, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("NewHTTPClient (sse bodies): %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	got, err := client.CallTool(testCtx(t), "remote_echo", `{"text":"sse"}`)
+	if err != nil || got != "remote:sse" {
+		t.Fatalf("CallTool = %q, %v; want remote:sse", got, err)
+	}
+}
+
+// fakeLegacySSEServer implements the 2024-11-05 HTTP+SSE transport: GET opens
+// an event stream that first announces the POST endpoint, then carries every
+// JSON-RPC response; POSTs to the endpoint return 202.
+func newFakeLegacySSEServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	type sseSession struct{ out chan []byte }
+	sessions := struct {
+		sync.Mutex
+		m map[string]*sseSession
+	}{m: map[string]*sseSession{}}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /sse", func(w http.ResponseWriter, r *http.Request) {
+		fl, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("no flusher")
+			return
+		}
+		sess := &sseSession{out: make(chan []byte, 16)}
+		sessions.Lock()
+		sessions.m["s1"] = sess
+		sessions.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: endpoint\ndata: /messages?session=s1\n\n")
+		fl.Flush()
+		for {
+			select {
+			case msg := <-sess.out:
+				_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg)
+				fl.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+	mux.HandleFunc("POST /messages", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req struct {
+			ID     interface{}     `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(body, &req)
+		w.WriteHeader(http.StatusAccepted)
+		if req.ID == nil {
+			return
+		}
+		sessions.Lock()
+		sess := sessions.m["s1"]
+		sessions.Unlock()
+		respond := func(result interface{}) {
+			msg, _ := json.Marshal(map[string]interface{}{"jsonrpc": "2.0", "id": req.ID, "result": result})
+			sess.out <- msg
+		}
+		switch req.Method {
+		case "initialize":
+			respond(map[string]interface{}{
+				"protocolVersion": "2024-11-05",
+				"capabilities":    map[string]interface{}{},
+				"serverInfo":      map[string]interface{}{"name": "fake-sse", "version": "0.0.1"},
+			})
+		case "tools/list":
+			respond(map[string]interface{}{"tools": []map[string]interface{}{{
+				"name":        "sse_echo",
+				"description": "Echo over legacy SSE",
+				"inputSchema": map[string]interface{}{"type": "object"},
+			}}})
+		case "tools/call":
+			var params struct {
+				Arguments map[string]string `json:"arguments"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			respond(map[string]interface{}{
+				"content": []map[string]interface{}{{"type": "text", "text": "sse:" + params.Arguments["text"]}},
+			})
+		default:
+			respond(nil)
+		}
+	})
+	return httptest.NewServer(mux)
+}
+
+func TestLegacySSEClient(t *testing.T) {
+	ts := newFakeLegacySSEServer(t)
+	defer ts.Close()
+
+	client, err := NewSSEClient(testCtx(t), "legacy", ts.URL+"/sse", nil, slog.Default())
+	if err != nil {
+		t.Fatalf("NewSSEClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	tools := client.Tools()
+	if len(tools) != 1 || tools[0].Name != "sse_echo" {
+		t.Fatalf("tools = %+v, want sse_echo", tools)
+	}
+	got, err := client.CallTool(testCtx(t), "sse_echo", `{"text":"x"}`)
+	if err != nil || got != "sse:x" {
+		t.Fatalf("CallTool = %q, %v; want sse:x", got, err)
+	}
+}
+
+func TestHTTPClientFallsBackToSSE(t *testing.T) {
+	// A server that only speaks the legacy protocol: POST to the SSE URL is
+	// rejected, so the streamable attempt fails and the client retries as SSE.
+	ts := newFakeLegacySSEServer(t)
+	defer ts.Close()
+
+	client, err := NewHTTPClient(testCtx(t), "legacy", ts.URL+"/sse", nil, slog.Default())
+	if err != nil {
+		t.Fatalf("NewHTTPClient with legacy server: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+	if tools := client.Tools(); len(tools) != 1 || tools[0].Name != "sse_echo" {
+		t.Fatalf("tools = %+v, want sse_echo via fallback", tools)
+	}
+}
+
+func TestConnectDispatchesByType(t *testing.T) {
+	streamable := httptest.NewServer(&fakeStreamableHandler{})
+	defer streamable.Close()
+
+	// stdio (default type) still works through Connect.
+	stdioClient, err := Connect(testCtx(t), fakeServerConfig("fake"), t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("Connect stdio: %v", err)
+	}
+	defer func() { _ = stdioClient.Close() }()
+	if len(stdioClient.Tools()) != 2 {
+		t.Fatalf("stdio tools = %+v", stdioClient.Tools())
+	}
+
+	httpClient, err := Connect(testCtx(t), config.MCPServerConfig{
+		Name: "remote", Type: "http", URL: streamable.URL,
+		Headers: []config.HTTPHeaderConfig{{Name: "X-Auth", Value: "tok"}},
+	}, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("Connect http: %v", err)
+	}
+	defer func() { _ = httpClient.Close() }()
+	if len(httpClient.Tools()) != 1 {
+		t.Fatalf("http tools = %+v", httpClient.Tools())
+	}
+
+	if _, err := Connect(testCtx(t), config.MCPServerConfig{Name: "x", Type: "websocket"}, t.TempDir(), slog.Default()); err == nil {
+		t.Fatal("unknown transport must error")
+	}
+}
+
+func TestProbeRemoteTransport(t *testing.T) {
+	ts := httptest.NewServer(&fakeStreamableHandler{})
+	defer ts.Close()
+	tools, err := Probe(testCtx(t), config.MCPServerConfig{Name: "remote", Type: "http", URL: ts.URL}, t.TempDir(), slog.Default())
+	if err != nil {
+		t.Fatalf("Probe http: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "remote_echo" {
+		t.Fatalf("tools = %+v", tools)
 	}
 }

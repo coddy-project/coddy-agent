@@ -272,10 +272,11 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
             "enum": [
               "stdio",
-              "http"
+              "http",
+              "sse"
             ]
           },
           "name": {

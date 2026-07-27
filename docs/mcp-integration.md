@@ -89,13 +89,45 @@ mcp_servers:
     env: []
 ```
 
-### HTTP (declared, not yet implemented)
+### Streamable HTTP (supported)
 
-`type: http` with `url`/`headers` can be declared in both config levels and in ACP
-`session/new` params, but the connector currently rejects non-stdio transports: the agent
-advertises `mcpCapabilities.http: false`, sessions log a warning and skip such servers, and
-the management API lists them with status `unsupported`. URL-only `.coddy/mcp.json` entries
-are inferred as `http` and handled the same way.
+`type: http` (aliases: `streamable-http`, `streamable_http`) connects to `url` over the
+MCP streamable HTTP transport (2025-03-26 spec): JSON-RPC messages are POSTed to the
+endpoint and answered as `application/json` bodies or `text/event-stream` chunks; the
+`Mcp-Session-Id` issued on initialize is echoed on subsequent requests. `headers` are sent
+with every request (e.g. `Authorization`). URL-only entries (no `command`, no `type`)
+default to `http`. When the endpoint rejects the handshake (legacy servers answer POST
+with 4xx), the client automatically falls back to the legacy SSE transport at the same
+URL, mirroring Cursor and Claude Code behavior. The agent advertises
+`mcpCapabilities.http: true`.
+
+```yaml
+mcp_servers:
+  - name: "remote-tools"
+    type: "http"
+    url: "https://mcp.example.com/mcp"
+    headers:
+      - name: "Authorization"
+        value: "Bearer ${MCP_TOKEN}"
+```
+
+### SSE (supported, legacy)
+
+`type: sse` forces the 2024-11-05 HTTP+SSE transport: a GET stream at `url` announces the
+POST endpoint in its first event and then carries every server-to-client message. Use it
+for servers that only implement the older protocol; `type: http` reaches them too via the
+automatic fallback.
+
+In `.coddy/mcp.json` the same entries look like Cursor's:
+
+```json
+{
+  "mcpServers": {
+    "remote-tools": { "url": "https://mcp.example.com/mcp" },
+    "legacy-tools": { "type": "sse", "url": "https://old.example.com/sse" }
+  }
+}
+```
 
 ## Tool Namespacing
 

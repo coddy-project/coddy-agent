@@ -1,5 +1,6 @@
 // Package mcp implements an MCP (Model Context Protocol) client.
-// It connects to MCP servers via stdio transport and exposes their tools.
+// It connects to MCP servers over stdio, streamable HTTP, or legacy SSE
+// transports and exposes their tools.
 package mcp
 
 import (
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -25,49 +27,38 @@ type ToolInfo struct {
 	InputSchema interface{}
 }
 
+// transport delivers JSON-RPC messages to and from an MCP server. Send ships
+// one client->server message; Messages streams server->client messages.
+type transport interface {
+	Send(ctx context.Context, data []byte) error
+	Messages() <-chan []byte
+	Close() error
+}
+
 // Client connects to a single MCP server and exposes its tools.
 type Client struct {
-	name   string
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Reader
-	log    *slog.Logger
+	name string
+	tr   transport
+	log  *slog.Logger
 
 	nextID  atomic.Int64
 	pending map[interface{}]chan json.RawMessage
 	mu      sync.Mutex
 
 	tools []ToolInfo
-	ready chan struct{}
+	done  chan struct{}
 }
 
-// NewStdioClient starts an MCP server subprocess and connects to it.
-func NewStdioClient(ctx context.Context, name, command string, args []string, env []string, log *slog.Logger) (*Client, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.Env = append(os.Environ(), env...)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("mcp %s: stdin pipe: %w", name, err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("mcp %s: stdout pipe: %w", name, err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("mcp %s: start: %w", name, err)
-	}
-
+// newClientWithTransport wraps a started transport, performs the MCP
+// handshake, and caches the server's tool list. The transport is closed on
+// handshake failure.
+func newClientWithTransport(ctx context.Context, name string, tr transport, log *slog.Logger) (*Client, error) {
 	c := &Client{
 		name:    name,
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  bufio.NewReader(stdout),
+		tr:      tr,
 		log:     log,
 		pending: make(map[interface{}]chan json.RawMessage),
-		ready:   make(chan struct{}),
+		done:    make(chan struct{}),
 	}
 
 	go c.readLoop()
@@ -85,14 +76,24 @@ func NewStdioClient(ctx context.Context, name, command string, args []string, en
 	return c, nil
 }
 
+// NewStdioClient starts an MCP server subprocess and connects to it.
+func NewStdioClient(ctx context.Context, name, command string, args []string, env []string, log *slog.Logger) (*Client, error) {
+	tr, err := newStdioTransport(ctx, name, command, args, env, log)
+	if err != nil {
+		return nil, err
+	}
+	return newClientWithTransport(ctx, name, tr, log)
+}
+
 // NewStaticClient returns a Client carrying only a name and a fixed tool
-// list, without a subprocess. Used by tests and stubs; CallTool fails.
+// list, without a connection. Used by tests and stubs; CallTool fails.
 func NewStaticClient(name string, tools []ToolInfo) *Client {
 	return &Client{
 		name:    name,
 		tools:   tools,
 		log:     slog.Default(),
 		pending: make(map[interface{}]chan json.RawMessage),
+		done:    make(chan struct{}),
 	}
 }
 
@@ -141,14 +142,7 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 			parts = append(parts, c.Text)
 		}
 	}
-
-	text := ""
-	for i, p := range parts {
-		if i > 0 {
-			text += "\n"
-		}
-		text += p
-	}
+	text := strings.Join(parts, "\n")
 
 	if resp.IsError {
 		return "", fmt.Errorf("mcp tool error: %s", text)
@@ -156,13 +150,15 @@ func (c *Client) CallTool(ctx context.Context, toolName, argsJSON string) (strin
 	return text, nil
 }
 
-// Close stops the MCP server subprocess.
+// Close stops the connection (and the subprocess for stdio transports).
 func (c *Client) Close() error {
-	if c.stdin != nil {
-		_ = c.stdin.Close()
+	select {
+	case <-c.done:
+	default:
+		close(c.done)
 	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		return c.cmd.Process.Kill()
+	if c.tr != nil {
+		return c.tr.Close()
 	}
 	return nil
 }
@@ -182,7 +178,7 @@ func (c *Client) initialize(ctx context.Context) error {
 		return err
 	}
 	// Send initialized notification.
-	return c.notify("notifications/initialized", nil)
+	return c.notify(ctx, "notifications/initialized", nil)
 }
 
 func (c *Client) listTools(ctx context.Context) error {
@@ -236,7 +232,7 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 		msg["params"] = params
 	}
 
-	if err := c.send(msg); err != nil {
+	if err := c.send(ctx, msg); err != nil {
 		return nil, err
 	}
 
@@ -248,7 +244,7 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 	}
 }
 
-func (c *Client) notify(method string, params interface{}) error {
+func (c *Client) notify(ctx context.Context, method string, params interface{}) error {
 	msg := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -256,71 +252,148 @@ func (c *Client) notify(method string, params interface{}) error {
 	if params != nil {
 		msg["params"] = params
 	}
-	return c.send(msg)
+	return c.send(ctx, msg)
 }
 
-func (c *Client) send(v interface{}) error {
-	if c.stdin == nil {
+func (c *Client) send(ctx context.Context, v interface{}) error {
+	if c.tr == nil {
 		return fmt.Errorf("mcp %s: no transport (static client)", c.name)
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	_, err = c.stdin.Write(data)
-	return err
+	return c.tr.Send(ctx, data)
 }
 
 func (c *Client) readLoop() {
+	msgs := c.messagesOrNil()
+	if msgs == nil {
+		return
+	}
 	for {
-		line, err := c.stdout.ReadBytes('\n')
-		if err != nil {
-			if err != io.EOF {
-				c.log.Error("mcp read error", "server", c.name, "error", err)
+		select {
+		case data, ok := <-msgs:
+			if !ok {
+				return
 			}
+			c.dispatch(data)
+		case <-c.done:
 			return
 		}
-
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(line, &raw); err != nil {
-			c.log.Warn("mcp invalid json", "server", c.name, "data", string(line))
-			continue
-		}
-
-		// It's a response if it has an id and result/error.
-		idRaw, hasID := raw["id"]
-		_, hasResult := raw["result"]
-		_, hasError := raw["error"]
-
-		if hasID && (hasResult || hasError) {
-			var id interface{}
-			if err := json.Unmarshal(idRaw, &id); err != nil {
-				continue
-			}
-
-			c.mu.Lock()
-			ch, ok := c.pending[id]
-			c.mu.Unlock()
-
-			if !ok {
-				continue
-			}
-
-			if hasResult {
-				ch <- raw["result"]
-			} else {
-				// On error, send empty result.
-				ch <- json.RawMessage(`null`)
-			}
-		}
-		// Ignore notifications from MCP servers for now.
 	}
+}
+
+func (c *Client) messagesOrNil() <-chan []byte {
+	if c.tr == nil {
+		return nil
+	}
+	return c.tr.Messages()
+}
+
+// dispatch routes one server->client JSON-RPC message to its pending call.
+func (c *Client) dispatch(data []byte) {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 {
+		return
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		c.log.Warn("mcp invalid json", "server", c.name, "data", string(data))
+		return
+	}
+
+	// It's a response if it has an id and result/error.
+	idRaw, hasID := raw["id"]
+	_, hasResult := raw["result"]
+	_, hasError := raw["error"]
+
+	if !hasID || (!hasResult && !hasError) {
+		// Ignore notifications from MCP servers for now.
+		return
+	}
+
+	var id interface{}
+	if err := json.Unmarshal(idRaw, &id); err != nil {
+		return
+	}
+
+	c.mu.Lock()
+	ch, ok := c.pending[id]
+	c.mu.Unlock()
+
+	if !ok {
+		return
+	}
+
+	if hasResult {
+		ch <- raw["result"]
+	} else {
+		// On error, send empty result.
+		ch <- json.RawMessage(`null`)
+	}
+}
+
+// ---- stdio transport ----
+
+// stdioTransport speaks newline-delimited JSON-RPC with a subprocess.
+type stdioTransport struct {
+	cmd   *exec.Cmd
+	stdin io.WriteCloser
+	msgs  chan []byte
+}
+
+func newStdioTransport(ctx context.Context, name, command string, args []string, env []string, log *slog.Logger) (*stdioTransport, error) {
+	cmd := exec.CommandContext(ctx, command, args...)
+	cmd.Env = append(os.Environ(), env...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("mcp %s: stdin pipe: %w", name, err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("mcp %s: stdout pipe: %w", name, err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("mcp %s: start: %w", name, err)
+	}
+
+	t := &stdioTransport{cmd: cmd, stdin: stdin, msgs: make(chan []byte, 16)}
+	go func() {
+		defer close(t.msgs)
+		reader := bufio.NewReader(stdout)
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err != io.EOF {
+					log.Error("mcp read error", "server", name, "error", err)
+				}
+				return
+			}
+			t.msgs <- line
+		}
+	}()
+	return t, nil
+}
+
+func (t *stdioTransport) Send(_ context.Context, data []byte) error {
+	_, err := t.stdin.Write(append(data, '\n'))
+	return err
+}
+
+func (t *stdioTransport) Messages() <-chan []byte { return t.msgs }
+
+func (t *stdioTransport) Close() error {
+	if t.stdin != nil {
+		_ = t.stdin.Close()
+	}
+	if t.cmd != nil && t.cmd.Process != nil {
+		return t.cmd.Process.Kill()
+	}
+	return nil
 }
 
 // ToLLMToolDefinition converts an MCP ToolInfo to an LLM tool definition.

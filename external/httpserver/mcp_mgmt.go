@@ -10,6 +10,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sort"
@@ -118,12 +119,13 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 	rows := make([]mcpServerRow, len(servers))
 	var wg sync.WaitGroup
 	for i, srv := range servers {
+		transport := mcp.EffectiveTransport(srv.Config)
 		row := mcpServerRow{
 			Name:          srv.Config.Name,
 			Source:        srv.Scope,
 			Origin:        srv.Origin,
 			Readonly:      srv.Origin == mcp.OriginConfig,
-			Transport:     "stdio",
+			Transport:     transport,
 			Command:       srv.Config.Command,
 			Args:          srv.Config.Args,
 			URL:           srv.Config.URL,
@@ -137,10 +139,9 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 				row.Env[e.Name] = e.Value
 			}
 		}
-		if srv.Config.Type != "" && srv.Config.Type != "stdio" {
-			row.Transport = srv.Config.Type
+		if !mcp.SupportedTransport(transport) {
 			row.Status = "unsupported"
-			row.Error = "only stdio transport is supported"
+			row.Error = fmt.Sprintf("unsupported MCP transport: %s", transport)
 			rows[i] = row
 			continue
 		}

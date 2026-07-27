@@ -149,7 +149,7 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |

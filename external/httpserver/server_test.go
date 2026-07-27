@@ -2657,8 +2657,8 @@ mcp_servers:
   - name: broken
     command: /nonexistent-mcp-binary
   - name: remote
-    type: http
-    url: https://example.com/sse
+    type: websocket
+    url: https://example.com/ws
 `
 	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
 		t.Fatal(err)

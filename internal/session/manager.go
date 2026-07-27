@@ -130,7 +130,7 @@ func (m *Manager) HandleInitialize(_ context.Context, params acp.InitializeParam
 			EmbeddedContext: true,
 		},
 		MCPCapabilities: &acp.MCPCapabilities{
-			HTTP: false,
+			HTTP: true,
 		},
 	}
 	if m.store != nil {
@@ -253,16 +253,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	m.connectConfiguredMCPServers(ctx, state)
 
 	for _, srv := range mcpServers {
-		cfgSrv := config.MCPServerConfig{
-			Type:    srv.Type,
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			URL:     srv.URL,
-		}
-		for _, e := range srv.Env {
-			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
-		}
+		cfgSrv := acpMCPServerToConfig(srv)
 		if err := m.connectMCPServer(ctx, state, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
@@ -332,16 +323,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.connectConfiguredMCPServers(ctx, st)
 
 	for _, srv := range params.MCPServers {
-		cfgSrv := config.MCPServerConfig{
-			Type:    srv.Type,
-			Name:    srv.Name,
-			Command: srv.Command,
-			Args:    srv.Args,
-			URL:     srv.URL,
-		}
-		for _, e := range srv.Env {
-			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
-		}
+		cfgSrv := acpMCPServerToConfig(srv)
 		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
@@ -744,28 +726,33 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 	}
 }
 
+// acpMCPServerToConfig converts an ACP client-supplied MCP server definition
+// to the config shape used by the connector (all transports, incl. headers).
+func acpMCPServerToConfig(srv acp.MCPServer) config.MCPServerConfig {
+	out := config.MCPServerConfig{
+		Type:    srv.Type,
+		Name:    srv.Name,
+		Command: srv.Command,
+		Args:    srv.Args,
+		URL:     srv.URL,
+	}
+	for _, e := range srv.Env {
+		out.Env = append(out.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
+	}
+	for _, h := range srv.Headers {
+		out.Headers = append(out.Headers, config.HTTPHeaderConfig{Name: h.Name, Value: h.Value})
+	}
+	return out
+}
+
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
-	if srv.Type != "" && srv.Type != "stdio" {
-		return fmt.Errorf("unsupported MCP transport: %s", srv.Type)
-	}
-
-	cwd := state.GetCWD()
-	args := make([]string, len(srv.Args))
-	for i, a := range srv.Args {
-		args[i] = config.ExpandCWD(a, cwd)
-	}
-	env := make([]string, len(srv.Env))
-	for i, e := range srv.Env {
-		env[i] = e.Name + "=" + config.ExpandCWD(e.Value, cwd)
-	}
-
-	client, err := mcp.NewStdioClient(ctx, srv.Name, srv.Command, args, env, m.log)
+	client, err := mcp.Connect(ctx, srv, state.GetCWD(), m.log)
 	if err != nil {
 		return err
 	}
 
 	state.MCPClients = append(state.MCPClients, client)
-	m.log.Info("connected MCP server", "name", srv.Name, "tools", len(client.Tools()))
+	m.log.Info("connected MCP server", "name", srv.Name, "transport", srv.Type, "tools", len(client.Tools()))
 	return nil
 }
 
