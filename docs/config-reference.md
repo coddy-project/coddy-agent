@@ -167,11 +167,14 @@ mcp_servers:
     disabled_tools: ["write_file"]
 ```
 
-Project-local servers can also be declared in `<workspace>/.coddy/mcp.json`, a
-Cursor-compatible file with a single `mcpServers` object keyed by server name
-(`env` and `headers` are JSON objects; per-tool switches use `disabledTools`).
-Project entries override same-named `mcp_servers` entries for sessions in that
-workspace. See `docs/mcp-integration.md`.
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. See
+`docs/mcp-integration.md`.
 
 ## `tools`
 

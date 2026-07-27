@@ -19,9 +19,16 @@ export type MCPToolRow = {
   enabled: boolean;
 };
 
+export type MCPScope = "global" | "local";
+
 export type MCPServerRow = {
   name: string;
-  source: "config" | "project";
+  /** Scope: global (config.yaml or ~/.coddy/mcp.json) or local (./.coddy/mcp.json). */
+  source: MCPScope;
+  /** Owning file: config (config.yaml), home (~/.coddy/mcp.json), project (./.coddy/mcp.json). */
+  origin: "config" | "home" | "project";
+  /** True for config.yaml entries: toggle-only here, edited in the config sections. */
+  readonly?: boolean;
   transport: string;
   command?: string;
   args?: string[];
@@ -33,6 +40,18 @@ export type MCPServerRow = {
   tools: MCPToolRow[];
   disabled_tools?: string[];
 };
+
+/** Human name of the file that owns a row's definition (badge tooltips). */
+export function originLabel(origin: MCPServerRow["origin"]): string {
+  switch (origin) {
+    case "config":
+      return "config.yaml";
+    case "home":
+      return "~/.coddy/mcp.json";
+    default:
+      return "./.coddy/mcp.json";
+  }
+}
 
 // Prefill for the "Add server" editor, mirroring Cursor's snippet.
 export const MCP_SERVER_TEMPLATE = `{

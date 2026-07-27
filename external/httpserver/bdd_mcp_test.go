@@ -182,10 +182,10 @@ func (s *mcpFeatureState) do(method, path string, body interface{}) error {
 	return nil
 }
 
-// fakeMCPEntry returns a project mcp.json entry re-executing this test binary
-// as the fake MCP server above.
-func fakeMCPEntry() config.ProjectMCPServer {
-	return config.ProjectMCPServer{
+// fakeMCPEntry returns an mcp.json entry re-executing this test binary as
+// the fake MCP server above.
+func fakeMCPEntry() config.MCPJSONServer {
+	return config.MCPJSONServer{
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperMCPServerHTTP"},
 		Env:     map[string]string{"GO_WANT_MCP_HELPER": "1"},
@@ -195,7 +195,11 @@ func fakeMCPEntry() config.ProjectMCPServer {
 // ---- steps ----
 
 func (s *mcpFeatureState) givenProjectServer(name string) error {
-	return config.UpsertProjectMCPServer(s.cwd, name, fakeMCPEntry())
+	return config.UpsertMCPJSONServer(config.MCPJSONPath(s.cwd), name, fakeMCPEntry())
+}
+
+func (s *mcpFeatureState) givenGlobalServer(name string) error {
+	return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(s.home), name, fakeMCPEntry())
 }
 
 func (s *mcpFeatureState) listServers() error {
@@ -343,7 +347,7 @@ func (s *mcpFeatureState) deleteServer(name string) error {
 }
 
 func (s *mcpFeatureState) fileRecordsDisabledTool(tool, server string) error {
-	entries, err := config.ReadProjectMCPFile(s.cwd)
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
 	if err != nil {
 		return err
 	}
@@ -356,7 +360,7 @@ func (s *mcpFeatureState) fileRecordsDisabledTool(tool, server string) error {
 }
 
 func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
-	entries, err := config.ReadProjectMCPFile(s.cwd)
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
 	if err != nil {
 		return err
 	}
@@ -367,7 +371,7 @@ func (s *mcpFeatureState) fileRecordsServerDisabled(server string) error {
 }
 
 func (s *mcpFeatureState) fileContainsServer(server string) error {
-	entries, err := config.ReadProjectMCPFile(s.cwd)
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
 	if err != nil {
 		return err
 	}
@@ -378,7 +382,7 @@ func (s *mcpFeatureState) fileContainsServer(server string) error {
 }
 
 func (s *mcpFeatureState) fileDoesNotContainServer(server string) error {
-	entries, err := config.ReadProjectMCPFile(s.cwd)
+	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
 	if err != nil {
 		return err
 	}
@@ -400,6 +404,7 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 
 	sc.Step(`^a running coddy HTTP server$`, s.startServer)
 	sc.Step(`^a project mcp\.json defining the stdio server "([^"]*)"$`, s.givenProjectServer)
+	sc.Step(`^a global mcp\.json defining the stdio server "([^"]*)"$`, s.givenGlobalServer)
 	sc.Step(`^I list the MCP servers$`, s.listServers)
 	sc.Step(`^I disable the tool "([^"]*)" of MCP server "([^"]*)"$`, s.disableTool)
 	sc.Step(`^I disable the MCP server "([^"]*)"$`, s.disableServer)

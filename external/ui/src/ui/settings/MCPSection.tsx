@@ -3,9 +3,11 @@ import { IconTrash } from "./SchemaForm";
 import { Switch } from "./Switch";
 import {
   MCP_SERVER_TEMPLATE,
+  originLabel,
   parseServerEntryJson,
   serverRowToEntryJson,
   validateMCPServerName,
+  type MCPScope,
   type MCPServerRow,
 } from "./mcpServerJson";
 
@@ -96,7 +98,7 @@ function statusTitle(row: MCPServerRow): string {
 }
 
 /** Editor state: null = closed; name empty = adding a new server. */
-type EditorState = { name: string; text: string; isNew: boolean };
+type EditorState = { name: string; text: string; isNew: boolean; scope: MCPScope };
 
 /**
  * MCPSection is the Settings -> MCP servers tab: the merged config.yaml +
@@ -170,12 +172,19 @@ export function MCPSection() {
 
   const openAdd = () => {
     setEditorError(null);
-    setEditor({ name: "", text: MCP_SERVER_TEMPLATE, isNew: true });
+    setEditor({ name: "", text: MCP_SERVER_TEMPLATE, isNew: true, scope: "local" });
   };
 
   const openEdit = (row: MCPServerRow) => {
     setEditorError(null);
-    setEditor({ name: row.name, text: serverRowToEntryJson(row), isNew: false });
+    // Editing writes back to the file that owns the row: origin home lives in
+    // the global ~/.coddy/mcp.json, project in the local ./.coddy/mcp.json.
+    setEditor({
+      name: row.name,
+      text: serverRowToEntryJson(row),
+      isNew: false,
+      scope: row.origin === "home" ? "global" : "local",
+    });
   };
 
   const onEditorSave = () => {
@@ -193,7 +202,11 @@ export function MCPSection() {
     setEditorBusy(true);
     setEditorError(null);
     void (async () => {
-      const res = await apiSend(`/coddy/mcp/${encodeURIComponent(editor.name.trim())}`, "PUT", entry);
+      const res = await apiSend(
+        `/coddy/mcp/${encodeURIComponent(editor.name.trim())}?scope=${editor.scope}`,
+        "PUT",
+        entry,
+      );
       if (!res.ok) {
         setEditorError(res.error || "Failed to save server");
       } else {
@@ -209,8 +222,9 @@ export function MCPSection() {
       <fieldset className="settings-fieldset mcp-servers-box">
         <legend>MCP servers</legend>
         <p className="settings-field-desc">
-          Model Context Protocol servers from <code>config.yaml</code> (<code>mcp_servers</code>) merged
-          with the project-local <code>.coddy/mcp.json</code> (Cursor-compatible; project entries
+          Model Context Protocol servers from three levels: <code>config.yaml</code>{" "}
+          (<code>mcp_servers</code>) and the global <code>~/.coddy/mcp.json</code>, merged with the
+          local <code>./.coddy/mcp.json</code> of the project (Cursor-compatible; later levels
           override by name). Switch off a whole server or individual tools — toggles persist into
           the file that defines the server and reach running sessions on their next turn.
         </p>
@@ -263,7 +277,7 @@ export function MCPSection() {
           <ul className="mcp-list" data-testid="mcp-list">
             {servers.map((row) => {
               const isOpen = !!expanded[row.name];
-              const isProject = row.source === "project";
+              const editable = !row.readonly;
               return (
                 <li key={row.name} className={`mcp-list-item${row.enabled ? "" : " is-disabled"}`}>
                   <div className="mcp-list-item-head">
@@ -287,9 +301,10 @@ export function MCPSection() {
                     <div className="mcp-list-item-text">
                       <div className="skills-list-item-name">
                         {row.name}
-                        <span className="skills-list-item-badge" title={
-                          isProject ? "Defined in .coddy/mcp.json" : "Defined in config.yaml"
-                        }>
+                        <span
+                          className="skills-list-item-badge"
+                          title={`Defined in ${originLabel(row.origin)}`}
+                        >
                           {row.source}
                         </span>
                         {row.transport !== "stdio" ? (
@@ -317,9 +332,13 @@ export function MCPSection() {
                     <button
                       type="button"
                       className="settings-btn settings-btn-icon"
-                      disabled={!isProject}
+                      disabled={!editable}
                       onClick={() => openEdit(row)}
-                      title={isProject ? "Edit entry (.coddy/mcp.json)" : "Defined in config.yaml — edit there"}
+                      title={
+                        editable
+                          ? `Edit entry (${originLabel(row.origin)})`
+                          : "Defined in config.yaml — edit it in the config sections"
+                      }
                       aria-label={`Edit ${row.name}`}
                       data-testid={`mcp-edit-${row.name}`}
                     >
@@ -328,9 +347,13 @@ export function MCPSection() {
                     <button
                       type="button"
                       className="settings-btn settings-btn-icon settings-btn-danger"
-                      disabled={!isProject || !!busy[row.name]}
+                      disabled={!editable || !!busy[row.name]}
                       onClick={() => onDelete(row)}
-                      title={isProject ? "Delete from .coddy/mcp.json" : "Defined in config.yaml — cannot delete here"}
+                      title={
+                        editable
+                          ? `Delete from ${originLabel(row.origin)}`
+                          : "Defined in config.yaml — cannot delete here"
+                      }
                       aria-label={`Delete ${row.name}`}
                       data-testid={`mcp-delete-${row.name}`}
                     >
@@ -418,6 +441,34 @@ function MCPEditorCard(props: {
           data-testid="mcp-editor-name"
         />
       ) : null}
+      {editor.isNew ? (
+        <div className="mcp-editor-scope" role="radiogroup" aria-label="Server scope">
+          <label className="mcp-editor-scope-option">
+            <input
+              type="radio"
+              name="mcp-editor-scope"
+              checked={editor.scope === "local"}
+              onChange={() => onChange({ ...editor, scope: "local" })}
+              data-testid="mcp-editor-scope-local"
+            />
+            <span>
+              Local — <code>./.coddy/mcp.json</code>
+            </span>
+          </label>
+          <label className="mcp-editor-scope-option">
+            <input
+              type="radio"
+              name="mcp-editor-scope"
+              checked={editor.scope === "global"}
+              onChange={() => onChange({ ...editor, scope: "global" })}
+              data-testid="mcp-editor-scope-global"
+            />
+            <span>
+              Global — <code>~/.coddy/mcp.json</code>
+            </span>
+          </label>
+        </div>
+      ) : null}
       <textarea
         className="settings-input mcp-editor-json"
         rows={8}
@@ -430,7 +481,8 @@ function MCPEditorCard(props: {
       <p className="settings-field-desc">
         One <code>mcpServers</code> entry in Cursor format: <code>command</code>/<code>args</code>/
         <code>env</code> (object), optional <code>disabled</code> and <code>disabledTools</code>.
-        Saved to <code>.coddy/mcp.json</code>.
+        Saved to{" "}
+        <code>{editor.scope === "global" ? "~/.coddy/mcp.json" : "./.coddy/mcp.json"}</code>.
       </p>
       {error ? <p className="settings-error">{error}</p> : null}
       <div className="mcp-editor-actions">

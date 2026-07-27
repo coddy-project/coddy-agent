@@ -125,9 +125,10 @@ skills:
   # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
   auto_discovery: true
 
-# MCP servers connected for every new session. Project-local servers can also be
-# declared in <workspace>/.coddy/mcp.json (Cursor-compatible "mcpServers" object);
-# project entries override same-named servers from this list.
+# MCP servers connected for every new session (the "global" scope, together with
+# ~/.coddy/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
+# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.coddy/mcp.json
+# (the "local" scope). Later levels override same-named servers from earlier ones.
 # Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server

@@ -33,20 +33,29 @@ mcp_servers:
 	}
 }
 
-func writeProjectMCPFile(t *testing.T, cwd, content string) {
+func TestMCPJSONPaths(t *testing.T) {
+	if got := MCPJSONPath("/proj"); got != filepath.Join("/proj", ".coddy", "mcp.json") {
+		t.Errorf("MCPJSONPath = %q", got)
+	}
+	// home is already the ~/.coddy state dir, so the global file sits directly in it.
+	if got := GlobalMCPJSONPath("/home/u/.coddy"); got != filepath.Join("/home/u/.coddy", "mcp.json") {
+		t.Errorf("GlobalMCPJSONPath = %q", got)
+	}
+}
+
+func writeMCPJSONAt(t *testing.T, path, content string) {
 	t.Helper()
-	dir := filepath.Join(cwd, ".coddy")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestLoadProjectMCPServersCursorFormat(t *testing.T) {
-	cwd := t.TempDir()
-	writeProjectMCPFile(t, cwd, `{
+func TestLoadMCPJSONServersCursorFormat(t *testing.T) {
+	path := MCPJSONPath(t.TempDir())
+	writeMCPJSONAt(t, path, `{
   "mcpServers": {
     "files": {
       "command": "npx",
@@ -64,9 +73,9 @@ func TestLoadProjectMCPServersCursorFormat(t *testing.T) {
   }
 }`)
 
-	servers, err := LoadProjectMCPServers(cwd)
+	servers, err := LoadMCPJSONServers(path)
 	if err != nil {
-		t.Fatalf("LoadProjectMCPServers: %v", err)
+		t.Fatalf("LoadMCPJSONServers: %v", err)
 	}
 	if len(servers) != 3 {
 		t.Fatalf("servers = %d, want 3: %+v", len(servers), servers)
@@ -102,8 +111,8 @@ func TestLoadProjectMCPServersCursorFormat(t *testing.T) {
 	}
 }
 
-func TestLoadProjectMCPServersMissing(t *testing.T) {
-	servers, err := LoadProjectMCPServers(t.TempDir())
+func TestLoadMCPJSONServersMissing(t *testing.T) {
+	servers, err := LoadMCPJSONServers(filepath.Join(t.TempDir(), "mcp.json"))
 	if err != nil {
 		t.Fatalf("missing file must not error, got %v", err)
 	}
@@ -112,47 +121,55 @@ func TestLoadProjectMCPServersMissing(t *testing.T) {
 	}
 }
 
-func TestLoadProjectMCPServersInvalidJSON(t *testing.T) {
-	cwd := t.TempDir()
-	writeProjectMCPFile(t, cwd, `{"mcpServers": {`)
-	if _, err := LoadProjectMCPServers(cwd); err == nil {
+func TestLoadMCPJSONServersInvalidJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	writeMCPJSONAt(t, path, `{"mcpServers": {`)
+	if _, err := LoadMCPJSONServers(path); err == nil {
 		t.Fatal("invalid JSON must return an error")
 	}
 }
 
 func TestMergeMCPServers(t *testing.T) {
-	global := []MCPServerConfig{
-		{Name: "a", Command: "global-a"},
-		{Name: "b", Command: "global-b"},
+	base := []MCPServerConfig{
+		{Name: "a", Command: "base-a"},
+		{Name: "b", Command: "base-b"},
 	}
-	project := []MCPServerConfig{
-		{Name: "b", Command: "project-b", Disabled: true},
-		{Name: "c", Command: "project-c"},
+	overlay := []MCPServerConfig{
+		{Name: "b", Command: "overlay-b", Disabled: true},
+		{Name: "c", Command: "overlay-c"},
 	}
-	merged := MergeMCPServers(global, project)
+	merged := MergeMCPServers(base, overlay)
 	if len(merged) != 3 {
 		t.Fatalf("merged = %d entries, want 3: %+v", len(merged), merged)
 	}
-	// Global order is preserved; project overrides by name; new entries append.
-	if merged[0].Name != "a" || merged[0].Command != "global-a" {
-		t.Errorf("merged[0] = %+v, want global a", merged[0])
+	// Base order is preserved; overlay overrides by name; new entries append.
+	if merged[0].Name != "a" || merged[0].Command != "base-a" {
+		t.Errorf("merged[0] = %+v, want base a", merged[0])
 	}
-	if merged[1].Name != "b" || merged[1].Command != "project-b" || !merged[1].Disabled {
-		t.Errorf("merged[1] = %+v, want project override of b", merged[1])
+	if merged[1].Name != "b" || merged[1].Command != "overlay-b" || !merged[1].Disabled {
+		t.Errorf("merged[1] = %+v, want overlay override of b", merged[1])
 	}
 	if merged[2].Name != "c" {
-		t.Errorf("merged[2] = %+v, want project c", merged[2])
+		t.Errorf("merged[2] = %+v, want overlay c", merged[2])
+	}
+
+	// Chained precedence: config < global json < project json.
+	global := []MCPServerConfig{{Name: "a", Command: "global-a"}}
+	project := []MCPServerConfig{{Name: "a", Command: "project-a"}}
+	chained := MergeMCPServers(MergeMCPServers(base, global), project)
+	if chained[0].Command != "project-a" {
+		t.Errorf("chained[0] = %+v, want project override", chained[0])
 	}
 }
 
-func TestUpsertAndDeleteProjectMCPServer(t *testing.T) {
-	cwd := t.TempDir()
+func TestUpsertAndDeleteMCPJSONServer(t *testing.T) {
+	path := MCPJSONPath(t.TempDir())
 
-	// Upsert into a missing file creates .coddy/mcp.json.
-	if err := UpsertProjectMCPServer(cwd, "demo", ProjectMCPServer{Command: "demo-mcp"}); err != nil {
+	// Upsert into a missing file creates it (including the .coddy dir).
+	if err := UpsertMCPJSONServer(path, "demo", MCPJSONServer{Command: "demo-mcp"}); err != nil {
 		t.Fatalf("upsert new: %v", err)
 	}
-	entries, err := ReadProjectMCPFile(cwd)
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -161,51 +178,52 @@ func TestUpsertAndDeleteProjectMCPServer(t *testing.T) {
 	}
 
 	// Update preserves sibling entries.
-	if err := UpsertProjectMCPServer(cwd, "other", ProjectMCPServer{Command: "other-mcp"}); err != nil {
+	if err := UpsertMCPJSONServer(path, "other", MCPJSONServer{Command: "other-mcp"}); err != nil {
 		t.Fatalf("upsert other: %v", err)
 	}
-	if err := UpsertProjectMCPServer(cwd, "demo", ProjectMCPServer{Command: "demo-mcp", Args: []string{"--x"}}); err != nil {
+	if err := UpsertMCPJSONServer(path, "demo", MCPJSONServer{Command: "demo-mcp", Args: []string{"--x"}}); err != nil {
 		t.Fatalf("upsert update: %v", err)
 	}
-	entries, _ = ReadProjectMCPFile(cwd)
+	entries, _ = ReadMCPJSONFile(path)
 	if len(entries) != 2 || len(entries["demo"].Args) != 1 {
 		t.Fatalf("entries after update = %+v", entries)
 	}
 
-	removed, err := DeleteProjectMCPServer(cwd, "demo")
+	removed, err := DeleteMCPJSONServer(path, "demo")
 	if err != nil || !removed {
 		t.Fatalf("delete: removed=%v err=%v", removed, err)
 	}
-	removed, err = DeleteProjectMCPServer(cwd, "demo")
+	removed, err = DeleteMCPJSONServer(path, "demo")
 	if err != nil || removed {
 		t.Fatalf("second delete: removed=%v err=%v", removed, err)
 	}
-	entries, _ = ReadProjectMCPFile(cwd)
+	entries, _ = ReadMCPJSONFile(path)
 	if len(entries) != 1 {
 		t.Fatalf("entries after delete = %+v, want only other", entries)
 	}
 }
 
-func TestSetProjectMCPServerDisabled(t *testing.T) {
-	cwd := t.TempDir()
-	if err := UpsertProjectMCPServer(cwd, "demo", ProjectMCPServer{Command: "demo-mcp"}); err != nil {
+func TestSetMCPJSONServerDisabled(t *testing.T) {
+	// Exercise against the global-file path shape to cover both layouts.
+	path := GlobalMCPJSONPath(t.TempDir())
+	if err := UpsertMCPJSONServer(path, "demo", MCPJSONServer{Command: "demo-mcp"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProjectMCPServerDisabled(cwd, "demo", true); err != nil {
+	if err := SetMCPJSONServerDisabled(path, "demo", true); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
-	entries, _ := ReadProjectMCPFile(cwd)
+	entries, _ := ReadMCPJSONFile(path)
 	if !entries["demo"].Disabled {
 		t.Fatalf("demo not disabled: %+v", entries)
 	}
-	if err := SetProjectMCPServerDisabled(cwd, "demo", false); err != nil {
+	if err := SetMCPJSONServerDisabled(path, "demo", false); err != nil {
 		t.Fatalf("enable: %v", err)
 	}
-	entries, _ = ReadProjectMCPFile(cwd)
+	entries, _ = ReadMCPJSONFile(path)
 	if entries["demo"].Disabled {
 		t.Fatalf("demo still disabled: %+v", entries)
 	}
-	if err := SetProjectMCPServerDisabled(cwd, "ghost", true); err == nil {
+	if err := SetMCPJSONServerDisabled(path, "ghost", true); err == nil {
 		t.Fatal("unknown server must error")
 	}
 }
@@ -231,26 +249,26 @@ func TestBuildMCPToolFilter(t *testing.T) {
 	}
 }
 
-func TestSetProjectMCPToolDisabled(t *testing.T) {
-	cwd := t.TempDir()
-	if err := UpsertProjectMCPServer(cwd, "demo", ProjectMCPServer{Command: "demo-mcp"}); err != nil {
+func TestSetMCPJSONToolDisabled(t *testing.T) {
+	path := MCPJSONPath(t.TempDir())
+	if err := UpsertMCPJSONServer(path, "demo", MCPJSONServer{Command: "demo-mcp"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetProjectMCPToolDisabled(cwd, "demo", "echo", true); err != nil {
+	if err := SetMCPJSONToolDisabled(path, "demo", "echo", true); err != nil {
 		t.Fatalf("disable tool: %v", err)
 	}
 	// Disabling twice stays idempotent.
-	if err := SetProjectMCPToolDisabled(cwd, "demo", "echo", true); err != nil {
+	if err := SetMCPJSONToolDisabled(path, "demo", "echo", true); err != nil {
 		t.Fatalf("disable tool again: %v", err)
 	}
-	entries, _ := ReadProjectMCPFile(cwd)
+	entries, _ := ReadMCPJSONFile(path)
 	if got := entries["demo"].DisabledTools; len(got) != 1 || got[0] != "echo" {
 		t.Fatalf("DisabledTools = %v, want [echo]", got)
 	}
-	if err := SetProjectMCPToolDisabled(cwd, "demo", "echo", false); err != nil {
+	if err := SetMCPJSONToolDisabled(path, "demo", "echo", false); err != nil {
 		t.Fatalf("enable tool: %v", err)
 	}
-	entries, _ = ReadProjectMCPFile(cwd)
+	entries, _ = ReadMCPJSONFile(path)
 	if got := entries["demo"].DisabledTools; len(got) != 0 {
 		t.Fatalf("DisabledTools = %v, want empty", got)
 	}

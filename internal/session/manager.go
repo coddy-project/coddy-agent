@@ -706,18 +706,24 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	})
 }
 
-// EffectiveMCPServers merges config.yaml servers with the project-local
-// .coddy/mcp.json for cwd (project entries override by name). A broken
-// project file is logged and skipped so the session still starts.
+// EffectiveMCPServers merges config.yaml servers with the global
+// <home>/mcp.json and the project-local <cwd>/.coddy/mcp.json (later files
+// override earlier ones by name). A broken mcp.json is logged and skipped so
+// the session still starts.
 func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
-	project, err := config.LoadProjectMCPServers(cwd)
-	if err != nil {
-		if log != nil {
-			log.Warn("failed to load project mcp.json", "cwd", cwd, "error", err)
+	loadJSON := func(path string) []config.MCPServerConfig {
+		servers, err := config.LoadMCPJSONServers(path)
+		if err != nil {
+			if log != nil {
+				log.Warn("failed to load mcp.json", "path", path, "error", err)
+			}
+			return nil
 		}
-		project = nil
+		return servers
 	}
-	return config.MergeMCPServers(cfg.MCPServers, project)
+	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))
+	project := loadJSON(config.MCPJSONPath(cwd))
+	return config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
 }
 
 // connectConfiguredMCPServers connects every enabled configured server

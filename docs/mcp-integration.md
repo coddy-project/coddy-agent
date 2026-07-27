@@ -3,22 +3,23 @@
 ## Overview
 
 The agent supports connecting to external MCP (Model Context Protocol) servers, which provide
-additional tools and resources. MCP servers can be configured at three levels:
+additional tools and resources. MCP servers can be configured at these levels:
 
-1. **Global** - defined in `config.yaml` (`mcp_servers`), connected for every session
-2. **Project** - defined in `<workspace>/.coddy/mcp.json` (Cursor-compatible format), merged
-   over the global list for sessions in that workspace; a project entry with the same name
-   overrides the global definition
+1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
+   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
+   session; entries in `~/.coddy/mcp.json` override same-named `config.yaml` entries
+2. **Local** (scope `local`) - `<workspace>/.coddy/mcp.json`, merged over the global list for
+   sessions in that workspace; a local entry with the same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
 
 Tools from all connected MCP servers are merged into the tool list passed to the LLM during
 the ReAct loop (in **`agent`** and **`plan`** modes).
 
-## Project config: `.coddy/mcp.json`
+## mcp.json (global and local)
 
-The project file uses the same shape as Cursor's `mcp.json`: a single `mcpServers` object
-keyed by server name. `env` and `headers` are JSON objects (not the YAML name/value list),
-and per-tool switches use `disabledTools`:
+Both mcp.json files use the same shape as Cursor's: a single `mcpServers` object keyed by
+server name. `env` and `headers` are JSON objects (not the YAML name/value list), and
+per-tool switches use `disabledTools`:
 
 ```json
 {
@@ -34,15 +35,16 @@ and per-tool switches use `disabledTools`:
 }
 ```
 
-A broken `mcp.json` is logged and skipped; the session still starts with the global list.
+A broken `mcp.json` is logged and skipped; the session still starts with the remaining levels.
 
 ## Enable / disable switches
 
-Both config levels support switching off a whole server or individual tools without
+Every config level supports switching off a whole server or individual tools without
 removing their definitions:
 
 - `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
-- `.coddy/mcp.json`: `"disabled": true` and `"disabledTools": ["tool_a"]` per entry
+- `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
+  `"disabledTools": ["tool_a"]` per entry
 
 Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
 disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
@@ -53,10 +55,11 @@ HTTP API / web UI below) also applies to **already running** sessions on their n
 
 The HTTP gateway (build tag `http`) exposes the merged server list with probed tool
 inventories and toggle endpoints under **`/coddy/mcp*`** (see `docs/http-api.md`), and the
-bundled web UI shows them under **Settings -> MCP servers**: status dot per server,
-expandable tool list with per-tool switches, and a Cursor-style JSON editor for
-project-level entries. Toggles persist into the file that defines the server
-(config.yaml or `.coddy/mcp.json`).
+bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
+`global` / `local` scope badge, expandable tool list with per-tool switches, and a
+Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
+`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Toggles persist into the file that
+defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
 
 ## Supported Transports
 
@@ -155,7 +158,8 @@ mcp_servers:
 ## MCP Server Lifecycle
 
 1. On `session/new`, the agent connects every enabled server from the merged
-   config.yaml + `.coddy/mcp.json` list, then any ACP client-supplied servers
+   config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list, then any ACP
+   client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
 3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)

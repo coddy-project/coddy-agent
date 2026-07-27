@@ -404,9 +404,11 @@ File API
 Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
 section kind `mcp`; visual contract in `DESIGN.md`):
 
-- `GET /coddy/mcp` backs the list: merged `config.yaml` + project `.coddy/mcp.json`
-  servers, each with `source` (`config` / `project`), probe `status`, and its
-  tool inventory.
+- `GET /coddy/mcp` backs the list: merged `config.yaml` + global `~/.coddy/mcp.json`
+  + project `./.coddy/mcp.json` servers, each with `source` (`global` / `local`
+  scope badge), `origin` (`config` / `home` / `project` — drives the badge
+  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unsupported transport (amber).
 - Server switch toggles `POST /coddy/mcp/{name}/enable|disable`; the change
@@ -414,10 +416,12 @@ section kind `mcp`; visual contract in `DESIGN.md`):
 - Expanding a row lists tools with per-tool switches
   (`POST /coddy/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
   locked while the server is disabled.
-- Edit and Delete are available only for project-sourced rows; Delete calls
-  `DELETE /coddy/mcp/{name}`, Edit opens the JSON editor card inline.
-- Add server opens the editor prefilled with a Cursor-style entry template;
-  Save issues `PUT /coddy/mcp/{name}` after client-side validation
+- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
+  of both scopes stay editable. Delete calls `DELETE /coddy/mcp/{name}`, Edit
+  opens the JSON editor card inline with the scope pinned to the owning file.
+- Add server opens the editor prefilled with a Cursor-style entry template and
+  a Local/Global scope picker (default Local); Save issues
+  `PUT /coddy/mcp/{name}?scope=local|global` after client-side validation
   (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
   `__`, spaces, or path separators).
 - Refresh re-probes all servers via `GET /coddy/mcp?refresh=1`.

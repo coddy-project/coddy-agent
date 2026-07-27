@@ -8,9 +8,10 @@ import (
 	"sort"
 )
 
-// ProjectMCPServer is one entry of the Cursor-compatible .coddy/mcp.json file.
-// Env and Headers are JSON objects (name -> value), unlike the YAML list form.
-type ProjectMCPServer struct {
+// MCPJSONServer is one entry of a Cursor-compatible mcp.json file (global
+// <home>/mcp.json or project <cwd>/.coddy/mcp.json). Env and Headers are JSON
+// objects (name -> value), unlike the YAML list form.
+type MCPJSONServer struct {
 	Type          string            `json:"type,omitempty"`
 	Command       string            `json:"command,omitempty"`
 	Args          []string          `json:"args,omitempty"`
@@ -21,43 +22,49 @@ type ProjectMCPServer struct {
 	DisabledTools []string          `json:"disabledTools,omitempty"`
 }
 
-// projectMCPFile mirrors the Cursor mcp.json layout: a single "mcpServers"
+// mcpJSONFile mirrors the Cursor mcp.json layout: a single "mcpServers"
 // object keyed by server name.
-type projectMCPFile struct {
-	MCPServers map[string]ProjectMCPServer `json:"mcpServers"`
+type mcpJSONFile struct {
+	MCPServers map[string]MCPJSONServer `json:"mcpServers"`
 }
 
-// MCPJSONPath returns the project-local MCP config path under cwd.
+// MCPJSONPath returns the project-local (workspace) MCP config path under cwd.
 func MCPJSONPath(cwd string) string {
 	return filepath.Join(cwd, ".coddy", "mcp.json")
 }
 
-// ReadProjectMCPFile returns the raw named entries of .coddy/mcp.json. A
+// GlobalMCPJSONPath returns the user-global MCP config path. home is the
+// coddy state directory (~/.coddy), so the file sits at ~/.coddy/mcp.json —
+// the analogue of Cursor's ~/.cursor/mcp.json.
+func GlobalMCPJSONPath(home string) string {
+	return filepath.Join(home, "mcp.json")
+}
+
+// ReadMCPJSONFile returns the raw named entries of an mcp.json file. A
 // missing file is not an error and yields an empty map.
-func ReadProjectMCPFile(cwd string) (map[string]ProjectMCPServer, error) {
-	path := MCPJSONPath(cwd)
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from the session cwd
+func ReadMCPJSONFile(path string) (map[string]MCPJSONServer, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // path derives from home/cwd
 	if err != nil {
 		if os.IsNotExist(err) {
-			return map[string]ProjectMCPServer{}, nil
+			return map[string]MCPJSONServer{}, nil
 		}
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
-	var file projectMCPFile
+	var file mcpJSONFile
 	if err := json.Unmarshal(data, &file); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if file.MCPServers == nil {
-		file.MCPServers = map[string]ProjectMCPServer{}
+		file.MCPServers = map[string]MCPJSONServer{}
 	}
 	return file.MCPServers, nil
 }
 
-// LoadProjectMCPServers reads .coddy/mcp.json under cwd and converts each
-// entry to the YAML-config server shape. Entries are returned name-sorted so
-// downstream merging stays deterministic.
-func LoadProjectMCPServers(cwd string) ([]MCPServerConfig, error) {
-	entries, err := ReadProjectMCPFile(cwd)
+// LoadMCPJSONServers reads an mcp.json file and converts each entry to the
+// YAML-config server shape. Entries are returned name-sorted so downstream
+// merging stays deterministic.
+func LoadMCPJSONServers(path string) ([]MCPServerConfig, error) {
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +75,12 @@ func LoadProjectMCPServers(cwd string) ([]MCPServerConfig, error) {
 	sort.Strings(names)
 	servers := make([]MCPServerConfig, 0, len(entries))
 	for _, name := range names {
-		servers = append(servers, projectServerToConfig(name, entries[name]))
+		servers = append(servers, mcpJSONServerToConfig(name, entries[name]))
 	}
 	return servers, nil
 }
 
-func projectServerToConfig(name string, e ProjectMCPServer) MCPServerConfig {
+func mcpJSONServerToConfig(name string, e MCPJSONServer) MCPServerConfig {
 	srv := MCPServerConfig{
 		Type:          e.Type,
 		Name:          name,
@@ -109,12 +116,11 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-func writeProjectMCPFileEntries(cwd string, entries map[string]ProjectMCPServer) error {
-	path := MCPJSONPath(cwd)
+func writeMCPJSONFileEntries(path string, entries map[string]MCPJSONServer) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Dir(path), err)
 	}
-	data, err := json.MarshalIndent(projectMCPFile{MCPServers: entries}, "", "  ")
+	data, err := json.MarshalIndent(mcpJSONFile{MCPServers: entries}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -122,19 +128,19 @@ func writeProjectMCPFileEntries(cwd string, entries map[string]ProjectMCPServer)
 	return atomicWriteFile(path, data, 0o644)
 }
 
-// UpsertProjectMCPServer creates or replaces one named entry in .coddy/mcp.json.
-func UpsertProjectMCPServer(cwd, name string, srv ProjectMCPServer) error {
-	entries, err := ReadProjectMCPFile(cwd)
+// UpsertMCPJSONServer creates or replaces one named entry in an mcp.json file.
+func UpsertMCPJSONServer(path, name string, srv MCPJSONServer) error {
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		return err
 	}
 	entries[name] = srv
-	return writeProjectMCPFileEntries(cwd, entries)
+	return writeMCPJSONFileEntries(path, entries)
 }
 
-// DeleteProjectMCPServer removes a named entry; reports whether it existed.
-func DeleteProjectMCPServer(cwd, name string) (bool, error) {
-	entries, err := ReadProjectMCPFile(cwd)
+// DeleteMCPJSONServer removes a named entry; reports whether it existed.
+func DeleteMCPJSONServer(path, name string) (bool, error) {
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		return false, err
 	}
@@ -142,37 +148,37 @@ func DeleteProjectMCPServer(cwd, name string) (bool, error) {
 		return false, nil
 	}
 	delete(entries, name)
-	return true, writeProjectMCPFileEntries(cwd, entries)
+	return true, writeMCPJSONFileEntries(path, entries)
 }
 
-// SetProjectMCPServerDisabled flips the disabled flag of an existing entry.
-func SetProjectMCPServerDisabled(cwd, name string, disabled bool) error {
-	entries, err := ReadProjectMCPFile(cwd)
+// SetMCPJSONServerDisabled flips the disabled flag of an existing entry.
+func SetMCPJSONServerDisabled(path, name string, disabled bool) error {
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		return err
 	}
 	e, ok := entries[name]
 	if !ok {
-		return fmt.Errorf("mcp server %q not found in %s", name, MCPJSONPath(cwd))
+		return fmt.Errorf("mcp server %q not found in %s", name, path)
 	}
 	e.Disabled = disabled
 	entries[name] = e
-	return writeProjectMCPFileEntries(cwd, entries)
+	return writeMCPJSONFileEntries(path, entries)
 }
 
-// SetProjectMCPToolDisabled adds or removes a tool in an entry's disabledTools.
-func SetProjectMCPToolDisabled(cwd, name, tool string, disabled bool) error {
-	entries, err := ReadProjectMCPFile(cwd)
+// SetMCPJSONToolDisabled adds or removes a tool in an entry's disabledTools.
+func SetMCPJSONToolDisabled(path, name, tool string, disabled bool) error {
+	entries, err := ReadMCPJSONFile(path)
 	if err != nil {
 		return err
 	}
 	e, ok := entries[name]
 	if !ok {
-		return fmt.Errorf("mcp server %q not found in %s", name, MCPJSONPath(cwd))
+		return fmt.Errorf("mcp server %q not found in %s", name, path)
 	}
 	e.DisabledTools = SetToolDisabledList(e.DisabledTools, tool, disabled)
 	entries[name] = e
-	return writeProjectMCPFileEntries(cwd, entries)
+	return writeMCPJSONFileEntries(path, entries)
 }
 
 // SetToolDisabledList adds or removes tool in a disabled-tools list, keeping
@@ -217,17 +223,18 @@ func BuildMCPToolFilter(servers []MCPServerConfig) func(server, tool string) boo
 	}
 }
 
-// MergeMCPServers overlays project servers onto global ones: a project entry
-// with the same name replaces the global definition in place; new project
-// entries append after the global list.
-func MergeMCPServers(global, project []MCPServerConfig) []MCPServerConfig {
-	overrides := make(map[string]MCPServerConfig, len(project))
-	for _, srv := range project {
+// MergeMCPServers overlays higher-precedence servers onto base ones: an
+// overlay entry with the same name replaces the base definition in place; new
+// overlay entries append after the base list. Precedence chain:
+// config.yaml < <home>/mcp.json < <cwd>/.coddy/mcp.json.
+func MergeMCPServers(base, overlay []MCPServerConfig) []MCPServerConfig {
+	overrides := make(map[string]MCPServerConfig, len(overlay))
+	for _, srv := range overlay {
 		overrides[srv.Name] = srv
 	}
-	merged := make([]MCPServerConfig, 0, len(global)+len(project))
-	seen := make(map[string]bool, len(global))
-	for _, srv := range global {
+	merged := make([]MCPServerConfig, 0, len(base)+len(overlay))
+	seen := make(map[string]bool, len(base))
+	for _, srv := range base {
 		if o, ok := overrides[srv.Name]; ok {
 			merged = append(merged, o)
 		} else {
@@ -235,7 +242,7 @@ func MergeMCPServers(global, project []MCPServerConfig) []MCPServerConfig {
 		}
 		seen[srv.Name] = true
 	}
-	for _, srv := range project {
+	for _, srv := range overlay {
 		if !seen[srv.Name] {
 			merged = append(merged, srv)
 		}

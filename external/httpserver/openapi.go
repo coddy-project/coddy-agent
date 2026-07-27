@@ -866,7 +866,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List MCP servers",
-					"description": "Returns the merged MCP server list: **`mcp_servers`** from config.yaml overlaid with the project-local **`.coddy/mcp.json`** (Cursor-compatible; project entries override by name). Enabled stdio servers are probed for their tool inventory (spawn, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled stdio servers are probed for their tool inventory (spawn, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -940,15 +940,22 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/mcp/{name}": map[string]interface{}{
 				"put": map[string]interface{}{
-					"summary":     "Create or update a project MCP server",
-					"description": "Upserts one named entry in the project-local **`.coddy/mcp.json`** (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). Either `command` (stdio) or `url` is required; names must not contain `__`. Config-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"summary":     "Create or update an mcp.json MCP server",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
 					"operationId": "putMCPServer",
-					"parameters":  []interface{}{mcpServerNameParam()},
+					"parameters": []interface{}{
+						mcpServerNameParam(),
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
+							"description": "Target file: local (default) = ./.coddy/mcp.json, global = <home>/mcp.json.",
+						},
+					},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
 							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPProjectServer"},
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPJSONServer"},
 							},
 						},
 					},
@@ -959,8 +966,8 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 				"delete": map[string]interface{}{
-					"summary":     "Delete a project MCP server",
-					"description": "Removes the named entry from **`.coddy/mcp.json`**. Servers defined in config.yaml are refused with 400.",
+					"summary":     "Delete an mcp.json MCP server",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
 					"operationId": "deleteMCPServer",
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
@@ -1327,7 +1334,9 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"name":      map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":    map[string]interface{}{"type": "string", "enum": []string{"config", "project"}, "description": "File that owns the definition: config.yaml or .coddy/mcp.json."},
+						"source":    map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
+						"origin":    map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
+						"readonly":  map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
 						"transport": map[string]string{"type": "string", "description": "stdio or http (http is declared but not yet supported)."},
 						"command":   map[string]string{"type": "string"},
 						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
@@ -1353,9 +1362,9 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 				},
-				"MCPProjectServer": map[string]interface{}{
+				"MCPJSONServer": map[string]interface{}{
 					"type":        "object",
-					"description": "One .coddy/mcp.json entry (Cursor-compatible).",
+					"description": "One mcp.json entry (global <home>/mcp.json or project .coddy/mcp.json; Cursor-compatible).",
 					"properties": map[string]interface{}{
 						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
 						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},

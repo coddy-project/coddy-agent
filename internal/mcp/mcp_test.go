@@ -149,15 +149,16 @@ func TestProbeBadCommand(t *testing.T) {
 
 // ---- management operations ----
 
-// writeTestConfig writes a config.yaml with one global MCP server and loads it.
-func writeTestConfig(t *testing.T) (*config.Config, string) {
+// writeTestConfig writes a config.yaml with one server and loads it, pinning
+// Paths.Home to the temp dir so the global <home>/mcp.json lands there too.
+func writeTestConfig(t *testing.T) (*config.Config, string, string) {
 	t.Helper()
 	home := t.TempDir()
 	cfgPath := home + "/config.yaml"
 	yaml := `
 mcp_servers:
-  - name: global-srv
-    command: global-mcp
+  - name: cfg-srv
+    command: cfg-mcp
 `
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
@@ -166,76 +167,107 @@ mcp_servers:
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	return cfg, cfgPath
+	cfg.Paths.Home = home
+	return cfg, cfgPath, home
 }
 
-func TestListManagedServersMergesSources(t *testing.T) {
-	cfg, _ := writeTestConfig(t)
+func TestListManagedServersScopesAndOrigins(t *testing.T) {
+	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
-	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
-		t.Fatal(err)
+	globalPath := config.GlobalMCPJSONPath(home)
+	projectPath := config.MCPJSONPath(cwd)
+
+	// Global file adds home-srv and overrides cfg-srv; project file adds
+	// proj-srv and overrides home-srv.
+	for name, srv := range map[string]config.MCPJSONServer{
+		"home-srv": {Command: "home-mcp"},
+		"cfg-srv":  {Command: "home-override"},
+	} {
+		if err := config.UpsertMCPJSONServer(globalPath, name, srv); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := config.UpsertProjectMCPServer(cwd, "global-srv", config.ProjectMCPServer{Command: "override-mcp"}); err != nil {
-		t.Fatal(err)
+	for name, srv := range map[string]config.MCPJSONServer{
+		"proj-srv": {Command: "proj-mcp"},
+		"home-srv": {Command: "proj-override"},
+	} {
+		if err := config.UpsertMCPJSONServer(projectPath, name, srv); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	servers, err := ListManagedServers(cfg, cwd)
 	if err != nil {
 		t.Fatalf("ListManagedServers: %v", err)
 	}
-	if len(servers) != 2 {
-		t.Fatalf("servers = %+v, want 2", servers)
+	if len(servers) != 3 {
+		t.Fatalf("servers = %+v, want 3", servers)
 	}
-	bySource := map[string]string{}
+	type so struct{ scope, origin, command string }
+	got := map[string]so{}
 	for _, s := range servers {
-		bySource[s.Config.Name] = s.Source
+		got[s.Config.Name] = so{s.Scope, s.Origin, s.Config.Command}
 	}
-	// A project override wins and is labeled project; untouched globals stay config.
-	if bySource["global-srv"] != "project" {
-		t.Errorf("global-srv source = %q, want project (overridden)", bySource["global-srv"])
+	if got["cfg-srv"] != (so{ScopeGlobal, OriginHome, "home-override"}) {
+		t.Errorf("cfg-srv = %+v, want global/home with home override", got["cfg-srv"])
 	}
-	if bySource["proj-srv"] != "project" {
-		t.Errorf("proj-srv source = %q, want project", bySource["proj-srv"])
+	if got["home-srv"] != (so{ScopeLocal, OriginProject, "proj-override"}) {
+		t.Errorf("home-srv = %+v, want local/project with project override", got["home-srv"])
+	}
+	if got["proj-srv"] != (so{ScopeLocal, OriginProject, "proj-mcp"}) {
+		t.Errorf("proj-srv = %+v, want local/project", got["proj-srv"])
 	}
 
-	// Without the override the global stays config-sourced.
-	if _, err := config.DeleteProjectMCPServer(cwd, "global-srv"); err != nil {
+	// Without any overrides the config.yaml entry stays config-owned/global.
+	if _, err := config.DeleteMCPJSONServer(globalPath, "cfg-srv"); err != nil {
 		t.Fatal(err)
 	}
 	servers, _ = ListManagedServers(cfg, cwd)
 	for _, s := range servers {
-		if s.Config.Name == "global-srv" && s.Source != "config" {
-			t.Errorf("global-srv source = %q, want config", s.Source)
+		if s.Config.Name == "cfg-srv" && (s.Scope != ScopeGlobal || s.Origin != OriginConfig) {
+			t.Errorf("cfg-srv = %s/%s, want global/config", s.Scope, s.Origin)
 		}
 	}
 }
 
 func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
-	cfg, cfgPath := writeTestConfig(t)
+	cfg, cfgPath, home := writeTestConfig(t)
 	cwd := t.TempDir()
-	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// Project-sourced toggle lands in .coddy/mcp.json.
+	// Project-owned toggle lands in <cwd>/.coddy/mcp.json.
 	if err := SetServerDisabled(cfg, cwd, "proj-srv", true); err != nil {
 		t.Fatalf("disable project server: %v", err)
 	}
-	entries, _ := config.ReadProjectMCPFile(cwd)
+	entries, _ := config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
 	if !entries["proj-srv"].Disabled {
-		t.Errorf("proj-srv not disabled in mcp.json: %+v", entries)
+		t.Errorf("proj-srv not disabled in project mcp.json: %+v", entries)
 	}
 
-	// Config-sourced toggle lands in config.yaml.
-	if err := SetServerDisabled(cfg, cwd, "global-srv", true); err != nil {
-		t.Fatalf("disable global server: %v", err)
+	// Home-owned toggle lands in <home>/mcp.json.
+	if err := SetServerDisabled(cfg, cwd, "home-srv", true); err != nil {
+		t.Fatalf("disable home server: %v", err)
+	}
+	entries, _ = config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if !entries["home-srv"].Disabled {
+		t.Errorf("home-srv not disabled in global mcp.json: %+v", entries)
+	}
+
+	// Config-owned toggle lands in config.yaml.
+	if err := SetServerDisabled(cfg, cwd, "cfg-srv", true); err != nil {
+		t.Fatalf("disable config server: %v", err)
 	}
 	reloaded, err := config.Load(cfgPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(reloaded.MCPServers) != 1 || !reloaded.MCPServers[0].Disabled {
-		t.Errorf("config.yaml servers = %+v, want global-srv disabled", reloaded.MCPServers)
+		t.Errorf("config.yaml servers = %+v, want cfg-srv disabled", reloaded.MCPServers)
 	}
 
 	if err := SetServerDisabled(cfg, cwd, "ghost", true); err == nil {
@@ -244,22 +276,22 @@ func TestSetServerDisabledPersistsToOwningFile(t *testing.T) {
 }
 
 func TestSetToolDisabledPersistsToOwningFile(t *testing.T) {
-	cfg, cfgPath := writeTestConfig(t)
+	cfg, cfgPath, home := writeTestConfig(t)
 	cwd := t.TempDir()
-	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := SetToolDisabled(cfg, cwd, "proj-srv", "echo", true); err != nil {
-		t.Fatalf("disable project tool: %v", err)
+	if err := SetToolDisabled(cfg, cwd, "home-srv", "echo", true); err != nil {
+		t.Fatalf("disable home tool: %v", err)
 	}
-	entries, _ := config.ReadProjectMCPFile(cwd)
-	if got := entries["proj-srv"].DisabledTools; len(got) != 1 || got[0] != "echo" {
-		t.Errorf("proj-srv disabledTools = %v, want [echo]", got)
+	entries, _ := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if got := entries["home-srv"].DisabledTools; len(got) != 1 || got[0] != "echo" {
+		t.Errorf("home-srv disabledTools = %v, want [echo]", got)
 	}
 
-	if err := SetToolDisabled(cfg, cwd, "global-srv", "reverse", true); err != nil {
-		t.Fatalf("disable global tool: %v", err)
+	if err := SetToolDisabled(cfg, cwd, "cfg-srv", "reverse", true); err != nil {
+		t.Fatalf("disable config tool: %v", err)
 	}
 	reloaded, err := config.Load(cfgPath)
 	if err != nil {
@@ -270,7 +302,7 @@ func TestSetToolDisabledPersistsToOwningFile(t *testing.T) {
 	}
 
 	// Re-enable removes the entry again.
-	if err := SetToolDisabled(cfg, cwd, "global-srv", "reverse", false); err != nil {
+	if err := SetToolDisabled(cfg, cwd, "cfg-srv", "reverse", false); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, _ = config.Load(cfgPath)
@@ -279,23 +311,54 @@ func TestSetToolDisabledPersistsToOwningFile(t *testing.T) {
 	}
 }
 
-func TestDeleteServerRefusesConfigSourced(t *testing.T) {
-	cfg, _ := writeTestConfig(t)
+func TestUpsertServerScopes(t *testing.T) {
+	cfg, _, home := writeTestConfig(t)
 	cwd := t.TempDir()
-	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
+
+	if err := UpsertServer(cfg, cwd, "glob", ScopeGlobal, config.MCPJSONServer{Command: "glob-mcp"}); err != nil {
+		t.Fatalf("upsert global: %v", err)
+	}
+	entries, _ := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if entries["glob"].Command != "glob-mcp" {
+		t.Errorf("global mcp.json = %+v, want glob", entries)
+	}
+
+	if err := UpsertServer(cfg, cwd, "loc", ScopeLocal, config.MCPJSONServer{Command: "loc-mcp"}); err != nil {
+		t.Fatalf("upsert local: %v", err)
+	}
+	entries, _ = config.ReadMCPJSONFile(config.MCPJSONPath(cwd))
+	if entries["loc"].Command != "loc-mcp" {
+		t.Errorf("project mcp.json = %+v, want loc", entries)
+	}
+
+	if err := UpsertServer(cfg, cwd, "x", "nope", config.MCPJSONServer{Command: "x"}); err == nil {
+		t.Error("unknown scope must error")
+	}
+}
+
+func TestDeleteServerPerOrigin(t *testing.T) {
+	cfg, _, home := writeTestConfig(t)
+	cwd := t.TempDir()
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := DeleteServer(cfg, cwd, "proj-srv"); err != nil {
 		t.Fatalf("delete project server: %v", err)
 	}
-	entries, _ := config.ReadProjectMCPFile(cwd)
-	if _, ok := entries["proj-srv"]; ok {
-		t.Errorf("proj-srv still present: %+v", entries)
+	if err := DeleteServer(cfg, cwd, "home-srv"); err != nil {
+		t.Fatalf("delete home server: %v", err)
+	}
+	entries, _ := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if _, ok := entries["home-srv"]; ok {
+		t.Errorf("home-srv still present: %+v", entries)
 	}
 
-	if err := DeleteServer(cfg, cwd, "global-srv"); err == nil {
-		t.Error("config-sourced server must refuse API deletion")
+	if err := DeleteServer(cfg, cwd, "cfg-srv"); err == nil {
+		t.Error("config-defined server must refuse API deletion")
 	}
 	if err := DeleteServer(cfg, cwd, "ghost"); err == nil {
 		t.Error("unknown server must error")

@@ -6322,6 +6322,12 @@ textarea#composer {
   flex-shrink: 0;
 }
 
+/* Trailing controls in an MCP row never shrink (same rule as skill rows), so
+   a long command line or error text cannot squeeze the 40px icon buttons. */
+.mcp-list-item-head > button {
+  flex: 0 0 auto;
+}
+
 .mcp-list-item-text {
   flex: 1 1 auto;
   min-width: 0;
@@ -6445,6 +6451,21 @@ textarea#composer {
   min-height: 120px;
   box-sizing: border-box;
   width: 100%;
+}
+
+/* Global / Local scope picker in the add-server editor. */
+.mcp-editor-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.8rem;
+}
+
+.mcp-editor-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .mcp-editor-actions {

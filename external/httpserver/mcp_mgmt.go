@@ -44,7 +44,9 @@ type mcpToolRow struct {
 // mcpServerRow is one merged server in the list response.
 type mcpServerRow struct {
 	Name          string            `json:"name"`
-	Source        string            `json:"source"`    // config | project
+	Source        string            `json:"source"`    // global | local (scope)
+	Origin        string            `json:"origin"`    // config | home | project (owning file)
+	Readonly      bool              `json:"readonly"`  // config.yaml entries: no edit/delete here
 	Transport     string            `json:"transport"` // stdio | http
 	Command       string            `json:"command,omitempty"`
 	Args          []string          `json:"args,omitempty"`
@@ -118,7 +120,9 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 	for i, srv := range servers {
 		row := mcpServerRow{
 			Name:          srv.Config.Name,
-			Source:        srv.Source,
+			Source:        srv.Scope,
+			Origin:        srv.Origin,
+			Readonly:      srv.Origin == mcp.OriginConfig,
 			Transport:     "stdio",
 			Command:       srv.Config.Command,
 			Args:          srv.Config.Args,
@@ -213,14 +217,20 @@ func (s *Server) coddyMCPToolToggle(disable bool) http.HandlerFunc {
 	}
 }
 
-// coddyMCPServerPut creates or updates a project server in .coddy/mcp.json.
+// coddyMCPServerPut creates or updates a server entry in the mcp.json file
+// selected by ?scope=: "local" (default) writes <cwd>/.coddy/mcp.json,
+// "global" writes <home>/mcp.json.
 func (s *Server) coddyMCPServerPut(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.ValidateServerName(name); err != nil {
 		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var entry config.ProjectMCPServer
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	if scope == "" {
+		scope = mcp.ScopeLocal
+	}
+	var entry config.MCPJSONServer
 	if err := json.NewDecoder(r.Body).Decode(&entry); err != nil {
 		writeCoddyMCPErr(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -229,18 +239,18 @@ func (s *Server) coddyMCPServerPut(w http.ResponseWriter, r *http.Request) {
 		writeCoddyMCPErr(w, http.StatusBadRequest, "either command or url is required")
 		return
 	}
-	if err := config.UpsertProjectMCPServer(s.defaultCWD, name, entry); err != nil {
-		writeCoddyMCPErr(w, http.StatusInternalServerError, err.Error())
+	if err := mcp.UpsertServer(s.activeCfg(), s.defaultCWD, name, scope, entry); err != nil {
+		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	s.invalidateMCPProbe(name)
-	slog.Info("mcp project server saved", "name", name)
+	slog.Info("mcp server saved", "name", name, "scope", scope)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }
 
-// coddyMCPServerDelete removes a project server from .coddy/mcp.json.
-// Config-defined servers are refused (edit config.yaml / Settings instead).
+// coddyMCPServerDelete removes an mcp.json-defined server from its owning
+// file. Config.yaml-defined servers are refused (edit Settings instead).
 func (s *Server) coddyMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := mcp.DeleteServer(s.activeCfg(), s.defaultCWD, name); err != nil {
@@ -248,7 +258,7 @@ func (s *Server) coddyMCPServerDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.invalidateMCPProbe(name)
-	slog.Info("mcp project server deleted", "name", name)
+	slog.Info("mcp server deleted", "name", name)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }

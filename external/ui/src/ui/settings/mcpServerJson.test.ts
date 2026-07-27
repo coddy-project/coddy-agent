@@ -52,7 +52,8 @@ test("args must be strings, env must be a string map", () => {
 test("serverRowToEntryJson round-trips through the parser", () => {
   const text = serverRowToEntryJson({
     name: "files",
-    source: "project",
+    source: "local",
+    origin: "project",
     transport: "stdio",
     command: "npx",
     args: ["-y", "pkg"],
@@ -67,4 +68,11 @@ test("serverRowToEntryJson round-trips through the parser", () => {
   expect(entry?.command).toBe("npx");
   expect(entry?.disabled).toBe(true);
   expect(entry?.disabledTools).toEqual(["write"]);
+});
+
+test("originLabel names the owning file", async () => {
+  const { originLabel } = await import("./mcpServerJson");
+  expect(originLabel("config")).toBe("config.yaml");
+  expect(originLabel("home")).toBe("~/.coddy/mcp.json");
+  expect(originLabel("project")).toBe("./.coddy/mcp.json");
 });

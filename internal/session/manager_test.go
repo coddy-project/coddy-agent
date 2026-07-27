@@ -566,29 +566,42 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 	}
 }
 
-func TestEffectiveMCPServersMergesProject(t *testing.T) {
+func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
+	home := t.TempDir()
 	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
-		{Name: "global-srv", Command: "global-mcp"},
+		{Name: "cfg-srv", Command: "cfg-mcp"},
 		{Name: "off-srv", Command: "off-mcp", Disabled: true},
 	}}
+	cfg.Paths.Home = home
 	cwd := t.TempDir()
-	if err := config.UpsertProjectMCPServer(cwd, "global-srv", config.ProjectMCPServer{Command: "override-mcp"}); err != nil {
+
+	// Global <home>/mcp.json overrides config.yaml; project overrides both.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
 		t.Fatal(err)
 	}
 
 	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
-	if len(servers) != 3 {
-		t.Fatalf("servers = %+v, want 3", servers)
+	if len(servers) != 4 {
+		t.Fatalf("servers = %+v, want 4", servers)
 	}
 	byName := map[string]config.MCPServerConfig{}
 	for _, s := range servers {
 		byName[s.Name] = s
 	}
-	if byName["global-srv"].Command != "override-mcp" {
-		t.Errorf("global-srv command = %q, want project override", byName["global-srv"].Command)
+	if byName["cfg-srv"].Command != "home-override" {
+		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	}
+	if byName["home-srv"].Command != "proj-override" {
+		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
 	}
 	if !byName["off-srv"].Disabled {
 		t.Errorf("off-srv must keep its disabled flag in the effective list")
@@ -597,13 +610,14 @@ func TestEffectiveMCPServersMergesProject(t *testing.T) {
 		t.Errorf("proj-srv missing from effective list")
 	}
 
-	// A broken mcp.json must not fail the session; the global list still applies.
+	// A broken project mcp.json must not fail the session; config.yaml plus
+	// the global file still apply.
 	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
-	if len(servers) != 2 {
-		t.Fatalf("servers with broken mcp.json = %+v, want the 2 global entries", servers)
+	if len(servers) != 3 {
+		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
 	}
 }
 

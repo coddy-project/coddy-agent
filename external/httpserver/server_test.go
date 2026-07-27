@@ -2694,16 +2694,19 @@ mcp_servers:
 	}
 
 	// The list reports both servers: broken stdio probes to an error status,
-	// the http entry is unsupported without probing.
+	// the http entry is unsupported without probing. Config.yaml entries are
+	// global-scoped, config-owned, and read-only for edit/delete.
 	status, b := do(http.MethodGet, "/coddy/mcp", "")
 	if status != http.StatusOK {
 		t.Fatalf("GET /coddy/mcp status %d %s", status, b)
 	}
 	var list struct {
 		Items []struct {
-			Name   string `json:"name"`
-			Source string `json:"source"`
-			Status string `json:"status"`
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Origin   string `json:"origin"`
+			Readonly bool   `json:"readonly"`
+			Status   string `json:"status"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(b, &list); err != nil {
@@ -2714,8 +2717,8 @@ mcp_servers:
 	}
 	byName := map[string]string{}
 	for _, it := range list.Items {
-		if it.Source != "config" {
-			t.Errorf("server %q source = %q, want config", it.Name, it.Source)
+		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
+			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
 		}
 		byName[it.Name] = it.Status
 	}
@@ -2734,8 +2737,8 @@ mcp_servers:
 		t.Errorf("disable tool of unknown server status %d, want 400", status)
 	}
 
-	// PUT rejects names that break the __ namespace, bad bodies, and entries
-	// with neither command nor url.
+	// PUT rejects names that break the __ namespace, bad bodies, entries with
+	// neither command nor url, and unknown scopes.
 	if status, _ := do(http.MethodPut, "/coddy/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
 		t.Errorf("PUT bad name status %d, want 400", status)
 	}
@@ -2745,9 +2748,40 @@ mcp_servers:
 	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{}`); status != http.StatusBadRequest {
 		t.Errorf("PUT empty entry status %d, want 400", status)
 	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname?scope=nope", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT unknown scope status %d, want 400", status)
+	}
 
-	// Config-defined servers cannot be deleted over the API.
+	// PUT with scope=global lands in <home>/mcp.json and lists as global/home.
+	if status, body := do(http.MethodPut, "/coddy/mcp/homer?scope=global", `{"command":"home-mcp"}`); status != http.StatusOK {
+		t.Fatalf("PUT scope=global status %d %s", status, body)
+	}
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil || entries["homer"].Command != "home-mcp" {
+		t.Errorf("global mcp.json entries = %+v err=%v, want homer", entries, err)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	foundHomer := false
+	for _, it := range list.Items {
+		if it.Name == "homer" {
+			foundHomer = true
+			if it.Source != "global" || it.Origin != "home" || it.Readonly {
+				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			}
+		}
+	}
+	if !foundHomer {
+		t.Error("homer missing from list after scope=global PUT")
+	}
+
+	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
 	if status, _ := do(http.MethodDelete, "/coddy/mcp/broken", ""); status != http.StatusBadRequest {
 		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
+		t.Errorf("DELETE home-sourced status %d, want 200", status)
 	}
 }
