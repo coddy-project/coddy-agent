@@ -210,6 +210,27 @@ func TestSetProjectMCPServerDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildMCPToolFilter(t *testing.T) {
+	servers := []MCPServerConfig{
+		{Name: "off", Disabled: true},
+		{Name: "partial", DisabledTools: []string{"write_file"}},
+	}
+	allowed := BuildMCPToolFilter(servers)
+	if allowed("off", "anything") {
+		t.Error("disabled server must hide all tools")
+	}
+	if allowed("partial", "write_file") {
+		t.Error("disabled tool must be hidden")
+	}
+	if !allowed("partial", "read_file") {
+		t.Error("other tools of the server stay visible")
+	}
+	// Servers not in the config (e.g. ACP client-supplied) stay fully allowed.
+	if !allowed("unknown", "tool") {
+		t.Error("unknown server must stay allowed")
+	}
+}
+
 func TestSetProjectMCPToolDisabled(t *testing.T) {
 	cwd := t.TempDir()
 	if err := UpsertProjectMCPServer(cwd, "demo", ProjectMCPServer{Command: "demo-mcp"}); err != nil {

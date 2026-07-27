@@ -85,6 +85,17 @@ func NewStdioClient(ctx context.Context, name, command string, args []string, en
 	return c, nil
 }
 
+// NewStaticClient returns a Client carrying only a name and a fixed tool
+// list, without a subprocess. Used by tests and stubs; CallTool fails.
+func NewStaticClient(name string, tools []ToolInfo) *Client {
+	return &Client{
+		name:    name,
+		tools:   tools,
+		log:     slog.Default(),
+		pending: make(map[interface{}]chan json.RawMessage),
+	}
+}
+
 // Tools returns the tools exposed by this MCP server.
 func (c *Client) Tools() []ToolInfo {
 	return c.tools
@@ -249,6 +260,9 @@ func (c *Client) notify(method string, params interface{}) error {
 }
 
 func (c *Client) send(v interface{}) error {
+	if c.stdin == nil {
+		return fmt.Errorf("mcp %s: no transport (static client)", c.name)
+	}
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err

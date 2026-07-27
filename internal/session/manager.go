@@ -250,11 +250,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 
 	state.SetPersistHook(m.makePersist(state))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, state, srv); err != nil {
-			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
-		}
-	}
+	m.connectConfiguredMCPServers(ctx, state)
 
 	for _, srv := range mcpServers {
 		cfgSrv := config.MCPServerConfig{
@@ -333,11 +329,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	st.SetPersistHook(m.makePersist(st))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, st, srv); err != nil {
-			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
-		}
-	}
+	m.connectConfiguredMCPServers(ctx, st)
 
 	for _, srv := range params.MCPServers {
 		cfgSrv := config.MCPServerConfig{
@@ -712,6 +704,38 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 		SessionUpdate:     acp.UpdateTypeAvailableCommandsUpdate,
 		AvailableCommands: cmds,
 	})
+}
+
+// EffectiveMCPServers merges config.yaml servers with the project-local
+// .coddy/mcp.json for cwd (project entries override by name). A broken
+// project file is logged and skipped so the session still starts.
+func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
+	project, err := config.LoadProjectMCPServers(cwd)
+	if err != nil {
+		if log != nil {
+			log.Warn("failed to load project mcp.json", "cwd", cwd, "error", err)
+		}
+		project = nil
+	}
+	return config.MergeMCPServers(cfg.MCPServers, project)
+}
+
+// connectConfiguredMCPServers connects every enabled configured server
+// (config.yaml merged with .coddy/mcp.json) and installs the per-turn tool
+// filter factory so disable toggles reach live sessions.
+func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
+	cwd := state.GetCWD()
+	for _, srv := range EffectiveMCPServers(m.activeCfg(), cwd, m.log) {
+		if srv.Disabled {
+			continue
+		}
+		if err := m.connectMCPServer(ctx, state, srv); err != nil {
+			m.log.Warn("failed to connect MCP server", "server", srv.Name, "error", err)
+		}
+	}
+	state.MCPFilterFactory = func() func(server, tool string) bool {
+		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), cwd, m.log))
+	}
 }
 
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {

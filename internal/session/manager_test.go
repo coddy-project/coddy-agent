@@ -565,3 +565,58 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 		t.Fatalf("cwd changed on failed switch: %q", got)
 	}
 }
+
+func TestEffectiveMCPServersMergesProject(t *testing.T) {
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "global-srv", Command: "global-mcp"},
+		{Name: "off-srv", Command: "off-mcp", Disabled: true},
+	}}
+	cwd := t.TempDir()
+	if err := config.UpsertProjectMCPServer(cwd, "global-srv", config.ProjectMCPServer{Command: "override-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertProjectMCPServer(cwd, "proj-srv", config.ProjectMCPServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 3 {
+		t.Fatalf("servers = %+v, want 3", servers)
+	}
+	byName := map[string]config.MCPServerConfig{}
+	for _, s := range servers {
+		byName[s.Name] = s
+	}
+	if byName["global-srv"].Command != "override-mcp" {
+		t.Errorf("global-srv command = %q, want project override", byName["global-srv"].Command)
+	}
+	if !byName["off-srv"].Disabled {
+		t.Errorf("off-srv must keep its disabled flag in the effective list")
+	}
+	if _, ok := byName["proj-srv"]; !ok {
+		t.Errorf("proj-srv missing from effective list")
+	}
+
+	// A broken mcp.json must not fail the session; the global list still applies.
+	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 2 {
+		t.Fatalf("servers with broken mcp.json = %+v, want the 2 global entries", servers)
+	}
+}
+
+func TestStateMCPToolFilter(t *testing.T) {
+	st := &session.State{ID: "s", CWD: t.TempDir()}
+	if allowed := st.GetMCPToolFilter(); !allowed("any", "tool") {
+		t.Error("nil factory must allow everything")
+	}
+	st.MCPFilterFactory = func() func(server, tool string) bool {
+		return func(server, tool string) bool { return tool == "echo" }
+	}
+	allowed := st.GetMCPToolFilter()
+	if !allowed("srv", "echo") || allowed("srv", "write") {
+		t.Error("factory-built filter must be used when set")
+	}
+}

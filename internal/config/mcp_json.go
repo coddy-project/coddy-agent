@@ -191,6 +191,32 @@ func SetToolDisabledList(tools []string, tool string, disabled bool) []string {
 	return out
 }
 
+// BuildMCPToolFilter compiles the disable switches of the effective server
+// list into a predicate: false hides the tool from the agent. Servers absent
+// from the list (e.g. supplied by an ACP client) stay fully allowed.
+func BuildMCPToolFilter(servers []MCPServerConfig) func(server, tool string) bool {
+	disabledServers := make(map[string]bool)
+	disabledTools := make(map[string]map[string]bool)
+	for _, s := range servers {
+		if s.Disabled {
+			disabledServers[s.Name] = true
+		}
+		if len(s.DisabledTools) > 0 {
+			m := make(map[string]bool, len(s.DisabledTools))
+			for _, t := range s.DisabledTools {
+				m[t] = true
+			}
+			disabledTools[s.Name] = m
+		}
+	}
+	return func(server, tool string) bool {
+		if disabledServers[server] {
+			return false
+		}
+		return !disabledTools[server][tool]
+	}
+}
+
 // MergeMCPServers overlays project servers onto global ones: a project entry
 // with the same name replaces the global definition in place; new project
 // entries append after the global list.

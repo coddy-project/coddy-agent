@@ -38,6 +38,7 @@ type SessionState interface {
 	GetMessages() []llm.Message
 	InsertCompactionSummary(idx int, msg llm.Message)
 	GetMCPClients() []*mcp.Client
+	GetMCPToolFilter() func(server, tool string) bool
 	GetSkills() []*skills.Skill
 	GetAgentMemory() string
 	GetMemoryCopilotBlock() string
@@ -131,11 +132,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if toolSet.Unrestricted() || mode == "plan" {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
 	}
 
 	// Get or create LLM provider.
@@ -916,8 +913,28 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	return result, execErr
 }
 
-// callMCPTool routes a tool call to the appropriate MCP client.
+// mcpToolDefinitions converts the tools of connected MCP clients into LLM
+// tool definitions, hiding entries the filter disallows. Shared by the main
+// prompt path and the permission-resume path.
+func mcpToolDefinitions(clients []*mcp.Client, allowed func(server, tool string) bool) []llm.ToolDefinition {
+	var defs []llm.ToolDefinition
+	for _, client := range clients {
+		for _, t := range client.Tools() {
+			if !allowed(client.Name(), t.Name) {
+				continue
+			}
+			defs = append(defs, t.ToLLMToolDefinition(client.Name()))
+		}
+	}
+	return defs
+}
+
+// callMCPTool routes a tool call to the appropriate MCP client. Disabled
+// tools are rejected here too so stale history cannot invoke them.
 func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON string) (string, error) {
+	if allowed := a.state.GetMCPToolFilter(); !allowed(serverName, toolName) {
+		return "", fmt.Errorf("MCP tool %s__%s is disabled", serverName, toolName)
+	}
 	for _, client := range a.state.GetMCPClients() {
 		if client.Name() == serverName {
 			return client.CallTool(ctx, toolName, argsJSON)
