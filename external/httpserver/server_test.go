@@ -2645,3 +2645,109 @@ func TestCoddySkillsDeleteAnyAndReadonly(t *testing.T) {
 		t.Errorf("local skill dir should be gone: %v", err)
 	}
 }
+
+// TestCoddyMCPRoutesEdgeCases covers error paths of the /coddy/mcp surface;
+// the happy path lives in features/mcp_management.feature.
+func TestCoddyMCPRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+mcp_servers:
+  - name: broken
+    command: /nonexistent-mcp-binary
+  - name: remote
+    type: http
+    url: https://example.com/sse
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(method, path string, body string) (int, []byte) {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, ts.URL+path, rdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+
+	// The list reports both servers: broken stdio probes to an error status,
+	// the http entry is unsupported without probing.
+	status, b := do(http.MethodGet, "/coddy/mcp", "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /coddy/mcp status %d %s", status, b)
+	}
+	var list struct {
+		Items []struct {
+			Name   string `json:"name"`
+			Source string `json:"source"`
+			Status string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %+v, want 2", list.Items)
+	}
+	byName := map[string]string{}
+	for _, it := range list.Items {
+		if it.Source != "config" {
+			t.Errorf("server %q source = %q, want config", it.Name, it.Source)
+		}
+		byName[it.Name] = it.Status
+	}
+	if byName["broken"] != "error" {
+		t.Errorf("broken status = %q, want error", byName["broken"])
+	}
+	if byName["remote"] != "unsupported" {
+		t.Errorf("remote status = %q, want unsupported", byName["remote"])
+	}
+
+	// Toggling an unknown server or tool fails with 400.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable unknown server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/tools/echo/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable tool of unknown server status %d, want 400", status)
+	}
+
+	// PUT rejects names that break the __ namespace, bad bodies, and entries
+	// with neither command nor url.
+	if status, _ := do(http.MethodPut, "/coddy/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT bad name status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("PUT invalid body status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{}`); status != http.StatusBadRequest {
+		t.Errorf("PUT empty entry status %d, want 400", status)
+	}
+
+	// Config-defined servers cannot be deleted over the API.
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/broken", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+}

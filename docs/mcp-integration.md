@@ -3,18 +3,67 @@
 ## Overview
 
 The agent supports connecting to external MCP (Model Context Protocol) servers, which provide
-additional tools and resources. MCP servers can be configured at two levels:
+additional tools and resources. MCP servers can be configured at three levels:
 
-1. **Global** - defined in `config.yaml`, always connected for every session
-2. **Per-session** - provided by the ACP client in `session/new` parameters
+1. **Global** - defined in `config.yaml` (`mcp_servers`), connected for every session
+2. **Project** - defined in `<workspace>/.coddy/mcp.json` (Cursor-compatible format), merged
+   over the global list for sessions in that workspace; a project entry with the same name
+   overrides the global definition
+3. **Per-session** - provided by the ACP client in `session/new` parameters
 
-Tools from all connected MCP servers are merged into the tool list passed to the LLM during the ReAct loop (in **`agent`** and **`plan`** modes).
+Tools from all connected MCP servers are merged into the tool list passed to the LLM during
+the ReAct loop (in **`agent`** and **`plan`** modes).
+
+## Project config: `.coddy/mcp.json`
+
+The project file uses the same shape as Cursor's `mcp.json`: a single `mcpServers` object
+keyed by server name. `env` and `headers` are JSON objects (not the YAML name/value list),
+and per-tool switches use `disabledTools`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"],
+      "env": { "SOME_TOKEN": "value" },
+      "disabled": false,
+      "disabledTools": ["write_file"]
+    }
+  }
+}
+```
+
+A broken `mcp.json` is logged and skipped; the session still starts with the global list.
+
+## Enable / disable switches
+
+Both config levels support switching off a whole server or individual tools without
+removing their definitions:
+
+- `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
+- `.coddy/mcp.json`: `"disabled": true` and `"disabledTools": ["tool_a"]` per entry
+
+Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
+disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
+are re-read on every agent turn, so toggling them (by editing the files or through the
+HTTP API / web UI below) also applies to **already running** sessions on their next turn.
+
+## Management API and UI
+
+The HTTP gateway (build tag `http`) exposes the merged server list with probed tool
+inventories and toggle endpoints under **`/coddy/mcp*`** (see `docs/http-api.md`), and the
+bundled web UI shows them under **Settings -> MCP servers**: status dot per server,
+expandable tool list with per-tool switches, and a Cursor-style JSON editor for
+project-level entries. Toggles persist into the file that defines the server
+(config.yaml or `.coddy/mcp.json`).
 
 ## Supported Transports
 
-### stdio (always supported)
+### stdio (supported)
 
-The MCP server runs as a subprocess. Communication via stdin/stdout.
+The MCP server runs as a subprocess. Communication via stdin/stdout (newline-delimited
+JSON-RPC 2.0).
 
 Configuration in `session/new`:
 ```json
@@ -37,21 +86,13 @@ mcp_servers:
     env: []
 ```
 
-### HTTP (optional capability)
+### HTTP (declared, not yet implemented)
 
-The agent advertises `mcpCapabilities.http: true` if HTTP MCP transport is supported.
-
-Configuration in `session/new`:
-```json
-{
-  "type": "http",
-  "name": "api-tools",
-  "url": "https://my-mcp.example.com/mcp",
-  "headers": [
-    { "name": "Authorization", "value": "Bearer token123" }
-  ]
-}
-```
+`type: http` with `url`/`headers` can be declared in both config levels and in ACP
+`session/new` params, but the connector currently rejects non-stdio transports: the agent
+advertises `mcpCapabilities.http: false`, sessions log a warning and skip such servers, and
+the management API lists them with status `unsupported`. URL-only `.coddy/mcp.json` entries
+are inferred as `http` and handled the same way.
 
 ## Tool Namespacing
 
@@ -61,15 +102,15 @@ tools are namespaced using the server name:
 - MCP server `filesystem` providing tool `read_file` -> available as `filesystem__read_file`
 - Built-in tool `read_file` -> available as `read_file`
 
-The LLM is informed of both names in the system prompt.
+Because `__` separates the server and tool parts, server names must not contain `__`
+(the management API rejects such names).
 
 ## Permission Model
 
-MCP tool calls follow the same permission model as built-in tools:
-- File reads: no permission required by default
-- File writes: configurable, default no permission required
-- Command execution: always requires permission (configurable)
-- Any tool tagged as `destructive`: always requires permission
+MCP tool calls are currently dispatched without the built-in permission prompts that guard
+filesystem writes and shell commands; the disable switches above are the mechanism for
+restricting what a server may do. Prefer running MCP servers with least-privilege
+credentials and disabling tools you do not need.
 
 ## Popular MCP Servers
 
@@ -113,9 +154,11 @@ mcp_servers:
 
 ## MCP Server Lifecycle
 
-1. On `session/new`, the agent spawns / connects to all configured MCP servers
+1. On `session/new`, the agent connects every enabled server from the merged
+   config.yaml + `.coddy/mcp.json` list, then any ACP client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
 3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+   (unless the tool or its server has been disabled since)
 4. Results are returned to the LLM as tool observations
 5. On session end or `session/cancel`, MCP server connections are cleaned up
 

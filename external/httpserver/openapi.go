@@ -863,6 +863,112 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/mcp": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List MCP servers",
+					"description": "Returns the merged MCP server list: **`mcp_servers`** from config.yaml overlaid with the project-local **`.coddy/mcp.json`** (Cursor-compatible; project entries override by name). Enabled stdio servers are probed for their tool inventory (spawn, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"operationId": "listMCPServers",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Set to `1` to bypass the probe cache.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "MCP server list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/MCPServerList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable an MCP server",
+					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.coddy/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"operationId": "enableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable an MCP server",
+					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"operationId": "disableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a single MCP tool",
+					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"operationId": "enableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a single MCP tool",
+					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.coddy/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"operationId": "disableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Create or update a project MCP server",
+					"description": "Upserts one named entry in the project-local **`.coddy/mcp.json`** (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). Either `command` (stdio) or `url` is required; names must not contain `__`. Config-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"operationId": "putMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPProjectServer"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server saved."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete a project MCP server",
+					"description": "Removes the named entry from **`.coddy/mcp.json`**. Servers defined in config.yaml are refused with 400.",
+					"operationId": "deleteMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server deleted."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/skills/sync": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Sync remote skill sources",
@@ -1209,6 +1315,58 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 				},
+				"MCPToolRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Tool name as advertised by the server."},
+						"description": map[string]string{"type": "string"},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the tool is in the server's disabled-tools list."},
+					},
+				},
+				"MCPServerRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":    map[string]interface{}{"type": "string", "enum": []string{"config", "project"}, "description": "File that owns the definition: config.yaml or .coddy/mcp.json."},
+						"transport": map[string]string{"type": "string", "description": "stdio or http (http is declared but not yet supported)."},
+						"command":   map[string]string{"type": "string"},
+						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":       map[string]string{"type": "string"},
+						"env":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"enabled":   map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":    map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (non-stdio transport)."},
+						"error":     map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported."},
+						"tools": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
+						},
+						"disabled_tools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
+				"MCPServerList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mcp_list"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
+						},
+					},
+				},
+				"MCPProjectServer": map[string]interface{}{
+					"type":        "object",
+					"description": "One .coddy/mcp.json entry (Cursor-compatible).",
+					"properties": map[string]interface{}{
+						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":           map[string]string{"type": "string", "description": "Remote endpoint (declared but not yet supported)."},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"disabled":      map[string]interface{}{"type": "boolean"},
+						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
 				"CoddyConfigJSON": map[string]interface{}{
 					"type":        "object",
 					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
@@ -1539,6 +1697,22 @@ func errorResponseRef() map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func mcpServerNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpToolNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "tool", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Tool name as advertised by the server.",
 	}
 }
 
