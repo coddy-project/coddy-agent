@@ -156,13 +156,22 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
 | `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Project-local servers can also be declared in `<workspace>/.coddy/mcp.json`, a
+Cursor-compatible file with a single `mcpServers` object keyed by server name
+(`env` and `headers` are JSON objects; per-tool switches use `disabledTools`).
+Project entries override same-named `mcp_servers` entries for sessions in that
+workspace. See `docs/mcp-integration.md`.
 
 ## `tools`
 

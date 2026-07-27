@@ -125,12 +125,19 @@ skills:
   # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
   auto_discovery: true
 
+# MCP servers connected for every new session. Project-local servers can also be
+# declared in <workspace>/.coddy/mcp.json (Cursor-compatible "mcpServers" object);
+# project entries override same-named servers from this list.
+# Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
   #   env: []
+  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
+  #   disabled: false
+  #   disabled_tools: ["write_file"]
 
   # Example: GitHub MCP server
   # - name: "github"
