@@ -5,6 +5,7 @@ export type SectionKind =
   | "object"
   | "group"
   | "skills"
+  | "mcp"
   | "appearance";
 
 export type SectionDescriptor = {
@@ -55,7 +56,6 @@ export const SYSTEM_KEYS = [
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
   providers: "name",
   models: "model",
-  mcp_servers: "name",
 };
 
 /**
@@ -118,6 +118,16 @@ export function deriveSettingsSections(
         label: sub.title || key,
         description: descFor(key, sub),
         kind: "skills",
+        schemaKey: key,
+      });
+      return;
+    }
+    if (key === "mcp_servers") {
+      out.push({
+        id: key,
+        label: sub.title || key,
+        description: descFor(key, sub),
+        kind: "mcp",
         schemaKey: key,
       });
       return;

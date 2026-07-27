@@ -3,6 +3,7 @@ import { applyModelsChange } from "./applyModelsChange";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
@@ -111,6 +112,13 @@ export function SettingsSection(props: {
         onChange={(v) => setKey("skills", v)}
       />
     );
+  }
+
+  // The MCP tab is API-driven (/coddy/mcp*): toggles and project entries
+  // persist into config.yaml / .coddy/mcp.json immediately, so it does not
+  // edit the settings document at all.
+  if (section.kind === "mcp") {
+    return <MCPSection />;
   }
 
   const key = section.schemaKey ?? section.id;
