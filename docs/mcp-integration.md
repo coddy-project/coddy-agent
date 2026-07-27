@@ -140,6 +140,21 @@ tools are namespaced using the server name:
 Because `__` separates the server and tool parts, server names must not contain `__`
 (the management API rejects such names).
 
+## How tools reach the model
+
+MCP tools are **not** injected into the system prompt text (unlike skills, which render
+into a prompt section). They join the built-in tools in the native function-calling
+`tools` array of every LLM request, one definition per enabled tool: name
+`server__tool`, the server's own `inputSchema`, and the description prefixed with
+`[server]` so the model can tell providers apart. When the model emits a tool call whose
+name contains `__`, the agent routes it to the owning server over its transport and
+returns the MCP result to the model as a regular tool observation - the same loop as
+built-in tools, and the same approach Claude Code, Codex, and Cursor use. The end-to-end
+happy path (two servers over stdio and streamable HTTP, the model picking one by its
+namespaced tool, the result landing in the final answer) is specified in
+`features/mcp_tool_calls.feature` for both the OpenAI-compatible HTTP surface and the
+ACP session flow.
+
 ## Permission Model
 
 MCP tool calls are currently dispatched without the built-in permission prompts that guard

@@ -64,17 +64,35 @@ func TestHelperMCPServerHTTP(t *testing.T) {
 				"serverInfo":      map[string]interface{}{"name": "fake-mcp", "version": "0.0.1"},
 			})
 		case "tools/list":
-			respond(req.ID, map[string]interface{}{"tools": []map[string]interface{}{{
-				"name":        "echo",
-				"description": "Echo text back",
-				"inputSchema": map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{"text": map[string]interface{}{"type": "string"}},
+			respond(req.ID, map[string]interface{}{"tools": []map[string]interface{}{
+				{
+					"name":        "echo",
+					"description": "Echo text back",
+					"inputSchema": map[string]interface{}{
+						"type":       "object",
+						"properties": map[string]interface{}{"text": map[string]interface{}{"type": "string"}},
+					},
 				},
-			}}})
+				{
+					"name":        "get_token",
+					"description": "Return this server's token",
+					"inputSchema": map[string]interface{}{"type": "object"},
+				},
+			}})
 		case "tools/call":
+			var params struct {
+				Name string `json:"name"`
+			}
+			_ = json.Unmarshal(req.Params, &params)
+			text := "ok"
+			if params.Name == "get_token" {
+				text = os.Getenv("MCP_HELPER_TOKEN")
+				if text == "" {
+					text = "NO-TOKEN"
+				}
+			}
 			respond(req.ID, map[string]interface{}{
-				"content": []map[string]interface{}{{"type": "text", "text": "ok"}},
+				"content": []map[string]interface{}{{"type": "text", "text": text}},
 			})
 		default:
 			respond(req.ID, nil)
