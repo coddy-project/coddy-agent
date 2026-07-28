@@ -16,6 +16,26 @@ import (
 
 const codexDeviceLoginTimeout = 15 * time.Minute
 
+// CodexIssuerURL is the official ChatGPT OAuth issuer used by the device flow.
+const CodexIssuerURL = "https://auth.openai.com"
+
+// CodexDeviceSignIn runs the whole device authorization flow: it requests the
+// user code, hands the verification instructions to onPrompt, waits for the
+// browser confirmation, and stores the credential at authPath. It is the
+// one-call entry point for callers without a UI to drive the two halves
+// separately (the CLI); the HTTP surface keeps using the split form so the
+// request can return the code before the wait.
+func CodexDeviceSignIn(ctx context.Context, issuer string, client *http.Client, authPath string, onPrompt func(CodexDeviceLogin)) error {
+	login, err := StartCodexDeviceLogin(ctx, issuer, client)
+	if err != nil {
+		return err
+	}
+	if onPrompt != nil {
+		onPrompt(login)
+	}
+	return CompleteCodexDeviceLogin(ctx, issuer, client, login, authPath)
+}
+
 // CodexDeviceLogin contains the public verification instructions plus the
 // private device identifier needed by CompleteCodexDeviceLogin.
 type CodexDeviceLogin struct {

@@ -169,9 +169,10 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "neuraldeep":
 		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "codex":
-		// Codex uses ChatGPT OAuth credentials. APIKey and BaseURL are intentionally
-		// ignored: OAuth tokens must only be sent to the official Codex backend.
-		inner = newCodexProvider(p.Model, p.AuthPath, codexDefaultBaseURL, hc, p.MaxTokens, p.ReasoningEffort)
+		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
+		// intentionally ignored: OAuth tokens go to the official Codex backend unless
+		// the process itself opts out through CODDY_CODEX_BASE_URL.
+		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
 	}

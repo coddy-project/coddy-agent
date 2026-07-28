@@ -49,7 +49,7 @@ func defaultModelListBaseURL(providerType string) string {
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	if in.Type == "codex" {
 		if strings.TrimSpace(in.AuthPath) != "" {
-			return listCodexModelsOnline(ctx, in, codexDefaultBaseURL)
+			return listCodexModelsOnline(ctx, in, codexBaseURL())
 		}
 		return listCodexModels()
 	}

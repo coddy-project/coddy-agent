@@ -80,7 +80,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		slashCache:           make(map[string]slashListCacheEntry),
-		codexAuthIssuer:      "https://auth.openai.com",
+		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)

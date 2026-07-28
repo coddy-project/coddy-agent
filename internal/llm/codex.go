@@ -33,7 +33,7 @@ type codexProvider struct {
 func newCodexProvider(model, authPath, baseURL string, httpClient *http.Client, _ int, reasoningEffort string) *codexProvider {
 	base := strings.TrimSpace(baseURL)
 	if base == "" {
-		base = codexDefaultBaseURL
+		base = codexBaseURL()
 	}
 	return &codexProvider{
 		auth:            newManagedCodexAuthSource(authPath, httpClient),

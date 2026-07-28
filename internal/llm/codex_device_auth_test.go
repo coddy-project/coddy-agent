@@ -20,6 +20,58 @@ func codexTestJWT(claims map[string]any) string {
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }
 
+// TestCodexDeviceSignInPromptsThenPersists covers the one-call sign-in used by
+// the CLI: the verification instructions must reach the caller BEFORE the flow
+// blocks on confirmation, and the credential lands at authPath.
+func TestCodexDeviceSignInPromptsThenPersists(t *testing.T) {
+	idToken := codexTestJWT(map[string]any{"chatgpt_account_id": "acct-cli"})
+	accessToken := codexTestJWT(map[string]any{"exp": 4_102_444_800})
+	prompted := make(chan CodexDeviceLogin, 1)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-cli","user_code":"CLI-CODE","interval":"0"}`)
+		case "/api/accounts/deviceauth/token":
+			// The device token is only issued once the caller has been prompted,
+			// mirroring a user who opens the page after seeing the code.
+			select {
+			case login := <-prompted:
+				prompted <- login
+			case <-r.Context().Done():
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"authorization_code":"code-cli","code_challenge":"challenge-cli","code_verifier":"verifier-cli"}`)
+		case "/oauth/token":
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"id_token": idToken, "access_token": accessToken, "refresh_token": "refresh-cli",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	authPath := filepath.Join(t.TempDir(), "providers", "codex", "codex-auth.json")
+	err := CodexDeviceSignIn(context.Background(), upstream.URL, upstream.Client(), authPath,
+		func(login CodexDeviceLogin) { prompted <- login })
+	if err != nil {
+		t.Fatalf("CodexDeviceSignIn: %v", err)
+	}
+
+	login := <-prompted
+	if login.UserCode != "CLI-CODE" || login.VerificationURL != upstream.URL+"/codex/device" {
+		t.Fatalf("prompt = %+v, want the user code and verification URL", login)
+	}
+	status, err := InspectCodexAuth(authPath)
+	if err != nil {
+		t.Fatalf("InspectCodexAuth: %v", err)
+	}
+	if !status.Connected || status.Source != "coddy" || status.AccountID != "acct-cli" {
+		t.Fatalf("status = %+v, want a connected coddy credential", status)
+	}
+}
+
 func TestCodexDeviceLoginExchangesAndPersistsTokens(t *testing.T) {
 	idToken := codexTestJWT(map[string]any{"chatgpt_account_id": "acct-web"})
 	accessToken := codexTestJWT(map[string]any{"exp": 4_102_444_800})

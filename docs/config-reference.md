@@ -66,7 +66,17 @@ providers:
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
 
-For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**. Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`).
+For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or run the terminal equivalent for ACP and headless setups:
+
+```bash
+coddy codex login    # device flow: prints a URL and a one-time code, then waits
+coddy codex status   # shows whether a credential is available and where it came from
+coddy codex logout   # removes the Coddy-managed credential (leaves the Codex CLI login alone)
+```
+
+Both paths use the same storage; `--provider NAME` targets a specific codex provider when `config.yaml` defines several. Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `CODDY_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
+
+Codex is only a model backend: the agent keeps Coddy's own system prompt, tool catalog, permissions, and ReAct loop, and the ChatGPT credential is used solely to authenticate the Responses calls (`features/codex_auth.feature` pins this on both the HTTP and ACP surfaces).
 
 ## `models`
 

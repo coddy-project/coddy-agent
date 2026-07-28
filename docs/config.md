@@ -18,6 +18,8 @@ Resolved locations use environment variables and flags (see README). In short:
 - **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`CODEX_HOME`** - Codex CLI state directory read by **`type: codex`** providers when no Coddy-managed credential exists. Default **`~/.codex`**.
+- **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 

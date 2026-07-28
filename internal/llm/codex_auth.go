@@ -56,6 +56,20 @@ type codexCredential struct {
 	AccountID   string
 }
 
+// EnvCodexBaseURL overrides the Codex backend endpoint for the whole process.
+// It exists for tests and for operators who front the official backend with
+// their own gateway; provider api_base stays ignored for codex, so a config
+// file can never redirect a ChatGPT OAuth token on its own.
+const EnvCodexBaseURL = "CODDY_CODEX_BASE_URL"
+
+// codexBaseURL returns the Codex backend base URL for this process.
+func codexBaseURL() string {
+	if v := strings.TrimSpace(os.Getenv(EnvCodexBaseURL)); v != "" {
+		return v
+	}
+	return codexDefaultBaseURL
+}
+
 // codexHome returns the Codex home directory (~/.codex), honoring CODEX_HOME.
 // Returns "" when the home directory cannot be determined.
 func codexHome() string {
@@ -77,6 +91,10 @@ func codexAuthPath() string {
 	}
 	return filepath.Join(home, "auth.json")
 }
+
+// CodexCLIAuthPath returns the Codex CLI credential path (~/.codex/auth.json,
+// honoring CODEX_HOME), or "" when the home directory cannot be determined.
+func CodexCLIAuthPath() string { return codexAuthPath() }
 
 // codexModelsCachePath returns the path to the Codex models cache, honoring CODEX_HOME.
 func codexModelsCachePath() string {
