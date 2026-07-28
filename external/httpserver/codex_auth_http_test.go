@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,6 +24,74 @@ func codexHTTPTestJWT(claims map[string]any) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
 	payload, _ := json.Marshal(claims)
 	return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+}
+
+// TestCodexAuthDeviceLoginDrains pins that a sign-in still waiting for browser
+// confirmation does not outlive the server: Drain must cancel it instead of
+// leaving a goroutine that writes credentials into a torn-down home directory.
+func TestCodexAuthDeviceLoginDrains(t *testing.T) {
+	home := t.TempDir()
+	var polls atomic.Int64
+	authUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			_, _ = fmt.Fprint(w, `{"device_auth_id":"device-drain","user_code":"DRAIN","interval":"0.01"}`)
+		case "/api/accounts/deviceauth/token":
+			// The user never confirms in the browser.
+			polls.Add(1)
+			w.WriteHeader(http.StatusForbidden)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer authUpstream.Close()
+
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), nil)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.codexAuthIssuer = authUpstream.URL
+	ts := httptest.NewServer(srv.Handler())
+
+	res, err := http.Post(ts.URL+"/coddy/providers/codex/codex-auth/device", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("start status = %d", res.StatusCode)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for polls.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("device login never polled the issuer")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	ts.Close()
+	done := make(chan struct{})
+	go func() {
+		srv.Drain()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Drain did not return: a pending Codex sign-in blocks shutdown")
+	}
+
+	// After Drain the sign-in must be gone, not merely unobserved.
+	settled := polls.Load()
+	time.Sleep(200 * time.Millisecond)
+	if got := polls.Load(); got != settled {
+		t.Fatalf("pending Codex sign-in kept polling after Drain (%d -> %d)", settled, got)
+	}
 }
 
 func TestCodexAuthDeviceHTTPFlow(t *testing.T) {

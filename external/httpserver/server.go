@@ -66,6 +66,7 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.cancelCodexAuthLogins()
 	s.bgWG.Wait()
 }
 

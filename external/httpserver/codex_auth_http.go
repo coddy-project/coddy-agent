@@ -21,6 +21,8 @@ type codexAuthLoginAttempt struct {
 	Connected    bool
 	Error        string
 	CreatedAt    time.Time
+	// cancel stops the waiting goroutine when the server drains.
+	cancel context.CancelFunc
 }
 
 type codexAuthLoginResponse struct {
@@ -30,6 +32,18 @@ type codexAuthLoginResponse struct {
 	Status          string `json:"status,omitempty"`
 	Connected       bool   `json:"connected"`
 	Error           string `json:"error,omitempty"`
+}
+
+// cancelCodexAuthLogins stops every sign-in still waiting for confirmation.
+// Called from Drain so shutdown does not wait out the device-flow timeout.
+func (s *Server) cancelCodexAuthLogins() {
+	s.codexAuthMu.Lock()
+	defer s.codexAuthMu.Unlock()
+	for _, attempt := range s.codexAuthLogins {
+		if attempt.cancel != nil {
+			attempt.cancel()
+		}
+	}
 }
 
 func (s *Server) registerCodexAuthRoutes() {
@@ -86,10 +100,17 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 		return
 	}
 	loginID := newCodexAuthLoginID()
-	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now()}
+	// The wait outlives this request but not the server: Drain cancels it, so a
+	// sign-in nobody confirms cannot keep polling or write into a home directory
+	// the caller has already torn down.
+	waitCtx, cancel := context.WithCancel(context.Background())
+	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel}
 	s.codexAuthMu.Lock()
 	for id, old := range s.codexAuthLogins {
 		if time.Since(old.CreatedAt) > 20*time.Minute {
+			if old.cancel != nil {
+				old.cancel()
+			}
 			delete(s.codexAuthLogins, id)
 		}
 	}
@@ -98,8 +119,11 @@ func (s *Server) coddyProviderCodexAuthDevicePost(w http.ResponseWriter, r *http
 
 	authPath := config.CodexAuthPath(s.activeCfg().Paths.Home, name)
 	issuer := s.codexAuthIssuer
+	s.bgWG.Add(1)
 	go func() {
-		err := llm.CompleteCodexDeviceLogin(context.Background(), issuer, client, login, authPath)
+		defer s.bgWG.Done()
+		defer cancel()
+		err := llm.CompleteCodexDeviceLogin(waitCtx, issuer, client, login, authPath)
 		s.codexAuthMu.Lock()
 		defer s.codexAuthMu.Unlock()
 		if err != nil {
