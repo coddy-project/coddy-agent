@@ -383,7 +383,7 @@ func UISchemaMap() map[string]interface{} {
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"output_limits": objectSchema("Tool output limits",
-					"Maximum lines each tool may return into the LLM context so one call cannot overflow the window. 0 means unlimited; unset uses the built-in default.",
+					"Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
 					map[string]interface{}{
 						"read":            intProp("read", "Max lines for a read file page or directory listing (default 1000)."),
 						"grep":            intProp("grep", "Max path:line:content records from grep (default 200)."),

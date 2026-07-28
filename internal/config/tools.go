@@ -25,15 +25,15 @@ type Tools struct {
 	// SSHConnectTimeout is the TCP dial timeout for SSH connections in seconds (default: 30).
 	SSHConnectTimeout int `yaml:"ssh_connect_timeout"`
 
-	// OutputLimits caps how many lines each tool may return into the LLM context,
-	// so a single call (a huge file read, a wide grep) cannot overflow the window
-	// on the first message.
+	// OutputLimits caps how many lines each tool result or error may return into
+	// the LLM context. Enabled limits also activate the tooling-layer hard byte
+	// safety ceiling so a huge single line cannot bypass them.
 	OutputLimits ToolOutputLimits `yaml:"output_limits"`
 }
 
-// Defaults for tools.output_limits (maximum lines a tool result may contribute to
-// the LLM context; 0 means unlimited). Derived empirically from typical per-line
-// token density so any single first-message tool result stays in a safe band.
+// Defaults for tools.output_limits (maximum lines a tool result or error may
+// contribute to the LLM context; 0 disables both line and byte limits). Derived
+// empirically from typical per-line token density.
 const (
 	OutputLimitDefaultRead          = 1000
 	OutputLimitDefaultGrep          = 200
@@ -46,9 +46,9 @@ const (
 	OutputLimitDefaultDefault       = 1000
 )
 
-// ToolOutputLimits is the YAML tools.output_limits section: per-tool ceilings on
-// the number of lines a result may contribute to the LLM context. Pointer fields
-// keep the unset (use default) versus explicit-zero (unlimited) distinction.
+// ToolOutputLimits is the YAML tools.output_limits section: per-tool line
+// ceilings for results and errors. Any positive limit also activates the shared
+// hard byte ceiling. Pointer fields preserve unset versus explicit zero.
 type ToolOutputLimits struct {
 	Read          *int `yaml:"read"`
 	Grep          *int `yaml:"grep"`
@@ -66,7 +66,7 @@ type ToolOutputLimits struct {
 const outputLimitDefaultKey = ""
 
 // MaxLines returns the effective line ceiling for a tool, applying the built-in
-// default when the field is unset. 0 means unlimited.
+// default when the field is unset. 0 disables both line and byte limits.
 func (l *ToolOutputLimits) MaxLines(tool string) int {
 	if l == nil {
 		return 0

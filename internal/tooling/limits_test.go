@@ -2,6 +2,7 @@ package tooling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -69,6 +70,21 @@ func TestTruncateLinesTrailingNewlineNotCountedTwice(t *testing.T) {
 	}
 }
 
+func TestTruncateLinesCapsSingleHugeLine(t *testing.T) {
+	t.Parallel()
+	in := strings.Repeat("x", 1<<20)
+	got := TruncateLines(in, 1000, "tools.output_limits.default")
+	if got == in {
+		t.Fatal("single-line output bypassed the enabled output limit")
+	}
+	if len(got) >= len(in) {
+		t.Fatalf("truncated result has %d bytes, input has %d", len(got), len(in))
+	}
+	if !strings.Contains(got, "[output truncated:") {
+		t.Fatalf("missing truncation marker: %q", got[len(got)-100:])
+	}
+}
+
 // stubTool records the args it saw and returns a fixed multi-line output.
 func stubTool(name string, lines int) *Tool {
 	return &Tool{
@@ -102,6 +118,34 @@ func TestRegistryExecuteAppliesOutputLimit(t *testing.T) {
 	}
 	if got := strings.Count(out, "\n") + 1; got != 8 { // 7 lines + marker
 		t.Fatalf("mystery result lines = %d, want 8", got)
+	}
+}
+
+func TestRegistryExecuteAppliesOutputLimitToErrors(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New(strings.Repeat("failure", 1<<17))
+	r := NewRegistry()
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{Name: "failing"},
+		Execute: func(context.Context, string, *Env) (string, error) {
+			return "", sentinel
+		},
+	})
+
+	_, err := r.Execute(context.Background(), "failing", "{}", &Env{
+		OutputLineLimits: map[string]int{"": 1000},
+	})
+	if err == nil {
+		t.Fatal("expected tool error")
+	}
+	if err.Error() == sentinel.Error() {
+		t.Fatal("single-line tool error bypassed the enabled output limit")
+	}
+	if !strings.Contains(err.Error(), "[output truncated:") {
+		t.Fatalf("limited error missing marker: %q", err)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Fatal("limiting the error must preserve errors.Is")
 	}
 }
 

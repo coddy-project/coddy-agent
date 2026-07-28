@@ -387,7 +387,7 @@
         "output_limits": {
           "type": "object",
           "title": "Tool output limits",
-          "description": "Maximum lines each tool may return into the LLM context, so a single call (a huge file read, a wide grep) cannot overflow the window. 0 means unlimited. Unset fields fall back to the built-in defaults.",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults.",
           "additionalProperties": false,
           "properties": {
             "read": {

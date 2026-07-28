@@ -185,11 +185,11 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
-| `output_limits` | object | no | — | Per-tool ceilings on how many lines a result may contribute to the LLM context, so one call (a huge file read, a wide grep) cannot overflow the window on the first message. See below. |
+| `output_limits` | object | no | — | Per-tool ceilings on how many lines a result or error may contribute to the LLM context, plus a byte safety ceiling while enabled. See below. |
 
 ### `tools.output_limits`
 
-Maximum lines a tool result may return into the LLM context (`config.ToolOutputLimits`). `0` means unlimited; an unset field falls back to the built-in default. Truncated output ends with a marker telling the model how to fetch the rest (`offset`/`limit` for `read`, a narrower pattern for `grep`, `page` for `websearch`).
+Maximum lines a tool result or error may return into the LLM context (`config.ToolOutputLimits`). Every enabled line limit also applies a hard **64 KiB per-call byte ceiling**, preventing a minified file, base64 payload, or one-line MCP response from bypassing the guard. `0` disables both limits for that tool; an unset field falls back to the built-in default. Truncated output ends with a marker telling the model how to fetch the rest (`offset`/`limit` for `read`, a narrower pattern for `grep`, `page` for `websearch`).
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|

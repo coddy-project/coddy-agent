@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
@@ -57,19 +58,21 @@ type evReadResult struct {
 type evGrepResult struct {
 	msgIdx     int
 	pattern    string
-	searchPath string              // absolute; the search root
+	searchPath string // absolute; the search root
 	keep       bool
 	outPaths   map[string]struct{} // absolute paths appearing in the output
 }
 
 type evReadPin struct {
-	path  string
-	start int
-	end   int
-	whole bool // no range: pins the whole file
+	msgIdx int
+	path   string
+	start  int
+	end    int
+	whole  bool // no range: pins the whole file
 }
 
 type evGrepPin struct {
+	msgIdx     int
 	pattern    string
 	searchPath string // "" matches any search path
 }
@@ -91,33 +94,39 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 		return history
 	}
 
-	callByID := toolCallsByID(history)
-
 	var reads []evReadResult
 	var greps []evGrepResult
 	var readPins []evReadPin
 	var grepPins []evGrepPin
 	var writes []evWrite
+	pendingCalls := make(map[string]llm.ToolCall)
 
 	for i := range history {
 		m := history[i]
-		// Collect pins and write targets announced by assistant tool calls.
+		// Track calls in message order so providers that reuse IDs on later turns
+		// cannot relabel an earlier result during projection.
 		for _, tc := range m.ToolCalls {
-			switch {
-			case tc.Name == "keep_result":
-				addKeepResultPin(tc.InputJSON, opt.CWD, &readPins, &grepPins)
-			case filesystemWriteTool(tc.Name):
-				for _, p := range writeTargets(tc.Name, tc.InputJSON, opt.CWD) {
-					writes = append(writes, evWrite{msgIdx: i, path: p})
-				}
+			if id := strings.TrimSpace(tc.ID); id != "" {
+				pendingCalls[id] = tc
+			}
+			if tc.Name == "keep_result" {
+				addKeepResultPin(i, tc.InputJSON, opt.CWD, &readPins, &grepPins)
 			}
 		}
 		if m.Role != llm.RoleTool {
 			continue
 		}
-		call, ok := callByID[m.ToolCallID]
+		call, ok := pendingCalls[m.ToolCallID]
 		if !ok {
 			continue
+		}
+		delete(pendingCalls, m.ToolCallID)
+		// Only completed mutations make prior observations stale. Permission
+		// denials, tool errors, and loop-guard placeholders leave files untouched.
+		if filesystemWriteTool(call.Name) && writeResultSucceeded(m.Content) {
+			for _, p := range writeTargets(call.Name, call.InputJSON, opt.CWD) {
+				writes = append(writes, evWrite{msgIdx: i, path: p})
+			}
 		}
 		// Skip tiny results: not worth a placeholder, and they do not consume the
 		// working-window budget.
@@ -181,17 +190,12 @@ func pruneToolResults(history []llm.Message, opt resultEvictionOptions) []llm.Me
 	return out
 }
 
-// toolCallsByID maps a tool_call_id to the assistant tool call that announced it.
-func toolCallsByID(history []llm.Message) map[string]llm.ToolCall {
-	out := make(map[string]llm.ToolCall)
-	for i := range history {
-		for _, tc := range history[i].ToolCalls {
-			if strings.TrimSpace(tc.ID) != "" {
-				out[tc.ID] = tc
-			}
-		}
+func writeResultSucceeded(content string) bool {
+	switch strings.TrimSpace(content) {
+	case "", "permission denied by user", toolLoopNudge, toolLoopSkippedResult:
+		return false
 	}
-	return out
+	return !strings.HasPrefix(strings.TrimSpace(content), "error:")
 }
 
 func parseReadResult(msgIdx int, argsJSON, cwd string) evReadResult {
@@ -258,7 +262,7 @@ func grepOutputPaths(content, searchPath string) map[string]struct{} {
 }
 
 // addKeepResultPin routes a keep_result call to the read or grep pin list.
-func addKeepResultPin(argsJSON, cwd string, readPins *[]evReadPin, grepPins *[]evGrepPin) {
+func addKeepResultPin(msgIdx int, argsJSON, cwd string, readPins *[]evReadPin, grepPins *[]evGrepPin) {
 	var a struct {
 		Path    string `json:"path"`
 		Offset  int    `json:"offset"`
@@ -271,7 +275,7 @@ func addKeepResultPin(argsJSON, cwd string, readPins *[]evReadPin, grepPins *[]e
 		if strings.TrimSpace(a.Path) != "" {
 			sp = absPath(a.Path, cwd)
 		}
-		*grepPins = append(*grepPins, evGrepPin{pattern: a.Pattern, searchPath: sp})
+		*grepPins = append(*grepPins, evGrepPin{msgIdx: msgIdx, pattern: a.Pattern, searchPath: sp})
 		return
 	}
 	if strings.TrimSpace(a.Path) == "" {
@@ -286,10 +290,11 @@ func addKeepResultPin(argsJSON, cwd string, readPins *[]evReadPin, grepPins *[]e
 		end = start + a.Limit - 1
 	}
 	*readPins = append(*readPins, evReadPin{
-		path:  absPath(a.Path, cwd),
-		start: start,
-		end:   end,
-		whole: a.Offset <= 0 && a.Limit <= 0,
+		msgIdx: msgIdx,
+		path:   absPath(a.Path, cwd),
+		start:  start,
+		end:    end,
+		whole:  a.Offset <= 0 && a.Limit <= 0,
 	})
 }
 
@@ -360,7 +365,7 @@ func recentCandidateWindow(reads []evReadResult, greps []evGrepResult, keepRecen
 
 func readPinned(r evReadResult, pins []evReadPin) bool {
 	for _, p := range pins {
-		if p.path != r.path {
+		if p.msgIdx <= r.msgIdx || !pathsEqual(p.path, r.path) {
 			continue
 		}
 		if p.whole || rangesOverlap(r.start, r.end, p.start, p.end) {
@@ -372,10 +377,10 @@ func readPinned(r evReadResult, pins []evReadPin) bool {
 
 func grepPinned(g evGrepResult, pins []evGrepPin) bool {
 	for _, p := range pins {
-		if p.pattern != g.pattern {
+		if p.msgIdx <= g.msgIdx || p.pattern != g.pattern {
 			continue
 		}
-		if p.searchPath == "" || p.searchPath == g.searchPath {
+		if p.searchPath == "" || pathsEqual(p.searchPath, g.searchPath) {
 			return true
 		}
 	}
@@ -396,7 +401,7 @@ func rangesOverlap(aStart, aEnd, bStart, bEnd int) bool {
 
 func staleReadWrite(r evReadResult, writes []evWrite) (evWrite, bool) {
 	for _, w := range writes {
-		if w.msgIdx > r.msgIdx && w.path == r.path {
+		if w.msgIdx > r.msgIdx && pathsRelated(w.path, r.path) {
 			return w, true
 		}
 	}
@@ -408,14 +413,46 @@ func staleGrepWrite(g evGrepResult, writes []evWrite) (evWrite, bool) {
 		if w.msgIdx <= g.msgIdx {
 			continue
 		}
-		if w.path == g.searchPath {
+		if pathsRelated(w.path, g.searchPath) {
 			return w, true
 		}
-		if _, ok := g.outPaths[w.path]; ok {
-			return w, true
+		for p := range g.outPaths {
+			if pathsRelated(w.path, p) {
+				return w, true
+			}
 		}
 	}
 	return evWrite{}, false
+}
+
+func pathsEqual(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// pathsRelated reports whether two mutation/read targets are equal or one is
+// nested below the other. This invalidates directory listings and child reads
+// when a directory is created, removed, or moved.
+func pathsRelated(a, b string) bool {
+	return pathWithin(a, b) || pathWithin(b, a)
+}
+
+func pathWithin(path, dir string) bool {
+	path = filepath.Clean(path)
+	dir = filepath.Clean(dir)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+		dir = strings.ToLower(dir)
+	}
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // absPath resolves p against cwd and returns a cleaned absolute path.

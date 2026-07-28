@@ -178,9 +178,9 @@ tools:
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
-  # Per-tool ceilings on how many lines a result may add to the LLM context, so a
-  # single call (a huge read, a wide grep) cannot overflow the window. 0 = unlimited.
-  # Truncated output ends with a marker telling the model how to fetch the rest.
+  # Per-tool ceilings on how many lines a result or error may add to the LLM
+  # context. Enabled limits also impose a 64 KiB safety ceiling so a huge single
+  # line cannot bypass them. 0 = unlimited. Truncated output ends with a marker.
   # output_limits:
   #   read: 1000            # file page / directory listing
   #   grep: 200             # path:line:content records

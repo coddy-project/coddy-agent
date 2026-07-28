@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -139,6 +140,26 @@ func TestPruneKeepResultPinOverlappingRange(t *testing.T) {
 	}
 }
 
+func TestPruneKeepResultDoesNotPinFutureReads(t *testing.T) {
+	in := []llm.Message{
+		asstRead("a", "big.go", 1, 500, false),
+		toolResult("a", bigBody("PAGE-A")),
+		asstKeepResult("k", map[string]interface{}{"path": "big.go", "offset": 1, "limit": 500}),
+		toolResult("k", "marked as useful"),
+		asstRead("b", "big.go", 1, 500, false),
+		toolResult("b", bigBody("PAGE-B")),
+		asstRead("c", "other.go", 1, 500, false),
+		toolResult("c", bigBody("PAGE-C")),
+	}
+	out := pruneToolResults(in, defaultOpts())
+	if !strings.Contains(contentByID(out, "a"), "PAGE-A") {
+		t.Fatalf("the earlier explicitly pinned page must survive: %q", contentByID(out, "a"))
+	}
+	if !evicted(contentByID(out, "b")) {
+		t.Fatalf("a pin must not retain a later matching read: %q", contentByID(out, "b"))
+	}
+}
+
 func TestPruneTwoPinsOneFile(t *testing.T) {
 	in := []llm.Message{
 		asstRead("a", "big.go", 1, 100, false),
@@ -187,6 +208,81 @@ func TestPruneMoveInvalidatesRead(t *testing.T) {
 	}
 }
 
+func TestPruneDirectoryMutationInvalidatesRelatedReads(t *testing.T) {
+	tests := []struct {
+		name  string
+		read  llm.Message
+		write llm.Message
+	}{
+		{
+			name:  "child write invalidates directory listing",
+			read:  asstRead("a", "pkg", 0, 0, true),
+			write: asstWrite("w", "write", filepath.Join("pkg", "new.go")),
+		},
+		{
+			name:  "directory move invalidates child read",
+			read:  asstRead("a", filepath.Join("pkg", "file.go"), 1, 500, true),
+			write: asstMove("w", "pkg", "renamed"),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := defaultOpts()
+			opts.KeepRecent = 0
+			in := []llm.Message{
+				tc.read,
+				toolResult("a", bigBody("PAGE-A")),
+				tc.write,
+				toolResult("w", "written"),
+			}
+			out := pruneToolResults(in, opts)
+			if !evicted(contentByID(out, "a")) {
+				t.Fatalf("related filesystem mutation must invalidate the read: %q", contentByID(out, "a"))
+			}
+		})
+	}
+}
+
+func TestPruneWindowsPathCaseDoesNotHideWrite(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows path comparison")
+	}
+	opts := defaultOpts()
+	opts.KeepRecent = 0
+	in := []llm.Message{
+		asstRead("a", filepath.Join("PKG", "File.go"), 1, 500, true),
+		toolResult("a", bigBody("PAGE-A")),
+		asstWrite("w", "write", filepath.Join("pkg", "file.go")),
+		toolResult("w", "written"),
+	}
+	out := pruneToolResults(in, opts)
+	if !evicted(contentByID(out, "a")) {
+		t.Fatalf("case-only path differences must not hide a write: %q", contentByID(out, "a"))
+	}
+}
+
+func TestPruneFailedWriteDoesNotInvalidateRead(t *testing.T) {
+	opts := defaultOpts()
+	opts.KeepRecent = 0
+	for _, result := range []string{
+		"error: edit: old_string not found",
+		"permission denied by user",
+		toolLoopNudge,
+		toolLoopSkippedResult,
+	} {
+		in := []llm.Message{
+			asstRead("a", "big.go", 1, 500, true),
+			toolResult("a", bigBody("PAGE-A")),
+			asstWrite("w", "edit", "big.go"),
+			toolResult("w", result),
+		}
+		out := pruneToolResults(in, opts)
+		if evicted(contentByID(out, "a")) {
+			t.Fatalf("unsuccessful write result %q invalidated the read", result)
+		}
+	}
+}
+
 func TestPruneGrepUnmarkedEvictedKeepSurvives(t *testing.T) {
 	in := []llm.Message{
 		asstGrep("g1", "handleFoo", "", false),
@@ -222,6 +318,22 @@ func TestPruneGrepStaleAfterWriteToMatchedFile(t *testing.T) {
 	}
 }
 
+func TestPruneGrepStaleAfterWriteBelowSearchRoot(t *testing.T) {
+	opts := defaultOpts()
+	opts.KeepRecent = 0
+	in := []llm.Message{
+		asstGrep("g", "handleFoo", "pkg", true),
+		toolResult("g", grepBody("handleFoo", filepath.Join("pkg", "existing.go"))),
+		asstWrite("w", "write", filepath.Join("pkg", "new.go")),
+		toolResult("w", "written"),
+	}
+	out := pruneToolResults(in, opts)
+	got := contentByID(out, "g")
+	if !evicted(got) || !strings.Contains(got, "stale after") {
+		t.Fatalf("a write below the grep root can change its matches: %q", got)
+	}
+}
+
 func TestPruneGrepNotStaleAfterUnrelatedWrite(t *testing.T) {
 	// keep_recent 0 so the grep is not shielded by the working window; only
 	// staleness or a mark could evict it, and neither applies here (unrelated
@@ -229,9 +341,9 @@ func TestPruneGrepNotStaleAfterUnrelatedWrite(t *testing.T) {
 	opts := defaultOpts()
 	opts.KeepRecent = 0
 	in := []llm.Message{
-		asstGrep("g", "handleFoo", "", true),
-		toolResult("g", grepBody("handleFoo", "a.go")),
-		asstWrite("w", "edit", "unrelated.go"),
+		asstGrep("g", "handleFoo", "pkg", true),
+		toolResult("g", grepBody("handleFoo", filepath.Join("pkg", "a.go"))),
+		asstWrite("w", "edit", filepath.Join("other", "unrelated.go")),
 		toolResult("w", "written"),
 	}
 	out := pruneToolResults(in, opts)
