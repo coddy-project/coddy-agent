@@ -42,8 +42,8 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint. |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which always use fixed official endpoints. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
@@ -62,7 +62,27 @@ providers:
   - name: neuraldeep
     type: neuraldeep
     api_key: "${NEURALDEEP_API_KEY}"
+  - name: codex
+    type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
+
+For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or run the terminal equivalent for ACP and headless setups:
+
+```bash
+coddy codex login    # device flow: prints a URL and a one-time code, then waits
+coddy codex status   # shows whether a credential is available and where it came from
+coddy codex logout   # removes the Coddy-managed credential (leaves the Codex CLI login alone)
+```
+
+Both paths use the same storage; `--provider NAME` targets a specific codex provider when `config.yaml` defines several. Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `CODDY_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
+
+Codex is only a model backend: the agent keeps Coddy's own system prompt, tool catalog, permissions, and ReAct loop, and the ChatGPT credential is used solely to authenticate the Responses calls (`features/codex_auth.feature` pins this on both the HTTP and ACP surfaces).
+
+**Token lifetime.** The access token is refreshed transparently shortly before it expires, and the refreshed tokens are written back to the file they came from. When the credential is the Codex CLI login, that file is `~/.codex/auth.json` itself - the same file the `codex` CLI reads, so both tools keep working off one login, and a refresh performed by Coddy is visible to the CLI (and vice versa). A Coddy-managed credential is refreshed in place under `$CODDY_HOME/providers/<name>/` and never touches the CLI login. Signing out (`coddy codex logout`, or **Sign Out** in Settings) removes only the Coddy-managed file.
+
+**Startup report.** When at least one `type: codex` provider is configured, `coddy acp` and `coddy http` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `coddy codex login`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
+
+**Reasoning.** The Codex backend serves `gpt-5*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /coddy/sessions/{id}/messages`.
 
 ## `models`
 
@@ -71,7 +91,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `model` | string | **yes** | — | `"provider_name/api_model_id"`. First segment must match a `providers[].name`; the remainder is sent to the API verbatim (may contain slashes). |
-| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. |
+| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. Ignored by `codex`, whose backend rejects `max_output_tokens`. |
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |

@@ -309,7 +309,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := ent.ResolvedReasoningLevels()
+	levels := cfg.ReasoningLevelsFor(ent)
 	if len(levels) == 0 {
 		return ""
 	}
@@ -321,7 +321,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 			return sel
 		}
 	}
-	return ent.DefaultReasoningLevel()
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.

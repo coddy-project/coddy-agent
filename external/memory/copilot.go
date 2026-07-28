@@ -79,6 +79,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   rm.MaxTokens,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))

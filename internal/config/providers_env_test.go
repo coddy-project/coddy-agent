@@ -119,6 +119,18 @@ func TestValidateProviderNamePattern(t *testing.T) {
 	}
 }
 
+func TestValidateProviderAcceptsCodexType(t *testing.T) {
+	// Codex reads credentials from ~/.codex/auth.json, so no api_key is required.
+	p := &ProviderConfig{Name: "codex", Type: "codex"}
+	p.Normalize()
+	if err := p.Validate(); err != nil {
+		t.Fatalf("codex provider type should validate: %v", err)
+	}
+	if _, ok := AllowedLLMProviderTypes["codex"]; !ok {
+		t.Fatal("codex missing from AllowedLLMProviderTypes")
+	}
+}
+
 func TestLoadYAMLProviderEmptyAPIKeyStoredEmptyResolveUsesEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(EnvCODDYHome, home)

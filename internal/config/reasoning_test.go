@@ -72,6 +72,50 @@ func TestDefaultReasoningLevel(t *testing.T) {
 	}
 }
 
+// TestReasoningLevelsForCodexProvider pins the provider-aware level list: the
+// Codex backend serves gpt-5* ids but rejects the "minimal" tier they normally
+// imply, so a codex-backed model must offer "none" instead.
+func TestReasoningLevelsForCodexProvider(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "codex", Type: "codex"},
+			{Name: "openai", Type: "openai"},
+		},
+		Models: []config.ModelEntry{
+			{Model: "codex/gpt-5.5"},
+			{Model: "openai/gpt-5"},
+			{Model: "codex/gpt-5.4", ReasoningLevels: []string{"minimal", "high"}, ReasoningDefault: "minimal"},
+		},
+	}
+	cases := []struct {
+		model     string
+		want      []string
+		wantOwner string
+	}{
+		{"codex/gpt-5.5", []string{"none", "low", "medium", "high"}, "codex"},
+		{"openai/gpt-5", []string{"minimal", "low", "medium", "high"}, "openai"},
+		{"codex/gpt-5.4", []string{"none", "high"}, "codex"},
+	}
+	for _, c := range cases {
+		ent := cfg.FindModelEntry(c.model)
+		if ent == nil {
+			t.Fatalf("model %q not found", c.model)
+		}
+		if got := cfg.ReasoningLevelsFor(ent); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: ReasoningLevelsFor = %v, want %v", c.model, got, c.want)
+		}
+	}
+	// An explicit "minimal" default follows the same remap, so it stays selectable.
+	ent := cfg.FindModelEntry("codex/gpt-5.4")
+	if got := cfg.DefaultReasoningLevelFor(ent); got != "none" {
+		t.Errorf("codex default = %q, want none", got)
+	}
+	openaiEnt := cfg.FindModelEntry("openai/gpt-5")
+	if got := cfg.ReasoningLevelsFor(openaiEnt); got[0] != config.ReasoningMinimal {
+		t.Errorf("non-codex provider must keep minimal, got %v", got)
+	}
+}
+
 func TestModelEntryReasoningParsedFromYAML(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `
