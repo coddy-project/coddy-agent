@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 # Full field reference: docs/config-reference.md
 
 # .env file support
@@ -85,11 +85,27 @@ agent:
   model: "openai/gpt-4o"
   max_turns: 30
   max_tokens_per_turn: 200000
+  # Runaway-loop protection. Cuts a streamed response that degenerates into
+  # repeating the same passage, and blocks a tool requested over and over with
+  # identical arguments. The model is nudged back on track first; only a turn
+  # that keeps looping is stopped with a notice.
+  # loop_guard: true
+  # loop_tool_repeat_limit: 3     # identical tool calls in a row before intervening (0 disables)
+  # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
+  # loop_nudge_max: 2             # nudges before the turn is stopped
 
 sessions:
   # Directory to store session bundles.
   # Leave empty to use default $CODDY_HOME/sessions.
   dir: ""
+
+# Context compaction: summarize older history so long sessions keep fitting the
+# model context window. Manual /compact command plus automatic trigger.
+# compaction:
+#   enabled: true            # master switch (manual command and automation)
+#   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
+#   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+#   model: ""                # optional models[].model for the summarizer; empty = session model
 
 prompts:
   # Directory containing prompt templates (Go text/template).
@@ -106,13 +122,34 @@ skills:
   # Searched in order. When empty, defaults are
   # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
   dirs: []
+  # sources lists remote skill sources installed on demand with `coddy skills sync`
+  # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
+  # a git URL, or an http(s) URL to an agents-standard marketplace.json.
+  # sources:
+  #   - "EvilFreelancer/rpa-skills"
+  #   - "https://example.com/skills/marketplace.json"
+  sources: []
+  # auto_discovery offers the model-driven load_skill tool so the agent can pull a
+  # catalogued skill's full instructions into a turn on its own when the request
+  # matches (like Codex / Claude Code / Cursor), instead of only when you type /name.
+  # Defaults to true; set false to keep skills manual-only. Also settable via the
+  # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
+  auto_discovery: true
 
+# MCP servers connected for every new session (the "global" scope, together with
+# ~/.coddy/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
+# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.coddy/mcp.json
+# (the "local" scope). Later levels override same-named servers from earlier ones.
+# Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
   #   env: []
+  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
+  #   disabled: false
+  #   disabled_tools: ["write_file"]
 
   # Example: GitHub MCP server
   # - name: "github"
@@ -150,6 +187,28 @@ tools:
 # httpserver:
 #   host: "127.0.0.1"
 #   port: 8080
+#   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
+#   # "Authorization: Bearer <token>". Prefer --auth-token / CODDY_HTTP_TOKEN to keep the
+#   # secret out of this file; a "${ENV}" reference works too. Never returned by GET /coddy/config.
+#   auth_token: "${CODDY_HTTP_TOKEN}"
+#   public_docs: false      # when auth is on, keep /docs and /openapi.* reachable without a token
+#   allow_insecure: false   # silence the "reachable without auth" warning on a non-loopback bind
+#   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
+#   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*".
+#   cors:
+#     enabled: false
+#     allowed_origins: ["http://localhost:12345"]
+#   # Remote coddy http servers offered in the UI environment selector. Tokens are NOT stored here;
+#   # the UI keeps them client-side per remote.
+#   remotes:
+#     - name: "prod box"
+#       url: "https://box.example:12345"
+
+# Embedded web UI (only with -tags http,ui). Set enabled: false to run an API-only server
+# (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
+# requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
+# ui:
+#   enabled: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule

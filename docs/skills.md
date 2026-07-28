@@ -57,6 +57,84 @@ You can also browse and install through the Coddy web UI: **Settings → Skills 
 
 ---
 
+## Install from a repository or marketplace API (agents standard)
+
+Coddy can fetch skills itself, without any external CLI, from a **GitHub repo**, a **git URL**, or an **http(s) URL** to an [agents-standard](https://agents.md) `marketplace.json`. Configure sources under `skills.sources` and install them on demand — nothing is fetched automatically.
+
+```yaml
+skills:
+  sources:
+    - "EvilFreelancer/rpa-skills"                    # owner/repo shorthand (GitHub)
+    - "artwist-polyakov/polyakov-claude-skills"      # a marketplace monorepo
+    - "owner/repo@v1.2"                              # pin a branch or tag
+    - "https://github.com/owner/single-skill.git"    # any git URL
+    - "https://example.com/skills/marketplace.json"  # an API marketplace URL
+```
+
+### The `plugin` command (CLI and `/plugin` in chat)
+
+Plugin and marketplace management uses one command surface, available identically as the
+`coddy plugin ...` CLI and the built-in `/plugin` chat command (a deterministic slash command that
+runs without an LLM turn, like `/compact`):
+
+```bash
+coddy plugin marketplace list                         # configured marketplaces + validity status
+coddy plugin marketplace add <owner/repo | url>       # register a marketplace and fetch its skills
+coddy plugin marketplace remove <owner/repo | url>    # drop a marketplace from config.yaml
+coddy plugin marketplace sync [owner/repo | url]      # refresh all marketplaces, or just one
+coddy plugin install <owner/repo | url>               # install (and update) a marketplace's skills
+coddy plugin remove <name>                             # delete an installed skill (bundled = read-only)
+coddy plugin enable <name>   |   plugin disable <name> # toggle a skill
+coddy plugin list                                      # installed skills with versions
+```
+
+In chat, the same words follow `/plugin`, e.g. `/plugin marketplace add EvilFreelancer/rpa-skills`,
+`/plugin install owner/repo`, `/plugin marketplace list`. `marketplace add` accepts both a GitHub
+`owner/repo` shorthand and a direct git or `marketplace.json` URL. `marketplace list` probes each
+source and reports whether it is a **valid marketplace** (agents standard, with its name, version, and
+plugin count), a repo with **no marketplace.json** (skills discovered directly), or **unreachable**.
+
+The lower-level `coddy skills` commands remain for skill files themselves:
+
+```bash
+coddy skills list                                      # all skills (with a VERSION column)
+coddy skills enable <name>  |  disable <name>
+coddy skills add <src>  |  sync  |  remove <name>      # remote source install (see below)
+```
+
+Three surfaces stay in parity — pick whichever fits:
+
+- **CLI** — `coddy plugin ...` (and `coddy skills ...`).
+- **Chat** — the `/plugin ...` command.
+- **Web UI** — **Settings → Skills → Remote skill sources** (add a source, **Sync**, remove a source,
+  **Refresh** to check versions, and a per-skill **Update** button when a newer version exists).
+
+### Versions and updates
+
+A marketplace `marketplace.json` may declare a `version` per plugin (semantic version), and a skill's
+`SKILL.md` frontmatter may carry its own `version:`. Coddy records the installed version in the
+`${CODDY_HOME}/skills/.remote.json` lockfile and shows it in `coddy skills list`, `coddy plugin list`,
+the HTTP skill rows, and the Settings UI. `coddy plugin marketplace sync` (or the UI **Refresh**
+button, backed by `GET /coddy/skills/updates`) re-reads each source's manifest and reports which skills
+have a newer version upstream; the per-skill **Update** button (or `POST /coddy/skills/{name}/update`)
+re-syncs just that skill's source to install it. Version-less plugins are shown without a version and
+are never flagged for updates (no false positives).
+
+### How a source is resolved
+
+1. `owner/repo` shorthands and git URLs are cloned (`git clone --depth 1`, refreshed with `git pull --ff-only`); an API URL is downloaded as JSON.
+2. If the repo (or API response) is an agents-standard **marketplace** (`.agents/plugins/marketplace.json` or `.claude-plugin/marketplace.json`), each listed plugin is resolved:
+   - an **external** source (`{"source":"github","repo":"owner/repo"}` / `{"source":"url","url":"…","ref":"…"}`) is cloned;
+   - a **relative** source (`"./plugins/foo"`) is read from inside the marketplace repo.
+3. If there is **no manifest**, the repo is scanned directly for `SKILL.md`.
+4. Every discovered skill directory (root `SKILL.md`, `skills/<name>/`, `.claude/skills/<name>/`, or `plugins/<p>/skills/<s>/`) is copied — with its sibling `scripts/`, `references/`, `examples/` — into `${CODDY_HOME}/skills/<name>/`, where the normal loader picks it up.
+
+Provenance is tracked in `${CODDY_HOME}/skills/.remote.json`. Because synced skills live in a normal skills directory, `enable`/`disable` work on them like any other skill; `remove` deletes the copy (re-running `sync` re-installs it unless you also drop the source from `skills.sources`).
+
+Private repositories rely on your ambient `git` credentials; API URLs are checked against the same SSRF guard used by the `webfetch` tool.
+
+---
+
 ## Directory layout
 
 Coddy searches all directories in `skills.dirs` and deduplicates by skill name. **Later directories have higher priority** — if the same skill name appears in multiple directories, the version from the directory listed last wins.

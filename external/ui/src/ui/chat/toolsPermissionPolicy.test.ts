@@ -39,6 +39,22 @@ test("permission off skips restore", () => {
   ).toBe(false);
 });
 
+test("destructive filesystem tools restore with the write permission policy", () => {
+  const writePolicy = { ...policy, requirePermissionForWrites: true };
+  expect(
+    shouldShowRestoredPermissionPrompt(writePolicy, {
+      title: "rm",
+      argsText: '{"path":"build","recursive":true}',
+    }),
+  ).toBe(true);
+  expect(
+    shouldShowRestoredPermissionPrompt(writePolicy, {
+      title: "rmdir",
+      argsText: '{"path":"empty"}',
+    }),
+  ).toBe(true);
+});
+
 test("commandAllowed prefix match", () => {
   expect(commandAllowed(["go test"], "go test ./pkg")).toBe(true);
   expect(commandAllowed(["go test"], "go build")).toBe(false);

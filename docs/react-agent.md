@@ -52,9 +52,15 @@ Working directory: {{.CWD}}
 
 ## Current UTC time
 {{.UTCNow}}
+
+<environment_context>
+<os>...</os>
+<arch>...</arch>
+<shell>...</shell>
+</environment_context>
 ```
 
-The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**.
+The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
 
@@ -118,6 +124,15 @@ messages: [
    - If no tool calls in last response -> DONE (stopReason: end_turn)
    - If turn_count >= max_turns -> DONE (stopReason: max_turns)
    - Otherwise -> back to step 2
+
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
+     times, then -> DONE (stopReason: agent_refused) with a notice.
 
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
@@ -191,16 +206,17 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 }
 ```
 
-### `search_files`
+### `grep`
 ```json
 {
-  "name": "search_files",
-  "description": "Search for a pattern in files (uses ripgrep)",
+  "name": "grep",
+  "description": "Search file contents recursively (system ripgrep with a built-in fallback)",
   "parameters": {
     "pattern": { "type": "string", "description": "Regex or literal search pattern" },
     "path": { "type": "string", "description": "Directory to search in (default: cwd)" },
-    "glob": { "type": "string", "description": "File glob filter (e.g. '*.go')" },
-    "case_sensitive": { "type": "boolean", "default": false }
+    "glob": { "type": "string", "description": "File glob filter (e.g. '**/*.go')" },
+    "case_sensitive": { "type": "boolean", "default": false },
+    "max_results": { "type": "integer", "default": 100 }
   },
   "required": ["pattern"]
 }

@@ -198,3 +198,41 @@ func TestDocsConfigSchemaEnums(t *testing.T) {
 			string(IsolationIndividual): {}, string(IsolationShared): {}, string(IsolationAdmin): {},
 		})
 }
+
+// canonicalSchemaURL is the hosted, absolute JSON Schema URL that YAML language
+// servers must be able to resolve without a local checkout. The refs/heads/main
+// form is the canonical raw.githubusercontent.com reference GitHub itself emits;
+// the shorter /main/ form is avoided so editors resolve the schema reliably.
+const canonicalSchemaURL = "https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json"
+
+// TestConfigSchemaURLIsCanonical guards that every published $schema reference and
+// the schema's own $id use the canonical hosted URL, so config.yaml highlighting
+// works for users who never clone the repository.
+func TestConfigSchemaURLIsCanonical(t *testing.T) {
+	// The schema's own identifier.
+	schema := loadDocsSchema(t)
+	if got, _ := schema["$id"].(string); got != canonicalSchemaURL {
+		t.Errorf("docs/config.schema.json $id = %q, want %q", got, canonicalSchemaURL)
+	}
+
+	// Every file that ships the yaml-language-server header for users/editors.
+	header := "# yaml-language-server: $schema=" + canonicalSchemaURL
+	for _, rel := range []string{
+		"../../config.example.yaml",
+		"../../docs/config.md",
+		"../../docs/config-reference.md",
+	} {
+		data, err := os.ReadFile(filepath.Clean(rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		if !strings.Contains(string(data), header) {
+			t.Errorf("%s: missing canonical schema header %q", rel, header)
+		}
+		// The non-canonical /main/ form (without refs/heads) must not linger.
+		stale := "$schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json"
+		if strings.Contains(string(data), stale) {
+			t.Errorf("%s: still references non-canonical schema URL %q", rel, stale)
+		}
+	}
+}

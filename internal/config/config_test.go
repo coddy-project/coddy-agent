@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -618,5 +620,198 @@ agent:
 	}
 	if cfg.Models[1].Multimodal {
 		t.Errorf("models[1] (gpt-4o-mini): want multimodal=false (default)")
+	}
+}
+
+// httpAuthBaseYAML is a minimal valid config the httpserver.auth tests extend.
+const httpAuthBaseYAML = `
+providers:
+  - name: openai
+    type: openai
+    api_key: k
+models:
+  - model: openai/gpt-4o
+    max_tokens: 1024
+    temperature: 0.2
+agent:
+  model: openai/gpt-4o
+`
+
+func TestHTTPServerAuthTokenParsedFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"s3cret\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatalf("load auth_token: %v", err)
+	}
+	if got := cfg.HTTPServer.EffectiveAuthTokens(); len(got) != 1 || got[0] != "s3cret" {
+		t.Fatalf("auth_token not parsed: %v", got)
+	}
+}
+
+func TestHTTPServerAuthTokenRedactedInJSONDTO(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"topsecret\"\n  public_docs: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dto := config.ConfigToJSONDTO(cfg)
+	if dto.HTTPServer.AuthToken != "" {
+		t.Fatalf("GET /coddy/config must not expose auth_token, got %q", dto.HTTPServer.AuthToken)
+	}
+	if !dto.HTTPServer.AuthConfigured {
+		t.Fatal("auth_configured should be reported in the DTO")
+	}
+	if !dto.HTTPServer.PublicDocs {
+		t.Fatal("public_docs should be reported in the DTO")
+	}
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "topsecret") {
+		t.Fatalf("serialized config leaked the token: %s", raw)
+	}
+}
+
+func TestHTTPServerAuthTokenPreservedOnRedactedEdit(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(f, []byte(httpAuthBaseYAML+"httpserver:\n  auth_token: \"keepme\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cur, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The UI GETs a redacted config (auth_configured, no token value) and saves it back
+	// alongside an unrelated change; the token must survive the round-trip.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":9},` +
+		`"httpserver":{"auth_configured":true}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), cur.Paths, cur)
+	if err != nil {
+		t.Fatalf("preserve parse: %v", err)
+	}
+	if got := next.HTTPServer.EffectiveAuthTokens(); len(got) != 1 || got[0] != "keepme" {
+		t.Fatalf("token not preserved across redacted edit: %v", got)
+	}
+	if next.Agent.MaxTurns != 9 {
+		t.Fatalf("unrelated edit lost: max_turns=%d", next.Agent.MaxTurns)
+	}
+}
+
+func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "config.yaml")
+	yaml := httpAuthBaseYAML +
+		"httpserver:\n" +
+		"  cors:\n" +
+		"    enabled: true\n" +
+		"    allowed_origins: [\"http://localhost:5173\", \"*\"]\n" +
+		"  remotes:\n" +
+		"    - name: prod\n" +
+		"      url: https://box.example:12345\n"
+	if err := os.WriteFile(f, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HTTPServer.CORS.Enabled || len(cfg.HTTPServer.CORS.AllowedOrigins) != 2 {
+		t.Fatalf("cors not parsed: %+v", cfg.HTTPServer.CORS)
+	}
+	// An exact match echoes the origin; any other origin falls back to the "*" entry.
+	if allow, ok := cfg.HTTPServer.CORSAllowOrigin("http://localhost:5173"); !ok || allow != "http://localhost:5173" {
+		t.Fatalf("exact-match CORSAllowOrigin = %q,%v", allow, ok)
+	}
+	if allow, ok := cfg.HTTPServer.CORSAllowOrigin("http://other.example"); !ok || allow != "*" {
+		t.Fatalf("wildcard CORSAllowOrigin = %q,%v", allow, ok)
+	}
+	if len(cfg.HTTPServer.Remotes) != 1 || cfg.HTTPServer.Remotes[0].Name != "prod" {
+		t.Fatalf("remotes not parsed: %+v", cfg.HTTPServer.Remotes)
+	}
+
+	// Round-trip through the config DTO (GET -> edit -> PUT): CORS + remotes survive.
+	raw, err := json.Marshal(config.ConfigToJSONDTO(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := config.ParseConfigJSONPreservingSecrets(raw, cfg.Paths, cfg)
+	if err != nil {
+		t.Fatalf("round-trip parse: %v", err)
+	}
+	if !back.HTTPServer.CORS.Enabled || len(back.HTTPServer.CORS.AllowedOrigins) != 2 {
+		t.Fatalf("cors lost in round-trip: %+v", back.HTTPServer.CORS)
+	}
+	if len(back.HTTPServer.Remotes) != 1 || back.HTTPServer.Remotes[0].URL != "https://box.example:12345" {
+		t.Fatalf("remotes lost in round-trip: %+v", back.HTTPServer.Remotes)
+	}
+}
+
+func TestSkillsAutoDiscoveryDefaultsTrue(t *testing.T) {
+	var s config.Skills
+	s.ApplyDefaults("", func(x string) string { return x })
+	if !s.AutoDiscoveryEnabled() {
+		t.Fatal("skills.auto_discovery must default to true")
+	}
+	f := false
+	s2 := config.Skills{AutoDiscovery: &f}
+	if s2.AutoDiscoveryEnabled() {
+		t.Fatal("explicit skills.auto_discovery=false must be respected")
+	}
+}
+
+func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
+	f := false
+	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
+	dto := config.ConfigToJSONDTO(c)
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if back.Skills.AutoDiscoveryEnabled() {
+		t.Fatal("auto_discovery=false must survive the JSON DTO round-trip")
+	}
+}
+
+func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *bool) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		v := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Flag not provided → config value untouched (stays nil = default-on).
+	fs, v := newFS(nil)
+	cfg := &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery != nil {
+		t.Fatalf("unset flag must not touch config, got %v", *cfg.Skills.AutoDiscovery)
+	}
+
+	// -skills-auto-discovery=false → overrides to false.
+	fs, v = newFS([]string{"-skills-auto-discovery=false"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=false must disable auto_discovery")
+	}
+
+	// -skills-auto-discovery=true → explicit enable.
+	fs, v = newFS([]string{"-skills-auto-discovery=true"})
+	cfg = &config.Config{}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
+	if cfg.Skills.AutoDiscovery == nil || !cfg.Skills.AutoDiscoveryEnabled() {
+		t.Fatalf("flag=true must explicitly enable auto_discovery")
 	}
 }

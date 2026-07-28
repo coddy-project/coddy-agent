@@ -126,6 +126,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if res == nil {
 		t.Fatal("nil result")
+		return
 	}
 	if len(res.ConfigOptions) < 2 {
 		t.Fatalf("expected at least mode + model config options, got %d", len(res.ConfigOptions))
@@ -141,6 +142,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if modeOpt == nil {
 		t.Fatal("expected config option id mode")
+		return
 	}
 	if modeOpt.Category != "mode" || modeOpt.Type != "select" {
 		t.Fatalf("mode option: %+v", modeOpt)
@@ -150,6 +152,7 @@ func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	}
 	if modelOpt == nil {
 		t.Fatal("expected config option id model")
+		return
 	}
 	if modelOpt.Category != "model" || modelOpt.Type != "select" {
 		t.Fatalf("model option: %+v", modelOpt)
@@ -492,16 +495,19 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	}
 	if slash == nil {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
+		return
 	}
-	if len(slash.AvailableCommands) != 2 {
+	// Skills plus the built-in commands: compact (while compaction is enabled)
+	// and plugin (always).
+	if len(slash.AvailableCommands) != 4 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] {
-		t.Fatalf("expected demo and generate-rules, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, compact, and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 
@@ -557,5 +563,74 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 	}
 	if got := st.GetCWD(); got != beta {
 		t.Fatalf("cwd changed on failed switch: %q", got)
+	}
+}
+
+func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "cfg-srv", Command: "cfg-mcp"},
+		{Name: "off-srv", Command: "off-mcp", Disabled: true},
+	}}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	// Global <home>/mcp.json overrides config.yaml; project overrides both.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 4 {
+		t.Fatalf("servers = %+v, want 4", servers)
+	}
+	byName := map[string]config.MCPServerConfig{}
+	for _, s := range servers {
+		byName[s.Name] = s
+	}
+	if byName["cfg-srv"].Command != "home-override" {
+		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	}
+	if byName["home-srv"].Command != "proj-override" {
+		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	}
+	if !byName["off-srv"].Disabled {
+		t.Errorf("off-srv must keep its disabled flag in the effective list")
+	}
+	if _, ok := byName["proj-srv"]; !ok {
+		t.Errorf("proj-srv missing from effective list")
+	}
+
+	// A broken project mcp.json must not fail the session; config.yaml plus
+	// the global file still apply.
+	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 3 {
+		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
+	}
+}
+
+func TestStateMCPToolFilter(t *testing.T) {
+	st := &session.State{ID: "s", CWD: t.TempDir()}
+	if allowed := st.GetMCPToolFilter(); !allowed("any", "tool") {
+		t.Error("nil factory must allow everything")
+	}
+	st.MCPFilterFactory = func() func(server, tool string) bool {
+		return func(server, tool string) bool { return tool == "echo" }
+	}
+	allowed := st.GetMCPToolFilter()
+	if !allowed("srv", "echo") || allowed("srv", "write") {
+		t.Error("factory-built filter must be used when set")
 	}
 }

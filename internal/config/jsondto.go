@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -19,6 +20,7 @@ type ConfigJSON struct {
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
+	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
@@ -84,14 +86,20 @@ type ModelJSON struct {
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 }
 
-// AgentJSON mirrors Agent for JSON APIs.
+// AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
+// distinction for the loop guard (enabled defaults to true, the counters to
+// 3 / 5 / 2, and an explicit 0 turns a check off).
 type AgentJSON struct {
-	Model            string `json:"model"`
-	MaxTurns         int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn int    `json:"max_tokens_per_turn,omitempty"`
-	LLMRetryMax      int    `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS   int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS int    `json:"llm_min_interval_ms,omitempty"`
+	Model                  string `json:"model"`
+	MaxTurns               int    `json:"max_turns,omitempty"`
+	MaxTokensPerTurn       int    `json:"max_tokens_per_turn,omitempty"`
+	LLMRetryMax            int    `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
+	LoopGuard              *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -103,18 +111,22 @@ type PromptsJSON struct {
 
 // SkillsJSON mirrors Skills for JSON APIs.
 type SkillsJSON struct {
-	Dirs []string `json:"dirs,omitempty"`
+	Dirs          []string `json:"dirs,omitempty"`
+	Sources       []string `json:"sources,omitempty"`
+	AutoDiscovery *bool    `json:"auto_discovery,omitempty"`
 }
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type    string           `json:"type,omitempty"`
-	Name    string           `json:"name"`
-	Command string           `json:"command,omitempty"`
-	Args    []string         `json:"args,omitempty"`
-	Env     []EnvVarJSON     `json:"env,omitempty"`
-	URL     string           `json:"url,omitempty"`
-	Headers []HTTPHeaderJSON `json:"headers,omitempty"`
+	Type          string           `json:"type,omitempty"`
+	Name          string           `json:"name"`
+	Command       string           `json:"command,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	Env           []EnvVarJSON     `json:"env,omitempty"`
+	URL           string           `json:"url,omitempty"`
+	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	DisabledTools []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -155,6 +167,15 @@ type SessionsJSON struct {
 	Dir string `json:"dir,omitempty"`
 }
 
+// CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
+// distinction (enabled defaults to true, keep_recent_turns to 2).
+type CompactionJSON struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	ThresholdPercent int    `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
+	Model            string `json:"model,omitempty"`
+}
+
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
 	Enabled          bool   `json:"enabled,omitempty"`
@@ -166,10 +187,29 @@ type MemoryJSON struct {
 	MaxSearchHits    int    `json:"max_search_hits,omitempty"`
 }
 
-// HTTPServerJSON mirrors HTTPServerConfig.
+// HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
+// populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
-	Host string `json:"host,omitempty"`
-	Port int    `json:"port,omitempty"`
+	Host           string           `json:"host,omitempty"`
+	Port           int              `json:"port,omitempty"`
+	AuthToken      string           `json:"auth_token,omitempty"`
+	AuthConfigured bool             `json:"auth_configured,omitempty"`
+	PublicDocs     bool             `json:"public_docs,omitempty"`
+	AllowInsecure  bool             `json:"allow_insecure,omitempty"`
+	CORS           HTTPCORSJSON     `json:"cors,omitempty"`
+	Remotes        []HTTPRemoteJSON `json:"remotes,omitempty"`
+}
+
+// HTTPCORSJSON mirrors HTTPCORSConfig.
+type HTTPCORSJSON struct {
+	Enabled        bool     `json:"enabled,omitempty"`
+	AllowedOrigins []string `json:"allowed_origins,omitempty"`
+}
+
+// HTTPRemoteJSON mirrors HTTPRemote.
+type HTTPRemoteJSON struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // SchedulerJSON mirrors SchedulerConfig.
@@ -194,20 +234,33 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, ModelJSON(m))
 	}
 	out.Agent = AgentJSON{
-		Model:            c.Agent.Model,
-		MaxTurns:         c.Agent.MaxTurns,
-		MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: c.Agent.LLMMinIntervalMS,
+		Model:                  c.Agent.Model,
+		MaxTurns:               c.Agent.MaxTurns,
+		MaxTokensPerTurn:       c.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(c.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(c.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
 	}
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
-	out.Skills = SkillsJSON{Dirs: append([]string(nil), c.Skills.Dirs...)}
+	out.Skills = SkillsJSON{
+		Dirs:          append([]string(nil), c.Skills.Dirs...),
+		Sources:       append([]string(nil), c.Skills.Sources...),
+		AutoDiscovery: cloneBoolPtr(c.Skills.AutoDiscovery),
+	}
 	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mj := MCPServerJSON{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
 		}
@@ -226,12 +279,32 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
+	out.Compaction = CompactionJSON{
+		Enabled:          cloneBoolPtr(c.Compaction.Enabled),
+		ThresholdPercent: c.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(c.Compaction.KeepRecentTurns),
+		Model:            c.Compaction.Model,
+	}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
 		RecallMaxTurns: c.Memory.RecallMaxTurns, PersistMaxTurns: c.Memory.PersistMaxTurns,
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
-	out.HTTPServer = HTTPServerJSON{Host: c.HTTPServer.Host, Port: c.HTTPServer.Port}
+	out.HTTPServer = HTTPServerJSON{
+		Host:          c.HTTPServer.Host,
+		Port:          c.HTTPServer.Port,
+		PublicDocs:    c.HTTPServer.PublicDocs,
+		AllowInsecure: c.HTTPServer.AllowInsecure,
+		// AuthToken is intentionally redacted; report only whether one is configured.
+		AuthConfigured: strings.TrimSpace(c.HTTPServer.AuthToken) != "",
+		CORS: HTTPCORSJSON{
+			Enabled:        c.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), c.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range c.HTTPServer.Remotes {
+		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
+	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
 		Timeout: c.Scheduler.Timeout, RetainSessions: c.Scheduler.RetainSessions,
@@ -270,22 +343,33 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, ModelEntry(m))
 	}
 	cfg.Agent = Agent{
-		Model:            j.Agent.Model,
-		MaxTurns:         j.Agent.MaxTurns,
-		MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: j.Agent.LLMMinIntervalMS,
+		Model:                  j.Agent.Model,
+		MaxTurns:               j.Agent.MaxTurns,
+		MaxTokensPerTurn:       j.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(j.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(j.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(j.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,
 	}
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{
-		Dirs: append([]string(nil), j.Skills.Dirs...),
+		Dirs:          append([]string(nil), j.Skills.Dirs...),
+		Sources:       append([]string(nil), j.Skills.Sources...),
+		AutoDiscovery: cloneBoolPtr(j.Skills.AutoDiscovery),
 	}
 	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mc := MCPServerConfig{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
 		}
@@ -306,12 +390,31 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		},
 	}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
+	cfg.Compaction = Compaction{
+		Enabled:          cloneBoolPtr(j.Compaction.Enabled),
+		ThresholdPercent: j.Compaction.ThresholdPercent,
+		KeepRecentTurns:  cloneIntPtr(j.Compaction.KeepRecentTurns),
+		Model:            j.Compaction.Model,
+	}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,
 		RecallMaxTurns: j.Memory.RecallMaxTurns, PersistMaxTurns: j.Memory.PersistMaxTurns,
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
-	cfg.HTTPServer = HTTPServerConfig{Host: j.HTTPServer.Host, Port: j.HTTPServer.Port}
+	cfg.HTTPServer = HTTPServerConfig{
+		Host:          j.HTTPServer.Host,
+		Port:          j.HTTPServer.Port,
+		AuthToken:     j.HTTPServer.AuthToken,
+		PublicDocs:    j.HTTPServer.PublicDocs,
+		AllowInsecure: j.HTTPServer.AllowInsecure,
+		CORS: HTTPCORSConfig{
+			Enabled:        j.HTTPServer.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), j.HTTPServer.CORS.AllowedOrigins...),
+		},
+	}
+	for _, rm := range j.HTTPServer.Remotes {
+		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -337,18 +440,54 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	return cfg
 }
 
+func cloneBoolPtr(p *bool) *bool {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+func cloneIntPtr(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 // ParseAndValidateConfigJSON unmarshals JSON into ConfigJSON, maps to Config, applies defaults and validates.
 func ParseAndValidateConfigJSON(data []byte, paths Paths) (*Config, error) {
+	return ParseConfigJSONPreservingSecrets(data, paths, nil)
+}
+
+// ParseConfigJSONPreservingSecrets is like ParseAndValidateConfigJSON but, when current is
+// non-nil, carries write-only secrets that GET /coddy/config redacts (currently the
+// httpserver auth tokens) from current into the incoming config when the payload omitted them.
+// This lets the UI save an edited, redacted config without wiping tokens it never received.
+func ParseConfigJSONPreservingSecrets(data []byte, paths Paths, current *Config) (*Config, error) {
 	var j ConfigJSON
 	if err := json.Unmarshal(data, &j); err != nil {
 		return nil, fmt.Errorf("json: %w", err)
 	}
 	cfg := JSONDTOToConfig(&j, paths)
+	preserveRedactedSecrets(cfg, current)
 	applyDefaults(cfg)
 	if err := validateSubconfigs(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// preserveRedactedSecrets copies redacted, write-only secrets from current into next when next
+// left them empty. GET /coddy/config never returns these, so a plain round-trip would drop them.
+func preserveRedactedSecrets(next, current *Config) {
+	if next == nil || current == nil {
+		return
+	}
+	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
+		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
+	}
 }
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).

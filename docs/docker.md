@@ -43,7 +43,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
 | **Image** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (built locally) |
-| **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`** | Same |
+| **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`**, overridable with **`CODDY_COMMAND`** | Same |
 | **Published port** | **`${CODDY_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`CODDY_CWD`**) | Same |
 
@@ -118,11 +118,30 @@ Optional build args on the dev file:
 
 ```bash
 export CODDY_VERSION="$(git describe --tags --dirty 2>/dev/null || echo dev)"
-export CODDY_BUILD_TAGS="http,scheduler,ui,memory"
+export CODDY_BUILD_TAGS="http,scheduler,ui,memory,gateway"
 docker compose -f docker-compose.dev.yml build coddy
 ```
 
-**`CODDY_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**.
+**`CODDY_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway`** (matching the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default) so the built image can run the messenger gateway; drop **`gateway`** to trim it.
+
+### Run another mode (messenger gateway)
+
+Both compose files run **`coddy http`** by default. Override the subcommand with **`CODDY_COMMAND`** (shell-split into args) to run any other mode - for the [messenger gateway](gateway.md):
+
+```bash
+# Build from source: the dev image already includes the `gateway` tag.
+export TELEGRAM_BOT_TOKEN="<bot-token>"          # or leave in $CODDY_HOME/.env
+export CODDY_COMMAND="gateway --cwd /workspace"
+docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot connected"
+```
+
+Notes:
+
+- The **published GHCR image is built without the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory`**), so **`docker-compose.yml`** with **`CODDY_COMMAND=gateway`** needs an image built with it - use the dev file or a custom **`CODDY_IMAGE`**.
+- The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$CODDY_HOME/.env`**; keep it out of git.
+- If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
+- Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.
 
 ### Override example
 

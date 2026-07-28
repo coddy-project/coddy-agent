@@ -37,6 +37,11 @@ type Rule struct {
 	AlwaysApply bool
 	ApplyMode   ApplyMode
 	Content     string
+	// ScopeDir, when non-empty, restricts an auto rule to a directory subtree.
+	// The rule enters the prompt on the first turn a context path is ScopeDir
+	// itself or lives under it, then sticks for the session (see UnionStable).
+	// Set by AgentsProvider for nested AGENTS.md; empty for every other source.
+	ScopeDir string
 }
 
 // CanonicalName is the @mention identifier (file stem).

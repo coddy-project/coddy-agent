@@ -1527,6 +1527,67 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 	}
 }
 
+// TestCoddyCommandsEndpoint verifies /coddy/commands surfaces the built-in
+// deterministic commands (compact + plugin) for the composer's "Commands" group.
+func TestCoddyCommandsEndpoint(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	for _, d := range []string{filepath.Join(home, "memory"), defaultCWD} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	enabled := true
+	cfg := &config.Config{
+		Paths:      config.Paths{Home: home, CWD: defaultCWD},
+		Compaction: config.Compaction{Enabled: &enabled},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(url string) (int, string, []map[string]string) {
+		res, err := http.Get(ts.URL + url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var body struct {
+			Object string              `json:"object"`
+			Items  []map[string]string `json:"items"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		_ = res.Body.Close()
+		return res.StatusCode, body.Object, body.Items
+	}
+
+	code, obj, items := get("/coddy/commands")
+	if code != http.StatusOK || obj != "coddy.commands" {
+		t.Fatalf("status=%d object=%q", code, obj)
+	}
+	if len(items) != 2 || items[0]["name"] != "compact" || items[1]["name"] != "plugin" {
+		t.Fatalf("commands = %+v, want compact then plugin", items)
+	}
+	for _, it := range items {
+		if strings.TrimSpace(it["description"]) == "" {
+			t.Fatalf("command %q missing description", it["name"])
+		}
+	}
+
+	_, _, pl := get("/coddy/commands?prefix=plug")
+	if len(pl) != 1 || pl[0]["name"] != "plugin" {
+		t.Fatalf("prefix filter = %+v, want only plugin", pl)
+	}
+}
+
 func TestCoddyWorkspaceFilesGetPagingAndPrefixes(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -1923,5 +1984,804 @@ func TestCoddyWorkspaceContextPathParam(t *testing.T) {
 	defer res2.Body.Close()
 	if res2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing path status = %d", res2.StatusCode)
+	}
+}
+
+// ---- HTTP bearer auth (Phase 1a of the Remote Control roadmap) ----
+
+func authTestServer(t *testing.T, cfg *config.Config) (*Server, *httptest.Server) {
+	t.Helper()
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	srv := New(cfg, mgr, slog.Default(), "/tmp")
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	return srv, ts
+}
+
+func authGET(t *testing.T, rawURL, token string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.StatusCode
+}
+
+func cfgWithAuth(token string) *config.Config {
+	return &config.Config{
+		Agent:      config.Agent{Model: "openai/gpt-4o"},
+		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		HTTPServer: config.HTTPServerConfig{AuthToken: token},
+	}
+}
+
+func TestHTTPAuthProtectsAPIAndAllowsSPA(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("no token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "wrong"); got != http.StatusUnauthorized {
+		t.Fatalf("wrong token: status %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "s3cret"); got != http.StatusOK {
+		t.Fatalf("valid token: status %d want 200", got)
+	}
+	// The SPA shell stays public even with auth enabled (no-ui build returns a 404 notice, not 401).
+	if got := authGET(t, ts.URL+"/", ""); got == http.StatusUnauthorized {
+		t.Fatal("SPA root must be public, got 401")
+	}
+}
+
+func TestHTTPAuthChallengeHeader(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status %d want 401", res.StatusCode)
+	}
+	if !strings.HasPrefix(res.Header.Get("WWW-Authenticate"), "Bearer") {
+		t.Fatalf("missing WWW-Authenticate challenge: %q", res.Header.Get("WWW-Authenticate"))
+	}
+}
+
+func TestHTTPAuthDisabledByDefault(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("auth disabled: status %d want 200", got)
+	}
+}
+
+func TestHTTPAuthHotReloadEnableRotateDisable(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("start disabled: %d", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokA"))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("after enable, no token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusOK {
+		t.Fatalf("after enable, tokA: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth("tokB"))
+	if got := authGET(t, ts.URL+"/v1/models", "tokA"); got != http.StatusUnauthorized {
+		t.Fatalf("after rotate, old token: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "tokB"); got != http.StatusOK {
+		t.Fatalf("after rotate, new token: %d want 200", got)
+	}
+	srv.ReplaceConfig(cfgWithAuth(""))
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusOK {
+		t.Fatalf("after disable: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthExtraTokensEnableAuth(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth(""))
+	srv.SetExtraAuthTokens([]string{"cli-token"})
+	if got := authGET(t, ts.URL+"/v1/models", ""); got != http.StatusUnauthorized {
+		t.Fatalf("an extra (CLI/env) token must enable auth: %d want 401", got)
+	}
+	if got := authGET(t, ts.URL+"/v1/models", "cli-token"); got != http.StatusOK {
+		t.Fatalf("cli token: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthPublicDocs(t *testing.T) {
+	srv, ts := authTestServer(t, cfgWithAuth("s3cret"))
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusUnauthorized {
+		t.Fatalf("openapi should be protected by default: %d want 401", got)
+	}
+	pd := cfgWithAuth("s3cret")
+	pd.HTTPServer.PublicDocs = true
+	srv.ReplaceConfig(pd)
+	if got := authGET(t, ts.URL+"/openapi.yaml", ""); got != http.StatusOK {
+		t.Fatalf("public_docs should expose openapi: %d want 200", got)
+	}
+}
+
+func TestHTTPAuthConfigGetRedactsTokens(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("topsecret"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/coddy/config", nil)
+	req.Header.Set("Authorization", "Bearer topsecret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("config get status %d: %s", res.StatusCode, b)
+	}
+	if strings.Contains(string(b), "topsecret") {
+		t.Fatalf("GET /coddy/config leaked the auth token: %s", b)
+	}
+}
+
+func TestHTTPAuthConfigPutPreservesToken(t *testing.T) {
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	yml := "providers:\n  - name: openai\n    type: openai\n    api_key: k\n" +
+		"models:\n  - model: openai/gpt-4o\n    max_tokens: 4096\n    temperature: 0.1\n" +
+		"agent:\n  model: openai/gpt-4o\n" +
+		"httpserver:\n  auth_token: \"livetoken\"\n"
+	if err := os.WriteFile(cfgPath, []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// A redacted UI save (auth_configured, no token value) that also changes max_turns.
+	body := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],` +
+		`"agent":{"model":"openai/gpt-4o","max_turns":15},` +
+		`"httpserver":{"auth_configured":true}}`
+	req, _ := http.NewRequest(http.MethodPut, ts.URL+"/coddy/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer livetoken")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("put status %d: %s", res.StatusCode, pb)
+	}
+	if srv.activeCfg().Agent.MaxTurns != 15 {
+		t.Fatalf("hot reload max_turns %d", srv.activeCfg().Agent.MaxTurns)
+	}
+	// The token must still authenticate after the redacted save.
+	if got := authGET(t, ts.URL+"/v1/models", "livetoken"); got != http.StatusOK {
+		t.Fatalf("token lost after redacted save: %d", got)
+	}
+}
+
+// ---- CORS + cross-origin remote UI enablers ----
+
+func cfgWithCORS(origins ...string) *config.Config {
+	c := cfgWithAuth("")
+	c.HTTPServer.CORS = config.HTTPCORSConfig{Enabled: true, AllowedOrigins: origins}
+	return c
+}
+
+func TestHTTPCORSPreflightAllowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("preflight status %d want 204", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "http://ui.local" {
+		t.Fatalf("ACAO = %q want http://ui.local", got)
+	}
+	if !strings.Contains(res.Header.Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Fatalf("ACA-Headers missing Authorization: %q", res.Header.Get("Access-Control-Allow-Headers"))
+	}
+}
+
+func TestHTTPCORSDisallowedOrigin(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("http://ui.local"))
+	req, _ := http.NewRequest(http.MethodOptions, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("disallowed origin got ACAO %q, want none", got)
+	}
+}
+
+func TestHTTPCORSWildcardActualRequest(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithCORS("*"))
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://anything.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d want 200", res.StatusCode)
+	}
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("wildcard ACAO = %q want *", got)
+	}
+}
+
+func TestHTTPCORSDisabledNoHeaders(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("")) // CORS disabled by default
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/models", nil)
+	req.Header.Set("Origin", "http://ui.local")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if got := res.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("CORS disabled but ACAO set: %q", got)
+	}
+}
+
+func TestHTTPAuthComposerStreamQueryToken(t *testing.T) {
+	_, ts := authTestServer(t, cfgWithAuth("stream-secret"))
+	sid := "sess_deadbeefdeadbeef"
+	// Accepted via ?access_token= on the SSE route (unknown session resolves before the wait, not 401).
+	base := ts.URL + "/coddy/sessions/" + sid + "/composer-stream"
+	if got := authGET(t, base+"?access_token=stream-secret", ""); got == http.StatusUnauthorized {
+		t.Fatalf("composer-stream with valid access_token should not be 401")
+	}
+	// Rejected without any credential.
+	if got := authGET(t, base, ""); got != http.StatusUnauthorized {
+		t.Fatalf("composer-stream without token: %d want 401", got)
+	}
+	// The query token is NOT accepted on a non-SSE route.
+	if got := authGET(t, ts.URL+"/coddy/sessions/"+sid+"/messages?access_token=stream-secret", ""); got != http.StatusUnauthorized {
+		t.Fatalf("non-SSE route accepted query token: %d want 401", got)
+	}
+}
+
+// --- POST /coddy/sessions/{id}/compact --------------------------------------
+
+func newCompactTestServer(t *testing.T, comp config.Compaction) (*httptest.Server, *session.Manager, func()) {
+	t.Helper()
+	cfg := &config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "k"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, Temperature: 0.2}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: comp,
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	// A real FileStore gives sessions a bundle dir, so the composer turn lock
+	// uses the non-blocking flock path (busy -> ErrSessionTurnBusy -> 409).
+	store := &session.FileStore{Root: t.TempDir()}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
+	srv := New(cfg, mgr, slog.Default(), t.TempDir())
+	srv.agentProviderFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return cannedSummaryProvider{}, nil
+	}
+	ts := httptest.NewServer(srv.Handler())
+	return ts, mgr, func() { ts.Close(); srv.Drain() }
+}
+
+func compactSeedSession(t *testing.T, mgr *session.Manager, exchanges int) string {
+	t.Helper()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(res.SessionID)
+	for i := 1; i <= exchanges; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("q%d", i)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("a%d", i)})
+	}
+	return res.SessionID
+}
+
+func postCompact(t *testing.T, ts *httptest.Server, sessionID, body string) (int, map[string]interface{}) {
+	t.Helper()
+	res, err := http.Post(ts.URL+"/coddy/sessions/"+sessionID+"/compact", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var parsed map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&parsed)
+	return res.StatusCode, parsed
+}
+
+func TestCompactEndpointUnknownSession(t *testing.T) {
+	ts, _, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	code, _ := postCompact(t, ts, "sess_does_not_exist", `{}`)
+	if code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", code)
+	}
+}
+
+func TestCompactEndpointNothingToCompact(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	// Empty session: even a forced (manual) compaction has nothing to fold.
+	sid := compactSeedSession(t, mgr, 0)
+	code, body := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); compacted {
+		t.Fatalf("compacted = true, want false: %v", body)
+	}
+	if reason, _ := body["reason"].(string); reason != "nothing_to_compact" {
+		t.Fatalf("reason = %v", body)
+	}
+}
+
+func TestCompactEndpointDisabled(t *testing.T) {
+	off := false
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{Enabled: &off})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", code)
+	}
+}
+
+func TestCompactEndpointBusy(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 3)
+	unlock, err := mgr.AcquireComposerTurnLock(sid, mgr.SessionByID(sid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	code, _ := postCompact(t, ts, sid, `{}`)
+	if code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", code)
+	}
+}
+
+func TestCompactEndpointSuccessCounts(t *testing.T) {
+	ts, mgr, done := newCompactTestServer(t, config.Compaction{})
+	defer done()
+	sid := compactSeedSession(t, mgr, 4)
+	code, body := postCompact(t, ts, sid, `{"instructions":"keep decisions"}`)
+	if code != http.StatusOK {
+		t.Fatalf("status = %d (%v)", code, body)
+	}
+	if compacted, _ := body["compacted"].(bool); !compacted {
+		t.Fatalf("compacted != true: %v", body)
+	}
+	// 4 exchanges with default keep 2: head = 4 messages, kept = 4 messages.
+	if n, _ := body["compacted_messages"].(float64); int(n) != 4 {
+		t.Fatalf("compacted_messages = %v", body)
+	}
+	if n, _ := body["kept_messages"].(float64); int(n) != 4 {
+		t.Fatalf("kept_messages = %v", body)
+	}
+	msgs := mgr.SessionByID(sid).GetMessages()
+	if len(msgs) != 9 || !msgs[4].CompactionSummary {
+		t.Fatalf("summary row not inserted: len=%d", len(msgs))
+	}
+}
+
+// TestCoddySkillsSourcesSyncDelete exercises the remote-skill management routes
+// without any network: add a source (persisted to config.yaml), an empty sync,
+// and delete of a pre-seeded remote skill.
+func TestCoddySkillsSourcesSyncDelete(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home) // keep ManagedDir() inside the temp home
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// Add a source; it should persist to config.yaml (no sync).
+	addBody := `{"source":"owner/repo"}`
+	addReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/sources", strings.NewReader(addBody))
+	addReq.Header.Set("Content-Type", "application/json")
+	addRes, err := http.DefaultClient.Do(addReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ab, _ := ioReadAllClose(addRes.Body)
+	if addRes.StatusCode != http.StatusOK {
+		t.Fatalf("add source status %d %s", addRes.StatusCode, ab)
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), "owner/repo") {
+		t.Fatalf("source not persisted: %s", data)
+	}
+
+	// Empty sync (no reachable sources fetched here beyond the one we just added,
+	// which would need network) — assert the endpoint responds with a result shape.
+	// Reset sources to empty so sync does no network and returns ok cleanly.
+	srv.activeCfg().Skills.Sources = nil
+	syncReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/sync", nil)
+	syncRes, err := http.DefaultClient.Do(syncReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(syncRes.Body)
+	if syncRes.StatusCode != http.StatusOK {
+		t.Fatalf("sync status %d %s", syncRes.StatusCode, sb)
+	}
+	var syncOut struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(sb, &syncOut); err != nil || !syncOut.OK {
+		t.Fatalf("sync response %s err %v", sb, err)
+	}
+
+	// Seed a remote skill + lockfile, then DELETE it.
+	managed := srv.activeCfg().Skills.ManagedDir(srv.activeCfg().Paths.Home)
+	skillDir := filepath.Join(managed, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(managed, ".remote.json"), []byte(`{"demo":{"source":"owner/repo"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/demo", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusOK {
+		t.Fatalf("delete status %d %s", delRes.StatusCode, db)
+	}
+	if _, err := os.Stat(skillDir); !os.IsNotExist(err) {
+		t.Fatalf("skill dir should be gone, err=%v", err)
+	}
+
+	// Deleting a non-remote skill fails with 400.
+	del2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/nope", nil)
+	del2Res, err := http.DefaultClient.Do(del2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(del2Res.Body)
+	if del2Res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete unknown status %d, want 400", del2Res.StatusCode)
+	}
+}
+
+// TestCoddySkillsNewRoutesEdgeCases covers error paths for the version/update
+// and source-management routes without network access.
+func TestCoddySkillsNewRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  sources: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// GET sources on empty config returns an empty list.
+	res, err := http.Get(ts.URL + "/coddy/skills/sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET sources status %d %s", res.StatusCode, sb)
+	}
+	var srcOut struct {
+		Items []string `json:"items"`
+	}
+	if err := json.Unmarshal(sb, &srcOut); err != nil {
+		t.Fatalf("sources body %s: %v", sb, err)
+	}
+	if len(srcOut.Items) != 0 {
+		t.Fatalf("expected no sources, got %v", srcOut.Items)
+	}
+
+	// GET updates with nothing installed returns an empty items list.
+	res2, err := http.Get(ts.URL + "/coddy/skills/updates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ub, _ := ioReadAllClose(res2.Body)
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("GET updates status %d %s", res2.StatusCode, ub)
+	}
+
+	// Updating a skill that was never installed from a source fails with 400.
+	upReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/skills/ghost/update", nil)
+	upRes, err := http.DefaultClient.Do(upReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(upRes.Body)
+	if upRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("update unknown skill status %d, want 400", upRes.StatusCode)
+	}
+
+	// Deleting a source without the query parameter fails with 400.
+	delReq, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/sources", nil)
+	delRes, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(delRes.Body)
+	if delRes.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete source without query status %d, want 400", delRes.StatusCode)
+	}
+}
+
+// TestCoddySkillsDeleteAnyAndReadonly covers the delete-any-skill behaviour:
+// bundled skills are read-only (row flag + 400 on delete), on-disk skills delete.
+func TestCoddySkillsDeleteAnyAndReadonly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	skillsDir := filepath.Join(home, "skills")
+	// A deletable on-disk skill.
+	if err := os.MkdirAll(filepath.Join(skillsDir, "local"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "local", "SKILL.md"), []byte("---\nname: local\ndescription: d\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("skills:\n  dirs:\n    - "+skillsDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	// GET rows: the bundled skill is read-only, the on-disk one is not.
+	res, err := http.Get(ts.URL + "/coddy/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := ioReadAllClose(res.Body)
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Readonly bool   `json:"readonly"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatalf("list body %s: %v", body, err)
+	}
+	ro := map[string]bool{}
+	for _, it := range list.Items {
+		ro[it.Name] = it.Readonly
+	}
+	if !ro["generate-rules"] {
+		t.Errorf("bundled generate-rules should be read-only")
+	}
+	if ro["local"] {
+		t.Errorf("on-disk local skill should be deletable")
+	}
+
+	// Deleting the bundled skill fails with 400.
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/generate-rules", nil)
+	dr, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(dr.Body)
+	if dr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("delete bundled status %d, want 400", dr.StatusCode)
+	}
+
+	// Deleting the on-disk skill succeeds and removes it.
+	req2, _ := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/skills/local", nil)
+	dr2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = ioReadAllClose(dr2.Body)
+	if dr2.StatusCode != http.StatusOK {
+		t.Fatalf("delete on-disk status %d, want 200", dr2.StatusCode)
+	}
+	if _, err := os.Stat(filepath.Join(skillsDir, "local")); !os.IsNotExist(err) {
+		t.Errorf("local skill dir should be gone: %v", err)
+	}
+}
+
+// TestCoddyMCPRoutesEdgeCases covers error paths of the /coddy/mcp surface;
+// the happy path lives in features/mcp_management.feature.
+func TestCoddyMCPRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+mcp_servers:
+  - name: broken
+    command: /nonexistent-mcp-binary
+  - name: remote
+    type: websocket
+    url: https://example.com/ws
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(method, path string, body string) (int, []byte) {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, ts.URL+path, rdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+
+	// The list reports both servers: broken stdio probes to an error status,
+	// the http entry is unsupported without probing. Config.yaml entries are
+	// global-scoped, config-owned, and read-only for edit/delete.
+	status, b := do(http.MethodGet, "/coddy/mcp", "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /coddy/mcp status %d %s", status, b)
+	}
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Origin   string `json:"origin"`
+			Readonly bool   `json:"readonly"`
+			Status   string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %+v, want 2", list.Items)
+	}
+	byName := map[string]string{}
+	for _, it := range list.Items {
+		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
+			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
+		}
+		byName[it.Name] = it.Status
+	}
+	if byName["broken"] != "error" {
+		t.Errorf("broken status = %q, want error", byName["broken"])
+	}
+	if byName["remote"] != "unsupported" {
+		t.Errorf("remote status = %q, want unsupported", byName["remote"])
+	}
+
+	// Toggling an unknown server or tool fails with 400.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable unknown server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/tools/echo/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable tool of unknown server status %d, want 400", status)
+	}
+
+	// PUT rejects names that break the __ namespace, bad bodies, entries with
+	// neither command nor url, and unknown scopes.
+	if status, _ := do(http.MethodPut, "/coddy/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT bad name status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("PUT invalid body status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{}`); status != http.StatusBadRequest {
+		t.Errorf("PUT empty entry status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname?scope=nope", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT unknown scope status %d, want 400", status)
+	}
+
+	// PUT with scope=global lands in <home>/mcp.json and lists as global/home.
+	if status, body := do(http.MethodPut, "/coddy/mcp/homer?scope=global", `{"command":"home-mcp"}`); status != http.StatusOK {
+		t.Fatalf("PUT scope=global status %d %s", status, body)
+	}
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil || entries["homer"].Command != "home-mcp" {
+		t.Errorf("global mcp.json entries = %+v err=%v, want homer", entries, err)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	foundHomer := false
+	for _, it := range list.Items {
+		if it.Name == "homer" {
+			foundHomer = true
+			if it.Source != "global" || it.Origin != "home" || it.Readonly {
+				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			}
+		}
+	}
+	if !foundHomer {
+		t.Error("homer missing from list after scope=global PUT")
+	}
+
+	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/broken", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
+		t.Errorf("DELETE home-sourced status %d, want 200", status)
 	}
 }

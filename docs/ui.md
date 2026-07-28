@@ -26,6 +26,18 @@ This page captures the original UI requirements and the intended end state. It i
 - Connected state comes from **`GET /coddy/providers/{name}/codex-auth`**. **Sign Out** deletes only the Coddy-managed credential through **`DELETE`**; a server-side Codex CLI login may still appear as a compatibility connection.
 - OAuth tokens never enter the settings document or browser. They are stored by the server under **`$CODDY_HOME/providers/<name>/codex-auth.json`**.
 
+## Environment (local / remote server)
+
+- **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`+ Add remote…`**).
+- **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step) and reloads; there is no per-select token prompt. A **bearer token** is entered only in **`+ Add remote…`** (name / URL / token) and remembered per-remote.
+- **Reachability dots:** each remote shows a status dot probed on menu open — **green** reachable+authorized (a cross-origin **`GET /v1/models`**), **red** unreachable / CORS-blocked / unauthorized, **amber** while probing. **Local** is always green.
+- **Purpose:** point the UI at a remote, already-running **`coddy http`** server, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url}]`**); **`+ Add remote…`** takes an ad-hoc name/URL/token.
+- **Client-side state:** the active env lives in **`localStorage`** key **`coddy_env`**; per-remote tokens in **`coddy_env_tokens`**. Never persisted to server config; leave empty for a remote without auth. Workspace **folder recents** are namespaced per environment (**`envStorageSuffix()`**) so each remote remembers its own last paths; **models** and defaults come from the remote's **`GET /v1/models`** after the reload.
+- **Mechanism:** a global **`fetch`** shim (**`external/ui/src/ui/env/remoteEnv.ts`**, installed in **`main.tsx`**) rewrites same-origin API requests (**`/v1/*`**, **`/coddy/*`**, **`/openapi*`**) to the selected remote base URL and adds **`Authorization: Bearer <token>`**. Local mode is a transparent pass-through. Selecting an entry persists the choice and reloads so all state re-fetches from the chosen backend; the SPA shell always loads from the local origin, so you can always switch back to **Local** from the chip even if the remote is down.
+- **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** (see [http-api.md](http-api.md)). SSE re-attach (**`GET /coddy/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
+- **Failure surfacing (issue #60):** a `fetch()` to a remote that is unreachable / refused / TLS-or-DNS-failed / CORS-blocked rejects with a `TypeError` (no `Response`); the send flow's final `catch` now distinguishes that from the user's own `AbortError` and emits an error `system_notice` (**`remoteSendErrorMessage`**), and a readable `401/403` gets an auth-specific message (**`remoteHttpErrorMessage`**) instead of a bare status. Pure helpers live in **`external/ui/src/ui/env/remoteErrors.ts`**.
+- **Active-env health (issue #60):** a shared monitor (**`external/ui/src/ui/env/activeHealth.ts`**, started in **`main.tsx`**) probes the *selected* environment's **`GET /v1/models`** on load, on a 30 s interval, and on window focus. The composer chip dot is driven by that health (green up / red down / amber checking, **`.env-status`**), and **`EnvHealthBanner`** shows a persistent alert with a **Switch to Local** action when the active remote is down or unauthorized, so the app never silently renders empty against a dead backend.
+
 ## Layout
 
 Desktop layout
@@ -108,7 +120,7 @@ Session title
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
 - **Pre-session (draft/home)**: picks are stored client-side, previewed via **`GET /coddy/workspace/context?path=`**, and applied to the new session id on first send before **`POST /v1/responses`**. Switching to another session drops pending picks.
 - Errors (missing folder **400**, git conflicts / locked workspace **409**) keep the current chips; the context is re-fetched to stay truthful.
-- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`external/httpserver/features/workspace_switching.feature`** (godog).
+- Automated checks: **`chat/workspaceContext.test.ts`**, **`chat/workspaceRecents.test.ts`** (helpers), **`chat/WorkspaceChips.test.tsx`** (chips, menus, modal, lock); backend behavior is specified executable in **`features/workspace_switching.feature`** (godog).
 
 ## Session list
 
@@ -155,6 +167,7 @@ SSE payloads
   - `tool_call_update`
   - `plan`
   - `token_usage`
+  - `usage_update` (`used` / `size` for the current model context; emitted again after compaction)
   - Default (no `event:`): chat completion chunk deltas, including `delta.content` and optional `delta.reasoning_content`
 
 ## Composer primary action (`#btn-send`)
@@ -163,7 +176,7 @@ Context ring and breakdown popover
 
 - **Hover** on **`.composer-context-tip-host`**: compact tooltip (percent, input/output/total, max context) unchanged.
 - **Click** opens **`ContextBreakdownPopover`** beside the ring on wide viewports (**`context-breakdown-menu--portal`**); on stacked shell (**`max-width: 1199px`**) it uses the same bottom sheet + scrim as slash / **`@`** pickers (**`context-breakdown-menu--sheet`**, **`slash-sheet-backdrop`**). **Escape** or **Close** dismisses; hover tooltip returns when closed.
-- Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`).
+- Legend keys map to **`contextBreakdown`** on **`GET /coddy/sessions/{id}/stats`** (`systemPrompt`, `toolDefinitions`, `rules`, `skills`, `mcp`, `conversation`). Live **`usage_update`** SSE replaces the displayed total immediately (including after `/compact` or automatic compaction), then the UI refreshes the detailed stats. Vitest: **`Composer.test.tsx`** (`click context ring opens breakdown popover`) and **`consumeComposerSse.order.test.ts`** (`usage_update replaces the displayed current context after compaction`).
 
 Shape and glyphs
 
@@ -271,7 +284,8 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 - `tool_call`
   - A single tool execution row, same disclosure chrome as **thinking** / **memory** (**chevron**, **`thinking-label`** with the tool name or kind, **`thinking-dur`** for duration or **`-`**).
   - While **`pending`** or **`in_progress`**, the summary label uses a **`...`** suffix (for example **`read_file...`**). **`startedAtMs`** drives a live duration until the tool finishes.
-  - Details show arguments and streamed result when expanded. The **result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline), monospace, muted grey (**`.tool-result-raw`**). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, no **Load more** link and no fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), **overflow-y** hidden until **Load more**. **Load more results** (**`data-testid="tool-result-more-link"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then **overflow-y auto** and **Hide** (**`data-testid="tool-result-hide-link"`** ); **Hide** restores the clipped preview without a second GET while **fullResultText** stays in memory.
+  - When a structured preview and **Result** are both present, they touch and share the outer corners as one continuous execution card; there is no gap or duplicate border between them.
+  - Details reuse the permission card's tool-specific preview in a static mode: full diff / path / command content, but no copy, **More…**, or approval actions. **read**, **grep**, **glob**, and **print_tree** also receive compact structured argument previews; unknown tools keep a styled monospace fallback. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no overflow toggle or fixed-height viewport (block height follows content). If truncated (19 content lines plus **`...`**), apply the capped viewport (~20 lines), with **overflow-y** hidden until **More…**. **More…** (**`data-testid="tool-result-more"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both use the shared left-aligned **`tool-overflow-toggle`** tab button attached flush to the result panel's bottom border.
 
 ## Tool call card (bundled SPA, current)
 
@@ -285,11 +299,29 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | Result | **`div`** with **`tool-block tool-result tool-result-raw`**, **`aria-label="Tool result"`**, inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First **Load more** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
-| CSS | **`styles.css`**: **`.coddy-tool-call-row`**, **`.coddy-tool-call-body`**, **`thinking-details:not([open])` body hidden**, plus **`.tool-result-raw`** and viewport / toggle classes above |
+| Full text | First **More…** only - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, use JSON **`result`** (same object includes **`meta`**, **`args`**) |
+| CSS | **`styles.css`**: **`.coddy-tool-call-row`**, transparent **`.coddy-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, plus result viewport / toggle classes above |
 
 - `assistant_message`
   - Final assistant output text for the turn, after tool calls.
+
+## Tool permission card
+
+The inline approval gate is implemented by **PermissionPromptSection** and **PermissionPromptPreview**.
+
+- Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
+- Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated.
+- Actions use the server-provided labels unchanged (**Allow**, **Allow always**, **Reject**).
+- Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
+- **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.
+- The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; keep the viewport bounded, switch it to internal vertical scrolling, and change the button to **Less**. Returning to the collapsed state restores clipping and re-measures overflow. The shared button is left-aligned; on phones it has a **36px** minimum height.
+- Restored write permission prompts include **rm** and **rmdir** alongside the other filesystem mutation tools.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/permissionToolPreview.test.ts**
+- **external/ui/src/ui/chat/PermissionPromptSection.test.tsx**
+- **external/ui/src/ui/messages/MessageList.test.tsx**
 
 ## Live token usage
 
@@ -374,6 +406,36 @@ File API
 - `GET /coddy/sessions/{id}/memory/file` reads.
 - `PUT /coddy/sessions/{id}/memory/file` writes.
 
+## MCP servers (Settings tab)
+
+Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
+section kind `mcp`; visual contract in `DESIGN.md`):
+
+- `GET /coddy/mcp` backs the list: merged `config.yaml` + global `~/.coddy/mcp.json`
+  + project `./.coddy/mcp.json` servers, each with `source` (`global` / `local`
+  scope badge), `origin` (`config` / `home` / `project` — drives the badge
+  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  `status`, and its tool inventory.
+- Status dot per server: connected (green), error (red, tooltip shows the probe
+  error), disabled (gray), unknown transport type (amber, `unsupported`).
+- Server switch toggles `POST /coddy/mcp/{name}/enable|disable`; the change
+  persists into the file that defines the server.
+- Expanding a row lists tools with per-tool switches
+  (`POST /coddy/mcp/{name}/tools/{tool}/enable|disable`); tool switches are
+  locked while the server is disabled.
+- Edit and Delete are locked for `readonly` (config.yaml) rows; mcp.json rows
+  of both scopes stay editable. Delete calls `DELETE /coddy/mcp/{name}`, Edit
+  opens the JSON editor card inline with the scope pinned to the owning file.
+- Add server opens the editor prefilled with a Cursor-style entry template and
+  a Local/Global scope picker (default Local); Save issues
+  `PUT /coddy/mcp/{name}?scope=local|global` after client-side validation
+  (`mcpServerJson.ts`: JSON object, `command` or `url` required, name without
+  `__`, spaces, or path separators).
+- Refresh re-probes all servers via `GET /coddy/mcp?refresh=1`.
+- List refreshes never unmount the list (initial-load-only placeholder), so the
+  drawer scroll position is preserved.
+- The tab does not participate in the settings document Save all flow.
+
 ## Swagger
 
 - Swagger UI is served under `/docs/`.
@@ -433,15 +495,15 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Given a session has tool calls executed
   - When the user reloads the page
   - Then tool call cards are visible in the transcript
-  - And expanding a tool card shows args and raw grey **result** preview
-  - And if the server marked the preview truncated, **Load more results** then **Hide** behave as in the table above; if not truncated, there is no **Load more** row and no **`tool-result-viewport--tall`** on the result panel
+  - And expanding a tool card shows a structured args preview and a separate raw **Result** panel, without approval buttons
+  - And if the server marked the preview truncated, **More…** then **Less** behave as in the table above; if not truncated, there is no overflow-toggle row and no **`tool-result-viewport--tall`** on the result panel
 
 - Tool result truncation (Playwright MCP)
   - Given a persisted session whose tool output on disk exceeds the preview line cap
-  - When the user opens the tool card and clicks **Load more results**
-  - Then the link becomes **Hide**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
-  - When the user clicks **Hide**
-  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **Load more results** appears again
+  - When the user opens the tool card and clicks **More…**
+  - Then the button becomes **Less**, full lines are available inside the same max-height scrollable panel, and **`.tool-result-viewport--scroll`** has **`scrollHeight`** greater than **`clientHeight`**
+  - When the user clicks **Less**
+  - Then the preview shows the capped text ending in **`...`**, **`overflow-y`** is hidden on **`.tool-result-viewport--clip`**, and **More…** appears again
 
 - Token usage survives restart
   - Given a session has non zero token usage

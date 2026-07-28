@@ -195,7 +195,7 @@ func UISchemaMap() map[string]interface{} {
 		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
-			"Optional credential-helper command. When api_key is empty it is run via the shell and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process), letting the provider fetch short-lived or login-issued keys without storing a static secret. On failure resolution falls back to the conventional NAME_API_KEY variable."),
+			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
 	}
@@ -227,7 +227,7 @@ func UISchemaMap() map[string]interface{} {
 		"value": strProp("Header value", "HTTP header value."),
 	}
 	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http connects to a remote MCP endpoint."),
+		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
 		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
 		"args": map[string]interface{}{
@@ -258,6 +258,13 @@ func UISchemaMap() map[string]interface{} {
 				"required":             []interface{}{"name", "value"},
 				"additionalProperties": false,
 			},
+		},
+		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
+		"disabled_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disabled tools",
+			"description": "Tool names of this server hidden from the agent.",
+			"items":       map[string]interface{}{"type": "string"},
 		},
 	}
 
@@ -347,8 +354,19 @@ func UISchemaMap() map[string]interface{} {
 					"Initial backoff between LLM retries in milliseconds."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
 					"Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing)."),
+				"loop_guard": boolProp("Loop guard",
+					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
+				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
+					"Consecutive identical tool calls before the loop guard steps in (0 disables the check)."),
+				"loop_stream_repeat_cycles": intProp("Loop stream repeat cycles",
+					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
+				"loop_nudge_max": intProp("Loop nudge max",
+					"How many times one turn may be nudged back on track before the loop guard stops it."),
 			},
-			[]string{"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms"},
+			[]string{
+				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
+				"loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
@@ -372,7 +390,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
@@ -383,8 +401,19 @@ func UISchemaMap() map[string]interface{} {
 					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"sources": map[string]interface{}{
+					"type":        "array",
+					"title":       "Remote skill sources",
+					"description": "GitHub repos (owner/repo[@ref]), git URLs, or an http(s) URL to an agents-standard marketplace.json. Installed on demand via `coddy skills sync` or the Sync button; never fetched automatically.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"auto_discovery": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Skill auto-discovery",
+					"description": "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
+				},
 			},
-			[]string{"dirs"},
+			[]string{"dirs", "sources", "auto_discovery"},
 			nil),
 		"memory": objectSchema("Long-term memory", "Optional memory copilot (requires memory build tag and provider).",
 			map[string]interface{}{
@@ -467,6 +496,15 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"dir"},
 			nil),
+		"compaction": objectSchema("Context compaction", "Summarize older conversation history so long sessions keep fitting the model context window.",
+			map[string]interface{}{
+				"enabled":           boolProp("Enabled", "Master switch for compaction (manual command and automatic trigger). Defaults to true."),
+				"threshold_percent": intProp("Auto threshold (%)", "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction."),
+				"keep_recent_turns": intProp("Keep recent turns", "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything)."),
+				"model":             strProp("Summarizer model", "Optional models[].model for the summarization call; empty uses the session model."),
+			},
+			[]string{"enabled", "threshold_percent", "keep_recent_turns", "model"},
+			nil),
 		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
 			map[string]interface{}{
 				"telegram": objectSchema("Telegram", "Telegram bot adapter settings.", telegramProps,
@@ -479,7 +517,7 @@ func UISchemaMap() map[string]interface{} {
 
 	rootOrder := []string{
 		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
-		"prompts", "instructions", "logger", "sessions", "gateways",
+		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
 	}
 
 	doc := map[string]interface{}{

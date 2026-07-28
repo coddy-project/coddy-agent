@@ -6,7 +6,7 @@ This page is the narrative guide. Two companion artifacts cover the full key lis
 - **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation. Add this header line to your `config.yaml` and any editor with a YAML language server (VS Code YAML extension, IntelliJ, Zed) validates keys and values as you type:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 ```
 
 The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` (`internal/config/docs_schema_test.go`); CI fails when a config field is added or renamed without updating the schema.
@@ -34,7 +34,7 @@ Agent name, title, and build version are not configurable here. They are fixed i
 # Each providers[].name must match ^[a-zA-Z][a-zA-Z0-9_-]*$ (ASCII letter first, then letters, digits, hyphen, underscore).
 # api_key may be a literal, "${ENV}" expanded when the file loads, or empty to read NAME_API_KEY at LLM call time
 # (NAME is the provider name in uppercase with hyphens mapped to underscores, for example rpa -> RPA_API_KEY).
-# api_key_command (optional): when api_key is empty, this command is run via the shell and its trimmed stdout is
+# api_key_command (optional): when api_key is empty, this command is run via the detected host shell and its trimmed stdout is
 # used as the key (credential helper, like git/docker helpers or AWS credential_process). It lets a provider fetch
 # short-lived or login-issued keys without storing a static secret. On failure resolution falls back to NAME_API_KEY.
 # Resolution order: literal api_key -> api_key_command stdout -> NAME_API_KEY env.
@@ -43,7 +43,7 @@ providers:
     type: "openai"
     api_key: "${OPENAI_API_KEY}"
     # api_base: ""                    # optional override for OpenAI-compatible base URL
-    # api_key_command: "my-cli print-token"  # optional credential helper; used when api_key is empty
+    # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
 
   - name: "anthropic"
@@ -111,6 +111,10 @@ agent:
   llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
+  loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
+  loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
+  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
 
 # System prompt templates
 prompts:
@@ -134,6 +138,17 @@ prompts:
 sessions:
   # Empty = default $CODDY_HOME/sessions. Supports ${CODDY_HOME} and ~ in path.
   dir: ""
+
+# Context compaction (Go: config.Compaction, internal/config/compaction.go).
+# Summarizes history older than the keep-recent boundary into one transcript row;
+# later LLM prompts replay only the summary plus the kept tail. Trigger manually
+# with the built-in /compact command (optional trailing summarizer instructions)
+# or automatically at threshold_percent of the model's max_context_tokens.
+compaction:
+  enabled: true            # master switch (manual command and automation)
+  threshold_percent: 80    # auto-compact trigger, 1..100; needs models[].max_context_tokens
+  keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
+  model: ""                # models[].model for the summarizer; empty = session model
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enabled.

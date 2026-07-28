@@ -22,6 +22,15 @@ Primary conversational surface for bundled UI lives at **`POST /v1/responses`** 
 
 Swagger lives at **`/docs/`**, OpenAPI YAML at **`/openapi.yaml`**.
 
+## Pre-commit gate
+
+A git **`pre-commit`** hook runs the linter before every commit, so nothing lands with lint errors. It is the single enforcement point for humans and coding agents alike. The full test matrix (**`make test`**) is slow, so it is **opt-in** on commit and belongs in CI / before push.
+
+- Enable once per clone: **`make hooks`** (sets **`core.hooksPath=.githooks`**; this is local config and is not committed, so every clone runs it once).
+- On commit, **`.githooks/pre-commit`** calls **`scripts/checks.sh`**, which runs **`make lint`** by default. Commits touching only non-code files (docs, etc.) skip the gate.
+- Scope knobs: **`CODDY_HOOK_TESTS=fast`** also runs a quick **`go test ./...`**, **`CODDY_HOOK_TESTS=full`** the whole matrix; **`CODDY_HOOK_LINT=0`** skips the linter; **`CODDY_HOOK_SKIP=1`** bypasses everything.
+- Emergency bypass for a single commit: **`git commit --no-verify`**.
+
 ## Documentation contract
 
 Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives in **`DESIGN.md`** (this repo root). Architectural narrative remains under **`docs/architecture.md`**.
@@ -43,7 +52,7 @@ When working in Codex:
 
 When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 
-- Add or update tests first (red), then implement (green).
+- Add or update tests first (red), then implement (green). The **happy path** of a feature (and a bug's reproduction) is a Gherkin spec in the repo-root **`features/`** directory, run by a godog harness (e.g. `external/httpserver/bdd_*_test.go`); **edge/error cases go in ordinary unit tests**, not `features/`. See **`.cursor/rules/workflow.mdc`** / **`.claude/rules/workflow.md`**.
 - If the external HTTP surface changes, update `external/httpserver/openapi.go` so the served OpenAPI matches handlers in `external/httpserver/server.go`.
 - Keep `docs/http-api.md` aligned with the live behavior.
 - For UI changes, update sources under **`external/ui/src/`** and rebuild embedded assets via **`make build TAGS="http ui"`** (runs **npm** via **make ui-build**).

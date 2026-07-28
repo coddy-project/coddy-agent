@@ -48,6 +48,32 @@ func initRepo(t *testing.T) string {
 	return normPath(t, dir)
 }
 
+func TestCloneAndPull(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	// Source repo with a committed SKILL.md on main.
+	src := t.TempDir()
+	mustGit(t, src, "init", "-b", "main")
+	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("---\nname: demo\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "add", "SKILL.md")
+	mustGit(t, src, "-c", "user.email=coddy@test", "-c", "user.name=coddy", "commit", "-m", "add skill")
+
+	dest := filepath.Join(t.TempDir(), "clone")
+	if err := Clone(src, "", dest); err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "SKILL.md")); err != nil {
+		t.Fatalf("cloned SKILL.md missing: %v", err)
+	}
+	// Pull is a no-op fast-forward here, but must not error on a clean clone.
+	if err := Pull(dest); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+}
+
 func TestDescribePlainFolder(t *testing.T) {
 	dir := t.TempDir()
 	info := Describe(dir)
@@ -179,5 +205,20 @@ func TestBranchDirName(t *testing.T) {
 		if got := BranchDirName(in); got != want {
 			t.Fatalf("BranchDirName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCloneRejectsOptionLikeArgs(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git binary not available")
+	}
+	dest := filepath.Join(t.TempDir(), "dest")
+	// A URL or ref that starts with "-" must be rejected, not passed to git
+	// where it would be parsed as a flag (option injection).
+	if err := Clone("--upload-pack=touch pwned", "", dest); err == nil {
+		t.Error("expected rejection of option-like url")
+	}
+	if err := Clone("https://example.com/x.git", "--foo", dest); err == nil {
+		t.Error("expected rejection of option-like ref")
 	}
 }

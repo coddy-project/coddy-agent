@@ -117,6 +117,11 @@ models:
 
 agent:
   model: "openai/gpt-4o"
+
+skills:
+  sources:
+    - owner/repo
+    - https://example.com/marketplace.json
 `
 	p := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(p, []byte(yml), 0o644); err != nil {
@@ -139,6 +144,12 @@ agent:
 	if cfg2.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("model %q", cfg2.Agent.Model)
 	}
+	// skills.sources must survive the JSON DTO round-trip so the config-form
+	// UI can view and persist remote marketplace sources (not just skills.dirs).
+	if len(cfg2.Skills.Sources) != 2 || cfg2.Skills.Sources[0] != "owner/repo" ||
+		cfg2.Skills.Sources[1] != "https://example.com/marketplace.json" {
+		t.Fatalf("skills.sources lost in JSON round-trip: %v", cfg2.Skills.Sources)
+	}
 	yb, err := config.MarshalConfigYAML(cfg2)
 	if err != nil {
 		t.Fatal(err)
@@ -153,5 +164,8 @@ agent:
 	}
 	if cfg3.Agent.Model != "openai/gpt-4o" {
 		t.Fatalf("yaml round-trip model %q", cfg3.Agent.Model)
+	}
+	if len(cfg3.Skills.Sources) != 2 {
+		t.Fatalf("skills.sources lost in yaml round-trip: %v", cfg3.Skills.Sources)
 	}
 }

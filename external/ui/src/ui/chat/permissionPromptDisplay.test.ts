@@ -1,8 +1,5 @@
 import { expect, test } from "vitest";
-import {
-  permissionPromptDetail,
-  permissionPromptTitle,
-} from "./permissionPromptDisplay";
+import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 
 const basePayload = (): CoddyPermissionPayload => ({
@@ -25,10 +22,6 @@ const basePayload = (): CoddyPermissionPayload => ({
     { optionId: "allow", name: "Allow", kind: "allow_once" },
     { optionId: "reject", name: "Reject", kind: "reject_once" },
   ],
-});
-
-test("permissionPromptTitle humanizes run_command", () => {
-  expect(permissionPromptTitle(basePayload())).toBe("Run Command");
 });
 
 test("permissionPromptDetail extracts command from Arguments JSON", () => {

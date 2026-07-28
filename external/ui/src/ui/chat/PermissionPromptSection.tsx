@@ -1,10 +1,10 @@
-import { useCallback, useState, startTransition } from "react";
+import { useCallback, useMemo, useState, startTransition } from "react";
 
-import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
+import { PermissionToolPreview } from "./PermissionPromptPreview";
 import {
-  permissionPromptDetail,
-  permissionPromptTitle,
-} from "./permissionPromptDisplay";
+  buildPermissionToolPreview,
+  type PermissionToolCallContext,
+} from "./permissionToolPreview";
 import type {
   CoddyPermissionPayload,
   PermissionResolvedState,
@@ -16,21 +16,19 @@ const HDR = "X-Coddy-Session-ID";
 export type PermissionPromptSectionProps = {
   itemId: string;
   payload: CoddyPermissionPayload;
+  toolCall?: PermissionToolCallContext | undefined;
   resolved?: PermissionResolvedState | undefined;
   onResolved: (resolution: PermissionResolvedState) => void;
 };
 
 /** Inline permission gate for streaming permission SSE + POST /coddy/sessions/{id}/permission. */
 export function PermissionPromptSection(props: PermissionPromptSectionProps) {
-  const { payload, resolved, onResolved } = props;
+  const { payload, resolved, onResolved, toolCall } = props;
   const [submitting, setSubmitting] = useState(false);
-
-  if (resolved) {
-    return null;
-  }
-
-  const title = permissionPromptTitle(payload);
-  const detail = permissionPromptDetail(payload);
+  const preview = useMemo(
+    () => buildPermissionToolPreview(payload, toolCall),
+    [payload, toolCall],
+  );
 
   const choose = useCallback(
     async (optionId: string, label: string) => {
@@ -39,17 +37,14 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
       setSubmitting(true);
       try {
         try {
-          await fetch(
-            `/coddy/sessions/${encodeURIComponent(sid)}/permission`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                [HDR]: sid,
-              },
-              body: JSON.stringify({ toolCallId: tcid, optionId }),
+          await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/permission`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              [HDR]: sid,
             },
-          );
+            body: JSON.stringify({ toolCallId: tcid, optionId }),
+          });
         } catch {
           // still unblock transcript on transient network errors
         }
@@ -64,6 +59,10 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
     [onResolved, payload],
   );
 
+  if (resolved) {
+    return null;
+  }
+
   return (
     <div
       className="permission-prompt-frame"
@@ -77,17 +76,12 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
           >
             ?
           </span>
-          <span className="permission-prompt-title">{title}</span>
+          <span className="permission-prompt-title">{preview.title}</span>
+          <code className="permission-prompt-tool-badge">
+            {preview.toolName}
+          </code>
         </div>
-        {detail ? (
-          <div className="permission-prompt-quote-wrap">
-            <CodeBlockCopyButton
-              textToCopy={detail}
-              dataTestId="permission-prompt-copy"
-            />
-            <pre className="permission-prompt-quote-text">{detail}</pre>
-          </div>
-        ) : null}
+        <PermissionToolPreview preview={preview} />
         <div className="permission-prompt-actions">
           {payload.options.map((opt) => {
             const isReject = opt.optionId === "reject";

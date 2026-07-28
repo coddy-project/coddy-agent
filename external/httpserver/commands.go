@@ -48,7 +48,9 @@ func Run(args []string, deps CommandDeps) error {
 	port := fs.String("P", "12345", "listen port for HTTP")
 	fs.StringVar(host, "host", "0.0.0.0", "bind address for HTTP (alias of -H)")
 	fs.StringVar(port, "port", "12345", "listen port (alias of -P)")
+	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /coddy/* routes (else CODDY_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -81,6 +83,7 @@ func Run(args []string, deps CommandDeps) error {
 	if *schedulerEnabled {
 		cfg.Scheduler.Enabled = true
 	}
+	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
@@ -138,7 +141,38 @@ func Run(args []string, deps CommandDeps) error {
 		listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
 	}
 
-	log.Info("listening", "addr", listenAddr)
 	s := New(cfg, mgr, log, paths.CWD)
+
+	// Out-of-band bearer tokens (--auth-token, then CODDY_HTTP_TOKEN) enable auth without
+	// writing the secret into config.yaml and survive PUT /coddy/config hot reloads.
+	var extraTokens []string
+	if t := strings.TrimSpace(*authToken); t != "" {
+		extraTokens = append(extraTokens, t)
+	}
+	if t := strings.TrimSpace(os.Getenv("CODDY_HTTP_TOKEN")); t != "" {
+		extraTokens = append(extraTokens, t)
+	}
+	s.SetExtraAuthTokens(extraTokens)
+
+	authOn := len(cfg.HTTPServer.EffectiveAuthTokens()) > 0 || len(extraTokens) > 0
+	effHost, _, _ := net.SplitHostPort(listenAddr)
+	if !authOn && !cfg.HTTPServer.AllowInsecure && !isLoopbackHost(effHost) {
+		log.Warn("HTTP API is reachable without authentication",
+			"addr", listenAddr,
+			"hint", "set httpserver.auth_token / --auth-token / CODDY_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
+	}
+	log.Info("listening", "addr", listenAddr, "auth", authOn)
 	return ListenAndServe(listenAddr, s)
+}
+
+// isLoopbackHost reports whether a bind host only accepts local connections.
+func isLoopbackHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "", "localhost", "127.0.0.1", "::1", "[::1]":
+		return true
+	}
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

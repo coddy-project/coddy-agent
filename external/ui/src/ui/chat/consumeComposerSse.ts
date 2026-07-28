@@ -1,8 +1,12 @@
 import type { MutableRefObject } from "react";
-import { insertNewThinkingBeforeStreamingAssistant } from "./transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
+
+export type ContextUsageUpdate = {
+  used: number;
+  size: number;
+};
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -108,6 +112,7 @@ export type ConsumeComposerSseParams = {
   assistantId: string;
   applyStreamItems: (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => void;
   setTokenUsage: (u: TokenUsage | null) => void;
+  setContextUsage: (u: ContextUsageUpdate) => void;
   tokenBaselineRef: MutableRefObject<{
     input: number;
     output: number;
@@ -136,6 +141,8 @@ export type ConsumeComposerSseResult = {
   ensureAssistant: (
     patch?: Partial<Extract<TranscriptItem, { type: "assistant_message" }>>,
   ) => void;
+  /** Id of the last (currently open) assistant text segment, for finalize/fill. */
+  lastAssistantId: string;
 };
 
 export async function consumeComposerSseReader(
@@ -148,6 +155,7 @@ export async function consumeComposerSseReader(
     assistantId,
     applyStreamItems,
     setTokenUsage,
+    setContextUsage,
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
@@ -156,6 +164,15 @@ export async function consumeComposerSseReader(
     onQuestion,
     onPermission,
   } = p;
+
+      // Streaming assistant segmentation. Text before any tool/thinking stays in
+      // one bubble; when text resumes AFTER a tool call or thinking row we open a
+      // NEW assistant bubble, so the live transcript interleaves in arrival order
+      // (matching the chronological order loadMessages later applies from the
+      // server). `currentAssistantId` points at the open text segment;
+      // `assistantSegmentDirty` means the next text delta must start a fresh one.
+      let currentAssistantId = assistantId;
+      let assistantSegmentDirty = false;
 
       const toolQueue: Array<
         Partial<Extract<TranscriptItem, { type: "tool_call" }>> & {
@@ -196,16 +213,12 @@ export async function consumeComposerSseReader(
               if (upd.finishedAtMs !== undefined)
                 it.finishedAtMs = upd.finishedAtMs;
               if (upd.durationMs !== undefined) it.durationMs = upd.durationMs;
-              const aIdx = next.findIndex(
-                (x) => x.type === "assistant_message" && x.id === assistantId,
-              );
-              if (aIdx >= 0) {
-                const arr = next === prev ? [...next] : next;
-                arr.splice(aIdx, 0, it);
-                next = arr;
-              } else {
-                next = [...next, it];
-              }
+              // Append at the end in arrival order and mark the assistant segment
+              // dirty so text after this tool call opens a new bubble below it.
+              const arr = next === prev ? [...next] : next;
+              arr.push(it);
+              next = arr;
+              assistantSegmentDirty = true;
               continue;
             }
             const arr = next === prev ? [...next] : next;
@@ -257,12 +270,12 @@ export async function consumeComposerSseReader(
       ) => {
         applyStreamItems((prev) => {
           const idx = prev.findIndex(
-            (x) => x.type === "assistant_message" && x.id === assistantId,
+            (x) => x.type === "assistant_message" && x.id === currentAssistantId,
           );
           if (idx < 0) {
             const base: Extract<TranscriptItem, { type: "assistant_message" }> =
               {
-                id: assistantId,
+                id: currentAssistantId,
                 type: "assistant_message",
                 content: "",
                 streaming: true,
@@ -300,13 +313,15 @@ export async function consumeComposerSseReader(
             content: "",
             startedAtMs: freezeAt,
           };
-          let next = known
-            ? prev
-            : insertNewThinkingBeforeStreamingAssistant(
-                prev,
-                assistantId,
-                newRow,
-              );
+          let next: TranscriptItem[];
+          if (known) {
+            next = prev;
+          } else {
+            // Append thinking at the end (arrival order); text after it opens a
+            // new assistant segment below, keeping the live order chronological.
+            assistantSegmentDirty = true;
+            next = [...prev, newRow];
+          }
           next = next.map((it) =>
             it.type === "thinking" && it.id === id
               ? { ...it, content: it.content + delta }
@@ -392,10 +407,19 @@ export async function consumeComposerSseReader(
                 if (/\S/.test(c)) {
                   finishThinking();
                 }
+                // Land any queued tool rows first, then open a new assistant
+                // segment if a tool/thinking closed the previous one, so text
+                // interleaves with tools in arrival order.
+                flushToolQueue();
+                if (assistantSegmentDirty) {
+                  currentAssistantId = newId("a");
+                  assistantSegmentDirty = false;
+                }
                 ensureAssistant();
                 applyStreamItems((prev) =>
                   prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
+                    it.type === "assistant_message" &&
+                    it.id === currentAssistantId
                       ? { ...it, content: it.content + c }
                       : it,
                   ),
@@ -419,6 +443,25 @@ export async function consumeComposerSseReader(
                   tokenBaselineRef.current.total + (u.totalTokens || 0),
               };
               setTokenUsage(merged);
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "usage_update") {
+            try {
+              const raw = JSON.parse(ev.data) as ContextUsageUpdate;
+              const used = Number(raw.used);
+              const size = Number(raw.size);
+              if (
+                Number.isFinite(used) &&
+                used >= 0 &&
+                Number.isFinite(size) &&
+                size > 0
+              ) {
+                setContextUsage({ used, size });
+              }
             } catch {
               // ignore
             }
@@ -625,10 +668,19 @@ export async function consumeComposerSseReader(
                 if (/\S/.test(c)) {
                   finishThinking();
                 }
+                // Land any queued tool rows first, then open a new assistant
+                // segment if a tool/thinking closed the previous one, so text
+                // interleaves with tools in arrival order.
+                flushToolQueue();
+                if (assistantSegmentDirty) {
+                  currentAssistantId = newId("a");
+                  assistantSegmentDirty = false;
+                }
                 ensureAssistant();
                 applyStreamItems((prev) =>
                   prev.map((it) =>
-                    it.type === "assistant_message" && it.id === assistantId
+                    it.type === "assistant_message" &&
+                    it.id === currentAssistantId
                       ? { ...it, content: it.content + c }
                       : it,
                   ),
@@ -793,5 +845,8 @@ export async function consumeComposerSseReader(
     flushToolQueue,
     finishThinking,
     ensureAssistant,
+    get lastAssistantId() {
+      return currentAssistantId;
+    },
   };
 }

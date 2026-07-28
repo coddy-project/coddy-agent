@@ -19,6 +19,17 @@ alwaysApply: true
 - Keep tests deterministic; avoid real network unless the test is explicitly integration-style and documented.
 - New HTTP behavior belongs in **`external/httpserver/server_test.go`** (and related files) with **`http` build tag parity.
 
+## BDD feature specs (`features/`)
+
+- **Happy-path behavior** of a feature (and the reproduction of a bug) is an executable Gherkin
+  spec in the **repo-root `features/`** directory, run by a godog harness (e.g.
+  **`external/httpserver/bdd_remote_test.go`**, **`bdd_workspace_test.go`**) whose
+  **`Options.Paths`** points at **`../../features/<name>.feature`**.
+- **Edge / boundary / error cases** are ordinary **unit tests** next to the code, **not** scenarios
+  in `features/`. Keep `.feature` files to the correct-behavior story.
+- Feature suites run under the tag that owns the behavior (e.g. **`-tags http`**) and are part of
+  **`make test`**. Step definitions may use a stub runner to stay deterministic and LLM-free.
+
 ## References
 
 @Makefile

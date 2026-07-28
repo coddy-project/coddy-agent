@@ -33,6 +33,12 @@ func openAPISpec() map[string]interface{} {
 				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
+		// Optional bearer auth: an empty requirement plus bearerAuth means requests may be
+		// unauthenticated (default) or carry a token when httpserver.auth_token is configured.
+		"security": []interface{}{
+			map[string]interface{}{},
+			map[string]interface{}{"bearerAuth": []interface{}{}},
+		},
 		"paths": map[string]interface{}{
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
@@ -131,7 +137,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -290,6 +296,45 @@ func openAPISpec() map[string]interface{} {
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/commands": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "List built-in slash commands",
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"operationId": "listBuiltinCommands",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "prefix", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Case-insensitive filter on command name.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Built-in command rows",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"items": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"name":        map[string]string{"type": "string"},
+														"description": map[string]string{"type": "string"},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},
@@ -878,6 +923,306 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/mcp": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List MCP servers",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"operationId": "listMCPServers",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Set to `1` to bypass the probe cache.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "MCP server list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/MCPServerList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable an MCP server",
+					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.coddy/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"operationId": "enableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable an MCP server",
+					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"operationId": "disableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a single MCP tool",
+					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"operationId": "enableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a single MCP tool",
+					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.coddy/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"operationId": "disableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Create or update an mcp.json MCP server",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"operationId": "putMCPServer",
+					"parameters": []interface{}{
+						mcpServerNameParam(),
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
+							"description": "Target file: local (default) = ./.coddy/mcp.json, global = <home>/mcp.json.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPJSONServer"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server saved."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete an mcp.json MCP server",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"operationId": "deleteMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server deleted."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/sync": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Sync remote skill sources",
+					"description": "Fetches every source in **`skills.sources`** (GitHub repos, git URLs, or an http(s) URL to an agents-standard **`marketplace.json`**) and materializes their skills into the managed skills directory. Manual only — never runs automatically. Returns lists of added/updated skill names and per-source failures.",
+					"operationId": "syncSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "source", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Sync only this marketplace source; omit to sync all configured sources.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Sync result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/sources": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List remote skill sources",
+					"description": "Returns the configured **`skills.sources`** entries (GitHub repos, git URLs, or marketplace.json URLs).",
+					"operationId": "listSkillSources",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Configured sources.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "coddy.skills_sources"},
+											"items":  map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				"post": map[string]interface{}{
+					"summary":     "Add a remote skill source",
+					"description": "Appends a source to **`skills.sources`** in **config.yaml** and reloads config. Set **`sync:true`** to also fetch it immediately. The source is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard **`marketplace.json`**.",
+					"operationId": "addSkillSource",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "owner/repo[@ref], a git URL, or a marketplace.json URL."},
+										"sync":   map[string]interface{}{"type": "boolean", "description": "Fetch the source immediately after adding."},
+									},
+									"required": []interface{}{"source"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source added (with optional sync result)."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill source",
+					"description": "Removes a source from **`skills.sources`** in **config.yaml** (matched case-insensitively) and reloads config. Already-installed skills remain until removed. The source is passed as the **`source`** query parameter. Missing **`source`** returns 400.",
+					"operationId": "removeSkillSource",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "source", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "The exact configured source string to remove.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Source removed (or absent, with removed:false)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/available": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List installable marketplace plugins",
+					"description": "Fetches every configured marketplace manifest (network / git) and returns the plugins they advertise, each flagged with `installed`. Backs the browse/filter install control.",
+					"operationId": "listAvailablePlugins",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Available plugins (name, description, version, source, installed)."},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/install": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Install one plugin from a marketplace",
+					"description": "Installs a single named plugin from a marketplace source (rather than syncing every plugin the source advertises).",
+					"operationId": "installPlugin",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"source": map[string]string{"type": "string", "description": "Configured marketplace source the plugin comes from."},
+										"plugin": map[string]string{"type": "string", "description": "Plugin name to install."},
+									},
+									"required": []interface{}{"source", "plugin"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Install result (added/updated/failed)."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/updates": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Check installed remote skills for updates",
+					"description": "For every installed remote skill, fetches its marketplace source and compares the installed version against the latest declared upstream. Performs network / git access. Returns one entry per remote skill with **`update_available`** set when a newer version exists.",
+					"operationId": "checkSkillUpdates",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Per-skill update status.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillUpdateList"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}/update": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Update a skill to its latest version",
+					"description": "Re-syncs the marketplace source that provides **{name}**, installing whatever version that source currently declares. Fails with 400 when the skill was not installed from a remote source.",
+					"operationId": "updateSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Update result.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/SkillSyncResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/skills/{name}": map[string]interface{}{
+				"delete": map[string]interface{}{
+					"summary":     "Remove a remote skill",
+					"description": "Deletes any on-disk skill by name (its directory, and its remote provenance entry when synced). Bundled (read-only) skills cannot be deleted and return 400; so do skills outside the configured skill directories.",
+					"operationId": "removeRemoteSkill",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "name", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Canonical skill name (single segment, no slashes).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Remote skill removed."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
@@ -898,8 +1243,59 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/compact": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Compact (summarize) older session history",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "id",
+							"in":          "path",
+							"required":    true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"instructions": map[string]string{
+											"type":        "string",
+											"description": "Optional extra guidance for the summarizer (what to emphasize).",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Compaction outcome.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CompactResult"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 		},
 		"components": map[string]interface{}{
+			"securitySchemes": map[string]interface{}{
+				"bearerAuth": map[string]interface{}{
+					"type":        "http",
+					"scheme":      "bearer",
+					"description": "Optional. When httpserver.auth_token (or --auth-token / CODDY_HTTP_TOKEN) is set, every /v1/* and /coddy/* route requires `Authorization: Bearer <token>` and returns 401 otherwise. Disabled by default. /docs and /openapi.* are also protected unless httpserver.public_docs is true.",
+				},
+			},
 			"schemas": map[string]interface{}{
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
@@ -912,6 +1308,21 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 				},
+				"CompactResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"compacted": map[string]interface{}{"type": "boolean", "description": "False when there was nothing to compact."},
+						"reason":    map[string]string{"type": "string", "description": "Set to nothing_to_compact when compacted is false."},
+						"summary":   map[string]string{"type": "string", "description": "Generated summary text (without the transcript preamble)."},
+						"compacted_messages": map[string]interface{}{
+							"type": "integer", "description": "How many history messages were folded into the summary.",
+						},
+						"kept_messages": map[string]interface{}{
+							"type": "integer", "description": "How many messages after the summary stayed verbatim.",
+						},
+						"model": map[string]string{"type": "string", "description": "models[].model that produced the summary."},
+					},
+				},
 				"SkillRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -919,6 +1330,27 @@ func openAPISpec() map[string]interface{} {
 						"description": map[string]string{"type": "string"},
 						"file_path":   map[string]string{"type": "string"},
 						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the skill is in the disabled list."},
+						"version":     map[string]string{"type": "string", "description": "Installed version: the marketplace-declared version for synced skills, else the SKILL.md frontmatter version. Absent when unknown."},
+						"source":      map[string]string{"type": "string", "description": "Configured source string when the skill was installed via `skills.sources`; absent for local/bundled skills."},
+						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for bundled skills, which cannot be deleted."},
+					},
+				},
+				"SkillSyncResult": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":      map[string]interface{}{"type": "boolean"},
+						"added":   map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"updated": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"failed": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"source": map[string]string{"type": "string"},
+									"error":  map[string]string{"type": "string"},
+								},
+							},
+						},
 					},
 				},
 				"SkillList": map[string]interface{}{
@@ -929,6 +1361,80 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/SkillRow"},
 						},
+					},
+				},
+				"SkillUpdateList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.skills_updates"},
+						"items": map[string]interface{}{
+							"type": "array",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"name":             map[string]string{"type": "string", "description": "Installed remote skill name."},
+									"source":           map[string]string{"type": "string", "description": "Configured source it was installed from."},
+									"version":          map[string]string{"type": "string", "description": "Installed version."},
+									"latest":           map[string]string{"type": "string", "description": "Latest version declared by the source."},
+									"update_available": map[string]interface{}{"type": "boolean", "description": "True when latest is newer than the installed version."},
+								},
+							},
+						},
+					},
+				},
+				"MCPToolRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Tool name as advertised by the server."},
+						"description": map[string]string{"type": "string"},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the tool is in the server's disabled-tools list."},
+					},
+				},
+				"MCPServerRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":    map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
+						"origin":    map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
+						"readonly":  map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport": map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":   map[string]string{"type": "string"},
+						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":       map[string]string{"type": "string"},
+						"env":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":   map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"enabled":   map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":    map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type)."},
+						"error":     map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported."},
+						"tools": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
+						},
+						"disabled_tools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
+				"MCPServerList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.mcp_list"},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
+						},
+					},
+				},
+				"MCPJSONServer": map[string]interface{}{
+					"type":        "object",
+					"description": "One mcp.json entry (global <home>/mcp.json or project .coddy/mcp.json; Cursor-compatible).",
+					"properties": map[string]interface{}{
+						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"disabled":      map[string]interface{}{"type": "boolean"},
+						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
 					},
 				},
 				"CoddyConfigJSON": map[string]interface{}{
@@ -1038,6 +1544,10 @@ func openAPISpec() map[string]interface{} {
 						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
+						"compaction_summary": map[string]interface{}{
+							"type":        "boolean",
+							"description": "Coddy transcript extension: this row is a generated summary of earlier history (context compaction). Rows before the last summary are excluded from LLM prompts but stay in the transcript.",
+						},
 					},
 					"required": []string{"role"},
 				},
@@ -1311,6 +1821,22 @@ func jsonSchemaResponse(description, ref string) map[string]interface{} {
 				"schema": map[string]interface{}{"$ref": ref},
 			},
 		},
+	}
+}
+
+func mcpServerNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpToolNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "tool", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Tool name as advertised by the server.",
 	}
 }
 

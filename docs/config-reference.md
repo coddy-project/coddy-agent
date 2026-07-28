@@ -5,7 +5,7 @@ Field-by-field reference for `~/.coddy/config.yaml`. For narrative documentation
 A machine-readable [JSON Schema](config.schema.json) accompanies this reference. Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
 ```
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
@@ -27,6 +27,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
+| [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
 | [`memory`](#memory) | object | Long-term memory copilot | `memory` |
 | [`httpserver`](#httpserver) | object | OpenAI-compatible HTTP API defaults | `http` |
 | [`scheduler`](#scheduler) | object | Cron scheduler | `scheduler` |
@@ -44,7 +45,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
 | `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep` and `type: codex`, which always use fixed official endpoints. |
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
-| `api_key_command` | string | no | `""` | — | Credential-helper command run via the shell when `api_key` is empty; trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
+| `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
@@ -104,6 +105,10 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
 | `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
 | `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
+| `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
 
 ## `prompts`
 
@@ -130,6 +135,8 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `dirs` | string list | no | `["~/.agents/skills", "${CODDY_HOME}/skills", "${CWD}/.coddy/skills"]` | Directories scanned for skills. Later entries have **higher** priority on name conflicts. `${CODDY_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`). |
+| `sources` | string list | no | `[]` | Remote skill sources installed on demand with `coddy skills sync` (never fetched automatically). Each entry is a GitHub repo (`owner/repo[@ref]`), a git URL, or an http(s) URL to an agents-standard `marketplace.json`. Cloned/copied into `${CODDY_HOME}/skills/`, then picked up like any local skill. See [skills.md](skills.md). |
+| `auto_discovery` | bool | no | `true` | Offer the model-driven `load_skill` tool so the agent pulls a catalogued skill's full instructions into a turn on its own when the request matches, instead of requiring an explicit `/name`. Set `false` to keep skills manual-only. |
 
 ## `rules`
 
@@ -146,20 +153,32 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
 | `command` | string | stdio only | — | Executable for stdio transport. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
 | `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
 | `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. See
+`docs/mcp-integration.md`.
 
 ## `tools`
 
@@ -192,6 +211,17 @@ Session bundle storage (`config.Sessions`, `internal/config/sessions.go`).
 |---|---|---|---|---|
 | `dir` | string | no | `""` → `${CODDY_HOME}/sessions` | Sessions root. Supports `${CODDY_HOME}` and `~`. Overridden by the `--sessions-dir` flag. |
 
+## `compaction`
+
+Context compaction (`config.Compaction`, `internal/config/compaction.go`): summarizing older conversation history so long sessions keep fitting the model context window. Applies to the manual compact command and the automatic threshold trigger.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch for compaction (manual command and automation). |
+| `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
+| `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
+| `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
+
 ## `memory`
 
 Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; implementation in `external/memory`, `memory` build tag).
@@ -214,6 +244,21 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 |---|---|---|---|---|
 | `host` | string | no | `""` → `0.0.0.0` | Default bind address when `coddy http` does not pass `-H/--host`. |
 | `port` | int | no | `0` → `12345` | Default listen port when `coddy http` does not pass `-P/--port`. Range 0–65535. |
+| `auth_token` | string | no | `""` | Optional bearer credential. Empty means no auth (historical default). Enables auth on `/v1/*` and `/coddy/*`. Supports `${ENV}`. Never returned by `GET /coddy/config`. Prefer `--auth-token` / `CODDY_HTTP_TOKEN`. |
+| `public_docs` | bool | no | `false` | When auth is enabled, keep `/docs` and `/openapi.*` reachable without a token. |
+| `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the API (e.g. `http://localhost:12345`). A single `*` allows any origin; bearer auth still applies. |
+| `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
+| `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
+
+## `ui`
+
+Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful with `-tags http,ui`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
 
 ## `scheduler`
 

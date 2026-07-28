@@ -119,6 +119,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/workspace/context", s.coddyWorkspaceContextGet)
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
 	s.mux.HandleFunc("GET /coddy/slash-commands", s.coddySlashCommandsGet)
+	s.mux.HandleFunc("GET /coddy/commands", s.coddyCommandsGet)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
@@ -130,6 +131,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("PATCH /coddy/sessions/{id}", s.coddySessionPatch)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/workspace", s.coddySessionWorkspacePost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/cancel", s.coddySessionCancelGeneration)
+	s.mux.HandleFunc("POST /coddy/sessions/{id}/compact", s.coddySessionCompactPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/question", s.coddySessionQuestionPost)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/permission", s.coddySessionPermissionPost)
 	s.mux.HandleFunc("DELETE /coddy/sessions/{id}", s.coddySessionDelete)
@@ -141,6 +143,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
+	s.registerMCPManagementRoutes()
 }
 
 func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Request) {
@@ -838,6 +841,9 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		}
 		if cat := strings.TrimSpace(m.CreatedAt); cat != "" {
 			item["created_at"] = cat
+		}
+		if m.CompactionSummary {
+			item["compaction_summary"] = true
 		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{

@@ -60,31 +60,37 @@ func List(cfg *config.Config) error {
 	}
 
 	disabled := ReadDisabled(managedDir)
+	remote := RemoteSources(cfg)
 
 	fmt.Printf("%d skill(s):\n\n", len(loaded))
-	renderSkillsTable(os.Stdout, loaded, disabled)
+	renderSkillsTable(os.Stdout, loaded, disabled, remote)
 
 	return nil
 }
 
-func renderSkillsTable(w io.Writer, loaded []*Skill, disabled map[string]struct{}) {
+func renderSkillsTable(w io.Writer, loaded []*Skill, disabled map[string]struct{}, remote map[string]RemoteEntry) {
 	nameW, descW := skillTableWidths()
 	tw := table.NewWriter()
 	tw.SetOutputMirror(w)
-	tw.AppendHeader(table.Row{"SKILL", "STATUS", "DESCRIPTION"})
+	tw.AppendHeader(table.Row{"SKILL", "VERSION", "STATUS", "DESCRIPTION"})
 	for _, s := range loaded {
 		name := sanitizeTableCell(displaySkillName(s))
 		desc := sanitizeTableCell(skillDescriptionLine(s))
+		version := sanitizeTableCell(InstalledVersion(remote, CanonicalCommandName(s), s))
+		if version == "" {
+			version = "-"
+		}
 		status := "enabled"
 		if IsDisabled(disabled, name) {
 			status = "disabled"
 		}
-		tw.AppendRow(table.Row{name, status, desc})
+		tw.AppendRow(table.Row{name, version, status, desc})
 	}
 	tw.SetColumnConfigs([]table.ColumnConfig{
 		{Number: 1, Align: text.AlignLeft, AlignHeader: text.AlignCenter, WidthMax: nameW},
-		{Number: 2, Align: text.AlignCenter, AlignHeader: text.AlignCenter, WidthMax: 10},
-		{Number: 3, Align: text.AlignLeft, AlignHeader: text.AlignCenter, WidthMax: descW},
+		{Number: 2, Align: text.AlignCenter, AlignHeader: text.AlignCenter, WidthMax: 12},
+		{Number: 3, Align: text.AlignCenter, AlignHeader: text.AlignCenter, WidthMax: 10},
+		{Number: 4, Align: text.AlignLeft, AlignHeader: text.AlignCenter, WidthMax: descW},
 	})
 	style := table.StyleRounded
 	style.Format.Header = text.FormatUpper

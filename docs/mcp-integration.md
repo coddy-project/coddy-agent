@@ -3,18 +3,70 @@
 ## Overview
 
 The agent supports connecting to external MCP (Model Context Protocol) servers, which provide
-additional tools and resources. MCP servers can be configured at two levels:
+additional tools and resources. MCP servers can be configured at these levels:
 
-1. **Global** - defined in `config.yaml`, always connected for every session
-2. **Per-session** - provided by the ACP client in `session/new` parameters
+1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
+   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
+   session; entries in `~/.coddy/mcp.json` override same-named `config.yaml` entries
+2. **Local** (scope `local`) - `<workspace>/.coddy/mcp.json`, merged over the global list for
+   sessions in that workspace; a local entry with the same name overrides the global definition
+3. **Per-session** - provided by the ACP client in `session/new` parameters
 
-Tools from all connected MCP servers are merged into the tool list passed to the LLM during the ReAct loop (in **`agent`** and **`plan`** modes).
+Tools from all connected MCP servers are merged into the tool list passed to the LLM during
+the ReAct loop (in **`agent`** and **`plan`** modes).
+
+## mcp.json (global and local)
+
+Both mcp.json files use the same shape as Cursor's: a single `mcpServers` object keyed by
+server name. `env` and `headers` are JSON objects (not the YAML name/value list), and
+per-tool switches use `disabledTools`:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"],
+      "env": { "SOME_TOKEN": "value" },
+      "disabled": false,
+      "disabledTools": ["write_file"]
+    }
+  }
+}
+```
+
+A broken `mcp.json` is logged and skipped; the session still starts with the remaining levels.
+
+## Enable / disable switches
+
+Every config level supports switching off a whole server or individual tools without
+removing their definitions:
+
+- `config.yaml`: `disabled: true` and `disabled_tools: ["tool_a"]` per `mcp_servers` entry
+- `~/.coddy/mcp.json` and `./.coddy/mcp.json`: `"disabled": true` and
+  `"disabledTools": ["tool_a"]` per entry
+
+Disabled servers are not connected for new sessions. Disabled tools (and all tools of a
+disabled server) are hidden from the LLM's tool list and rejected at dispatch. The switches
+are re-read on every agent turn, so toggling them (by editing the files or through the
+HTTP API / web UI below) also applies to **already running** sessions on their next turn.
+
+## Management API and UI
+
+The HTTP gateway (build tag `http`) exposes the merged server list with probed tool
+inventories and toggle endpoints under **`/coddy/mcp*`** (see `docs/http-api.md`), and the
+bundled web UI shows them under **Settings -> MCP servers**: status dot per server, a
+`global` / `local` scope badge, expandable tool list with per-tool switches, and a
+Cursor-style JSON editor for mcp.json entries with a scope picker (global writes
+`~/.coddy/mcp.json`, local writes `./.coddy/mcp.json`). Toggles persist into the file that
+defines the server; `config.yaml` entries are toggle-only here and edited in Settings.
 
 ## Supported Transports
 
-### stdio (always supported)
+### stdio (supported)
 
-The MCP server runs as a subprocess. Communication via stdin/stdout.
+The MCP server runs as a subprocess. Communication via stdin/stdout (newline-delimited
+JSON-RPC 2.0).
 
 Configuration in `session/new`:
 ```json
@@ -37,19 +89,45 @@ mcp_servers:
     env: []
 ```
 
-### HTTP (optional capability)
+### Streamable HTTP (supported)
 
-The agent advertises `mcpCapabilities.http: true` if HTTP MCP transport is supported.
+`type: http` connects to `url` over the
+MCP streamable HTTP transport (2025-03-26 spec): JSON-RPC messages are POSTed to the
+endpoint and answered as `application/json` bodies or `text/event-stream` chunks; the
+`Mcp-Session-Id` issued on initialize is echoed on subsequent requests. `headers` are sent
+with every request (e.g. `Authorization`). URL-only entries (no `command`, no `type`)
+default to `http`. When the endpoint rejects the handshake (legacy servers answer POST
+with 4xx), the client automatically falls back to the legacy SSE transport at the same
+URL, mirroring Cursor and Claude Code behavior. The agent advertises
+`mcpCapabilities.http: true` and `mcpCapabilities.sse: true`. In YAML the `type` value
+must be `stdio`, `http`, or `sse`; mcp.json and ACP entries additionally accept the
+`streamable-http` / `streamable_http` aliases for `http`.
 
-Configuration in `session/new`:
+```yaml
+mcp_servers:
+  - name: "remote-tools"
+    type: "http"
+    url: "https://mcp.example.com/mcp"
+    headers:
+      - name: "Authorization"
+        value: "Bearer ${MCP_TOKEN}"
+```
+
+### SSE (supported, legacy)
+
+`type: sse` forces the 2024-11-05 HTTP+SSE transport: a GET stream at `url` announces the
+POST endpoint in its first event and then carries every server-to-client message. Use it
+for servers that only implement the older protocol; `type: http` reaches them too via the
+automatic fallback.
+
+In `.coddy/mcp.json` the same entries look like Cursor's:
+
 ```json
 {
-  "type": "http",
-  "name": "api-tools",
-  "url": "https://my-mcp.example.com/mcp",
-  "headers": [
-    { "name": "Authorization", "value": "Bearer token123" }
-  ]
+  "mcpServers": {
+    "remote-tools": { "url": "https://mcp.example.com/mcp" },
+    "legacy-tools": { "type": "sse", "url": "https://old.example.com/sse" }
+  }
 }
 ```
 
@@ -61,15 +139,30 @@ tools are namespaced using the server name:
 - MCP server `filesystem` providing tool `read_file` -> available as `filesystem__read_file`
 - Built-in tool `read_file` -> available as `read_file`
 
-The LLM is informed of both names in the system prompt.
+Because `__` separates the server and tool parts, server names must not contain `__`
+(the management API rejects such names).
+
+## How tools reach the model
+
+MCP tools are **not** injected into the system prompt text (unlike skills, which render
+into a prompt section). They join the built-in tools in the native function-calling
+`tools` array of every LLM request, one definition per enabled tool: name
+`server__tool`, the server's own `inputSchema`, and the description prefixed with
+`[server]` so the model can tell providers apart. When the model emits a tool call whose
+name contains `__`, the agent routes it to the owning server over its transport and
+returns the MCP result to the model as a regular tool observation - the same loop as
+built-in tools, and the same approach Claude Code, Codex, and Cursor use. The end-to-end
+happy path (two servers over stdio and streamable HTTP, the model picking one by its
+namespaced tool, the result landing in the final answer) is specified in
+`features/mcp_tool_calls.feature` for both the OpenAI-compatible HTTP surface and the
+ACP session flow.
 
 ## Permission Model
 
-MCP tool calls follow the same permission model as built-in tools:
-- File reads: no permission required by default
-- File writes: configurable, default no permission required
-- Command execution: always requires permission (configurable)
-- Any tool tagged as `destructive`: always requires permission
+MCP tool calls are currently dispatched without the built-in permission prompts that guard
+filesystem writes and shell commands; the disable switches above are the mechanism for
+restricting what a server may do. Prefer running MCP servers with least-privilege
+credentials and disabling tools you do not need.
 
 ## Popular MCP Servers
 
@@ -113,9 +206,12 @@ mcp_servers:
 
 ## MCP Server Lifecycle
 
-1. On `session/new`, the agent spawns / connects to all configured MCP servers
+1. On `session/new`, the agent connects every enabled server from the merged
+   config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list, then any ACP
+   client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
 3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+   (unless the tool or its server has been disabled since)
 4. Results are returned to the LLM as tool observations
 5. On session end or `session/cancel`, MCP server connections are cleaned up
 

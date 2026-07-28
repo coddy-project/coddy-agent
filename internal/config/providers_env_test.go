@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 func TestProviderAPIKeyEnvVarName(t *testing.T) {
@@ -46,7 +48,7 @@ func TestProviderConfigEffectiveAPIKey(t *testing.T) {
 
 func TestProviderConfigEffectiveAPIKeyCommand(t *testing.T) {
 	// api_key_command stdout (trimmed) becomes the key when api_key is empty.
-	p := &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "printf 'k-from-cmd\\n'"}
+	p := &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: apiKeyOutputCommand("k-from-cmd")}
 	if got := p.EffectiveAPIKey(); got != "k-from-cmd" {
 		t.Fatalf("EffectiveAPIKey command: got %q want k-from-cmd", got)
 	}
@@ -57,15 +59,33 @@ func TestProviderConfigEffectiveAPIKeyCommand(t *testing.T) {
 	}
 	// The command wins over the conventional env var.
 	t.Setenv("RPA_API_KEY", "from-env")
-	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "printf 'k-from-cmd'"}
+	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: apiKeyOutputCommand("k-from-cmd")}
 	if got := p.EffectiveAPIKey(); got != "k-from-cmd" {
 		t.Fatalf("command should win over env: got %q", got)
 	}
 	// A failing/empty command falls back to the env var (best-effort helper).
-	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: "exit 3"}
+	p = &ProviderConfig{Name: "rpa", Type: "openai", APIKeyCommand: apiKeyFailureCommand()}
 	if got := p.EffectiveAPIKey(); got != "from-env" {
 		t.Fatalf("failed command should fall back to env: got %q", got)
 	}
+}
+
+func apiKeyOutputCommand(value string) string {
+	switch platform.CurrentShell().Kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		return "Write-Output '" + value + "'"
+	case platform.ShellCmd:
+		return "echo " + value
+	default:
+		return "printf '" + value + "\\n'"
+	}
+}
+
+func apiKeyFailureCommand() string {
+	if platform.CurrentShell().Kind == platform.ShellCmd {
+		return "exit /b 3"
+	}
+	return "exit 3"
 }
 
 func TestResolveLLMUsesEffectiveAPIKey(t *testing.T) {

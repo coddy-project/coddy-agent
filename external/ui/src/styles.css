@@ -527,8 +527,10 @@
 }
 
 html,
-body {
+body,
+#root {
   height: 100%;
+  min-height: 100%;
 }
 
 html {
@@ -560,6 +562,7 @@ html[data-theme="light"] {
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   color: var(--text);
   font-family:
     system-ui,
@@ -619,6 +622,7 @@ body {
 .shell {
   height: 100vh;
   height: 100svh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0;
@@ -646,6 +650,7 @@ body {
 .rail-column {
   position: relative;
   height: 100vh;
+  height: 100dvh;
   padding: 14px 8px 14px 0;
   display: flex;
   justify-content: stretch;
@@ -1743,6 +1748,32 @@ a.rail-brand {
     );
 }
 
+/* Keep the composer shield soft on light canvases instead of painting a dark slab. */
+[data-theme="light"] .chat-bottom:has(.composer-wrap-docked)::before {
+  background:
+    radial-gradient(
+      ellipse min(140%, 920px) 115% at 50% 100%,
+      var(--coddy-canvas-gradient-bottom) 0%,
+      color-mix(
+          in srgb,
+          var(--coddy-canvas-gradient-bottom) 48%,
+          transparent
+        )
+        45%,
+      transparent 72%
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(
+          in srgb,
+          var(--coddy-canvas-gradient-bottom) 62%,
+          transparent
+        )
+        100%
+    );
+}
+
 .chat-bottom-inner {
   position: relative;
   z-index: 1;
@@ -2141,29 +2172,36 @@ a.rail-brand {
 }
 
 .tool-result-toggle-row {
-  margin: 3px 8px 6px;
+  display: flex;
+  margin: 0 0 6px;
 }
 
-.tool-result-text-link {
-  display: inline;
-  padding: 0;
-  margin: 0;
+.tool-overflow-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  margin: -1px 0 0 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-glass-panel-bg));
+  padding: 3px 12px 4px;
   font: inherit;
-  font-size: 12px;
-  color: rgba(140, 175, 255, 0.95);
-  text-decoration: underline;
+  font-size: 10.5px;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
   cursor: pointer;
   text-align: left;
   vertical-align: baseline;
-  border: none;
-  background: none;
 }
 
-.tool-result-text-link:hover:not(:disabled) {
-  color: rgba(180, 205, 255, 1);
+.tool-overflow-toggle:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-glass-panel-bg));
 }
 
-.tool-result-text-link:disabled {
+.tool-overflow-toggle:disabled {
   opacity: 0.6;
   cursor: wait;
 }
@@ -2517,8 +2555,25 @@ a.rail-brand {
 }
 
 .coddy-tool-call-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 8px 0 0 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 12px;
   line-height: 1.45;
+}
+
+.coddy-tool-call-body--question {
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-radius: 12px;
+  background: var(--coddy-surface-muted);
 }
 
 .coddy-tool-call-body .tool-block:first-of-type {
@@ -2543,6 +2598,84 @@ a.rail-brand {
 
 .coddy-tool-call-body .tool-block.tool-result-raw {
   background: transparent;
+}
+
+.tool-call-result-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 12px;
+  background: var(--coddy-surface-inset);
+}
+
+/* A structured invocation and its output read as one execution card. */
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  + .tool-call-result-card {
+  margin-top: -8px;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  .permission-preview-bar--standalone {
+  border-radius: 12px 12px 0 0;
+}
+
+.coddy-tool-call-body--connected-result
+  > .permission-preview
+  .permission-preview-viewport {
+  border-radius: 0;
+}
+
+.tool-call-result-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 6px 10px;
+  box-sizing: border-box;
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.tool-call-result-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, #5fcf84 72%, var(--text));
+  box-shadow: 0 0 0 3px color-mix(in srgb, #5fcf84 11%, transparent);
+}
+
+.tool-call-result-card--failed .tool-call-result-dot {
+  background: color-mix(in srgb, #ff6b6b 78%, var(--text));
+  box-shadow: 0 0 0 3px color-mix(in srgb, #ff6b6b 11%, transparent);
+}
+
+.tool-call-result-content {
+  min-width: 0;
+  padding: 10px 12px;
+  box-sizing: border-box;
+  color: var(--coddy-surface-code-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.coddy-tool-call-body > .tool-result-toggle-row {
+  margin: 0 0 2px;
+}
+
+.coddy-tool-call-body
+  > .tool-call-result-card
+  + .tool-result-toggle-row {
+  margin-top: -8px;
 }
 
 /* Diff-only body: body retains its padding (keeps correct left alignment with
@@ -3022,6 +3155,13 @@ a.rail-brand {
   padding: 2px 6px 6px;
 }
 
+/* A second section title (e.g. Commands after the Skills list) gets a divider. */
+.slash-rows + .slash-menu-title {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
 .slash-muted,
 .slash-err {
   font-size: 12px;
@@ -3041,10 +3181,7 @@ a.rail-brand {
 }
 
 .slash-row-btn {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-  gap: 10px;
-  align-items: start;
+  display: block;
   width: 100%;
   text-align: left;
   border: none;
@@ -3059,25 +3196,32 @@ a.rail-brand {
   background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
+/* Keyboard-highlighted row (arrow-key selection); accent-tinted so it reads as
+   the current choice distinct from a plain hover. */
+.slash-row-btn.is-active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-blend-base));
+}
+
+/* Name and description flow as one inline block: the description begins right
+   after the /name and wraps onto the next line, clamped to 2 lines with an
+   ellipsis for anything that does not fit. */
+.slash-row-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
 .slash-row-name {
   font-weight: 600;
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .slash-row-desc {
   font-size: 12px;
   opacity: 0.72;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
 }
 
 .slash-load-more {
@@ -3362,6 +3506,149 @@ textarea#composer {
 
 .mode-menu-group + .mode-menu-group {
   margin-top: 2px;
+}
+
+/* Environment selector: workspace-row chip + local/remote menu. */
+
+/* Top workspace-context row now hosts the env chip alongside folder/branch/worktree. */
+.composer-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+.composer-context-row > .composer-context-chips {
+  padding: 0;
+}
+.workspace-chip-wrap {
+  display: inline-flex;
+}
+
+.workspace-chip--env {
+  gap: 6px;
+}
+
+.mode-env-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.mode-env-dot[data-remote="1"] {
+  background: #f59e0b; /* amber when driving a remote server */
+  opacity: 1;
+}
+
+.mode-menu--env {
+  min-width: 240px;
+  max-width: min(340px, calc(100vw - 24px));
+}
+
+.mode-menu--portal.mode-menu--env {
+  width: min(300px, calc(100vw - 24px));
+}
+
+/* Menu rows: [status dot] [name] … [host]. */
+.mode-env-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mode-env-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-env-sub {
+  margin-left: auto;
+  font-size: 0.85em;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+/* Reachability dots: green up, red down, amber while probing (local is always up). */
+.env-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: color-mix(in srgb, var(--text) 35%, transparent);
+}
+.env-status[data-state="up"],
+.env-status[data-state="local"] {
+  background: #22c55e;
+}
+.env-status[data-state="down"] {
+  background: #ef4444;
+}
+.env-status[data-state="checking"] {
+  background: #f59e0b;
+}
+
+/* Persistent alert when the active remote environment is unreachable/unauthorized (issue #60). */
+.env-health-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  color: #fff;
+  background: color-mix(in srgb, #ef4444 88%, #000);
+  border-bottom: 1px solid color-mix(in srgb, #ef4444 60%, #000);
+}
+.env-health-banner code {
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.env-health-banner-btn {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: transparent;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.env-health-banner-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.mode-menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+
+.mode-menu-form-title {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.mode-menu-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.mode-menu-form-actions .mode-item {
+  flex: 1;
+  justify-content: center;
+  text-align: center;
 }
 
 .mode-menu-empty {
@@ -5771,7 +6058,9 @@ textarea#composer {
   border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
-.skills-list-item.is-disabled {
+/* Dim the label/icon of a disabled skill but keep its on/off switch crisp. */
+.skills-list-item.is-disabled > svg,
+.skills-list-item.is-disabled .skills-list-item-text {
   opacity: 0.5;
 }
 
@@ -5799,10 +6088,421 @@ textarea#composer {
   white-space: nowrap;
 }
 
-.skills-list-item-toggle {
+/* Theme-aware on/off switch for enabling/disabling a skill. Sized to sit level
+   with the 40px icon buttons (Update / Delete) in the same row. */
+.skill-switch {
+  position: relative;
   flex: 0 0 auto;
-  font-size: 0.75rem;
-  padding: 4px 10px;
+  width: 38px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.skill-switch[aria-checked="true"] {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.skill-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.skill-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.skill-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  transition: transform 0.18s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+.skill-switch[aria-checked="true"] .skill-switch-thumb {
+  transform: translateX(16px);
+}
+
+.skills-list-item-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+}
+
+/* Version tag next to a skill name (monospace so semver reads cleanly). */
+.skills-list-item-version {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+  color: var(--muted);
+}
+
+/* Per-skill Update action (icon + label), only shown when an update exists. */
+/* Per-skill icon actions (Update / Delete) keep their square icon-button size
+   from .settings-btn-icon; only the flex placement is set here. */
+.skills-update-btn {
+  flex: 0 0 auto;
+}
+
+/* "Installed skills" heading row with the Refresh action on the right. */
+/* Footer of the Remote skill sources box: Add on the left, Sync all on the
+   right, on one level (matches the SchemaForm array's Add position). */
+.skills-sources-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.skills-sync-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.skills-sync-all-btn > svg {
+  flex-shrink: 0;
+}
+
+/* Full-width source input in the Remote skill sources editor (the field flexes,
+   but a bare <input> is content-width unless told to fill). */
+.settings-array-row-field > .settings-input {
+  width: 100%;
+}
+
+/* Inputs in array rows (dirs / sources) match the 40px icon buttons beside
+   them, so field and buttons line up instead of the input sitting short. */
+.settings-array-row .settings-input {
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+/* Trailing action buttons in a skill row never shrink, so the Update / switch /
+   Delete controls keep a consistent size regardless of description length. */
+.skills-list-item > button {
+  flex: 0 0 auto;
+}
+
+/* Briefly flash a just-installed skill so it's easy to spot after the list
+   re-sorts alphabetically (it may otherwise land far below the fold). */
+.skills-list-item.is-just-installed {
+  border-radius: 8px;
+  animation: skills-just-installed 2.4s ease-out;
+}
+
+@keyframes skills-just-installed {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Transient success state on a Sync button (checkmark flash after a sync). */
+.settings-btn.is-synced {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* A <fieldset> defaults to min-inline-size: min-content, so a skill row with a
+   long nowrap description would widen the box past its container and force a
+   horizontal scrollbar. Let the box shrink so descriptions ellipsize instead. */
+.skills-installed-box {
+  min-inline-size: 0;
+}
+
+/* Install control at the top of the Installed skills box: a filter input over a
+   floating dropdown of installable marketplace plugins, each with a
+   Download/install. The results float (absolute) so they never reflow the
+   installed list beneath them. */
+.skills-install {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.skills-install-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.skills-install-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+.skills-install-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.skills-install-result:hover {
+  background: color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.skills-install-result-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skills-install-result > button {
+  flex: 0 0 auto;
+}
+
+.skills-install-empty {
+  padding: 8px;
+}
+
+/* MCP servers tab (Cursor-style server list with per-tool switches). Reuses
+   the skills list typography (.skills-list-item-name/-desc/-badge) so the two
+   management tabs stay visually consistent. */
+.settings-mcp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mcp-servers-box {
+  min-inline-size: 0;
+}
+
+.mcp-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-list-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  padding: 4px 0;
+}
+
+.mcp-list-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.mcp-list-item.is-disabled .mcp-list-item-text,
+.mcp-list-item.is-disabled .mcp-list-item-head > svg {
+  opacity: 0.5;
+}
+
+.mcp-list-item-head > svg {
+  flex-shrink: 0;
+}
+
+/* Trailing controls in an MCP row never shrink (same rule as skill rows), so
+   a long command line or error text cannot squeeze the 40px icon buttons. */
+.mcp-list-item-head > button {
+  flex: 0 0 auto;
+}
+
+.mcp-list-item-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-expand-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mcp-expand-btn:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.mcp-expand-btn svg {
+  transition: transform 120ms ease;
+}
+
+/* Connection status dot (Cursor-style): green connected, red error, gray
+   disabled, amber unsupported transport. */
+.mcp-status-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.mcp-status-dot.is-connected {
+  background: #34c759;
+  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+}
+
+.mcp-status-dot.is-error {
+  background: #ff453a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+}
+
+.mcp-status-dot.is-unsupported {
+  background: #ff9f0a;
+}
+
+.mcp-status-dot.is-disabled {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.mcp-command {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+}
+
+.mcp-badge-transport {
+  text-transform: uppercase;
+}
+
+/* Expanded per-tool rows, indented under the server head. */
+.mcp-tools {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0 0 0 39px;
+  display: flex;
+  flex-direction: column;
+}
+
+.mcp-tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px dashed color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.mcp-tool-row.is-disabled .mcp-tool-text {
+  opacity: 0.5;
+}
+
+.mcp-tool-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mcp-tool-name {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.mcp-tools-empty {
+  margin: 0 0 8px;
+  padding-left: 39px;
+}
+
+/* JSON editor card for one .coddy/mcp.json entry (add or edit). */
+.mcp-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+}
+
+.mcp-editor-json {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  resize: vertical;
+  min-height: 120px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Global / Local scope picker in the add-server editor. */
+.mcp-editor-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 0.8rem;
+}
+
+.mcp-editor-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mcp-editor-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 1199px) {
@@ -5962,17 +6662,20 @@ textarea#composer {
   align-self: stretch;
   width: 100%;
   max-width: 720px;
+  min-width: 0;
   box-sizing: border-box;
 }
 
 .permission-prompt-frame {
   width: 100%;
+  min-width: 0;
 }
 
 .permission-prompt-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  min-width: 0;
+  gap: 12px;
   border-radius: var(--coddy-glass-panel-radius);
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
@@ -5980,12 +6683,14 @@ textarea#composer {
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   padding: 12px 14px;
   box-sizing: border-box;
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--coddy-blend-base) 22%, transparent);
 }
 
 .permission-prompt-head {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .permission-prompt-icon {
@@ -6005,56 +6710,189 @@ textarea#composer {
 }
 
 .permission-prompt-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.35;
   letter-spacing: 0;
   text-transform: none;
   color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
 }
 
-.permission-prompt-quote-wrap {
+.permission-prompt-tool-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  padding: 3px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.permission-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.permission-preview-bar {
   position: relative;
-  border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: var(--coddy-surface-inset);
-  padding: 10px 12px;
+  border-radius: 12px 12px 0 0;
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
+  min-height: 34px;
+  padding: 6px 8px 6px 12px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.permission-prompt-quote-wrap .md-copy {
-  z-index: 1;
+.permission-preview-bar--standalone {
+  border-radius: 12px;
 }
 
-.permission-prompt-quote-text {
+.permission-preview-location {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.permission-preview-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text) 38%, var(--coddy-blend-base));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.permission-preview-meta span + span::before {
+  content: "·";
+  margin-right: 6px;
+  color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+}
+
+.permission-preview-bar .md-copy {
+  position: static;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  padding: 3px 7px;
+  font-size: 10px;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  background: transparent;
+}
+
+.permission-preview-viewport {
+  position: relative;
+  min-width: 0;
+  max-height: 190px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--coddy-surface-inset);
+}
+
+.permission-preview-viewport--scroll {
+  overflow-y: auto;
+}
+
+.permission-preview-viewport--static {
+  max-height: none;
+  overflow: visible;
+}
+
+.permission-preview-code {
   margin: 0;
-  padding-right: 72px;
+  padding: 10px 12px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
 }
 
-.permission-prompt-resolved-badge {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 500;
-  text-transform: none;
-  letter-spacing: 0;
+.permission-preview-diff {
+  min-width: 0;
 }
 
-.permission-prompt-body {
-  margin: 0;
-  padding: 0;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.permission-preview-diff .diff-line {
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.permission-preview-diff .diff-gutter {
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-surface-inset));
+}
+
+.permission-preview-diff .diff-no {
+  min-width: 4ch;
+  color: color-mix(in srgb, var(--text) 44%, var(--coddy-blend-base));
+  font-variant-numeric: tabular-nums;
+}
+
+.permission-preview-diff .diff-line--add .diff-no {
+  color: color-mix(in srgb, var(--diff-add-no) 86%, var(--text));
+}
+
+.permission-preview-diff .diff-line--del .diff-no {
+  color: color-mix(in srgb, var(--diff-del-no) 86%, var(--text));
+}
+
+.permission-preview-diff .diff-hunk-header {
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.permission-preview-move {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.permission-preview-move code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.permission-preview-fade {
+  position: absolute;
+  inset: auto 0 0;
+  height: 42px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--coddy-surface-inset) 96%, transparent)
+  );
 }
 
 .permission-prompt-actions {
@@ -6062,6 +6900,7 @@ textarea#composer {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  padding-top: 1px;
 }
 
 .permission-prompt-btn {
@@ -6082,7 +6921,7 @@ textarea#composer {
 .permission-prompt-btn--allow {
   background: rgba(147, 51, 234, 0.22);
   border-color: rgba(167, 139, 250, 0.45);
-  color: rgba(233, 213, 255, 0.98);
+  color: var(--coddy-skill-chip-text);
 }
 
 .permission-prompt-btn--allow:hover:not(:disabled) {
@@ -6098,6 +6937,43 @@ textarea#composer {
 
 .permission-prompt-btn--reject:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+@media (max-width: 520px) {
+  .message-row-permission {
+    margin: 8px 0 12px;
+  }
+
+  .permission-prompt-card {
+    padding: 11px;
+  }
+
+  .permission-prompt-head {
+    align-items: flex-start;
+  }
+
+  .permission-prompt-tool-badge {
+    max-width: 38%;
+    margin-top: 1px;
+  }
+
+  .permission-preview-meta {
+    display: none;
+  }
+
+  .permission-preview-viewport {
+    max-height: 170px;
+  }
+
+  .tool-overflow-toggle {
+    min-height: 36px;
+    padding: 7px 14px 8px;
+    font-size: 12px;
+  }
+
+  .permission-prompt-btn {
+    padding-inline: 13px;
+  }
 }
 
 .message-row-question {

@@ -44,6 +44,9 @@ func (s *Server) coddyConfigGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dto := config.ConfigToJSONDTO(c)
+	// Report the effective auth state (YAML token or out-of-band --auth-token / CODDY_HTTP_TOKEN),
+	// not just the config-file token, so the UI can reflect that auth is on regardless of source.
+	dto.HTTPServer.AuthConfigured = s.authPolicyNow().enabled
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(dto); err != nil {
 		s.log.Error("coddy config get encode", "error", err)
@@ -65,7 +68,7 @@ func (s *Server) coddyConfigValidatePost(w http.ResponseWriter, r *http.Request)
 		writeCoddyConfigErr(w, http.StatusBadRequest, "read body")
 		return
 	}
-	if _, err := config.ParseAndValidateConfigJSON(body, c.Paths); err != nil {
+	if _, err := config.ParseConfigJSONPreservingSecrets(body, c.Paths, c); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
@@ -95,7 +98,7 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeCoddyConfigErr(w, http.StatusBadRequest, "read body")
 		return
 	}
-	newCfg, err := config.ParseAndValidateConfigJSON(body, paths)
+	newCfg, err := config.ParseConfigJSONPreservingSecrets(body, paths, c)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)

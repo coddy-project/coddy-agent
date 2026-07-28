@@ -90,11 +90,12 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`**.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render).
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
-6. Loops until there are no tool calls, **`max_turns`** is exceeded, or cancellation.
+6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
+6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
 7. On **`session/cancel`** (or HTTP **`POST /coddy/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /coddy/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
 
 ### LLM Provider (`internal/llm`)
@@ -118,14 +119,20 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 
 - **`internal/tools/fs`** - path helpers (`paths.go` with `ResolvePath`, `CheckInsideCWD`,
   `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`read.go` **`read`**, **`glob.go`** **`glob`**,
-  **`grep.go`** **`grep`**, **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
+  **`grep.go`** **`grep`**, **`print_tree.go`** **`print_tree`** (directory tree, read-only),
+  **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
   **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
-- **`internal/tools/shell`** - **`run_command`**
+  **`grep`** uses a system **`rg`** when one is available (the pattern is passed to it untouched)
+  and otherwise falls back to the built-in Go walker/matcher in **`search.go`**. **`glob`** uses
+  the same built-in walker when **`rg`** is unavailable, so filesystem discovery also works in
+  Windows and distroless binaries without sidecar executables.
+- **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
+- **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
 - **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
   **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
   **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
 
-**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
 
 Agents see:
 
@@ -174,11 +181,23 @@ Some features live under **`external/`** and define tools that are **not** regis
 
 ### MCP Client (`internal/mcp`)
 
-Connects to external MCP servers specified in `session/new`. Supports:
-- stdio transport (always available)
-- HTTP transport (capability: `mcpCapabilities.http`)
+Connects to external MCP servers from three config levels (`config.yaml`
+`mcp_servers`, the global `~/.coddy/mcp.json`, the project `./.coddy/mcp.json`;
+later levels override by name) plus servers specified in `session/new`.
+Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
+- stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
+  transport-owned (the connect ctx only bounds the handshake)
+- streamable HTTP (`type: http`) - JSON-RPC POSTs answered as JSON or SSE
+  chunks, `Mcp-Session-Id` round-trip, automatic legacy-SSE fallback
+  (capability: `mcpCapabilities.http`)
+- legacy HTTP+SSE (`type: sse`) - GET event stream announcing the POST
+  endpoint (capability: `mcpCapabilities.sse`)
 
-Tools from MCP servers are appended to the LLM tool list in **`agent`** and **`plan`** modes (see **`internal/agent/react.go`**).
+`mcp.Probe` backs the `/coddy/mcp` management API (connect, `tools/list`,
+close); `manage.go` resolves which file owns a server for enable/disable
+persistence. Tools from MCP servers are appended to the LLM tool list in
+**`agent`** and **`plan`** modes (see **`internal/agent/react.go`**), filtered
+per turn by the disable switches.
 
 ### Skills loader (`internal/skills`)
 
@@ -204,7 +223,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read`**, **`glob`**, **`grep`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
 - No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 

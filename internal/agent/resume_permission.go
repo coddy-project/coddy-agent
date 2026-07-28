@@ -119,6 +119,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
+		LoadSkillBody: a.loadSkillBody,
 	}
 }
 
@@ -130,11 +131,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if toolSet.Unrestricted() || mode == "plan" {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
 	}
 	provider, err := a.getProvider(mode)
 	if err != nil {

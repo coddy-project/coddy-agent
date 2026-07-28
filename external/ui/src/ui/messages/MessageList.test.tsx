@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
 
@@ -46,6 +46,62 @@ test("renders user, assistant, and tool call items", () => {
   expect(screen.getByText("Hi")).toBeInTheDocument();
   expect(screen.getByText("read_file")).toBeInTheDocument();
   expect(screen.getByLabelText("Tool summary")).toBeInTheDocument();
+});
+
+test("permission preview uses the matching tool call arguments", () => {
+  const patch = [
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,2 +1,2 @@",
+    "-oldValue();",
+    "+newValue();",
+    " keep();",
+  ].join("\n");
+  const permissionPayload = {
+    sessionId: "sess_x",
+    toolCall: {
+      toolCallId: "call_patch",
+      title: "Run: apply_patch",
+      kind: "write",
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "Update the requested component" },
+        },
+      ],
+    },
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "allow_always", name: "Allow always", kind: "allow_always" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+  };
+  const items: TranscriptItem[] = [
+    {
+      id: "tool_patch",
+      type: "tool_call",
+      toolCallId: "call_patch",
+      title: "apply_patch",
+      kind: "write",
+      status: "in_progress",
+      argsText: JSON.stringify({ path: "src/app.ts", patch }),
+    },
+    {
+      id: "permission_patch",
+      type: "permission_prompt",
+      payload: permissionPayload,
+    },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.getByText("Apply this patch?")).toBeTruthy();
+  const approvalDiff = within(
+    screen.getByTestId("permission-prompt-card"),
+  ).getByLabelText("Patch preview");
+  expect(within(approvalDiff).getByText("oldValue();")).toBeTruthy();
+  expect(within(approvalDiff).getByText("newValue();")).toBeTruthy();
+  expect(screen.queryByText("Update the requested component")).toBeNull();
 });
 
 test("renders memory copilot foldout", () => {
@@ -105,4 +161,42 @@ test("tool call message uses thinking-row wrapper next to thinking row", () => {
 
   // Tool and thinking are sibling foldout rows (same stack rhythm as messages-inner gap).
   expect(wrapper?.nextElementSibling).toHaveClass("thinking-row");
+});
+
+test("retry button surfaces only on the last system_notice", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "s1", type: "system_notice", level: "error", message: "first error" },
+    { id: "u2", type: "user_message", content: "Again" },
+    {
+      id: "s2",
+      type: "system_notice",
+      level: "error",
+      message: "model did not respond",
+    },
+  ];
+  render(<MessageList items={items} onRetryLast={() => {}} />);
+  expect(screen.getAllByTestId("system-message-retry")).toHaveLength(1);
+});
+
+test("no retry button when onRetryLast is not provided", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "s1", type: "system_notice", level: "error", message: "oops" },
+  ];
+  render(<MessageList items={items} />);
+  expect(screen.queryByTestId("system-message-retry")).toBeNull();
+});
+
+test("compaction summary renders as a foldout, not a user bubble", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "c1", type: "compaction", summary: "Key facts preserved here." },
+  ];
+  render(<MessageList items={items} />);
+  expect(screen.getByText("context compacted")).toBeInTheDocument();
+  expect(
+    screen.getByLabelText("Context compacted summary"),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/Key facts preserved here/)).toBeInTheDocument();
 });

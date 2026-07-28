@@ -23,6 +23,9 @@ type Skill struct {
 	// Description from frontmatter (required for valid skills).
 	Description string
 
+	// Version from frontmatter (optional; semantic version when present).
+	Version string
+
 	// Content is the body of the skill file (without frontmatter).
 	Content string
 }
@@ -142,6 +145,11 @@ func loadFromDir(dir string) ([]*Skill, error) {
 	var skills []*Skill
 	for _, e := range entries {
 		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			// Skip dotfiles/dirs: .git, .remote.json, and the transient
+			// .tmp-/.bak- staging dirs used while syncing remote skills.
+			continue
+		}
 		full := filepath.Join(dir, name)
 		fi, err := os.Stat(full)
 		if err != nil {
@@ -197,16 +205,18 @@ func loadFile(path string) (*Skill, error) {
 			skill.Name = fm.Name
 		}
 		skill.Description = fm.Description
+		skill.Version = strings.TrimSpace(fm.Version)
 	}
 
 	return skill, nil
 }
 
 // frontmatter is the YAML frontmatter of a skill file.
-// Only name and description are supported; name overrides the filesystem-derived name when set.
+// name overrides the filesystem-derived name when set; version is optional.
 type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	Version     string `yaml:"version"`
 }
 
 // parseFrontmatter splits a file into frontmatter and body.

@@ -79,27 +79,36 @@ func executeGlob(ctx context.Context, argsJSON string, env *tooling.Env) (string
 		searchPath,
 	}
 
-	cmd := exec.CommandContext(ctx, "rg", rgArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return "(no files matched)", nil
-		}
-		if strings.Contains(err.Error(), "executable file not found") {
-			return "", fmt.Errorf("glob: ripgrep (rg) not found in PATH")
-		}
-		return "", fmt.Errorf("glob: %s", stderr.String())
-	}
-
-	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	var paths []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			paths = append(paths, line)
+	if rgPath, lookupErr := exec.LookPath("rg"); lookupErr == nil {
+		cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if exitErr.ExitCode() == 1 {
+					return "(no files matched)", nil
+				}
+				return "", fmt.Errorf("glob: %s", stderr.String())
+			}
+			// Fall through to the built-in walker if rg disappeared after lookup.
+			paths, err = nativeGlob(ctx, searchPath, pattern, sessionStoreRoot(env.SessionDir))
+			if err != nil {
+				return "", fmt.Errorf("glob: %w", err)
+			}
+		} else {
+			for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					paths = append(paths, line)
+				}
+			}
+		}
+	} else {
+		paths, err = nativeGlob(ctx, searchPath, pattern, sessionStoreRoot(env.SessionDir))
+		if err != nil {
+			return "", fmt.Errorf("glob: %w", err)
 		}
 	}
 	// Hide Coddy's own session store (before the cap) so other sessions' files

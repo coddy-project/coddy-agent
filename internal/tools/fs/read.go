@@ -64,11 +64,11 @@ func ReadTool() *tooling.Tool {
 }
 
 type readArgs struct {
-	Path        string `json:"path"`
-	Offset      int    `json:"offset"`
-	Limit       int    `json:"limit"`
-	Recursive   bool   `json:"recursive"`
-	ShowHidden  bool   `json:"show_hidden"`
+	Path       string `json:"path"`
+	Offset     int    `json:"offset"`
+	Limit      int    `json:"limit"`
+	Recursive  bool   `json:"recursive"`
+	ShowHidden bool   `json:"show_hidden"`
 }
 
 func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -106,7 +106,10 @@ func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, 
 		endLine = startLine + args.Limit - 1
 	}
 	if startLine > 1 || endLine > 0 {
-		content = sliceLines(content, startLine, endLine)
+		content, err = sliceLines(content, startLine, endLine)
+		if err != nil {
+			return "", fmt.Errorf("read: %w", err)
+		}
 	}
 
 	return content, nil

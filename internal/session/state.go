@@ -54,6 +54,11 @@ type State struct {
 	// MCPClients are connected MCP servers for this session.
 	MCPClients []*mcp.Client
 
+	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
+	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
+	// on every build lets enable/disable toggles apply to live sessions.
+	MCPFilterFactory func() func(server, tool string) bool
+
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
 
@@ -203,6 +208,18 @@ func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.MCPClients
+}
+
+// GetMCPToolFilter builds the current MCP tool filter. Without a factory the
+// filter allows everything (ACP-supplied servers, tests).
+func (s *State) GetMCPToolFilter() func(server, tool string) bool {
+	s.mu.RLock()
+	factory := s.MCPFilterFactory
+	s.mu.RUnlock()
+	if factory == nil {
+		return func(string, string) bool { return true }
+	}
+	return factory()
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.

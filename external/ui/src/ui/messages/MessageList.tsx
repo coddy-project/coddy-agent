@@ -12,6 +12,7 @@ import { AssistantMessage } from "./AssistantMessage";
 import { MemoryCopilotMessage } from "./MemoryCopilotMessage";
 import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
+import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
@@ -56,11 +57,23 @@ export function MessageList(props: {
   onPlanDocumentDiscard?: (itemId: string, slug: string) => void;
   onEdit?: (content: string, userMsgIdx: number) => void;
   onBranchSwitch?: (sessionId: string) => void;
+  /** Re-run the last turn; shown as a refresh button on the last system_notice. */
+  onRetryLast?: () => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
   );
+  const toolCallsById = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    for (const item of props.items) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [props.items]);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -83,7 +96,9 @@ export function MessageList(props: {
               key={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.knownSkillNames
+                ? { knownSkillNames: props.knownSkillNames }
+                : {})}
               {...(props.onEdit
                 ? { onEdit: (c) => props.onEdit!(c, myIdx) }
                 : {})}
@@ -117,6 +132,9 @@ export function MessageList(props: {
                 : {})}
             />
           );
+        }
+        if (it.type === "compaction") {
+          return <CompactionMessage key={it.id} summary={it.summary} />;
         }
         if (it.type === "memory_copilot") {
           return (
@@ -182,12 +200,16 @@ export function MessageList(props: {
           );
         }
         if (it.type === "system_notice") {
+          const isLast = idx === props.items.length - 1;
           return (
             <SystemNoticeMessage
               key={it.id}
               level={it.level}
               message={it.message}
-              createdAtUtc={it.createdAtUtc}
+              {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
+              {...(isLast && props.onRetryLast
+                ? { onRetry: props.onRetryLast }
+                : {})}
             />
           );
         }
@@ -201,17 +223,15 @@ export function MessageList(props: {
                 name={it.name}
                 overview={it.overview}
                 content={it.content}
-                {...it.body !== undefined ? { body: it.body } : {}}
-                {...it.path ? { path: it.path } : {}}
+                {...(it.body !== undefined ? { body: it.body } : {})}
+                {...(it.path ? { path: it.path } : {})}
                 discarded={it.discarded === true}
                 expanded={it.expanded}
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
                 onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                onDiscard={() => props.onPlanDocumentDiscard?.(it.id, it.slug)}
               />
             </div>
           );
@@ -222,6 +242,7 @@ export function MessageList(props: {
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
+                toolCall={toolCallsById.get(it.payload.toolCall.toolCallId)}
                 resolved={it.resolved}
                 onResolved={(state) =>
                   props.onPermissionPromptResolved?.(

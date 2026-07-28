@@ -40,8 +40,17 @@ type Server struct {
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
 
+	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
+	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
+	extraAuthTokens []string
+
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
+
+	// mcpProbeCache holds probed MCP tool inventories for /coddy/mcp (keyed
+	// by server name, invalidated on config fingerprint change or edit).
+	mcpProbeMu    sync.Mutex
+	mcpProbeCache map[string]mcpProbeEntry
 
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
@@ -91,7 +100,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	} else {
 		s.mux.Handle("GET /docs/", http.StripPrefix("/docs/", http.FileServer(http.FS(swaggerSub))))
 	}
-	mountEmbeddedSPARoot(s.mux)
+	mountEmbeddedSPARoot(s)
 	return s
 }
 
@@ -167,9 +176,11 @@ func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/docs/", http.StatusFound)
 }
 
-// Handler returns the root HTTP handler.
+// Handler returns the root HTTP handler: CORS wraps the auth gate wraps the route mux. Both
+// middlewares are no-ops unless configured, so unauthenticated, same-origin deployments are
+// unchanged.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.corsMiddleware(s.authGate(s.mux))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {

@@ -107,3 +107,25 @@ func TestBuildInvokedSkillsSection(t *testing.T) {
 		t.Fatalf("got %q", sec)
 	}
 }
+
+func TestBuiltinCommands(t *testing.T) {
+	names := func(s []skills.SkillSummary) []string {
+		out := make([]string, 0, len(s))
+		for _, x := range s {
+			out = append(out, x.Name)
+		}
+		return out
+	}
+	withCompact := skills.BuiltinCommands(true)
+	if got := names(withCompact); len(got) != 2 || got[0] != "compact" || got[1] != "plugin" {
+		t.Fatalf("with compaction: got %v, want [compact plugin]", got)
+	}
+	for _, c := range withCompact {
+		if strings.TrimSpace(c.Description) == "" {
+			t.Fatalf("builtin command %q must have a description", c.Name)
+		}
+	}
+	if got := names(skills.BuiltinCommands(false)); len(got) != 1 || got[0] != "plugin" {
+		t.Fatalf("without compaction: got %v, want [plugin]", got)
+	}
+}

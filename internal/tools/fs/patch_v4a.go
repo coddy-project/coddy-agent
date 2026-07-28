@@ -47,19 +47,21 @@ func isV4AHunkHeader(line string) bool {
 }
 
 func applyV4APatch(original, diff string) (string, error) {
-	chunks, err := parseV4AChunks(diff)
+	normalizedOriginal := normalizeLineEndings(original)
+	chunks, err := parseV4AChunks(normalizeLineEndings(diff))
 	if err != nil {
 		return "", err
 	}
 	if len(chunks) == 0 {
 		return "", fmt.Errorf("patch contains no change hunks")
 	}
-	lines := splitFileLines(original)
+	lines := splitFileLines(normalizedOriginal)
 	replacements, err := computeV4AReplacements(lines, chunks)
 	if err != nil {
 		return "", err
 	}
-	return strings.Join(applyV4AReplacements(lines, replacements), "\n"), nil
+	patched := strings.Join(applyV4AReplacements(lines, replacements), "\n")
+	return restoreLineEndings(patched, original), nil
 }
 
 func parseV4AChunks(diff string) ([]updateChunk, error) {

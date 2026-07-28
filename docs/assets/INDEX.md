@@ -23,7 +23,7 @@ Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
 
 ## Full HD tour (README, July 2026)
 
-Captured at **1920×1080** via Playwright MCP against the embedded SPA (`make build TAGS="http ui scheduler memory"` + `coddy http` on a disposable `--home`). Mobile shots at **390×844**. Theme is the default **Dark** (cookie `coddy_ui_theme=dark`; switch via Settings → Appearance). Provider `api_key` is left empty in the demo config and supplied via `RPA_API_KEY` so no secret is rendered.
+Captured at **1920×1080** via Playwright MCP against the embedded SPA (`make build TAGS="http ui scheduler memory"` + `coddy http` on a disposable `--home`). Mobile shots at **390×844**. Theme is the default **Dark** (cookie `coddy_ui_theme=dark`; switch via Settings → Appearance). Provider `api_key` is left empty in the demo config and supplied via `RPA_API_KEY` so no secret is rendered. Re-captured **2026-07-21** (0.9.40 + context-compaction branch): the composer now shows the environment chip (**Local**) plus workspace / branch / worktree chips; the settings sidebar includes **Context compaction**; demo scheduler jobs use `cwd: /workspace/demo-api` so no host paths leak into shots.
 
 - `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
 - `screenshot-fullhd-chat.png` - active session transcript with agent tool/thinking/memory rows (`#/s/...`)
@@ -34,6 +34,16 @@ Captured at **1920×1080** via Playwright MCP against the embedded SPA (`make bu
 - `screenshot-fullhd-settings-skills.png` - settings Skills tab (dirs + installed skills)
 - `screenshot-fullhd-settings-appearance.png` - settings Appearance tab (7 theme swatches)
 - `screenshot-mobile-start.png`, `screenshot-mobile-chat.png` - 390×844 top-bar shell
+
+## Tool approval previews (July 2026)
+
+Captured from the real permission-prompt and expanded transcript-card components
+with representative Coddy filesystem, search, shell, and patch tool payloads.
+
+- `screenshot-tool-previews-light.png` - approval prompts and expanded tool cards in the Light theme
+- `screenshot-tool-previews-dark.png` - approval prompts and expanded tool cards in the Dark theme
+- `screenshot-tool-previews-overflow-light.png` - collapsed `More…` and expanded `Less` states in the Light theme
+- `screenshot-tool-previews-overflow-dark.png` - collapsed `More…` and expanded `Less` states in the Dark theme
 
 ## Primary
 

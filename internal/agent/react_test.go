@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,8 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
@@ -118,6 +122,40 @@ func TestToolKind(t *testing.T) {
 	}
 }
 
+func TestMCPToolDefinitionsFilter(t *testing.T) {
+	clients := []*mcp.Client{
+		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
+		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+	}
+	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
+		return server != "srv" || tool != "write"
+	})
+	names := make([]string, 0, len(defs))
+	for _, d := range defs {
+		names = append(names, d.Name)
+	}
+	want := []string{"srv__echo", "other__echo"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("defs = %v, want %v", names, want)
+	}
+}
+
+func TestCallMCPToolDisabledGuard(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_mcp_guard",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		MCPClients: []*mcp.Client{mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}})},
+		MCPFilterFactory: func() func(server, tool string) bool {
+			return func(server, tool string) bool { return false }
+		},
+	}
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
+		t.Fatal("disabled MCP tool must be rejected at dispatch")
+	}
+}
+
 func TestExtractCommand(t *testing.T) {
 	if g := extractCommand(`{"command":"ls -la"}`); g != "ls -la" {
 		t.Fatalf("got %q", g)
@@ -176,6 +214,116 @@ func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
 	}
 }
 
+// neverAnswersProvider always ends a turn with only reasoning (a leaked tool call)
+// and never produces content or a structured tool_call, even after the continuation
+// nudges. The loop must then surface a notice instead of returning end_turn with no
+// visible reply.
+type neverAnswersProvider struct{ calls int }
+
+func (p *neverAnswersProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *neverAnswersProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	onChunk(llm.StreamChunk{ReasoningDelta: `We should call run_command.{"command":"ls -R ."}`})
+	return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+}
+
+func TestRunReActLoopSurfacesNoticeWhenModelNeverAnswers(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_never_answers",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &neverAnswersProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected an error surfacing the no-reply turn so the UI shows a notice, got nil")
+	}
+	if !strings.Contains(err.Error(), "no reply") {
+		t.Fatalf("error should explain the empty (reasoning-only) turn: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want refused", stop)
+	}
+	// It should have tried the continuation nudge a bounded number of times first.
+	if provider.calls < maxEmptyAssistantContinuations+1 {
+		t.Fatalf("provider called %d times; expected retries before surfacing the notice", provider.calls)
+	}
+}
+
+// progressThenAnswerProvider alternates empty (reasoning-only) turns with real
+// tool calls before finally answering, mimicking a slow multi-step task on a
+// gpt-oss / harmony endpoint. The loop must NOT give up while the model keeps
+// making progress (executing tools) between empty thoughts: the empty-turn
+// counter is for CONSECUTIVE stalls, not cumulative empties across the turn.
+type progressThenAnswerProvider struct{ calls int }
+
+func (p *progressThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *progressThenAnswerProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	switch p.calls {
+	case 2:
+		tc := llm.ToolCall{ID: "tc1", Name: "glob", InputJSON: `{"pattern":"*"}`}
+		onChunk(llm.StreamChunk{ToolCall: &tc})
+		return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+	case 5:
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	default: // 1, 3, 4: empty, reasoning-only turns
+		onChunk(llm.StreamChunk{ReasoningDelta: "still thinking"})
+		return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+	}
+}
+
+func TestRunReActLoopResetsEmptyCounterOnToolProgress(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_progress",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &progressThenAnswerProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "convert the file"}})
+	if err != nil {
+		t.Fatalf("loop gave up while the model was still making progress: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn (the model eventually answered)", stop)
+	}
+	if provider.calls < 5 {
+		t.Fatalf("provider called %d times; the loop gave up before the model answered", provider.calls)
+	}
+	msgs := st.GetMessages()
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || !strings.Contains(last.Content, "done") {
+		t.Fatalf("final answer not reached: %+v", last)
+	}
+}
+
 // --- resume_permission.go --------------------------------------------------
 
 func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) {
@@ -227,6 +375,7 @@ func TestResumeAfterPermissionRejectContinuesWithoutExecutingTool(t *testing.T) 
 	}
 	if toolMsg == nil {
 		t.Fatal("missing resumed tool result message")
+		return
 	}
 	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
 		t.Fatalf("rejected permission executed the tool: %q", toolMsg.Content)
@@ -260,6 +409,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	b := st.GetLastContextBreakdown()
 	if b == nil {
 		t.Fatal("expected breakdown")
+		return
 	}
 	if b.SystemPrompt <= 0 {
 		t.Fatalf("expected system prompt tokens > 0, got %+v", b)
@@ -270,6 +420,26 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	// Sanity: system includes agent.md body text.
 	if b.SystemPrompt < 100 {
 		t.Fatalf("system prompt estimate too small: %d", b.SystemPrompt)
+	}
+}
+
+func TestBuildSystemPromptIncludesRuntimeEnvironment(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	st := &session.State{ID: "t", CWD: t.TempDir(), Mode: session.ModeAgent}
+	a := NewAgent(cfg, st, nil, nil)
+	a.environment = platform.Environment{
+		OS:    "windows",
+		Arch:  "amd64",
+		Shell: platform.Shell{Kind: platform.ShellPwsh, Path: "pwsh"},
+	}
+
+	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	for _, want := range []string{"<os>windows</os>", "<arch>amd64</arch>", "<shell>pwsh</shell>"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt does not contain %q", want)
+		}
 	}
 }
 
@@ -443,7 +613,7 @@ func TestBuildSkillsPromptMarkdown_catalogSkillBodyNotInSystemPrompt(t *testing.
 	allLoaded := []*skills.Skill{sk}
 	active := skills.FilterForContext(allLoaded, nil)
 
-	result := buildSkillsPromptMarkdown(allLoaded, active)
+	result := buildSkillsPromptMarkdown(allLoaded, active, false)
 
 	if strings.Contains(result, body) {
 		t.Fatalf("slash command skill body should NOT be in system prompt; got:\n%s", result)
@@ -467,10 +637,30 @@ func TestBuildSkillsPromptMarkdown_noGlobNonCatalogBodyInSystemPrompt(t *testing
 	allLoaded := []*skills.Skill{sk}
 	active := skills.FilterForContext(allLoaded, nil)
 
-	result := buildSkillsPromptMarkdown(allLoaded, active)
+	result := buildSkillsPromptMarkdown(allLoaded, active, false)
 
 	if !strings.Contains(result, body) {
 		t.Fatalf("always-apply non-catalog skill body should be in system prompt; got:\n%s", result)
+	}
+}
+
+// TestBuildSkillsPromptMarkdown_loadSkillHintGatedByAutoDiscovery verifies the
+// load_skill hint appears next to the slash catalog only when auto-discovery is on.
+func TestBuildSkillsPromptMarkdown_loadSkillHintGatedByAutoDiscovery(t *testing.T) {
+	sk := &skills.Skill{
+		Name:        "SKILL",
+		FilePath:    filepath.Join("skills", "code-review", "SKILL.md"),
+		Description: "review code",
+		Content:     "body",
+	}
+	loaded := []*skills.Skill{sk}
+	active := skills.FilterForContext(loaded, nil)
+
+	if on := buildSkillsPromptMarkdown(loaded, active, true); !strings.Contains(on, "load_skill") {
+		t.Fatalf("auto-discovery on: expected load_skill hint; got:\n%s", on)
+	}
+	if off := buildSkillsPromptMarkdown(loaded, active, false); strings.Contains(off, "load_skill") {
+		t.Fatalf("auto-discovery off: hint must be absent; got:\n%s", off)
 	}
 }
 
@@ -500,5 +690,542 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	set := ToolSetForMode("agent")
 	if !set.Unrestricted() {
 		t.Fatal("agent mode should use unrestricted tool set")
+	}
+}
+
+// --- compact.go: CompactSession ---------------------------------------------
+
+// compactCannedProvider serves Complete (summarization) with a canned summary
+// and fails the test if Stream is called.
+type compactCannedProvider struct {
+	t        *testing.T
+	summary  string
+	err      error
+	requests [][]llm.Message
+}
+
+func (p *compactCannedProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	p.requests = append(p.requests, append([]llm.Message(nil), messages...))
+	if p.err != nil {
+		return nil, p.err
+	}
+	return &llm.Response{Content: p.summary, StopReason: "end_turn"}, nil
+}
+
+func (p *compactCannedProvider) Stream(context.Context, []llm.Message, []llm.ToolDefinition, func(llm.StreamChunk)) (*llm.Response, error) {
+	p.t.Fatal("Stream must not be called by CompactSession")
+	return nil, nil
+}
+
+func compactTestAgent(t *testing.T, st *session.State, comp config.Compaction, provider llm.Provider) *Agent {
+	t.Helper()
+	ag := NewAgent(&config.Config{
+		Providers:  []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:     []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:      config.Agent{Model: "fake/model"},
+		Compaction: comp,
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+	return ag
+}
+
+func seededCompactState(t *testing.T, exchanges int) *session.State {
+	t.Helper()
+	st := &session.State{
+		ID:   "sess_compact_unit",
+		CWD:  t.TempDir(),
+		Mode: session.ModeAgent,
+	}
+	for i := 1; i <= exchanges; i++ {
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
+	}
+	return st
+}
+
+func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "dense summary"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	res, err := ag.CompactSession(context.Background(), "focus on file paths", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "dense summary" {
+		t.Fatalf("summary = %q", res.Summary)
+	}
+	if res.CompactedMessages != 4 || res.KeptMessages != 2 {
+		t.Fatalf("counts = %d/%d, want 4/2", res.CompactedMessages, res.KeptMessages)
+	}
+
+	msgs := st.GetMessages()
+	if len(msgs) != 7 {
+		t.Fatalf("len = %d, want 7", len(msgs))
+	}
+	if !msgs[4].CompactionSummary {
+		t.Fatalf("summary not inserted before the kept tail: %+v", msgs[4])
+	}
+
+	// The summarization request must carry the head transcript and the extra instructions.
+	if len(provider.requests) != 1 {
+		t.Fatalf("Complete called %d times", len(provider.requests))
+	}
+	req := transcriptText(provider.requests[0])
+	for _, want := range []string{"question 1", "answer 2", "focus on file paths"} {
+		if !strings.Contains(req, want) {
+			t.Fatalf("summarization request misses %q:\n%s", want, req)
+		}
+	}
+	if strings.Contains(req, "question 3") {
+		t.Fatalf("kept tail leaked into the summarization request:\n%s", req)
+	}
+}
+
+func TestCompactSessionNothingToCompact(t *testing.T) {
+	st := seededCompactState(t, 2)
+	keep := 2
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
+
+	if _, err := ag.CompactSession(context.Background(), "", false); !errors.Is(err, ErrNothingToCompact) {
+		t.Fatalf("err = %v, want ErrNothingToCompact", err)
+	}
+	if len(st.GetMessages()) != 4 {
+		t.Fatal("history must stay untouched")
+	}
+}
+
+func TestCompactSessionDisabled(t *testing.T) {
+	st := seededCompactState(t, 3)
+	off := false
+	ag := compactTestAgent(t, st, config.Compaction{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+		t.Fatal("disabled compaction must error")
+	}
+}
+
+func TestCompactSessionEmptySummaryFails(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "   "})
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+		t.Fatal("empty summary must error")
+	}
+	if len(st.GetMessages()) != 6 {
+		t.Fatal("failed compaction must not mutate history")
+	}
+}
+
+func TestCompactSessionProviderErrorKeepsHistory(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, err: errors.New("boom")}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err == nil {
+		t.Fatal("provider error must propagate")
+	}
+	if len(st.GetMessages()) != 6 {
+		t.Fatal("failed compaction must not mutate history")
+	}
+}
+
+// --- compact.go: /compact command interception -------------------------------
+
+func TestParseCompactCommand(t *testing.T) {
+	cases := []struct {
+		in      string
+		wantOK  bool
+		wantArg string
+	}{
+		{in: "/compact", wantOK: true},
+		{in: "  /compact  ", wantOK: true},
+		{in: "/compact focus on file paths", wantOK: true, wantArg: "focus on file paths"},
+		{in: "/compact\nkeep decisions", wantOK: true, wantArg: "keep decisions"},
+		{in: "/compacted", wantOK: false},
+		{in: "hello /compact", wantOK: false},
+		{in: "", wantOK: false},
+	}
+	for _, tc := range cases {
+		arg, ok := parseCompactCommand(tc.in)
+		if ok != tc.wantOK || arg != tc.wantArg {
+			t.Errorf("parseCompactCommand(%q) = (%q, %v), want (%q, %v)", tc.in, arg, ok, tc.wantArg, tc.wantOK)
+		}
+	}
+}
+
+func TestRunCompactCommandPersistsUserMessage(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, summary: "dense summary"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact focus on tests"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+
+	msgs := st.GetMessages()
+	foundCmd := false
+	for _, m := range msgs {
+		if m.Role == llm.RoleUser && strings.TrimSpace(m.Content) == "/compact focus on tests" {
+			foundCmd = true
+		}
+	}
+	if !foundCmd {
+		t.Fatalf("the /compact command must be persisted as a user message so it shows in the transcript: %+v", msgs)
+	}
+	if !msgs[4].CompactionSummary {
+		t.Fatalf("summary not inserted at boundary: %+v", msgs[4])
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || !strings.Contains(strings.ToLower(last.Content), "compacted") {
+		t.Fatalf("missing confirmation message: %+v", last)
+	}
+	if len(provider.requests) != 1 || !strings.Contains(transcriptText(provider.requests[0]), "focus on tests") {
+		t.Fatalf("instructions not forwarded to the summarizer: %v", provider.requests)
+	}
+}
+
+// TestRunCompactCommandForcesShortChat covers ask: manual /compact must fold even
+// a very short conversation (below the keep-recent boundary), not refuse it.
+func TestRunCompactCommandForcesShortChat(t *testing.T) {
+	st := seededCompactState(t, 1) // one exchange (1 user turn) — below keep=2
+	keep := 2
+	provider := &compactCannedProvider{t: t, summary: "short summary"}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+	msgs := st.GetMessages()
+	sawSummary := false
+	for _, m := range msgs {
+		if m.CompactionSummary {
+			sawSummary = true
+		}
+	}
+	if !sawSummary {
+		t.Fatalf("forced /compact must summarize even a short chat: %+v", msgs)
+	}
+}
+
+func TestRunCompactCommandNothingToCompact(t *testing.T) {
+	st := seededCompactState(t, 0) // empty history: even forced compaction has nothing to fold
+	keep := 2
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, &compactCannedProvider{t: t, summary: "s"})
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+	msgs := st.GetMessages()
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || !strings.Contains(last.Content, "Nothing to compact") {
+		t.Fatalf("expected friendly notice, got %+v", last)
+	}
+	for _, m := range msgs {
+		if m.CompactionSummary {
+			t.Fatal("no summary row expected")
+		}
+	}
+}
+
+func TestRunCompactCommandDisabled(t *testing.T) {
+	st := seededCompactState(t, 3)
+	off := false
+	ag := compactTestAgent(t, st, config.Compaction{Enabled: &off}, &compactCannedProvider{t: t, summary: "s"})
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/compact"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+	msgs := st.GetMessages()
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || !strings.Contains(strings.ToLower(last.Content), "disabled") {
+		t.Fatalf("expected disabled notice, got %+v", last)
+	}
+}
+
+// --- compact.go: auto-compaction at the context threshold --------------------
+
+func TestMaybeAutoCompactThresholdBoundary(t *testing.T) {
+	cases := []struct {
+		name        string
+		est         int
+		maxContext  int
+		enabled     bool
+		wantCompact bool
+	}{
+		{name: "exactly at threshold", est: 80, maxContext: 100, enabled: true, wantCompact: true},
+		{name: "below threshold", est: 79, maxContext: 100, enabled: true, wantCompact: false},
+		{name: "above threshold", est: 95, maxContext: 100, enabled: true, wantCompact: true},
+		{name: "no context window", est: 1000, maxContext: 0, enabled: true, wantCompact: false},
+		{name: "disabled", est: 1000, maxContext: 100, enabled: false, wantCompact: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := seededCompactState(t, 3)
+			keep := 1
+			comp := config.Compaction{KeepRecentTurns: &keep}
+			if !tc.enabled {
+				off := false
+				comp.Enabled = &off
+			}
+			provider := &compactCannedProvider{t: t, summary: "auto summary"}
+			ag := compactTestAgent(t, st, comp, provider)
+			ag.cfg.Models[0].MaxContextTokens = tc.maxContext
+			st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: tc.est})
+
+			got := ag.maybeAutoCompact(context.Background())
+			if got != tc.wantCompact {
+				t.Fatalf("maybeAutoCompact = %v, want %v", got, tc.wantCompact)
+			}
+			hasSummary := false
+			for _, m := range st.GetMessages() {
+				if m.CompactionSummary {
+					hasSummary = true
+				}
+			}
+			if hasSummary != tc.wantCompact {
+				t.Fatalf("summary row present = %v, want %v", hasSummary, tc.wantCompact)
+			}
+		})
+	}
+}
+
+func TestMaybeAutoCompactFailOpen(t *testing.T) {
+	st := seededCompactState(t, 3)
+	keep := 1
+	provider := &compactCannedProvider{t: t, err: errors.New("summarizer down")}
+	ag := compactTestAgent(t, st, config.Compaction{KeepRecentTurns: &keep}, provider)
+	ag.cfg.Models[0].MaxContextTokens = 100
+	st.SetLastContextBreakdown(&session.ContextBreakdown{EstimatedTotal: 90})
+
+	if ag.maybeAutoCompact(context.Background()) {
+		t.Fatal("failed compaction must report false")
+	}
+	if len(st.GetMessages()) != 6 {
+		t.Fatal("history must stay untouched on failure")
+	}
+}
+
+// autoCompactRunProvider serves Complete (summary) and Stream (answer),
+// recording stream requests so the test can assert the post-compaction window.
+type autoCompactRunProvider struct {
+	streamSeen [][]llm.Message
+}
+
+func (p *autoCompactRunProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{Content: "auto summary", StopReason: "end_turn"}, nil
+}
+
+func (p *autoCompactRunProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.streamSeen = append(p.streamSeen, append([]llm.Message(nil), messages...))
+	onChunk(llm.StreamChunk{TextDelta: "post-auto answer"})
+	return &llm.Response{Content: "post-auto answer", StopReason: "end_turn"}, nil
+}
+
+func TestRunAutoCompactsBeforeFirstLLMCall(t *testing.T) {
+	st := seededCompactState(t, 3)
+	provider := &autoCompactRunProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		// Tiny window: the system prompt alone exceeds 80% of 50 tokens.
+		Models: []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 50}},
+		Agent:  config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "continue please"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q", stop)
+	}
+
+	hasSummary := false
+	for _, m := range st.GetMessages() {
+		if m.CompactionSummary {
+			hasSummary = true
+		}
+	}
+	if !hasSummary {
+		t.Fatal("auto-compaction did not insert a summary row")
+	}
+	if len(provider.streamSeen) == 0 {
+		t.Fatal("no stream request recorded")
+	}
+	first := provider.streamSeen[0]
+	sawSummary := false
+	for _, m := range first {
+		if m.Role == llm.RoleSystem {
+			continue
+		}
+		if m.CompactionSummary {
+			sawSummary = true
+			break
+		}
+		// Any non-summary history message before the summary means the window
+		// was not rebuilt after compaction.
+		t.Fatalf("first LLM request does not start from the summary: %+v", m)
+	}
+	if !sawSummary {
+		t.Fatal("summary missing from the first LLM request")
+	}
+}
+
+// --- loop guard escalation and false-positive safety -----------------------
+
+// alwaysDegeneratingProvider never recovers: every turn degenerates into the same
+// repeated passage. The loop guard must give up after the nudge budget instead of
+// nudging forever.
+type alwaysDegeneratingProvider struct{ calls int }
+
+func (p *alwaysDegeneratingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *alwaysDegeneratingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	var produced strings.Builder
+	for i := 0; i < 200 && ctx.Err() == nil; i++ {
+		produced.WriteString(bddLoopedSentence)
+		onChunk(llm.StreamChunk{TextDelta: bddLoopedSentence})
+	}
+	return &llm.Response{Content: produced.String(), StopReason: "tool_use"}, context.Canceled
+}
+
+func TestLoopGuardStopsTurnAfterNudgeBudget(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_budget",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &alwaysDegeneratingProvider{}
+	nudges := 2
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LoopNudgeMax: &nudges},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected the turn to stop with a notice once the nudge budget ran out")
+	}
+	if !strings.Contains(err.Error(), "repeating") {
+		t.Fatalf("error should explain the loop: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want agent_refused", stop)
+	}
+	// One initial attempt plus one per nudge, and nowhere near max_turns.
+	if provider.calls != nudges+1 {
+		t.Fatalf("provider called %d times, want %d (initial attempt + %d nudges)", provider.calls, nudges+1, nudges)
+	}
+}
+
+func TestLoopGuardDisabledLetsTheStreamRun(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_off",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &bddLoopProvider{
+		channel:      loopAbortText,
+		recoverAfter: 0,
+		realAnswer:   "answered without interference",
+		maxDeltas:    30,
+	}
+	off := false
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", LoopGuard: &off},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("turn failed with the guard disabled: %v", err)
+	}
+	if provider.cancelled != 0 {
+		t.Fatal("the guard cancelled a stream even though loop_guard is false")
+	}
+}
+
+// varyingToolProvider calls the same tool with different arguments every turn.
+// That is ordinary progress, not a loop, and must never be blocked.
+type varyingToolProvider struct{ calls int }
+
+func (p *varyingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *varyingToolProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	if p.calls > 6 {
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":"**/*%d.go"}`, p.calls),
+	}
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_varying",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &varyingToolProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "search for things"}})
+	if err != nil {
+		t.Fatalf("the guard interfered with legitimate varying tool calls: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolLoopNudge || m.Content == toolLoopSkippedResult) {
+			t.Fatal("the loop guard blocked a call with different arguments")
+		}
 	}
 }

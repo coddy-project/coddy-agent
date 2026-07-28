@@ -54,6 +54,14 @@ export type TranscriptItem =
       startedAtMs?: number;
     }
   | {
+      /** A compaction summary row (server compaction_summary=true) rendered as a
+          foldout showing what is now in the context. */
+      id: string;
+      type: "compaction";
+      summary: string;
+      createdAtUtc?: string;
+    }
+  | {
       id: string;
       type: "assistant_message";
       content: string;
@@ -71,7 +79,7 @@ export type TranscriptItem =
       argsText?: string;
       /** Truncated preview from SSE or list endpoint (never replace with full body). */
       resultText?: string;
-      /** Full saved tool output after user chose Load more (GET …/tool-calls/{id}). */
+      /** Full saved tool output after the first More… click (GET …/tool-calls/{id}). */
       fullResultText?: string;
       /** True when SSE or list preview omitted lines (_meta or resultPreviewTruncated). */
       resultWasTruncated?: boolean;

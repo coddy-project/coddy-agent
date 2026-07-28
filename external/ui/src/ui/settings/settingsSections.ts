@@ -1,6 +1,12 @@
 import type { JsonSchema } from "./SchemaForm";
 
-export type SectionKind = "array" | "object" | "group" | "skills" | "appearance";
+export type SectionKind =
+  | "array"
+  | "object"
+  | "group"
+  | "skills"
+  | "mcp"
+  | "appearance";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -50,7 +56,6 @@ export const SYSTEM_KEYS = [
 export const ARRAY_LABEL_FIELDS: Record<string, string> = {
   providers: "name",
   models: "model",
-  mcp_servers: "name",
 };
 
 /**
@@ -113,6 +118,16 @@ export function deriveSettingsSections(
         label: sub.title || key,
         description: descFor(key, sub),
         kind: "skills",
+        schemaKey: key,
+      });
+      return;
+    }
+    if (key === "mcp_servers") {
+      out.push({
+        id: key,
+        label: sub.title || key,
+        description: descFor(key, sub),
+        kind: "mcp",
         schemaKey: key,
       });
       return;
