@@ -60,3 +60,10 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 func ResolvePath(path, cwd string) string {
 	return toolfs.ResolvePath(path, cwd)
 }
+
+// ApplyOutputLimit caps a tool result to the per-tool output line ceiling carried
+// by env. Re-exported so the agent can apply it to MCP calls (which bypass the
+// registry). No-op when env carries no limits.
+func ApplyOutputLimit(out, tool string, env *Env) string {
+	return tooling.ApplyOutputLimit(out, tool, env)
+}

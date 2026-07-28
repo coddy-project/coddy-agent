@@ -59,6 +59,6 @@ func (a *Agent) refreshConversationContextUsage(persist bool) {
 	if b == nil {
 		b = &session.ContextBreakdown{}
 	}
-	b.Conversation = session.EstimateTokens(conversationText(session.MessagesForLLM(a.state.GetMessages())))
+	b.Conversation = session.EstimateTokens(conversationText(a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages()))))
 	a.setContextBreakdown(b, persist)
 }

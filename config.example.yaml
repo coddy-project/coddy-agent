@@ -95,6 +95,12 @@ sessions:
 #   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   # Collapse superseded read/grep results to placeholders in the LLM request
+#   # (the persisted transcript stays complete). Only marked results survive.
+#   result_eviction:
+#     enabled: true          # master switch
+#     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
+#     min_result_bytes: 2000 # results this size or smaller are never evicted
 
 prompts:
   # Directory containing prompt templates (Go text/template).
@@ -171,6 +177,20 @@ tools:
 
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
+
+  # Per-tool ceilings on how many lines a result may add to the LLM context, so a
+  # single call (a huge read, a wide grep) cannot overflow the window. 0 = unlimited.
+  # Truncated output ends with a marker telling the model how to fetch the rest.
+  # output_limits:
+  #   read: 1000            # file page / directory listing
+  #   grep: 200             # path:line:content records
+  #   glob: 300             # paths
+  #   print_tree: 400       # directory tree lines
+  #   run_command: 500      # stdout+stderr lines
+  #   ssh_run_command: 500
+  #   webfetch: 800         # page markdown lines
+  #   websearch: 200        # search result lines
+  #   default: 1000         # anything else, incl. MCP tools; 0 = unlimited
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:

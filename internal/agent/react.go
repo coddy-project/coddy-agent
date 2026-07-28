@@ -194,6 +194,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -347,7 +348,11 @@ func (a *Agent) runReActLoop(
 			})
 		}
 
-		response, streamErr = provider.Stream(streamCtx, messages, toolDefs, func(chunk llm.StreamChunk) {
+		// Prune superseded read/grep results from the projection sent to the model;
+		// the working `messages` slice keeps full content (copy-on-write) so state,
+		// the transcript, and later appends stay intact.
+		sendMessages := a.prunedForLLM(messages)
+		response, streamErr = provider.Stream(streamCtx, sendMessages, toolDefs, func(chunk llm.StreamChunk) {
 			if streamCtx.Err() != nil {
 				return
 			}
@@ -870,6 +875,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		serverName := tc.Name[:idx]
 		toolName := tc.Name[idx+2:]
 		result, execErr = a.callMCPTool(ctx, serverName, toolName, tc.InputJSON)
+		// MCP calls bypass the registry, so apply the output ceiling here (the
+		// "default" knob, since MCP tool names are not individually configured).
+		if execErr == nil {
+			result = tools.ApplyOutputLimit(result, tc.Name, env)
+		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
 	}
@@ -950,6 +960,9 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 func (a *Agent) buildMessages(systemPrompt string) []llm.Message {
 	// After a compaction only the last summary and the messages after it are
 	// replayed to the LLM; earlier history stays in the transcript for the UI.
+	// Read/grep result eviction is applied at the provider.Stream send boundary
+	// (see runReActLoop), not here, so the working message slice keeps full
+	// content while the projection sent to the model is pruned.
 	history := session.MessagesForLLM(a.state.GetMessages())
 	allSkills := a.state.GetSkills()
 	msgs := make([]llm.Message, 0, len(history)+1)
@@ -1152,7 +1165,7 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
 		return "read"
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
 		return "write"

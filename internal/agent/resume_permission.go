@@ -95,8 +95,8 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sessionDir,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
 			if sessionDir == "" {
 				return nil
@@ -119,7 +119,8 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody: a.loadSkillBody,
+		LoadSkillBody:    a.loadSkillBody,
+		OutputLineLimits: a.cfg.Tools.OutputLimits.AsMap(),
 	}
 }
 

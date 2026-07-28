@@ -72,7 +72,7 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !ok {
 		return nil, ErrNothingToCompact
 	}
-	head := session.MessagesForLLM(msgs[:splitIdx])
+	head := a.prunedForLLM(session.MessagesForLLM(msgs[:splitIdx]))
 
 	provider, modelID, err := a.compactionProvider()
 	if err != nil {

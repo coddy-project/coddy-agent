@@ -65,6 +65,24 @@ type Env struct {
 	// name, plus the list of available command names, backing the model-driven
 	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
 	LoadSkillBody func(name string) (body string, available []string, found bool)
+
+	// OutputLineLimits caps how many lines each tool result may contribute to the
+	// LLM context, keyed by tool name; the empty-string key carries the default
+	// applied to unlisted (and MCP) tools. A nil map disables all limits. 0 for a
+	// given tool means unlimited. See config.ToolOutputLimits.AsMap.
+	OutputLineLimits map[string]int
+}
+
+// OutputLineLimit returns the effective line ceiling for a tool: its own entry
+// when present, otherwise the default (empty-string) entry. 0 means unlimited.
+func (e *Env) OutputLineLimit(tool string) int {
+	if e == nil || e.OutputLineLimits == nil {
+		return 0
+	}
+	if v, ok := e.OutputLineLimits[tool]; ok {
+		return v
+	}
+	return e.OutputLineLimits[""]
 }
 
 // CommandAllowed returns true if the given shell command matches an entry
