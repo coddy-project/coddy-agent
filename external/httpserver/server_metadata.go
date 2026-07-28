@@ -95,7 +95,7 @@ func applySessionReasoning(cfg *config.Config, st *session.State, level string) 
 	if ent == nil {
 		return ErrUnknownReasoningLevel
 	}
-	for _, lv := range ent.ResolvedReasoningLevels() {
+	for _, lv := range cfg.ReasoningLevelsFor(ent) {
 		if lv == level {
 			st.SetSelectedReasoning(level)
 			return nil

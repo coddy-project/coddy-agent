@@ -227,6 +227,108 @@ func TestCodexProviderReasoningRequest(t *testing.T) {
 	}
 }
 
+// TestCodexProviderReplaysEncryptedReasoning follows the Codex CLI flow: ask
+// for encrypted reasoning, keep the returned reasoning items with the assistant
+// turn, and hand them back verbatim on the next request so the model resumes
+// its own chain of thought across tool calls.
+func TestCodexProviderReplaysEncryptedReasoning(t *testing.T) {
+	const encrypted = "gAAAAAB-test-encrypted-content"
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &reqBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Planning**"})
+		sse(w, "response.output_item.done", map[string]any{
+			"item": map[string]any{
+				"type":              "reasoning",
+				"id":                "rs_1",
+				"summary":           []map[string]any{{"type": "summary_text", "text": "**Planning**"}},
+				"content":           []any{},
+				"encrypted_content": encrypted,
+			},
+		})
+		sse(w, "response.output_item.done", map[string]any{
+			"item": map[string]any{
+				"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": `{}`,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	p := newCodexTestProvider(t, srv.URL)
+	p.reasoningEffort = "medium"
+	tools := []ToolDefinition{{Name: "get_weather", Description: "Get weather", InputSchema: map[string]any{"type": "object"}}}
+
+	resp, err := p.Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "weather?"}}, tools, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	include, _ := reqBody["include"].([]any)
+	if len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %v, want [reasoning.encrypted_content]", reqBody["include"])
+	}
+	if resp.ReasoningSignature == "" {
+		t.Fatal("response carries no reasoning signature, so the items cannot be replayed")
+	}
+
+	// Second turn: the stored signature travels with the assistant message.
+	_, err = p.Stream(context.Background(), []Message{
+		{Role: RoleUser, Content: "weather?"},
+		{
+			Role:               RoleAssistant,
+			Reasoning:          resp.Reasoning,
+			ReasoningSignature: resp.ReasoningSignature,
+			ToolCalls:          resp.ToolCalls,
+		},
+		{Role: RoleTool, ToolCallID: "call_1", Content: "sunny"},
+	}, tools, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream (second turn): %v", err)
+	}
+	input, _ := reqBody["input"].([]any)
+	reasoningIdx, callIdx := -1, -1
+	for i, raw := range input {
+		item, _ := raw.(map[string]any)
+		switch item["type"] {
+		case "reasoning":
+			reasoningIdx = i
+			if item["encrypted_content"] != encrypted {
+				t.Errorf("replayed reasoning lost its encrypted content: %v", item["encrypted_content"])
+			}
+			if item["id"] != "rs_1" {
+				t.Errorf("replayed reasoning id = %v, want rs_1", item["id"])
+			}
+		case "function_call":
+			callIdx = i
+		}
+	}
+	if reasoningIdx < 0 {
+		t.Fatalf("no reasoning item replayed; input = %#v", input)
+	}
+	if callIdx >= 0 && reasoningIdx > callIdx {
+		t.Errorf("reasoning item must precede the function call it produced (got %d > %d)", reasoningIdx, callIdx)
+	}
+
+	// A different model must not receive another model's encrypted reasoning.
+	other := newCodexTestProvider(t, srv.URL)
+	other.model = "gpt-5.4"
+	other.reasoningEffort = "medium"
+	if _, err := other.Stream(context.Background(), []Message{
+		{Role: RoleUser, Content: "weather?"},
+		{Role: RoleAssistant, ReasoningSignature: resp.ReasoningSignature, ToolCalls: resp.ToolCalls},
+		{Role: RoleTool, ToolCallID: "call_1", Content: "sunny"},
+	}, tools, func(StreamChunk) {}); err != nil {
+		t.Fatalf("Stream (other model): %v", err)
+	}
+	for _, raw := range reqBody["input"].([]any) {
+		if item, _ := raw.(map[string]any); item["type"] == "reasoning" {
+			t.Fatalf("reasoning from another model was replayed: %#v", item)
+		}
+	}
+}
+
 // TestCodexProviderOmitsReasoningWhenUnset keeps non-reasoning turns clean.
 func TestCodexProviderOmitsReasoningWhenUnset(t *testing.T) {
 	var reqBody map[string]any

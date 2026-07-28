@@ -35,6 +35,8 @@ const (
 	acpCodexFileToken   = "CODEX-ACP-FILE-OK"
 	acpCodexAccessToken = "acp-codex-cli-access-token"
 	acpCodexAccountID   = "acct-acp-cli"
+	acpCodexReasoningID = "rs_acp_1"
+	acpCodexEncrypted   = "gAAAAAB-acp-encrypted-reasoning"
 )
 
 // acpCodexBackend stands in for the Codex Responses backend: first turn calls
@@ -48,6 +50,16 @@ type acpCodexBackend struct {
 	originators  []string
 	instructions []string
 	offeredTools [][]string
+	inputs       [][]codexInputItem
+	includes     [][]string
+}
+
+// codexInputItem is the part of a replayed Responses input item the spec cares about.
+type codexInputItem struct {
+	Type             string `json:"type"`
+	ID               string `json:"id"`
+	Output           string `json:"output"`
+	EncryptedContent string `json:"encrypted_content"`
 }
 
 func (b *acpCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,12 +69,10 @@ func (b *acpCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := io.ReadAll(r.Body)
 	var req struct {
-		Instructions string `json:"instructions"`
-		Input        []struct {
-			Type   string `json:"type"`
-			Output string `json:"output"`
-		} `json:"input"`
-		Tools []struct {
+		Instructions string           `json:"instructions"`
+		Input        []codexInputItem `json:"input"`
+		Include      []string         `json:"include"`
+		Tools        []struct {
 			Name string `json:"name"`
 		} `json:"tools"`
 	}
@@ -85,10 +95,22 @@ func (b *acpCodexBackend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	b.originators = append(b.originators, r.Header.Get("originator"))
 	b.instructions = append(b.instructions, req.Instructions)
 	b.offeredTools = append(b.offeredTools, names)
+	b.inputs = append(b.inputs, req.Input)
+	b.includes = append(b.includes, req.Include)
 	b.mu.Unlock()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	if toolResult == "" {
+		acpCodexSSE(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Reading the file**"})
+		acpCodexSSE(w, "response.output_item.done", map[string]any{
+			"item": map[string]any{
+				"type":              "reasoning",
+				"id":                acpCodexReasoningID,
+				"summary":           []map[string]any{{"type": "summary_text", "text": "**Reading the file**"}},
+				"content":           []any{},
+				"encrypted_content": acpCodexEncrypted,
+			},
+		})
 		acpCodexSSE(w, "response.output_item.done", map[string]any{
 			"item": map[string]any{
 				"type":      "function_call",
@@ -209,7 +231,7 @@ func (s *acpCodexE2EState) startManager() error {
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: s.home, CWD: s.cwd},
 		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
-		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", ReasoningDefault: "medium"}},
 		Agent:     config.Agent{Model: "codex/gpt-5.5"},
 	}
 	log := slog.Default()
@@ -293,6 +315,39 @@ func (s *acpCodexE2EState) requestCarriedCoddyToolsAndPrompt() error {
 	return nil
 }
 
+// secondRequestReplayedReasoning proves the Codex chain of thought survives a
+// tool call: the encrypted reasoning item of turn one comes back verbatim in the
+// input of turn two, ahead of the tool output it produced.
+func (s *acpCodexE2EState) secondRequestReplayedReasoning() error {
+	s.backend.mu.Lock()
+	defer s.backend.mu.Unlock()
+	if len(s.backend.inputs) < 2 {
+		return fmt.Errorf("the Codex backend saw %d requests, want at least 2", len(s.backend.inputs))
+	}
+	if len(s.backend.includes[0]) == 0 || s.backend.includes[0][0] != "reasoning.encrypted_content" {
+		return fmt.Errorf("first request include = %v, want reasoning.encrypted_content", s.backend.includes[0])
+	}
+	reasoningIdx, outputIdx := -1, -1
+	for i, item := range s.backend.inputs[1] {
+		switch item.Type {
+		case "reasoning":
+			if item.EncryptedContent != acpCodexEncrypted || item.ID != acpCodexReasoningID {
+				return fmt.Errorf("replayed reasoning item = %+v, want the verbatim item of turn one", item)
+			}
+			reasoningIdx = i
+		case "function_call_output":
+			outputIdx = i
+		}
+	}
+	if reasoningIdx < 0 {
+		return fmt.Errorf("second request carries no reasoning item: %+v", s.backend.inputs[1])
+	}
+	if outputIdx >= 0 && reasoningIdx > outputIdx {
+		return fmt.Errorf("reasoning item must precede the tool output (%d > %d)", reasoningIdx, outputIdx)
+	}
+	return nil
+}
+
 func (s *acpCodexE2EState) finalAnswerContainsToolResult() error {
 	if s.state == nil {
 		return fmt.Errorf("no session state captured")
@@ -323,6 +378,7 @@ func initializeACPCodexE2EScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I run an agent prompt through the ACP session flow$`, s.runPrompt)
 	sc.Step(`^the Codex backend received the Codex CLI access token$`, s.backendReceivedCLIToken)
 	sc.Step(`^the Codex request carried coddy's own tools and system prompt$`, s.requestCarriedCoddyToolsAndPrompt)
+	sc.Step(`^the second Codex request replayed the encrypted reasoning of the first$`, s.secondRequestReplayedReasoning)
 	sc.Step(`^the final assistant message contains the coddy tool result$`, s.finalAnswerContainsToolResult)
 }
 

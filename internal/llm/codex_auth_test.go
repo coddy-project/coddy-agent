@@ -9,8 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // makeJWT builds a minimal unsigned-looking JWT whose payload carries the given
@@ -20,6 +23,69 @@ func makeJWT(exp time.Time) string {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(
 		`{"exp":` + strconv.FormatInt(exp.Unix(), 10) + `}`))
 	return header + "." + payload + ".sig"
+}
+
+// TestCodexAuthNoticesReportCredentialState covers the startup report: it must
+// stay silent unless codex is actually configured, and must say out loud when a
+// credential is missing or no longer refreshable.
+func TestCodexAuthNoticesReportCredentialState(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir()) // no Codex CLI login in reach
+
+	noCodex := &config.Config{
+		Paths:     config.Paths{Home: t.TempDir()},
+		Providers: []config.ProviderConfig{{Name: "openai", Type: "openai", APIKey: "k"}},
+	}
+	if got := CodexAuthNotices(noCodex); len(got) != 0 {
+		t.Fatalf("notices without a codex provider = %+v, want none", got)
+	}
+
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home},
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+	}
+	notices := CodexAuthNotices(cfg)
+	if len(notices) != 1 || !notices[0].Warning || notices[0].Provider != "codex" {
+		t.Fatalf("missing-credential notices = %+v, want one warning for codex", notices)
+	}
+	if !strings.Contains(notices[0].Message, "codex login") {
+		t.Errorf("missing-credential message %q should point at the sign-in command", notices[0].Message)
+	}
+
+	authPath := config.CodexAuthPath(home, "codex")
+	write := func(access, refresh string) {
+		auth := codexAuthFile{AuthMode: codexAuthModeChatGPT, Tokens: codexTokens{
+			AccessToken: access, RefreshToken: refresh, AccountID: "acct-1",
+		}}
+		data, _ := json.MarshalIndent(auth, "", "  ")
+		if err := writePrivateFile(authPath, data); err != nil {
+			t.Fatalf("write credential: %v", err)
+		}
+	}
+
+	write(makeJWT(time.Now().Add(time.Hour)), "rt")
+	notices = CodexAuthNotices(cfg)
+	if len(notices) != 1 || notices[0].Warning {
+		t.Fatalf("valid credential notices = %+v, want one informational line", notices)
+	}
+
+	write(makeJWT(time.Now().Add(-time.Hour)), "rt")
+	notices = CodexAuthNotices(cfg)
+	if len(notices) != 1 || notices[0].Warning {
+		t.Fatalf("expired-but-refreshable notices = %+v, want an informational line", notices)
+	}
+	if !strings.Contains(notices[0].Message, "refresh") {
+		t.Errorf("expired-but-refreshable message %q should mention the refresh", notices[0].Message)
+	}
+
+	write(makeJWT(time.Now().Add(-time.Hour)), "")
+	notices = CodexAuthNotices(cfg)
+	if len(notices) != 1 || !notices[0].Warning {
+		t.Fatalf("expired-without-refresh notices = %+v, want a warning", notices)
+	}
+	if !strings.Contains(notices[0].Message, "expired") {
+		t.Errorf("expired-without-refresh message %q should say the token expired", notices[0].Message)
+	}
 }
 
 func writeCodexAuth(t *testing.T, dir string, auth codexAuthFile) string {

@@ -240,8 +240,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  ent.ResolvedReasoningLevels(),
-				ReasoningDefault: ent.DefaultReasoningLevel(),
+				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
+				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
 			})
 		}
 	}

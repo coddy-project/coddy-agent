@@ -19,9 +19,10 @@ Feature: Codex ChatGPT credentials drive Coddy's own agent
     And the final assistant message contains the coddy tool result
 
   @acp
-  Scenario: ACP turn falls back to the Codex CLI login
+  Scenario: ACP turn falls back to the Codex CLI login and keeps its chain of thought
     Given an ACP session manager with a codex provider and a Codex CLI login only
     When I run an agent prompt through the ACP session flow
     Then the Codex backend received the Codex CLI access token
     And the Codex request carried coddy's own tools and system prompt
+    And the second Codex request replayed the encrypted reasoning of the first
     And the final assistant message contains the coddy tool result

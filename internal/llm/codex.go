@@ -84,6 +84,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 
 	var fullContent, reasoning string
 	var toolCalls []ToolCall
+	var reasoningItems []json.RawMessage
 	var inputTokens, outputTokens int
 	stopReason := ""
 
@@ -101,7 +102,8 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				onChunk(StreamChunk{ReasoningDelta: d})
 			}
 		case "response.output_item.done":
-			if ev.Item.Type == "function_call" {
+			switch ev.Item.Type {
+			case "function_call":
 				tc := ToolCall{
 					ID:        ev.Item.CallID,
 					Name:      ev.Item.Name,
@@ -109,6 +111,12 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 				}
 				toolCalls = append(toolCalls, tc)
 				onChunk(StreamChunk{ToolCall: &tc})
+			case "reasoning":
+				// Keep the item verbatim: it is replayed on the next request so the
+				// model resumes its own chain of thought across tool calls.
+				if raw := strings.TrimSpace(ev.Item.RawJSON()); raw != "" {
+					reasoningItems = append(reasoningItems, json.RawMessage(raw))
+				}
 			}
 		case "response.completed":
 			inputTokens = int(ev.Response.Usage.InputTokens)
@@ -126,12 +134,13 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		err = codexRequestError(err)
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
 			return &Response{
-				Content:      fullContent,
-				Reasoning:    reasoning,
-				ToolCalls:    toolCalls,
-				StopReason:   codexStopReason(toolCalls),
-				InputTokens:  inputTokens,
-				OutputTokens: outputTokens,
+				Content:            fullContent,
+				Reasoning:          reasoning,
+				ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+				ToolCalls:          toolCalls,
+				StopReason:         codexStopReason(toolCalls),
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
 			}, fmt.Errorf("codex stream: %w", err)
 		}
 		return nil, fmt.Errorf("codex stream: %w", err)
@@ -141,13 +150,52 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		stopReason = codexStopReason(toolCalls)
 	}
 	return &Response{
-		Content:      fullContent,
-		Reasoning:    reasoning,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		Content:            fullContent,
+		Reasoning:          reasoning,
+		ReasoningSignature: p.encodeReasoningItems(reasoningItems),
+		ToolCalls:          toolCalls,
+		StopReason:         stopReason,
+		InputTokens:        inputTokens,
+		OutputTokens:       outputTokens,
 	}, nil
+}
+
+// codexReasoningCarrier travels in Message.ReasoningSignature: the reasoning
+// items exactly as the backend produced them, tagged with the model that made
+// them so another model never receives someone else's encrypted content.
+type codexReasoningCarrier struct {
+	Codex bool              `json:"codex"`
+	Model string            `json:"model"`
+	Items []json.RawMessage `json:"items"`
+}
+
+// encodeReasoningItems packs this turn's reasoning items for storage on the
+// assistant message. Returns "" when the turn produced none.
+func (p *codexProvider) encodeReasoningItems(items []json.RawMessage) string {
+	if len(items) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(codexReasoningCarrier{Codex: true, Model: p.model, Items: items})
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+// decodeReasoningItems unpacks reasoning items stored on an assistant message.
+// Signatures from other providers, or from another model, yield nothing.
+func (p *codexProvider) decodeReasoningItems(signature string) []json.RawMessage {
+	if strings.TrimSpace(signature) == "" {
+		return nil
+	}
+	var carrier codexReasoningCarrier
+	if err := json.Unmarshal([]byte(signature), &carrier); err != nil || !carrier.Codex {
+		return nil
+	}
+	if carrier.Model != p.model {
+		return nil
+	}
+	return carrier.Items
 }
 
 // codexReasoningEffort maps a coddy reasoning level onto a level the Codex
@@ -254,6 +302,11 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 					responses.ResponseInputContentParamOfInputText(text),
 				}, "user"))
 		case RoleAssistant:
+			// Reasoning items come first: they precede the output they produced,
+			// which is the order the Responses API expects them replayed in.
+			for _, item := range p.decodeReasoningItems(m.ReasoningSignature) {
+				items = append(items, param.Override[responses.ResponseInputItemUnionParam](item))
+			}
 			if strings.TrimSpace(m.Content) != "" {
 				items = append(items, codexAssistantOutputMessage(m.Content))
 			}
@@ -280,11 +333,13 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 	if p.reasoningEffort != "" {
 		// Summary "auto" is required for the backend to emit
 		// response.reasoning_summary_text.delta; without it a reasoning turn
-		// streams no thinking at all.
+		// streams no thinking at all. The encrypted content is what makes the
+		// replay in the RoleAssistant branch above possible with store=false.
 		params.Reasoning = shared.ReasoningParam{
 			Effort:  shared.ReasoningEffort(codexReasoningEffort(p.reasoningEffort)),
 			Summary: shared.ReasoningSummaryAuto,
 		}
+		params.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	}
 	if len(tools) > 0 {
 		oaiTools := make([]responses.ToolUnionParam, 0, len(tools))

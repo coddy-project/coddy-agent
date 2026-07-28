@@ -6,12 +6,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 // Codex CLI ("codex login" / "codex auth") stores its credentials in
@@ -285,6 +288,87 @@ func InspectCodexAuth(path string) (CodexAuthStatus, error) {
 		return CodexAuthStatus{Connected: connected, Source: candidate.source, AccountID: auth.Tokens.AccountID}, nil
 	}
 	return CodexAuthStatus{}, nil
+}
+
+// CodexAuthNotice is one startup observation about a codex provider credential.
+// Warning marks states that need the operator to act (no credential at all, or
+// an expired token with nothing left to refresh it with).
+type CodexAuthNotice struct {
+	Provider string
+	Warning  bool
+	Message  string
+}
+
+// CodexAuthNotices inspects the credential of every codex provider in cfg. It
+// returns nothing when codex is not configured, so non-codex setups stay quiet.
+func CodexAuthNotices(cfg *config.Config) []CodexAuthNotice {
+	if cfg == nil {
+		return nil
+	}
+	var out []CodexAuthNotice
+	for i := range cfg.Providers {
+		prov := &cfg.Providers[i]
+		if prov.Type != "codex" {
+			continue
+		}
+		out = append(out, codexAuthNotice(prov.Name, config.CodexAuthPath(cfg.Paths.Home, prov.Name)))
+	}
+	return out
+}
+
+// LogCodexAuthNotices writes the startup credential report for codex providers.
+// Nothing is logged when codex is not configured.
+func LogCodexAuthNotices(log *slog.Logger, cfg *config.Config) {
+	if log == nil {
+		return
+	}
+	for _, n := range CodexAuthNotices(cfg) {
+		if n.Warning {
+			log.Warn("codex credential", "provider", n.Provider, "detail", n.Message)
+			continue
+		}
+		log.Info("codex credential", "provider", n.Provider, "detail", n.Message)
+	}
+}
+
+// codexAuthNotice builds the notice for one provider, preferring the
+// Coddy-managed credential and falling back to the Codex CLI login.
+func codexAuthNotice(provider, managedPath string) CodexAuthNotice {
+	notice := CodexAuthNotice{Provider: provider}
+	auth, path, err := (&codexAuthSource{path: managedPath, fallbackPath: codexAuthPath()}).load()
+	if err != nil {
+		notice.Warning = true
+		notice.Message = "no ChatGPT credential found, run `coddy codex login` or sign in from Settings"
+		return notice
+	}
+	if auth.AuthMode != "" && auth.AuthMode != codexAuthModeChatGPT {
+		notice.Warning = true
+		notice.Message = fmt.Sprintf("credential in %s uses auth_mode %q, only ChatGPT (OAuth) is supported", path, auth.AuthMode)
+		return notice
+	}
+	source := "Coddy-managed credential"
+	if filepath.Clean(path) != filepath.Clean(managedPath) {
+		source = "Codex CLI login " + path
+	}
+	hasRefresh := strings.TrimSpace(auth.Tokens.RefreshToken) != ""
+	exp, parsed := jwtExpiry(auth.Tokens.AccessToken)
+	switch {
+	case strings.TrimSpace(auth.Tokens.AccessToken) == "" && !hasRefresh:
+		notice.Warning = true
+		notice.Message = fmt.Sprintf("credential in %s carries no tokens, run `coddy codex login`", path)
+	case parsed && exp.Before(time.Now()) && !hasRefresh:
+		notice.Warning = true
+		notice.Message = fmt.Sprintf("access token expired at %s and there is no refresh token, run `coddy codex login` (%s)",
+			exp.UTC().Format(time.RFC3339), source)
+	case parsed && exp.Before(time.Now()):
+		notice.Message = fmt.Sprintf("access token expired at %s, it will refresh on the next request (%s)",
+			exp.UTC().Format(time.RFC3339), source)
+	case parsed:
+		notice.Message = fmt.Sprintf("signed in, access token valid until %s (%s)", exp.UTC().Format(time.RFC3339), source)
+	default:
+		notice.Message = "signed in (" + source + ")"
+	}
+	return notice
 }
 
 // RemoveCodexAuth deletes a Coddy-managed credential without touching the
