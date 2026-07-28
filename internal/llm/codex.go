@@ -1,11 +1,13 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -121,6 +123,7 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 	}
 
 	if err := stream.Err(); err != nil {
+		err = codexRequestError(err)
 		if errors.Is(err, context.Canceled) && (strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0) {
 			return &Response{
 				Content:      fullContent,
@@ -145,6 +148,74 @@ func (p *codexProvider) Stream(ctx context.Context, messages []Message, tools []
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 	}, nil
+}
+
+// codexReasoningEffort maps a coddy reasoning level onto a level the Codex
+// backend accepts. Its models advertise none/low/medium/high/xhigh and reject
+// the OpenAI "minimal" tier, which coddy offers for every gpt-5 model id.
+func codexReasoningEffort(level string) string {
+	if strings.EqualFold(strings.TrimSpace(level), "minimal") {
+		return "none"
+	}
+	return level
+}
+
+// codexRequestError enriches an OpenAI SDK transport error with the Codex
+// error body. The SDK builds its message from the "error" field only, while the
+// Codex backend answers with {"detail": ...}, so an unmodified error reads as a
+// bare "400 Bad Request" with no explanation.
+func codexRequestError(err error) error {
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) || apiErr.Response == nil || apiErr.Response.Body == nil {
+		return err
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(apiErr.Response.Body, 4096))
+	_ = apiErr.Response.Body.Close()
+	if readErr != nil || len(bytes.TrimSpace(raw)) == 0 {
+		return err
+	}
+	detail := codexErrorDetail(raw)
+	if detail == "" || strings.Contains(err.Error(), detail) {
+		return err
+	}
+	return &codexDetailError{err: err, detail: detail}
+}
+
+// codexDetailError carries the Codex explanation next to the SDK error while
+// keeping the original error unwrappable.
+type codexDetailError struct {
+	err    error
+	detail string
+}
+
+func (e *codexDetailError) Error() string {
+	return strings.TrimSpace(e.err.Error()) + ": " + e.detail
+}
+
+func (e *codexDetailError) Unwrap() error { return e.err }
+
+// codexErrorDetail extracts a human-readable message from a Codex error body,
+// falling back to a bounded snippet of the raw payload.
+func codexErrorDetail(raw []byte) string {
+	var envelope struct {
+		Detail json.RawMessage `json:"detail"`
+		Error  struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err == nil {
+		if msg := strings.TrimSpace(envelope.Error.Message); msg != "" {
+			return msg
+		}
+		if len(envelope.Detail) > 0 {
+			var text string
+			if err := json.Unmarshal(envelope.Detail, &text); err == nil {
+				return strings.TrimSpace(text)
+			}
+			return strings.TrimSpace(string(envelope.Detail))
+		}
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func codexStopReason(toolCalls []ToolCall) string {
@@ -207,7 +278,13 @@ func (p *codexProvider) buildParams(messages []Message, tools []ToolDefinition) 
 		params.Instructions = openai.String(strings.Join(instructions, "\n\n"))
 	}
 	if p.reasoningEffort != "" {
-		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(p.reasoningEffort)}
+		// Summary "auto" is required for the backend to emit
+		// response.reasoning_summary_text.delta; without it a reasoning turn
+		// streams no thinking at all.
+		params.Reasoning = shared.ReasoningParam{
+			Effort:  shared.ReasoningEffort(codexReasoningEffort(p.reasoningEffort)),
+			Summary: shared.ReasoningSummaryAuto,
+		}
 	}
 	if len(tools) > 0 {
 		oaiTools := make([]responses.ToolUnionParam, 0, len(tools))

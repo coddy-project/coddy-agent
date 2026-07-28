@@ -174,6 +174,127 @@ func TestCodexProviderSurfacesStreamError(t *testing.T) {
 	}
 }
 
+// TestCodexProviderReasoningRequest pins the reasoning contract of the Codex
+// backend: it rejects the coddy level "minimal" (its models accept only
+// none/low/medium/high/xhigh) and streams reasoning summaries only when the
+// request asks for them.
+func TestCodexProviderReasoningRequest(t *testing.T) {
+	cases := []struct {
+		level      string
+		wantEffort string
+	}{
+		{"minimal", "none"},
+		{"low", "low"},
+		{"high", "high"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.level, func(t *testing.T) {
+			var reqBody map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(body, &reqBody)
+				w.Header().Set("Content-Type", "text/event-stream")
+				sse(w, "response.reasoning_summary_text.delta", map[string]any{"delta": "**Checking**"})
+				sse(w, "response.output_text.delta", map[string]any{"delta": "done"})
+			}))
+			defer srv.Close()
+
+			p := newCodexTestProvider(t, srv.URL)
+			p.reasoningEffort = tc.level
+
+			var reasoning strings.Builder
+			resp, err := p.Stream(context.Background(),
+				[]Message{{Role: RoleUser, Content: "hi"}}, nil,
+				func(c StreamChunk) { reasoning.WriteString(c.ReasoningDelta) })
+			if err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+
+			reasoningParam, ok := reqBody["reasoning"].(map[string]any)
+			if !ok {
+				t.Fatalf("request has no reasoning object: %#v", reqBody["reasoning"])
+			}
+			if reasoningParam["effort"] != tc.wantEffort {
+				t.Errorf("reasoning.effort = %v, want %q", reasoningParam["effort"], tc.wantEffort)
+			}
+			if reasoningParam["summary"] != "auto" {
+				t.Errorf("reasoning.summary = %v, want auto (no summary, no thinking in the UI)", reasoningParam["summary"])
+			}
+			if reasoning.String() != "**Checking**" || resp.Reasoning != "**Checking**" {
+				t.Errorf("reasoning delta = %q / response reasoning = %q", reasoning.String(), resp.Reasoning)
+			}
+		})
+	}
+}
+
+// TestCodexProviderOmitsReasoningWhenUnset keeps non-reasoning turns clean.
+func TestCodexProviderOmitsReasoningWhenUnset(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &reqBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		sse(w, "response.output_text.delta", map[string]any{"delta": "ok"})
+	}))
+	defer srv.Close()
+
+	p := newCodexTestProvider(t, srv.URL)
+	if _, err := p.Stream(context.Background(),
+		[]Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {}); err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if _, ok := reqBody["reasoning"]; ok {
+		t.Errorf("request carries reasoning without a configured level: %v", reqBody["reasoning"])
+	}
+}
+
+// TestCodexProviderSurfacesHTTPErrorDetail covers the Codex error envelope:
+// it reports failures as {"detail": ...}, which the OpenAI SDK error message
+// drops (it only reads "error"), leaving a bare "400 Bad Request".
+func TestCodexProviderSurfacesHTTPErrorDetail(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "detail envelope",
+			body: `{"detail":"The 'gpt-5.1-codex' model is not supported when using Codex with a ChatGPT account."}`,
+			want: "not supported when using Codex with a ChatGPT account",
+		},
+		{
+			name: "error envelope",
+			body: `{"error":{"message":"Unsupported value: 'minimal' is not supported","param":"reasoning.effort"}}`,
+			want: "Unsupported value: 'minimal' is not supported",
+		},
+		{
+			name: "plain text body",
+			body: `upstream rejected the request`,
+			want: "upstream rejected the request",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			p := newCodexTestProvider(t, srv.URL)
+			_, err := p.Stream(context.Background(),
+				[]Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			if err == nil {
+				t.Fatal("expected an error for HTTP 400")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not explain the failure (want %q)", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
 func TestCodexProviderDefaultsBaseURL(t *testing.T) {
 	p := newCodexProvider("gpt-5.6", filepath.Join(t.TempDir(), "auth.json"), "", nil, 0, "")
 	if p.baseURL != codexDefaultBaseURL {
