@@ -205,6 +205,23 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
+| `output_limits` | object | no | — | Per-tool ceilings on how many lines a result or error may contribute to the LLM context, plus a byte safety ceiling while enabled. See below. |
+
+### `tools.output_limits`
+
+Maximum lines a tool result or error may return into the LLM context (`config.ToolOutputLimits`). Every enabled line limit also applies a hard **64 KiB per-call byte ceiling**, preventing a minified file, base64 payload, or one-line MCP response from bypassing the guard. `0` disables both limits for that tool; an unset field falls back to the built-in default. Truncated output ends with a marker telling the model how to fetch the rest (`offset`/`limit` for `read`, a narrower pattern for `grep`, `page` for `websearch`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `read` | int | no | `1000` | Lines for a `read` file page or directory listing. |
+| `grep` | int | no | `200` | `path:line:content` records from `grep`. |
+| `glob` | int | no | `300` | Paths from `glob`. |
+| `print_tree` | int | no | `400` | Lines of a directory tree. |
+| `run_command` | int | no | `500` | Combined stdout+stderr lines of a shell command. |
+| `ssh_run_command` | int | no | `500` | Combined stdout+stderr lines of a remote SSH command. |
+| `webfetch` | int | no | `800` | Lines of fetched page markdown. |
+| `websearch` | int | no | `200` | Lines of search results. |
+| `default` | int | no | `1000` | Applies to any tool not named above, including MCP tools. `0` means unlimited. |
 
 ## `logger`
 
@@ -237,6 +254,17 @@ Context compaction (`config.Compaction`, `internal/config/compaction.go`): summa
 | `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
 | `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
 | `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
+| `result_eviction` | object | no | — | Prunes superseded `read`/`grep` results from the LLM projection (the persisted transcript is never rewritten). See below. |
+
+### `compaction.result_eviction`
+
+Collapses unmarked `read`/`grep` tool results to short placeholders when building the LLM request (`config.ResultEviction`), so paging a large file or running a wide search cannot pin dead lines in every later turn. A result survives when the model marks it (the `keep_result` tool, or `keep: true` on the call) or when it is inside the most recent working window; a filesystem write to a file invalidates earlier reads/greps that covered it. The persisted session bundle keeps every result in full.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch for read/grep result eviction. |
+| `keep_recent` | int | no | `2` | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. `0` keeps none. The default of `2` keeps a read *and* a grep live at once; with `1`, a model comparing two results keeps re-fetching whichever the other evicted. |
+| `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted. `0` makes every result a candidate. |
 
 ## `memory`
 

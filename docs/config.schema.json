@@ -384,6 +384,68 @@
           "type": "integer",
           "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
           "default": 30
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults.",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "integer",
+              "description": "Max lines for a read file page or directory listing.",
+              "default": 1000,
+              "minimum": 0
+            },
+            "grep": {
+              "type": "integer",
+              "description": "Max path:line:content records returned by grep.",
+              "default": 200,
+              "minimum": 0
+            },
+            "glob": {
+              "type": "integer",
+              "description": "Max paths returned by glob.",
+              "default": 300,
+              "minimum": 0
+            },
+            "print_tree": {
+              "type": "integer",
+              "description": "Max lines of a directory tree.",
+              "default": 400,
+              "minimum": 0
+            },
+            "run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a shell command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "ssh_run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a remote SSH command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "webfetch": {
+              "type": "integer",
+              "description": "Max lines of fetched page markdown.",
+              "default": 800,
+              "minimum": 0
+            },
+            "websearch": {
+              "type": "integer",
+              "description": "Max lines of search results.",
+              "default": 200,
+              "minimum": 0
+            },
+            "default": {
+              "type": "integer",
+              "description": "Applies to any tool not named above, including MCP tools. 0 means unlimited.",
+              "default": 1000,
+              "minimum": 0
+            }
+          }
         }
       }
     },
@@ -495,6 +557,31 @@
           "type": "string",
           "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for read/grep result eviction. Defaults to true.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
         }
       }
     },

@@ -12,6 +12,7 @@ type ToolSet []string
 // MCP server tools are appended separately in react.go (same as agent mode).
 var planToolNames = []string{
 	"read",
+	"keep_result",
 	"glob",
 	"grep",
 	"print_tree",

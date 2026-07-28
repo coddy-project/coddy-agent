@@ -72,7 +72,16 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !ok {
 		return nil, ErrNothingToCompact
 	}
-	head := session.MessagesForLLM(msgs[:splitIdx])
+	visible := session.MessagesForLLM(msgs)
+	visibleStart := len(msgs) - len(visible)
+	if splitIdx < visibleStart || splitIdx > len(msgs) {
+		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
+	}
+	// Analyze the full visible window before selecting the compacted head: pins
+	// and writes in the kept tail can change whether an older result is useful or
+	// stale, even though the tail itself is not sent to the summarizer.
+	projected := a.prunedForLLM(visible)
+	head := projected[:splitIdx-visibleStart]
 
 	provider, modelID, err := a.compactionProvider()
 	if err != nil {

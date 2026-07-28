@@ -114,7 +114,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the
 		// LLM-visible window after the last compaction summary.
-		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, session.MessagesForLLM(a.state.GetMessages()), toolDefs), false)
+		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages())), toolDefs), false)
 	}
 	return full
 }

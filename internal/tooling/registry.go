@@ -45,13 +45,21 @@ func (r *Registry) AllToolDefinitions() []llm.ToolDefinition {
 	return out
 }
 
-// Execute runs the named tool with the given JSON arguments.
+// Execute runs the named tool with the given JSON arguments. Its result or error
+// is capped to the per-tool output ceiling carried by env (no-op when env carries
+// no limits), so one call cannot flood the LLM context.
 func (r *Registry) Execute(ctx context.Context, name, argsJSON string, env *Env) (string, error) {
 	t, ok := r.tools[name]
 	if !ok {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
-	return t.Execute(ctx, argsJSON, env)
+	out, err := t.Execute(ctx, argsJSON, env)
+	if err == nil {
+		out = ApplyOutputLimit(out, name, env)
+	} else {
+		err = ApplyOutputLimitError(err, name, env)
+	}
+	return out, err
 }
 
 // Get returns the tool by name.
