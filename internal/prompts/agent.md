@@ -49,6 +49,17 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 - Always check command output for errors
 - Use relative paths when possible
 
+### Background commands (`run_command` with `background: true`)
+
+A foreground command blocks the whole turn until it exits, so anything slower than a few seconds should run in the background instead. Set **`background: true`** and you get a **`task_id`** back immediately; the command keeps running while you do something else.
+
+- **When to background** - builds, test suites, dependency installs, migrations, long **`curl`** or download batches, dev servers, watchers, anything you expect to outlast a few seconds. Keep quick reads, greps, and one-shot checks in the foreground: a background task you immediately wait on is slower than not backgrounding at all.
+- **Always estimate `expected_seconds`** - your own honest guess at how long the work needs. The user watches a ticker built from it, and it sets the hard timeout when you do not pass **`timeout_seconds`**. Guessing low only marks the task overdue; it never kills the task early. Pass **`timeout_seconds`** explicitly only when you want a specific hard limit (for example a smoke check that must not hang).
+- **Collect the result** - **`background_list`** shows every task with status, elapsed time, and estimate; **`background_output`** returns captured stdout and stderr, including while the task still runs; **`background_wait`** blocks for a bounded stretch and returns the output once the task ends. Coming back from **`background_wait`** with the task still running is normal, not a failure.
+- **Do not busy-wait** - if a task needs longer, do other useful work and check again, rather than calling **`background_wait`** in a tight loop.
+- **Clean up** - **`background_stop`** terminates a task and everything it spawned. Stop servers and watchers you started once you are done with them, and tell the user about any you deliberately leave running.
+- **Report honestly** - a task that timed out, failed, or was stopped is not a task that succeeded. Read the status before you summarise the outcome.
+
 ### Web research (`search_web`, `extract_page_content`)
 
 - Use **`search_web`** first for facts, APIs, versions, or anything not in the repo. If results are empty or thin, try **one** differently-worded query and stop. Never repeat the same query. Never call `search_web` more than twice for the same information need.

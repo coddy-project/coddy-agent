@@ -311,7 +311,8 @@ The inline approval gate is implemented by **PermissionPromptSection** and **Per
 
 - Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
 - Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated.
-- Actions use the server-provided labels unchanged (**Allow**, **Allow always**, **Reject**).
+- Actions use the server-provided labels unchanged (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**). The options list is rendered from the SSE payload, so a fourth button needs no client change beyond layout.
+- The program-wide option only reaches the client for **run_command** on a single plain invocation. Its label already names the exact grant (**`curl`**, **`git status`**), so the card must render it verbatim rather than re-deriving a program name.
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
 - **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.
 - The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; keep the viewport bounded, switch it to internal vertical scrolling, and change the button to **Less**. Returning to the collapsed state restores clipping and re-measures overflow. The shared button is left-aligned; on phones it has a **36px** minimum height.
@@ -322,6 +323,26 @@ Automated checks:
 - **external/ui/src/ui/chat/permissionToolPreview.test.ts**
 - **external/ui/src/ui/chat/PermissionPromptSection.test.tsx**
 - **external/ui/src/ui/messages/MessageList.test.tsx**
+
+
+## Background tasks drawer
+
+The **Tasks** rail entry opens **`#/tasks`**; **`#/tasks/<task_id>`** opens the detail pane. Backed by **`GET/POST /coddy/sessions/{id}/background-tasks*`** (see **`docs/background-tasks.md`**).
+
+- The drawer **polls** rather than listening on SSE, because a background task outlives the turn that started it: every **2.5s** while anything runs, every **15s** otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
+- Rows show a status dot, the command, and **elapsed · est. · exit code · overdue**. A progress bar appears only while the task runs **and** the model supplied **`expected_seconds`**; it tracks progress toward that estimate and turns amber once overdue. Running rows carry **Stop**.
+- Rows sort running-first, then most recently started. Each row is a real **`href`** so middle-click opens the task in a new tab.
+- The detail pane shows the command, any error, and the captured output, following the tail unless the reader scrolls up. A dropped in-memory window is flagged **truncated** (the full log stays in the session bundle).
+- The rail glyph carries a running-count badge capped at **`9+`**.
+- A transcript **run_command** row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll as the drawer.
+
+Automated checks:
+
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, ordering)
+- **external/ui/src/ui/tasks/BackgroundTasksDrawer.test.tsx** (rows, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (badge contrast, dock-cluster selectors, reduced motion)
+- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
 
 ## Live token usage
 

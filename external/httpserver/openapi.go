@@ -301,7 +301,7 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/commands": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "List built-in slash commands",
+					"summary":     "List built-in slash commands",
 					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
@@ -591,6 +591,74 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/background-tasks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Background tasks of a session",
+					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/background-tasks/{task_id}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "One background task with its captured output",
+					"description": "Returns the task row plus **output**, the combined stdout and stderr captured so far. Works while the task is still running. A task the pool no longer holds is answered from the session bundle log.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+						map[string]interface{}{
+							"name": "tail", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "integer"},
+							"description": "Return only the last N lines of output. Omit for everything retained. A non-integer or negative value is a **400**. A log read back from the session bundle is capped at its last 256 KiB and flags the truncation.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task with output"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/background-tasks/{task_id}/stop": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Stop a running background task",
+					"description": "Terminates the task and the whole process group it started, then returns the final row and its output. Stopping a task that already finished changes nothing and still returns **200**. An unknown id is a **404**; a task that exists but could not be terminated is a **500**, never a 404.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Stopped task with output"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
@@ -710,7 +778,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",

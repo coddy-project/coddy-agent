@@ -1,6 +1,6 @@
 /**
  * Hash routes: `#/s/<sessionId>`, `#/history`, `#/scheduler`, `#/scheduler/new`,
- * `#/scheduler/jobs/<job_id>`.
+ * `#/scheduler/jobs/<job_id>`, `#/tasks`, `#/tasks/<task_id>`.
  * Optional `?history=1` on scheduler (and session) URLs keeps the History drawer open on wide screens.
  */
 
@@ -15,6 +15,7 @@ export type ParsedAppHash =
       createOpen: boolean;
       historyOpen: boolean;
     }
+  | { branch: "tasks"; taskId: string | null; historyOpen: boolean }
   | { branch: "settings"; historyOpen: boolean; section: string | null };
 
 export type SchedulerEditorRoute =
@@ -87,6 +88,17 @@ export function parseAppHash(): ParsedAppHash {
       historyOpen,
       section: decodeURIComponent(settingsSec[1]),
     };
+  }
+  const bgTask = /^tasks\/(.+)$/.exec(h);
+  if (bgTask && bgTask[1]) {
+    return {
+      branch: "tasks",
+      taskId: decodeURIComponent(bgTask[1]),
+      historyOpen,
+    };
+  }
+  if (h === "tasks") {
+    return { branch: "tasks", taskId: null, historyOpen };
   }
   const schedJob = /^scheduler\/jobs\/(.+)$/.exec(h);
   if (schedJob && schedJob[1]) {
@@ -260,6 +272,41 @@ export function setSettingsSectionHash(
   }
 }
 
+export function setTasksListHash(opts?: {
+  historySidebar?: boolean;
+}): void {
+  const next = withHistoryQuery("#/tasks", !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
+export function setTasksTaskHash(
+  taskId: string,
+  opts?: { historySidebar?: boolean },
+): void {
+  const id = (taskId || "").trim();
+  if (!id) {
+    setTasksListHash(opts);
+    return;
+  }
+  const base = `#/tasks/${encodeURIComponent(id)}`;
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
 export function setHistoryHash(): void {
   const next = "#/history";
   if (window.location.hash !== next) {
@@ -305,6 +352,14 @@ export function stripHistorySidebarFromHash(): void {
     setSessionHashInLocation(p.sessionId);
     return;
   }
+  if (p.branch === "tasks" && p.historyOpen) {
+    if (p.taskId) {
+      setTasksTaskHash(p.taskId);
+    } else {
+      setTasksListHash();
+    }
+    return;
+  }
   if (p.branch === "settings" && p.historyOpen) {
     if (p.section) {
       setSettingsSectionHash(p.section);
@@ -330,6 +385,16 @@ export function appNavHrefSettings(): string {
 export function appNavHrefSettingsSection(section: string): string {
   const id = (section || "").trim();
   return id ? `#/settings/${encodeURIComponent(id)}` : "#/settings";
+}
+
+export function appNavHrefTasks(): string {
+  return "#/tasks";
+}
+
+/** Hash to open one background task in the tasks drawer (middle-click opens a new tab). */
+export function appNavHrefTask(taskId: string): string {
+  const id = (taskId || "").trim();
+  return id ? `#/tasks/${encodeURIComponent(id)}` : appNavHrefTasks();
 }
 
 export function appNavHrefScheduler(): string {

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
@@ -140,6 +141,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/plan/archive", s.coddyPlanArchivePost)
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
+	s.registerBackgroundRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
@@ -992,6 +994,9 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if fs == nil {
 		return
 	}
+	// Terminate anything this session left running before its bundle (and the
+	// task logs inside it) go away.
+	bgtask.Default().StopSession(id)
 	s.mgr.ForgetLiveSession(id)
 	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
 		if !os.IsNotExist(err) {

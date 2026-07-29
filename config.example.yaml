@@ -203,6 +203,19 @@ tools:
   #   websearch: 200        # search result lines
   #   default: 1000         # anything else, incl. MCP tools; 0 = unlimited
 
+  # Commands the agent runs detached in the session background task pool instead
+  # of blocking a turn. run_command gains "background" and "expected_seconds";
+  # background_list / background_output / background_wait / background_stop
+  # collect the result later. The pool dies with the coddy process: metadata and
+  # captured output stay in the session bundle, and a task interrupted by a
+  # restart is reported as orphaned. 0 = use the built-in default.
+  # background:
+  #   enabled: true
+  #   max_concurrent: 5             # concurrent background tasks per session
+  #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
+  #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
+  #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
+
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"

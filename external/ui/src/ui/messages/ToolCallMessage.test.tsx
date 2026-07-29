@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
 
 afterEach(() => cleanup());
 
@@ -429,4 +430,115 @@ test("apply_patch with error shows diff alongside error text", () => {
   expect(container.querySelector(".permission-preview-diff")).not.toBeNull();
   expect(container.querySelector(".tool-result-pre")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
+});
+
+const BG_START_MS = Date.parse("2026-07-29T12:00:00Z");
+
+function backgroundTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return {
+    id: "bg_1",
+    session_id: "s1",
+    kind: "command",
+    label: "make test",
+    command: "make test",
+    status: "running",
+    started_at: new Date(BG_START_MS).toISOString(),
+    timeout_seconds: 900,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 0,
+    overdue: false,
+    running: true,
+    ...over,
+  };
+}
+
+test("a backgrounded run_command keeps a live status chip on the collapsed row", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      argsText='{"command":"make test","background":true,"expected_seconds":120}'
+      resultText="Started background task bg_1: make test"
+      backgroundTask={backgroundTask({ expected_seconds: 120 })}
+      backgroundNowMs={BG_START_MS + 30_000}
+    />,
+  );
+
+  const chip = screen.getByTestId("tool-bgtask-chip-bg_1");
+  expect(chip).toHaveTextContent("Running");
+  expect(chip).toHaveTextContent("30s");
+  expect(chip).toHaveTextContent("est. 2m");
+});
+
+test("the background chip reports the final state once the task ends", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask({
+        running: false,
+        status: "timed_out",
+        elapsed_seconds: 900,
+      })}
+      backgroundNowMs={BG_START_MS + 9_000_000}
+    />,
+  );
+  expect(screen.getByTestId("tool-bgtask-chip-bg_1")).toHaveTextContent(
+    "Timed out",
+  );
+});
+
+test("expanded background row offers Open in Tasks, and Stop only while running", () => {
+  const onOpen = vi.fn();
+  const onStop = vi.fn();
+  const { rerender } = render(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask()}
+      backgroundNowMs={BG_START_MS + 1_000}
+      onOpenBackgroundTask={onOpen}
+      onStopBackgroundTask={onStop}
+    />,
+  );
+  openToolDetails();
+
+  fireEvent.click(screen.getByTestId("tool-bgtask-open-bg_1"));
+  expect(onOpen).toHaveBeenCalledWith("bg_1");
+  fireEvent.click(screen.getByTestId("tool-bgtask-stop-bg_1"));
+  expect(onStop).toHaveBeenCalledWith("bg_1");
+
+  rerender(
+    <ToolCallMessage
+      toolCallId="tc-bg"
+      title="run_command"
+      status="completed"
+      backgroundTask={backgroundTask({
+        running: false,
+        status: "succeeded",
+        exit_code: 0,
+      })}
+      backgroundNowMs={BG_START_MS + 1_000}
+      onOpenBackgroundTask={onOpen}
+      onStopBackgroundTask={onStop}
+    />,
+  );
+  expect(screen.queryByTestId("tool-bgtask-stop-bg_1")).toBeNull();
+  expect(screen.getByTestId("tool-bgtask-open-bg_1")).toBeInTheDocument();
+});
+
+test("an ordinary tool row carries no background chip", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-plain"
+      title="read"
+      status="completed"
+      resultText="file contents"
+    />,
+  );
+  expect(screen.queryByTestId(/^tool-bgtask-chip-/)).toBeNull();
 });

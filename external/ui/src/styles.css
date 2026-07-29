@@ -4911,7 +4911,8 @@ textarea#composer {
   pointer-events: auto;
 }
 
-.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer,
+.scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
   position: relative;
   left: auto;
   top: auto;
@@ -5264,8 +5265,9 @@ textarea#composer {
     z-index: 70;
   }
 
-  /* Jobs list alone uses the full cluster height like History. */
-  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+  /* Jobs list (and the tasks panel) alone use the full cluster height like History. */
+  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer,
+  .shell-main > .scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
     /* Override mobile .sessions.drawer / .scheduler-jobs.drawer inset - those are for fixed History panels.
        On relative children inside the dock cluster they resolve as offsets and pull the panel left (~-10px). */
     position: relative;
@@ -7981,3 +7983,384 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 /*$vite$:1*/
+
+/* ── Background tasks drawer ───────────────────────────────────────────────
+   Commands the agent left running. The panel reuses the scheduler dock cluster
+   for placement (including the phone insets), so only the row and detail chrome
+   is defined here. Every color is derived from theme tokens: the drawer has to
+   read correctly in all seven themes without per-theme overrides. */
+
+.bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
+  /* Wider than the jobs list: rows carry a progress bar and the detail pane
+     shows command output inside the same panel. */
+  width: min(
+    380px,
+    calc(
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
+    )
+  );
+}
+
+.bgtask-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bgtask-list .session-item.bgtask-row {
+  padding: 0;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.bgtask-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: block;
+  box-sizing: border-box;
+  padding: 10px 8px 10px 12px;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.bgtask-row-text-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bgtask-row-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.bgtask-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-row-status {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: var(--coddy-chip-badge-fg);
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.bgtask-row-meta {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-row.is-overdue .bgtask-row-meta {
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+/* Status dot, same vocabulary as the MCP server rows. */
+.bgtask-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.bgtask-dot--running {
+  background: var(--accent);
+  box-shadow: 0 0 5px color-mix(in srgb, var(--accent) 60%, transparent);
+  animation: bgtask-pulse 1.8s ease-in-out infinite;
+}
+
+.bgtask-dot--success {
+  background: #34c759;
+  box-shadow: 0 0 5px color-mix(in srgb, #34c759 60%, transparent);
+}
+
+.bgtask-dot--danger {
+  background: #ff453a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff453a 60%, transparent);
+}
+
+.bgtask-dot--warning {
+  background: #ff9f0a;
+}
+
+.bgtask-dot--muted {
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+@keyframes bgtask-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bgtask-dot--running {
+    animation: none;
+  }
+}
+
+/* Progress toward the model's own estimate. Drawn only while running and only
+   when an estimate exists, so the bar never implies knowledge we do not have. */
+.bgtask-progress {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+}
+
+.bgtask-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.6s linear;
+}
+
+.bgtask-row.is-overdue .bgtask-progress-fill {
+  background: #ff9f0a;
+}
+
+.bgtask-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 6px 8px 6px 0;
+}
+
+.bgtask-stop-icon.composer-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+}
+
+/* Detail pane: replaces the list inside the same drawer. */
+.bgtask-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.bgtask-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bgtask-back {
+  border: none;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 0;
+  min-height: 36px;
+  cursor: pointer;
+}
+
+.bgtask-back:hover {
+  color: var(--text);
+}
+
+.bgtask-detail-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bgtask-detail-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.bgtask-detail-status {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bgtask-detail-timing {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+}
+
+.bgtask-detail-command,
+.bgtask-detail-output {
+  margin: 0;
+  border-radius: 10px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bgtask-detail-command {
+  padding: 8px 10px;
+  max-height: 92px;
+  overflow-y: auto;
+}
+
+.bgtask-detail-error {
+  font-size: 12px;
+  color: color-mix(in srgb, #ff453a 75%, var(--text));
+}
+
+.bgtask-detail-output-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+}
+
+.bgtask-detail-truncated {
+  text-transform: none;
+  letter-spacing: 0;
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+.bgtask-detail-output {
+  flex: 1 1 auto;
+  min-height: 120px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.bgtask-detail-stop.scheduler-btn {
+  min-height: 36px;
+}
+
+/* Nav rail badge: running count over the Tasks glyph.
+   The pill is text-on-background rather than white-on-accent: several themes
+   ship a light accent (monokai, nord, rose-pine), where white numerals drop to
+   about 2:1. The --text / --bg pair is the one every theme guarantees, and it
+   clears 4.5:1 in all seven. The accent still carries meaning on the pulsing
+   status dot, where hue matters and contrast does not. */
+.rail-nav-glyph-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rail-nav-badge {
+  position: absolute;
+  top: -5px;
+  right: -7px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
+@media (max-width: 1199px) {
+  /* Comfortable touch targets on phones, matching the scheduler drawer. */
+  .bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
+    width: 100%;
+  }
+
+  .bgtask-row-main {
+    padding: 12px 8px 12px 12px;
+  }
+
+  .bgtask-back {
+    min-height: 40px;
+  }
+
+  .bgtask-detail-output {
+    min-height: 160px;
+  }
+}
+
+/* Live background-task chip on a transcript tool row. The tool call itself
+   returned immediately, so the chip is what keeps the row honest about the work
+   that is still going on. */
+.tool-bgtask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+}
+
+.tool-bgtask-chip.is-running {
+  background: color-mix(in srgb, var(--accent) 14%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+}
+
+.tool-bgtask-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-bgtask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+@media (max-width: 1199px) {
+  /* The summary row is already tight on phones; the chip drops the wording and
+     keeps the dot plus timing rather than pushing the duration off screen. */
+  .tool-bgtask-chip {
+    max-width: 46vw;
+  }
+}

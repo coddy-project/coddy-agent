@@ -33,6 +33,12 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r := tooling.NewRegistry()
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
+	if cfg == nil || cfg.Tools.Background.ResolvedEnabled() {
+		r.Register(shell.BackgroundListTool())
+		r.Register(shell.BackgroundOutputTool())
+		r.Register(shell.BackgroundWaitTool())
+		r.Register(shell.BackgroundStopTool())
+	}
 	r.Register(QuestionTool())
 	r.Register(PlanExitTool())
 	r.Register(PlanWriteTool())

@@ -1,0 +1,62 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { expect, test } from "vitest";
+
+const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf8");
+
+function ruleBody(selector: string): string {
+  const idx = css.indexOf(selector);
+  expect(idx, `${selector} is missing from styles.css`).toBeGreaterThan(-1);
+  const open = css.indexOf("{", idx);
+  const close = css.indexOf("}", open);
+  return css.slice(open + 1, close);
+}
+
+test("the running-count badge never puts white on the theme accent", () => {
+  // monokai (#fd971f), nord (#88c0d0) and rose-pine (#c4a7e7) are light
+  // accents: white numerals measure about 2:1 there. --text on --bg is the one
+  // pairing every theme guarantees.
+  const badge = ruleBody(".rail-nav-badge {");
+  expect(badge).toContain("background: var(--text)");
+  expect(badge).toContain("color: var(--bg)");
+  expect(badge).not.toMatch(/color:\s*#fff/i);
+  expect(badge).not.toMatch(/background:\s*var\(--accent\)/);
+});
+
+test("task row colors are derived from theme tokens, not hardcoded greys", () => {
+  for (const selector of [
+    ".bgtask-row-label {",
+    ".bgtask-row-meta {",
+    ".bgtask-row-status {",
+  ]) {
+    expect(ruleBody(selector)).toContain("var(--text)");
+  }
+});
+
+test("the dock cluster rules cover the tasks panel, not only the scheduler one", () => {
+  // Without this the panel keeps the fixed-position .sessions.drawer insets and
+  // overflows the cluster on phones.
+  expect(css).toContain(
+    ".scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer",
+  );
+  expect(css).toContain(
+    ".shell-main > .scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer",
+  );
+});
+
+test("the running dot animation is disabled for reduced motion", () => {
+  // styles.css has more than one reduced-motion block, so find the one that
+  // actually covers the pulsing dot.
+  const blocks = css.split("@media (prefers-reduced-motion: reduce)").slice(1);
+  const covering = blocks.find((b) => b.slice(0, 400).includes(".bgtask-dot--running"));
+  expect(covering, "no reduced-motion block covers .bgtask-dot--running").toBeDefined();
+  expect(covering?.slice(0, 400)).toContain("animation: none");
+});
+
+test("phone layout gives the drawer full cluster width and taller touch targets", () => {
+  const idx = css.indexOf(
+    ".bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {\n    width: 100%;",
+  );
+  expect(idx).toBeGreaterThan(-1);
+  expect(ruleBody(".bgtask-back {")).toContain("min-height: 36px");
+});

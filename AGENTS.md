@@ -8,6 +8,7 @@ Short map for automation-friendly contributors.
 |------|------------------|
 | `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
+| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |

@@ -29,6 +29,89 @@ type Tools struct {
 	// the LLM context. Enabled limits also activate the tooling-layer hard byte
 	// safety ceiling so a huge single line cannot bypass them.
 	OutputLimits ToolOutputLimits `yaml:"output_limits"`
+
+	// Background bounds commands the agent runs as background tasks.
+	Background ToolBackground `yaml:"background"`
+}
+
+// Defaults for tools.background.
+const (
+	BackgroundDefaultMaxConcurrent     = 5
+	BackgroundDefaultTimeoutSeconds    = 900
+	BackgroundDefaultMaxTimeoutSeconds = 3600
+	BackgroundDefaultOutputBufferBytes = 262144
+)
+
+// ToolBackground is the YAML tools.background section. It governs run_command
+// calls that ask to run detached, and the task pool that owns them.
+type ToolBackground struct {
+	// Enabled exposes the background option on run_command and the background
+	// task tools. Unset means enabled; set it to false to keep every command in
+	// the foreground.
+	Enabled *bool `yaml:"enabled"`
+
+	// MaxConcurrent is how many background tasks one session may run at once.
+	MaxConcurrent int `yaml:"max_concurrent"`
+
+	// DefaultTimeoutSeconds is the hard limit for a task whose caller gave
+	// neither a timeout nor a duration estimate.
+	DefaultTimeoutSeconds int `yaml:"default_timeout_seconds"`
+
+	// MaxTimeoutSeconds caps whatever timeout the caller or the estimate asked
+	// for, so no single task can outlive the ceiling the operator set.
+	MaxTimeoutSeconds int `yaml:"max_timeout_seconds"`
+
+	// OutputBufferBytes is how much of each task's output stays in memory for
+	// the status ticker. The full log is still written to the session bundle.
+	OutputBufferBytes int `yaml:"output_buffer_bytes"`
+}
+
+// ResolvedEnabled reports whether background execution is offered, defaulting to
+// true when the field is unset.
+func (b *ToolBackground) ResolvedEnabled() bool {
+	if b == nil || b.Enabled == nil {
+		return true
+	}
+	return *b.Enabled
+}
+
+// Resolved returns the section with every unset knob replaced by its default.
+func (b *ToolBackground) Resolved() ToolBackground {
+	out := ToolBackground{}
+	if b != nil {
+		out = *b
+	}
+	if out.MaxConcurrent <= 0 {
+		out.MaxConcurrent = BackgroundDefaultMaxConcurrent
+	}
+	if out.DefaultTimeoutSeconds <= 0 {
+		out.DefaultTimeoutSeconds = BackgroundDefaultTimeoutSeconds
+	}
+	if out.MaxTimeoutSeconds <= 0 {
+		out.MaxTimeoutSeconds = BackgroundDefaultMaxTimeoutSeconds
+	}
+	if out.DefaultTimeoutSeconds > out.MaxTimeoutSeconds {
+		out.DefaultTimeoutSeconds = out.MaxTimeoutSeconds
+	}
+	if out.OutputBufferBytes <= 0 {
+		out.OutputBufferBytes = BackgroundDefaultOutputBufferBytes
+	}
+	return out
+}
+
+// validate rejects negative knobs; zero keeps meaning "use the default".
+func (b *ToolBackground) validate() error {
+	for name, v := range map[string]int{
+		"max_concurrent":          b.MaxConcurrent,
+		"default_timeout_seconds": b.DefaultTimeoutSeconds,
+		"max_timeout_seconds":     b.MaxTimeoutSeconds,
+		"output_buffer_bytes":     b.OutputBufferBytes,
+	} {
+		if v < 0 {
+			return fmt.Errorf("tools.background.%s: must be >= 0", name)
+		}
+	}
+	return nil
 }
 
 // Defaults for tools.output_limits (maximum lines a tool result or error may
@@ -152,5 +235,5 @@ func (c *Tools) Validate() error {
 	if err := c.OutputLimits.validate(); err != nil {
 		return err
 	}
-	return nil
+	return c.Background.validate()
 }

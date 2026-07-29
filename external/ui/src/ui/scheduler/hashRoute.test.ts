@@ -7,6 +7,8 @@ import {
   appNavHrefSchedulerNew,
   appNavHrefSession,
   appNavHrefSettings,
+  appNavHrefTask,
+  appNavHrefTasks,
   parseAppHash,
   schedulerEditorFromParsedHash,
   setHistoryHash,
@@ -15,6 +17,8 @@ import {
   setSchedulerListHash,
   setSessionHashInLocation,
   setSettingsHash,
+  setTasksListHash,
+  setTasksTaskHash,
   stripHistorySidebarFromHash,
 } from "./hashRoute";
 
@@ -213,5 +217,64 @@ describe("appNavHref helpers", () => {
     expect(appNavHrefSchedulerJob("demo")).toBe("#/scheduler/jobs/demo");
     expect(appNavHrefSchedulerJob("a/b")).toBe("#/scheduler/jobs/a%2Fb");
     expect(appNavHrefSchedulerJob("")).toBe("#/scheduler");
+  });
+});
+
+describe("background tasks routes", () => {
+  test("parses the tasks list and a single task", () => {
+    setHash("#/tasks");
+    expect(parseAppHash()).toEqual({
+      branch: "tasks",
+      taskId: null,
+      historyOpen: false,
+    });
+
+    setHash("#/tasks/bg_7");
+    expect(parseAppHash()).toEqual({
+      branch: "tasks",
+      taskId: "bg_7",
+      historyOpen: false,
+    });
+  });
+
+  test("carries the history sidebar flag like the other drawers", () => {
+    setHash("#/tasks?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "tasks",
+      taskId: null,
+      historyOpen: true,
+    });
+  });
+
+  test("writers set the hash and an empty task id falls back to the list", () => {
+    setHash("");
+    setTasksListHash();
+    expect(window.location.hash).toBe("#/tasks");
+
+    setTasksTaskHash("bg_2");
+    expect(window.location.hash).toBe("#/tasks/bg_2");
+
+    setTasksTaskHash("  ");
+    expect(window.location.hash).toBe("#/tasks");
+
+    setTasksTaskHash("bg_3", { historySidebar: true });
+    expect(window.location.hash).toBe("#/tasks/bg_3?history=1");
+  });
+
+  test("stripping the history sidebar keeps the task route", () => {
+    setHash("#/tasks/bg_9?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/tasks/bg_9");
+
+    setHash("#/tasks?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/tasks");
+  });
+
+  test("nav hrefs encode the task id", () => {
+    expect(appNavHrefTasks()).toBe("#/tasks");
+    expect(appNavHrefTask("bg_1")).toBe("#/tasks/bg_1");
+    expect(appNavHrefTask("a/b")).toBe("#/tasks/a%2Fb");
+    expect(appNavHrefTask("  ")).toBe("#/tasks");
   });
 });

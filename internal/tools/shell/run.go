@@ -36,7 +36,18 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 					},
 					"timeout_seconds": map[string]interface{}{
 						"type":        "integer",
-						"description": "Command timeout in seconds (default: 30)",
+						"description": "Command timeout in seconds. Foreground default 30; a background task derives its limit from expected_seconds when this is omitted",
+					},
+					"background": map[string]interface{}{
+						"type": "boolean",
+						"description": "Run the command as a background task and return a task id immediately instead of waiting for output. " +
+							"Use it for work that takes longer than a few seconds (builds, test suites, installs, watchers, servers, batch downloads) so you can keep working while it runs. " +
+							"Collect the result later with background_list, background_output, and background_wait; terminate with background_stop",
+					},
+					"expected_seconds": map[string]interface{}{
+						"type": "integer",
+						"description": "Your own estimate of how long a background command needs. It drives the status ticker the user sees and, when timeout_seconds is omitted, the hard timeout. " +
+							"Estimate honestly: too low only marks the task overdue, it does not kill it",
 					},
 				},
 				"required": []string{"command"},
@@ -69,12 +80,18 @@ type runCommandArgs struct {
 	Command             string `json:"command"`
 	PermissionRationale string `json:"permission_rationale"`
 	TimeoutSeconds      int    `json:"timeout_seconds"`
+	Background          bool   `json:"background"`
+	ExpectedSeconds     int    `json:"expected_seconds"`
 }
 
 func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooling.Env, commandShell platform.Shell) (string, error) {
 	args, err := tooling.ParseArgs[runCommandArgs](argsJSON)
 	if err != nil {
 		return "", err
+	}
+
+	if args.Background {
+		return startBackgroundCommand(args, env)
 	}
 
 	timeout := 30
