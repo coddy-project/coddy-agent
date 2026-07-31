@@ -132,8 +132,7 @@ import {
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerListHash,
-  setTasksListHash,
-  setTasksTaskHash,
+  setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
@@ -1357,8 +1356,8 @@ export function App() {
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
-      setTasksOpen(false);
-      setTasksSelectedId(null);
+      setTasksOpen(p.tasksOpen);
+      setTasksSelectedId(p.taskId);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1396,15 +1395,6 @@ export function App() {
       setTasksOpen(false);
       setTasksSelectedId(null);
       setSessionsOpen(false);
-      return;
-    }
-    if (p.branch === "tasks") {
-      setSettingsRoute(false);
-      setSchedulerOpen(false);
-      setSchedulerEditor(null);
-      setSessionsOpen(false);
-      setTasksOpen(true);
-      setTasksSelectedId(p.taskId);
       return;
     }
     if (p.branch === "scheduler") {
@@ -3515,14 +3505,18 @@ export function App() {
   }, [schedulerHttpLinked]);
 
   const openTasksFromNav = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setSettingsRoute(false);
     setTasksOpen(true);
     setTasksSelectedId(null);
-    setTasksListHash();
-  }, []);
+    setSessionTasksHash(sid);
+  }, [sessionId]);
 
   const closeTasksDrawer = useCallback(() => {
     setTasksOpen(false);
@@ -3543,16 +3537,26 @@ export function App() {
     }
   }, [sessionId, sessionsOpen]);
 
-  const openBackgroundTask = useCallback((taskId: string) => {
-    setTasksOpen(true);
-    setTasksSelectedId(taskId);
-    setTasksTaskHash(taskId);
-  }, []);
+  const openBackgroundTask = useCallback(
+    (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setTasksOpen(true);
+      setTasksSelectedId(taskId);
+      setSessionTasksHash(sid, taskId);
+    },
+    [sessionId],
+  );
 
   const backToBackgroundTaskList = useCallback(() => {
+    const sid = sessionId.trim();
     setTasksSelectedId(null);
-    setTasksListHash();
-  }, []);
+    if (sid) {
+      setSessionTasksHash(sid);
+    }
+  }, [sessionId]);
 
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);

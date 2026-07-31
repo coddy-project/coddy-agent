@@ -108,6 +108,8 @@ The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, no
 
 ### Background tasks panel
 
+**`#/s/<sessionId>/tasks`** opens the panel and **`#/s/<sessionId>/tasks/<task_id>`** opens it on one task. The route hangs off the **session segment** on purpose: a task belongs to one chat, so an address that does not carry the chat reloads into a panel with no session behind it. Closing the panel writes the plain **`#/s/<sessionId>`** back.
+
 The panel is **docked inside the session**, to the right of the transcript, rather than floating over the shell like **History** or **Scheduler**. A background task belongs to the conversation that started it, so being part of that conversation is what tells the operator which session a process came from; there is no session label to add. Implementation lives in **`external/ui/src/ui/tasks/`** (**`BackgroundTasksPanel.tsx`**, pure helpers in **`taskStatus.ts`**, REST client in **`api.ts`**).
 
 - **Placement.** **`.bgtasks-panel`** is **`position: fixed`** against the right viewport edge (14px inset, full height), **380px** wide, using the shared **`--coddy-glass-panel-*`** tokens. On **`min-width: 1200px`** the chat column yields that width (**`.shell-main.shell-tasks-open`** pads **`#messages`** and **`.chat-bottom`**), so the composer and transcript stay centred in what is left instead of hiding underneath. It carries **no backdrop**: it sits beside the chat, it does not block it.

@@ -87,7 +87,7 @@ The SPA **polls** these endpoints rather than listening on SSE: a background tas
 
 ## UI
 
-The panel is **docked inside the session**, to the right of the transcript. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
+The panel is **docked inside the session**, to the right of the transcript, at `#/s/<sessionId>/tasks` (and `#/s/<sessionId>/tasks/<task_id>` for one task). The route carries the chat, so a reload restores both the conversation and the panel. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
 
 - **Running** is a section of cards: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control.
 - **Finished N** is a counter, not a list. Expanding it shows one scannable line per task (dot, command, outcome, clock); the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the rows render on demand, and a task's output is fetched only when it is opened.
