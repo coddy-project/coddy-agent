@@ -4,7 +4,6 @@ import {
   appNavHrefHome,
   appNavHrefScheduler,
   appNavHrefSettings,
-  appNavHrefTasks,
 } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "./sameTabInAppNav";
 
@@ -51,28 +50,6 @@ function IconScheduler(props: { className?: string }) {
     >
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v4l2.5 2.5" />
-    </svg>
-  );
-}
-
-/** Terminal-style glyph: background tasks are commands the agent left running. */
-function IconTasks(props: { className?: string }) {
-  return (
-    <svg
-      className={props.className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="16" rx="2.5" />
-      <path d="M7.5 9.5l2.75 2.5-2.75 2.5" />
-      <path d="M13 15h4" />
     </svg>
   );
 }
@@ -146,10 +123,6 @@ export function NavRail(props: {
   showScheduler?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
-  onOpenTasks: () => void;
-  tasksOpen: boolean;
-  /** Running background tasks of the current session; drives the rail badge. */
-  tasksRunningCount?: number;
   onOpenSettings: () => void;
   settingsOpen: boolean;
   canWidenRail: boolean;
@@ -179,7 +152,6 @@ export function NavRail(props: {
   }, [props.canWidenRail, props.railLabelsWide]);
 
   const showScheduler = props.showScheduler !== false;
-  const runningTasks = Math.max(0, props.tasksRunningCount || 0);
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -326,36 +298,6 @@ export function NavRail(props: {
               ) : null}
             </div>
           ) : null}
-
-          <div className="rail-tip-host">
-            <a
-              href={appNavHrefTasks()}
-              className={`${navBtnCls} ${props.tasksOpen ? "is-active" : ""}`}
-              aria-label="Background tasks"
-              aria-pressed={props.tasksOpen}
-              data-testid="nav-tasks"
-              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenTasks)}
-            >
-              <span className="rail-nav-glyph-wrap">
-                <IconTasks className="rail-svg rail-nav-hit-svg" />
-                {runningTasks > 0 ? (
-                  <span
-                    className="rail-nav-badge"
-                    data-testid="nav-tasks-badge"
-                    aria-label={`${runningTasks} running`}
-                  >
-                    {runningTasks > 9 ? "9+" : runningTasks}
-                  </span>
-                ) : null}
-              </span>
-              {pillWide ? <span className="rail-nav-label">Tasks</span> : null}
-            </a>
-            {!pillWide && !props.tasksOpen ? (
-              <span className="rail-tip" role="tooltip">
-                Tasks
-              </span>
-            ) : null}
-          </div>
 
           <div className="rail-spacer rail-spacer-between" aria-hidden />
 

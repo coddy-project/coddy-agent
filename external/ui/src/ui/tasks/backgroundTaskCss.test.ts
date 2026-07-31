@@ -12,15 +12,11 @@ function ruleBody(selector: string): string {
   return css.slice(open + 1, close);
 }
 
-test("the running-count badge never puts white on the theme accent", () => {
-  // monokai (#fd971f), nord (#88c0d0) and rose-pine (#c4a7e7) are light
-  // accents: white numerals measure about 2:1 there. --text on --bg is the one
-  // pairing every theme guarantees.
-  const badge = ruleBody(".rail-nav-badge {");
-  expect(badge).toContain("background: var(--text)");
-  expect(badge).toContain("color: var(--bg)");
-  expect(badge).not.toMatch(/color:\s*#fff/i);
-  expect(badge).not.toMatch(/background:\s*var\(--accent\)/);
+test("the opener chip is styled from theme tokens and marks a live session", () => {
+  const chip = ruleBody(".bgtask-chip {");
+  expect(chip).toContain("var(--text)");
+  const live = ruleBody(".bgtask-chip.is-running {");
+  expect(live).toContain("var(--accent)");
 });
 
 test("task colors are derived from theme tokens, not hardcoded greys", () => {

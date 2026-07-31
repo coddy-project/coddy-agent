@@ -13,8 +13,6 @@ test("nav brand uses Coddy agent label (compact rail)", () => {
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
       onOpenSettings={() => {}}
       settingsOpen={false}
       canWidenRail={false}
@@ -37,8 +35,6 @@ test("nav brand uses Coddy agent label (wide header row)", () => {
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
       onOpenSettings={() => {}}
       settingsOpen={false}
       canWidenRail
@@ -62,8 +58,6 @@ test("nav hides Scheduler when showScheduler is false", () => {
       showScheduler={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
       onOpenSettings={() => {}}
       settingsOpen={false}
       canWidenRail={false}
@@ -83,8 +77,6 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
       onOpenSettings={() => {}}
       settingsOpen={false}
       canWidenRail={false}
@@ -95,20 +87,17 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
   expect(screen.getByTestId("nav-home")).toHaveAttribute("href", "#/");
   expect(screen.getByTestId("nav-history")).toHaveAttribute("href", "#/history");
   expect(screen.getByTestId("nav-scheduler")).toHaveAttribute("href", "#/scheduler");
-  expect(screen.getByTestId("nav-tasks")).toHaveAttribute("href", "#/tasks");
   expect(screen.getByTestId("nav-settings")).toHaveAttribute("href", "#/settings");
 });
 
-test("tasks rail entry shows a badge only while something runs", () => {
-  const { rerender } = render(
+test("the rail no longer carries a Tasks entry", () => {
+  render(
     <NavRail
       onNewChat={() => {}}
       onOpenHistory={() => {}}
       historyOpen={false}
       onOpenScheduler={() => {}}
       schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
       onOpenSettings={() => {}}
       settingsOpen={false}
       canWidenRail={false}
@@ -116,43 +105,9 @@ test("tasks rail entry shows a badge only while something runs", () => {
       onToggleRailLabels={() => {}}
     />,
   );
+
+  // Background tasks belong to a chat, so the opener sits under the transcript
+  // rather than in the global rail.
+  expect(screen.queryByTestId("nav-tasks")).toBeNull();
   expect(screen.queryByTestId("nav-tasks-badge")).toBeNull();
-
-  rerender(
-    <NavRail
-      onNewChat={() => {}}
-      onOpenHistory={() => {}}
-      historyOpen={false}
-      onOpenScheduler={() => {}}
-      schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
-      tasksRunningCount={2}
-      onOpenSettings={() => {}}
-      settingsOpen={false}
-      canWidenRail={false}
-      railLabelsWide={false}
-      onToggleRailLabels={() => {}}
-    />,
-  );
-  expect(screen.getByTestId("nav-tasks-badge")).toHaveTextContent("2");
-
-  rerender(
-    <NavRail
-      onNewChat={() => {}}
-      onOpenHistory={() => {}}
-      historyOpen={false}
-      onOpenScheduler={() => {}}
-      schedulerOpen={false}
-      onOpenTasks={() => {}}
-      tasksOpen={false}
-      tasksRunningCount={42}
-      onOpenSettings={() => {}}
-      settingsOpen={false}
-      canWidenRail={false}
-      railLabelsWide={false}
-      onToggleRailLabels={() => {}}
-    />,
-  );
-  expect(screen.getByTestId("nav-tasks-badge")).toHaveTextContent("9+");
 });

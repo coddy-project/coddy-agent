@@ -8258,38 +8258,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   min-height: 36px;
 }
 
-/* Nav rail badge: running count over the Tasks glyph.
-   The pill is text-on-background rather than white-on-accent: several themes
-   ship a light accent (monokai, nord, rose-pine), where white numerals drop to
-   about 2:1. The --text / --bg pair is the one every theme guarantees, and it
-   clears 4.5:1 in all seven. The accent still carries meaning on the pulsing
-   status dot, where hue matters and contrast does not. */
-.rail-nav-glyph-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.rail-nav-badge {
-  position: absolute;
-  top: -5px;
-  right: -7px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border-radius: 999px;
-  background: var(--text);
-  color: var(--bg);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 15px;
-  text-align: center;
-  pointer-events: none;
-}
-
 @media (max-width: 1199px) {
   /* Comfortable touch targets on phones. */
   .bgtask-row-main {
@@ -8572,5 +8540,50 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
   .bgtask-finished-row {
     min-height: 40px;
+  }
+}
+
+/* Background tasks opener, under the last message.
+   The tasks belong to this chat and the thing that started them is right above,
+   so the opener sits at the end of the transcript rather than in the global
+   rail. */
+.bgtask-chip-row {
+  display: flex;
+  padding: 6px 0 2px;
+}
+
+.bgtask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 12px 4px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bgtask-chip:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+}
+
+.bgtask-chip.is-running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--accent) 12%, var(--coddy-blend-base));
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+}
+
+.bgtask-chip-text {
+  white-space: nowrap;
+}
+
+@media (max-width: 1199px) {
+  .bgtask-chip {
+    min-height: 36px;
   }
 }

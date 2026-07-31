@@ -14,6 +14,7 @@ import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
 import type { BackgroundTask } from "../tasks/types";
+import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import {
   subscribeShellStack,
   snapshotShellStack,
@@ -78,6 +79,9 @@ export function ChatScreen(props: {
   /** Background tasks of this session keyed by the tool call that started them. */
   backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
   backgroundNowMs?: number;
+  /** Every background task of this chat, for the opener under the transcript. */
+  backgroundTasks?: BackgroundTask[];
+  onOpenBackgroundTasks?: () => void;
   onOpenBackgroundTask?: (taskId: string) => void;
   onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
@@ -347,6 +351,12 @@ export function ChatScreen(props: {
                   ? { onStopBackgroundTask: props.onStopBackgroundTask }
                   : {})}
               />
+              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
+                <BackgroundTasksChip
+                  tasks={props.backgroundTasks}
+                  onOpen={props.onOpenBackgroundTasks}
+                />
+              ) : null}
             </div>
             <div className="chat-scroll-tail" aria-hidden />
           </div>

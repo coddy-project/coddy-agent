@@ -3679,9 +3679,6 @@ export function App() {
         showScheduler={schedulerHttpLinked === true}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
-        onOpenTasks={openTasksFromNav}
-        tasksOpen={tasksOpen}
-        tasksRunningCount={backgroundRunning}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -3820,6 +3817,8 @@ export function App() {
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          backgroundTasks={backgroundTasks}
+          onOpenBackgroundTasks={openTasksFromNav}
           backgroundTasksByToolCallId={backgroundTasksByToolCallId}
           backgroundNowMs={backgroundNowMs}
           onOpenBackgroundTask={openBackgroundTask}
