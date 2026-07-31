@@ -94,6 +94,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.
 	bgtask.Default().SetDraining(false)
+	s.attachBackgroundWaker()
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)

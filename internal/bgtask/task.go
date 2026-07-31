@@ -74,6 +74,11 @@ type Spec struct {
 	ExpectedSeconds int
 	// TimeoutSeconds is the hard limit. Zero asks the pool to derive one.
 	TimeoutSeconds int
+	// NotifyOnFinish asks the pool to wake the agent when this task reaches a
+	// terminal state. It is opt-in per task: the model decides which work is
+	// worth an autonomous turn, so a batch of quick commands cannot each start
+	// one behind the operator's back.
+	NotifyOnFinish bool
 }
 
 // Snapshot is an immutable view of a task, safe to hand to callers and to
@@ -95,6 +100,7 @@ type Snapshot struct {
 	TimeoutSeconds  int        `json:"timeout_seconds"`
 	OutputBytes     int64      `json:"output_bytes"`
 	OutputTruncated bool       `json:"output_truncated"`
+	NotifyOnFinish  bool       `json:"notify_on_finish,omitempty"`
 }
 
 // Elapsed is how long the task has been running, or how long it ran in total

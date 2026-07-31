@@ -49,6 +49,7 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 		ToolCallID:      env.ToolCallID,
 		ExpectedSeconds: args.ExpectedSeconds,
 		TimeoutSeconds:  args.TimeoutSeconds,
+		NotifyOnFinish:  args.NotifyOnFinish,
 	})
 	if err != nil {
 		return "", err
@@ -61,7 +62,11 @@ func startBackgroundCommand(args runCommandArgs, env *tooling.Env) (string, erro
 	} else {
 		fmt.Fprintf(&b, "Hard timeout %s.\n", humanSeconds(snap.TimeoutSeconds))
 	}
-	fmt.Fprintf(&b, "Keep working; check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
+	if snap.NotifyOnFinish {
+		b.WriteString("You will be woken with the outcome when it finishes, so you can end your turn now.")
+	} else {
+		fmt.Fprintf(&b, "Keep working; check on it with %s or %s, and collect the result with %s.", ToolBackgroundList, ToolBackgroundWait, ToolBackgroundOutput)
+	}
 	return b.String(), nil
 }
 

@@ -594,7 +594,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -604,6 +604,21 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"404": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Clear the finished background tasks of a session",
+					"description": "Drops every terminal task of the session, in memory and from the session bundle, and answers with **cleared**. Running tasks are left alone. History accumulates on its own and is deleted with the session, so this is the operator's explicit way to throw it away early.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Number of cleared tasks"},
 						"404": errorResponseRef(),
 					},
 				},

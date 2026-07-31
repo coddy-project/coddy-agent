@@ -139,8 +139,9 @@ import {
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
-import { BackgroundTasksDrawer } from "./tasks/BackgroundTasksDrawer";
+import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
 import {
+  clearFinishedBackgroundTasks,
   getBackgroundTask,
   listBackgroundTasks,
   stopBackgroundTask,
@@ -880,7 +881,6 @@ export function App() {
   const [backgroundListLoading, setBackgroundListLoading] = useState(false);
   /** Ticks once a second so elapsed times advance between polls. */
   const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
-  const tasksDockClusterRef = useRef<HTMLDivElement>(null);
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
@@ -1278,6 +1278,16 @@ export function App() {
     },
     [sessionId, refreshBackgroundTasks],
   );
+
+  const clearFinishedTasks = useCallback(async () => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    await clearFinishedBackgroundTasks(sid);
+    setTasksSelectedId(null);
+    void refreshBackgroundTasks({ silent: true });
+  }, [sessionId, refreshBackgroundTasks]);
 
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -3585,10 +3595,12 @@ export function App() {
     return byToolCall;
   }, [backgroundTasks]);
 
+  // The panel belongs to a chat, so it only exists when one is open.
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
+
   const shellBackdropOpen =
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
-    tasksOpen ||
     settingsRoute;
 
   const filteredSchedulerJobs = useMemo(() => {
@@ -3678,7 +3690,11 @@ export function App() {
       />
 
       <div
-        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
+        className={[
+          "shell-main",
+          sessionsOpen ? "shell-history-open" : "",
+          tasksPanelOpen ? "shell-tasks-open" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -3708,30 +3724,6 @@ export function App() {
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
 
-        {tasksOpen ? (
-          <div
-            ref={tasksDockClusterRef}
-            className="scheduler-dock-cluster bgtask-dock-cluster"
-          >
-            <BackgroundTasksDrawer
-              open={tasksOpen}
-              selectedTaskId={tasksSelectedId}
-              className="scheduler-dock-drawer bgtask-dock-drawer"
-              tasks={backgroundTasks}
-              selectedOutput={backgroundOutput}
-              listError={backgroundListError}
-              loading={backgroundListLoading}
-              nowMs={backgroundNowMs}
-              hasSession={!!sessionId.trim()}
-              onClose={closeTasksDrawer}
-              onOpenTask={openBackgroundTask}
-              onBackToList={backToBackgroundTaskList}
-              onStopTask={(id) => {
-                void stopBackgroundTaskById(id);
-              }}
-            />
-          </div>
-        ) : null}
 
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div
@@ -3804,6 +3796,27 @@ export function App() {
             />
           </div>
         ) : null}
+        {tasksPanelOpen ? (
+          <BackgroundTasksPanel
+            open
+            selectedTaskId={tasksSelectedId}
+            tasks={backgroundTasks}
+            selectedOutput={backgroundOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onOpenTask={openBackgroundTask}
+            onBackToList={backToBackgroundTaskList}
+            onStopTask={(id) => {
+              void stopBackgroundTaskById(id);
+            }}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+          />
+        ) : null}
+
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}

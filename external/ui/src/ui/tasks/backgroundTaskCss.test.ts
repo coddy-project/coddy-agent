@@ -23,25 +23,29 @@ test("the running-count badge never puts white on the theme accent", () => {
   expect(badge).not.toMatch(/background:\s*var\(--accent\)/);
 });
 
-test("task row colors are derived from theme tokens, not hardcoded greys", () => {
+test("task colors are derived from theme tokens, not hardcoded greys", () => {
   for (const selector of [
-    ".bgtask-row-label {",
-    ".bgtask-row-meta {",
-    ".bgtask-row-status {",
+    ".bgtask-card-label {",
+    ".bgtask-card-meta {",
+    ".bgtask-finished-label {",
+    ".bgtask-finished-meta {",
   ]) {
     expect(ruleBody(selector)).toContain("var(--text)");
   }
 });
 
-test("the dock cluster rules cover the tasks panel, not only the scheduler one", () => {
-  // Without this the panel keeps the fixed-position .sessions.drawer insets and
-  // overflows the cluster on phones.
-  expect(css).toContain(
-    ".scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer",
-  );
-  expect(css).toContain(
-    ".shell-main > .scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer",
-  );
+test("the panel is docked in the session rather than floating over the shell", () => {
+  // It belongs to the chat that started the tasks, so it must not reuse the
+  // History/Scheduler drawer machinery that overlays the whole shell.
+  const panel = ruleBody(".bgtasks-panel {");
+  expect(panel).toContain("right:");
+  expect(css).not.toContain("bgtask-dock-drawer");
+  expect(css).not.toContain("bgtask-dock-cluster");
+});
+
+test("the chat column yields the width the panel occupies", () => {
+  // Otherwise the composer and transcript sit underneath the panel.
+  expect(css).toContain(".shell-main.shell-tasks-open");
 });
 
 test("the running dot animation is disabled for reduced motion", () => {
@@ -53,10 +57,9 @@ test("the running dot animation is disabled for reduced motion", () => {
   expect(covering?.slice(0, 400)).toContain("animation: none");
 });
 
-test("phone layout gives the drawer full cluster width and taller touch targets", () => {
-  const idx = css.indexOf(
-    ".bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {\n    width: 100%;",
-  );
+test("phone layout gives the panel the screen and taller touch targets", () => {
+  const idx = css.indexOf("@media (max-width: 1199px)");
   expect(idx).toBeGreaterThan(-1);
+  expect(css.slice(idx)).toContain(".bgtasks-panel");
   expect(ruleBody(".bgtask-back {")).toContain("min-height: 36px");
 });

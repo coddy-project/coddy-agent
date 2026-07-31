@@ -16,8 +16,23 @@ Two extra `run_command` arguments drive the pool:
 
 - **`background`** (bool) — run detached.
 - **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory**: it drives the status ticker the operator sees and, when `timeout_seconds` is omitted, the hard timeout. Guessing low only marks the task **overdue**; it never kills the task early.
+- **`notify_on_finish`** (bool) — wake the agent when this task ends (see below).
 
 The prompt (`internal/prompts/agent.md`, and the plan-mode equivalent) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
+
+## Waking the agent when a task finishes
+
+A long job is only useful unattended if something restarts the conversation when it ends. A task started with `notify_on_finish: true` therefore begins a **new agent turn on its own** once it reaches a terminal state, so the model can end its turn the moment the work is handed off.
+
+The opt-in is the point. The model decides which results are worth a turn, so a batch of quick commands cannot each spend one behind the operator's back; everything else simply lands in the history for the model to read later.
+
+- The woken turn starts from a plain statement of the outcome — id, status, exit code, runtime, and any error — and is told to read the output with `background_output` rather than having a wall of text pasted into the prompt. It is also told explicitly that a task which failed, timed out, or was stopped did not succeed.
+- **Tasks finishing together cost one turn.** A short settle window batches a burst, so three results arrive as one turn with three lines instead of three turns.
+- The turn goes through the session manager's normal prompt path, so it takes the **composer turn lock**: a wake waits for a turn already in flight instead of racing it.
+- **Shutdown does not wake anything.** Drain stops running tasks, and a stop is terminal; without that guard every task killed by shutdown would start a turn nobody will read.
+- A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`.
+
+Wiring lives in `Server.attachBackgroundWaker` (`external/httpserver/background_http.go`), which subscribes under a **keyed** pool subscription so rebuilding the server replaces the watcher instead of stacking another.
 
 ## Timeouts
 
@@ -72,7 +87,15 @@ The SPA **polls** these endpoints rather than listening on SSE: a background tas
 
 ## UI
 
-The **Tasks** entry in the nav rail opens the background tasks drawer (`#/tasks`, `#/tasks/<task_id>`) with a running-count badge over its glyph. Rows show a status dot, the command, elapsed time against the estimate, and a progress bar drawn only when the model actually supplied one. Selecting a row opens a detail pane with the command and the captured output. A transcript tool row that started a task keeps a live chip in its collapsed summary, plus **Open in Tasks** and **Stop** when expanded. Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks drawer**, **Background task ticker card**).
+The panel is **docked inside the session**, to the right of the transcript. That placement is the answer to "which session spawned this process": the panel is part of the conversation that started the tasks, so there is nothing to label.
+
+- **Running** is a section of cards: status dot, command, elapsed against the estimate, a progress bar drawn **only** when the model supplied one, and a Stop control.
+- **Finished N** is a counter, not a list. Expanding it shows one scannable line per task (dot, command, outcome, clock); the rest stay on disk. That is how "keep every log" and "do not load the app" hold at once: the list is counted, the rows render on demand, and a task's output is fetched only when it is opened.
+- **Clear** drops the finished history for this session (`DELETE /coddy/sessions/{id}/background-tasks`). Running tasks are untouched.
+- Ordering is **purely by start time**, newest first, in both sections. Running tasks are not floated to the top: they already have their own section, and mixing two orderings makes a list that never sits still to read.
+- A transcript tool row that started a task keeps a live chip in its collapsed summary, plus **Open in Tasks** and **Stop** when expanded.
+
+Layout, colour, and mobile contracts are in `DESIGN.md` (**Background tasks panel**, **Background task ticker card**).
 
 ## Configuration
 

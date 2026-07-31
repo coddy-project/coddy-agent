@@ -4911,8 +4911,7 @@ textarea#composer {
   pointer-events: auto;
 }
 
-.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer,
-.scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
+.scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
   position: relative;
   left: auto;
   top: auto;
@@ -5265,9 +5264,8 @@ textarea#composer {
     z-index: 70;
   }
 
-  /* Jobs list (and the tasks panel) alone use the full cluster height like History. */
-  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer,
-  .shell-main > .scheduler-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
+  /* Jobs list alone uses the full cluster height like History. */
+  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
     /* Override mobile .sessions.drawer / .scheduler-jobs.drawer inset - those are for fixed History panels.
        On relative children inside the dock cluster they resolve as offsets and pull the panel left (~-10px). */
     position: relative;
@@ -7990,17 +7988,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    is defined here. Every color is derived from theme tokens: the drawer has to
    read correctly in all seven themes without per-theme overrides. */
 
-.bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
-  /* Wider than the jobs list: rows carry a progress bar and the detail pane
-     shows command output inside the same panel. */
-  width: min(
-    380px,
-    calc(
-      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px
-    )
-  );
-}
-
 .bgtask-list {
   display: flex;
   flex-direction: column;
@@ -8304,11 +8291,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 @media (max-width: 1199px) {
-  /* Comfortable touch targets on phones, matching the scheduler drawer. */
-  .bgtask-dock-cluster .bgtasks.drawer.bgtask-dock-drawer {
-    width: 100%;
-  }
-
+  /* Comfortable touch targets on phones. */
   .bgtask-row-main {
     padding: 12px 8px 12px 12px;
   }
@@ -8362,5 +8345,232 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
      keeps the dot plus timing rather than pushing the duration off screen. */
   .tool-bgtask-chip {
     max-width: 46vw;
+  }
+}
+
+/* ── Background tasks panel (docked inside the session) ────────────────────
+   The panel belongs to the chat that started the tasks, so it sits beside the
+   transcript rather than floating over the shell like History or Scheduler.
+   That placement is the answer to "which session spawned this process": the
+   panel is part of the session. */
+
+.bgtasks-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  width: min(380px, calc(100vw - 32px));
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  overflow: hidden;
+}
+
+/* The chat column gives up the width the panel takes, so the composer and the
+   transcript stay centred in what is left instead of hiding behind it. */
+@media (min-width: 1200px) {
+  .shell-main.shell-tasks-open .chat-bottom,
+  .shell-main.shell-tasks-open #messages {
+    padding-right: calc(min(380px, 100vw - 32px) + 28px);
+  }
+}
+
+.bgtasks-panel-head {
+  flex: 0 0 auto;
+}
+
+.bgtasks-panel .bgtask-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 12px 12px;
+  gap: 0;
+}
+
+.bgtask-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  padding: 10px 2px 6px;
+}
+
+.bgtask-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 2px 4px;
+}
+
+.bgtask-section-toggle,
+.bgtask-section-action {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  cursor: pointer;
+  padding: 4px 0;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bgtask-section-toggle:hover,
+.bgtask-section-action:hover {
+  color: var(--text);
+}
+
+.bgtask-section-chevron {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform 0.15s ease;
+}
+
+.bgtask-section-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* Live task card. */
+.bgtask-card {
+  border-radius: 12px;
+  border: 0.5px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-surface-raised);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.bgtask-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bgtask-card-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.bgtask-card-label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: color-mix(in srgb, var(--text) 95%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-card-meta {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  padding-top: 4px;
+}
+
+.bgtask-card.is-overdue .bgtask-card-meta {
+  color: color-mix(in srgb, #ff9f0a 70%, var(--text));
+}
+
+.bgtask-card .bgtask-progress {
+  margin-top: 8px;
+}
+
+.bgtask-card.is-overdue .bgtask-progress-fill {
+  background: #ff9f0a;
+}
+
+/* Finished history: one scannable line per task. */
+.bgtask-finished-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 0.5px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+}
+
+.bgtask-finished-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  border: none;
+  border-bottom: 0.5px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  padding: 8px 2px;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+.bgtask-finished-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
+}
+
+.bgtask-finished-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-family: var(--mono, ui-monospace, monospace);
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgtask-finished-meta {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 48%, var(--coddy-blend-base));
+}
+
+.bgtask-finished-more {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  padding: 10px 2px 2px;
+}
+
+.bgtasks-panel .bgtask-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+@media (max-width: 1199px) {
+  /* On a phone the panel takes the screen: there is no room to sit beside a
+     transcript, and the output is what the operator came for. */
+  .bgtasks-panel {
+    top: calc(var(--coddy-mobile-top-inset) + 6px);
+    left: max(10px, env(safe-area-inset-left, 0px));
+    right: max(10px, env(safe-area-inset-right, 0px));
+    bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    width: auto;
+    z-index: 70;
+  }
+
+  .bgtask-finished-row {
+    min-height: 40px;
   }
 }

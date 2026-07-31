@@ -44,6 +44,12 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 							"Use it for work that takes longer than a few seconds (builds, test suites, installs, watchers, servers, batch downloads) so you can keep working while it runs. " +
 							"Collect the result later with background_list, background_output, and background_wait; terminate with background_stop",
 					},
+					"notify_on_finish": map[string]interface{}{
+						"type": "boolean",
+						"description": "Wake yourself when this background task finishes: a new turn starts automatically with the outcome, even if nobody sends a message. " +
+							"Use it for work whose result you must act on (a build, a migration, a long test run) so the session can continue unattended. " +
+							"Leave it off for chores you will simply read later with background_list, otherwise every one of them costs a separate turn",
+					},
 					"expected_seconds": map[string]interface{}{
 						"type": "integer",
 						"description": "Your own estimate of how long a background command needs. It drives the status ticker the user sees and, when timeout_seconds is omitted, the hard timeout. " +
@@ -82,6 +88,7 @@ type runCommandArgs struct {
 	TimeoutSeconds      int    `json:"timeout_seconds"`
 	Background          bool   `json:"background"`
 	ExpectedSeconds     int    `json:"expected_seconds"`
+	NotifyOnFinish      bool   `json:"notify_on_finish"`
 }
 
 func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooling.Env, commandShell platform.Shell) (string, error) {

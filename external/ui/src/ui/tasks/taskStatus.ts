@@ -141,14 +141,28 @@ export function tasksPollIntervalMs(runningCount: number): number {
   return runningCount > 0 ? TASKS_POLL_ACTIVE_MS : TASKS_POLL_IDLE_MS;
 }
 
-/** Newest first: the drawer is about what is happening now. */
-export function sortTasksForDrawer(tasks: BackgroundTask[]): BackgroundTask[] {
-  return [...tasks].sort((a, b) => {
-    if (a.running !== b.running) {
-      return a.running ? -1 : 1;
-    }
-    const at = Date.parse(a.started_at) || 0;
-    const bt = Date.parse(b.started_at) || 0;
-    return bt - at;
-  });
+/**
+ * Ordered purely by when the task was started, newest first. Running tasks are
+ * not floated to the top: they already live in their own section, and mixing
+ * two orderings makes a list that never sits still to read.
+ */
+export function sortTasksByStart(tasks: BackgroundTask[]): BackgroundTask[] {
+  return [...tasks].sort(
+    (a, b) => (Date.parse(b.started_at) || 0) - (Date.parse(a.started_at) || 0),
+  );
+}
+
+/**
+ * Splits a session's tasks the way the panel shows them: what is happening now,
+ * and the history behind it. Both halves keep start-time order.
+ */
+export function groupTasks(tasks: BackgroundTask[]): {
+  running: BackgroundTask[];
+  finished: BackgroundTask[];
+} {
+  const ordered = sortTasksByStart(tasks);
+  return {
+    running: ordered.filter((t) => t.running),
+    finished: ordered.filter((t) => !t.running),
+  };
 }

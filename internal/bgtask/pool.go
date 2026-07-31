@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -81,6 +82,12 @@ type Pool struct {
 	now      func() time.Time
 	watchers []func(Snapshot)
 
+	// keyedWatchers are subscriptions that replace rather than accumulate. A
+	// process that builds more than one server (tests do, every scenario) would
+	// otherwise stack a watcher per server and wake the agent once per stacked
+	// copy.
+	keyedWatchers map[string]func(Snapshot)
+
 	// sessionDirs maps a session id to its persisted bundle, so a task started
 	// from a tool call knows where to mirror its output without the caller
 	// threading the path through every call.
@@ -99,11 +106,12 @@ func NewWithRunner(cfg Config, runner Runner) *Pool {
 		runner = NewCommandRunner()
 	}
 	return &Pool{
-		cfg:         cfg.normalised(),
-		runner:      runner,
-		tasks:       map[string]*task{},
-		now:         time.Now,
-		sessionDirs: map[string]string{},
+		cfg:           cfg.normalised(),
+		runner:        runner,
+		tasks:         map[string]*task{},
+		now:           time.Now,
+		sessionDirs:   map[string]string{},
+		keyedWatchers: map[string]func(Snapshot){},
 	}
 }
 
@@ -144,6 +152,30 @@ func (p *Pool) Subscribe(fn func(Snapshot)) {
 	p.mu.Lock()
 	p.watchers = append(p.watchers, fn)
 	p.mu.Unlock()
+}
+
+// SubscribeKeyed registers a watcher under a key, replacing any previous
+// watcher with that key. Use it for a subscription owned by a component that
+// can be rebuilt within one process; a nil fn removes the subscription.
+func (p *Pool) SubscribeKeyed(key string, fn func(Snapshot)) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if fn == nil {
+		delete(p.keyedWatchers, key)
+		return
+	}
+	p.keyedWatchers[key] = fn
+}
+
+// Draining reports whether the pool is closed to new work.
+func (p *Pool) Draining() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.draining
 }
 
 // task is the pool's private bookkeeping for one unit of work.
@@ -241,6 +273,7 @@ func (p *Pool) Start(spec Spec) (Snapshot, error) {
 			StartedAt:       now,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
+			NotifyOnFinish:  spec.NotifyOnFinish,
 		},
 	}
 
@@ -513,6 +546,61 @@ func (p *Pool) StopAll() {
 	}
 }
 
+// ClearFinished drops every terminal task of a session, in memory and on disk,
+// and reports how many went. Running tasks are left alone. History accumulates
+// on its own, so this is the operator's explicit way to throw it away rather
+// than an automatic retention sweep.
+func (p *Pool) ClearFinished(sessionID string) int {
+	sessionID = strings.TrimSpace(sessionID)
+
+	p.mu.Lock()
+	sessionDir := p.sessionDirs[sessionID]
+	kept := make([]string, 0, len(p.order))
+	removed := make([]*task, 0)
+	for _, key := range p.order {
+		t, ok := p.tasks[key]
+		if !ok {
+			continue
+		}
+		t.mu.Lock()
+		finished := t.snap.Status.Finished()
+		t.mu.Unlock()
+		if t.snap.SessionID == sessionID && finished {
+			delete(p.tasks, key)
+			removed = append(removed, t)
+			continue
+		}
+		kept = append(kept, key)
+	}
+	p.order = kept
+	p.mu.Unlock()
+
+	for _, t := range removed {
+		if t.dir != "" {
+			_ = os.RemoveAll(t.dir)
+		}
+	}
+
+	// Records left behind by an earlier process are part of the same history,
+	// so clearing has to reach them too or they reappear on the next poll.
+	cleared := len(removed)
+	if sessionDir != "" {
+		live := map[string]bool{}
+		for _, snap := range p.List(sessionID) {
+			live[snap.ID] = true
+		}
+		for _, snap := range LoadPersisted(sessionDir) {
+			if live[snap.ID] || !snap.Status.Finished() {
+				continue
+			}
+			if err := os.RemoveAll(filepath.Join(sessionDir, backgroundDirName, snap.ID)); err == nil {
+				cleared++
+			}
+		}
+	}
+	return cleared
+}
+
 // RunningCount reports how many tasks of a session are still in flight.
 func (p *Pool) RunningCount(sessionID string) int {
 	p.mu.RLock()
@@ -550,8 +638,11 @@ func (p *Pool) lookup(sessionID, taskID string) (*task, error) {
 
 func (p *Pool) notify(snap Snapshot) {
 	p.mu.RLock()
-	watchers := make([]func(Snapshot), len(p.watchers))
-	copy(watchers, p.watchers)
+	watchers := make([]func(Snapshot), 0, len(p.watchers)+len(p.keyedWatchers))
+	watchers = append(watchers, p.watchers...)
+	for _, fn := range p.keyedWatchers {
+		watchers = append(watchers, fn)
+	}
 	p.mu.RUnlock()
 	for _, fn := range watchers {
 		fn(snap)

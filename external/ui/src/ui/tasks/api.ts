@@ -76,6 +76,16 @@ export async function getBackgroundTask(
   return res ? parseJson<BackgroundTaskResponse>(res) : OFFLINE;
 }
 
+export async function clearFinishedBackgroundTasks(
+  sessionId: string,
+): Promise<TasksApiResult<{ cleared: number }>> {
+  const res = await request(basePath(sessionId), {
+    method: "DELETE",
+    headers: { "X-Coddy-Session-ID": sessionId },
+  });
+  return res ? parseJson<{ cleared: number }>(res) : OFFLINE;
+}
+
 export async function stopBackgroundTask(
   sessionId: string,
   taskId: string,

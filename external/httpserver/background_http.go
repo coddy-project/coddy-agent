@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -10,16 +11,66 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 )
 
-// registerBackgroundRoutes wires the background task surface the tasks drawer
+// registerBackgroundRoutes wires the background task surface the tasks panel
 // polls. The pool is process-wide, so these handlers answer for whatever the
 // agent loop started, including tasks whose turn already ended.
 func (s *Server) registerBackgroundRoutes() {
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/background-tasks", s.coddyBackgroundTasksList)
+	s.mux.HandleFunc("DELETE /coddy/sessions/{id}/background-tasks", s.coddyBackgroundTasksClear)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/background-tasks/{task_id}", s.coddyBackgroundTaskGet)
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/background-tasks/{task_id}/stop", s.coddyBackgroundTaskStop)
+}
+
+// attachBackgroundWaker lets a finished task that asked for it start an
+// autonomous turn, which is what makes a session usable while nobody watches
+// it. The turn goes through the manager's normal prompt path, so it takes the
+// composer turn lock and waits for any turn already in flight.
+func (s *Server) attachBackgroundWaker() {
+	waker := agent.NewBackgroundWaker(s.log, func(ctx context.Context, sessionID, instruction string) error {
+		if bgtask.Default().Draining() {
+			return nil
+		}
+		if s.mgr.SessionByID(sessionID) == nil {
+			if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
+				SessionID: sessionID,
+				CWD:       s.defaultCWD,
+			}); err != nil {
+				return err
+			}
+		}
+		s.bgWG.Add(1)
+		defer s.bgWG.Done()
+		_, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+			SessionID: sessionID,
+			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}},
+		}, planRunNoopSender{}, nil)
+		return err
+	})
+	waker.Attach(bgtask.Default())
+}
+
+func (s *Server) coddyBackgroundTasksClear(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	if dir := strings.TrimSpace(st.GetPersistedSessionDir()); dir != "" {
+		bgtask.Default().SetSessionDir(id, dir)
+	}
+
+	cleared := bgtask.Default().ClearFinished(id)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"object":    "coddy.background_tasks_cleared",
+		"sessionId": id,
+		"cleared":   cleared,
+	})
 }
 
 // backgroundTaskRow is the JSON shape the SPA renders. Elapsed and overdue are

@@ -7,7 +7,8 @@ import {
   estimateProgress,
   formatDuration,
   isOverdue,
-  sortTasksForDrawer,
+  groupTasks,
+  sortTasksByStart,
   taskStatusLabel,
   taskTimingLine,
   taskTone,
@@ -162,8 +163,8 @@ describe("tasksPollIntervalMs", () => {
   });
 });
 
-describe("sortTasksForDrawer", () => {
-  test("running tasks come first, then the most recent", () => {
+describe("sortTasksByStart", () => {
+  test("orders purely by start time, newest first, regardless of state", () => {
     const older = task({
       id: "old",
       running: false,
@@ -178,14 +179,41 @@ describe("sortTasksForDrawer", () => {
     });
     const live = task({ id: "live", started_at: new Date(START_MS - 120_000).toISOString() });
 
-    const ordered = sortTasksForDrawer([older, newer, live]);
-    expect(ordered.map((t) => t.id)).toEqual(["live", "new", "old"]);
+    // The long-running task started first, so it sorts last even though it is
+    // still going: sections carry state, ordering carries time.
+    expect(sortTasksByStart([older, newer, live]).map((t) => t.id)).toEqual([
+      "new",
+      "old",
+      "live",
+    ]);
   });
 
   test("does not mutate the input array", () => {
-    const input = [task({ id: "a" }), task({ id: "b", running: false })];
+    const input = [
+      task({ id: "a", started_at: new Date(START_MS - 1000).toISOString() }),
+      task({ id: "b", running: false, started_at: new Date(START_MS).toISOString() }),
+    ];
     const before = input.map((t) => t.id);
-    sortTasksForDrawer(input);
+    sortTasksByStart(input);
     expect(input.map((t) => t.id)).toEqual(before);
+  });
+});
+
+describe("groupTasks", () => {
+  test("splits into running and finished, each newest first", () => {
+    const at = (offset: number) => new Date(START_MS + offset).toISOString();
+    const grouped = groupTasks([
+      task({ id: "r-old", started_at: at(-90_000) }),
+      task({ id: "f-old", running: false, status: "succeeded", started_at: at(-60_000) }),
+      task({ id: "r-new", started_at: at(-10_000) }),
+      task({ id: "f-new", running: false, status: "failed", started_at: at(-5_000) }),
+    ]);
+
+    expect(grouped.running.map((t) => t.id)).toEqual(["r-new", "r-old"]);
+    expect(grouped.finished.map((t) => t.id)).toEqual(["f-new", "f-old"]);
+  });
+
+  test("an empty session yields two empty halves", () => {
+    expect(groupTasks([])).toEqual({ running: [], finished: [] });
   });
 });
