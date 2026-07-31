@@ -25,6 +25,9 @@ type Handle interface {
 	Wait() (exitCode int, err error)
 	// Stop terminates the work, allowing grace for a clean exit first.
 	Stop(grace time.Duration) error
+	// PID leads the process group the work runs in, or 0 when the work is not
+	// an OS process. It is persisted so a later coddy can reach a survivor.
+	PID() int
 }
 
 // CommandRunner runs shell commands through the detected host interpreter.
@@ -81,4 +84,11 @@ func (h *commandHandle) Wait() (int, error) {
 
 func (h *commandHandle) Stop(grace time.Duration) error {
 	return platform.TerminateProcessGroup(h.cmd, grace)
+}
+
+func (h *commandHandle) PID() int {
+	if h.cmd == nil || h.cmd.Process == nil {
+		return 0
+	}
+	return h.cmd.Process.Pid
 }

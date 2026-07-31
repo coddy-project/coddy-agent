@@ -220,6 +220,9 @@ func (t *task) attachHandle(h Handle) (terminateNow bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.handle = h
+	if h != nil {
+		t.snap.PID = h.PID()
+	}
 	return t.termReason != ""
 }
 
@@ -397,19 +400,27 @@ func (p *Pool) supervise(t *task, timeout time.Duration) {
 	t.snap.FinishedAt = &finished
 	t.mu.Unlock()
 
-	close(t.done)
+	// Persist before releasing waiters: Stop and Wait return the moment done
+	// closes, and a caller that then reads the bundle must not find a record
+	// that still says the task is running.
 	p.persist(t)
+	close(t.done)
 	p.notify(t.Snapshot(finished))
 }
 
 // Snapshot returns the current view of the task, refreshed with output counters.
 func (t *task) Snapshot(_ time.Time) Snapshot {
 	total, truncated := t.sink.Stats()
+	last := t.sink.LastWrite()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	snap := t.snap
 	snap.OutputBytes = total
 	snap.OutputTruncated = truncated
+	if !last.IsZero() {
+		when := last
+		snap.LastOutputAt = &when
+	}
 	return snap
 }
 
@@ -458,9 +469,15 @@ func (p *Pool) Output(sessionID, taskID string, tailLines int) (string, Snapshot
 // Stop terminates a running task and waits for it to settle. Stopping a task
 // that already finished, or that another caller is already terminating, is a
 // no-op that still returns the settled snapshot.
+//
+// A task this process never started - a survivor of an earlier coddy, recorded
+// in the session bundle - is reached by its recorded process group instead.
 func (p *Pool) Stop(sessionID, taskID string) (Snapshot, error) {
 	t, err := p.lookup(sessionID, taskID)
 	if err != nil {
+		if survivor, ok := p.stopSurvivor(sessionID, taskID); ok {
+			return survivor, nil
+		}
 		return Snapshot{}, err
 	}
 
@@ -507,6 +524,89 @@ func (p *Pool) Wait(ctx context.Context, sessionID, taskID string, timeout time.
 		return t.Snapshot(p.now()), ctx.Err()
 	}
 	return t.Snapshot(p.now()), nil
+}
+
+// stopSurvivor terminates a task left behind by an earlier coddy process, using
+// the process group id the bundle recorded. Reports false when the bundle has no
+// such task.
+func (p *Pool) stopSurvivor(sessionID, taskID string) (Snapshot, bool) {
+	p.mu.RLock()
+	dir := p.sessionDirs[strings.TrimSpace(sessionID)]
+	p.mu.RUnlock()
+	if dir == "" {
+		return Snapshot{}, false
+	}
+
+	for _, snap := range LoadPersisted(dir) {
+		if snap.ID != strings.TrimSpace(taskID) {
+			continue
+		}
+		// Same reasoning as Survivors: a finished record's pid is stale, and
+		// pids get reused.
+		if snap.Status == StatusOrphaned && snap.PID > 0 && platform.ProcessGroupAlive(snap.PID) {
+			_ = platform.TerminateProcessGroupByPID(snap.PID, defaultStopGrace)
+			snap.Status = StatusStopped
+			finished := p.now()
+			snap.FinishedAt = &finished
+			writePersistedSnapshot(dir, snap)
+		}
+		return snap, true
+	}
+	return Snapshot{}, false
+}
+
+// Survivors returns the tasks of a session whose processes outlived the coddy
+// run that started them and are still on this machine. They are what an agent
+// reaps after a crash, and the only tasks the pool itself cannot stop.
+func (p *Pool) Survivors(sessionID string) []Snapshot {
+	p.mu.RLock()
+	dir := p.sessionDirs[strings.TrimSpace(sessionID)]
+	p.mu.RUnlock()
+	if dir == "" {
+		return nil
+	}
+
+	live := map[string]bool{}
+	for _, snap := range p.List(sessionID) {
+		live[snap.ID] = true
+	}
+
+	var out []Snapshot
+	for _, snap := range LoadPersisted(dir) {
+		if live[snap.ID] || snap.PID <= 0 {
+			continue
+		}
+		// Only a record that still claimed to be running when its process died
+		// is a survivor. A task that finished normally has a stale pid, and
+		// pids get reused: acting on one would kill an unrelated process.
+		if snap.Status != StatusOrphaned {
+			continue
+		}
+		if platform.ProcessGroupAlive(snap.PID) {
+			out = append(out, snap)
+		}
+	}
+	return out
+}
+
+// ReapSurvivors terminates every survivor of a session and returns what it
+// killed.
+func (p *Pool) ReapSurvivors(sessionID string) []Snapshot {
+	p.mu.RLock()
+	dir := p.sessionDirs[strings.TrimSpace(sessionID)]
+	p.mu.RUnlock()
+
+	reaped := p.Survivors(sessionID)
+	for i := range reaped {
+		_ = platform.TerminateProcessGroupByPID(reaped[i].PID, defaultStopGrace)
+		reaped[i].Status = StatusStopped
+		finished := p.now()
+		reaped[i].FinishedAt = &finished
+		if dir != "" {
+			writePersistedSnapshot(dir, reaped[i])
+		}
+	}
+	return reaped
 }
 
 // StopSession terminates every running task of a session. It is what session

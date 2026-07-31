@@ -116,6 +116,19 @@ func highestPersistedTaskNumber(sessionDir string) int {
 	return highest
 }
 
+// writePersistedSnapshot rewrites a task record in the bundle. Used when a
+// survivor is reaped, so the next read does not offer to kill it again.
+func writePersistedSnapshot(sessionDir string, snap Snapshot) {
+	if strings.TrimSpace(sessionDir) == "" || strings.TrimSpace(snap.ID) == "" {
+		return
+	}
+	data, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(sessionDir, backgroundDirName, snap.ID, metaFileName), data, 0o644)
+}
+
 // PersistedOutput returns the captured log of a persisted task, capped at the
 // last maxPersistedTailBytes so an unbounded log cannot be pulled into memory
 // wholesale. truncated reports whether earlier output was skipped.

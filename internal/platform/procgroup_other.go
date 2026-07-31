@@ -55,6 +55,40 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 	return nil
 }
 
+// ProcessGroupAlive reports whether any process still belongs to the group led
+// by pid. It is how a fresh coddy tells a task its predecessor merely recorded
+// from one whose processes are still running on this machine.
+func ProcessGroupAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return !errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+}
+
+// TerminateProcessGroupByPID kills a group this process did not start, which is
+// what reaping survivors of a previous run needs: after a crash there is no
+// exec.Cmd left to ask, only the leader pid the bundle recorded.
+func TerminateProcessGroupByPID(pid int, grace time.Duration) error {
+	if pid <= 0 {
+		return nil
+	}
+	pgid := -pid
+
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	if grace > 0 && waitForProcessGroupExit(pgid, grace) {
+		return nil
+	}
+	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
 // waitForProcessGroupExit polls the group until signal 0 stops reaching it or
 // the deadline passes. It reports whether the group is gone.
 func waitForProcessGroupExit(pgid int, grace time.Duration) bool {

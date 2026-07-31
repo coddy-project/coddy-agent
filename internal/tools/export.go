@@ -38,6 +38,7 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 		r.Register(shell.BackgroundOutputTool())
 		r.Register(shell.BackgroundWaitTool())
 		r.Register(shell.BackgroundStopTool())
+		r.Register(shell.BackgroundReapTool())
 	}
 	r.Register(QuestionTool())
 	r.Register(PlanExitTool())

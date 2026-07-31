@@ -10,7 +10,8 @@
 | `background_list` | Every task of the session with status, elapsed time, and estimate. |
 | `background_output` | Captured stdout and stderr, including while the task still runs (`tail_lines`, default 100). |
 | `background_wait` | Block for a bounded stretch (default 60s, maximum 300s) and return the output once the task ends. |
-| `background_stop` | Terminate a task and the whole process group it started. |
+| `background_stop` | Terminate a task and the whole process group it started, including one left behind by an earlier coddy run. |
+| `background_reap` | Kill every background process of this session that outlived the coddy run which started it. |
 
 Two extra `run_command` arguments drive the pool:
 
@@ -59,6 +60,18 @@ The in-memory output window is bounded (`tools.background.output_buffer_bytes`, 
 - **After a restart**, a task recorded as still in flight is reported as **`orphaned`** rather than as running forever. The correction is derived on every read and deliberately **not** written back: the HTTP list is polled, and rewriting would clobber the metadata of tasks still running in this process and race the supervisor's own write of the same file. The id counter resumes past whatever the bundle already holds, so a new task never overwrites the log of an identically named one from the previous process.
 
 Statuses: `queued`, `running`, `succeeded`, `failed`, `timed_out`, `stopped`, `orphaned`.
+
+## Stuck and leftover processes
+
+Two different problems, with two different answers.
+
+**Stuck**: a task that is running but doing nothing. There is no way to know that from the outside, so the pool reports the only fact it has — how long the task has produced no output. `background_list` marks a running task `silent for …` after a minute of quiet. It is a hint, not a verdict: `sleep`, a dev server and a watcher are all supposed to be silent. The model reads the command, decides, and calls `background_stop`. The hard timeout is still the backstop for anything nobody looks at.
+
+**Leftover**: a process that outlived the coddy run which started it, because that run was killed rather than drained. The task record persists the **process group leader pid**, so a fresh coddy can tell a record whose processes are gone (reported `orphaned`) from one whose processes are still on this machine. `background_list` marks those `still alive from an earlier run`, `background_stop` reaches one by id, and `background_reap` kills all of them for the session at once.
+
+Only a record that still claimed to be **running** when its process died is ever a reaping candidate. A task that finished normally leaves a stale pid, and the OS reuses pids — acting on one would kill an unrelated process.
+
+There is deliberately **no** tool that kills an arbitrary pid. `run_command` can already run `kill`, and it goes through the permission gate; a dedicated tool would route around that.
 
 ## Permissions
 

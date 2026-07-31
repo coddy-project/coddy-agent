@@ -107,7 +107,7 @@ func executeSSHExec(ctx context.Context, argsJSON string, env *tooling.Env) (str
 		defer func() { _ = agentCloser.Close() }()
 	}
 	if len(authMethods) == 0 {
-		return "", fmt.Errorf("ssh: no authentication methods available: " +
+		return "", fmt.Errorf("ssh: no authentication methods available: "+
 			"SSH agent not found (SSH_AUTH_SOCK not set) and no usable key files in %s", sshDir)
 	}
 

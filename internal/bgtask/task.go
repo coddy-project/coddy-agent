@@ -101,6 +101,28 @@ type Snapshot struct {
 	OutputBytes     int64      `json:"output_bytes"`
 	OutputTruncated bool       `json:"output_truncated"`
 	NotifyOnFinish  bool       `json:"notify_on_finish,omitempty"`
+
+	// PID leads the process group the task runs in. It is persisted so a fresh
+	// coddy can tell a record whose processes died with the previous run from
+	// one whose processes are still on this machine, and reach the latter.
+	PID int `json:"pid,omitempty"`
+
+	// LastOutputAt is when the task last wrote anything. A task can be running
+	// and stuck at the same time; silence is the only signal available without
+	// knowing what the command is supposed to do.
+	LastOutputAt *time.Time `json:"last_output_at,omitempty"`
+}
+
+// SilentFor reports how long the task has produced nothing. It is zero for a
+// task that never wrote at all, since there is no silence to measure against.
+func (s Snapshot) SilentFor(now time.Time) time.Duration {
+	if s.LastOutputAt == nil || s.Status.Finished() {
+		return 0
+	}
+	if now.Before(*s.LastOutputAt) {
+		return 0
+	}
+	return now.Sub(*s.LastOutputAt)
 }
 
 // Elapsed is how long the task has been running, or how long it ran in total

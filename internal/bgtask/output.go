@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // OutputSink collects a task's combined stdout and stderr. It keeps a bounded
@@ -17,6 +18,7 @@ type OutputSink struct {
 	total     int64
 	truncated bool
 	file      *os.File
+	lastWrite time.Time
 }
 
 // NewOutputSink returns a sink holding at most limit bytes in memory. A
@@ -47,6 +49,7 @@ func (s *OutputSink) Write(p []byte) (int, error) {
 	defer s.mu.Unlock()
 
 	s.total += int64(len(p))
+	s.lastWrite = time.Now()
 	if s.file != nil {
 		_, _ = s.file.Write(p)
 	}
@@ -75,6 +78,14 @@ func (s *OutputSink) Stats() (total int64, truncated bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.total, s.truncated
+}
+
+// LastWrite is when the task last produced output, or the zero time when it
+// never has.
+func (s *OutputSink) LastWrite() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastWrite
 }
 
 // Text returns the retained window as decoded text.

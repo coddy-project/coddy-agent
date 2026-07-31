@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // stubRunner keeps the pool tests off the host shell: a task finishes when the
@@ -60,6 +63,10 @@ func (h *stubHandle) Wait() (int, error) {
 	defer h.mu.Unlock()
 	return h.exitCode, nil
 }
+
+// PID is 0 for the stub: it runs no OS process, which is also the shape a
+// future non-command runner will have.
+func (h *stubHandle) PID() int { return 0 }
 
 func (h *stubHandle) Stop(time.Duration) error {
 	h.mu.Lock()
@@ -775,5 +782,231 @@ func TestPersistedOutputReturnsABoundedTail(t *testing.T) {
 
 	if _, _, ok := PersistedOutput(sessionDir, "bg_missing"); ok {
 		t.Fatal("PersistedOutput() invented a log for an unknown task")
+	}
+}
+
+// startDetachedHelper launches a process that leads its own group, standing in
+// for what an earlier coddy run left behind, and kills it when the test ends.
+func startDetachedHelper(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("sleep", "600")
+	platform.DetachProcessGroup(cmd)
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot start a helper process: %v", err)
+	}
+	pid := cmd.Process.Pid
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, time.Second) })
+	return pid
+}
+
+func TestSnapshotSilentFor(t *testing.T) {
+	start := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	wrote := start.Add(10 * time.Second)
+
+	running := Snapshot{Status: StatusRunning, StartedAt: start, LastOutputAt: &wrote}
+	if got := running.SilentFor(wrote.Add(90 * time.Second)); got != 90*time.Second {
+		t.Fatalf("SilentFor() = %v, want 90s", got)
+	}
+
+	// A task that never wrote has no silence to measure against.
+	never := Snapshot{Status: StatusRunning, StartedAt: start}
+	if got := never.SilentFor(start.Add(time.Hour)); got != 0 {
+		t.Fatalf("SilentFor() without output = %v, want 0", got)
+	}
+
+	// Neither does a finished one: silence only matters while work is alleged
+	// to be happening.
+	done := Snapshot{Status: StatusSucceeded, StartedAt: start, LastOutputAt: &wrote}
+	if got := done.SilentFor(wrote.Add(time.Hour)); got != 0 {
+		t.Fatalf("SilentFor() after finish = %v, want 0", got)
+	}
+}
+
+func TestRunningTaskRecordsWhenItLastWrote(t *testing.T) {
+	runner := &stubRunner{}
+	p := newTestPool(t, runner, Config{})
+
+	snap, err := p.Start(Spec{SessionID: "s1", Command: "make", Label: "writes"})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	got, err := p.Get("s1", snap.ID)
+	if err != nil {
+		t.Fatalf("Get(): %v", err)
+	}
+	if got.LastOutputAt == nil {
+		t.Fatal("a task that wrote output must record when it last did")
+	}
+}
+
+func TestSurvivorsAreOnlyRecordsWithALiveProcess(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := NewWithRunner(Config{}, &stubRunner{})
+	p.SetSessionDir("s1", sessionDir)
+
+	write := func(id string, pid int, status Status) {
+		dir := filepath.Join(sessionDir, backgroundDirName, id)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(): %v", err)
+		}
+		data, err := json.Marshal(Snapshot{
+			ID: id, SessionID: "s1", Kind: KindCommand, Label: id,
+			Status: status, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+		})
+		if err != nil {
+			t.Fatalf("Marshal(): %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
+			t.Fatalf("WriteFile(): %v", err)
+		}
+	}
+
+	// The probe asks about a process GROUP, and tasks are started with Setpgid
+	// so the child leads its own group. The test therefore needs a real group
+	// leader, not this process, which usually is not one.
+	leader := startDetachedHelper(t)
+
+	write("bg_alive", leader, StatusRunning)
+	write("bg_nopid", 0, StatusRunning)
+	write("bg_finished", leader, StatusSucceeded)
+
+	got := p.Survivors("s1")
+	if len(got) != 1 || got[0].ID != "bg_alive" {
+		ids := make([]string, 0, len(got))
+		for _, s := range got {
+			ids = append(ids, s.ID)
+		}
+		t.Fatalf("Survivors() = %v, want only bg_alive", ids)
+	}
+}
+
+func TestSurvivorsIgnoreTasksThisPoolAlreadyOwns(t *testing.T) {
+	sessionDir := t.TempDir()
+	runner := &stubRunner{}
+	p := NewWithRunner(Config{}, runner)
+	p.SetSessionDir("s1", sessionDir)
+	t.Cleanup(func() { p.StopSession("s1") })
+
+	if _, err := p.Start(Spec{SessionID: "s1", Command: "sleep 600"}); err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+
+	// A task the pool is supervising is not a survivor, even though its record
+	// is on disk: background_stop already reaches it.
+	if got := p.Survivors("s1"); len(got) != 0 {
+		t.Fatalf("Survivors() = %d, want none while the pool owns the task", len(got))
+	}
+}
+
+func TestStopReachesASurvivorByItsRecordedGroup(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := NewWithRunner(Config{}, &stubRunner{})
+	p.SetSessionDir("s1", sessionDir)
+
+	// A real process this pool never started, in its own group, standing in for
+	// what an earlier coddy left behind.
+	pid := startDetachedHelper(t)
+
+	dir := filepath.Join(sessionDir, backgroundDirName, "bg_left")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	data, _ := json.Marshal(Snapshot{
+		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
+		Status: StatusRunning, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+	})
+	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	got, err := p.Stop("s1", "bg_left")
+	if err != nil {
+		t.Fatalf("Stop(): %v", err)
+	}
+	if got.Status != StatusStopped {
+		t.Fatalf("status = %q, want stopped", got.Status)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !platform.ProcessGroupAlive(pid) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the survivor process group is still alive after Stop")
+}
+
+func TestReapSurvivorsKillsAndRecordsThem(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := NewWithRunner(Config{}, &stubRunner{})
+	p.SetSessionDir("s1", sessionDir)
+
+	pid := startDetachedHelper(t)
+
+	dir := filepath.Join(sessionDir, backgroundDirName, "bg_left")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	data, _ := json.Marshal(Snapshot{
+		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
+		Status: StatusRunning, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+	})
+	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	reaped := p.ReapSurvivors("s1")
+	if len(reaped) != 1 || reaped[0].ID != "bg_left" {
+		t.Fatalf("ReapSurvivors() = %+v, want one row", reaped)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && platform.ProcessGroupAlive(pid) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if platform.ProcessGroupAlive(pid) {
+		t.Fatal("the reaped process group is still alive")
+	}
+
+	// The record is rewritten, so a second call does not offer the same kill.
+	if got := p.Survivors("s1"); len(got) != 0 {
+		t.Fatalf("Survivors() after reaping = %+v, want none", got)
+	}
+	if got := p.ReapSurvivors("s1"); len(got) != 0 {
+		t.Fatalf("ReapSurvivors() twice = %+v, want none the second time", got)
+	}
+}
+
+func TestSurvivorsRefuseFinishedRecordsBecausePidsGetReused(t *testing.T) {
+	sessionDir := t.TempDir()
+	p := NewWithRunner(Config{}, &stubRunner{})
+	p.SetSessionDir("s1", sessionDir)
+
+	// A task that finished normally leaves a stale pid behind. The OS reuses
+	// pids, so that number may now belong to something else entirely; offering
+	// it for killing would hand the agent a stranger's process.
+	leader := startDetachedHelper(t)
+	dir := filepath.Join(sessionDir, backgroundDirName, "bg_done")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	data, _ := json.Marshal(Snapshot{
+		ID: "bg_done", SessionID: "s1", Kind: KindCommand, Label: "echo hi",
+		Status: StatusSucceeded, StartedAt: time.Now().Add(-time.Minute), PID: leader,
+	})
+	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	if got := p.Survivors("s1"); len(got) != 0 {
+		t.Fatalf("Survivors() = %+v, want none for a finished record", got)
+	}
+	if got := p.ReapSurvivors("s1"); len(got) != 0 {
+		t.Fatalf("ReapSurvivors() = %+v, want none for a finished record", got)
+	}
+	if !platform.ProcessGroupAlive(leader) {
+		t.Fatal("a finished record must not get an unrelated process killed")
 	}
 }

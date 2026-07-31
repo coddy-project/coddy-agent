@@ -18,6 +18,7 @@ const (
 	ToolBackgroundOutput = "background_output"
 	ToolBackgroundWait   = "background_wait"
 	ToolBackgroundStop   = "background_stop"
+	ToolBackgroundReap   = "background_reap"
 )
 
 // defaultWaitSeconds bounds background_wait so a model that waits on a
@@ -32,6 +33,11 @@ const maxWaitSeconds = 300
 // defaultOutputTailLines is how much of a task's output the model gets when it
 // does not ask for a specific slice.
 const defaultOutputTailLines = 100
+
+// stallHintAfter is how long a running task must produce nothing before the
+// listing says so. It is a hint, not a verdict: a sleep or a watcher is
+// supposed to be silent, so the model decides whether silence means stuck.
+const stallHintAfter = 60 * time.Second
 
 // startBackgroundCommand hands a run_command call to the task pool and answers
 // with the task id rather than the output.
@@ -103,13 +109,19 @@ func BackgroundListTool() *tooling.Tool {
 				return "", err
 			}
 			tasks := pool.List(env.SessionID)
-			if len(tasks) == 0 {
+			survivors := pool.Survivors(env.SessionID)
+			if len(tasks) == 0 && len(survivors) == 0 {
 				return "No background tasks in this session.", nil
 			}
 			now := time.Now()
 			var b strings.Builder
 			for _, t := range tasks {
 				b.WriteString(formatTaskLine(t, now))
+				b.WriteString("\n")
+			}
+			for _, t := range survivors {
+				b.WriteString(formatTaskLine(t, now))
+				fmt.Fprintf(&b, " still alive from an earlier run (pid %d), reap with %s", t.PID, ToolBackgroundReap)
 				b.WriteString("\n")
 			}
 			return strings.TrimRight(b.String(), "\n"), nil
@@ -275,6 +287,43 @@ func BackgroundStopTool() *tooling.Tool {
 	}
 }
 
+// BackgroundReapTool terminates processes that outlived the coddy run which
+// started them.
+func BackgroundReapTool() *tooling.Tool {
+	return &tooling.Tool{
+		Definition: llm.ToolDefinition{
+			Name: ToolBackgroundReap,
+			Description: "Find and kill background processes of this session that outlived the coddy run which started them. " +
+				"After a crash or a hard kill, the pool no longer owns those processes but they are still on the machine, and background_stop by id is the only other way to reach them. " +
+				"Call it when the task list shows orphaned work, or when something from an earlier run is still holding a port or a lock. " +
+				"Reports what it killed; killing nothing is a normal answer.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		RequiresPermission: true,
+		Execute: func(_ context.Context, _ string, env *tooling.Env) (string, error) {
+			pool, err := requirePool(env)
+			if err != nil {
+				return "", err
+			}
+
+			reaped := pool.ReapSurvivors(env.SessionID)
+			if len(reaped) == 0 {
+				return "No leftover background processes from an earlier run.", nil
+			}
+
+			var b strings.Builder
+			fmt.Fprintf(&b, "Killed %d leftover background process group(s):\n", len(reaped))
+			for _, t := range reaped {
+				fmt.Fprintf(&b, "- %s (pid %d) %s\n", t.ID, t.PID, t.Label)
+			}
+			return strings.TrimRight(b.String(), "\n"), nil
+		},
+	}
+}
+
 // formatTaskLine renders one task the way the model reads it: identity, state,
 // how long it has taken, and how that compares to what was promised.
 func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
@@ -293,6 +342,9 @@ func formatTaskLine(t bgtask.Snapshot, now time.Time) string {
 
 	if t.Overdue(now) {
 		b.WriteString(" overdue")
+	}
+	if silent := t.SilentFor(now); silent >= stallHintAfter {
+		fmt.Fprintf(&b, " silent for %s", humanSeconds(int(silent.Round(time.Second)/time.Second)))
 	}
 	if t.Error != "" {
 		fmt.Fprintf(&b, " error: %s", t.Error)
