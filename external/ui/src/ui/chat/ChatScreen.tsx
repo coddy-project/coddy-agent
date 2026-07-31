@@ -13,6 +13,8 @@ import type { TokenUsage, TranscriptItem } from "./types";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
+import type { BackgroundTask } from "../tasks/types";
+import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
 import {
   subscribeShellStack,
   snapshotShellStack,
@@ -74,6 +76,14 @@ export function ChatScreen(props: {
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  /** Every background task of this chat, for the opener under the transcript. */
+  backgroundTasks?: BackgroundTask[];
+  onOpenBackgroundTasks?: () => void;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -325,7 +335,28 @@ export function ChatScreen(props: {
                   ? { onBranchSwitch: props.onBranchSwitch }
                   : {})}
                 {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.backgroundTasksByToolCallId
+                  ? {
+                      backgroundTasksByToolCallId:
+                        props.backgroundTasksByToolCallId,
+                    }
+                  : {})}
+                {...(props.backgroundNowMs !== undefined
+                  ? { backgroundNowMs: props.backgroundNowMs }
+                  : {})}
+                {...(props.onOpenBackgroundTask
+                  ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+                  : {})}
+                {...(props.onStopBackgroundTask
+                  ? { onStopBackgroundTask: props.onStopBackgroundTask }
+                  : {})}
               />
+              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
+                <BackgroundTasksChip
+                  tasks={props.backgroundTasks}
+                  onOpen={props.onOpenBackgroundTasks}
+                />
+              ) : null}
             </div>
             <div className="chat-scroll-tail" aria-hidden />
           </div>

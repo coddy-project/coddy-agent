@@ -311,7 +311,8 @@ The inline approval gate is implemented by **PermissionPromptSection** and **Per
 
 - Render the card only for a pending permission request. Read-only tools render their normal timeline row only; there is no informational no-approval card, checkmark, or explanatory sentence.
 - Header: human action question plus one raw tool-id badge. The preview header is reserved for the path, shell, or operation scope so the tool name is not duplicated.
-- Actions use the server-provided labels unchanged (**Allow**, **Allow always**, **Reject**).
+- Actions use the server-provided labels unchanged (**Allow**, **Allow always**, optional **Always allow `<program>`**, **Reject**). The options list is rendered from the SSE payload, so a fourth button needs no client change beyond layout.
+- The program-wide option only reaches the client for **run_command** on a single plain invocation. Its label already names the exact grant (**`curl`**, **`git status`**), so the card must render it verbatim rather than re-deriving a program name.
 - Match the prompt to its **tool_call** by **toolCallId** and prefer that row’s **argsText**; fall back to **Arguments:** content in the permission payload.
 - **apply_patch** and **edit** render old/new line gutters and theme-aware added/deleted/context rows. Other filesystem mutation tools and **run_command** use compact structured previews rather than JSON.
 - The collapsed preview is measured after layout. Show **More…** only when **scrollHeight > clientHeight**; keep the viewport bounded, switch it to internal vertical scrolling, and change the button to **Less**. Returning to the collapsed state restores clipping and re-measures overflow. The shared button is left-aligned; on phones it has a **36px** minimum height.
@@ -322,6 +323,28 @@ Automated checks:
 - **external/ui/src/ui/chat/permissionToolPreview.test.ts**
 - **external/ui/src/ui/chat/PermissionPromptSection.test.tsx**
 - **external/ui/src/ui/messages/MessageList.test.tsx**
+
+
+## Background tasks panel
+
+The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
+
+- It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
+- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`.
+- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk. **Clear** drops the finished history for the session.
+- Ordering is purely by start time, newest first, in both sections.
+- The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
+- On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
+- A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+
+Automated checks:
+
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
+- **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion)
+- **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
 
 ## Live token usage
 

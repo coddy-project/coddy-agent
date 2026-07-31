@@ -89,3 +89,25 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
   expect(screen.getByTestId("nav-scheduler")).toHaveAttribute("href", "#/scheduler");
   expect(screen.getByTestId("nav-settings")).toHaveAttribute("href", "#/settings");
 });
+
+test("the rail no longer carries a Tasks entry", () => {
+  render(
+    <NavRail
+      onNewChat={() => {}}
+      onOpenHistory={() => {}}
+      historyOpen={false}
+      onOpenScheduler={() => {}}
+      schedulerOpen={false}
+      onOpenSettings={() => {}}
+      settingsOpen={false}
+      canWidenRail={false}
+      railLabelsWide={false}
+      onToggleRailLabels={() => {}}
+    />,
+  );
+
+  // Background tasks belong to a chat, so the opener sits under the transcript
+  // rather than in the global rail.
+  expect(screen.queryByTestId("nav-tasks")).toBeNull();
+  expect(screen.queryByTestId("nav-tasks-badge")).toBeNull();
+});

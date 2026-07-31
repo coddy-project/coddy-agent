@@ -206,6 +206,7 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
 | `output_limits` | object | no | — | Per-tool ceilings on how many lines a result or error may contribute to the LLM context, plus a byte safety ceiling while enabled. See below. |
+| `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
 
 ### `tools.output_limits`
 
@@ -222,6 +223,18 @@ Maximum lines a tool result or error may return into the LLM context (`config.To
 | `webfetch` | int | no | `800` | Lines of fetched page markdown. |
 | `websearch` | int | no | `200` | Lines of search results. |
 | `default` | int | no | `1000` | Applies to any tool not named above, including MCP tools. `0` means unlimited. |
+
+### `tools.background`
+
+Bounds for background execution (`config.ToolBackground`). A backgrounded `run_command` returns a task id instead of output; `background_list`, `background_output`, `background_wait`, and `background_stop` collect the result later. The pool lives inside the running `coddy` process: each task mirrors its metadata and captured output into the session bundle under `background/<task_id>/`, and a task interrupted by a restart is reported as `orphaned` rather than as still running. `0` on any integer field means "use the default". See `docs/background-tasks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
+| `max_concurrent` | int | no | `5` | Background tasks one session may run at once. Starting past the limit is refused, not queued. |
+| `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
+| `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
+| `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
 
 ## `logger`
 

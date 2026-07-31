@@ -34,7 +34,7 @@ func ItemMoveTool() *tooling.Tool {
 				"required": []string{"from_index", "to_index"},
 			},
 		},
-		Execute:           execItemMove,
+		Execute: execItemMove,
 	}
 }
 

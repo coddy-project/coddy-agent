@@ -195,6 +195,8 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sd),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -846,11 +848,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
 				},
 			},
-			Options: []acp.PermissionOption{
-				{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
-				{OptionID: "allow_always", Name: "Allow always", Kind: "allow_always"},
-				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
-			},
+			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
 
 		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {

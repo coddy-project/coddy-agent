@@ -12,6 +12,12 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import {
+  taskStatusLabel,
+  taskTimingLine,
+  taskTone,
+} from "../tasks/taskStatus";
+import type { BackgroundTask } from "../tasks/types";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
 
 function formatDuration(ms: number): string {
@@ -90,6 +96,13 @@ export function ToolCallMessage(props: {
   /** When true, wall-clock label stops (e.g. awaiting permission). */
   permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  /** Set when this call started a background task, so the row can keep ticking
+   *  after the tool itself returned. */
+  backgroundTask?: BackgroundTask | undefined;
+  /** Shared clock from the shell so every ticker advances together. */
+  backgroundNowMs?: number | undefined;
+  onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
+  onStopBackgroundTask?: ((taskId: string) => void) | undefined;
 }) {
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
@@ -298,6 +311,8 @@ export function ToolCallMessage(props: {
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
+  const backgroundTask = props.backgroundTask;
+  const backgroundNowMs = props.backgroundNowMs ?? nowMs;
   const showToolPreview = !isQuestionTool && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
@@ -311,7 +326,8 @@ export function ToolCallMessage(props: {
     showToolPreview ||
     showPatchResult ||
     showResult ||
-    !!toggleButton;
+    !!toggleButton ||
+    !!backgroundTask;
 
   return (
     <div
@@ -330,6 +346,27 @@ export function ToolCallMessage(props: {
             {durationLabel.trim() !== "" ? (
               <span className="thinking-dur" aria-hidden="true">
                 {durationLabel}
+              </span>
+            ) : null}
+            {backgroundTask ? (
+              <span
+                className={[
+                  "tool-bgtask-chip",
+                  backgroundTask.running ? "is-running" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                data-testid={`tool-bgtask-chip-${backgroundTask.id}`}
+                title={backgroundTask.command || backgroundTask.label}
+              >
+                <span
+                  className={`bgtask-dot bgtask-dot--${taskTone(backgroundTask.status)}`}
+                  aria-hidden="true"
+                />
+                <span className="tool-bgtask-chip-text">
+                  {taskStatusLabel(backgroundTask.status)} ·{" "}
+                  {taskTimingLine(backgroundTask, backgroundNowMs)}
+                </span>
               </span>
             ) : null}
           </span>
@@ -383,6 +420,39 @@ export function ToolCallMessage(props: {
                 >
                   <pre className="tool-result-pre">{resultBody}</pre>
                 </div>
+              </div>
+            ) : null}
+            {backgroundTask ? (
+              <div
+                className="tool-bgtask-actions"
+                data-testid={`tool-bgtask-actions-${backgroundTask.id}`}
+              >
+                {props.onOpenBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-open-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    Open in Tasks
+                  </button>
+                ) : null}
+                {backgroundTask.running && props.onStopBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-stop-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onStopBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    Stop
+                  </button>
+                ) : null}
               </div>
             ) : null}
             {toggleButton ? (

@@ -446,6 +446,39 @@
               "minimum": 0
             }
           }
+        },
+        "background": {
+          "type": "object",
+          "title": "Background tasks",
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the coddy process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Offer the background option on run_command and expose the background task tools.",
+              "default": true
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "description": "How many background tasks one session may run at once. 0 uses the default.",
+              "default": 5
+            },
+            "default_timeout_seconds": {
+              "type": "integer",
+              "description": "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default.",
+              "default": 900
+            },
+            "max_timeout_seconds": {
+              "type": "integer",
+              "description": "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default.",
+              "default": 3600
+            },
+            "output_buffer_bytes": {
+              "type": "integer",
+              "description": "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default.",
+              "default": 262144
+            }
+          }
         }
       }
     },

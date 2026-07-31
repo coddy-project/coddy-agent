@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 )
 
@@ -25,6 +26,14 @@ type Env struct {
 
 	// SessionDir is the persisted session bundle (<sessionsRoot>/<id>/) when disk persistence is on.
 	SessionDir string
+
+	// Background is the process-wide pool that owns detached commands. Optional;
+	// tools must nil-check before use.
+	Background *bgtask.Pool
+
+	// BackgroundEnabled reports whether the operator allows detached execution
+	// (tools.background.enabled).
+	BackgroundEnabled bool
 
 	// ArchiveActiveMarkdown moves todos/active.md to todos/archive before starting a replacement list.
 	// Optional; wired by the runner when persistence is enabled.

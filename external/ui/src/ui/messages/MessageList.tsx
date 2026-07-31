@@ -14,6 +14,7 @@ import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
@@ -59,6 +60,11 @@ export function MessageList(props: {
   onBranchSwitch?: (sessionId: string) => void;
   /** Re-run the last turn; shown as a refresh button on the last system_notice. */
   onRetryLast?: () => void;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
@@ -278,6 +284,22 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.backgroundTasksByToolCallId?.get(it.toolCallId)
+              ? {
+                  backgroundTask: props.backgroundTasksByToolCallId.get(
+                    it.toolCallId,
+                  ) as BackgroundTask,
+                }
+              : {})}
+            {...(props.backgroundNowMs !== undefined
+              ? { backgroundNowMs: props.backgroundNowMs }
+              : {})}
+            {...(props.onOpenBackgroundTask
+              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+              : {})}
+            {...(props.onStopBackgroundTask
+              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}

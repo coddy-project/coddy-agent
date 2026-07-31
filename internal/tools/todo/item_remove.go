@@ -26,7 +26,7 @@ func ItemRemoveTool() *tooling.Tool {
 				"required": []string{"index"},
 			},
 		},
-		Execute:           execItemRemove,
+		Execute: execItemRemove,
 	}
 }
 

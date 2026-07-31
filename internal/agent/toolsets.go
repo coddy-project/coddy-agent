@@ -19,6 +19,14 @@ var planToolNames = []string{
 	"websearch",
 	"webfetch",
 	"run_command",
+	// Background execution is available in plan mode for the same reason
+	// run_command is: a planner investigating a repo should not have to sit
+	// through a slow read-only command, and the pool tools only observe and
+	// terminate work the planner started itself.
+	"background_list",
+	"background_output",
+	"background_wait",
+	"background_stop",
 	"question",
 	"plan_write",
 	"plan_list",
