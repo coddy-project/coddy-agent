@@ -51,8 +51,10 @@ type State struct {
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
-	// MCPClients are connected MCP servers for this session.
-	MCPClients []*mcp.Client
+	// configuredMCPClients come from config.yaml and are replaced on hot reload.
+	configuredMCPClients []*mcp.Client
+	// sessionMCPClients come from ACP session/new or session/load parameters.
+	sessionMCPClients []*mcp.Client
 
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
@@ -202,7 +204,40 @@ func (s *State) GetSkills() []*skills.Skill {
 func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.MCPClients
+	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.sessionMCPClients))
+	clients = append(clients, s.configuredMCPClients...)
+	clients = append(clients, s.sessionMCPClients...)
+	return clients
+}
+
+func (s *State) addConfiguredMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	s.configuredMCPClients = append(s.configuredMCPClients, client)
+	s.mu.Unlock()
+}
+
+func (s *State) addSessionMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessionMCPClients = append(s.sessionMCPClients, client)
+	s.mu.Unlock()
+}
+
+// replaceConfiguredMCPClients atomically swaps hot-reloaded config clients and
+// closes the previous processes without disturbing ACP session-provided clients.
+func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
+	s.mu.Lock()
+	previous := s.configuredMCPClients
+	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+	s.mu.Unlock()
+	for _, client := range previous {
+		_ = client.Close()
+	}
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -704,10 +739,14 @@ func (s *State) Cancel() {
 func (s *State) CloseAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, c := range s.MCPClients {
+	for _, c := range s.configuredMCPClients {
 		_ = c.Close()
 	}
-	s.MCPClients = nil
+	for _, c := range s.sessionMCPClients {
+		_ = c.Close()
+	}
+	s.configuredMCPClients = nil
+	s.sessionMCPClients = nil
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

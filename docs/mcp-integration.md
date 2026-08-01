@@ -115,9 +115,10 @@ mcp_servers:
 
 1. On `session/new`, the agent spawns / connects to all configured MCP servers
 2. The agent calls `tools/list` on each server and registers the tools
-3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
-4. Results are returned to the LLM as tool observations
-5. On session end or `session/cancel`, MCP server connections are cleaned up
+3. Saving settings with changed global `mcp_servers` reconnects those servers for every active session; ACP client-provided per-session servers stay connected
+4. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+5. Results are returned to the LLM as tool observations
+6. On session end, MCP server connections are cleaned up
 
 ## Error Handling
 

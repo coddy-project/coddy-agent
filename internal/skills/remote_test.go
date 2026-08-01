@@ -641,7 +641,7 @@ func TestSkillReadonly(t *testing.T) {
 	if !SkillReadonly(&Skill{FilePath: filepath.Join("bundled", "x", "SKILL.md")}) {
 		t.Error("bundled (relative path) skill should be read-only")
 	}
-	if SkillReadonly(&Skill{FilePath: string(filepath.Separator) + filepath.Join("abs", "x", "SKILL.md")}) {
+	if SkillReadonly(&Skill{FilePath: filepath.Join(t.TempDir(), "x", "SKILL.md")}) {
 		t.Error("absolute-path skill should be deletable")
 	}
 	if !SkillReadonly(nil) {
