@@ -60,16 +60,10 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 	return nil
 }
 
-// processIdentitySlack is how far a process's creation time may sit from the
-// start time the task record carries and still be accepted as that task. A
-// task's process is created milliseconds after the pool stamps StartedAt, so the
-// window only has to absorb a slow shell launch; a recycled pid, by contrast,
-// belongs to something started minutes to days apart.
-const processIdentitySlack = 2 * time.Minute
-
 // ProcessGroupAlive reports whether the process the record describes is still
-// running. startedAt is the task's recorded start time and is what tells the
-// process apart from a stranger that inherited its pid.
+// running. startedAt is the exact creation time captured from Windows when the
+// task process was launched, and is what tells the process apart from a stranger
+// that inherited its pid.
 //
 // Windows has no process group to probe the way a unix signal 0 does, and the
 // obvious substitute - opening the process by pid - answers a different
@@ -83,8 +77,8 @@ const processIdentitySlack = 2 * time.Minute
 // reports whether the process object is signalled, which is the difference
 // between a running process and a retained corpse - it is not os.Process.Wait,
 // which would block until a live process exits and hang the probe.
-// GetProcessTimes then confirms the process was created when the record says the
-// task started. Children are handled by taskkill /T when terminating.
+// GetProcessTimes then confirms the process has the exact creation time captured
+// when the task launched. Children are handled by taskkill /T when terminating.
 func ProcessGroupAlive(pid int, startedAt time.Time) bool {
 	if pid <= 0 {
 		return false
@@ -110,23 +104,43 @@ func ProcessGroupAlive(pid int, startedAt time.Time) bool {
 	return processStartedAround(handle, startedAt)
 }
 
-// processStartedAround reports whether the open process was created close enough
-// to startedAt to be the task the record describes. A record with no usable
-// start time falls back to liveness alone, so the probe never becomes stricter
-// than the one it replaces by accident.
+// ProcessStartedAt returns the exact Windows creation time of pid. A zero value
+// means the process identity could not be proven and must not later be used to
+// authorize terminating a persisted pid.
+func ProcessStartedAt(pid int) time.Time {
+	if pid <= 0 {
+		return time.Time{}
+	}
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return time.Time{}
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	startedAt, err := processStartedAt(handle)
+	if err != nil {
+		return time.Time{}
+	}
+	return startedAt
+}
+
+// processStartedAround reports whether the open process has the exact identity
+// recorded when the task was launched. Any missing or unreadable identity fails
+// closed because a false positive is handed to taskkill /T /F.
 func processStartedAround(handle windows.Handle, startedAt time.Time) bool {
 	if startedAt.IsZero() {
-		return true
+		return false
 	}
+	actual, err := processStartedAt(handle)
+	return err == nil && actual.Equal(startedAt)
+}
+
+func processStartedAt(handle windows.Handle) (time.Time, error) {
 	var creation, exit, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(handle, &creation, &exit, &kernel, &user); err != nil {
-		return true
+		return time.Time{}, err
 	}
-	drift := time.Unix(0, creation.Nanoseconds()).Sub(startedAt)
-	if drift < 0 {
-		drift = -drift
-	}
-	return drift <= processIdentitySlack
+	return time.Unix(0, creation.Nanoseconds()), nil
 }
 
 // TerminateProcessGroupByPID kills a tree this process did not start, which is

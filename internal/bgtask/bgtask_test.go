@@ -67,6 +67,8 @@ func (h *stubHandle) Wait() (int, error) {
 // future non-command runner will have.
 func (h *stubHandle) PID() int { return 0 }
 
+func (h *stubHandle) ProcessStartedAt() time.Time { return time.Time{} }
+
 func (h *stubHandle) Stop(time.Duration) error {
 	h.mu.Lock()
 	h.stopped = true
@@ -428,6 +430,40 @@ func TestTaskOutputAndMetadataPersistUnderTheSessionDir(t *testing.T) {
 	}
 }
 
+func TestProcessIdentityPersistsButStaysOutOfPublicSnapshotJSON(t *testing.T) {
+	started := time.Date(2026, 8, 1, 12, 34, 56, 700, time.UTC)
+	snap := Snapshot{
+		ID:               "bg_1",
+		Status:           StatusRunning,
+		StartedAt:        started.Add(-time.Second),
+		PID:              4242,
+		ProcessStartedAt: started,
+	}
+
+	persisted, err := marshalPersistedSnapshot(snap)
+	if err != nil {
+		t.Fatalf("marshalPersistedSnapshot(): %v", err)
+	}
+	if !strings.Contains(string(persisted), `"process_started_at"`) {
+		t.Fatalf("persisted snapshot has no process identity: %s", persisted)
+	}
+	loaded, err := unmarshalPersistedSnapshot(persisted)
+	if err != nil {
+		t.Fatalf("unmarshalPersistedSnapshot(): %v", err)
+	}
+	if !loaded.ProcessStartedAt.Equal(started) {
+		t.Fatalf("ProcessStartedAt = %v, want %v", loaded.ProcessStartedAt, started)
+	}
+
+	public, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("Marshal(): %v", err)
+	}
+	if strings.Contains(string(public), "process_started_at") {
+		t.Fatalf("public snapshot exposed the private process identity: %s", public)
+	}
+}
+
 func TestLoadPersistedMarksInterruptedTasksOrphaned(t *testing.T) {
 	sessionDir := t.TempDir()
 	taskDir := filepath.Join(sessionDir, backgroundDirName, "bg_7")
@@ -786,9 +822,9 @@ func TestPersistedOutputReturnsABoundedTail(t *testing.T) {
 
 // startDetachedHelper launches a process that leads its own group, standing in
 // for what an earlier coddy run left behind, and kills it when the test ends. It
-// returns the leader pid and the moment it was started: the survivor probe
-// compares that against the record's StartedAt to tell the process apart from a
-// stranger that inherited its pid.
+// returns the leader pid and its OS creation time: the survivor probe compares
+// that exact identity against the persisted record to tell the process apart
+// from a stranger that inherited its pid.
 //
 // It goes through CommandRunner rather than exec.Command directly so the helper
 // is started exactly the way a real task is - host shell, own process group -
@@ -796,12 +832,17 @@ func TestPersistedOutputReturnsABoundedTail(t *testing.T) {
 func startDetachedHelper(t *testing.T) (int, time.Time) {
 	t.Helper()
 
-	started := time.Now()
 	handle, err := NewCommandRunner().Start(Spec{Command: helperSleepCommand(t)}, io.Discard)
 	if err != nil {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
 	pid := handle.PID()
+	started := handle.ProcessStartedAt()
+	if started.IsZero() {
+		// Unix identifies the process group rather than its creation time and
+		// deliberately leaves this value empty. Its probe ignores the fallback.
+		started = time.Now()
+	}
 	go func() { _, _ = handle.Wait() }()
 	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, time.Second) })
 	return pid, started
@@ -879,9 +920,9 @@ func TestSurvivorsAreOnlyRecordsWithALiveProcess(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(): %v", err)
 		}
-		data, err := json.Marshal(Snapshot{
+		data, err := marshalPersistedSnapshot(Snapshot{
 			ID: id, SessionID: "s1", Kind: KindCommand, Label: id,
-			Status: status, StartedAt: startedAt, PID: pid,
+			Status: status, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 		})
 		if err != nil {
 			t.Fatalf("Marshal(): %v", err)
@@ -936,9 +977,9 @@ func TestStopReachesASurvivorByItsRecordedGroup(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
-		Status: StatusRunning, StartedAt: startedAt, PID: pid,
+		Status: StatusRunning, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
@@ -973,9 +1014,9 @@ func TestReapSurvivorsKillsAndRecordsThem(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
-		Status: StatusRunning, StartedAt: startedAt, PID: pid,
+		Status: StatusRunning, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
@@ -1016,9 +1057,9 @@ func TestSurvivorsRefuseFinishedRecordsBecausePidsGetReused(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_done", SessionID: "s1", Kind: KindCommand, Label: "echo hi",
-		Status: StatusSucceeded, StartedAt: startedAt, PID: leader,
+		Status: StatusSucceeded, StartedAt: startedAt, PID: leader, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)

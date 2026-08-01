@@ -121,7 +121,7 @@ func (s *backgroundReapState) startTask(env *tooling.Env) error {
 	}
 	s.taskID = task.ID
 	s.pid = task.PID
-	s.started = task.StartedAt
+	s.started = task.ProcessStartedAt
 	return nil
 }
 

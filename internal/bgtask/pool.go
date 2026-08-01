@@ -222,6 +222,7 @@ func (t *task) attachHandle(h Handle) (terminateNow bool) {
 	t.handle = h
 	if h != nil {
 		t.snap.PID = h.PID()
+		t.snap.ProcessStartedAt = h.ProcessStartedAt()
 	}
 	return t.termReason != ""
 }
@@ -543,7 +544,7 @@ func (p *Pool) stopSurvivor(sessionID, taskID string) (Snapshot, bool) {
 		}
 		// Same reasoning as Survivors: a finished record's pid is stale, and
 		// pids get reused.
-		if snap.Status == StatusOrphaned && snap.PID > 0 && platform.ProcessGroupAlive(snap.PID, snap.StartedAt) {
+		if snap.Status == StatusOrphaned && snap.PID > 0 && platform.ProcessGroupAlive(snap.PID, snap.ProcessStartedAt) {
 			_ = platform.TerminateProcessGroupByPID(snap.PID, defaultStopGrace)
 			snap.Status = StatusStopped
 			finished := p.now()
@@ -579,12 +580,12 @@ func (p *Pool) Survivors(sessionID string) []Snapshot {
 		// Only a record that still claimed to be running when its process died
 		// is a survivor. A task that finished normally has a stale pid, and
 		// pids get reused: acting on one would kill an unrelated process. The
-		// recorded start time is what lets the probe reject a pid that has since
-		// been handed to something else.
+		// recorded process creation time is what lets the probe reject a pid that
+		// has since been handed to something else.
 		if snap.Status != StatusOrphaned {
 			continue
 		}
-		if platform.ProcessGroupAlive(snap.PID, snap.StartedAt) {
+		if platform.ProcessGroupAlive(snap.PID, snap.ProcessStartedAt) {
 			out = append(out, snap)
 		}
 	}

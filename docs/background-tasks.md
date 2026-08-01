@@ -54,6 +54,11 @@ The pool lives **inside the running `coddy` process**. Each task mirrors its met
 <sessionDir>/background/<task_id>/output.log
 ```
 
+`meta.json` also carries the process-group leader pid and, on Windows, its exact
+OS creation time as `process_started_at`. That identity is private persistence
+metadata rather than part of the HTTP task row: it exists only so a later coddy
+can prove that a reused pid does not belong to a different process.
+
 The in-memory output window is bounded (`tools.background.output_buffer_bytes`, 256 KiB) so a chatty task cannot grow without limit; the log on disk keeps everything. Reading a persisted log back is capped at its last 256 KiB, so a watcher left running for a day cannot be pulled into memory wholesale — the response flags the truncation.
 
 - **Server drain** and **session delete** terminate every running task of the affected scope, so shutting coddy down does not leave orphaned shell trees behind.
@@ -74,7 +79,7 @@ Only a record that still claimed to be **running** when its process died is ever
 The probe behind that has to answer **"is this task's process still running"**, not "does something answer to this number", and the two platforms need different work to get there:
 
 - On unix, signalling **process group** `-pid` is already both checks at once: an exited task leaves an empty group (`ESRCH`), and a recycled pid is almost never a group leader, so it does not match.
-- Windows has no comparable group probe, and the obvious substitute — opening the process by pid — is wrong in both directions. A process **object** outlives the process itself for as long as anybody holds a handle to it, so a corpse still opens; and opening by number matches **any** process, with no group-leader requirement to filter out pid reuse. So the Windows probe asks `WaitForSingleObject` with a zero timeout, which distinguishes a running process from a retained corpse, and then compares the process's **creation time** against the `started_at` the record already persists. A pid that has since been handed to something else was created at a different time and is left alone.
+- Windows has no comparable group probe, and the obvious substitute — opening the process by pid — is wrong in both directions. A process **object** outlives the process itself for as long as anybody holds a handle to it, so a corpse still opens; and opening by number matches **any** process, with no group-leader requirement to filter out pid reuse. So the Windows probe asks `WaitForSingleObject` with a zero timeout, which distinguishes a running process from a retained corpse, and then requires its exact **creation time** to equal the `process_started_at` captured from Windows when the task launched. A missing or unreadable identity fails closed, and a pid handed to another process cannot match even if it was reused immediately.
 
 That comparison is why reaping never needs a fresh pid from the operator: the record carries everything needed to prove the pid still means what it meant.
 

@@ -29,13 +29,16 @@ func startProbeHelper(t *testing.T) (*exec.Cmd, int, time.Time) {
 	cmd := exec.Command(executable, args...) // #nosec G204 -- fixed test command
 	DetachProcessGroup(cmd)
 
-	// Stamped before Start, the same way the pool stamps a task's StartedAt
-	// before handing the spec to the runner.
-	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
 	t.Cleanup(func() { _ = TerminateProcessGroupByPID(cmd.Process.Pid, time.Second) })
+	started := ProcessStartedAt(cmd.Process.Pid)
+	if started.IsZero() {
+		// Unix does not need a process creation identity; the group probe ignores
+		// the value. Keeping a real timestamp makes the helper useful there too.
+		started = time.Now()
+	}
 
 	return cmd, cmd.Process.Pid, started
 }

@@ -59,18 +59,24 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 // by pid. It is how a fresh coddy tells a task its predecessor merely recorded
 // from one whose processes are still running on this machine.
 //
-// The task's recorded start time is accepted and deliberately unused here. The
-// Windows implementation needs it to tell a recycled pid from the real process,
-// because opening a pid there matches anything; signalling a process group only
-// ever matches a group leader, which already filters nearly all reuse out. The
-// remaining gap would need a per-kernel start-time source (/proc on Linux,
-// sysctl on darwin), and paying that cost to narrow an already narrow window is
-// not worth splitting this file over.
+// The recorded process creation time is accepted and deliberately unused here.
+// The Windows implementation needs it to tell a recycled pid from the real
+// process, because opening a pid there matches anything; signalling a process
+// group only ever matches a group leader, which already filters nearly all reuse
+// out. The remaining gap would need a per-kernel start-time source (/proc on
+// Linux, sysctl on darwin), and paying that cost to narrow an already narrow
+// window is not worth splitting this file over.
 func ProcessGroupAlive(pid int, _ time.Time) bool {
 	if pid <= 0 {
 		return false
 	}
 	return !errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+}
+
+// ProcessStartedAt returns no identity on unix. ProcessGroupAlive probes an
+// isolated process group there and deliberately does not consume this value.
+func ProcessStartedAt(int) time.Time {
+	return time.Time{}
 }
 
 // TerminateProcessGroupByPID kills a group this process did not start, which is

@@ -3,9 +3,12 @@
 package platform
 
 import (
+	"os"
 	"runtime"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // Windows keeps a process object alive for as long as anybody holds a handle to
@@ -43,6 +46,9 @@ func TestProcessGroupAliveRejectsAKilledProcessWhoseHandleIsRetained(t *testing.
 func TestProcessGroupAliveRejectsARecycledPID(t *testing.T) {
 	_, pid, started := startProbeHelper(t)
 
+	if ProcessGroupAlive(pid, started.Add(-time.Minute)) {
+		t.Fatalf("ProcessGroupAlive(%d) = true for a process created a minute after the recorded task", pid)
+	}
 	if ProcessGroupAlive(pid, started.Add(-time.Hour)) {
 		t.Fatalf("ProcessGroupAlive(%d) = true for a record started an hour before this process", pid)
 	}
@@ -50,20 +56,35 @@ func TestProcessGroupAliveRejectsARecycledPID(t *testing.T) {
 		t.Fatalf("ProcessGroupAlive(%d) = true for a record started an hour after this process", pid)
 	}
 
-	// The genuine record still matches, or the fix would simply have made the
-	// probe answer false to everything.
+	// The genuine creation time still matches, or the fix would simply have made
+	// the probe answer false to everything.
 	if !ProcessGroupAlive(pid, started) {
 		t.Fatalf("ProcessGroupAlive(%d) = false for the process the record describes", pid)
 	}
 }
 
-// A record from before pids were persisted carries no usable start time. The
-// probe then falls back to liveness alone rather than becoming stricter than the
-// implementation it replaces.
-func TestProcessGroupAliveFallsBackWithoutAStartTime(t *testing.T) {
+// A positive pid has never been persisted without StartedAt. A missing identity
+// therefore means the record is incomplete, not that any process with this pid
+// is safe to kill.
+func TestProcessGroupAliveFailsClosedWithoutAStartTime(t *testing.T) {
 	_, pid, _ := startProbeHelper(t)
 
-	if !ProcessGroupAlive(pid, time.Time{}) {
-		t.Fatalf("ProcessGroupAlive(%d) = false without a recorded start time", pid)
+	if ProcessGroupAlive(pid, time.Time{}) {
+		t.Fatalf("ProcessGroupAlive(%d) = true without a recorded start time", pid)
+	}
+}
+
+// Identity is the safety boundary before background_reap runs taskkill /T /F.
+// If the process creation time cannot be read, the pid must remain unproven and
+// must not be offered for killing.
+func TestProcessStartedAroundFailsClosedWhenCreationTimeCannotBeRead(t *testing.T) {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(os.Getpid()))
+	if err != nil {
+		t.Skipf("cannot open the current process with SYNCHRONIZE only: %v", err)
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	if processStartedAround(handle, time.Now()) {
+		t.Fatal("processStartedAround() = true when GetProcessTimes cannot read the handle")
 	}
 }
