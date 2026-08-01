@@ -58,7 +58,15 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 // ProcessGroupAlive reports whether any process still belongs to the group led
 // by pid. It is how a fresh coddy tells a task its predecessor merely recorded
 // from one whose processes are still running on this machine.
-func ProcessGroupAlive(pid int) bool {
+//
+// The task's recorded start time is accepted and deliberately unused here. The
+// Windows implementation needs it to tell a recycled pid from the real process,
+// because opening a pid there matches anything; signalling a process group only
+// ever matches a group leader, which already filters nearly all reuse out. The
+// remaining gap would need a per-kernel start-time source (/proc on Linux,
+// sysctl on darwin), and paying that cost to narrow an already narrow window is
+// not worth splitting this file over.
+func ProcessGroupAlive(pid int, _ time.Time) bool {
 	if pid <= 0 {
 		return false
 	}

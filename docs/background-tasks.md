@@ -71,6 +71,13 @@ Two different problems, with two different answers.
 
 Only a record that still claimed to be **running** when its process died is ever a reaping candidate. A task that finished normally leaves a stale pid, and the OS reuses pids — acting on one would kill an unrelated process.
 
+The probe behind that has to answer **"is this task's process still running"**, not "does something answer to this number", and the two platforms need different work to get there:
+
+- On unix, signalling **process group** `-pid` is already both checks at once: an exited task leaves an empty group (`ESRCH`), and a recycled pid is almost never a group leader, so it does not match.
+- Windows has no comparable group probe, and the obvious substitute — opening the process by pid — is wrong in both directions. A process **object** outlives the process itself for as long as anybody holds a handle to it, so a corpse still opens; and opening by number matches **any** process, with no group-leader requirement to filter out pid reuse. So the Windows probe asks `WaitForSingleObject` with a zero timeout, which distinguishes a running process from a retained corpse, and then compares the process's **creation time** against the `started_at` the record already persists. A pid that has since been handed to something else was created at a different time and is left alone.
+
+That comparison is why reaping never needs a fresh pid from the operator: the record carries everything needed to prove the pid still means what it meant.
+
 There is deliberately **no** tool that kills an arbitrary pid. `run_command` can already run `kill`, and it goes through the permission gate; a dedicated tool would route around that.
 
 ## Permissions
@@ -146,6 +153,7 @@ type Handle interface {
 
 ## Tests
 
-- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), and `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`).
+- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_reap.feature` (leftovers from an earlier run, `internal/tools/shell/bdd_background_reap_test.go`, which abandons a real second pool over the same bundle rather than stubbing the restart), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), and `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`).
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
-- End-to-end against a real model: `examples/httpserver/http_e2e_background.py` and `examples/acp/acp_e2e_background.py`.
+- The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for the two mistakes only Windows can make — reporting a killed process alive because its handle is still open, and accepting a recycled pid.
+- End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own coddy mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.
