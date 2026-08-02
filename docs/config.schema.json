@@ -357,6 +357,24 @@
         }
       }
     },
+    "mcp": {
+      "type": "object",
+      "title": "MCP discovery",
+      "description": "MCP settings that are not tied to a single server entry.",
+      "additionalProperties": false,
+      "properties": {
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for the project-local <cwd>/.coddy/mcp.json, which travels with the checkout: \"ask\" keeps its servers cold until the operator approves that exact declaration for that workspace; \"allow\" starts them automatically (trusted workspaces only); \"deny\" never loads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        }
+      }
+    },
     "tools": {
       "type": "object",
       "title": "Tools and permissions",

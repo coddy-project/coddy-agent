@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -758,5 +760,201 @@ func TestProbeRemoteTransport(t *testing.T) {
 	}
 	if len(tools) != 1 || tools[0].Name != "remote_echo" {
 		t.Fatalf("tools = %+v", tools)
+	}
+}
+
+// ---- workspace trust gate ----
+
+// projectServer is a stdio declaration as a project .coddy/mcp.json would
+// carry it.
+func projectServer(name, command string) config.MCPServerConfig {
+	return config.MCPServerConfig{
+		Name:    name,
+		Command: command,
+		Args:    []string{"--stdio"},
+		Env:     []config.EnvVarConfig{{Name: "TOKEN", Value: "secret"}},
+	}
+}
+
+func TestFingerprintChangesWithTheCommandLine(t *testing.T) {
+	base := projectServer("demo", "run-me")
+	if Fingerprint(base) != Fingerprint(projectServer("demo", "run-me")) {
+		t.Fatal("same declaration must fingerprint the same")
+	}
+
+	// Every part that decides what runs has to move the digest.
+	variants := map[string]config.MCPServerConfig{}
+	variants["command"] = projectServer("demo", "run-something-else")
+
+	args := projectServer("demo", "run-me")
+	args.Args = []string{"--stdio", "--extra"}
+	variants["args"] = args
+
+	env := projectServer("demo", "run-me")
+	env.Env = []config.EnvVarConfig{{Name: "TOKEN", Value: "other"}}
+	variants["env value"] = env
+
+	url := projectServer("demo", "")
+	url.Type = "http"
+	url.URL = "https://mcp.example.com/mcp"
+	variants["url"] = url
+
+	for what, srv := range variants {
+		if Fingerprint(srv) == Fingerprint(base) {
+			t.Errorf("changing the %s left the fingerprint untouched", what)
+		}
+	}
+
+	// Operational switches must not, or a tool toggle would re-prompt.
+	toggled := projectServer("demo", "run-me")
+	toggled.Disabled = true
+	toggled.DisabledTools = []string{"echo"}
+	if Fingerprint(toggled) != Fingerprint(base) {
+		t.Error("disable switches must not withdraw an approval")
+	}
+
+	// Env order is a formatting detail of the source file, not a change.
+	reordered := projectServer("demo", "run-me")
+	reordered.Env = []config.EnvVarConfig{{Name: "B", Value: "2"}, {Name: "TOKEN", Value: "secret"}}
+	sorted := projectServer("demo", "run-me")
+	sorted.Env = []config.EnvVarConfig{{Name: "TOKEN", Value: "secret"}, {Name: "B", Value: "2"}}
+	if Fingerprint(reordered) != Fingerprint(sorted) {
+		t.Error("env order must not change the fingerprint")
+	}
+}
+
+func TestTrustStoreApprovalIsPerWorkspaceAndDeclaration(t *testing.T) {
+	store := NewTrustStore(t.TempDir())
+	ws := t.TempDir()
+	other := t.TempDir()
+	srv := projectServer("demo", "run-me")
+
+	if store.Approved(ws, srv) {
+		t.Fatal("a fresh store must approve nothing")
+	}
+	if err := store.Approve(ws, "/ws/.coddy/mcp.json", srv); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if !store.Approved(ws, srv) {
+		t.Fatal("the approved declaration must be approved")
+	}
+	if store.Approved(other, srv) {
+		t.Fatal("approval must not carry to another workspace")
+	}
+	if store.Approved(ws, projectServer("demo", "run-something-else")) {
+		t.Fatal("approval must not carry to a rewritten declaration")
+	}
+
+	// The receipt records what was approved, without the env values.
+	recs := store.Records(ws)
+	if len(recs) != 1 || recs[0].Command != "run-me" || len(recs[0].EnvKeys) != 1 || recs[0].EnvKeys[0] != "TOKEN" {
+		t.Fatalf("receipt = %+v", recs)
+	}
+	if strings.Contains(strings.Join(recs[0].EnvKeys, ","), "secret") {
+		t.Fatal("receipt leaked an env value")
+	}
+
+	removed, err := store.Revoke(ws, "demo")
+	if err != nil || !removed {
+		t.Fatalf("Revoke = %v, %v", removed, err)
+	}
+	if store.Approved(ws, srv) {
+		t.Fatal("revoked approval must not survive")
+	}
+}
+
+func TestTrustGateGatesOnlyProjectEntries(t *testing.T) {
+	home := t.TempDir()
+	ws := t.TempDir()
+	cfg := &config.Config{Paths: config.Paths{Home: home, CWD: ws}}
+	gate := NewTrustGate(cfg)
+
+	project := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeLocal, Origin: OriginProject}
+	fromHome := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeGlobal, Origin: OriginHome}
+	fromConfig := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeGlobal, Origin: OriginConfig}
+
+	if got := gate.Evaluate(ws, project); got != TrustStateNeedsApproval {
+		t.Fatalf("project entry = %q, want %q", got, TrustStateNeedsApproval)
+	}
+	for _, srv := range []ManagedServer{fromHome, fromConfig} {
+		if got := gate.Evaluate(ws, srv); got != TrustStateAllowed {
+			t.Fatalf("operator-authored entry from %q = %q, want %q", srv.Origin, got, TrustStateAllowed)
+		}
+	}
+
+	var blocked *BlockedError
+	if err := gate.Check(ws, project); !errors.As(err, &blocked) || blocked.State != TrustStateNeedsApproval {
+		t.Fatalf("Check = %v, want a needs_approval BlockedError", err)
+	}
+
+	if err := gate.Approve(ws, project); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	if got := gate.Evaluate(ws, project); got != TrustStateAllowed {
+		t.Fatalf("approved project entry = %q, want %q", got, TrustStateAllowed)
+	}
+	if err := gate.Approve(ws, fromHome); err == nil {
+		t.Fatal("approving a non-project entry must be refused")
+	}
+}
+
+func TestTrustGatePolicies(t *testing.T) {
+	ws := t.TempDir()
+	project := ManagedServer{Config: projectServer("demo", "run-me"), Scope: ScopeLocal, Origin: OriginProject}
+
+	allow := NewTrustGate(&config.Config{
+		Paths: config.Paths{Home: t.TempDir()},
+		MCP:   config.MCP{ProjectTrust: config.ProjectTrustAllow},
+	})
+	if got := allow.Evaluate(ws, project); got != TrustStateAllowed {
+		t.Fatalf("allow policy = %q, want %q", got, TrustStateAllowed)
+	}
+
+	deny := NewTrustGate(&config.Config{
+		Paths: config.Paths{Home: t.TempDir()},
+		MCP:   config.MCP{ProjectTrust: config.ProjectTrustDeny},
+	})
+	if got := deny.Evaluate(ws, project); got != TrustStateDenied {
+		t.Fatalf("deny policy = %q, want %q", got, TrustStateDenied)
+	}
+	if err := deny.Approve(ws, project); err == nil {
+		t.Fatal("deny policy must offer no approval path")
+	}
+}
+
+func TestTrustGateProbeDoesNotStartUnapprovedProjectCommand(t *testing.T) {
+	ws := t.TempDir()
+	marker := filepath.Join(ws, "started.txt")
+	gate := NewTrustGate(&config.Config{Paths: config.Paths{Home: t.TempDir(), CWD: ws}})
+	srv := ManagedServer{
+		Scope:  ScopeLocal,
+		Origin: OriginProject,
+		Config: config.MCPServerConfig{
+			Name:    "demo",
+			Command: os.Args[0],
+			Args:    []string{"-test.run=TestHelperTrustMarker"},
+			Env: []config.EnvVarConfig{
+				{Name: "GO_WANT_TRUST_MARKER", Value: "1"},
+				{Name: "TRUST_MARKER_FILE", Value: marker},
+			},
+		},
+	}
+
+	if _, err := gate.Probe(testCtx(t), srv, ws, slog.Default()); err == nil {
+		t.Fatal("probing an unapproved project server must fail")
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("probing an unapproved project server started its command")
+	}
+}
+
+// TestHelperTrustMarker is not a real test: re-executed with
+// GO_WANT_TRUST_MARKER=1 it only records that it was started.
+func TestHelperTrustMarker(t *testing.T) {
+	if os.Getenv("GO_WANT_TRUST_MARKER") != "1" {
+		t.Skip("helper process")
+	}
+	if path := os.Getenv("TRUST_MARKER_FILE"); path != "" {
+		_ = os.WriteFile(path, []byte("started\n"), 0o600)
 	}
 }

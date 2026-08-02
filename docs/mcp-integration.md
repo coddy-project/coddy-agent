@@ -37,6 +37,70 @@ per-tool switches use `disabledTools`:
 
 A broken `mcp.json` is logged and skipped; the session still starts with the remaining levels.
 
+## Workspace trust for project-local servers
+
+Added in response to
+[issue #80](https://github.com/coddy-project/coddy-agent/issues/80): before this gate existed,
+creating or restoring a session for a checkout ran whatever `<workspace>/.coddy/mcp.json`
+asked for, with no trust decision anywhere on the path to `cmd.Start()`.
+
+The project file lives inside the repository, so whoever wrote the checkout picks the
+`command`, `args`, and `env` of a process Coddy would start while bootstrapping a session -
+before the model runs, before any tool permission prompt exists. Coddy therefore treats
+`<workspace>/.coddy/mcp.json` entries as untrusted by default and starts them only after
+the operator approves that exact declaration for that workspace.
+
+- `config.yaml` and `~/.coddy/mcp.json` are operator-authored and are **not** gated;
+- the policy is `mcp.project_trust` in `config.yaml`: `ask` (default), `allow` (start
+  project servers automatically; only for workspaces you already trust), `deny` (never
+  load them, no approval path). `coddy acp` and `coddy http` also take
+  `--mcp-project-trust ask|allow|deny`, which overrides the config for that process only -
+  the flag is what a CI job or a container entrypoint uses instead of editing config.yaml.
+  An unknown value fails the launch rather than falling back to a default;
+- approvals live in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path and by
+  a SHA-256 digest of the command-bearing declaration (transport, command, args, env, url,
+  headers). Each record is a receipt naming what was approved - env and header **names**
+  only, never their values;
+- rewriting an approved entry changes the digest and withdraws the approval, so the next
+  session asks again. Enable/disable and `disabledTools` do not: they are operational
+  switches, not a trust boundary;
+- the gate is re-checked immediately before the process is spawned or the URL is contacted,
+  on both the session path and the management probe, so listing servers never starts a
+  command that has not been approved;
+- every approval surface prints the **effective declaration first**: transport, the command
+  with its arguments (or the URL), the **names** of the environment variables and headers it
+  carries, the workspace the process would start in, and the file it was read from. Values of
+  env vars and headers are never printed and never stored in the receipt - the decision is
+  about which variables reach the child, not about what is in them. This is deliberately more
+  than the name-only prompts of comparable agents: an approval you cannot read is not one.
+
+An unapproved server is skipped with a warning naming the server, the workspace, the digest,
+and the command to approve it; the session itself starts normally with the remaining servers.
+
+Approve it on whichever surface you are using:
+
+```bash
+coddy mcp list
+```
+
+```bash
+coddy mcp trust <name>
+```
+
+`coddy mcp list` prints each merged server with its scope, its trust state, and the command
+it would run; `coddy mcp trust <name>` shows the same detail once more and then records the
+approval. `coddy mcp untrust <name>` withdraws it. Both accept `--cwd DIR` to act on a
+workspace other than the current directory. Over HTTP the same decisions are
+**`POST /coddy/mcp/{name}/trust`** and **`POST /coddy/mcp/{name}/untrust`**, and the bundled
+UI shows a shield button plus the declaration under **Settings -> MCP servers**. The policy
+itself is edited in that same tab (**`POST /coddy/mcp/project-trust`**), next to the servers
+it governs. A server added through the management API or the UI editor is approved by the act
+of writing it - the operator typed the command themselves.
+
+Under `allow` and `deny` there is nothing left to decide per server, so the per-server
+approval control disappears from the UI entirely: `allow` starts every project server anyway
+and `deny` starts none of them. The shield is offered only under `ask`.
+
 ## Enable / disable switches
 
 Every config level supports switching off a whole server or individual tools without
@@ -159,9 +223,10 @@ ACP session flow.
 
 ## Permission Model
 
-MCP tool calls are currently dispatched without the built-in permission prompts that guard
-filesystem writes and shell commands; the disable switches above are the mechanism for
-restricting what a server may do. Prefer running MCP servers with least-privilege
+Whether a server may **start** is decided by the workspace trust gate above. What a running
+server may **do** is not prompted for: MCP tool calls are dispatched without the built-in
+permission prompts that guard filesystem writes and shell commands, and the disable switches
+are the mechanism for restricting them. Prefer running MCP servers with least-privilege
 credentials and disabling tools you do not need.
 
 ## Popular MCP Servers
@@ -207,8 +272,8 @@ mcp_servers:
 ## MCP Server Lifecycle
 
 1. On `session/new`, the agent connects every enabled server from the merged
-   config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list, then any ACP
-   client-supplied servers
+   config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
+   trust gate admits, then any ACP client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
 3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)

@@ -694,33 +694,45 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 // override earlier ones by name). A broken mcp.json is logged and skipped so
 // the session still starts.
 func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
-	loadJSON := func(path string) []config.MCPServerConfig {
-		servers, err := config.LoadMCPJSONServers(path)
-		if err != nil {
-			if log != nil {
-				log.Warn("failed to load mcp.json", "path", path, "error", err)
-			}
-			return nil
-		}
-		return servers
+	managed := mcp.ListManagedServersTolerant(cfg, cwd, log)
+	out := make([]config.MCPServerConfig, 0, len(managed))
+	for _, srv := range managed {
+		out = append(out, srv.Config)
 	}
-	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))
-	project := loadJSON(config.MCPJSONPath(cwd))
-	return config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
+	return out
 }
 
 // connectConfiguredMCPServers connects every enabled configured server
-// (config.yaml merged with .coddy/mcp.json) and installs the per-turn tool
-// filter factory so disable toggles reach live sessions.
+// (config.yaml merged with the two mcp.json levels) that the workspace trust
+// gate admits, and installs the per-turn tool filter factory so disable
+// toggles reach live sessions.
+//
+// The gate is what keeps a project-local .coddy/mcp.json from turning session
+// creation into arbitrary process execution: entries the checkout brought
+// with it stay cold until the operator approves that exact declaration.
 func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
 	cwd := state.GetCWD()
-	for _, srv := range EffectiveMCPServers(m.activeCfg(), cwd, m.log) {
-		if srv.Disabled {
+	cfg := m.activeCfg()
+	gate := mcp.NewTrustGate(cfg)
+	for _, srv := range mcp.ListManagedServersTolerant(cfg, cwd, m.log) {
+		if srv.Config.Disabled {
 			continue
 		}
-		if err := m.connectMCPServer(ctx, state, srv); err != nil {
-			m.log.Warn("failed to connect MCP server", "server", srv.Name, "error", err)
+		client, err := gate.Connect(ctx, srv, cwd, m.log)
+		if err != nil {
+			var blocked *mcp.BlockedError
+			if errors.As(err, &blocked) {
+				m.log.Warn("MCP server not started: project declaration is not approved for this workspace",
+					"server", srv.Config.Name, "workspace", cwd, "state", string(blocked.State),
+					"digest", blocked.Digest, "approve_with", "coddy mcp trust "+srv.Config.Name)
+				continue
+			}
+			m.log.Warn("failed to connect MCP server", "server", srv.Config.Name, "error", err)
+			continue
 		}
+		state.MCPClients = append(state.MCPClients, client)
+		m.log.Info("connected MCP server", "name", srv.Config.Name,
+			"transport", mcp.EffectiveTransport(srv.Config), "tools", len(client.Tools()))
 	}
 	state.MCPFilterFactory = func() func(server, tool string) bool {
 		return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), cwd, m.log))
