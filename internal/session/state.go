@@ -55,6 +55,9 @@ type State struct {
 	configuredMCPClients []*mcp.Client
 	// sessionMCPClients come from ACP session/new or session/load parameters.
 	sessionMCPClients []*mcp.Client
+	// mcpClosed marks the session as torn down so a concurrent settings reload
+	// closes the servers it just dialed instead of attaching them to a dead session.
+	mcpClosed bool
 
 	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
 	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
@@ -220,6 +223,11 @@ func (s *State) addConfiguredMCPClient(client *mcp.Client) {
 		return
 	}
 	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
 	s.configuredMCPClients = append(s.configuredMCPClients, client)
 	s.mu.Unlock()
 }
@@ -232,14 +240,28 @@ func (s *State) AddSessionMCPClient(client *mcp.Client) {
 		return
 	}
 	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
 	s.sessionMCPClients = append(s.sessionMCPClients, client)
 	s.mu.Unlock()
 }
 
 // replaceConfiguredMCPClients atomically swaps hot-reloaded config clients and
 // closes the previous processes without disturbing ACP session-provided clients.
+// A session torn down while the new servers were still being dialed keeps none
+// of them, so the reload cannot orphan subprocesses.
 func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
 	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		return
+	}
 	previous := s.configuredMCPClients
 	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
 	s.mu.Unlock()
@@ -755,10 +777,12 @@ func (s *State) Cancel() {
 	}
 }
 
-// CloseAll closes all MCP clients.
+// CloseAll closes all MCP clients. The session is left marked as closed so a
+// settings reload racing this teardown does not reattach fresh servers.
 func (s *State) CloseAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.mcpClosed = true
 	for _, c := range s.configuredMCPClients {
 		_ = c.Close()
 	}
