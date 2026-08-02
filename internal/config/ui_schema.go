@@ -423,6 +423,10 @@ func UISchemaMap() map[string]interface{} {
 				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
+		// mcp.project_trust is deliberately absent here: it is edited in the
+		// MCP servers tab next to the servers it governs (POST
+		// /coddy/mcp/project-trust), not as a settings-document section. It
+		// still round-trips through GET/PUT /coddy/config like httpserver.
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
 			map[string]interface{}{
 				"dirs": map[string]interface{}{
@@ -581,7 +585,21 @@ func toIfaceOrder(keys []string) []interface{} {
 	return out
 }
 
-// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON except httpserver (hidden from UI).
+// uiHiddenConfigKeys are ConfigJSON keys the Settings form must not render as
+// sections of its own. They still round-trip through GET/PUT /coddy/config,
+// so hiding one here never drops it from the saved document.
+//
+//	httpserver - the surface the UI itself is served from; editing it there
+//	             would let the page cut its own connection.
+//	mcp        - edited in the MCP servers tab (POST /coddy/mcp/project-trust),
+//	             next to the servers the policy governs.
+var uiHiddenConfigKeys = map[string]struct{}{
+	"httpserver": {},
+	"mcp":        {},
+}
+
+// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON
+// except for uiHiddenConfigKeys.
 func UISchemaCoversConfigJSONFields() error {
 	doc := UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})
@@ -596,7 +614,10 @@ func UISchemaCoversConfigJSONFields() error {
 		if c := strings.IndexByte(tag, ','); c >= 0 {
 			name = tag[:c]
 		}
-		if name == "" || name == "-" || name == "httpserver" {
+		if name == "" || name == "-" {
+			continue
+		}
+		if _, hidden := uiHiddenConfigKeys[name]; hidden {
 			continue
 		}
 		want[name] = struct{}{}
@@ -607,8 +628,8 @@ func UISchemaCoversConfigJSONFields() error {
 		}
 	}
 	for k := range props {
-		if k == "httpserver" {
-			return fmt.Errorf("schema must not expose httpserver in UI")
+		if _, hidden := uiHiddenConfigKeys[k]; hidden {
+			return fmt.Errorf("schema must not expose %q in UI", k)
 		}
 		if _, ok := want[k]; !ok {
 			return fmt.Errorf("schema has unknown property %q", k)

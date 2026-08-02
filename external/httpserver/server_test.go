@@ -2866,4 +2866,38 @@ mcp_servers:
 	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
 		t.Errorf("DELETE home-sourced status %d, want 200", status)
 	}
+
+	// Trust applies to project entries only: config.yaml servers are the
+	// operator's own, so approving one is refused rather than silently stored.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/broken/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust a config.yaml server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust unknown server status %d, want 400", status)
+	}
+	// Withdrawing an approval that was never granted is a no-op, not an error.
+	status, b = do(http.MethodPost, "/coddy/mcp/broken/untrust", "")
+	if status != http.StatusOK || !strings.Contains(string(b), `"removed":false`) {
+		t.Errorf("untrust without an approval = %d %s, want 200 removed:false", status, b)
+	}
+
+	// The project-trust policy is set through this surface (the MCP tab owns
+	// it) and rejects values the loader would not accept.
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"nonsense"}`); status != http.StatusBadRequest {
+		t.Errorf("unknown policy status %d %s, want 400", status, body)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"deny"}`); status != http.StatusOK {
+		t.Fatalf("set policy status %d %s", status, body)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got := reloaded.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Errorf("config.yaml project_trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if !strings.Contains(string(b), `"project_trust":"deny"`) {
+		t.Errorf("list does not report the new policy: %s", b)
+	}
 }

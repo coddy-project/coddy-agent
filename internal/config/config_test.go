@@ -815,3 +815,74 @@ func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
 		t.Fatalf("flag=true must explicitly enable auto_discovery")
 	}
 }
+
+func TestMCPProjectTrustDefaultsToAskAndRejectsUnknown(t *testing.T) {
+	// An empty or unrecognised value must never widen the policy.
+	for _, in := range []string{"", "   ", "nonsense"} {
+		var c config.MCP
+		c.ProjectTrust = in
+		if got := c.ResolvedProjectTrust(); got != config.ProjectTrustAsk {
+			t.Errorf("ResolvedProjectTrust(%q) = %q, want %q", in, got, config.ProjectTrustAsk)
+		}
+	}
+
+	var c config.MCP
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAsk {
+		t.Fatalf("empty Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "ALLOW"
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("case-insensitive Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "sometimes"
+	if err := c.Validate(); err == nil {
+		t.Fatal("unknown project_trust must be rejected")
+	}
+}
+
+func TestMCPProjectTrustRoundTripsThroughConfigJSON(t *testing.T) {
+	// The Settings UI PUTs the whole document back; a key missing from the
+	// JSON DTO would silently reset the policy to the default.
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustDeny)
+	}
+}
+
+func TestApplyProjectTrustFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *string) {
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		v := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Unset flag must not touch config, or every launch would reset the policy.
+	fs, v := newFS(nil)
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("unset flag: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustDeny {
+		t.Fatalf("unset flag changed policy to %q", cfg.MCP.ProjectTrust)
+	}
+
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allow"})
+	cfg = &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("flag=allow left policy %q", cfg.MCP.ProjectTrust)
+	}
+
+	// A typo must fail loudly instead of silently falling back to ask.
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allo"})
+	cfg = &config.Config{}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err == nil {
+		t.Fatal("unknown flag value must be rejected")
+	}
+}

@@ -52,6 +52,7 @@ func Run(args []string, deps CommandDeps) error {
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /coddy/* routes (else CODDY_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
+	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -85,6 +86,9 @@ func Run(args []string, deps CommandDeps) error {
 		cfg.Scheduler.Enabled = true
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
+	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+		return err
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}

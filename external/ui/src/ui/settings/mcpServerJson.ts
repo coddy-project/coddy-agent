@@ -21,6 +21,16 @@ export type MCPToolRow = {
 
 export type MCPScope = "global" | "local";
 
+/** mcp.project_trust: policy for the project-local ./.coddy/mcp.json. */
+export type ProjectTrust = "ask" | "allow" | "deny";
+
+/** Wording for the project-trust picker, kept next to the other MCP labels. */
+export const PROJECT_TRUST_OPTIONS: Array<{ value: ProjectTrust; label: string }> = [
+  { value: "ask", label: "Ask — approve each project server once" },
+  { value: "allow", label: "Allow — start project servers automatically" },
+  { value: "deny", label: "Deny — never load project servers" },
+];
+
 export type MCPServerRow = {
   name: string;
   /** Scope: global (config.yaml or ~/.coddy/mcp.json) or local (./.coddy/mcp.json). */
@@ -35,12 +45,54 @@ export type MCPServerRow = {
   url?: string;
   env?: Record<string, string>;
   headers?: Record<string, string>;
+  /** File the declaration was read from. */
+  source_path?: string;
   enabled: boolean;
-  status: "connected" | "error" | "disabled" | "unsupported";
+  status: "connected" | "error" | "disabled" | "unsupported" | "needs_approval" | "denied";
   error?: string;
+  /** False only for a project entry the workspace trust gate holds back. */
+  trusted?: boolean;
+  /** True for project-local entries, the ones the trust gate applies to. */
+  gated?: boolean;
+  /** Digest of the command-bearing declaration an approval binds to. */
+  fingerprint?: string;
   tools: MCPToolRow[];
   disabled_tools?: string[];
 };
+
+/**
+ * showsTrustControl reports whether a row gets the per-server shield.
+ *
+ * Only project-local rows are gated at all, and only the `ask` policy leaves a
+ * decision to make: under `allow` every project server starts anyway, under
+ * `deny` none of them ever does. Rendering an inert shield in those two cases
+ * would suggest a per-server choice that the policy has already taken away.
+ */
+export function showsTrustControl(row: MCPServerRow, policy: ProjectTrust): boolean {
+  return !!row.gated && policy === "ask";
+}
+
+/**
+ * declarationFacts renders everything a workspace-trust decision rests on:
+ * the effective transport, what would be executed or contacted, and the names
+ * (never the values) of the environment variables and headers it carries.
+ * Approving is a decision about these lines, so they are shown before it.
+ */
+export function declarationFacts(row: MCPServerRow): Array<{ label: string; value: string }> {
+  const out: Array<{ label: string; value: string }> = [
+    { label: "transport", value: row.transport },
+  ];
+  // stdio starts a process; the remote transports open a connection.
+  if (row.command) {
+    out.push({ label: "runs", value: [row.command, ...(row.args ?? [])].join(" ") });
+  }
+  if (row.url) out.push({ label: "contacts", value: row.url });
+  const envKeys = Object.keys(row.env ?? {}).sort();
+  if (envKeys.length > 0) out.push({ label: "env", value: envKeys.join(", ") });
+  const headerKeys = Object.keys(row.headers ?? {}).sort();
+  if (headerKeys.length > 0) out.push({ label: "headers", value: headerKeys.join(", ") });
+  return out;
+}
 
 /** Human name of the file that owns a row's definition (badge tooltips). */
 export function originLabel(origin: MCPServerRow["origin"]): string {

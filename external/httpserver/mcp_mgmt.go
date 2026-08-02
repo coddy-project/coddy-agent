@@ -30,6 +30,9 @@ func (s *Server) registerMCPManagementRoutes() {
 	s.mux.HandleFunc("GET /coddy/mcp", s.coddyMCPGet)
 	s.mux.HandleFunc("POST /coddy/mcp/{name}/enable", s.coddyMCPServerToggle(false))
 	s.mux.HandleFunc("POST /coddy/mcp/{name}/disable", s.coddyMCPServerToggle(true))
+	s.mux.HandleFunc("POST /coddy/mcp/{name}/trust", s.coddyMCPServerTrust)
+	s.mux.HandleFunc("POST /coddy/mcp/{name}/untrust", s.coddyMCPServerUntrust)
+	s.mux.HandleFunc("POST /coddy/mcp/project-trust", s.coddyMCPProjectTrust)
 	s.mux.HandleFunc("POST /coddy/mcp/{name}/tools/{tool}/enable", s.coddyMCPToolToggle(false))
 	s.mux.HandleFunc("POST /coddy/mcp/{name}/tools/{tool}/disable", s.coddyMCPToolToggle(true))
 	s.mux.HandleFunc("PUT /coddy/mcp/{name}", s.coddyMCPServerPut)
@@ -55,9 +58,13 @@ type mcpServerRow struct {
 	URL           string            `json:"url,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
 	Headers       map[string]string `json:"headers,omitempty"`
+	SourcePath    string            `json:"source_path,omitempty"` // file that defines the entry
 	Enabled       bool              `json:"enabled"`
-	Status        string            `json:"status"` // connected | error | disabled | unsupported
+	Status        string            `json:"status"` // connected | error | disabled | unsupported | needs_approval | denied
 	Error         string            `json:"error,omitempty"`
+	Trusted       bool              `json:"trusted"`               // false only for a gated project entry
+	Gated         bool              `json:"gated"`                 // the workspace trust gate applies to this entry
+	Fingerprint   string            `json:"fingerprint,omitempty"` // digest an approval binds to
 	Tools         []mcpToolRow      `json:"tools"`
 	DisabledTools []string          `json:"disabled_tools,omitempty"`
 }
@@ -76,14 +83,16 @@ func mcpFingerprint(srv config.MCPServerConfig) string {
 }
 
 // probeMCPServer returns the cached tool list for srv, probing on fingerprint
-// change or when refresh is forced.
-func (s *Server) probeMCPServer(ctx context.Context, srv config.MCPServerConfig, refresh bool) ([]mcp.ToolInfo, string) {
-	fp := mcpFingerprint(srv)
+// change or when refresh is forced. The probe runs through the trust gate, so
+// listing servers never starts a project command the operator has not
+// approved.
+func (s *Server) probeMCPServer(ctx context.Context, gate *mcp.TrustGate, srv mcp.ManagedServer, refresh bool) ([]mcp.ToolInfo, string) {
+	fp := mcpFingerprint(srv.Config)
 	s.mcpProbeMu.Lock()
 	if s.mcpProbeCache == nil {
 		s.mcpProbeCache = make(map[string]mcpProbeEntry)
 	}
-	entry, ok := s.mcpProbeCache[srv.Name]
+	entry, ok := s.mcpProbeCache[srv.Config.Name]
 	s.mcpProbeMu.Unlock()
 	if ok && !refresh && entry.fingerprint == fp {
 		return entry.tools, entry.err
@@ -91,13 +100,13 @@ func (s *Server) probeMCPServer(ctx context.Context, srv config.MCPServerConfig,
 
 	probeCtx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 	defer cancel()
-	tools, err := mcp.Probe(probeCtx, srv, s.defaultCWD, s.log)
+	tools, err := gate.Probe(probeCtx, srv, s.defaultCWD, s.log)
 	entry = mcpProbeEntry{fingerprint: fp, tools: tools}
 	if err != nil {
 		entry.err = err.Error()
 	}
 	s.mcpProbeMu.Lock()
-	s.mcpProbeCache[srv.Name] = entry
+	s.mcpProbeCache[srv.Config.Name] = entry
 	s.mcpProbeMu.Unlock()
 	return entry.tools, entry.err
 }
@@ -117,11 +126,13 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refresh := r.URL.Query().Get("refresh") == "1"
+	gate := mcp.NewTrustGate(s.activeCfg())
 
 	rows := make([]mcpServerRow, len(servers))
 	var wg sync.WaitGroup
 	for i, srv := range servers {
 		transport := mcp.EffectiveTransport(srv.Config)
+		trust := gate.Evaluate(s.defaultCWD, srv)
 		row := mcpServerRow{
 			Name:          srv.Config.Name,
 			Source:        srv.Scope,
@@ -131,7 +142,11 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 			Command:       srv.Config.Command,
 			Args:          srv.Config.Args,
 			URL:           srv.Config.URL,
+			SourcePath:    mcpSourcePath(s.activeCfg(), s.defaultCWD, srv.Origin),
 			Enabled:       !srv.Config.Disabled,
+			Trusted:       trust == mcp.TrustStateAllowed,
+			Gated:         srv.Origin == mcp.OriginProject,
+			Fingerprint:   mcp.Fingerprint(srv.Config),
 			Tools:         []mcpToolRow{},
 			DisabledTools: srv.Config.DisabledTools,
 		}
@@ -158,11 +173,20 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 			rows[i] = row
 			continue
 		}
+		// A gated project entry is reported, never probed: probing it would
+		// start exactly the command the approval is about.
+		if trust != mcp.TrustStateAllowed {
+			row.Status = string(trust)
+			row.Error = gate.Check(s.defaultCWD, srv).Error()
+			rows[i] = row
+			continue
+		}
 		rows[i] = row
 		wg.Add(1)
-		go func(i int, cfgSrv config.MCPServerConfig) {
+		go func(i int, managed mcp.ManagedServer) {
 			defer wg.Done()
-			tools, probeErr := s.probeMCPServer(r.Context(), cfgSrv, refresh)
+			cfgSrv := managed.Config
+			tools, probeErr := s.probeMCPServer(r.Context(), gate, managed, refresh)
 			disabled := make(map[string]bool, len(cfgSrv.DisabledTools))
 			for _, t := range cfgSrv.DisabledTools {
 				disabled[t] = true
@@ -179,15 +203,99 @@ func (s *Server) coddyMCPGet(w http.ResponseWriter, r *http.Request) {
 			} else {
 				rows[i].Status = "connected"
 			}
-		}(i, srv.Config)
+		}(i, srv)
 	}
 	wg.Wait()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object": "coddy.mcp_list",
-		"items":  rows,
+		"object":        "coddy.mcp_list",
+		"workspace":     s.defaultCWD,
+		"project_trust": gate.Policy(),
+		"items":         rows,
 	})
+}
+
+// mcpSourcePath names the file a merged entry comes from, so an approval
+// dialog can show where the declaration was read.
+func mcpSourcePath(cfg *config.Config, cwd, origin string) string {
+	switch origin {
+	case mcp.OriginProject:
+		return config.MCPJSONPath(cwd)
+	case mcp.OriginHome:
+		return config.GlobalMCPJSONPath(cfg.Paths.Home)
+	default:
+		return cfg.Paths.ConfigPath
+	}
+}
+
+// coddyMCPServerTrust approves the current declaration of a project-local
+// server for this workspace, so sessions may start it.
+func (s *Server) coddyMCPServerTrust(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	servers, err := mcp.ListManagedServers(s.activeCfg(), s.defaultCWD)
+	if err != nil {
+		writeCoddyMCPErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	gate := mcp.NewTrustGate(s.activeCfg())
+	for _, srv := range servers {
+		if srv.Config.Name != name {
+			continue
+		}
+		if err := gate.Approve(s.defaultCWD, srv); err != nil {
+			writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.invalidateMCPProbe(name)
+		slog.Info("mcp server approved for workspace",
+			"name", name, "workspace", s.defaultCWD, "digest", mcp.Fingerprint(srv.Config))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":          true,
+			"fingerprint": mcp.Fingerprint(srv.Config),
+		})
+		return
+	}
+	writeCoddyMCPErr(w, http.StatusBadRequest, fmt.Sprintf("mcp server %q not found", name))
+}
+
+// coddyMCPProjectTrust persists the mcp.project_trust policy, so the MCP tab
+// owns the whole policy rather than sending operators to another settings tab.
+func (s *Server) coddyMCPProjectTrust(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Policy string `json:"policy"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeCoddyMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := mcp.SetProjectTrust(s.activeCfg(), body.Policy); err != nil {
+		writeCoddyMCPErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.reloadConfigFromDisk()
+	slog.Info("mcp project trust policy set", "policy", body.Policy)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":            true,
+		"project_trust": s.activeCfg().MCP.ResolvedProjectTrust(),
+	})
+}
+
+// coddyMCPServerUntrust withdraws an approval; running sessions keep their
+// already connected clients, new sessions do not start the server again.
+func (s *Server) coddyMCPServerUntrust(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	removed, err := mcp.NewTrustGate(s.activeCfg()).Revoke(s.defaultCWD, name)
+	if err != nil {
+		writeCoddyMCPErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.invalidateMCPProbe(name)
+	slog.Info("mcp server approval revoked", "name", name, "workspace", s.defaultCWD, "removed", removed)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "removed": removed})
 }
 
 // coddyMCPServerToggle enables or disables a whole server, persisting into

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,7 +93,7 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	}
 }
 
-func TestReloadConfigForSessionUsesProjectMCPJSONAndRefreshesFilter(t *testing.T) {
+func TestReloadConfigForSessionRequiresProjectTrustAndRefreshesFilter(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
 	skillsDir := filepath.Join(dir, "skills")
@@ -126,9 +127,30 @@ func TestReloadConfigForSessionUsesProjectMCPJSONAndRefreshesFilter(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "not approved") {
+		t.Fatalf("warnings before approval = %v", warnings)
+	}
+	if clients := st.GetMCPClients(); len(clients) != 0 {
+		t.Fatalf("untrusted project MCP clients = %+v", clients)
+	}
+
+	managed, err := mcp.ListManagedServers(mgr.Cfg(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(managed) != 1 || managed[0].Config.Name != "project-mcp" {
+		t.Fatalf("managed MCP servers = %+v", managed)
+	}
+	if err := mcp.NewTrustGate(mgr.Cfg()).Approve(dir, managed[0]); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err = mgr.ReloadConfigForSession(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer st.CloseAll()
 	if len(warnings) != 0 {
-		t.Fatalf("warnings: %v", warnings)
+		t.Fatalf("warnings after approval: %v", warnings)
 	}
 	clients := st.GetMCPClients()
 	if len(clients) != 1 || clients[0].Name() != "project-mcp" {

@@ -419,6 +419,29 @@ The same server in `.coddy/mcp.json`, plus a remote one:
 }
 ```
 
+The project-local `./.coddy/mcp.json` arrives with the checkout, so the
+repository - not you - would be choosing the command a session starts. Those
+entries are therefore **not started until approved** for that workspace
+(`mcp.project_trust: ask`, the default):
+
+```bash
+coddy mcp list
+```
+
+```bash
+coddy mcp trust <name>
+```
+
+The same decision is available at `POST /coddy/mcp/{name}/trust` and behind the
+shield button in Settings -> MCP servers. Approval is bound to the workspace and
+to a digest of the declaration, so rewriting the entry asks again. Servers in
+`config.yaml` and `~/.coddy/mcp.json` are yours and are never gated.
+
+For a workspace you already trust (or a CI job), set `mcp.project_trust: allow`
+in `config.yaml`, or pass `--mcp-project-trust allow` to `coddy acp` /
+`coddy http` for that process only; `deny` never loads project servers at all.
+Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway

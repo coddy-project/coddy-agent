@@ -98,6 +98,8 @@ func main() {
 		err = runSkills(args[1:])
 	case "plugin":
 		err = runPlugin(args[1:])
+	case "mcp":
+		err = runMCP(args[1:])
 	case "codex":
 		err = runCodex(args[1:])
 	case "rules":
@@ -133,6 +135,7 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
+  %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s update [flags]
@@ -153,6 +156,7 @@ func runACP(args []string) error {
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
+	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -185,6 +189,9 @@ func runACP(args []string) error {
 		cfg.Scheduler.Enabled = true
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
+	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+		return err
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
