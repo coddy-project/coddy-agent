@@ -53,6 +53,9 @@ type State struct {
 
 	// MCPClients are connected MCP servers for this session.
 	MCPClients []*mcp.Client
+	// globalMCPCount partitions MCPClients into config-backed clients first and
+	// ACP session-supplied clients after them so config reloads preserve the latter.
+	globalMCPCount int
 
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
@@ -202,7 +205,44 @@ func (s *State) GetSkills() []*skills.Skill {
 func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.MCPClients
+	return append([]*mcp.Client(nil), s.MCPClients...)
+}
+
+// AddMCPClient attaches a config-backed or session-supplied MCP client.
+func (s *State) AddMCPClient(client *mcp.Client, global bool) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !global {
+		s.MCPClients = append(s.MCPClients, client)
+		return
+	}
+	idx := s.globalMCPCount
+	if idx < 0 || idx > len(s.MCPClients) {
+		idx = len(s.MCPClients)
+	}
+	s.MCPClients = append(s.MCPClients, nil)
+	copy(s.MCPClients[idx+1:], s.MCPClients[idx:])
+	s.MCPClients[idx] = client
+	s.globalMCPCount++
+}
+
+// ReplaceGlobalMCPClients swaps config-backed MCP clients while retaining MCP
+// clients supplied by the ACP session. The caller owns and should close old.
+func (s *State) ReplaceGlobalMCPClients(next []*mcp.Client) (old []*mcp.Client) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := s.globalMCPCount
+	if count < 0 || count > len(s.MCPClients) {
+		count = len(s.MCPClients)
+	}
+	old = append([]*mcp.Client(nil), s.MCPClients[:count]...)
+	sessionClients := append([]*mcp.Client(nil), s.MCPClients[count:]...)
+	s.MCPClients = append(append([]*mcp.Client(nil), next...), sessionClients...)
+	s.globalMCPCount = len(next)
+	return old
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -708,6 +748,7 @@ func (s *State) CloseAll() {
 		_ = c.Close()
 	}
 	s.MCPClients = nil
+	s.globalMCPCount = 0
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

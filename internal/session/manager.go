@@ -27,11 +27,10 @@ type AgentRunner func(ctx context.Context, state *State, prompt []acp.ContentBlo
 
 // Manager handles all active sessions and implements acp.Handler.
 type Manager struct {
-	cfgAt      atomic.Pointer[config.Config]
-	server     acp.UpdateSender
-	skillsLoad *skills.Loader
-	runner     AgentRunner
-	log        *slog.Logger
+	cfgAt  atomic.Pointer[config.Config]
+	server acp.UpdateSender
+	runner AgentRunner
+	log    *slog.Logger
 	// defaultCWD is used when session/new passes an empty cwd (from CLI default or os.Getwd).
 	defaultCWD string
 	store      *FileStore
@@ -50,13 +49,9 @@ type Manager struct {
 // ACP client omits cwd; may be empty if every session supplies a non-empty cwd.
 // store may be nil to disable persistence.
 func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string, store *FileStore) *Manager {
-	skillsDirs := make([]string, len(cfg.Skills.Dirs))
-	copy(skillsDirs, cfg.Skills.Dirs)
-
 	m := &Manager{
 		server:     server,
 		runner:     runner,
-		skillsLoad: skills.NewLoader(skillsDirs),
 		log:        log,
 		defaultCWD: defaultCWD,
 		store:      store,
@@ -76,16 +71,66 @@ func (m *Manager) activeCfg() *config.Config {
 	return m.cfgAt.Load()
 }
 
-// ReplaceConfig swaps the live configuration and rebuilds the skills loader. MCP clients on
-// existing sessions are not recreated.
+// ReplaceConfig swaps the live configuration. MCP clients on existing sessions
+// are not recreated.
 func (m *Manager) ReplaceConfig(next *config.Config) {
 	if next == nil {
 		return
 	}
-	skillsDirs := make([]string, len(next.Skills.Dirs))
-	copy(skillsDirs, next.Skills.Dirs)
-	m.skillsLoad = skills.NewLoader(skillsDirs)
 	m.cfgAt.Store(next)
+}
+
+// ReloadConfigForSession reloads config.yaml and applies runtime-owned state to
+// the current session. Configured MCP clients are replaced; ACP session MCP
+// clients are preserved. Individual MCP start failures are returned as warnings.
+func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]string, error) {
+	current := m.activeCfg()
+	if current == nil {
+		return nil, fmt.Errorf("active config is unavailable")
+	}
+	next, err := config.LoadWithPaths(current.Paths)
+	if err != nil {
+		return nil, err
+	}
+	loader := skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
+	var warnings []string
+	var loadedSkills []*skills.Skill
+	if st != nil {
+		loadedSkills, err = loader.LoadAll(st.GetCWD(), next.Paths.Home, next.Skills.ManagedDir(next.Paths.Home))
+		if err != nil {
+			warnings = append(warnings, "load skills: "+err.Error())
+			loadedSkills = st.GetSkills()
+		}
+	}
+
+	var nextGlobal []*mcp.Client
+	if st != nil {
+		for _, srv := range next.MCPServers {
+			client, connectErr := m.newMCPClient(ctx, st, srv)
+			if connectErr != nil {
+				warnings = append(warnings, fmt.Sprintf("connect MCP %s: %v", srv.Name, connectErr))
+				continue
+			}
+			nextGlobal = append(nextGlobal, client)
+		}
+	}
+
+	m.ReplaceConfig(next)
+	if st != nil {
+		st.ReplaceSkills(loadedSkills)
+		st.ReplaceRulesCatalog(DiscoverRules(next, st.GetCWD()))
+		old := st.ReplaceGlobalMCPClients(nextGlobal)
+		for _, client := range old {
+			_ = client.Close()
+		}
+		m.sendAvailableSlashCommands(st.GetID(), st)
+	}
+	return warnings, nil
+}
+
+func (m *Manager) loadSkills(cwd string, cfg *config.Config) ([]*skills.Skill, error) {
+	loader := skills.NewLoader(append([]string(nil), cfg.Skills.Dirs...))
+	return loader.LoadAll(cwd, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home))
 }
 
 // SetPreferredSessionID pins the identifier used for the next session/new invocation (typically from --session-id).
@@ -234,7 +279,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 }
 
 func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home, m.activeCfg().Skills.ManagedDir(m.activeCfg().Paths.Home))
+	active := m.activeCfg()
+	loadedSkills, err := m.loadSkills(cwd, active)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
@@ -250,8 +296,8 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 
 	state.SetPersistHook(m.makePersist(state))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, state, srv); err != nil {
+	for _, srv := range active.MCPServers {
+		if err := m.connectMCPServer(ctx, state, srv, true); err != nil {
 			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
 		}
 	}
@@ -267,7 +313,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 		for _, e := range srv.Env {
 			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
 		}
-		if err := m.connectMCPServer(ctx, state, cfgSrv); err != nil {
+		if err := m.connectMCPServer(ctx, state, cfgSrv, false); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
 	}
@@ -323,7 +369,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.RestoreUILogWithoutPersist(snap.UILog)
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
 
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home, m.activeCfg().Skills.ManagedDir(m.activeCfg().Paths.Home))
+	active := m.activeCfg()
+	loadedSkills, err := m.loadSkills(cwd, active)
 	if err != nil {
 		m.log.Warn("failed to load skills on session load", "error", err)
 	}
@@ -332,8 +379,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 
 	st.SetPersistHook(m.makePersist(st))
 
-	for _, srv := range m.activeCfg().MCPServers {
-		if err := m.connectMCPServer(ctx, st, srv); err != nil {
+	for _, srv := range active.MCPServers {
+		if err := m.connectMCPServer(ctx, st, srv, true); err != nil {
 			m.log.Warn("failed to connect global MCP server", "server", srv.Name, "error", err)
 		}
 	}
@@ -349,7 +396,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		for _, e := range srv.Env {
 			cfgSrv.Env = append(cfgSrv.Env, config.EnvVarConfig{Name: e.Name, Value: e.Value})
 		}
-		if err := m.connectMCPServer(ctx, st, cfgSrv); err != nil {
+		if err := m.connectMCPServer(ctx, st, cfgSrv, false); err != nil {
 			m.log.Warn("failed to connect client MCP server", "server", srv.Name, "error", err)
 		}
 	}
@@ -712,9 +759,19 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 	})
 }
 
-func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) error {
+func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig, global bool) error {
+	client, err := m.newMCPClient(ctx, state, srv)
+	if err != nil {
+		return err
+	}
+	state.AddMCPClient(client, global)
+	m.log.Info("connected MCP server", "name", srv.Name, "tools", len(client.Tools()))
+	return nil
+}
+
+func (m *Manager) newMCPClient(ctx context.Context, state *State, srv config.MCPServerConfig) (*mcp.Client, error) {
 	if srv.Type != "" && srv.Type != "stdio" {
-		return fmt.Errorf("unsupported MCP transport: %s", srv.Type)
+		return nil, fmt.Errorf("unsupported MCP transport: %s", srv.Type)
 	}
 
 	cwd := state.GetCWD()
@@ -729,12 +786,9 @@ func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config
 
 	client, err := mcp.NewStdioClient(ctx, srv.Name, srv.Command, args, env, m.log)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	state.MCPClients = append(state.MCPClients, client)
-	m.log.Info("connected MCP server", "name", srv.Name, "tools", len(client.Tools()))
-	return nil
+	return client, nil
 }
 
 func newSessionID() string {

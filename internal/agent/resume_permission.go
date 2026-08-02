@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -91,12 +92,12 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 }
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
-	return &tools.Env{
+	env := &tools.Env{
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sessionDir,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
 			if sessionDir == "" {
 				return nil
@@ -119,8 +120,28 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody: a.loadSkillBody,
+		LoadSkillBody:     a.loadSkillBody,
+		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
 	}
+	if a.configReloader != nil {
+		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			return warnings, nil
+		}
+	}
+	return env
 }
 
 // continueReAct runs the ReAct loop using messages already on the session (no new user turn).
@@ -128,15 +149,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	toolSet := ToolSetForMode(mode)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 	provider, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)

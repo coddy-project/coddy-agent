@@ -115,9 +115,13 @@ mcp_servers:
 
 1. On `session/new`, the agent spawns / connects to all configured MCP servers
 2. The agent calls `tools/list` on each server and registers the tools
-3. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
-4. Results are returned to the LLM as tool observations
-5. On session end or `session/cancel`, MCP server connections are cleaned up
+3. `config_set` can add, replace, or delete a global `mcp_servers` entry while the session is running. Coddy validates and atomically writes the config, connects the replacement global servers, preserves ACP-provided per-session servers, swaps the global client set, and closes the old global clients
+4. The refreshed MCP tool definitions are visible to the next model call in the same ReAct turn; connection failures are returned as `config_set` warnings
+5. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+6. Results are returned to the LLM as tool observations
+7. On session end or `session/cancel`, MCP server connections are cleaned up
+
+For example, `config_set` can write an object to `/mcp_servers[name=context7]`; the selector makes the edit independent of list ordering. The bundled `/configure-coddy` skill documents the full path syntax and discovery safety checks.
 
 ## Error Handling
 

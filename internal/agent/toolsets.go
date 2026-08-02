@@ -19,6 +19,7 @@ var planToolNames = []string{
 	"webfetch",
 	"run_command",
 	"question",
+	"config_get",
 	"plan_write",
 	"plan_list",
 	"plan_read",

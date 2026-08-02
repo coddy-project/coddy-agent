@@ -6,6 +6,8 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ---
 
+Coddy ships a read-only `/configure-coddy` system skill. When a user asks the agent to find or install an MCP server or skill, it instructs the agent to verify the upstream source, use the typed `config_get` / `config_set` tools, avoid echoing secrets, and confirm the component after hot reload.
+
 ## Where to get skills
 
 ### skills.sh — community registry
@@ -227,6 +229,8 @@ Instructions the agent will follow when this skill is active.
 ```
 
 Then add the parent directory to `skills.dirs` in `config.yaml`, or drop the directory into `~/.coddy/skills/` or `${CWD}/.coddy/skills/`.
+
+In a running agent session, changing `skills.dirs`, `skills.sources`, or `skills.auto_discovery` through `config_set` immediately rebuilds the skill catalog. An external installer such as `coddy plugin install` or `npx skills add` changes files on disk, so follow it with an idempotent `config_set` of `skills.dirs` to refresh the running loader. Adding an entry to `skills.sources` alone still does not fetch or install anything.
 
 To share it with others, publish to GitHub and list it on [skills.sh](https://skills.sh) or submit to [neuraldeep.ru/skills](https://neuraldeep.ru/skills).
 

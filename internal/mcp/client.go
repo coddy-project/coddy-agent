@@ -43,7 +43,9 @@ type Client struct {
 
 // NewStdioClient starts an MCP server subprocess and connects to it.
 func NewStdioClient(ctx context.Context, name, command string, args []string, env []string, log *slog.Logger) (*Client, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
+	// The caller's context bounds startup and protocol negotiation, not the
+	// session lifetime. Close owns subprocess cleanup after the prompt ends.
+	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(), env...)
 
 	stdin, err := cmd.StdinPipe()

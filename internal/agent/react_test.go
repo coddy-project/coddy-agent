@@ -57,6 +57,27 @@ type emptyThenAnswerProvider struct {
 	calls int
 }
 
+type configReloadProvider struct {
+	calls int
+	tools [][]llm.ToolDefinition
+}
+
+func (p *configReloadProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *configReloadProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	p.tools = append(p.tools, append([]llm.ToolDefinition(nil), defs...))
+	if p.calls == 1 {
+		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"path":"/skills/auto_discovery","value":false}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	}
+	onChunk(llm.StreamChunk{TextDelta: "Configuration reloaded."})
+	return &llm.Response{Content: "Configuration reloaded.", StopReason: "end_turn"}, nil
+}
+
 func (p *emptyThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
 	return nil, nil
 }
@@ -176,6 +197,47 @@ func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != llm.RoleAssistant || last.Content != "Here is the real answer." {
 		t.Fatalf("conversation dead-ended on a thinking-only turn: last message = %+v", last)
+	}
+}
+
+func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+	cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+	cfg.Agent.Model = "fake/model"
+	st := &session.State{ID: "sess_config_reload", CWD: dir, Mode: session.ModeAgent}
+	provider := &configReloadProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("provider calls = %d, want 2", provider.calls)
+	}
+	contains := func(defs []llm.ToolDefinition, name string) bool {
+		for _, def := range defs {
+			if def.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains(provider.tools[0], "load_skill") {
+		t.Fatal("load_skill should be present before config_set")
+	}
+	if contains(provider.tools[1], "load_skill") {
+		t.Fatal("load_skill should be removed after same-turn config reload")
 	}
 }
 

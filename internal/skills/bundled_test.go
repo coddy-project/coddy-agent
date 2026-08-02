@@ -6,13 +6,19 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
-func TestBundledIncludesGenerateRules(t *testing.T) {
+func TestBundledIncludesSystemSkills(t *testing.T) {
 	b := skills.Bundled()
-	if len(b) != 1 {
-		t.Fatalf("expected 1 bundled skill, got %d", len(b))
+	if len(b) != 2 {
+		t.Fatalf("expected 2 bundled skills, got %d", len(b))
 	}
-	if skills.CanonicalCommandName(b[0]) != "generate-rules" {
-		t.Fatalf("name %q", skills.CanonicalCommandName(b[0]))
+	found := make(map[string]bool, len(b))
+	for _, skill := range b {
+		found[skills.CanonicalCommandName(skill)] = true
+	}
+	for _, name := range []string{"generate-rules", "configure-coddy"} {
+		if !found[name] {
+			t.Fatalf("bundled skill %q missing from %+v", name, found)
+		}
 	}
 }
 
@@ -22,14 +28,11 @@ func TestLoadAllPrependsBundled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	found := map[string]bool{}
 	for _, s := range all {
-		if skills.CanonicalCommandName(s) == "generate-rules" {
-			found = true
-			break
-		}
+		found[skills.CanonicalCommandName(s)] = true
 	}
-	if !found {
-		t.Fatal("bundled skill missing from LoadAll")
+	if !found["generate-rules"] || !found["configure-coddy"] {
+		t.Fatalf("bundled skills missing from LoadAll: %+v", found)
 	}
 }

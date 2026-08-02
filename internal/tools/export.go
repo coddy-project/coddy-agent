@@ -34,6 +34,8 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	toolfs.RegisterBuiltins(r.Register)
 	r.Register(shell.RunCommandToolForShell(environment.Shell))
 	r.Register(QuestionTool())
+	r.Register(ConfigGetTool())
+	r.Register(ConfigSetTool())
 	r.Register(PlanExitTool())
 	r.Register(PlanWriteTool())
 	r.Register(PlanListTool())
