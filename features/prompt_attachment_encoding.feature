@@ -39,6 +39,45 @@ Feature: Prompt attachments in non-UTF-8 encodings
       Агент должен увидеть текст, а не сообщение об ошибке.
       """
 
+  Scenario: Attaching a Windows-1251 source file whose bulk is ASCII code
+    Given a workspace file "main.go" encoded in windows-1251 with content:
+      """
+      package main
+
+      import "fmt"
+
+      // Точка входа в программу.
+      func main() {
+          fmt.Println("hello")
+          // Здесь считаем сумму значений.
+          total := 0
+          for i := 0; i < 10; i++ {
+              total += i
+          }
+          fmt.Println(total)
+      }
+      """
+    When I attach "main.go" to the prompt "разбери @main.go"
+    Then the prompt has a resource for "main.go"
+    And the resource mime type is "text/plain; charset=utf-8"
+    And the resource text is:
+      """
+      package main
+
+      import "fmt"
+
+      // Точка входа в программу.
+      func main() {
+          fmt.Println("hello")
+          // Здесь считаем сумму значений.
+          total := 0
+          for i := 0; i < 10; i++ {
+              total += i
+          }
+          fmt.Println(total)
+      }
+      """
+
   Scenario: Attaching a UTF-8 file still hydrates it unchanged
     Given a workspace file "utf8.md" encoded in utf-8 with content:
       """

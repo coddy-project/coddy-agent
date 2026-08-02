@@ -99,6 +99,32 @@ func TestHydratePromptContentBlocksSkipsBinaryAtMention(t *testing.T) {
 	}
 }
 
+// TestReadWorkspaceUTF8KeepsFileWithEmbeddedNUL guards the attachment path
+// against over-eager binary detection: a UTF-8 source file that holds a NUL
+// literal (this repository ships one in external/ui/src/ui/settings/
+// SkillsSection.tsx) must still hydrate, and its bytes must arrive unchanged.
+func TestReadWorkspaceUTF8KeepsFileWithEmbeddedNUL(t *testing.T) {
+	root := t.TempDir()
+	const source = "// Flash key for the \"Sync all\" action.\n" +
+		"const SYNC_ALL_KEY = \"\x00all\";\n" +
+		"export function useSkills() {\n" +
+		"  return SYNC_ALL_KEY;\n" +
+		"}\n"
+	if err := os.WriteFile(filepath.Join(root, "SkillsSection.tsx"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, mime, err := session.ReadWorkspaceUTF8(root, "SkillsSection.tsx")
+	if err != nil {
+		t.Fatalf("ReadWorkspaceUTF8: %v", err)
+	}
+	if got != source {
+		t.Fatalf("content %q, want %q", got, source)
+	}
+	if mime != "text/plain; charset=utf-8" {
+		t.Fatalf("mime %q", mime)
+	}
+}
+
 func TestReadWorkspaceUTF8DecodesLegacyEncodings(t *testing.T) {
 	root := t.TempDir()
 	const russian = "Первая строка файла в устаревшей кодировке.\n" +

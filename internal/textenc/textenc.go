@@ -12,12 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/gogs/chardet"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/ianaindex"
-	"golang.org/x/text/encoding/unicode"
+	xunicode "golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/encoding/unicode/utf32"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -37,9 +38,20 @@ const (
 	// treated as noise. Detection of a single-byte charset from a short file is
 	// inherently weak, so the Windows ANSI fallback picks up what is rejected here.
 	minDetectConfidence = 30
+	// minSampleConfidence is the same bar for the concentrated pass in
+	// detectCharset. That sample is short by construction - only the lines that
+	// carry non-ASCII bytes - so chardet scores it lower for the same evidence.
+	minSampleConfidence = 20
 	// maxReplacementRatio rejects a decode that produced mostly U+FFFD, which is
 	// what a wrong charset guess against binary input looks like.
 	maxReplacementRatio = 0.1
+	// minUTF16SniffBytes is the shortest input worth testing for the interleaved
+	// byte pattern of BOM-less UTF-16; below it the parity ratio is meaningless.
+	minUTF16SniffBytes = 8
+	// minUTF16FillerRatio is the share of one parity class that must be control
+	// bytes for the input to read as UTF-16. Real UTF-16 puts the code point's
+	// high byte there, which is 0x00 for Latin text and 0x04 for Cyrillic.
+	minUTF16FillerRatio = 0.8
 )
 
 var (
@@ -61,14 +73,16 @@ func DecodeToUTF8(data []byte) (text string, charset string, err error) {
 	if text, charset, ok := decodeBOM(data); ok {
 		return text, charset, nil
 	}
-	// The binary check precedes the UTF-8 fast path on purpose: NUL is a valid
-	// UTF-8 code point, so BOM-less UTF-16 and plenty of binary formats pass
-	// utf8.Valid and would otherwise be inlined as noise.
+	// Valid UTF-8 is returned as it stands, ahead of the binary guard, because a
+	// stray NUL does not make a text file binary: source files do carry the odd
+	// NUL literal and refusing them would hide real text from the model. The one
+	// shape that must not take this path is BOM-less UTF-16, which passes
+	// utf8.Valid (NUL is a code point) and would be inlined as noise.
+	if utf8.Valid(data) && !looksLikeUTF16(data) {
+		return string(data), CharsetUTF8, nil
+	}
 	if isBinary(data) {
 		return "", "", ErrUndecodable
-	}
-	if utf8.Valid(data) {
-		return string(data), CharsetUTF8, nil
 	}
 	if text, charset, ok := decodeDetected(data); ok {
 		return text, charset, nil
@@ -97,25 +111,105 @@ func decodeBOM(data []byte) (string, string, bool) {
 	case bytes.HasPrefix(data, bomUTF32BE):
 		return decodeWith(utf32.UTF32(utf32.BigEndian, utf32.ExpectBOM), data, "UTF-32BE")
 	case bytes.HasPrefix(data, bomUTF16LE):
-		return decodeWith(unicode.UTF16(unicode.LittleEndian, unicode.ExpectBOM), data, "UTF-16LE")
+		return decodeWith(xunicode.UTF16(xunicode.LittleEndian, xunicode.ExpectBOM), data, "UTF-16LE")
 	case bytes.HasPrefix(data, bomUTF16BE):
-		return decodeWith(unicode.UTF16(unicode.BigEndian, unicode.ExpectBOM), data, "UTF-16BE")
+		return decodeWith(xunicode.UTF16(xunicode.BigEndian, xunicode.ExpectBOM), data, "UTF-16BE")
 	}
 	return "", "", false
 }
 
+// candidate is one decoding of the input together with the charset behind it.
+type candidate struct {
+	text    string
+	charset string
+}
+
 // decodeDetected asks chardet what the bytes look like and decodes with the
 // matching x/text encoding when the guess is both confident and supported.
+//
+// Detection runs twice, over the whole input and over just the lines carrying
+// non-ASCII bytes. A file that is mostly ASCII with a minority of legacy text -
+// source code with Russian comments, the everyday case on a Russian Windows
+// install - starves the statistical model: ISO-8859-1 fits any byte sequence, so
+// it wins the whole-input pass and the file decodes to mojibake. The
+// concentrated pass sees only the evidence and names the real charset.
 func decodeDetected(data []byte) (string, string, bool) {
+	full, fullOK := decodeGuess(data, detectCharset(data, minDetectConfidence))
+	sample, sampleOK := decodeGuess(data, detectCharset(nonASCIILines(data), minSampleConfidence))
+	// The concentrated pass only overrules the other one when it makes a
+	// positive claim the whole-input pass did not, namely a non-Latin script.
+	// Between Latin charsets chardet cannot really tell 8859-1 from 8859-2, and
+	// the whole-input answer is the safer of two near-identical decodings.
+	if sampleOK && hasNonLatinLetters(sample.text) && (!fullOK || !hasNonLatinLetters(full.text)) {
+		return sample.text, sample.charset, true
+	}
+	if fullOK {
+		return full.text, full.charset, true
+	}
+	return "", "", false
+}
+
+// detectCharset names the charset chardet is most confident about, or "" when
+// there is nothing to go on.
+func detectCharset(data []byte, minConfidence int) string {
+	if len(data) == 0 {
+		return ""
+	}
 	res, err := chardet.NewTextDetector().DetectBest(data)
-	if err != nil || res == nil || res.Confidence < minDetectConfidence {
-		return "", "", false
+	if err != nil || res == nil || res.Confidence < minConfidence {
+		return ""
 	}
-	enc, err := ianaindex.IANA.Encoding(res.Charset)
+	return res.Charset
+}
+
+// decodeGuess decodes the whole input with a named charset, reporting failure
+// for a charset x/text does not know or a decoding that is not plausible text.
+func decodeGuess(data []byte, charset string) (candidate, bool) {
+	if charset == "" {
+		return candidate{}, false
+	}
+	enc, err := ianaindex.IANA.Encoding(charset)
 	if err != nil || enc == nil {
-		return "", "", false
+		return candidate{}, false
 	}
-	return decodeWith(enc, data, res.Charset)
+	text, cs, ok := decodeWith(enc, data, charset)
+	if !ok {
+		return candidate{}, false
+	}
+	return candidate{text: text, charset: cs}, true
+}
+
+// nonASCIILines keeps the lines holding a byte outside ASCII, which is where the
+// evidence for a single-byte charset lives. It returns nil when every line
+// qualifies, since the concentrated pass would then just repeat the full one.
+func nonASCIILines(data []byte) []byte {
+	var out bytes.Buffer
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		for _, b := range line {
+			if b >= utf8.RuneSelf {
+				out.Write(line)
+				out.WriteByte('\n')
+				break
+			}
+		}
+	}
+	if out.Len() == 0 || out.Len() >= len(data) {
+		return nil
+	}
+	return out.Bytes()
+}
+
+// hasNonLatinLetters reports whether the text carries a letter outside the Latin
+// script. Cyrillic text mis-decoded through a Latin code page reads as Latin
+// letters, so this separates a real Cyrillic reading from a plausible-looking
+// Western one.
+func hasNonLatinLetters(text string) bool {
+	for _, r := range text {
+		if unicode.IsLetter(r) && !unicode.Is(unicode.Latin, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // decodeWith runs one encoding over the bytes and rejects a result that is not
@@ -145,6 +239,33 @@ func isBinary(data []byte) bool {
 		data = data[:binarySniffLimit]
 	}
 	return bytes.IndexByte(data, 0) >= 0
+}
+
+// looksLikeUTF16 reports whether the bytes carry the interleaved pattern of
+// BOM-less UTF-16: one of the two byte positions holds the code point's high
+// byte, which for ordinary text is a control byte - 0x00 for Latin, 0x04 for
+// Cyrillic. Tabs, newlines and carriage returns are not counted, so a file of
+// very short ASCII lines does not read as UTF-16 just for being newline-heavy.
+func looksLikeUTF16(data []byte) bool {
+	if len(data) > binarySniffLimit {
+		data = data[:binarySniffLimit]
+	}
+	if len(data) < minUTF16SniffBytes {
+		return false
+	}
+	var counts, fillers [2]int
+	for i, b := range data {
+		counts[i%2]++
+		if b < 0x20 && b != '\t' && b != '\n' && b != '\r' {
+			fillers[i%2]++
+		}
+	}
+	for i := range counts {
+		if counts[i] > 0 && float64(fillers[i])/float64(counts[i]) >= minUTF16FillerRatio {
+			return true
+		}
+	}
+	return false
 }
 
 // plausibleText rejects decoder output that is mostly replacement characters or

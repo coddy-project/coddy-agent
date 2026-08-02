@@ -86,8 +86,8 @@ func TestDecodeToUTF8RejectsNonText(t *testing.T) {
 		data []byte
 	}{
 		{name: "png header", data: pngHeader},
-		{name: "nul byte inside text", data: []byte("looks like text\x00but is not")},
 		{name: "utf16le without bom", data: mustEncode(t, unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM), "hello")},
+		{name: "utf16be without bom", data: mustEncode(t, unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM), russian)},
 	}
 
 	for _, tc := range cases {
@@ -113,6 +113,87 @@ func TestDecodeToUTF8DetectsWindows1251(t *testing.T) {
 	}
 	if !strings.EqualFold(charset, "windows-1251") {
 		t.Fatalf("charset = %q, want windows-1251", charset)
+	}
+}
+
+// TestDecodeToUTF8KeepsUTF8WithEmbeddedNUL pins that a stray NUL does not turn
+// valid UTF-8 into "binary". Source files do carry the odd NUL literal - this
+// repository's own external/ui/src/ui/settings/SkillsSection.tsx has one inside
+// a string constant - and refusing them would hide real text from the model.
+func TestDecodeToUTF8KeepsUTF8WithEmbeddedNUL(t *testing.T) {
+	in := []byte("const SYNC_ALL_KEY = \"\x00all\";\n" + russian)
+	got, charset, err := textenc.DecodeToUTF8(in)
+	if err != nil {
+		t.Fatalf("DecodeToUTF8: %v", err)
+	}
+	if got != string(in) {
+		t.Fatalf("decoded %q, want the input unchanged", got)
+	}
+	if !strings.EqualFold(charset, "utf-8") {
+		t.Fatalf("charset = %q, want utf-8", charset)
+	}
+}
+
+// TestDecodeToUTF8DetectsLegacyCharsetInMostlyASCIIFile covers the shape a
+// developer actually commits: source code where the ASCII bulk outweighs the
+// legacy-encoded comments. Detection over the whole file loses to ISO-8859-1
+// there, which fits any byte sequence, and the file decodes to mojibake.
+func TestDecodeToUTF8DetectsLegacyCharsetInMostlyASCIIFile(t *testing.T) {
+	const source = "package main\n" +
+		"\n" +
+		"import \"fmt\"\n" +
+		"\n" +
+		"// Точка входа в программу.\n" +
+		"func main() {\n" +
+		"\tfmt.Println(\"hello\")\n" +
+		"\t// Здесь считаем сумму значений.\n" +
+		"\ttotal := 0\n" +
+		"\tfor i := 0; i < 10; i++ {\n" +
+		"\t\ttotal += i\n" +
+		"\t}\n" +
+		"\tfmt.Println(total)\n" +
+		"}\n"
+
+	cases := []struct {
+		name string
+		enc  encoding.Encoding
+		want string
+	}{
+		{name: "windows-1251", enc: charmap.Windows1251, want: "windows-1251"},
+		{name: "koi8-r", enc: charmap.KOI8R, want: "KOI8-R"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, charset, err := textenc.DecodeToUTF8(mustEncode(t, tc.enc, source))
+			if err != nil {
+				t.Fatalf("DecodeToUTF8: %v", err)
+			}
+			if got != source {
+				t.Fatalf("decoded %q,\nwant %q", got, source)
+			}
+			if !strings.EqualFold(charset, tc.want) {
+				t.Fatalf("charset = %q, want %q", charset, tc.want)
+			}
+		})
+	}
+}
+
+// TestDecodeToUTF8KeepsLatin1ForWesternText guards the other side of that
+// change: a Western file must not be dragged onto a Cyrillic charset by the
+// concentrated detection pass.
+func TestDecodeToUTF8KeepsLatin1ForWesternText(t *testing.T) {
+	const source = "#!/bin/sh\n" +
+		"# Copyright (C) 2003,04,07 Guido Günther <agx@example.org>\n" +
+		"# Distributed under the terms of the GNU General Public License.\n" +
+		"set -e\n" +
+		"echo \"starting daemon\"\n" +
+		"exit 0\n"
+	got, _, err := textenc.DecodeToUTF8(mustEncode(t, charmap.ISO8859_1, source))
+	if err != nil {
+		t.Fatalf("DecodeToUTF8: %v", err)
+	}
+	if got != source {
+		t.Fatalf("decoded %q,\nwant %q", got, source)
 	}
 }
 
