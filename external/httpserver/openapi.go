@@ -116,7 +116,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** only.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1706,7 +1706,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{
