@@ -126,13 +126,42 @@ func TestDiscoverNestedAgentsMD(t *testing.T) {
 			t.Fatalf("source = %q, want agents", r.Source)
 		}
 		if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto || len(r.Globs) != 0 {
-			t.Fatalf("AGENTS.md rule must be always-loaded: %+v", r)
+			t.Fatalf("AGENTS.md rule must be an auto rule without globs: %+v", r)
+		}
+		if r.ScopeDir != filepath.Dir(r.FilePath) {
+			t.Fatalf("AGENTS.md rule must be scoped to its own directory: ScopeDir=%q FilePath=%q", r.ScopeDir, r.FilePath)
 		}
 	}
 	names := []string{got[0].CanonicalName(), got[1].CanonicalName()}
 	sort.Strings(names)
 	if names[0] != "external/httpserver/AGENTS.md" || names[1] != "internal/agent/AGENTS.md" {
 		t.Fatalf("names = %v", names)
+	}
+}
+
+func TestDiscoverNestedAgentsMDTruncatesOversizedFile(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A scoped rule enters the prompt in one shot, so an oversized file must be
+	// capped the same way the project docs preamble is.
+	big := strings.Repeat("x", 300*1024)
+	if err := os.WriteFile(filepath.Join(tmp, "sub", "AGENTS.md"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"agents"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(got))
+	}
+	if len(got[0].Content) >= len(big) {
+		t.Fatalf("content not capped: %d bytes", len(got[0].Content))
+	}
+	if !strings.HasSuffix(got[0].Content, "...(truncated)") {
+		t.Fatal("capped content must be marked as truncated")
 	}
 }
 

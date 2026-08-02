@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
@@ -125,6 +126,9 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		ConfigPath:        a.cfg.Paths.ConfigPath,
 		ConfigHome:        a.cfg.Paths.Home,
 		ConfigCWD:         a.cfg.Paths.CWD,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sessionDir),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
 	if a.configReloader != nil {
 		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
@@ -138,10 +142,42 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			}
 			a.cfg = next
 			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			env.PermissionMode = effectivePermMode(a.state, next)
+			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
+			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
+			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
+			env.Background = a.backgroundPool(sessionDir)
+			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
 			return warnings, nil
 		}
 	}
 	return env
+}
+
+// backgroundPool returns the process-wide task pool, telling it where this
+// session persists so a task started from here mirrors its output into the
+// session bundle.
+func (a *Agent) backgroundPool(sessionDir string) *bgtask.Pool {
+	pool := bgtask.Default()
+	pool.SetConfig(backgroundConfig(a.cfg))
+	if strings.TrimSpace(sessionDir) != "" {
+		pool.SetSessionDir(a.state.GetID(), sessionDir)
+	}
+	return pool
+}
+
+// backgroundConfig translates the operator's YAML into the pool's bounds.
+func backgroundConfig(cfg *config.Config) bgtask.Config {
+	if cfg == nil {
+		return bgtask.Config{}
+	}
+	resolved := cfg.Tools.Background.Resolved()
+	return bgtask.Config{
+		MaxConcurrent:         resolved.MaxConcurrent,
+		DefaultTimeoutSeconds: resolved.DefaultTimeoutSeconds,
+		MaxTimeoutSeconds:     resolved.MaxTimeoutSeconds,
+		OutputBufferBytes:     resolved.OutputBufferBytes,
+	}
 }
 
 // continueReAct runs the ReAct loop using messages already on the session (no new user turn).

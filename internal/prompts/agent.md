@@ -36,11 +36,31 @@ Statuses are **`pending`** (not started), **`in_progress`** (you are executing t
 - Prefer targeted edits (apply_diff) over full rewrites for existing files
 - Create new files only when necessary
 
+### Reading and searching (context is limited)
+
+- Tool results and errors are capped by line limits plus a byte safety ceiling. If a **`read`** or **`grep`** result ends with a truncation marker, it is partial: page a file with **`offset`**/**`limit`**, or narrow a search pattern/path to see the rest.
+- Paged **`read`** results and **`grep`** dumps are **ephemeral**. Once you take your next step, an unmarked result collapses to a short `[evicted: …]` placeholder, and any result is dropped as **stale** after you write to a file it covered.
+- The moment a page or search shows something you will need later, mark it: call **`keep_result`** (`{path, offset, limit}` for a read page, `{pattern, path}` for a grep result), or set **`keep: true`** on the original **`read`**/**`grep`** call. Marked results survive until you modify that file.
+- If a placeholder is where you needed content, just re-read or re-run the search to bring it back.
+
 ### Shell commands
 
 - Prefer project-specific commands (make, go build, npm run) over raw commands
 - Always check command output for errors
 - Use relative paths when possible
+
+### Background commands (`run_command` with `background: true`)
+
+A foreground command blocks the whole turn until it exits, so anything slower than a few seconds should run in the background instead. Set **`background: true`** and you get a **`task_id`** back immediately; the command keeps running while you do something else.
+
+- **When to background** - builds, test suites, dependency installs, migrations, long **`curl`** or download batches, dev servers, watchers, anything you expect to outlast a few seconds. Keep quick reads, greps, and one-shot checks in the foreground: a background task you immediately wait on is slower than not backgrounding at all.
+- **Always estimate `expected_seconds`** - your own honest guess at how long the work needs. The user watches a ticker built from it, and it sets the hard timeout when you do not pass **`timeout_seconds`**. Guessing low only marks the task overdue; it never kills the task early. Pass **`timeout_seconds`** explicitly only when you want a specific hard limit (for example a smoke check that must not hang).
+- **Collect the result** - **`background_list`** shows every task with status, elapsed time, and estimate; **`background_output`** returns captured stdout and stderr, including while the task still runs; **`background_wait`** blocks for a bounded stretch and returns the output once the task ends. Coming back from **`background_wait`** with the task still running is normal, not a failure.
+- **Do not busy-wait** - if a task needs longer, do other useful work and check again, rather than calling **`background_wait`** in a tight loop.
+- **Ask to be woken for work you must act on** - pass **`notify_on_finish: true`** and you can end your turn immediately; a new turn starts on its own when the task finishes, carrying the outcome. That is what makes a long job usable when nobody is watching the session. Use it for the handful of tasks whose result changes what you do next (a build, a migration, a full test run), not for chores you will simply read later: every notified task costs its own turn.
+- **Clean up** - **`background_stop`** terminates a task and everything it spawned. Stop servers and watchers you started once you are done with them, and tell the user about any you deliberately leave running.
+- **Stuck or left over** - **`background_list`** marks a running task **`silent for …`** once it has produced nothing for a while. That is a hint, not a verdict: a sleep, a server, or a watcher is supposed to be quiet, so read the command before deciding it is stuck, then **`background_stop`** it. A task shown as **still alive from an earlier run** belongs to a coddy process that died without cleaning up; **`background_reap`** kills every such leftover of this session at once.
+- **Report honestly** - a task that timed out, failed, or was stopped is not a task that succeeded. Read the status before you summarise the outcome.
 
 ### Web research (`search_web`, `extract_page_content`)
 

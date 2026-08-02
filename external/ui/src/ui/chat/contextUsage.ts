@@ -48,3 +48,31 @@ export function contextUsagePercent(
   }
   return Math.min(100, Math.max(0, (used / maxContextTokens) * 100));
 }
+
+/** Applies an ACP usage_update immediately while detailed HTTP stats refresh. */
+export function withContextUsedTokens(
+  breakdown: ContextBreakdownLike | null | undefined,
+  usedTokens: number,
+): Required<ContextBreakdownLike> {
+  const used = Math.max(0, Math.trunc(usedTokens));
+  const current = {
+    systemPrompt: Math.max(0, breakdown?.systemPrompt || 0),
+    toolDefinitions: Math.max(0, breakdown?.toolDefinitions || 0),
+    rules: Math.max(0, breakdown?.rules || 0),
+    skills: Math.max(0, breakdown?.skills || 0),
+    mcp: Math.max(0, breakdown?.mcp || 0),
+    subagents: Math.max(0, breakdown?.subagents || 0),
+  };
+  const fixed =
+    current.systemPrompt +
+    current.toolDefinitions +
+    current.rules +
+    current.skills +
+    current.mcp +
+    current.subagents;
+  return {
+    ...current,
+    conversation: Math.max(0, used - fixed),
+    estimatedTotal: used,
+  };
+}

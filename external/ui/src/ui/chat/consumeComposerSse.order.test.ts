@@ -42,6 +42,7 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
       items.push(...next);
     },
     setTokenUsage: () => {},
+    setContextUsage: () => {},
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
@@ -52,6 +53,32 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
   res.flushToolQueue();
   return items;
 }
+
+test("usage_update replaces the displayed current context after compaction", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  const updates: Array<{ used: number; size: number }> = [];
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(
+      `event: usage_update\ndata: ${JSON.stringify({ sessionUpdate: "usage_update", used: 42000, size: 128000 })}\n\n` +
+        `data: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: () => {},
+    setTokenUsage: () => {},
+    setContextUsage: (u) => updates.push(u),
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryPhaseToItems: (prev) => prev,
+    applyMemoryChunkToItems: (prev) => prev,
+  };
+
+  await consumeComposerSseReader(params);
+
+  expect(updates).toEqual([{ used: 42000, size: 128000 }]);
+});
 
 // Regression for the streaming-order bug: while a turn streams, text emitted
 // AFTER a tool call must render BELOW that tool (interleaved in arrival order),

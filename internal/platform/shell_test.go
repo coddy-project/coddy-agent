@@ -56,14 +56,15 @@ func TestDetectShellUnixPriority(t *testing.T) {
 	}
 }
 
+// TestShellCommand covers the shells that pass the command through untouched.
+// The PowerShell forms wrap the command in a script and are asserted in
+// powershell_test.go.
 func TestShellCommand(t *testing.T) {
 	tests := []struct {
 		shell   Shell
 		command string
 		args    []string
 	}{
-		{Shell{Kind: ShellPwsh, Path: "pwsh"}, "Get-ChildItem", []string{"-NoProfile", "-Command", "Get-ChildItem"}},
-		{Shell{Kind: ShellPowerShell, Path: "powershell"}, "Get-Process", []string{"-NoProfile", "-Command", "Get-Process"}},
 		{Shell{Kind: ShellCmd, Path: "cmd.exe"}, "dir", []string{"/c", "dir"}},
 		{Shell{Kind: ShellBash, Path: "/bin/bash"}, "ls", []string{"-c", "ls"}},
 		{Shell{Kind: ShellSh, Path: "/bin/sh"}, "pwd", []string{"-c", "pwd"}},

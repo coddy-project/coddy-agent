@@ -29,10 +29,12 @@ type Shell struct {
 }
 
 // Command converts a command string into executable and argv values for the shell.
+// PowerShell commands are wrapped (see wrapPowerShellCommand) so that output
+// encoding and exit codes survive; the command text itself is never rewritten.
 func (s Shell) Command(command string) (string, []string) {
 	switch s.Kind {
 	case ShellPwsh, ShellPowerShell:
-		return s.Path, []string{"-NoProfile", "-Command", command}
+		return s.Path, []string{"-NoProfile", "-Command", wrapPowerShellCommand(command)}
 	case ShellCmd:
 		return s.Path, []string{"/c", command}
 	default:

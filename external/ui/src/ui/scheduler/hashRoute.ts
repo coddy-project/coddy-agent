@@ -1,12 +1,23 @@
 /**
- * Hash routes: `#/s/<sessionId>`, `#/history`, `#/scheduler`, `#/scheduler/new`,
- * `#/scheduler/jobs/<job_id>`.
+ * Hash routes: `#/s/<sessionId>`, `#/s/<sessionId>/tasks`,
+ * `#/s/<sessionId>/tasks/<task_id>`, `#/history`, `#/scheduler`,
+ * `#/scheduler/new`, `#/scheduler/jobs/<job_id>`.
+ *
+ * Background tasks hang off the session segment rather than living at the top
+ * level: a task belongs to one chat, so the URL that opens its panel has to
+ * carry that chat or a reload lands on a panel with no session behind it.
  * Optional `?history=1` on scheduler (and session) URLs keeps the History drawer open on wide screens.
  */
 
 export type ParsedAppHash =
   | { branch: "none"; historyOpen: boolean }
-  | { branch: "session"; sessionId: string; historyOpen: boolean }
+  | {
+      branch: "session";
+      sessionId: string;
+      historyOpen: boolean;
+      tasksOpen: boolean;
+      taskId: string | null;
+    }
   | { branch: "draft"; draftId: string; historyOpen: boolean }
   | { branch: "history" }
   | {
@@ -113,12 +124,34 @@ export function parseAppHash(): ParsedAppHash {
       historyOpen,
     };
   }
+  const sessTask = /^s\/([^/]+)\/tasks\/(.+)$/.exec(h);
+  if (sessTask && sessTask[1] && sessTask[2]) {
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessTask[1]),
+      historyOpen,
+      tasksOpen: true,
+      taskId: decodeURIComponent(sessTask[2]),
+    };
+  }
+  const sessTasks = /^s\/([^/]+)\/tasks$/.exec(h);
+  if (sessTasks && sessTasks[1]) {
+    return {
+      branch: "session",
+      sessionId: decodeURIComponent(sessTasks[1]),
+      historyOpen,
+      tasksOpen: true,
+      taskId: null,
+    };
+  }
   const sess = /^s\/([^/]+)$/.exec(h);
   if (sess && sess[1]) {
     return {
       branch: "session",
       sessionId: decodeURIComponent(sess[1]),
       historyOpen,
+      tasksOpen: false,
+      taskId: null,
     };
   }
   const draft = /^draft\/([^/]+)$/.exec(h);
@@ -260,6 +293,31 @@ export function setSettingsSectionHash(
   }
 }
 
+/** `#/s/<sessionId>/tasks[/<taskId>]` - the panel, bound to its chat. */
+export function setSessionTasksHash(
+  sessionId: string,
+  taskId?: string | null,
+  opts?: { historySidebar?: boolean },
+): void {
+  const sid = (sessionId || "").trim();
+  if (!sid) {
+    return;
+  }
+  const tid = (taskId || "").trim();
+  const base = tid
+    ? `#/s/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(tid)}`
+    : `#/s/${encodeURIComponent(sid)}/tasks`;
+  const next = withHistoryQuery(base, !!opts?.historySidebar);
+  if (window.location.hash !== next) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${next}`,
+    );
+    notifyHashAfterReplaceState();
+  }
+}
+
 export function setHistoryHash(): void {
   const next = "#/history";
   if (window.location.hash !== next) {
@@ -302,7 +360,11 @@ export function stripHistorySidebarFromHash(): void {
     return;
   }
   if (p.branch === "session" && p.historyOpen) {
-    setSessionHashInLocation(p.sessionId);
+    if (p.tasksOpen) {
+      setSessionTasksHash(p.sessionId, p.taskId);
+    } else {
+      setSessionHashInLocation(p.sessionId);
+    }
     return;
   }
   if (p.branch === "settings" && p.historyOpen) {
@@ -330,6 +392,21 @@ export function appNavHrefSettings(): string {
 export function appNavHrefSettingsSection(section: string): string {
   const id = (section || "").trim();
   return id ? `#/settings/${encodeURIComponent(id)}` : "#/settings";
+}
+
+/** Hash to open one background task of a chat (middle-click opens a new tab). */
+export function appNavHrefSessionTask(
+  sessionId: string,
+  taskId?: string | null,
+): string {
+  const sid = (sessionId || "").trim();
+  if (!sid) {
+    return appNavHrefHome();
+  }
+  const tid = (taskId || "").trim();
+  return tid
+    ? `#/s/${encodeURIComponent(sid)}/tasks/${encodeURIComponent(tid)}`
+    : `#/s/${encodeURIComponent(sid)}/tasks`;
 }
 
 export function appNavHrefScheduler(): string {

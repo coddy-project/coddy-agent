@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -97,6 +98,8 @@ func main() {
 		err = runSkills(args[1:])
 	case "plugin":
 		err = runPlugin(args[1:])
+	case "codex":
+		err = runCodex(args[1:])
 	case "rules":
 		err = runRules(args[1:])
 	case "update":
@@ -130,6 +133,7 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
+  %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
@@ -198,6 +202,7 @@ func runACP(args []string) error {
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting ACP server", "version", version.Get())
+	llm.LogCodexAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)

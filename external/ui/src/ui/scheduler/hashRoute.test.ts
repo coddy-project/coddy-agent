@@ -7,6 +7,7 @@ import {
   appNavHrefSchedulerNew,
   appNavHrefSession,
   appNavHrefSettings,
+  appNavHrefSessionTask,
   parseAppHash,
   schedulerEditorFromParsedHash,
   setHistoryHash,
@@ -15,6 +16,7 @@ import {
   setSchedulerListHash,
   setSessionHashInLocation,
   setSettingsHash,
+  setSessionTasksHash,
   stripHistorySidebarFromHash,
 } from "./hashRoute";
 
@@ -77,6 +79,8 @@ describe("parseAppHash", () => {
       branch: "session",
       sessionId: "sess_abc",
       historyOpen: true,
+      tasksOpen: false,
+      taskId: null,
     });
   });
 
@@ -213,5 +217,87 @@ describe("appNavHref helpers", () => {
     expect(appNavHrefSchedulerJob("demo")).toBe("#/scheduler/jobs/demo");
     expect(appNavHrefSchedulerJob("a/b")).toBe("#/scheduler/jobs/a%2Fb");
     expect(appNavHrefSchedulerJob("")).toBe("#/scheduler");
+  });
+});
+
+describe("background tasks routes", () => {
+  test("tasks hang off the session segment", () => {
+    setHash("#/s/demo/tasks");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "demo",
+      historyOpen: false,
+      tasksOpen: true,
+      taskId: null,
+    });
+
+    setHash("#/s/demo/tasks/bg_7");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "demo",
+      historyOpen: false,
+      tasksOpen: true,
+      taskId: "bg_7",
+    });
+  });
+
+  test("a plain session route leaves the panel closed", () => {
+    setHash("#/s/demo");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "demo",
+      historyOpen: false,
+      tasksOpen: false,
+      taskId: null,
+    });
+  });
+
+  test("the history sidebar flag still rides along", () => {
+    setHash("#/s/demo/tasks/bg_7?history=1");
+    expect(parseAppHash()).toEqual({
+      branch: "session",
+      sessionId: "demo",
+      historyOpen: true,
+      tasksOpen: true,
+      taskId: "bg_7",
+    });
+  });
+
+  test("writers keep the session in the address", () => {
+    setHash("");
+    setSessionTasksHash("demo");
+    expect(window.location.hash).toBe("#/s/demo/tasks");
+
+    setSessionTasksHash("demo", "bg_2");
+    expect(window.location.hash).toBe("#/s/demo/tasks/bg_2");
+
+    setSessionTasksHash("demo", "  ");
+    expect(window.location.hash).toBe("#/s/demo/tasks");
+
+    setSessionTasksHash("demo", "bg_3", { historySidebar: true });
+    expect(window.location.hash).toBe("#/s/demo/tasks/bg_3?history=1");
+  });
+
+  test("a writer without a session is a no-op, since the panel needs one", () => {
+    setHash("#/s/demo");
+    setSessionTasksHash("");
+    expect(window.location.hash).toBe("#/s/demo");
+  });
+
+  test("stripping the history sidebar keeps the task route", () => {
+    setHash("#/s/demo/tasks/bg_9?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/s/demo/tasks/bg_9");
+
+    setHash("#/s/demo/tasks?history=1");
+    stripHistorySidebarFromHash();
+    expect(window.location.hash).toBe("#/s/demo/tasks");
+  });
+
+  test("nav hrefs encode both ids", () => {
+    expect(appNavHrefSessionTask("demo")).toBe("#/s/demo/tasks");
+    expect(appNavHrefSessionTask("demo", "bg_1")).toBe("#/s/demo/tasks/bg_1");
+    expect(appNavHrefSessionTask("a/b", "c/d")).toBe("#/s/a%2Fb/tasks/c%2Fd");
+    expect(appNavHrefSessionTask("")).toBe("#/");
   });
 });

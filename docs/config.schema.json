@@ -25,16 +25,17 @@
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, or \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint, or \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API).",
             "enum": [
               "openai",
               "anthropic",
-              "neuraldeep"
+              "neuraldeep",
+              "codex"
             ]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\" and type \"codex\", which always use fixed official endpoints."
           },
           "api_key": {
             "type": "string",
@@ -69,7 +70,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message."
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
           },
           "temperature": {
             "type": "number",
@@ -137,6 +138,29 @@
           "type": "integer",
           "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
           "default": 0,
+          "minimum": 0
+        },
+        "loop_guard": {
+          "type": "boolean",
+          "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "default": true
+        },
+        "loop_tool_repeat_limit": {
+          "type": "integer",
+          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stream_repeat_cycles": {
+          "type": "integer",
+          "description": "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check.",
+          "default": 5,
+          "minimum": 0
+        },
+        "loop_nudge_max": {
+          "type": "integer",
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
+          "default": 2,
           "minimum": 0
         }
       }
@@ -249,10 +273,11 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
             "enum": [
               "stdio",
-              "http"
+              "http",
+              "sse"
             ]
           },
           "name": {
@@ -317,6 +342,17 @@
                 }
               }
             }
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
@@ -348,6 +384,101 @@
           "type": "integer",
           "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
           "default": 30
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults.",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "integer",
+              "description": "Max lines for a read file page or directory listing.",
+              "default": 1000,
+              "minimum": 0
+            },
+            "grep": {
+              "type": "integer",
+              "description": "Max path:line:content records returned by grep.",
+              "default": 200,
+              "minimum": 0
+            },
+            "glob": {
+              "type": "integer",
+              "description": "Max paths returned by glob.",
+              "default": 300,
+              "minimum": 0
+            },
+            "print_tree": {
+              "type": "integer",
+              "description": "Max lines of a directory tree.",
+              "default": 400,
+              "minimum": 0
+            },
+            "run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a shell command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "ssh_run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a remote SSH command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "webfetch": {
+              "type": "integer",
+              "description": "Max lines of fetched page markdown.",
+              "default": 800,
+              "minimum": 0
+            },
+            "websearch": {
+              "type": "integer",
+              "description": "Max lines of search results.",
+              "default": 200,
+              "minimum": 0
+            },
+            "default": {
+              "type": "integer",
+              "description": "Applies to any tool not named above, including MCP tools. 0 means unlimited.",
+              "default": 1000,
+              "minimum": 0
+            }
+          }
+        },
+        "background": {
+          "type": "object",
+          "title": "Background tasks",
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the coddy process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Offer the background option on run_command and expose the background task tools.",
+              "default": true
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "description": "How many background tasks one session may run at once. 0 uses the default.",
+              "default": 5
+            },
+            "default_timeout_seconds": {
+              "type": "integer",
+              "description": "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default.",
+              "default": 900
+            },
+            "max_timeout_seconds": {
+              "type": "integer",
+              "description": "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default.",
+              "default": 3600
+            },
+            "output_buffer_bytes": {
+              "type": "integer",
+              "description": "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default.",
+              "default": 262144
+            }
+          }
         }
       }
     },
@@ -459,6 +590,31 @@
           "type": "string",
           "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for read/grep result eviction. Defaults to true.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
         }
       }
     },

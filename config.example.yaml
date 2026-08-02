@@ -44,6 +44,13 @@ providers:
   #   type: neuraldeep
   #   api_key: "${NEURALDEEP_API_KEY}"
 
+  # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
+  # Sign In with ChatGPT. Coddy stores tokens under $CODDY_HOME/providers/codex/
+  # with restrictive file permissions (no api_key or api_base needed). A Codex CLI
+  # login remains a compatibility fallback when no Coddy-managed token exists.
+  # - name: codex
+  #   type: codex
+
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
   # - name: deepseek
@@ -65,6 +72,10 @@ models:
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
   #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
 
+  # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
+  #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
+  #   reasoning_default: medium
+
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
@@ -74,6 +85,14 @@ agent:
   model: "openai/gpt-4o"
   max_turns: 30
   max_tokens_per_turn: 200000
+  # Runaway-loop protection. Cuts a streamed response that degenerates into
+  # repeating the same passage, and blocks a tool requested over and over with
+  # identical arguments. The model is nudged back on track first; only a turn
+  # that keeps looping is stopped with a notice.
+  # loop_guard: true
+  # loop_tool_repeat_limit: 3     # identical tool calls in a row before intervening (0 disables)
+  # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
+  # loop_nudge_max: 2             # nudges before the turn is stopped
 
 sessions:
   # Directory to store session bundles.
@@ -87,6 +106,12 @@ sessions:
 #   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   # Collapse superseded read/grep results to placeholders in the LLM request
+#   # (the persisted transcript stays complete). Only marked results survive.
+#   result_eviction:
+#     enabled: true          # master switch
+#     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
+#     min_result_bytes: 2000 # results this size or smaller are never evicted
 
 prompts:
   # Directory containing prompt templates (Go text/template).
@@ -117,12 +142,20 @@ skills:
   # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
   auto_discovery: true
 
+# MCP servers connected for every new session (the "global" scope, together with
+# ~/.coddy/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
+# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.coddy/mcp.json
+# (the "local" scope). Later levels override same-named servers from earlier ones.
+# Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
   #   env: []
+  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
+  #   disabled: false
+  #   disabled_tools: ["write_file"]
 
   # Example: GitHub MCP server
   # - name: "github"
@@ -155,6 +188,33 @@ tools:
 
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
+
+  # Per-tool ceilings on how many lines a result or error may add to the LLM
+  # context. Enabled limits also impose a 64 KiB safety ceiling so a huge single
+  # line cannot bypass them. 0 = unlimited. Truncated output ends with a marker.
+  # output_limits:
+  #   read: 1000            # file page / directory listing
+  #   grep: 200             # path:line:content records
+  #   glob: 300             # paths
+  #   print_tree: 400       # directory tree lines
+  #   run_command: 500      # stdout+stderr lines
+  #   ssh_run_command: 500
+  #   webfetch: 800         # page markdown lines
+  #   websearch: 200        # search result lines
+  #   default: 1000         # anything else, incl. MCP tools; 0 = unlimited
+
+  # Commands the agent runs detached in the session background task pool instead
+  # of blocking a turn. run_command gains "background" and "expected_seconds";
+  # background_list / background_output / background_wait / background_stop
+  # collect the result later. The pool dies with the coddy process: metadata and
+  # captured output stay in the session bundle, and a task interrupted by a
+  # restart is reported as orphaned. 0 = use the built-in default.
+  # background:
+  #   enabled: true
+  #   max_concurrent: 5             # concurrent background tasks per session
+  #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
+  #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
+  #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:

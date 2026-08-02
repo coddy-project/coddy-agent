@@ -125,6 +125,15 @@ messages: [
    - If turn_count >= max_turns -> DONE (stopReason: max_turns)
    - Otherwise -> back to step 2
 
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
+     times, then -> DONE (stopReason: agent_refused) with a notice.
+
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```

@@ -13,7 +13,10 @@ var agentsSkipDirs = map[string]bool{
 }
 
 // AgentsProvider discovers nested **/AGENTS.md files (https://agents.md/)
-// under the project root and injects them as always-loaded rules.
+// under the project root and injects them as directory-scoped rules: each one
+// enters the prompt only once a context path targets its directory or anything
+// below it (see Rule.ScopeDir and MatchAuto). Loading them all unconditionally
+// costs six figures of tokens on a repo with vendored sibling checkouts.
 // The root AGENTS.md is excluded: it already enters the prompt
 // unconditionally as a project docs preamble (see LoadProjectDocs).
 type AgentsProvider struct{}
@@ -59,6 +62,9 @@ func (p *AgentsProvider) Load(root string) ([]*Rule, error) {
 		if content == "" {
 			return nil
 		}
+		if len(content) > projectDocMaxBytes {
+			content = content[:projectDocMaxBytes] + "\n\n...(truncated)"
+		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			rel = path
@@ -71,6 +77,7 @@ func (p *AgentsProvider) Load(root string) ([]*Rule, error) {
 			AlwaysApply: true,
 			ApplyMode:   ApplyAuto,
 			Content:     content,
+			ScopeDir:    filepath.Dir(path),
 		})
 		return nil
 	})

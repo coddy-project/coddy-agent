@@ -92,6 +92,53 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	}
 }
 
+func TestReloadConfigForSessionUsesProjectMCPJSONAndRefreshesFilter(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	skillsDir := filepath.Join(dir, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	next := &config.Config{Skills: config.Skills{Dirs: []string{skillsDir}}}
+	raw, err := config.MarshalConfigYAML(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(dir), "project-mcp", config.MCPJSONServer{
+		Command:       os.Args[0],
+		Args:          []string{"-test.run=TestConfigReloadMCPHelperProcess"},
+		Env:           map[string]string{"GO_WANT_CONFIG_RELOAD_MCP": "1"},
+		DisabledTools: []string{"ping"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	initial := &config.Config{
+		Paths:  config.Paths{Home: filepath.Join(dir, "home"), CWD: dir, ConfigPath: configPath},
+		Skills: config.Skills{Dirs: []string{skillsDir}},
+	}
+	mgr := NewManager(initial, nil, nil, slog.Default(), dir, nil)
+	st := &State{ID: "reload-project-mcp", CWD: dir, Mode: ModeAgent}
+	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.CloseAll()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	clients := st.GetMCPClients()
+	if len(clients) != 1 || clients[0].Name() != "project-mcp" {
+		t.Fatalf("MCP clients = %+v", clients)
+	}
+	if st.GetMCPToolFilter()("project-mcp", "ping") {
+		t.Fatal("disabled project MCP tool remained available after reload")
+	}
+}
+
 func TestConfigReloadMCPHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CONFIG_RELOAD_MCP") != "1" {
 		return

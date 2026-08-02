@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestListModelsOpenAI(t *testing.T) {
@@ -99,5 +101,39 @@ func TestListModelsUnsupportedType(t *testing.T) {
 	var ue *UnsupportedProviderError
 	if !errors.As(err, &ue) {
 		t.Fatalf("want UnsupportedProviderError, got %v", err)
+	}
+}
+
+func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
+	authPath := writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens: codexTokens{
+			AccessToken: makeJWT(time.Now().Add(time.Hour)),
+			AccountID:   "acct-models",
+		},
+	})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %q, want /models", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("client_version"); got != codexModelsClientVersion {
+			t.Fatalf("client_version = %q, want numeric 0.0.0 fallback", got)
+		}
+		if r.Header.Get("Authorization") == "" || r.Header.Get("chatgpt-account-id") != "acct-models" {
+			t.Fatalf("missing Codex OAuth headers: %v", r.Header)
+		}
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5-codex","display_name":"GPT-5 Codex"}]}`))
+	}))
+	defer upstream.Close()
+
+	got, err := listCodexModelsOnline(context.Background(), ProviderInput{
+		Type:     "codex",
+		AuthPath: filepath.Clean(authPath),
+	}, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "gpt-5-codex" || got[0].Name != "GPT-5 Codex" {
+		t.Fatalf("models = %+v", got)
 	}
 }

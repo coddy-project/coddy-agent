@@ -86,14 +86,20 @@ type ModelJSON struct {
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
 }
 
-// AgentJSON mirrors Agent for JSON APIs.
+// AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit
+// distinction for the loop guard (enabled defaults to true, the counters to
+// 3 / 5 / 2, and an explicit 0 turns a check off).
 type AgentJSON struct {
-	Model            string `json:"model"`
-	MaxTurns         int    `json:"max_turns,omitempty"`
-	MaxTokensPerTurn int    `json:"max_tokens_per_turn,omitempty"`
-	LLMRetryMax      int    `json:"llm_retry_max,omitempty"`
-	LLMRetryBaseMS   int    `json:"llm_retry_base_ms,omitempty"`
-	LLMMinIntervalMS int    `json:"llm_min_interval_ms,omitempty"`
+	Model                  string `json:"model"`
+	MaxTurns               int    `json:"max_turns,omitempty"`
+	MaxTokensPerTurn       int    `json:"max_tokens_per_turn,omitempty"`
+	LLMRetryMax            int    `json:"llm_retry_max,omitempty"`
+	LLMRetryBaseMS         int    `json:"llm_retry_base_ms,omitempty"`
+	LLMMinIntervalMS       int    `json:"llm_min_interval_ms,omitempty"`
+	LoopGuard              *bool  `json:"loop_guard,omitempty"`
+	LoopToolRepeatLimit    *int   `json:"loop_tool_repeat_limit,omitempty"`
+	LoopStreamRepeatCycles *int   `json:"loop_stream_repeat_cycles,omitempty"`
+	LoopNudgeMax           *int   `json:"loop_nudge_max,omitempty"`
 }
 
 // PromptsJSON mirrors Prompts for JSON APIs.
@@ -112,13 +118,15 @@ type SkillsJSON struct {
 
 // MCPServerJSON mirrors MCPServerConfig for JSON APIs.
 type MCPServerJSON struct {
-	Type    string           `json:"type,omitempty"`
-	Name    string           `json:"name"`
-	Command string           `json:"command,omitempty"`
-	Args    []string         `json:"args,omitempty"`
-	Env     []EnvVarJSON     `json:"env,omitempty"`
-	URL     string           `json:"url,omitempty"`
-	Headers []HTTPHeaderJSON `json:"headers,omitempty"`
+	Type          string           `json:"type,omitempty"`
+	Name          string           `json:"name"`
+	Command       string           `json:"command,omitempty"`
+	Args          []string         `json:"args,omitempty"`
+	Env           []EnvVarJSON     `json:"env,omitempty"`
+	URL           string           `json:"url,omitempty"`
+	Headers       []HTTPHeaderJSON `json:"headers,omitempty"`
+	Disabled      bool             `json:"disabled,omitempty"`
+	DisabledTools []string         `json:"disabled_tools,omitempty"`
 }
 
 // EnvVarJSON mirrors EnvVarConfig.
@@ -135,8 +143,33 @@ type HTTPHeaderJSON struct {
 
 // ToolsJSON mirrors Tools for JSON APIs.
 type ToolsJSON struct {
-	PermissionMode   string   `json:"permission_mode,omitempty"`
-	CommandAllowlist []string `json:"command_allowlist,omitempty"`
+	PermissionMode   string               `json:"permission_mode,omitempty"`
+	CommandAllowlist []string             `json:"command_allowlist,omitempty"`
+	OutputLimits     ToolOutputLimitsJSON `json:"output_limits,omitempty"`
+	Background       ToolBackgroundJSON   `json:"background,omitempty"`
+}
+
+// ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
+type ToolBackgroundJSON struct {
+	Enabled               *bool `json:"enabled,omitempty"`
+	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
+	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
+	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
+	OutputBufferBytes     int   `json:"output_buffer_bytes,omitempty"`
+}
+
+// ToolOutputLimitsJSON mirrors ToolOutputLimits. Pointer fields keep the
+// unset (default) versus explicit-zero (unlimited) distinction.
+type ToolOutputLimitsJSON struct {
+	Read          *int `json:"read,omitempty"`
+	Grep          *int `json:"grep,omitempty"`
+	Glob          *int `json:"glob,omitempty"`
+	PrintTree     *int `json:"print_tree,omitempty"`
+	RunCommand    *int `json:"run_command,omitempty"`
+	SSHRunCommand *int `json:"ssh_run_command,omitempty"`
+	WebFetch      *int `json:"webfetch,omitempty"`
+	WebSearch     *int `json:"websearch,omitempty"`
+	Default       *int `json:"default,omitempty"`
 }
 
 // LoggerJSON mirrors Logger for JSON APIs.
@@ -162,10 +195,19 @@ type SessionsJSON struct {
 // CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
 // distinction (enabled defaults to true, keep_recent_turns to 2).
 type CompactionJSON struct {
-	Enabled          *bool  `json:"enabled,omitempty"`
-	ThresholdPercent int    `json:"threshold_percent,omitempty"`
-	KeepRecentTurns  *int   `json:"keep_recent_turns,omitempty"`
-	Model            string `json:"model,omitempty"`
+	Enabled          *bool              `json:"enabled,omitempty"`
+	ThresholdPercent int                `json:"threshold_percent,omitempty"`
+	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
+	Model            string             `json:"model,omitempty"`
+	ResultEviction   ResultEvictionJSON `json:"result_eviction,omitempty"`
+}
+
+// ResultEvictionJSON mirrors ResultEviction. Pointer fields keep the
+// unset/explicit distinction (enabled defaults to true, keep_recent to 1).
+type ResultEvictionJSON struct {
+	Enabled        *bool `json:"enabled,omitempty"`
+	KeepRecent     *int  `json:"keep_recent,omitempty"`
+	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
 
 // MemoryJSON mirrors MemoryConfig.
@@ -226,12 +268,16 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Models = append(out.Models, ModelJSON(m))
 	}
 	out.Agent = AgentJSON{
-		Model:            c.Agent.Model,
-		MaxTurns:         c.Agent.MaxTurns,
-		MaxTokensPerTurn: c.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      c.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   c.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: c.Agent.LLMMinIntervalMS,
+		Model:                  c.Agent.Model,
+		MaxTurns:               c.Agent.MaxTurns,
+		MaxTokensPerTurn:       c.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            c.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         c.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       c.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(c.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(c.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(c.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(c.Agent.LoopNudgeMax),
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt,
@@ -243,7 +289,12 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		AutoDiscovery: cloneBoolPtr(c.Skills.AutoDiscovery),
 	}
 	for _, s := range c.MCPServers {
-		mj := MCPServerJSON{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mj := MCPServerJSON{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mj.Env = append(mj.Env, EnvVarJSON(e))
 		}
@@ -255,6 +306,24 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	out.Tools = ToolsJSON{
 		PermissionMode:   c.Tools.ResolvedPermMode(),
 		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
+		OutputLimits: ToolOutputLimitsJSON{
+			Read:          cloneIntPtr(c.Tools.OutputLimits.Read),
+			Grep:          cloneIntPtr(c.Tools.OutputLimits.Grep),
+			Glob:          cloneIntPtr(c.Tools.OutputLimits.Glob),
+			PrintTree:     cloneIntPtr(c.Tools.OutputLimits.PrintTree),
+			RunCommand:    cloneIntPtr(c.Tools.OutputLimits.RunCommand),
+			SSHRunCommand: cloneIntPtr(c.Tools.OutputLimits.SSHRunCommand),
+			WebFetch:      cloneIntPtr(c.Tools.OutputLimits.WebFetch),
+			WebSearch:     cloneIntPtr(c.Tools.OutputLimits.WebSearch),
+			Default:       cloneIntPtr(c.Tools.OutputLimits.Default),
+		},
+		Background: ToolBackgroundJSON{
+			Enabled:               cloneBoolPtr(c.Tools.Background.Enabled),
+			MaxConcurrent:         c.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: c.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     c.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     c.Tools.Background.OutputBufferBytes,
+		},
 	}
 	out.Logger = LoggerJSON{
 		Level: c.Logger.Level, Outputs: append([]string(nil), c.Logger.Outputs...),
@@ -267,6 +336,11 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		ThresholdPercent: c.Compaction.ThresholdPercent,
 		KeepRecentTurns:  cloneIntPtr(c.Compaction.KeepRecentTurns),
 		Model:            c.Compaction.Model,
+		ResultEviction: ResultEvictionJSON{
+			Enabled:        cloneBoolPtr(c.Compaction.ResultEviction.Enabled),
+			KeepRecent:     cloneIntPtr(c.Compaction.ResultEviction.KeepRecent),
+			MinResultBytes: cloneIntPtr(c.Compaction.ResultEviction.MinResultBytes),
+		},
 	}
 	out.Memory = MemoryJSON{
 		Enabled: c.Memory.Enabled, Model: c.Memory.Model, Dir: c.Memory.Dir,
@@ -326,12 +400,16 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Models = append(cfg.Models, ModelEntry(m))
 	}
 	cfg.Agent = Agent{
-		Model:            j.Agent.Model,
-		MaxTurns:         j.Agent.MaxTurns,
-		MaxTokensPerTurn: j.Agent.MaxTokensPerTurn,
-		LLMRetryMax:      j.Agent.LLMRetryMax,
-		LLMRetryBaseMS:   j.Agent.LLMRetryBaseMS,
-		LLMMinIntervalMS: j.Agent.LLMMinIntervalMS,
+		Model:                  j.Agent.Model,
+		MaxTurns:               j.Agent.MaxTurns,
+		MaxTokensPerTurn:       j.Agent.MaxTokensPerTurn,
+		LLMRetryMax:            j.Agent.LLMRetryMax,
+		LLMRetryBaseMS:         j.Agent.LLMRetryBaseMS,
+		LLMMinIntervalMS:       j.Agent.LLMMinIntervalMS,
+		LoopGuard:              cloneBoolPtr(j.Agent.LoopGuard),
+		LoopToolRepeatLimit:    cloneIntPtr(j.Agent.LoopToolRepeatLimit),
+		LoopStreamRepeatCycles: cloneIntPtr(j.Agent.LoopStreamRepeatCycles),
+		LoopNudgeMax:           cloneIntPtr(j.Agent.LoopNudgeMax),
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt,
@@ -343,7 +421,12 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		AutoDiscovery: cloneBoolPtr(j.Skills.AutoDiscovery),
 	}
 	for _, s := range j.MCPServers {
-		mc := MCPServerConfig{Type: s.Type, Name: s.Name, Command: s.Command, Args: append([]string(nil), s.Args...), URL: s.URL}
+		mc := MCPServerConfig{
+			Type: s.Type, Name: s.Name, Command: s.Command,
+			Args: append([]string(nil), s.Args...), URL: s.URL,
+			Disabled:      s.Disabled,
+			DisabledTools: append([]string(nil), s.DisabledTools...),
+		}
 		for _, e := range s.Env {
 			mc.Env = append(mc.Env, EnvVarConfig(e))
 		}
@@ -355,6 +438,24 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	cfg.Tools = Tools{
 		PermissionMode:   j.Tools.PermissionMode,
 		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),
+		OutputLimits: ToolOutputLimits{
+			Read:          cloneIntPtr(j.Tools.OutputLimits.Read),
+			Grep:          cloneIntPtr(j.Tools.OutputLimits.Grep),
+			Glob:          cloneIntPtr(j.Tools.OutputLimits.Glob),
+			PrintTree:     cloneIntPtr(j.Tools.OutputLimits.PrintTree),
+			RunCommand:    cloneIntPtr(j.Tools.OutputLimits.RunCommand),
+			SSHRunCommand: cloneIntPtr(j.Tools.OutputLimits.SSHRunCommand),
+			WebFetch:      cloneIntPtr(j.Tools.OutputLimits.WebFetch),
+			WebSearch:     cloneIntPtr(j.Tools.OutputLimits.WebSearch),
+			Default:       cloneIntPtr(j.Tools.OutputLimits.Default),
+		},
+		Background: ToolBackground{
+			Enabled:               cloneBoolPtr(j.Tools.Background.Enabled),
+			MaxConcurrent:         j.Tools.Background.MaxConcurrent,
+			DefaultTimeoutSeconds: j.Tools.Background.DefaultTimeoutSeconds,
+			MaxTimeoutSeconds:     j.Tools.Background.MaxTimeoutSeconds,
+			OutputBufferBytes:     j.Tools.Background.OutputBufferBytes,
+		},
 	}
 	cfg.Logger = Logger{
 		Level: j.Logger.Level, Outputs: append([]string(nil), j.Logger.Outputs...),
@@ -369,6 +470,11 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		ThresholdPercent: j.Compaction.ThresholdPercent,
 		KeepRecentTurns:  cloneIntPtr(j.Compaction.KeepRecentTurns),
 		Model:            j.Compaction.Model,
+		ResultEviction: ResultEviction{
+			Enabled:        cloneBoolPtr(j.Compaction.ResultEviction.Enabled),
+			KeepRecent:     cloneIntPtr(j.Compaction.ResultEviction.KeepRecent),
+			MinResultBytes: cloneIntPtr(j.Compaction.ResultEviction.MinResultBytes),
+		},
 	}
 	cfg.Memory = MemoryConfig{
 		Enabled: j.Memory.Enabled, Model: j.Memory.Model, Dir: j.Memory.Dir,

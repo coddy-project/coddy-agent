@@ -11,17 +11,14 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
-import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
-import { DiffView } from "./DiffView";
-
-function safePrettyJSON(text: string): string {
-  try {
-    const v = JSON.parse(text);
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return text;
-  }
-}
+import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import {
+  taskStatusLabel,
+  taskTimingLine,
+  taskTone,
+} from "../tasks/taskStatus";
+import type { BackgroundTask } from "../tasks/types";
+import { buildToolCallPreview } from "../chat/permissionToolPreview";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -46,7 +43,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         Answer using the Questions card in this chat. This row only mirrors the
         tool state.
       </p>
@@ -96,21 +96,32 @@ export function ToolCallMessage(props: {
   /** When true, wall-clock label stops (e.g. awaiting permission). */
   permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  /** Set when this call started a background task, so the row can keep ticking
+   *  after the tool itself returned. */
+  backgroundTask?: BackgroundTask | undefined;
+  /** Shared clock from the shell so every ticker advances together. */
+  backgroundNowMs?: number | undefined;
+  onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
+  onStopBackgroundTask?: ((taskId: string) => void) | undefined;
 }) {
-  const args = useMemo(
-    () =>
-      toolCallArgsDisplay(props.argsText, {
-        kind: props.kind,
-        title: props.title,
-      }),
-    [props.argsText, props.kind, props.title],
-  );
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
     [props.resultText],
   );
   const full = props.fullResultText || "";
   const rawName = (props.title || props.kind || "tool").trim();
+  const toolPreview = useMemo(
+    () =>
+      buildToolCallPreview(
+        {
+          title: props.title,
+          kind: props.kind,
+          argsText: props.argsText,
+        },
+        props.argsText || "",
+      ),
+    [props.argsText, props.kind, props.title],
+  );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
 
@@ -222,7 +233,8 @@ export function ToolCallMessage(props: {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
   useEffect(() => {
-    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current)
+      return;
     fetchAttemptedRef.current = true;
     void fetchFn(props.toolCallId);
   }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
@@ -255,35 +267,35 @@ export function ToolCallMessage(props: {
     props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
-  let toggleLink: ReactElement | null = null;
+  let toggleButton: ReactElement | null = null;
   if (showToggleRow) {
     if (showExpanded && full) {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-hide-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-less"
           onClick={(e) => {
             e.preventDefault();
             onHide();
           }}
         >
-          Hide
+          Less
         </button>
       );
     } else {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-more-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-more"
           disabled={loadingFull}
           onClick={(e) => {
             e.preventDefault();
             void onLoadMore();
           }}
         >
-          {loadingFull ? "Loading..." : "Load more results"}
+          {loadingFull ? "Loading…" : "More…"}
         </button>
       );
     }
@@ -291,21 +303,31 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
-  const showDiffView = isPatchTool && !!patchContent;
+  const toolPreviewHasContent =
+    toolPreview.header.trim() !== "" ||
+    toolPreview.meta.length > 0 ||
+    toolPreview.copyText.trim() !== "" ||
+    (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "move" &&
+      (toolPreview.sourcePath.trim() !== "" ||
+        toolPreview.destinationPath.trim() !== ""));
+  const backgroundTask = props.backgroundTask;
+  const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  const showToolPreview = !isQuestionTool && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
-  const showJsonResult =
+  const showResult =
     !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
+  const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const hasBody =
     isQuestionTool ||
-    showJsonArgs ||
-    showDiffView ||
+    showToolPreview ||
     showPatchResult ||
-    showJsonResult ||
-    !!toggleLink;
+    showResult ||
+    !!toggleButton ||
+    !!backgroundTask;
 
   return (
     <div
@@ -326,15 +348,35 @@ export function ToolCallMessage(props: {
                 {durationLabel}
               </span>
             ) : null}
+            {backgroundTask ? (
+              <span
+                className={[
+                  "tool-bgtask-chip",
+                  backgroundTask.running ? "is-running" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                data-testid={`tool-bgtask-chip-${backgroundTask.id}`}
+                title={backgroundTask.command || backgroundTask.label}
+              >
+                <span
+                  className={`bgtask-dot bgtask-dot--${taskTone(backgroundTask.status)}`}
+                  aria-hidden="true"
+                />
+                <span className="tool-bgtask-chip-text">
+                  {taskStatusLabel(backgroundTask.status)} ·{" "}
+                  {taskTimingLine(backgroundTask, backgroundNowMs)}
+                </span>
+              </span>
+            ) : null}
           </span>
         </summary>
         {hasBody ? (
           <div
             className={[
               "thinking-body coddy-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
-                ? "coddy-tool-call-body--diff"
-                : "",
+              isQuestionTool && "coddy-tool-call-body--question",
+              hasConnectedResult && "coddy-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
@@ -347,38 +389,74 @@ export function ToolCallMessage(props: {
                 status={props.status}
               />
             ) : null}
-            {showJsonArgs ? (
-              <pre className="tool-block" aria-label="Tool arguments">
-                {args}
-              </pre>
+            {showToolPreview ? (
+              <PermissionToolPreview
+                preview={toolPreview}
+                interactive={false}
+              />
             ) : null}
-            {showDiffView && patchContent ? (
-              <DiffView patch={patchContent} filePath={args} />
-            ) : null}
-            {showPatchResult ? (
-              <div
-                className="tool-block tool-result tool-result-raw"
-                aria-label="Tool result"
-              >
-                <pre className="tool-result-pre">{resultBody}</pre>
-              </div>
-            ) : null}
-            {showJsonResult ? (
+            {showPatchResult || showResult ? (
               <div
                 className={[
-                  "tool-block tool-result tool-result-raw",
-                  useTallViewport &&
-                    `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  "tool-call-result-card",
+                  status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
                 aria-label="Tool result"
               >
-                <pre className="tool-result-pre">{resultBody}</pre>
+                <div className="tool-call-result-head">
+                  <span className="tool-call-result-dot" aria-hidden />
+                  <span>Result</span>
+                </div>
+                <div
+                  className={[
+                    "tool-call-result-content",
+                    useTallViewport &&
+                      `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <pre className="tool-result-pre">{resultBody}</pre>
+                </div>
               </div>
             ) : null}
-            {toggleLink ? (
-              <div className="tool-result-toggle-row">{toggleLink}</div>
+            {backgroundTask ? (
+              <div
+                className="tool-bgtask-actions"
+                data-testid={`tool-bgtask-actions-${backgroundTask.id}`}
+              >
+                {props.onOpenBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-open-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    Open in Tasks
+                  </button>
+                ) : null}
+                {backgroundTask.running && props.onStopBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-stop-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onStopBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    Stop
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {toggleButton ? (
+              <div className="tool-result-toggle-row">{toggleButton}</div>
             ) : null}
           </div>
         ) : null}

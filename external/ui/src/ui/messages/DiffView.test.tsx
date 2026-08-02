@@ -17,11 +17,15 @@ const SIMPLE_PATCH = [
 
 test("DiffView renders file path", () => {
   render(<DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />);
-  expect(document.querySelector(".diff-file-path")?.textContent).toContain("src/foo.ts");
+  expect(document.querySelector(".diff-file-path")?.textContent).toContain(
+    "src/foo.ts",
+  );
 });
 
 test("DiffView renders add/del/ctx lines with correct classes", () => {
-  const { container } = render(<DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />);
+  const { container } = render(
+    <DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />,
+  );
   const adds = container.querySelectorAll(".diff-line--add");
   const dels = container.querySelectorAll(".diff-line--del");
   const ctxs = container.querySelectorAll(".diff-line--ctx");
@@ -31,8 +35,12 @@ test("DiffView renders add/del/ctx lines with correct classes", () => {
 });
 
 test("DiffView shows old and new line numbers", () => {
-  const { container } = render(<DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />);
-  const nums = Array.from(container.querySelectorAll(".diff-no")).map((el) => el.textContent?.trim());
+  const { container } = render(
+    <DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />,
+  );
+  const nums = Array.from(container.querySelectorAll(".diff-no")).map((el) =>
+    el.textContent?.trim(),
+  );
   // ctx line1: oldNo=1, newNo=1
   expect(nums).toContain("1");
   // del: oldNo=2, newNo empty
@@ -40,25 +48,42 @@ test("DiffView shows old and new line numbers", () => {
 });
 
 test("DiffView shows hunk header", () => {
-  const { container } = render(<DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />);
+  const { container } = render(
+    <DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />,
+  );
   const header = container.querySelector(".diff-hunk-header");
   expect(header?.textContent).toContain("@@");
 });
 
 test("DiffView shows no load-more button when lines <= DIFF_INITIAL_LINES", () => {
   render(<DiffView patch={SIMPLE_PATCH} filePath="src/foo.ts" />);
-  expect(screen.queryByTestId("diff-load-more")).toBeNull();
-  expect(screen.queryByTestId("diff-hide-link")).toBeNull();
+  expect(screen.queryByTestId("diff-more")).toBeNull();
+  expect(screen.queryByTestId("diff-less")).toBeNull();
 });
 
 function makeLargePatch(lineCount: number): string {
-  const body = Array.from({ length: lineCount }, (_, i) => `+new line ${i + 1}`).join("\n");
-  return [`--- a/big.ts`, `+++ b/big.ts`, `@@ -0,0 +1,${lineCount} @@`, body].join("\n");
+  const body = Array.from(
+    { length: lineCount },
+    (_, i) => `+new line ${i + 1}`,
+  ).join("\n");
+  return [
+    `--- a/big.ts`,
+    `+++ b/big.ts`,
+    `@@ -0,0 +1,${lineCount} @@`,
+    body,
+  ].join("\n");
 }
 
 test("DiffView shows load-more when lines > DIFF_INITIAL_LINES", () => {
-  render(<DiffView patch={makeLargePatch(DIFF_INITIAL_LINES + 5)} filePath="big.ts" />);
-  expect(screen.getByTestId("diff-load-more")).toBeInTheDocument();
+  render(
+    <DiffView
+      patch={makeLargePatch(DIFF_INITIAL_LINES + 5)}
+      filePath="big.ts"
+    />,
+  );
+  const more = screen.getByTestId("diff-more");
+  expect(more).toHaveTextContent("More…");
+  expect(more).toHaveClass("tool-overflow-toggle");
 });
 
 test("DiffView load-more expands all lines; hide restores clipped view", () => {
@@ -69,23 +94,28 @@ test("DiffView load-more expands all lines; hide restores clipped view", () => {
   const beforeExpand = container.querySelectorAll(".diff-line").length;
   expect(beforeExpand).toBe(DIFF_INITIAL_LINES);
 
-  fireEvent.click(screen.getByTestId("diff-load-more"));
+  fireEvent.click(screen.getByTestId("diff-more"));
   expect(container.querySelectorAll(".diff-line").length).toBe(totalLines);
-  expect(screen.getByTestId("diff-hide-link")).toBeInTheDocument();
+  expect(screen.getByTestId("diff-less")).toHaveTextContent("Less");
 
-  fireEvent.click(screen.getByTestId("diff-hide-link"));
-  expect(container.querySelectorAll(".diff-line").length).toBe(DIFF_INITIAL_LINES);
-  expect(screen.getByTestId("diff-load-more")).toBeInTheDocument();
+  fireEvent.click(screen.getByTestId("diff-less"));
+  expect(container.querySelectorAll(".diff-line").length).toBe(
+    DIFF_INITIAL_LINES,
+  );
+  expect(screen.getByTestId("diff-more")).toBeInTheDocument();
 });
 
 test("DiffView viewport class toggles between clip and scroll on expand", () => {
   const { container } = render(
-    <DiffView patch={makeLargePatch(DIFF_INITIAL_LINES + 3)} filePath="big.ts" />,
+    <DiffView
+      patch={makeLargePatch(DIFF_INITIAL_LINES + 3)}
+      filePath="big.ts"
+    />,
   );
   const block = container.querySelector(".diff-block");
   expect(block?.className).toContain("tool-result-viewport--clip");
 
-  fireEvent.click(screen.getByTestId("diff-load-more"));
+  fireEvent.click(screen.getByTestId("diff-more"));
   expect(block?.className).toContain("tool-result-viewport--scroll");
   expect(block?.className).not.toContain("tool-result-viewport--clip");
 });

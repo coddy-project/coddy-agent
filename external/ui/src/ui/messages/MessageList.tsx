@@ -14,6 +14,7 @@ import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
@@ -59,11 +60,26 @@ export function MessageList(props: {
   onBranchSwitch?: (sessionId: string) => void;
   /** Re-run the last turn; shown as a refresh button on the last system_notice. */
   onRetryLast?: () => void;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
   );
+  const toolCallsById = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    for (const item of props.items) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [props.items]);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -86,7 +102,9 @@ export function MessageList(props: {
               key={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.knownSkillNames
+                ? { knownSkillNames: props.knownSkillNames }
+                : {})}
               {...(props.onEdit
                 ? { onEdit: (c) => props.onEdit!(c, myIdx) }
                 : {})}
@@ -211,17 +229,15 @@ export function MessageList(props: {
                 name={it.name}
                 overview={it.overview}
                 content={it.content}
-                {...it.body !== undefined ? { body: it.body } : {}}
-                {...it.path ? { path: it.path } : {}}
+                {...(it.body !== undefined ? { body: it.body } : {})}
+                {...(it.path ? { path: it.path } : {})}
                 discarded={it.discarded === true}
                 expanded={it.expanded}
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
                 onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                onDiscard={() => props.onPlanDocumentDiscard?.(it.id, it.slug)}
               />
             </div>
           );
@@ -232,6 +248,7 @@ export function MessageList(props: {
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
+                toolCall={toolCallsById.get(it.payload.toolCall.toolCallId)}
                 resolved={it.resolved}
                 onResolved={(state) =>
                   props.onPermissionPromptResolved?.(
@@ -267,6 +284,22 @@ export function MessageList(props: {
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(props.backgroundTasksByToolCallId?.get(it.toolCallId)
+              ? {
+                  backgroundTask: props.backgroundTasksByToolCallId.get(
+                    it.toolCallId,
+                  ) as BackgroundTask,
+                }
+              : {})}
+            {...(props.backgroundNowMs !== undefined
+              ? { backgroundNowMs: props.backgroundNowMs }
+              : {})}
+            {...(props.onOpenBackgroundTask
+              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+              : {})}
+            {...(props.onStopBackgroundTask
+              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}

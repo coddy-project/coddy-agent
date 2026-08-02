@@ -15,6 +15,22 @@ test("canvas background uses theme variables", () => {
   expect(css).toMatch(/background-color:\s*var\(--coddy-canvas-gradient-bottom\)/);
 });
 
+test("desktop canvas follows the dynamic viewport in Firefox", () => {
+  const css = cssText();
+  expect(css).toMatch(/html,\s*body,\s*#root\s*\{[^}]*height:\s*100%/s);
+  expect(css).toMatch(/\.shell\s*\{[^}]*height:\s*100dvh/s);
+  expect(css).toMatch(/\.rail-column\s*\{[^}]*height:\s*100dvh/s);
+});
+
+test("light composer vignette blends into the canvas instead of darkening it", () => {
+  const css = cssText();
+  const rule = css.match(
+    /\[data-theme="light"\]\s+\.chat-bottom:has\(\.composer-wrap-docked\)::before\s*\{[^}]*\}/s,
+  );
+  expect(rule?.[0]).toMatch(/var\(--coddy-canvas-gradient-bottom\)/);
+  expect(rule?.[0]).not.toMatch(/rgba\(11,\s*11,\s*12/);
+});
+
 test("index.html bootstraps theme before paint", () => {
   const html = readFileSync(
     join(dirname(fileURLToPath(import.meta.url)), "../../index.html"),

@@ -5,7 +5,7 @@ import {
   type ParsedDiffLine,
 } from "./parseDiff";
 
-/** Number of diff lines visible before "Load more results" appears. */
+/** Number of diff lines visible before the shared More toggle appears. */
 export const DIFF_INITIAL_LINES = 15;
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
@@ -28,10 +28,7 @@ function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   );
 }
 
-export function DiffView(props: {
-  patch: string;
-  filePath: string;
-}) {
+export function DiffView(props: { patch: string; filePath: string }) {
   const parsed = useMemo(
     () => parseDiffPatch(props.patch, props.filePath),
     [props.patch, props.filePath],
@@ -44,7 +41,9 @@ export function DiffView(props: {
   const onLoadMore = useCallback(() => setShowAll(true), []);
   const onHide = useCallback(() => setShowAll(false), []);
 
-  const visibleLines = showAll ? allLines : allLines.slice(0, DIFF_INITIAL_LINES);
+  const visibleLines = showAll
+    ? allLines
+    : allLines.slice(0, DIFF_INITIAL_LINES);
 
   const viewportMode = showAll ? "scroll" : "clip";
 
@@ -80,7 +79,11 @@ export function DiffView(props: {
     rows.push({ type: "hunk", header: hunk.header, key: `h-${consumed}` });
     const take = Math.min(hunk.lines.length, visibleLines.length - consumed);
     for (let i = 0; i < take; i++) {
-      rows.push({ type: "line", line: hunk.lines[i], key: `l-${consumed + i}` });
+      rows.push({
+        type: "line",
+        line: hunk.lines[i],
+        key: `l-${consumed + i}`,
+      });
     }
     consumed += take;
   }
@@ -116,20 +119,20 @@ export function DiffView(props: {
           {showAll ? (
             <button
               type="button"
-              className="tool-result-text-link"
-              data-testid="diff-hide-link"
+              className="tool-overflow-toggle"
+              data-testid="diff-less"
               onClick={onHide}
             >
-              Hide
+              Less
             </button>
           ) : (
             <button
               type="button"
-              className="tool-result-text-link"
-              data-testid="diff-load-more"
+              className="tool-overflow-toggle"
+              data-testid="diff-more"
               onClick={onLoadMore}
             >
-              Load more results
+              More…
             </button>
           )}
         </div>

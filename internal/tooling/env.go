@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
 )
 
@@ -26,6 +27,14 @@ type Env struct {
 
 	// SessionDir is the persisted session bundle (<sessionsRoot>/<id>/) when disk persistence is on.
 	SessionDir string
+
+	// Background is the process-wide pool that owns detached commands. Optional;
+	// tools must nil-check before use.
+	Background *bgtask.Pool
+
+	// BackgroundEnabled reports whether the operator allows detached execution
+	// (tools.background.enabled).
+	BackgroundEnabled bool
 
 	// ArchiveActiveMarkdown moves todos/active.md to todos/archive before starting a replacement list.
 	// Optional; wired by the runner when persistence is enabled.
@@ -81,6 +90,25 @@ type Env struct {
 	// ConfigReloaded is set after a successful config_set so the ReAct loop can
 	// refresh definitions before the next model call in the same user turn.
 	ConfigReloaded bool
+
+	// OutputLineLimits caps how many lines each tool result or error may
+	// contribute to the LLM context, keyed by tool name; the empty-string key
+	// carries the default applied to unlisted (and MCP) tools. A positive value
+	// also activates the hard byte ceiling. Nil or 0 disables both limits.
+	OutputLineLimits map[string]int
+}
+
+// OutputLineLimit returns the effective line ceiling for a tool: its own entry
+// when present, otherwise the default (empty-string) entry. 0 disables all
+// output limiting for that tool.
+func (e *Env) OutputLineLimit(tool string) int {
+	if e == nil || e.OutputLineLimits == nil {
+		return 0
+	}
+	if v, ok := e.OutputLineLimits[tool]; ok {
+		return v
+	}
+	return e.OutputLineLimits[""]
 }
 
 // CommandAllowed returns true if the given shell command matches an entry
