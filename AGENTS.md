@@ -41,14 +41,36 @@ All **code comments** plus **technical markdown authored for this repo** (includ
 
 ## Codex and Cursor rules
 
-Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. This repository also keeps the detailed project rules in **`.cursor/rules/*.mdc`**.
+Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/` or `.claude/` by hand.
 
-When working in Codex:
+Codex resolves its `AGENTS.md` chain once per session, walking from the repository root down to the launch directory, so nested instruction files never load for a session started at the root. A lifecycle hook covers that gap and delivers the Cursor rules deterministically instead of asking the model to fetch them:
 
-- Treat **`.cursor/rules/*.mdc`** as authoritative project rules, not Cursor-only metadata.
-- Read the relevant Cursor rule files before changing code or docs covered by their `globs`.
-- Start with **`.codex/rules.md`** for the Cursor rules index.
-- Do not copy Cursor rules into `.codex/`; keep **`.cursor/rules/`** as the single source of truth and update the index if rule files are added, renamed, or removed.
+- **`.codex/hooks.json`** wires **`.codex/hooks/attach_rules.py`** to `SessionStart` and to `PreToolUse` on `apply_patch` / `Edit` / `Write`.
+- On session start the hook injects every rule with `alwaysApply: true`.
+- Before each patch it injects the rules whose `globs` cover the files being touched, at most once per rule per session.
+- The hook parses `.mdc` frontmatter directly, so adding, renaming, or removing a rule file needs no change here. It fails open, and a malformed rule never blocks an edit.
+
+Codex requires explicit approval for hooks and tracks them by content hash. Run **`/hooks`** once per clone, and again after editing `attach_rules.py`, otherwise the hook is skipped silently. Project-local hooks also load only when the `.codex/` layer is trusted. **`.codex/rules.md`** keeps the human-readable index of the rule files; the full guide, including how to probe the hook by hand, is **`docs/codex-hooks.md`**.
+
+## Code Review Rules
+
+Codex code review reads this section and applies it to changed files. Keep entries behavioural and repository-specific; formatting and lint stay in CI, where the pre-commit gate already runs **`make lint`**.
+
+### HTTP surface
+
+- Do not change routes, request or response shapes, or status codes in `external/httpserver/server.go` without updating `external/httpserver/openapi.go` in the same change. The served spec is what `/docs/` and generated clients consume, so drift is a silent API break. Safe path: update both, then reconcile `docs/http-api.md`.
+
+### Build tags
+
+- Do not let a package that builds by default import one that lives behind the `http`, `ui`, `scheduler`, `memory`, or `gateway` tags. Plain `make build` must keep compiling with the lean dependency set. Safe path: put the new code behind the same tag, or invert the dependency into an interface owned by the core package.
+
+### Project-local configuration
+
+- Do not read, merge, or execute project-local configuration (`.coddy/mcp.json`, MCP server definitions, hook scripts) without routing it through `TrustGate` in `internal/mcp`. Opening an untrusted checkout must not by itself grant code execution. Safe path: gate the read on the workspace trust decision and persist the approval through `TrustStore`.
+
+### Embedded UI
+
+- Do not treat a UI change as complete when only `external/ui/src/` moved. The binary serves `go:embed` assets, so unrebuilt sources ship the previous SPA. Safe path: run `make build TAGS="http ui"` and include the regenerated assets in the change.
 
 ## HTTP API development flow
 
