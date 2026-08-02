@@ -24,6 +24,7 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
+| [`mcp`](#mcp) | object | Trust policy for project-local MCP declarations | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
@@ -193,8 +194,25 @@ Servers can also be declared in Cursor-compatible mcp.json files: the user-globa
 `<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
 `mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
 per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. See
-`docs/mcp-integration.md`.
+name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. Entries from the
+project-local file need a workspace approval before they are started — see
+[`mcp`](#mcp) and `docs/mcp-integration.md`.
+
+## `mcp`
+
+MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.coddy/mcp.json`, which travels with the checkout and therefore picks the command a session would start. `ask` — its servers stay cold until the operator approves that exact declaration for that workspace; `allow` — start them automatically (workspaces you already trust); `deny` — never load them, with no approval path. Overridable per process with `coddy acp --mcp-project-trust <value>` / `coddy http --mcp-project-trust <value>`. |
+
+Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+Approvals are recorded in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path
+and a digest of the command-bearing declaration (transport, command, args, env, url,
+headers), so rewriting an approved entry asks again. Approve with `coddy mcp trust <name>`,
+`POST /coddy/mcp/{name}/trust`, or the shield button in **Settings → MCP servers**. That tab
+also edits this policy itself (`POST /coddy/mcp/project-trust`), so it is not rendered as a
+separate settings section. See `docs/mcp-integration.md`.
 
 ## `tools`
 

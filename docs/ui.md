@@ -440,7 +440,27 @@ section kind `mcp`; visual contract in `DESIGN.md`):
   tooltip naming the owning file), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
-  error), disabled (gray), unknown transport type (amber, `unsupported`).
+  error), disabled (gray), unknown transport type (amber, `unsupported`),
+  awaiting workspace approval (amber, `needs_approval`), refused by
+  `mcp.project_trust: deny` (red, `denied`).
+- The tab holds **two fieldsets**: **MCP discovery** (`.mcp-discovery-box`) above
+  **MCP servers** (`.mcp-servers-box`). Discovery carries the `mcp.project_trust`
+  policy (`mcp-project-trust` select, `POST /coddy/mcp/project-trust`) and the
+  explanation of why project entries are gated; it is not a settings section of
+  its own, because it governs exactly the servers listed under it, and like the
+  rest of the tab it persists on change instead of joining Save all.
+- Workspace trust for project-local rows (`gated: true`): a shield button
+  (`mcp-trust-{name}`) posts `POST /coddy/mcp/{name}/trust|untrust`, and a
+  `needs_approval` row carries a note (`mcp-trust-note-{name}`) with the
+  `source_path` it was declared in plus the declaration the approval covers
+  (`.mcp-trust-facts`, from `declarationFacts` in `mcpServerJson.ts`):
+  transport, `runs` (command + args) or `contacts` (url), the **names** of the
+  env vars and headers, and the workspace. Values are never rendered. The shield
+  renders **only under `ask`** (`showsTrustControl` in `mcpServerJson.ts`):
+  `allow` starts every project server anyway and `deny` starts none, so there is
+  no per-server decision left to offer. Such a row is not probed, so it lists no
+  tools; the command line stays visible because it is what the operator
+  approves. The shield is absent for `global` rows and disabled under `denied`.
 - Server switch toggles `POST /coddy/mcp/{name}/enable|disable`; the change
   persists into the file that defines the server.
 - Expanding a row lists tools with per-tool switches

@@ -17,6 +17,7 @@ type ConfigJSON struct {
 	Instructions InstructionsJSON `json:"instructions,omitempty"`
 	Skills       SkillsJSON       `json:"skills,omitempty"`
 	MCPServers   []MCPServerJSON  `json:"mcp_servers,omitempty"`
+	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
@@ -142,6 +143,11 @@ type HTTPHeaderJSON struct {
 }
 
 // ToolsJSON mirrors Tools for JSON APIs.
+// MCPJSON mirrors MCP for JSON APIs.
+type MCPJSON struct {
+	ProjectTrust string `json:"project_trust,omitempty"`
+}
+
 type ToolsJSON struct {
 	PermissionMode   string               `json:"permission_mode,omitempty"`
 	CommandAllowlist []string             `json:"command_allowlist,omitempty"`
@@ -303,6 +309,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		}
 		out.MCPServers = append(out.MCPServers, mj)
 	}
+	out.MCP = MCPJSON{ProjectTrust: c.MCP.ResolvedProjectTrust()}
 	out.Tools = ToolsJSON{
 		PermissionMode:   c.Tools.ResolvedPermMode(),
 		CommandAllowlist: append([]string(nil), c.Tools.CommandAllowlist...),
@@ -435,6 +442,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		}
 		cfg.MCPServers = append(cfg.MCPServers, mc)
 	}
+	cfg.MCP = MCP{ProjectTrust: j.MCP.ProjectTrust}
 	cfg.Tools = Tools{
 		PermissionMode:   j.Tools.PermissionMode,
 		CommandAllowlist: append([]string(nil), j.Tools.CommandAllowlist...),

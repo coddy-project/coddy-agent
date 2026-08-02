@@ -25,6 +25,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -200,6 +201,21 @@ func (s *mcpFeatureState) do(method, path string, body interface{}) error {
 	return nil
 }
 
+// managedMCPServer resolves one merged server by name, so harnesses can hand
+// the exact declaration to the trust gate.
+func managedMCPServer(cfg *config.Config, cwd, name string) (*mcp.ManagedServer, error) {
+	servers, err := mcp.ListManagedServers(cfg, cwd)
+	if err != nil {
+		return nil, err
+	}
+	for i := range servers {
+		if servers[i].Config.Name == name {
+			return &servers[i], nil
+		}
+	}
+	return nil, fmt.Errorf("mcp server %q not in the merged list", name)
+}
+
 // fakeMCPEntry returns an mcp.json entry re-executing this test binary as
 // the fake MCP server above.
 func fakeMCPEntry() config.MCPJSONServer {
@@ -364,6 +380,48 @@ func (s *mcpFeatureState) deleteServer(name string) error {
 	return nil
 }
 
+func (s *mcpFeatureState) approveServer(name string) error {
+	if err := s.do(http.MethodPost, "/coddy/mcp/"+url.PathEscape(name)+"/trust", nil); err != nil {
+		return err
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("approve server status %d body %v", s.status, s.body)
+	}
+	return nil
+}
+
+func (s *mcpFeatureState) listShowsServerAwaitingApproval(name string) error {
+	row, err := s.serverRow(name)
+	if err != nil {
+		return err
+	}
+	if status, _ := row["status"].(string); status != "needs_approval" {
+		return fmt.Errorf("server %q status = %q, want needs_approval", name, status)
+	}
+	if trusted, _ := row["trusted"].(bool); trusted {
+		return fmt.Errorf("server %q reported as trusted: %v", name, row)
+	}
+	// The operator has to see what they would be approving.
+	if cmd, _ := row["command"].(string); cmd == "" {
+		return fmt.Errorf("server %q row hides the command it would run: %v", name, row)
+	}
+	if fp, _ := row["fingerprint"].(string); fp == "" {
+		return fmt.Errorf("server %q row carries no fingerprint: %v", name, row)
+	}
+	return nil
+}
+
+func (s *mcpFeatureState) serverExposesNoTools(name string) error {
+	row, err := s.serverRow(name)
+	if err != nil {
+		return err
+	}
+	if tools, _ := row["tools"].([]interface{}); len(tools) != 0 {
+		return fmt.Errorf("server %q exposed %d tools; it was probed without approval", name, len(tools))
+	}
+	return nil
+}
+
 func (s *mcpFeatureState) fileRecordsDisabledTool(tool, server string) error {
 	entries, err := config.ReadMCPJSONFile(config.MCPJSONPath(s.cwd))
 	if err != nil {
@@ -429,6 +487,10 @@ func initializeMCPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I enable the MCP server "([^"]*)"$`, s.enableServer)
 	sc.Step(`^I add a project MCP server "([^"]*)" running the fake MCP command$`, s.addServer)
 	sc.Step(`^I delete the MCP server "([^"]*)"$`, s.deleteServer)
+	sc.Step(`^I approve the MCP server "([^"]*)"$`, s.approveServer)
+	sc.Step(`^the project MCP server "([^"]*)" is approved$`, s.approveServer)
+	sc.Step(`^the MCP list shows server "([^"]*)" as awaiting approval$`, s.listShowsServerAwaitingApproval)
+	sc.Step(`^server "([^"]*)" exposes no tools$`, s.serverExposesNoTools)
 
 	sc.Step(`^the MCP list shows server "([^"]*)" from source "([^"]*)" as enabled$`, s.listShowsServer)
 	sc.Step(`^the MCP list shows server "([^"]*)" as disabled$`, s.listShowsServerDisabled)
@@ -459,3 +521,23 @@ func TestMCPManagementFeature(t *testing.T) {
 		t.Fatal("mcp_management feature failed")
 	}
 }
+
+func TestMCPProjectTrustHTTPFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "mcp_project_trust_http",
+		ScenarioInitializer: initializeMCPTrustScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/mcp_project_trust.feature"},
+			Tags:     "@http",
+			TestingT: t,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("mcp_project_trust @http feature failed")
+	}
+}
+
+// initializeMCPTrustScenario reuses the management harness: the @http trust
+// scenario drives the same /coddy/mcp surface.
+func initializeMCPTrustScenario(sc *godog.ScenarioContext) { initializeMCPScenario(sc) }
