@@ -716,27 +716,25 @@ func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
 // override earlier ones by name). A broken mcp.json is logged and skipped so
 // the session still starts.
 func EffectiveMCPServers(cfg *config.Config, cwd string, log *slog.Logger) []config.MCPServerConfig {
-	loadJSON := func(path string) []config.MCPServerConfig {
-		servers, err := config.LoadMCPJSONServers(path)
-		if err != nil {
-			if log != nil {
-				log.Warn("failed to load mcp.json", "path", path, "error", err)
-			}
-			return nil
-		}
-		return servers
+	managed := mcp.ListManagedServersTolerant(cfg, cwd, log)
+	out := make([]config.MCPServerConfig, 0, len(managed))
+	for _, srv := range managed {
+		out = append(out, srv.Config)
 	}
-	global := loadJSON(config.GlobalMCPJSONPath(cfg.Paths.Home))
-	project := loadJSON(config.MCPJSONPath(cwd))
-	return config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
+	return out
 }
 
 // connectConfiguredMCPServers connects every enabled configured server
-// (config.yaml merged with .coddy/mcp.json) and installs the per-turn tool
-// filter factory so disable toggles reach live sessions.
+// (config.yaml merged with the two mcp.json levels) that the workspace trust
+// gate admits, and installs the per-turn tool filter factory so disable
+// toggles reach live sessions.
+//
+// The gate is what keeps a project-local .coddy/mcp.json from turning session
+// creation into arbitrary process execution: entries the checkout brought
+// with it stay cold until the operator approves that exact declaration.
 func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State) {
 	cwd := state.GetCWD()
-	for _, client := range m.dialConfiguredMCPServers(ctx, state, cwd) {
+	for _, client := range m.dialConfiguredMCPServers(ctx, cwd) {
 		state.addConfiguredMCPClient(client)
 	}
 	state.MCPFilterFactory = func() func(server, tool string) bool {
@@ -744,28 +742,44 @@ func (m *Manager) connectConfiguredMCPServers(ctx context.Context, state *State)
 	}
 }
 
-// dialConfiguredMCPServers connects every enabled configured server for cwd and
-// returns the clients without attaching them to the session.
-func (m *Manager) dialConfiguredMCPServers(ctx context.Context, state *State, cwd string) []*mcp.Client {
-	servers := EffectiveMCPServers(m.activeCfg(), cwd, m.log)
-	clients := make([]*mcp.Client, 0, len(servers))
-	for _, srv := range servers {
-		if srv.Disabled {
+// dialConfiguredMCPServers connects every enabled configured server the trust
+// gate admits for cwd and returns the clients without attaching them to a
+// session. Both session creation and the settings hot reload go through here,
+// so neither can reach a spawn without TrustGate.Connect: a project-local
+// .coddy/mcp.json stays cold until its exact declaration is approved.
+func (m *Manager) dialConfiguredMCPServers(ctx context.Context, cwd string) []*mcp.Client {
+	cfg := m.activeCfg()
+	gate := mcp.NewTrustGate(cfg)
+	managed := mcp.ListManagedServersTolerant(cfg, cwd, m.log)
+	clients := make([]*mcp.Client, 0, len(managed))
+	for _, srv := range managed {
+		if srv.Config.Disabled {
 			continue
 		}
-		client, err := m.connectMCPServer(ctx, state, srv)
+		client, err := gate.Connect(ctx, srv, cwd, m.log)
 		if err != nil {
-			m.log.Warn("failed to connect MCP server", "server", srv.Name, "error", err)
+			var blocked *mcp.BlockedError
+			if errors.As(err, &blocked) {
+				m.log.Warn("MCP server not started: project declaration is not approved for this workspace",
+					"server", srv.Config.Name, "workspace", cwd, "state", string(blocked.State),
+					"digest", blocked.Digest, "approve_with", "coddy mcp trust "+srv.Config.Name)
+				continue
+			}
+			m.log.Warn("failed to connect MCP server", "server", srv.Config.Name, "error", err)
 			continue
 		}
 		clients = append(clients, client)
+		m.log.Info("connected MCP server", "name", srv.Config.Name,
+			"transport", mcp.EffectiveTransport(srv.Config), "tools", len(client.Tools()))
 	}
 	return clients
 }
 
 // reloadConfiguredMCPServers reconnects the configured MCP servers of every
 // active session after the settings changed, leaving ACP client-supplied
-// per-session servers untouched.
+// per-session servers untouched. The reload is a fresh trust evaluation, not a
+// replay of what the session started with, so a declaration whose approval has
+// since been withdrawn does not come back.
 func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
@@ -775,7 +789,7 @@ func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 	m.mu.RUnlock()
 
 	for _, state := range states {
-		clients := m.dialConfiguredMCPServers(ctx, state, state.GetCWD())
+		clients := m.dialConfiguredMCPServers(ctx, state.GetCWD())
 		state.replaceConfiguredMCPClients(clients)
 	}
 }
@@ -799,6 +813,10 @@ func acpMCPServerToConfig(srv acp.MCPServer) config.MCPServerConfig {
 	return out
 }
 
+// connectMCPServer opens an ACP client-supplied server. This is the only
+// ungated connect: the declaration came from the editor over the wire, not from
+// a file the checkout carried. Configured servers must go through
+// dialConfiguredMCPServers so TrustGate.Connect sees them.
 func (m *Manager) connectMCPServer(ctx context.Context, state *State, srv config.MCPServerConfig) (*mcp.Client, error) {
 	client, err := mcp.Connect(ctx, srv, state.GetCWD(), m.log)
 	if err != nil {

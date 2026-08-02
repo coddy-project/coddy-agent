@@ -45,8 +45,33 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 	if err != nil {
 		return nil, err
 	}
-	origins := make(map[string]string, len(cfg.MCPServers)+len(global)+len(project))
-	for _, srv := range cfg.MCPServers {
+	return mergeManaged(cfg.MCPServers, global, project), nil
+}
+
+// ListManagedServersTolerant is ListManagedServers with a broken mcp.json
+// logged and skipped instead of failing the whole list. Session bootstrap
+// uses it so one unreadable file cannot stop a session from starting.
+func ListManagedServersTolerant(cfg *config.Config, cwd string, log *slog.Logger) []ManagedServer {
+	load := func(path string) []config.MCPServerConfig {
+		servers, err := config.LoadMCPJSONServers(path)
+		if err != nil {
+			if log != nil {
+				log.Warn("failed to load mcp.json", "path", path, "error", err)
+			}
+			return nil
+		}
+		return servers
+	}
+	return mergeManaged(cfg.MCPServers,
+		load(config.GlobalMCPJSONPath(cfg.Paths.Home)),
+		load(config.MCPJSONPath(cwd)))
+}
+
+// mergeManaged overlays the two mcp.json levels onto config.yaml and labels
+// every merged entry with the file that owns its definition.
+func mergeManaged(fromConfig, global, project []config.MCPServerConfig) []ManagedServer {
+	origins := make(map[string]string, len(fromConfig)+len(global)+len(project))
+	for _, srv := range fromConfig {
 		origins[srv.Name] = OriginConfig
 	}
 	for _, srv := range global {
@@ -55,7 +80,7 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 	for _, srv := range project {
 		origins[srv.Name] = OriginProject
 	}
-	merged := config.MergeMCPServers(config.MergeMCPServers(cfg.MCPServers, global), project)
+	merged := config.MergeMCPServers(config.MergeMCPServers(fromConfig, global), project)
 	out := make([]ManagedServer, 0, len(merged))
 	for _, srv := range merged {
 		origin := origins[srv.Name]
@@ -65,7 +90,7 @@ func ListManagedServers(cfg *config.Config, cwd string) ([]ManagedServer, error)
 		}
 		out = append(out, ManagedServer{Config: srv, Scope: scope, Origin: origin})
 	}
-	return out, nil
+	return out
 }
 
 // findManaged resolves one merged server by name.
@@ -129,12 +154,39 @@ func SetToolDisabled(cfg *config.Config, cwd, name, tool string, disabled bool) 
 func UpsertServer(cfg *config.Config, cwd, name, scope string, entry config.MCPJSONServer) error {
 	switch scope {
 	case ScopeLocal:
-		return config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), name, entry)
+		if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), name, entry); err != nil {
+			return err
+		}
+		// Writing a project entry through this API is the operator typing the
+		// command themselves, which is exactly the decision the trust gate
+		// asks for; recording it here avoids asking twice for the same thing.
+		return approveOwnDeclaration(cfg, cwd, name)
 	case ScopeGlobal:
 		return config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(cfg.Paths.Home), name, entry)
 	default:
 		return fmt.Errorf("unknown mcp scope %q (use %q or %q)", scope, ScopeGlobal, ScopeLocal)
 	}
+}
+
+// approveOwnDeclaration records trust for a project entry the operator just
+// wrote, reading it back so the digest matches what the loader will produce.
+// Under mcp.project_trust: deny nothing is recorded, because that policy has
+// no approval path at all.
+func approveOwnDeclaration(cfg *config.Config, cwd, name string) error {
+	if cfg.MCP.ResolvedProjectTrust() != config.ProjectTrustAsk {
+		return nil
+	}
+	path := config.MCPJSONPath(cwd)
+	servers, err := config.LoadMCPJSONServers(path)
+	if err != nil {
+		return err
+	}
+	for _, srv := range servers {
+		if srv.Name == name {
+			return NewTrustStore(cfg.Paths.Home).Approve(cwd, path, srv)
+		}
+	}
+	return fmt.Errorf("mcp server %q not found in %s after saving it", name, path)
 }
 
 // DeleteServer removes an mcp.json-defined server from its owning file.
@@ -158,6 +210,18 @@ func DeleteServer(cfg *config.Config, cwd, name string) error {
 	return nil
 }
 
+// SetProjectTrust persists the mcp.project_trust policy into config.yaml. It
+// lives next to the other MCP switches so the management surface owns every
+// MCP decision, instead of splitting one server list across two settings tabs.
+func SetProjectTrust(cfg *config.Config, policy string) error {
+	next := config.MCP{ProjectTrust: policy}
+	if err := next.Validate(); err != nil {
+		return err
+	}
+	cfg.MCP = next
+	return persistConfigYAML(cfg)
+}
+
 // mutateGlobalServer edits one config.yaml server in memory and persists the
 // whole config atomically (same flow as the skills source editor).
 func mutateGlobalServer(cfg *config.Config, name string, mutate func(*config.MCPServerConfig)) error {
@@ -172,6 +236,11 @@ func mutateGlobalServer(cfg *config.Config, name string, mutate func(*config.MCP
 	if !found {
 		return fmt.Errorf("mcp server %q not found in config.yaml", name)
 	}
+	return persistConfigYAML(cfg)
+}
+
+// persistConfigYAML backs up and atomically rewrites config.yaml from cfg.
+func persistConfigYAML(cfg *config.Config) error {
 	path := cfg.Paths.ConfigPath
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("config path is empty")

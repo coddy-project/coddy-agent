@@ -4,13 +4,16 @@ Feature: MCP server management
   (scope "local"), all Cursor-compatible. Later levels override earlier ones
   by name. The HTTP API shows each server with its tools and lets operators
   disable whole servers or individual tools; toggles persist into the file
-  that defines the server.
+  that defines the server. Project-local entries arrive with the checkout, so
+  they are probed only once approved (see features/mcp_project_trust.feature);
+  entries written through this API are approved by the act of writing them.
 
   Background:
     Given a running coddy HTTP server
 
-  Scenario: A project mcp.json server appears with its tools
+  Scenario: An approved project mcp.json server appears with its tools
     Given a project mcp.json defining the stdio server "demo"
+    And the project MCP server "demo" is approved
     When I list the MCP servers
     Then the MCP list shows server "demo" from source "local" as enabled
     And server "demo" exposes the tool "echo" as enabled
@@ -23,12 +26,14 @@ Feature: MCP server management
 
   Scenario: Disable a single tool of a server
     Given a project mcp.json defining the stdio server "demo"
+    And the project MCP server "demo" is approved
     When I disable the tool "echo" of MCP server "demo"
     Then server "demo" exposes the tool "echo" as disabled
     And the project mcp.json records "echo" as a disabled tool of "demo"
 
   Scenario: Disable and re-enable a whole server
     Given a project mcp.json defining the stdio server "demo"
+    And the project MCP server "demo" is approved
     When I disable the MCP server "demo"
     Then the MCP list shows server "demo" as disabled
     And the project mcp.json records server "demo" as disabled

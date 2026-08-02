@@ -1,9 +1,13 @@
 package session_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -59,6 +63,101 @@ func TestHydratePromptContentBlocksSkipsMissingAtMention(t *testing.T) {
 	}
 	if len(out) != 1 || out[0].Type != "text" {
 		t.Fatalf("expected unchanged single text block, got %+v", out)
+	}
+}
+
+// binaryBlob is a PNG header followed by NUL padding: valid as bytes, never text.
+var binaryBlob = append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+
+func TestBuildHydratedComposerPromptRejectsBinaryAttachment(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "logo.png"), binaryBlob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := session.BuildHydratedComposerPrompt(root, "look @logo.png", []session.PromptFileAttachment{
+		{Path: "logo.png"},
+	})
+	if !errors.Is(err, session.ErrNotDecodableText) {
+		t.Fatalf("err = %v, want ErrNotDecodableText", err)
+	}
+}
+
+func TestHydratePromptContentBlocksSkipsBinaryAtMention(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "logo.png"), binaryBlob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// An @token scraped out of prose that lands on a binary file must be left as
+	// text, exactly like a token that resolves to nothing, instead of failing the turn.
+	in := []acp.ContentBlock{{Type: "text", Text: "compare @logo.png with the mockup"}}
+	out, err := session.HydratePromptContentBlocks(root, in)
+	if err != nil {
+		t.Fatalf("binary @mention must not error: %v", err)
+	}
+	if len(out) != 1 || out[0].Type != "text" {
+		t.Fatalf("expected unchanged single text block, got %+v", out)
+	}
+}
+
+// TestReadWorkspaceUTF8KeepsFileWithEmbeddedNUL guards the attachment path
+// against over-eager binary detection: a UTF-8 source file that holds a NUL
+// literal (this repository ships one in external/ui/src/ui/settings/
+// SkillsSection.tsx) must still hydrate, and its bytes must arrive unchanged.
+func TestReadWorkspaceUTF8KeepsFileWithEmbeddedNUL(t *testing.T) {
+	root := t.TempDir()
+	const source = "// Flash key for the \"Sync all\" action.\n" +
+		"const SYNC_ALL_KEY = \"\x00all\";\n" +
+		"export function useSkills() {\n" +
+		"  return SYNC_ALL_KEY;\n" +
+		"}\n"
+	if err := os.WriteFile(filepath.Join(root, "SkillsSection.tsx"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, mime, err := session.ReadWorkspaceUTF8(root, "SkillsSection.tsx")
+	if err != nil {
+		t.Fatalf("ReadWorkspaceUTF8: %v", err)
+	}
+	if got != source {
+		t.Fatalf("content %q, want %q", got, source)
+	}
+	if mime != "text/plain; charset=utf-8" {
+		t.Fatalf("mime %q", mime)
+	}
+}
+
+func TestReadWorkspaceUTF8DecodesLegacyEncodings(t *testing.T) {
+	root := t.TempDir()
+	const russian = "Первая строка файла в устаревшей кодировке.\n" +
+		"Вторая строка нужна, чтобы определение кодировки было уверенным.\n" +
+		"Третья строка завершает пример текста на русском языке.\n"
+
+	cases := []struct {
+		name string
+		enc  encoding.Encoding
+	}{
+		{name: "cp1251.txt", enc: charmap.Windows1251},
+		{name: "koi8.txt", enc: charmap.KOI8R},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := tc.enc.NewEncoder().Bytes([]byte(russian))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, tc.name), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, mime, err := session.ReadWorkspaceUTF8(root, tc.name)
+			if err != nil {
+				t.Fatalf("ReadWorkspaceUTF8: %v", err)
+			}
+			if got != russian {
+				t.Fatalf("content %q, want %q", got, russian)
+			}
+			if mime != "text/plain; charset=utf-8" {
+				t.Fatalf("mime %q", mime)
+			}
+		})
 	}
 }
 
