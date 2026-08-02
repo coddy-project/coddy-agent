@@ -279,7 +279,10 @@ mcp_servers:
    servers for every active session; ACP client-supplied per-session servers
    stay connected. The reconnect is a **fresh trust evaluation**, not a replay of
    what the session started with: an unapproved project declaration stays cold,
-   and one whose approval was withdrawn in the meantime does not come back
+   and one whose approval was withdrawn in the meantime does not come back. A
+   session with a **turn in flight** is not swapped mid-turn — that turn already
+   handed the model a tool list, so the reload is parked and applied the moment
+   the turn releases its lock
 4. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
    (unless the tool or its server has been disabled since)
 5. Results are returned to the LLM as tool observations

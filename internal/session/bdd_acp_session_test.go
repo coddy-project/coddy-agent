@@ -407,6 +407,43 @@ func TestReplaceConfigKeepsSessionMCPAndRemovesConfiguredMCP(t *testing.T) {
 	assertMCPClientNames(t, state, "client-probe")
 }
 
+// TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock proves a settings save that
+// changes the configured MCP servers does not swap them under a running turn:
+// the turn already handed the model a tool list, so replacing the clients
+// mid-turn would make its next MCP call resolve to a server that no longer
+// exists. The reload is parked and applied when the turn releases the lock.
+func TestReplaceConfigDefersMCPReloadWhileTurnHoldsLock(t *testing.T) {
+	cfg := testConfig()
+	mgr := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), t.TempDir(), nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mgr.SessionByID(created.SessionID)
+	t.Cleanup(state.CloseAll)
+	if got := len(state.GetMCPClients()); got != 0 {
+		t.Fatalf("new session has %d MCP clients, want 0", got)
+	}
+
+	// A turn is in flight: it holds the exclusive per-session lock.
+	unlock, err := mgr.AcquireComposerTurnLock(created.SessionID, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Saving settings that add a configured server must not attach it yet.
+	withConfigured := testConfig()
+	withConfigured.MCPServers = []config.MCPServerConfig{testMCPServerConfig("settings-probe")}
+	mgr.ReplaceConfig(withConfigured)
+	if got := len(state.GetMCPClients()); got != 0 {
+		t.Fatalf("configured MCP server attached mid-turn: %d clients, want the reload parked until the turn ends", got)
+	}
+
+	// Releasing the lock drains the parked reload.
+	unlock()
+	assertMCPClientNames(t, state, "settings-probe")
+}
+
 func assertMCPClientNames(t *testing.T, state *session.State, expected ...string) {
 	t.Helper()
 	clients := state.GetMCPClients()

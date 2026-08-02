@@ -58,6 +58,11 @@ type State struct {
 	// mcpClosed marks the session as torn down so a concurrent settings reload
 	// closes the servers it just dialed instead of attaching them to a dead session.
 	mcpClosed bool
+	// mcpReloadPending records a configured-MCP reload that arrived while a turn
+	// held the turn lock. Swapping clients mid-turn would strand the tool
+	// definitions the turn already sent to the model, so the reload is parked
+	// here and drained when the turn releases the lock.
+	mcpReloadPending bool
 
 	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
 	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
@@ -268,6 +273,36 @@ func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
 	for _, client := range previous {
 		_ = client.Close()
 	}
+}
+
+// markMCPReloadPending parks a configured-MCP reload for a session whose turn
+// lock is currently held. A closed session drops it: there is nothing left to
+// reload.
+func (s *State) markMCPReloadPending() {
+	s.mu.Lock()
+	if !s.mcpClosed {
+		s.mcpReloadPending = true
+	}
+	s.mu.Unlock()
+}
+
+// hasPendingMCPReload reports whether a parked reload is waiting, without
+// clearing it. It lets the turn-lock release skip the lock dance on the common
+// path where nothing is parked.
+func (s *State) hasPendingMCPReload() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpReloadPending
+}
+
+// takeMCPReloadPending atomically clears the parked-reload flag and reports
+// whether it was set, so exactly one of several racing drainers applies it.
+func (s *State) takeMCPReloadPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.mcpReloadPending
+	s.mcpReloadPending = false
+	return pending
 }
 
 // GetMCPToolFilter builds the current MCP tool filter. Without a factory the

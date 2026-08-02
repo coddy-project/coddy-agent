@@ -477,7 +477,7 @@ type PromptRunOpts struct {
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
 func (m *Manager) AcquireComposerTurnLock(sessionID string, st *State) (unlock func(), err error) {
-	return m.acquirePromptTurnLock(sessionID, st)
+	return m.acquireTurnLockWithReloadDrain(sessionID, st)
 }
 
 // WriteCrossProcessCancelRequest writes the on-disk cancel signal for a persisted session bundle.
@@ -504,7 +504,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.SkipTurnLock {
 		unlock = func() {}
 	} else {
-		unlock, err = m.acquirePromptTurnLock(params.SessionID, state)
+		unlock, err = m.acquireTurnLockWithReloadDrain(params.SessionID, state)
 		if err != nil {
 			return nil, err
 		}
@@ -780,6 +780,14 @@ func (m *Manager) dialConfiguredMCPServers(ctx context.Context, cwd string) []*m
 // per-session servers untouched. The reload is a fresh trust evaluation, not a
 // replay of what the session started with, so a declaration whose approval has
 // since been withdrawn does not come back.
+//
+// A session with a turn in flight is not touched here: swapping its configured
+// clients would strand the tool definitions that turn already handed the model,
+// so the MCP call it is running would resolve to a server that no longer exists.
+// The reload is parked on the state and drained the moment the turn releases its
+// lock (see drainPendingMCPReload). The flag is marked before the lock probe so
+// a turn releasing concurrently either observes it in its own drain or leaves
+// the lock free for us to take here.
 func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
@@ -789,9 +797,56 @@ func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 	m.mu.RUnlock()
 
 	for _, state := range states {
-		clients := m.dialConfiguredMCPServers(ctx, state.GetCWD())
-		state.replaceConfiguredMCPClients(clients)
+		state.markMCPReloadPending()
+		unlock, err := m.acquirePromptTurnLock(state.GetID(), state)
+		if err != nil {
+			// A turn holds the lock; its release drains the parked reload.
+			continue
+		}
+		if state.takeMCPReloadPending() {
+			clients := m.dialConfiguredMCPServers(ctx, state.GetCWD())
+			state.replaceConfiguredMCPClients(clients)
+		}
+		unlock()
 	}
+}
+
+// drainPendingMCPReload applies a reload parked by reloadConfiguredMCPServers,
+// if one is waiting and the session turn lock is free. It runs right after a
+// turn releases the lock, so the configured clients are swapped between turns
+// rather than under an in-flight MCP tool call. If a newer turn has already
+// taken the lock, this returns and that turn's release drains the flag instead.
+func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
+	if st == nil || !st.hasPendingMCPReload() {
+		return
+	}
+	unlock, err := m.acquirePromptTurnLock(sessionID, st)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	if !st.takeMCPReloadPending() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
+	defer cancel()
+	clients := m.dialConfiguredMCPServers(ctx, st.GetCWD())
+	st.replaceConfiguredMCPClients(clients)
+}
+
+// acquireTurnLockWithReloadDrain wraps the raw turn lock so its release also
+// applies any configured-MCP reload parked while the turn was running. Both
+// turn entry points use it, so neither the ACP nor the HTTP composer path can
+// finish a turn without draining a pending reload.
+func (m *Manager) acquireTurnLockWithReloadDrain(sessionID string, st *State) (func(), error) {
+	unlock, err := m.acquirePromptTurnLock(sessionID, st)
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		unlock()
+		m.drainPendingMCPReload(sessionID, st)
+	}, nil
 }
 
 // acpMCPServerToConfig converts an ACP client-supplied MCP server definition
