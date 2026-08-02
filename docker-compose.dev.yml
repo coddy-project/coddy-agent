@@ -30,7 +30,7 @@ services:
       # Messenger gateway bot token (used only in gateway mode; empty if unset).
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
     volumes:
-      - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy.yaml:ro
+      - ${CODDY_CONFIG-./config.yaml}:/home/user/.coddy/config.yaml:ro
       - ${CODDY_CWD-./workspace}:/workspace
       - ${CODDY_HOME-./coddy_home}:/home/user/.coddy
     healthcheck:
