@@ -15,9 +15,11 @@ The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMa
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
+- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`CODEX_HOME`** - Codex CLI state directory read by **`type: codex`** providers when no Coddy-managed credential exists. Default **`~/.codex`**.
+- **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -53,6 +55,11 @@ providers:
   - name: "neuraldeep"
     type: "neuraldeep"
     api_key: "${NEURALDEEP_API_KEY}"
+
+  # In the bundled web UI, select codex and use Sign In with ChatGPT. Tokens are
+  # stored at $CODDY_HOME/providers/codex/codex-auth.json, not in config.yaml.
+  - name: "codex"
+    type: "codex"
 
   - name: "local"
     type: "openai"
@@ -95,6 +102,9 @@ models:
     max_tokens: 8192
     temperature: 0.2
 
+  - model: "codex/gpt-5.6-sol"
+    max_tokens: 8192
+
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
@@ -103,6 +113,10 @@ agent:
   llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
   llm_retry_base_ms: 1000      # initial backoff between LLM retries
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
+  loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
+  loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
+  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
 
 # System prompt templates
 prompts:
@@ -398,7 +412,7 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; ignored by **`type: neuraldeep`**, which always uses **`https://api.neuraldeep.ru/v1`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](config-reference.md) for token lifetime and the startup credential report.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.

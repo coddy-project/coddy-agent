@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Universal pre-commit gate: run the tests and the linter before every commit.
+#
+# Enable once per clone:   make hooks     (or: git config core.hooksPath .githooks)
+# Emergency bypass:        git commit --no-verify
+#
+# Runs the shared gate only when the commit touches code, so docs-only commits
+# stay fast. Scope follows CODDY_HOOK_TESTS / CODDY_HOOK_LINT (see scripts/checks.sh).
+set -uo pipefail
+
+root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# Any staged path that affects build/test output?
+code_changed=0
+while IFS= read -r -d '' f; do
+  case "$f" in
+    *.go | go.mod | go.sum | Makefile | \
+    external/ui/src/* | external/ui/package.json | external/ui/package-lock.json | \
+    features/* | scripts/checks.sh | .githooks/pre-commit)
+      code_changed=1 ;;
+  esac
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+
+if [ "$code_changed" -eq 0 ]; then
+  echo "pre-commit: no code changes staged — skipping checks." >&2
+  exit 0
+fi
+
+exec "$root/scripts/checks.sh"

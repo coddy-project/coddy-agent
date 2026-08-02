@@ -9,6 +9,9 @@ const (
 	ReasoningLow     = "low"
 	ReasoningMedium  = "medium"
 	ReasoningHigh    = "high"
+	// ReasoningNone is the lowest tier of the Codex backend, which serves gpt-5*
+	// ids but rejects the "minimal" name for the same idea.
+	ReasoningNone = "none"
 )
 
 // reasoningWithMinimal is the level set for models that support a minimal tier (OpenAI gpt-5 family).
@@ -46,6 +49,61 @@ func (m *ModelEntry) DefaultReasoningLevel() string {
 		}
 	}
 	return ""
+}
+
+// ReasoningLevelsFor returns the levels offered for one model entry, adjusted for
+// the provider that serves it. Level detection is model-id based, which is right
+// for OpenAI and Anthropic but wrong for Codex: it serves gpt-5* ids yet accepts
+// only none/low/medium/high/xhigh, so "minimal" becomes "none" there.
+func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
+	if ent == nil {
+		return nil
+	}
+	levels := ent.ResolvedReasoningLevels()
+	if c == nil || len(levels) == 0 || !c.providerTypeFor(ent) {
+		return levels
+	}
+	return remapMinimalToNone(levels)
+}
+
+// DefaultReasoningLevelFor returns the pre-selected level for one model entry
+// under the same provider-aware remap as ReasoningLevelsFor.
+func (c *Config) DefaultReasoningLevelFor(ent *ModelEntry) string {
+	if ent == nil {
+		return ""
+	}
+	def := ent.DefaultReasoningLevel()
+	if def == "" || c == nil || !c.providerTypeFor(ent) {
+		return def
+	}
+	if def == ReasoningMinimal {
+		return ReasoningNone
+	}
+	return def
+}
+
+// providerTypeFor reports whether this entry is served by a codex provider.
+func (c *Config) providerTypeFor(ent *ModelEntry) bool {
+	prov := c.FindProvider(ent.ProviderName())
+	return prov != nil && prov.Type == "codex"
+}
+
+// remapMinimalToNone swaps the "minimal" tier for "none", keeping order and
+// dropping a duplicate when both names are configured.
+func remapMinimalToNone(levels []string) []string {
+	out := make([]string, 0, len(levels))
+	seen := make(map[string]struct{}, len(levels))
+	for _, lv := range levels {
+		if lv == ReasoningMinimal {
+			lv = ReasoningNone
+		}
+		if _, dup := seen[lv]; dup {
+			continue
+		}
+		seen[lv] = struct{}{}
+		out = append(out, lv)
+	}
+	return out
 }
 
 // detectReasoningLevels infers reasoning levels from a provider API model id.

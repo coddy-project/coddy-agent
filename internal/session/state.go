@@ -56,6 +56,11 @@ type State struct {
 	// sessionMCPClients come from ACP session/new or session/load parameters.
 	sessionMCPClients []*mcp.Client
 
+	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
+	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
+	// on every build lets enable/disable toggles apply to live sessions.
+	MCPFilterFactory func() func(server, tool string) bool
+
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
 
@@ -219,7 +224,10 @@ func (s *State) addConfiguredMCPClient(client *mcp.Client) {
 	s.mu.Unlock()
 }
 
-func (s *State) addSessionMCPClient(client *mcp.Client) {
+// AddSessionMCPClient attaches a client-supplied MCP connection to the session.
+// Unlike the configured ones it survives a settings reload, because only the
+// ACP client that opened the session can recreate it.
+func (s *State) AddSessionMCPClient(client *mcp.Client) {
 	if client == nil {
 		return
 	}
@@ -238,6 +246,18 @@ func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
 	for _, client := range previous {
 		_ = client.Close()
 	}
+}
+
+// GetMCPToolFilter builds the current MCP tool filter. Without a factory the
+// filter allows everything (ACP-supplied servers, tests).
+func (s *State) GetMCPToolFilter() func(server, tool string) bool {
+	s.mu.RLock()
+	factory := s.MCPFilterFactory
+	s.mu.RUnlock()
+	if factory == nil {
+		return func(string, string) bool { return true }
+	}
+	return factory()
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -327,7 +347,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := ent.ResolvedReasoningLevels()
+	levels := cfg.ReasoningLevelsFor(ent)
 	if len(levels) == 0 {
 		return ""
 	}
@@ -339,7 +359,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 			return sel
 		}
 	}
-	return ent.DefaultReasoningLevel()
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.

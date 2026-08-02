@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -47,8 +48,17 @@ type Server struct {
 	slashMu    sync.Mutex
 	slashCache map[string]slashListCacheEntry
 
+	// mcpProbeCache holds probed MCP tool inventories for /coddy/mcp (keyed
+	// by server name, invalidated on config fingerprint change or edit).
+	mcpProbeMu    sync.Mutex
+	mcpProbeCache map[string]mcpProbeEntry
+
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
+
+	codexAuthIssuer string
+	codexAuthMu     sync.Mutex
+	codexAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
@@ -57,6 +67,12 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	s.cancelCodexAuthLogins()
+	// Background tasks are children of this process; leaving them running would
+	// orphan whole shell trees the operator can no longer see or stop. Close the
+	// pool first so a turn that is still winding down cannot start one more.
+	bgtask.Default().SetDraining(true)
+	bgtask.Default().StopAll()
 	s.bgWG.Wait()
 }
 
@@ -71,8 +87,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		slashCache:           make(map[string]slashListCacheEntry),
+		codexAuthIssuer:      llm.CodexIssuerURL,
+		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
 	}
 	s.cfgAt.Store(cfg)
+	// A fresh server means this process intends to serve again, so reopen the
+	// task pool a previous Drain closed.
+	bgtask.Default().SetDraining(false)
+	s.attachBackgroundWaker()
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	s.mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
@@ -126,6 +148,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -150,6 +173,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		APIKey:      rm.APIKey,
 		BaseURL:     rm.BaseURL,
 		ProxyURL:    rm.ProxyURL,
+		AuthPath:    rm.AuthPath,
 		MaxTokens:   maxTok,
 		Temperature: rm.Temperature,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
@@ -226,8 +250,8 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:          ent.ProviderName(),
 				MaxContextTokens: mc,
 				Multimodal:       ent.Multimodal,
-				ReasoningLevels:  ent.ResolvedReasoningLevels(),
-				ReasoningDefault: ent.DefaultReasoningLevel(),
+				ReasoningLevels:  s.activeCfg().ReasoningLevelsFor(ent),
+				ReasoningDefault: s.activeCfg().DefaultReasoningLevelFor(ent),
 			})
 		}
 	}

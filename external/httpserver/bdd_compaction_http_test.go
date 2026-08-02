@@ -43,15 +43,17 @@ func (cannedSummaryProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.
 }
 
 type compactHTTPFeatureState struct {
-	root      string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	sessionID string
-	exchanges int
-	status    int
-	body      map[string]interface{}
-	respText  string
+	root        string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	sessionID   string
+	exchanges   int
+	status      int
+	body        map[string]interface{}
+	respText    string
+	beforeUsed  int
+	streamUsage *acp.UsageUpdate
 }
 
 func (s *compactHTTPFeatureState) reset() error {
@@ -66,6 +68,8 @@ func (s *compactHTTPFeatureState) reset() error {
 	s.status = 0
 	s.body = nil
 	s.respText = ""
+	s.beforeUsed = 0
+	s.streamUsage = nil
 	return nil
 }
 
@@ -85,7 +89,7 @@ func (s *compactHTTPFeatureState) close() {
 }
 
 func (s *compactHTTPFeatureState) startServer() error {
-	return s.startServerWithContextWindow(0)
+	return s.startServerWithContextWindow(128000)
 }
 
 // startServerWithContextWindow boots the test server; maxContextTokens > 0
@@ -131,6 +135,15 @@ func (s *compactHTTPFeatureState) sessionWithExchanges(n int) error {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i)})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i)})
 	}
+	b := &session.ContextBreakdown{SystemPrompt: 100, Conversation: 10000}
+	b.Sum()
+	s.beforeUsed = b.EstimatedTotal
+	st.SetLastContextBreakdown(b)
+	if err := session.WriteSessionStats(st.GetPersistedSessionDir(), session.SessionStats{
+		ContextBreakdown: b,
+	}); err != nil {
+		return err
+	}
 	s.exchanges = n
 	return nil
 }
@@ -139,7 +152,7 @@ func (s *compactHTTPFeatureState) sendCompactPrompt() error {
 	payload := map[string]interface{}{
 		"model":  "agent",
 		"input":  "/compact",
-		"stream": false,
+		"stream": true,
 	}
 	buf, err := json.Marshal(payload)
 	if err != nil {
@@ -157,20 +170,72 @@ func (s *compactHTTPFeatureState) sendCompactPrompt() error {
 	}
 	defer res.Body.Close()
 	s.status = res.StatusCode
-	var parsed struct {
-		Output []struct {
-			Text string `json:"text"`
-		} `json:"output"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&parsed); err != nil {
-		return fmt.Errorf("decode /v1/responses body: %w", err)
+	var raw bytes.Buffer
+	if _, err := raw.ReadFrom(res.Body); err != nil {
+		return err
 	}
 	s.respText = ""
-	for _, o := range parsed.Output {
-		s.respText += o.Text
+	s.streamUsage = nil
+	for _, block := range strings.Split(raw.String(), "\n\n") {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		event := ""
+		data := ""
+		for _, line := range strings.Split(block, "\n") {
+			switch {
+			case strings.HasPrefix(line, "event:"):
+				event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			case strings.HasPrefix(line, "data:"):
+				data = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+		if event == "usage_update" {
+			var update acp.UsageUpdate
+			if err := json.Unmarshal([]byte(data), &update); err != nil {
+				return fmt.Errorf("decode usage_update: %w", err)
+			}
+			s.streamUsage = &update
+			continue
+		}
+		if event == "" {
+			var chunk struct {
+				Choices []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+			for _, choice := range chunk.Choices {
+				s.respText += choice.Delta.Content
+			}
+		}
 	}
 	if s.status != http.StatusOK {
 		return fmt.Errorf("POST /v1/responses status %d", s.status)
+	}
+	return nil
+}
+
+func (s *compactHTTPFeatureState) streamReportsSmallerContextUsage() error {
+	if s.streamUsage == nil {
+		return fmt.Errorf("HTTP stream has no usage_update")
+	}
+	if s.streamUsage.SessionUpdate != acp.UpdateTypeUsage {
+		return fmt.Errorf("sessionUpdate = %q, want %q", s.streamUsage.SessionUpdate, acp.UpdateTypeUsage)
+	}
+	if s.streamUsage.Used >= s.beforeUsed {
+		return fmt.Errorf("streamed compacted usage = %d, want less than %d", s.streamUsage.Used, s.beforeUsed)
+	}
+	if s.streamUsage.Size != 128000 {
+		return fmt.Errorf("streamed context size = %d, want 128000", s.streamUsage.Size)
 	}
 	return nil
 }
@@ -286,6 +351,61 @@ func (s *compactHTTPFeatureState) transcriptShowsCompactCommand() error {
 	return nil
 }
 
+func compactHTTPConversationText(msgs []llm.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		b.WriteString(string(m.Role))
+		b.WriteString(":\n")
+		b.WriteString(m.Content)
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+func (s *compactHTTPFeatureState) statsMatchCompactedContext() error {
+	req, err := http.NewRequest(http.MethodGet, s.ts.URL+"/coddy/sessions/"+s.sessionID+"/stats", nil)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("GET stats status %d", res.StatusCode)
+	}
+	var payload struct {
+		Stats *session.SessionStats `json:"stats"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if payload.Stats == nil || payload.Stats.ContextBreakdown == nil {
+		return fmt.Errorf("HTTP stats have no context breakdown: %+v", payload.Stats)
+	}
+	b := payload.Stats.ContextBreakdown
+	if b.EstimatedTotal >= s.beforeUsed {
+		return fmt.Errorf("compacted HTTP usage = %d, want less than %d", b.EstimatedTotal, s.beforeUsed)
+	}
+	st := s.mgr.SessionByID(s.sessionID)
+	if st == nil {
+		return fmt.Errorf("session %q not registered", s.sessionID)
+	}
+	wantConversation := session.EstimateTokens(compactHTTPConversationText(session.MessagesForLLM(st.GetMessages())))
+	if b.Conversation != wantConversation {
+		return fmt.Errorf("HTTP conversation tokens = %d, want %d", b.Conversation, wantConversation)
+	}
+	sum := b.SystemPrompt + b.ToolDefinitions + b.Rules + b.Skills + b.MCP + b.Subagents + b.Conversation
+	if b.EstimatedTotal != sum {
+		return fmt.Errorf("HTTP estimated total = %d, category sum = %d", b.EstimatedTotal, sum)
+	}
+	return nil
+}
+
 func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	s := &compactHTTPFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -306,6 +426,8 @@ func initializeCompactionHTTPScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)
 	sc.Step(`^the session transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptKeepsAllExchanges() })
 	sc.Step(`^the "/compact" command is part of the transcript$`, s.transcriptShowsCompactCommand)
+	sc.Step(`^the HTTP stream reports the smaller context usage$`, s.streamReportsSmallerContextUsage)
+	sc.Step(`^HTTP session stats match the compacted LLM context$`, s.statsMatchCompactedContext)
 }
 
 func TestContextCompactionCommandFeature(t *testing.T) {

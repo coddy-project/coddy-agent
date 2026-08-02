@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -95,8 +97,8 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sessionDir,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
 			if sessionDir == "" {
 				return nil
@@ -119,7 +121,36 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody: a.loadSkillBody,
+		LoadSkillBody:     a.loadSkillBody,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sessionDir),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+	}
+}
+
+// backgroundPool returns the process-wide task pool, telling it where this
+// session persists so a task started from here mirrors its output into the
+// session bundle.
+func (a *Agent) backgroundPool(sessionDir string) *bgtask.Pool {
+	pool := bgtask.Default()
+	pool.SetConfig(backgroundConfig(a.cfg))
+	if strings.TrimSpace(sessionDir) != "" {
+		pool.SetSessionDir(a.state.GetID(), sessionDir)
+	}
+	return pool
+}
+
+// backgroundConfig translates the operator's YAML into the pool's bounds.
+func backgroundConfig(cfg *config.Config) bgtask.Config {
+	if cfg == nil {
+		return bgtask.Config{}
+	}
+	resolved := cfg.Tools.Background.Resolved()
+	return bgtask.Config{
+		MaxConcurrent:         resolved.MaxConcurrent,
+		DefaultTimeoutSeconds: resolved.DefaultTimeoutSeconds,
+		MaxTimeoutSeconds:     resolved.MaxTimeoutSeconds,
+		OutputBufferBytes:     resolved.OutputBufferBytes,
 	}
 }
 
@@ -131,11 +162,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolSet := ToolSetForMode(mode)
 	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
 	if toolSet.Unrestricted() || mode == "plan" {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
+		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
 	}
 	provider, err := a.getProvider(mode)
 	if err != nil {

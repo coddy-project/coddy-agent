@@ -86,6 +86,7 @@ func initializeCompactionAutoScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the agent reply arrives over HTTP$`, s.agentReplyArrives)
 	sc.Step(`^the session transcript contains a compaction summary row$`, s.transcriptHasSummaryRow)
 	sc.Step(`^the session transcript still contains all (\d+) original exchanges$`, func(int) error { return s.transcriptKeepsAllExchanges() })
+	sc.Step(`^HTTP session stats match the compacted LLM context$`, s.statsMatchCompactedContext)
 }
 
 func TestContextCompactionAutoFeature(t *testing.T) {

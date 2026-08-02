@@ -12,6 +12,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -118,6 +119,40 @@ func TestToolKind(t *testing.T) {
 		if g := toolKind(tc.name); g != tc.want {
 			t.Errorf("toolKind(%q) = %q, want %q", tc.name, g, tc.want)
 		}
+	}
+}
+
+func TestMCPToolDefinitionsFilter(t *testing.T) {
+	clients := []*mcp.Client{
+		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
+		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+	}
+	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
+		return server != "srv" || tool != "write"
+	})
+	names := make([]string, 0, len(defs))
+	for _, d := range defs {
+		names = append(names, d.Name)
+	}
+	want := []string{"srv__echo", "other__echo"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("defs = %v, want %v", names, want)
+	}
+}
+
+func TestCallMCPToolDisabledGuard(t *testing.T) {
+	st := &session.State{
+		ID:   "sess_mcp_guard",
+		CWD:  t.TempDir(),
+		Mode: session.ModeAgent,
+		MCPFilterFactory: func() func(server, tool string) bool {
+			return func(server, tool string) bool { return false }
+		},
+	}
+	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}}))
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
+		t.Fatal("disabled MCP tool must be rejected at dispatch")
 	}
 }
 
@@ -750,6 +785,43 @@ func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
 	}
 }
 
+func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
+	st := &session.State{
+		ID:   "sess_compact_stale_read",
+		CWD:  testCWD,
+		Mode: session.ModeAgent,
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
+	st.AddMessage(asstRead("read", "big.go", 1, 500, true))
+	st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
+	st.AddMessage(asstWrite("write", "write", "big.go"))
+	st.AddMessage(toolResult("write", "written"))
+
+	keepTurns := 1
+	keepResults := 0
+	minBytes := 10
+	provider := &compactCannedProvider{t: t, summary: "dense summary"}
+	ag := compactTestAgent(t, st, config.Compaction{
+		KeepRecentTurns: &keepTurns,
+		ResultEviction: config.ResultEviction{
+			KeepRecent:     &keepResults,
+			MinResultBytes: &minBytes,
+		},
+	}, provider)
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+		t.Fatal(err)
+	}
+	request := transcriptText(provider.requests[0])
+	if strings.Contains(request, "STALE FILE CONTENT") {
+		t.Fatalf("compaction request retained a read made stale by a write in the kept tail:\n%s", request)
+	}
+	if !strings.Contains(request, "modified after this read") {
+		t.Fatalf("compaction request missing stale-read placeholder:\n%s", request)
+	}
+}
+
 func TestCompactSessionNothingToCompact(t *testing.T) {
 	st := seededCompactState(t, 2)
 	keep := 2
@@ -1058,5 +1130,139 @@ func TestRunAutoCompactsBeforeFirstLLMCall(t *testing.T) {
 	}
 	if !sawSummary {
 		t.Fatal("summary missing from the first LLM request")
+	}
+}
+
+// --- loop guard escalation and false-positive safety -----------------------
+
+// alwaysDegeneratingProvider never recovers: every turn degenerates into the same
+// repeated passage. The loop guard must give up after the nudge budget instead of
+// nudging forever.
+type alwaysDegeneratingProvider struct{ calls int }
+
+func (p *alwaysDegeneratingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *alwaysDegeneratingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	var produced strings.Builder
+	for i := 0; i < 200 && ctx.Err() == nil; i++ {
+		produced.WriteString(bddLoopedSentence)
+		onChunk(llm.StreamChunk{TextDelta: bddLoopedSentence})
+	}
+	return &llm.Response{Content: produced.String(), StopReason: "tool_use"}, context.Canceled
+}
+
+func TestLoopGuardStopsTurnAfterNudgeBudget(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_budget",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &alwaysDegeneratingProvider{}
+	nudges := 2
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LoopNudgeMax: &nudges},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected the turn to stop with a notice once the nudge budget ran out")
+	}
+	if !strings.Contains(err.Error(), "repeating") {
+		t.Fatalf("error should explain the loop: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want agent_refused", stop)
+	}
+	// One initial attempt plus one per nudge, and nowhere near max_turns.
+	if provider.calls != nudges+1 {
+		t.Fatalf("provider called %d times, want %d (initial attempt + %d nudges)", provider.calls, nudges+1, nudges)
+	}
+}
+
+func TestLoopGuardDisabledLetsTheStreamRun(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_off",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &bddLoopProvider{
+		channel:      loopAbortText,
+		recoverAfter: 0,
+		realAnswer:   "answered without interference",
+		maxDeltas:    30,
+	}
+	off := false
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", LoopGuard: &off},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("turn failed with the guard disabled: %v", err)
+	}
+	if provider.cancelled != 0 {
+		t.Fatal("the guard cancelled a stream even though loop_guard is false")
+	}
+}
+
+// varyingToolProvider calls the same tool with different arguments every turn.
+// That is ordinary progress, not a loop, and must never be blocked.
+type varyingToolProvider struct{ calls int }
+
+func (p *varyingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *varyingToolProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	if p.calls > 6 {
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":"**/*%d.go"}`, p.calls),
+	}
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_varying",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &varyingToolProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "search for things"}})
+	if err != nil {
+		t.Fatalf("the guard interfered with legitimate varying tool calls: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolLoopNudge || m.Content == toolLoopSkippedResult) {
+			t.Fatal("the loop guard blocked a call with different arguments")
+		}
 	}
 }

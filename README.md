@@ -72,6 +72,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
+- **Background tasks** - `run_command` can run detached (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, a **Tasks** drawer in the UI shows what is still running with a status ticker, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a batch of similar calls asks once - see [Background tasks](docs/background-tasks.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Context compaction** - built-in `/compact [instructions]` command and automatic summarization when the context reaches `compaction.threshold_percent` (default 80%) of the model's `max_context_tokens`; the last `compaction.keep_recent_turns` (default 2) user turns stay verbatim and the full transcript is preserved on disk - see [Configuration](docs/config-reference.md#compaction)
@@ -231,9 +232,9 @@ If **`$CODDY_HOME/config.yaml`** is absent, the loader may use **`config.yaml`**
 
 **Providers and models**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at the fixed **`https://api.neuraldeep.ru/v1`** endpoint). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). Each row has **`api_key`** (literal, **`${ENV}`** expanded when the file loads, or empty to read **`NAME_API_KEY`** from the environment at LLM call time, with **`NAME`** derived from **`providers[].name`** in uppercase and hyphens mapped to underscores), and optionally **`api_base`** when the API is not the vendor default; **`api_base`** is ignored for **`neuraldeep`**.
+- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at its fixed endpoint, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`**, or empty for **`NAME_API_KEY`**) and optional **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`coddy codex login`** in a terminal (ACP and headless setups); `api_key` and `api_base` are ignored and credentials are stored under **`$CODDY_HOME/providers/<name>/`**. Codex is only a model backend - the agent keeps Coddy's own prompt, tools, and permissions, and an existing **`codex login`** in **`~/.codex/auth.json`** is picked up as a fallback.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
-- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn.
+- **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn. **`loop_guard`** (default **`true`**) adds runaway-loop protection on top of that cap: a streamed response that degenerates into repeating the same passage is cut (**`loop_stream_repeat_cycles`**), and a tool requested over and over with identical arguments stops being executed (**`loop_tool_repeat_limit`**). The model is nudged back on track first; a turn that keeps looping after **`loop_nudge_max`** nudges ends with a notice.
 
 Example (**`openai`** provider and **`gpt-5.4-mini`**; store secrets in the environment, not in git):
 
@@ -386,8 +387,14 @@ See **[`docs/skills.md`](docs/skills.md)** for the full reference.
 
 ## MCP Server Integration
 
-Connect external tools via MCP servers. Configured globally in `config.yaml` or
-passed per-session by the ACP client.
+Connect external tools via MCP servers over any transport: `stdio` (local
+command), `http` (streamable HTTP with automatic legacy-SSE fallback), or
+`sse`. Servers are configured globally in `config.yaml` (`mcp_servers`) or the
+Cursor-compatible `~/.coddy/mcp.json`, locally per project in
+`./.coddy/mcp.json` (later levels override by name), or passed per-session by
+the ACP client. Whole servers and individual tools can be switched off from
+the config files, the `/coddy/mcp*` REST API, or the Settings -> MCP servers
+web UI.
 
 Example adding a GitHub MCP server in config:
 
@@ -399,6 +406,17 @@ mcp_servers:
     env:
       - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
         value: "${GITHUB_TOKEN}"
+```
+
+The same server in `.coddy/mcp.json`, plus a remote one:
+
+```json
+{
+  "mcpServers": {
+    "github": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github"] },
+    "remote-tools": { "url": "https://mcp.example.com/mcp" }
+  }
+}
 ```
 
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
@@ -490,6 +508,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.coddy/rules`, …)
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
+- [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and program-wide permission grants
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 
