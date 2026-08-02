@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/textenc"
 )
 
 // MaxPromptAttachmentBytes caps how much of each file may be inlined into prompts.
@@ -32,7 +33,13 @@ type PromptFileAttachmentSourceField struct {
 // ErrFolderAttach means a path refers to a directory; only file content may be attached.
 var ErrFolderAttach = errors.New("folder paths cannot be attached as file content")
 
-// ReadWorkspaceUTF8 reads a UTF-8 text file under cwdAbs.
+// ErrNotDecodableText means a file is binary, or text in an encoding that could
+// not be identified, so there is nothing meaningful to inline into a prompt.
+var ErrNotDecodableText = errors.New("file is not text: it is binary or its encoding could not be detected (UTF-8 and common legacy encodings are supported)")
+
+// ReadWorkspaceUTF8 reads a workspace text file under cwdAbs and returns it as
+// UTF-8. A file stored in another detectable encoding (Windows-1251 and other
+// legacy charsets) is converted; only undecodable content is rejected.
 func ReadWorkspaceUTF8(cwdAbs, relPath string) (content string, mime string, err error) {
 	normRel, err := NormalizeWorkspaceRelativePath(relPath)
 	if err != nil {
@@ -67,10 +74,11 @@ func ReadWorkspaceUTF8(cwdAbs, relPath string) (content string, mime string, err
 	if len(data) > MaxPromptAttachmentBytes {
 		return "", "", fmt.Errorf("file too large (max %d bytes)", MaxPromptAttachmentBytes)
 	}
-	if !utf8.Valid(data) {
-		return "", "", fmt.Errorf("file is not valid UTF-8 text")
+	decoded, _, err := textenc.DecodeToUTF8(data)
+	if err != nil {
+		return "", "", fmt.Errorf("%w: %s", ErrNotDecodableText, normRel)
 	}
-	return string(data), "text/plain; charset=utf-8", nil
+	return decoded, "text/plain; charset=utf-8", nil
 }
 
 // BuildHydratedComposerPrompt returns one text block plus resource blocks for attachments.
@@ -194,8 +202,9 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 			if err != nil {
 				// @tokens here are extracted heuristically from free text. One that does not
 				// resolve to a readable workspace file (an @mention rule trigger, a username,
-				// or ordinary prose) is left as text instead of failing the whole prompt.
-				if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrFolderAttach) {
+				// ordinary prose, or a name that happens to hit a binary file) is left as
+				// text instead of failing the whole prompt.
+				if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrFolderAttach) || errors.Is(err, ErrNotDecodableText) {
 					continue
 				}
 				return nil, err

@@ -34,6 +34,25 @@ func DecodeOutput(b []byte) string {
 	return decoded
 }
 
+// DecodeANSI converts bytes in the system ANSI code page (1251 on a Russian
+// install, 1252 on a Western one) to a Go string, reporting the code page it
+// used. It is the last-resort reading for a file a local editor saved without a
+// byte-order mark; ok is false when there is no usable code page.
+func DecodeANSI(b []byte) (text string, codePage uint32, ok bool) {
+	if len(b) == 0 {
+		return "", 0, false
+	}
+	cp := windows.GetACP()
+	if cp == 0 {
+		return "", 0, false
+	}
+	decoded, err := decodeCodePage(cp, b)
+	if err != nil {
+		return "", 0, false
+	}
+	return decoded, cp, true
+}
+
 // decodeCodePage converts bytes in the given Windows code page to a Go string.
 // dwFlags is 0 rather than MB_ERR_INVALID_CHARS so that a stray invalid byte
 // yields a replacement character instead of discarding the whole message.
