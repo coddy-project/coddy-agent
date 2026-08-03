@@ -8039,6 +8039,48 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-top: 1px solid rgba(127, 127, 127, 0.12);
 }
 
+.appearance-lang-block {
+  margin-top: 22px;
+}
+
+.appearance-lang-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.appearance-lang-option {
+  flex: 1 1 120px;
+  min-width: 120px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.appearance-lang-option:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.appearance-lang-option.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.appearance-lang-hint {
+  margin: 8px 0 0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
 
 .settings-appearance-swatch-dot {
   width: 12px;

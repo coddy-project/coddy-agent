@@ -1,4 +1,5 @@
 import type { JsonSchema } from "./SchemaForm";
+import { translate } from "../i18n/i18n";
 
 export type SectionKind =
   | "array"
@@ -25,21 +26,22 @@ export type SectionDescriptor = {
 };
 
 /**
- * Short blurbs for the mobile tile grid, keyed by section id. Schema
+ * i18n keys for the mobile tile blurbs, keyed by section id. Schema
  * `description` strings are full sentences (or missing), so these curated 3–5
  * word summaries keep the tiles readable; unmapped keys fall back to the schema
- * description.
+ * description. Values are translation keys resolved at render time so a locale
+ * switch re-renders the tiles.
  */
-export const SECTION_DESCRIPTIONS: Record<string, string> = {
-  appearance: "Theme & color mode",
-  providers: "LLM API connections",
-  models: "Named model configs",
-  agent: "ReAct agent defaults",
-  tools: "Tool permissions & limits",
-  mcp_servers: "External MCP tools",
-  skills: "Installed slash skills",
-  memory: "Long-term memory options",
-  system: "Scheduler, logs, prompts",
+const SECTION_DESC_KEYS: Record<string, string> = {
+  appearance: "settings.section.appearance.desc",
+  providers: "settings.section.providers.desc",
+  models: "settings.section.models.desc",
+  agent: "settings.section.agent.desc",
+  tools: "settings.section.tools.desc",
+  mcp_servers: "settings.section.mcp_servers.desc",
+  skills: "settings.section.skills.desc",
+  memory: "settings.section.memory.desc",
+  system: "settings.section.system.desc",
 };
 
 /** Config keys folded into the single "System" tab (rarely edited). */
@@ -71,8 +73,8 @@ export function deriveSettingsSections(
 ): SectionDescriptor[] {
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: "Appearance",
-    description: SECTION_DESCRIPTIONS.appearance,
+    label: translate("settings.section.appearance.label"),
+    description: translate(SECTION_DESC_KEYS.appearance),
     kind: "appearance",
   };
 
@@ -90,8 +92,13 @@ export function deriveSettingsSections(
   const seen = new Set<string>();
   let systemEmitted = false;
 
-  const descFor = (id: string, sub?: JsonSchema) =>
-    SECTION_DESCRIPTIONS[id] ?? sub?.description ?? undefined;
+  const descFor = (id: string, sub?: JsonSchema) => {
+    const key = SECTION_DESC_KEYS[id];
+    if (key) {
+      return translate(key);
+    }
+    return sub?.description ?? undefined;
+  };
 
   const emit = (key: string) => {
     const sub = props[key];
@@ -103,7 +110,7 @@ export function deriveSettingsSections(
       if (!systemEmitted) {
         out.push({
           id: "system",
-          label: "System",
+          label: translate("settings.section.system.label"),
           description: descFor("system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),

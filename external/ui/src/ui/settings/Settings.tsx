@@ -22,6 +22,8 @@ import {
   setSettingsHash,
   setSettingsSectionHash,
 } from "../scheduler/hashRoute";
+import { useT } from "../i18n/I18nProvider";
+import { translate } from "../i18n/i18n";
 
 type ValidateResponse = { ok: boolean; error?: string };
 
@@ -116,6 +118,7 @@ export function Settings(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useT();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
   );
@@ -172,11 +175,11 @@ export function Settings(props: {
       readJSON<Record<string, unknown>>("/coddy/config"),
     ]);
     if (!sRes.ok || !sRes.data) {
-      setLoadErr(sRes.error || "schema");
+      setLoadErr(sRes.error || translate("settings.error.schemaLoadFailed"));
       return;
     }
     if (!cRes.ok || !cRes.data) {
-      setLoadErr(cRes.error || "config");
+      setLoadErr(cRes.error || translate("settings.error.configLoadFailed"));
       return;
     }
     setSchema(sRes.data);
@@ -215,7 +218,7 @@ export function Settings(props: {
       });
       const vj = (await v.json()) as ValidateResponse;
       if (!vj.ok) {
-        setError(vj.error || "validation failed");
+        setError(vj.error || translate("settings.error.validationFailed"));
         setBusy(false);
         return;
       }
@@ -226,17 +229,24 @@ export function Settings(props: {
       });
       const pj = (await p.json()) as ValidateResponse;
       if (!p.ok || !pj.ok) {
-        setError(pj.error || `save failed (${p.status})`);
+        setError(
+          pj.error ||
+            translate("settings.error.saveFailed", { status: p.status }),
+        );
         setBusy(false);
         return;
       }
-      setMessage("Saved all sections. In-process config reloaded.");
+      setMessage(translate("settings.toast.saved"));
       setJustSaved(true);
       window.setTimeout(() => setJustSaved(false), 1100);
       props.onConfigSaved?.();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "request failed");
+      setError(
+        e instanceof Error
+          ? e.message
+          : translate("settings.error.requestFailed"),
+      );
     } finally {
       setBusy(false);
     }
@@ -287,7 +297,7 @@ export function Settings(props: {
       }
       return (
         <div className="settings-scroll settings-scroll-placeholder">
-          <p className="settings-muted">Loading…</p>
+          <p className="settings-muted">{t("settings.loading")}</p>
         </div>
       );
     }
@@ -297,7 +307,7 @@ export function Settings(props: {
   return (
     <aside
       className="sessions settings drawer"
-      aria-label="Settings"
+      aria-label={t("settings.aria.panel")}
       data-testid="settings-screen"
       data-variant="drawer"
     >
@@ -307,8 +317,8 @@ export function Settings(props: {
             <button
               type="button"
               className="settings-head-back"
-              aria-label="Back to sections"
-              title="Back to sections"
+              aria-label={t("settings.backToSections")}
+              title={t("settings.backToSections")}
               data-testid="settings-mobile-back"
               onClick={backToGrid}
             >
@@ -317,12 +327,12 @@ export function Settings(props: {
             <span className="settings-head-section">{mobileSection.label}</span>
           </span>
         ) : (
-          <span>Settings</span>
+          <span>{t("settings.title")}</span>
         )}
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close settings"
+          aria-label={t("settings.aria.close")}
           data-testid="settings-drawer-close"
           onClick={props.onClose}
         >
@@ -331,12 +341,11 @@ export function Settings(props: {
       </div>
 
       <div className="settings-lead-pane">
-        <p className="settings-lead">
-          Edit configuration from the live JSON schema. Secrets (API keys) are
-          shown in full - use only on trusted networks.
-        </p>
+        <p className="settings-lead">{t("settings.lead")}</p>
         {loadErr ? (
-          <p className="settings-error">Failed to load: {loadErr}</p>
+          <p className="settings-error">
+            {t("settings.error.failedToLoad", { error: loadErr })}
+          </p>
         ) : null}
         {error ? <p className="settings-error">{error}</p> : null}
         {message ? <p className="settings-ok">{message}</p> : null}
@@ -368,8 +377,8 @@ export function Settings(props: {
             className="settings-btn settings-btn-icon"
             data-testid="settings-reload"
             disabled={busy || reloading}
-            title="Reload from server"
-            aria-label="Reload configuration from server"
+            title={t("settings.reload.title")}
+            aria-label={t("settings.reload.aria")}
             onClick={() => void onReload()}
           >
             <IconRefresh
@@ -381,8 +390,8 @@ export function Settings(props: {
             className={`settings-btn settings-btn-primary settings-btn-icon${justSaved ? " is-saved" : ""}`}
             data-testid="settings-save"
             disabled={busy || !schema}
-            title="Save all sections"
-            aria-label="Save all configuration sections"
+            title={t("settings.save.title")}
+            aria-label={t("settings.save.aria")}
             onClick={() => void onSave()}
           >
             <IconSave className="settings-footer-icon-svg" />
