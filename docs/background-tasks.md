@@ -45,6 +45,36 @@ A task always has a hard limit, resolved in this order:
 
 The result is capped by `tools.background.max_timeout_seconds` (3600s). Hitting the limit terminates the process group and records the task as `timed_out` — that is a failure, not a success, and the model is told to report it as one.
 
+An **adopted** task (see below) is the one case with no caller-supplied limit: it gets `max_timeout_seconds` outright. It has no estimate behind it, and the one number that must never be reused is the foreground timeout it just outlived — an explicit `timeout_seconds` wins verbatim, so passing the expired value would kill the task in milliseconds.
+
+## Adoption: a foreground command that outlives its timeout
+
+A foreground `run_command` waits 30 seconds by default. Killing whatever is still running at that point is wrong twice over: a dev server or watcher is doing exactly what was asked, and anything the shell spawned survives a kill aimed only at the shell while still holding the inherited output pipe — which used to wedge `cmd.Wait` forever and hang the whole turn.
+
+So the command is **handed to the pool instead of killed**. The process keeps running in the same process group, its output stream is redirected into the task's sink with everything captured so far flushed in first, and the tool answers with:
+
+```
+Command still running after 30s. It was NOT cancelled: it now runs as background task bg_3 (hard timeout 1h).
+Follow it with background_output task_id="bg_3", background_wait, or terminate it with background_stop.
+Do NOT run this command again with a larger timeout_seconds: it is already running, and a second copy would fight the first one for the same ports, locks and files.
+Output captured so far:
+
+  App running at:
+  - Local:   http://localhost:8081/
+```
+
+The notice leads and the output follows, because the tool output ceiling truncates from the end. The result is a normal tool result, not an error: the agent loop shows the model an error's text and discards the result string, so reporting a timeout as an error is what threw the captured output away.
+
+From there the task is an ordinary one — `background_list`, `background_output`, `background_wait`, `background_stop` all reach it, `notify_on_finish` is off (the model is being told right now), and its elapsed time counts from the original foreground start rather than from the handover.
+
+The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enabled: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
+
+Implementation: `Pool.Adopt` (`internal/bgtask/pool.go`) shares the single scheduling path with `Pool.Start`; the shell side is `startForeground` and `adoptedHandle` in `internal/tools/shell/foreground.go`, with `switchWriter` holding the output until the pool takes it over. Exactly one `cmd.Wait` exists per command — the pool observes the same result rather than calling it again.
+
+## Output is sanitised on read
+
+Captured bytes are stored raw in `output.log`; escape sequences and carriage-return progress redraws are stripped when the output is **read** (`platform.SanitizeOutput`, applied in `bgtask.decodeOutput` and by `run_command` itself). A webpack or vue-cli build otherwise spends most of its output on `\x1b[2K\x1b[1A` redraws, and the line that matters is buried in them. Stripping at read time keeps the on-disk log a faithful record and avoids corrupting escape sequences that straddle two writes.
+
 ## Lifecycle and persistence
 
 The pool lives **inside the running `coddy` process**. Each task mirrors its metadata and captured output into the session bundle:
@@ -146,6 +176,6 @@ type Handle interface {
 
 ## Tests
 
-- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), and `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`).
+- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`), and `features/foreground_timeout_adoption.feature` (handover of a foreground command that outlives its timeout, `internal/tools/shell/bdd_foreground_timeout_test.go`).
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
 - End-to-end against a real model: `examples/httpserver/http_e2e_background.py` and `examples/acp/acp_e2e_background.py`.

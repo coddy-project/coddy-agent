@@ -1,12 +1,11 @@
 package shell
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -35,8 +34,9 @@ func RunCommandToolForShell(commandShell platform.Shell) *tooling.Tool {
 						"description": "Optional text shown in the permission dialog instead of raw arguments",
 					},
 					"timeout_seconds": map[string]interface{}{
-						"type":        "integer",
-						"description": "Command timeout in seconds. Foreground default 30; a background task derives its limit from expected_seconds when this is omitted",
+						"type": "integer",
+						"description": "Command timeout in seconds. Foreground default 30. A foreground command that outlives it is not killed: it is handed to the background task pool and the tool answers with the new task id plus the output so far, " +
+							"so never re-run the same command with a larger timeout_seconds - the first copy is still running. A background task derives its limit from expected_seconds when this is omitted",
 					},
 					"background": map[string]interface{}{
 						"type": "boolean",
@@ -101,32 +101,86 @@ func executeRunCommandWithShell(ctx context.Context, argsJSON string, env *tooli
 		return startBackgroundCommand(args, env)
 	}
 
-	timeout := 30
+	timeout := defaultForegroundTimeoutSeconds
 	if args.TimeoutSeconds > 0 {
 		timeout = args.TimeoutSeconds
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
-	defer cancel()
+	sc, err := startForeground(args.Command, env, commandShell)
+	if err != nil {
+		return fmt.Sprintf("command failed: %v", err), nil
+	}
 
-	executable, commandArgs := commandShell.Command(args.Command)
-	cmd := exec.CommandContext(cmdCtx, executable, commandArgs...)
-	cmd.Dir = env.CWD
+	timer := time.NewTimer(time.Duration(timeout) * time.Second)
+	defer timer.Stop()
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	select {
+	case <-sc.waited:
+		return sc.completedResult(), nil
 
-	if err := cmd.Run(); err != nil {
-		if cmdCtx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("command timed out after %d seconds", timeout)
+	case <-ctx.Done():
+		if sc.finished() {
+			return sc.completedResult(), nil
 		}
-		return fmt.Sprintf("command failed: %v\n%s", err, platform.DecodeOutput(out.Bytes())), nil
-	}
+		return sc.terminate(cancelledNotice(sc)), nil
 
-	result := platform.DecodeOutput(out.Bytes())
-	if result == "" {
-		return "(no output)", nil
+	case <-timer.C:
+		// A command can exit in the same instant the timer fires, and select
+		// picks at random among ready cases: ask before declaring it long-lived.
+		if sc.finished() {
+			return sc.completedResult(), nil
+		}
+		adopted, adoptErr := adoptForeground(sc, args, env)
+		if adopted != nil {
+			return joinNotice(adoptionNotice(adopted.snap, timeout), adopted.prefix), nil
+		}
+		return sc.terminate(terminationNotice(timeout, adoptErr)), nil
 	}
-	return result, nil
+}
+
+// joinNotice keeps the notice ahead of the output. The tool output ceiling
+// truncates from the end, so a notice placed after a long log is the first
+// thing the model loses.
+func joinNotice(notice, output string) string {
+	if output == "" {
+		return notice
+	}
+	return notice + "\n\n" + output
+}
+
+// adoptionNotice tells the model that nothing was cancelled, names the task it
+// now owns, and closes the door on the retry loop a bare timeout used to invite.
+func adoptionNotice(snap bgtask.Snapshot, timeout int) string {
+	return fmt.Sprintf(
+		"Command still running after %s. It was NOT cancelled: it now runs as background task %s (hard timeout %s).\n"+
+			"Follow it with %s task_id=%q, %s, or terminate it with %s.\n"+
+			"Do NOT run this command again with a larger timeout_seconds: it is already running, and a second copy would fight the first one for the same ports, locks and files.\n"+
+			"Output captured so far:",
+		humanSeconds(timeout), snap.ID, humanSeconds(snap.TimeoutSeconds),
+		ToolBackgroundOutput, snap.ID, ToolBackgroundWait, ToolBackgroundStop,
+	)
+}
+
+// terminationNotice explains the one case where a long-lived command really is
+// killed: nothing was available to take ownership of it.
+func terminationNotice(timeout int, reason error) string {
+	because := ""
+	if reason != nil {
+		because = fmt.Sprintf(" (could not hand it over: %v)", reason)
+	}
+	return fmt.Sprintf(
+		"Command exceeded its %s foreground timeout and its whole process group was terminated%s.\n"+
+			"Re-run it with background: true and an honest expected_seconds estimate, not with a larger timeout_seconds.\n"+
+			"Output captured before the timeout:",
+		humanSeconds(timeout), because,
+	)
+}
+
+// cancelledNotice covers a turn the operator stopped.
+func cancelledNotice(sc *startedCommand) string {
+	elapsed := int(time.Since(sc.startedAt).Round(time.Second) / time.Second)
+	return fmt.Sprintf(
+		"Command cancelled after %s; its whole process group was terminated.\nOutput captured before the cancellation:",
+		humanSeconds(elapsed),
+	)
 }

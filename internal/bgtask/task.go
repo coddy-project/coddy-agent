@@ -79,6 +79,11 @@ type Spec struct {
 	// worth an autonomous turn, so a batch of quick commands cannot each start
 	// one behind the operator's back.
 	NotifyOnFinish bool
+	// StartedAt is when the work actually began, for work the pool is adopting
+	// rather than launching. Zero means now. Without it an adopted task reports
+	// an elapsed time short by however long it ran in the foreground, and its
+	// overdue and silence hints are wrong by the same amount.
+	StartedAt time.Time
 }
 
 // Snapshot is an immutable view of a task, safe to hand to callers and to
