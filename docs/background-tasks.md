@@ -71,6 +71,8 @@ The command **is** terminated, process group and all, in the three cases where n
 
 Implementation: `Pool.Adopt` (`internal/bgtask/pool.go`) shares the single scheduling path with `Pool.Start`; the shell side is `startForeground` and `adoptedHandle` in `internal/tools/shell/foreground.go`, with `switchWriter` holding the output until the pool takes it over. Exactly one `cmd.Wait` exists per command — the pool observes the same result rather than calling it again.
 
+Known limitation: an adopted command keeps writing through the pipe `exec` created for the foreground run, and that pipe is drained only until `cmd.Wait` returns. If the command detaches a daemon and its shell then exits, `WaitDelay` closes the pipe five seconds later and the task is recorded as finished with the shell's exit code — the daemon keeps running, but whatever it prints after that point is lost. The trade is deliberate: without `WaitDelay` the wait would hang on the inherited pipe exactly the way the original bug did. Commands that keep their server in the shell's foreground — which dev servers do by default — are unaffected.
+
 ## Output is sanitised on read
 
 Captured bytes are stored raw in `output.log`; escape sequences and carriage-return progress redraws are stripped when the output is **read** (`platform.SanitizeOutput`, applied in `bgtask.decodeOutput` and by `run_command` itself). A webpack or vue-cli build otherwise spends most of its output on `\x1b[2K\x1b[1A` redraws, and the line that matters is buried in them. Stripping at read time keeps the on-disk log a faithful record and avoids corrupting escape sequences that straddle two writes.
