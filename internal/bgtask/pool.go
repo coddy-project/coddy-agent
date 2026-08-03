@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -233,9 +234,48 @@ func (t *task) markExitObserved() {
 	t.mu.Unlock()
 }
 
+// AdoptFunc hands the pool's output sink to work that is already running and
+// returns the handle controlling it. It is the same shape as Runner.Start minus
+// the Spec, which adopted work cannot act on: the process exists already.
+type AdoptFunc func(out io.Writer) (Handle, error)
+
 // Start accepts a spec and launches it. It returns as soon as the work is
 // running: the caller gets a task id, not a result.
 func (p *Pool) Start(spec Spec) (Snapshot, error) {
+	return p.start(spec, func(out io.Writer) (Handle, error) { return p.runner.Start(spec, out) })
+}
+
+// Adopt registers work that is already running - a foreground command that
+// outlived its timeout and must not be killed for it. The callback receives the
+// task's output sink, so everything the work has written so far can be flushed
+// into it and the log reads as one stream.
+//
+// Admission happens before the callback runs, so ErrPoolFull and ErrDraining
+// guarantee it was never called and the caller still owns the process.
+//
+// A zero TimeoutSeconds becomes the configured maximum rather than the ordinary
+// default: adopted work has no estimate behind it, and the foreground limit it
+// just outlived is the one value that must never be reused - resolveTimeoutSeconds
+// honours an explicit timeout verbatim, so passing the expired one would kill the
+// task immediately. NotifyOnFinish is forced off because the caller is being told
+// about this task right now, in the tool result.
+func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
+	if adopt == nil {
+		return Snapshot{}, fmt.Errorf("adopt callback is nil")
+	}
+	if spec.TimeoutSeconds <= 0 {
+		p.mu.RLock()
+		spec.TimeoutSeconds = p.cfg.MaxTimeoutSeconds
+		p.mu.RUnlock()
+	}
+	spec.NotifyOnFinish = false
+	return p.start(spec, adopt)
+}
+
+// start is the one scheduling path: Start launches through the runner, Adopt
+// hands over work that is already running, and everything after the launch -
+// admission, persistence, supervision - is identical.
+func (p *Pool) start(spec Spec, launch AdoptFunc) (Snapshot, error) {
 	spec.SessionID = strings.TrimSpace(spec.SessionID)
 	if spec.Kind == "" {
 		spec.Kind = KindCommand
@@ -261,6 +301,11 @@ func (p *Pool) Start(spec Spec) (Snapshot, error) {
 
 	timeoutSeconds := resolveTimeoutSeconds(spec, cfg)
 
+	startedAt := now
+	if !spec.StartedAt.IsZero() {
+		startedAt = spec.StartedAt
+	}
+
 	t := &task{
 		sink: NewOutputSink(cfg.OutputBufferBytes),
 		done: make(chan struct{}),
@@ -273,7 +318,7 @@ func (p *Pool) Start(spec Spec) (Snapshot, error) {
 			CWD:             spec.CWD,
 			ToolCallID:      spec.ToolCallID,
 			Status:          StatusRunning,
-			StartedAt:       now,
+			StartedAt:       startedAt,
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
 			NotifyOnFinish:  spec.NotifyOnFinish,
@@ -294,7 +339,7 @@ func (p *Pool) Start(spec Spec) (Snapshot, error) {
 		}
 	}
 
-	handle, err := p.runner.Start(spec, t.sink)
+	handle, err := launch(t.sink)
 	if err != nil {
 		t.sink.Close()
 		finished := p.now()
@@ -756,5 +801,5 @@ func taskKey(sessionID, taskID string) string {
 // decodeOutput reuses the platform decoder so Windows console output arrives as
 // UTF-8 exactly like it does for a foreground run_command.
 func decodeOutput(b []byte) string {
-	return platform.DecodeOutput(b)
+	return platform.SanitizeOutput(platform.DecodeOutput(b))
 }
