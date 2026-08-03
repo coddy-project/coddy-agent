@@ -131,6 +131,34 @@ func (s *foregroundTimeoutState) runPrintingPastTimeout(text string, timeoutSeco
 	return s.run(printing+"; "+sleeping, timeoutSeconds)
 }
 
+// complainCommand writes to the real stderr handle without any shell
+// redirection, which is how a dev server reports a busy port. The tool captures
+// stdout and stderr into the same sink, so the model reads it without ever
+// needing 2>&1 - and on PowerShell that operator would mangle the message.
+func complainCommand(kind platform.ShellKind, text string) (string, error) {
+	switch kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		return "[Console]::Error.WriteLine('" + strings.ReplaceAll(text, "'", "''") + "')", nil
+	case platform.ShellBash, platform.ShellSh:
+		return "printf '%s\\n' '" + strings.ReplaceAll(text, "'", `'\''`) + "' >&2", nil
+	default:
+		return "", fmt.Errorf("writing to the error stream is not supported for shell %q", kind)
+	}
+}
+
+func (s *foregroundTimeoutState) runComplainingPastTimeout(text string, timeoutSeconds int) error {
+	complaining, err := complainCommand(s.shell.Kind, text)
+	if err != nil {
+		return err
+	}
+	sleeping, err := sleepCommand(s.shell.Kind, lastingSeconds)
+	if err != nil {
+		return err
+	}
+	s.marker = text
+	return s.run(complaining+"; "+sleeping, timeoutSeconds)
+}
+
 func (s *foregroundTimeoutState) runSpawningLastingChild(timeoutSeconds int) error {
 	command, err := lastingChildCommand(s.shell, lastingSeconds)
 	if err != nil {
@@ -255,6 +283,7 @@ func initializeForegroundTimeoutScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a session with an empty background task pool$`, s.emptyPool)
 	sc.Step(`^I run a command in the foreground that keeps running past its (\d+) second timeout$`, s.runPastTimeout)
 	sc.Step(`^I run a command in the foreground that prints "([^"]*)" and keeps running past its (\d+) second timeout$`, s.runPrintingPastTimeout)
+	sc.Step(`^I run a command in the foreground that complains "([^"]*)" on its error stream and keeps running past its (\d+) second timeout$`, s.runComplainingPastTimeout)
 	sc.Step(`^I run a command in the foreground that spawns a lasting child and keeps running past its (\d+) second timeout$`, s.runSpawningLastingChild)
 	sc.Step(`^I run a command in the foreground that prints "([^"]*)"$`, s.runPrinting)
 	sc.Step(`^the tool answers within (\d+) seconds$`, s.answersWithin)

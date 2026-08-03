@@ -206,7 +206,7 @@ func TestForegroundAdoptionNoticeSurvivesTheOutputCeiling(t *testing.T) {
 	if !strings.Contains(trimmed, "bg_7") {
 		t.Fatalf("the task id did not survive truncation: %q", trimmed)
 	}
-	if !strings.Contains(trimmed, "Do NOT run this command again") {
+	if !strings.Contains(trimmed, "Do NOT start this work a second time") {
 		t.Fatalf("the anti-retry warning did not survive truncation: %q", trimmed)
 	}
 }
@@ -277,6 +277,51 @@ func TestForegroundCommandStillReportsExitStatus(t *testing.T) {
 	out, _ := runForegroundForTest(context.Background(), t, "exit 3", 30, env)
 	if !strings.Contains(out, "command failed:") || !strings.Contains(out, "exit status 3") {
 		t.Fatalf("answer %q does not report the command's own exit code", out)
+	}
+}
+
+// TestForegroundResultCarriesStderrWithoutRedirection guards the reason the
+// output matters at all: a dev server reports a busy port or a missing binary on
+// stderr, and the model must read it without having remembered to write 2>&1.
+func TestForegroundResultCarriesStderrWithoutRedirection(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := complainCommand(commandShell.Kind, "port 8080 is already in use")
+	if err != nil {
+		t.Skipf("no error-stream form for this shell: %v", err)
+	}
+
+	out, _ := runForegroundForTest(context.Background(), t, command, 30, &tooling.Env{CWD: t.TempDir()})
+	if !strings.Contains(out, "port 8080 is already in use") {
+		t.Fatalf("answer %q lost what the command wrote to stderr", out)
+	}
+}
+
+func TestRunCommandDescriptionWarnsAgainstRedirectingStderr(t *testing.T) {
+	for _, sh := range []platform.Shell{
+		{Kind: platform.ShellPwsh, Path: "pwsh"},
+		{Kind: platform.ShellBash, Path: "/bin/bash"},
+	} {
+		description := RunCommandToolForShell(sh).Definition.Description
+		if !strings.Contains(description, "2>&1") {
+			t.Fatalf("%s description does not tell the model that stderr is already captured: %q", sh.Kind, description)
+		}
+	}
+}
+
+// TestAdoptionNoticeForbidsASecondCopyOfTheWork covers what a live run showed:
+// told only not to raise timeout_seconds, a model reaches for a variant of the
+// same work instead - npm install --ignore-engines, then yarn install - and ends
+// up with two installs fighting over one directory.
+func TestAdoptionNoticeForbidsASecondCopyOfTheWork(t *testing.T) {
+	notice := adoptionNotice(bgtask.Snapshot{ID: "bg_2", TimeoutSeconds: 3600}, 30)
+	for _, want := range []string{
+		"not the same command with a larger timeout_seconds",
+		"not a variant with different flags",
+		"not another tool that does the same job",
+	} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("adoption notice does not rule out %q: %s", want, notice)
+		}
 	}
 }
 

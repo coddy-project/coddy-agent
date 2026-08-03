@@ -20,6 +20,11 @@ Feature: A foreground command that outlives its timeout is handed over, not lost
     Then the answer contains "serving on port 8081"
     And the answer names the background task before it shows that output
 
+  Scenario: The handover answer carries what the command wrote to its error stream
+    Given a session with an empty background task pool
+    When I run a command in the foreground that complains "port 8080 is already in use" on its error stream and keeps running past its 2 second timeout
+    Then the answer contains "port 8080 is already in use"
+
   Scenario: The handover survives a command whose child outlives the shell
     Given a session with an empty background task pool
     When I run a command in the foreground that spawns a lasting child and keeps running past its 2 second timeout

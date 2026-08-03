@@ -72,13 +72,16 @@ func shellDescription(commandShell platform.Shell) string {
 		return "Execute a PowerShell command in the working directory. Use native commands such as Get-ChildItem, Select-String, and Get-Process. " +
 			"Multi-line commands are supported. To pass text literally, single-quote it ('...') or use a here-string (@'...'@): inside double quotes PowerShell treats the backtick as an escape character, " +
 			"so a value containing backticks, or Markdown such as `code` or **bold**, is altered or fails to parse. Bash heredocs (<< 'EOF') are not PowerShell syntax; write the text to a file and pass the path instead. " +
-			"Returns combined stdout and stderr output."
+			"Returns stdout and stderr already captured together, so never add 2>&1: in PowerShell that operator wraps each error line in an ErrorRecord and mangles the message you were trying to read."
 	case platform.ShellCmd:
-		return "Execute a cmd.exe command in the working directory. Use Windows commands such as dir, findstr, and tasklist. Returns combined stdout and stderr output."
+		return "Execute a cmd.exe command in the working directory. Use Windows commands such as dir, findstr, and tasklist. " +
+			"Returns stdout and stderr already captured together, so 2>&1 is never needed."
 	case platform.ShellBash:
-		return "Execute a bash command in the working directory using POSIX command syntax. Returns combined stdout and stderr output."
+		return "Execute a bash command in the working directory using POSIX command syntax. " +
+			"Returns stdout and stderr already captured together, so 2>&1 is never needed."
 	default:
-		return "Execute an sh command in the working directory using POSIX command syntax. Returns combined stdout and stderr output."
+		return "Execute an sh command in the working directory using POSIX command syntax. " +
+			"Returns stdout and stderr already captured together, so 2>&1 is never needed."
 	}
 }
 
@@ -153,11 +156,12 @@ func joinNotice(notice, output string) string {
 func adoptionNotice(snap bgtask.Snapshot, timeout int) string {
 	return fmt.Sprintf(
 		"Command still running after %s. It was NOT cancelled: it now runs as background task %s (hard timeout %s).\n"+
-			"Follow it with %s task_id=%q, %s, or terminate it with %s.\n"+
-			"Do NOT run this command again with a larger timeout_seconds: it is already running, and a second copy would fight the first one for the same ports, locks and files.\n"+
+			"Follow it with %s task_id=%q, %s, or terminate it with %s. Its stdout and stderr are both captured there, so an error will show up in that output.\n"+
+			"Do NOT start this work a second time while %s runs: not the same command with a larger timeout_seconds, not a variant with different flags, not another tool that does the same job. "+
+			"A second copy fights this one for the same ports, locks and files, and wrecks what the first one is halfway through. Wait for it, read its output, or stop it first.\n"+
 			"Output captured so far:",
 		humanSeconds(timeout), snap.ID, humanSeconds(snap.TimeoutSeconds),
-		ToolBackgroundOutput, snap.ID, ToolBackgroundWait, ToolBackgroundStop,
+		ToolBackgroundOutput, snap.ID, ToolBackgroundWait, ToolBackgroundStop, snap.ID,
 	)
 }
 
