@@ -1,6 +1,11 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { deriveSettingsSections } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
+import { initLocale } from "../i18n/i18n";
+
+afterEach(() => {
+  initLocale("en");
+});
 
 // Mirrors the top-level shape + order produced by Go UISchemaMap().
 const rootSchema: JsonSchema = {
@@ -18,6 +23,7 @@ const rootSchema: JsonSchema = {
     "instructions",
     "logger",
     "sessions",
+    "compaction",
     "gateways",
   ],
   properties: {
@@ -45,6 +51,11 @@ const rootSchema: JsonSchema = {
     instructions: { type: "object", title: "Instructions", properties: {} },
     logger: { type: "object", title: "Logger", properties: {} },
     sessions: { type: "object", title: "Sessions", properties: {} },
+    compaction: {
+      type: "object",
+      title: "Context compaction",
+      properties: {},
+    },
     gateways: { type: "object", title: "Messenger gateways", properties: {} },
   },
 } as unknown as JsonSchema;
@@ -62,6 +73,7 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "skills",
     "memory",
     "system",
+    "compaction",
   ]);
 });
 
@@ -97,13 +109,26 @@ test("System group folds the rarely edited tail keys", () => {
   ]);
 });
 
-test("skills is its own combined tab; labels come from schema titles", () => {
+test("skills is its own combined tab; english labels match schema titles", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
   expect(byId.skills.kind).toBe("skills");
   expect(byId.agent.kind).toBe("object");
   expect(byId.agent.label).toBe("ReAct agent");
+});
+
+test("known section labels and descriptions follow the active locale", () => {
+  initLocale("ru");
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.appearance.label).toBe("Оформление");
+  expect(byId.providers.label).toBe("Провайдеры LLM");
+  expect(byId.tools.label).toBe("Инструменты и разрешения");
+  expect(byId.memory.label).toBe("Долговременная память");
+  expect(byId.compaction.label).toBe("Сжатие контекста");
+  expect(byId.compaction.description).toBe("Сжатие истории диалога");
 });
 
 test("Appearance tab is present even without a schema", () => {

@@ -41,7 +41,15 @@ export const messagesRu: Record<string, string> = {
   "settings.error.noItemSchema": "У этого раздела нет схемы элементов.",
 
   "settings.section.appearance.label": "Оформление",
+  "settings.section.providers.label": "Провайдеры LLM",
+  "settings.section.models.label": "Логические модели",
+  "settings.section.agent.label": "ReAct-агент",
+  "settings.section.tools.label": "Инструменты и разрешения",
+  "settings.section.mcp_servers.label": "MCP-серверы",
+  "settings.section.skills.label": "Навыки",
+  "settings.section.memory.label": "Долговременная память",
   "settings.section.system.label": "Система",
+  "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.appearance.desc": "Тема и цветовой режим",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
@@ -51,6 +59,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.skills.desc": "Установленные навыки (slash)",
   "settings.section.memory.desc": "Параметры долговременной памяти",
   "settings.section.system.desc": "Планировщик, логи, промпты",
+  "settings.section.compaction.desc": "Сжатие истории диалога",
 
   "settings.nav.aria.scrollLeft": "Прокрутить разделы влево",
   "settings.nav.aria.scrollRight": "Прокрутить разделы вправо",

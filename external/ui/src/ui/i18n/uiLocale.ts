@@ -38,11 +38,7 @@ export function readUiLocaleFromUrl(): UiLocale | null {
   if (typeof window === "undefined") {
     return null;
   }
-  const m = window.location.search.match(/[?&]lang=([^&]+)/);
-  if (!m || m[1] === undefined) {
-    return null;
-  }
-  const raw = decodeURIComponent(m[1].replace(/\+/g, " "));
+  const raw = new URLSearchParams(window.location.search).get("lang");
   if (raw === "ru") {
     return "ru";
   }

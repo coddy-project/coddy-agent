@@ -20,9 +20,12 @@ export function readUiLocaleCookie(): UiLocale | null {
     if (!s.startsWith(`${CODDY_UI_LANG_COOKIE}=`)) {
       continue;
     }
-    const v = decodeURIComponent(
-      s.slice(CODDY_UI_LANG_COOKIE.length + 1).trim(),
-    );
+    let v: string;
+    try {
+      v = decodeURIComponent(s.slice(CODDY_UI_LANG_COOKIE.length + 1).trim());
+    } catch {
+      return null;
+    }
     if (isValidLocale(v)) {
       return v;
     }

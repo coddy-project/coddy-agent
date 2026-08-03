@@ -2,12 +2,7 @@ import type { JsonSchema } from "./SchemaForm";
 import { translate } from "../i18n/i18n";
 
 export type SectionKind =
-  | "array"
-  | "object"
-  | "group"
-  | "skills"
-  | "mcp"
-  | "appearance";
+  "array" | "object" | "group" | "skills" | "mcp" | "appearance";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -23,6 +18,23 @@ export type SectionDescriptor = {
   labelField?: string | undefined;
   /** For group sections: config keys grouped under this tab. */
   childKeys?: string[] | undefined;
+};
+
+/**
+ * i18n keys for known section labels and mobile tile blurbs. Unknown schema
+ * sections keep their server-provided title and description.
+ */
+const SECTION_LABEL_KEYS: Record<string, string> = {
+  appearance: "settings.section.appearance.label",
+  providers: "settings.section.providers.label",
+  models: "settings.section.models.label",
+  agent: "settings.section.agent.label",
+  tools: "settings.section.tools.label",
+  mcp_servers: "settings.section.mcp_servers.label",
+  skills: "settings.section.skills.label",
+  memory: "settings.section.memory.label",
+  system: "settings.section.system.label",
+  compaction: "settings.section.compaction.label",
 };
 
 /**
@@ -42,6 +54,7 @@ const SECTION_DESC_KEYS: Record<string, string> = {
   skills: "settings.section.skills.desc",
   memory: "settings.section.memory.desc",
   system: "settings.section.system.desc",
+  compaction: "settings.section.compaction.desc",
 };
 
 /** Config keys folded into the single "System" tab (rarely edited). */
@@ -71,9 +84,14 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
+  const labelFor = (id: string, sub?: JsonSchema) => {
+    const key = SECTION_LABEL_KEYS[id];
+    return key ? translate(key) : sub?.title || id;
+  };
+
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: translate("settings.section.appearance.label"),
+    label: labelFor("appearance"),
     description: translate(SECTION_DESC_KEYS.appearance),
     kind: "appearance",
   };
@@ -110,7 +128,7 @@ export function deriveSettingsSections(
       if (!systemEmitted) {
         out.push({
           id: "system",
-          label: translate("settings.section.system.label"),
+          label: labelFor("system"),
           description: descFor("system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
@@ -122,7 +140,7 @@ export function deriveSettingsSections(
     if (key === "skills") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "skills",
         schemaKey: key,
@@ -132,7 +150,7 @@ export function deriveSettingsSections(
     if (key === "mcp_servers") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "mcp",
         schemaKey: key,
@@ -142,7 +160,7 @@ export function deriveSettingsSections(
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
@@ -152,7 +170,7 @@ export function deriveSettingsSections(
     }
     out.push({
       id: key,
-      label: sub.title || key,
+      label: labelFor(key, sub),
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,

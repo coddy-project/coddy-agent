@@ -43,6 +43,11 @@ test("invalid cookie value is ignored", () => {
   expect(readUiLocaleCookie()).toBeNull();
 });
 
+test("malformed percent encoding in the cookie is ignored", () => {
+  document.cookie = `${CODDY_UI_LANG_COOKIE}=%; Path=/`;
+  expect(readUiLocaleCookie()).toBeNull();
+});
+
 test("clearUiLocaleCookie removes the stored locale", () => {
   setLocation("http://127.0.0.1:5173/");
   writeUiLocaleCookie("ru");

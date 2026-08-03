@@ -1,6 +1,6 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
-import { themeLabel, getLocale, setLocale } from "../i18n/i18n";
+import { themeLabel, setLocale } from "../i18n/i18n";
 import {
   readUiLocaleCookie,
   writeUiLocaleCookie,
@@ -9,7 +9,6 @@ import {
   readNavigatorLanguage,
   type UiLocale,
 } from "../i18n/localeCookie";
-import { onLocaleChange } from "../i18n/i18n";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 
@@ -104,11 +103,6 @@ function readLocaleChoice(): LocaleChoice {
  * "Русский" persist `coddy_ui_lang`. Purely client-side (no config save). */
 export function AppearanceLanguagePicker() {
   const { t } = useT();
-  const locale = useSyncExternalStore(
-    onLocaleChange,
-    getLocale,
-    () => "en" as UiLocale,
-  );
   // `choice` (Auto vs explicit locale) is cookie-derived. Tracked in local
   // state because picking "Auto" can resolve to the already-active locale, in
   // which case setLocale does not notify subscribers — the local state update
@@ -162,9 +156,6 @@ export function AppearanceLanguagePicker() {
           );
         })}
       </div>
-      <p className="appearance-lang-hint" aria-hidden="true">
-        {locale === "ru" ? "ru" : "en"}
-      </p>
     </div>
   );
 }

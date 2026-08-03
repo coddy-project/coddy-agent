@@ -8050,9 +8050,10 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 }
 
 .appearance-lang-option {
-  flex: 1 1 120px;
-  min-width: 120px;
-  padding: 8px 12px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  padding: 8px 10px;
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--text);
@@ -8072,15 +8073,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   box-shadow: 0 0 0 1px var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
-
-.appearance-lang-hint {
-  margin: 8px 0 0;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-}
-
 
 .settings-appearance-swatch-dot {
   width: 12px;

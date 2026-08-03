@@ -118,7 +118,7 @@ export function Settings(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { t } = useT();
+  const { locale, t } = useT();
   const [activeTab, setActiveTab] = useState<string>(
     props.initialSection ?? "",
   );
@@ -139,7 +139,10 @@ export function Settings(props: {
     props.initialSection ?? null,
   );
 
-  const sections = useMemo(() => deriveSettingsSections(schema), [schema]);
+  const sections = useMemo(
+    () => deriveSettingsSections(schema),
+    [schema, locale],
+  );
   const activeSection =
     sections.find((s) => s.id === activeTab) ?? sections[0] ?? null;
   const mobileSection = mobileDetailId

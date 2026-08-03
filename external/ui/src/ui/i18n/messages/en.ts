@@ -43,7 +43,15 @@ export const messagesEn: Record<string, string> = {
   "settings.error.noItemSchema": "This section has no item schema.",
 
   "settings.section.appearance.label": "Appearance",
+  "settings.section.providers.label": "LLM providers",
+  "settings.section.models.label": "Logical models",
+  "settings.section.agent.label": "ReAct agent",
+  "settings.section.tools.label": "Tools and permissions",
+  "settings.section.mcp_servers.label": "MCP servers",
+  "settings.section.skills.label": "Skills",
+  "settings.section.memory.label": "Long-term memory",
   "settings.section.system.label": "System",
+  "settings.section.compaction.label": "Context compaction",
   "settings.section.appearance.desc": "Theme & color mode",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
@@ -53,6 +61,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.skills.desc": "Installed slash skills",
   "settings.section.memory.desc": "Long-term memory options",
   "settings.section.system.desc": "Scheduler, logs, prompts",
+  "settings.section.compaction.desc": "Conversation history compaction",
 
   "settings.nav.aria.scrollLeft": "Scroll sections left",
   "settings.nav.aria.scrollRight": "Scroll sections right",

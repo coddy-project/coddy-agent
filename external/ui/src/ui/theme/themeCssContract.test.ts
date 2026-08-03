@@ -3,7 +3,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-const cssPath = join(dirname(fileURLToPath(import.meta.url)), "../../styles.css");
+const cssPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../styles.css",
+);
 
 function cssText(): string {
   return readFileSync(cssPath, "utf8");
@@ -12,7 +15,9 @@ function cssText(): string {
 test("canvas background uses theme variables", () => {
   const css = cssText();
   expect(css).toMatch(/--coddy-canvas-gradient-bottom:/);
-  expect(css).toMatch(/background-color:\s*var\(--coddy-canvas-gradient-bottom\)/);
+  expect(css).toMatch(
+    /background-color:\s*var\(--coddy-canvas-gradient-bottom\)/,
+  );
 });
 
 test("desktop canvas follows the dynamic viewport in Firefox", () => {
@@ -58,9 +63,27 @@ test("styles.css defines variable blocks for all 7 themes", () => {
 
 test("each theme block defines --accent", () => {
   const css = cssText();
-  const themes = ["dark", "light", "midnight", "solarized-dark", "monokai", "nord", "rose-pine"];
+  const themes = [
+    "dark",
+    "light",
+    "midnight",
+    "solarized-dark",
+    "monokai",
+    "nord",
+    "rose-pine",
+  ];
   for (const t of themes) {
-    const block = new RegExp(`\\[data-theme="${t}"\\][^{]*\\{[^}]*--accent:[^}]*\\}`, "s");
+    const block = new RegExp(
+      `\\[data-theme="${t}"\\][^{]*\\{[^}]*--accent:[^}]*\\}`,
+      "s",
+    );
     expect(css, `${t} should have --accent`).toMatch(block);
   }
+});
+
+test("language options remain three equal segments on narrow settings", () => {
+  const rule = cssText().match(/\.appearance-lang-option\s*\{[^}]*\}/s)?.[0];
+  expect(rule).toMatch(/flex:\s*1 1 0/);
+  expect(rule).toMatch(/min-width:\s*0/);
+  expect(rule).not.toContain("120px");
 });

@@ -53,6 +53,14 @@ test("readUiLocaleFromUrl parses ?lang= and rejects unknown values", () => {
   expect(readUiLocaleFromUrl()).toBeNull();
 });
 
+test("readUiLocaleFromUrl ignores malformed percent encoding", () => {
+  Object.defineProperty(window, "location", {
+    value: new URL("http://127.0.0.1:5173/?lang=%"),
+    configurable: true,
+  });
+  expect(readUiLocaleFromUrl()).toBeNull();
+});
+
 test("bootstrap prefers ?lang= over cookie and persists it", () => {
   writeUiLocaleCookie("ru");
   Object.defineProperty(window, "location", {
