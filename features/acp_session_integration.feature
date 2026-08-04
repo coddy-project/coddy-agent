@@ -8,6 +8,12 @@ Feature: ACP session integrations
     Then the session/new response is sent before its session updates
     And the available slash commands include "context-router"
 
+  Scenario: A reopened persisted session replays its transcript after the response
+    Given Coddy ACP reopens a persisted session holding an earlier exchange
+    When an ACP client creates a session
+    Then the session/new response is sent before its session updates
+    And the replayed transcript includes "previous answer"
+
   Scenario: Current mode updates use the ACP wire schema
     Given an ACP client has an active session
     When the client switches the mode to "plan"

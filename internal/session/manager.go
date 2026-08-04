@@ -195,7 +195,7 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 				SessionID:  id,
 				CWD:        params.CWD,
 				MCPServers: params.MCPServers,
-			})
+			}, true)
 			if err != nil {
 				return nil, fmt.Errorf("session/new: reopen persisted session %s: %w", id, err)
 			}
@@ -278,7 +278,12 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 	return state, nil
 }
 
-func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
+// loadSessionFromDisk restores a persisted bundle. deferPublish parks the
+// replayed transcript (and the plan and context usage that go with it) on the
+// state instead of writing it immediately: session/new reopening a bundle must
+// not emit updates for a session id the client only learns from the response it
+// has not received yet. HandleSessionReady publishes them afterwards.
+func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoadParams, deferPublish bool) (*acp.SessionLoadResult, error) {
 	if m.store == nil {
 		return nil, fmt.Errorf("session/load: persistence is disabled")
 	}
@@ -351,17 +356,25 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	m.mu.Lock()
 	m.sessions[params.SessionID] = st
 	m.mu.Unlock()
-	m.sendContextUsageUpdate(params.SessionID, st)
 
-	if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
-		m.log.Warn("replay conversation", "error", err)
+	publish := func() {
+		m.sendContextUsageUpdate(params.SessionID, st)
+
+		if err := m.replayConversation(params.SessionID, snap.Messages, snap.Dir); err != nil {
+			m.log.Warn("replay conversation", "error", err)
+		}
+
+		if len(st.GetPlan()) > 0 && m.server != nil {
+			_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
+				SessionUpdate: acp.UpdateTypePlan,
+				Entries:       st.GetPlan(),
+			})
+		}
 	}
-
-	if len(st.GetPlan()) > 0 && m.server != nil {
-		_ = m.server.SendSessionUpdate(params.SessionID, acp.PlanUpdate{
-			SessionUpdate: acp.UpdateTypePlan,
-			Entries:       st.GetPlan(),
-		})
+	if deferPublish {
+		st.setPendingReadyNotify(publish)
+	} else {
+		publish()
 	}
 
 	m.log.Info("session loaded", "id", params.SessionID, "cwd", cwd)
@@ -372,8 +385,10 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}, nil
 }
 
+// HandleSessionLoad restores a session the client named itself, so the replayed
+// history is written before the response, as ACP requires.
 func (m *Manager) HandleSessionLoad(ctx context.Context, params acp.SessionLoadParams) (*acp.SessionLoadResult, error) {
-	return m.loadSessionFromDisk(ctx, params)
+	return m.loadSessionFromDisk(ctx, params, false)
 }
 
 // EnsureHTTPSession returns an in-memory session for an already-valid folder id:
@@ -689,7 +704,13 @@ func (m *Manager) SessionByID(id string) *State {
 // HandleSessionReady publishes notifications that require the ACP client to
 // have registered the session after receiving session/new or session/load.
 func (m *Manager) HandleSessionReady(sessionID string) {
-	m.sendAvailableSlashCommands(sessionID, m.getSession(sessionID))
+	st := m.getSession(sessionID)
+	if st != nil {
+		if publish := st.takePendingReadyNotify(); publish != nil {
+			publish()
+		}
+	}
+	m.sendAvailableSlashCommands(sessionID, st)
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {

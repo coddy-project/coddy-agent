@@ -253,7 +253,9 @@ The `model` option is present only when the `models` list in the agent config is
 
 ### `session/load`
 
-Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, sends `available_commands_update`, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire.
+
+The replay precedes the response here, as ACP requires, and that is safe because the client named the session itself. Reopening a bundle through **`session/new`** (`coddy acp --session-id <id>`) is the other way round: the client only learns the id from the response, so the replay waits for it. Anything written earlier would arrive for a session the client has not registered.
 
 **Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
 

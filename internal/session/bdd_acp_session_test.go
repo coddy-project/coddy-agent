@@ -16,16 +16,19 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/cucumber/godog"
 )
 
 const (
-	testACPHelperEnv = "CODDY_TEST_ACP_HELPER"
-	testMCPHelperEnv = "CODDY_TEST_MCP_HELPER"
-	testSkillsDirEnv = "CODDY_TEST_SKILLS_DIR"
-	testWorkspaceEnv = "CODDY_TEST_WORKSPACE"
-	testHomeEnv      = "CODDY_TEST_HOME"
+	testACPHelperEnv    = "CODDY_TEST_ACP_HELPER"
+	testMCPHelperEnv    = "CODDY_TEST_MCP_HELPER"
+	testSkillsDirEnv    = "CODDY_TEST_SKILLS_DIR"
+	testWorkspaceEnv    = "CODDY_TEST_WORKSPACE"
+	testHomeEnv         = "CODDY_TEST_HOME"
+	testSessionsRootEnv = "CODDY_TEST_SESSIONS_ROOT"
+	testPreferredIDEnv  = "CODDY_TEST_PREFERRED_SESSION_ID"
 )
 
 type acpSessionFeatureState struct {
@@ -40,6 +43,12 @@ type acpSessionFeatureState struct {
 	mgr         *session.Manager
 	sessionID   string
 	activeState *session.State
+	// newWireCount is how many messages session/new is expected to produce.
+	// A reopened session also replays its transcript, so it emits more.
+	newWireCount int
+	// sessionsRoot and preferredID drive the helper's --session-id reopen path.
+	sessionsRoot string
+	preferredID  string
 }
 
 func (s *acpSessionFeatureState) reset() error {
@@ -51,6 +60,9 @@ func (s *acpSessionFeatureState) reset() error {
 	s.root = root
 	s.newWire = nil
 	s.modeWire = nil
+	s.newWireCount = 2
+	s.sessionsRoot = ""
+	s.preferredID = ""
 	s.stderr.Reset()
 	return nil
 }
@@ -94,6 +106,45 @@ func (s *acpSessionFeatureState) coddyACPHasLoadedSkill(name string) error {
 	return s.startACP(filepath.Join(s.root, "skills"))
 }
 
+// coddyACPReopensPersistedSession seeds a session bundle and pins its id the way
+// `coddy acp --session-id <id>` does, so session/new restores it from disk and
+// replays the stored exchange.
+func (s *acpSessionFeatureState) coddyACPReopensPersistedSession() error {
+	s.sessionsRoot = filepath.Join(s.root, "sessions")
+	if err := os.MkdirAll(s.sessionsRoot, 0o755); err != nil {
+		return err
+	}
+	store := &session.FileStore{Root: s.sessionsRoot}
+	s.preferredID = "sess_reopened_bundle"
+	dir, err := store.EnsureLayout(s.preferredID)
+	if err != nil {
+		return err
+	}
+	seeded := &session.State{ID: s.preferredID, CWD: s.root, Mode: session.ModeAgent, SessionDir: dir}
+	seeded.ReplaceMessagesWithoutPersist([]llm.Message{
+		{Role: llm.RoleUser, Content: "previous question"},
+		{Role: llm.RoleAssistant, Content: "previous answer"},
+	})
+	if err := store.Save(seeded); err != nil {
+		return err
+	}
+	// Response, both replayed chunks, then the slash command catalog.
+	s.newWireCount = 4
+	return s.startACP("")
+}
+
+func (s *acpSessionFeatureState) replayedTranscriptIncludes(text string) error {
+	for _, msg := range s.newWire {
+		params, _ := msg["params"].(map[string]interface{})
+		update, _ := params["update"].(map[string]interface{})
+		content, _ := update["content"].(map[string]interface{})
+		if chunk, _ := content["text"].(string); chunk == text {
+			return nil
+		}
+	}
+	return fmt.Errorf("replayed transcript is missing %q: %#v", text, s.newWire)
+}
+
 func (s *acpSessionFeatureState) anACPClientHasAnActiveSession() error {
 	if err := s.startACP(""); err != nil {
 		return err
@@ -111,6 +162,8 @@ func (s *acpSessionFeatureState) startACP(skillsDir string) error {
 		testSkillsDirEnv+"="+skillsDir,
 		testWorkspaceEnv+"="+s.root,
 		testHomeEnv+"="+filepath.Join(s.root, "home"),
+		testSessionsRootEnv+"="+s.sessionsRoot,
+		testPreferredIDEnv+"="+s.preferredID,
 	)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -155,7 +208,7 @@ func (s *acpSessionFeatureState) createACPSession() error {
 	if err := writeJSONLine(s.stdin, request); err != nil {
 		return err
 	}
-	wire, err := s.readMessages(2)
+	wire, err := s.readMessages(s.newWireCount)
 	if err != nil {
 		return err
 	}
@@ -348,6 +401,8 @@ func initializeACPSessionScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^Coddy ACP has loaded skill "([^"]+)"$`, s.coddyACPHasLoadedSkill)
+	sc.Step(`^Coddy ACP reopens a persisted session holding an earlier exchange$`, s.coddyACPReopensPersistedSession)
+	sc.Step(`^the replayed transcript includes "([^"]+)"$`, s.replayedTranscriptIncludes)
 	sc.Step(`^an ACP client creates a session$`, s.anACPClientCreatesASession)
 	sc.Step(`^the session/new response is sent before its session updates$`, s.sessionNewResponsePrecedesUpdates)
 	sc.Step(`^the available slash commands include "([^"]+)"$`, s.availableSlashCommandsInclude)
@@ -467,7 +522,14 @@ func TestACPFeatureHelperProcess(t *testing.T) {
 		cfg.Skills.Dirs = []string{skillsDir}
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	mgr := session.NewManager(cfg, nil, noopRunner, log, os.Getenv(testWorkspaceEnv), nil)
+	var store *session.FileStore
+	if root := os.Getenv(testSessionsRootEnv); root != "" {
+		store = &session.FileStore{Root: root}
+	}
+	mgr := session.NewManager(cfg, nil, noopRunner, log, os.Getenv(testWorkspaceEnv), store)
+	if pid := os.Getenv(testPreferredIDEnv); pid != "" {
+		mgr.SetPreferredSessionID(pid)
+	}
 	server := acp.NewServer(mgr, log)
 	mgr.SetServer(server)
 	if err := server.Run(context.Background(), os.Stdin); err != nil {

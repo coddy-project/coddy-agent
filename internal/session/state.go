@@ -64,6 +64,14 @@ type State struct {
 	// here and drained when the turn releases the lock.
 	mcpReloadPending bool
 
+	// pendingReadyNotify holds session updates that must not reach the client
+	// before the response carrying this session id is on the wire. Only
+	// session/new reopening a persisted bundle parks work here: the client
+	// learns the id from that response. A real session/load needs no deferral,
+	// because the client supplied the id and ACP requires the replayed history
+	// to arrive before the response.
+	pendingReadyNotify func()
+
 	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
 	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
 	// on every build lets enable/disable toggles apply to live sessions.
@@ -293,6 +301,24 @@ func (s *State) hasPendingMCPReload() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.mcpReloadPending
+}
+
+// setPendingReadyNotify parks session updates until the response that first
+// tells the client this session id has been written.
+func (s *State) setPendingReadyNotify(notify func()) {
+	s.mu.Lock()
+	s.pendingReadyNotify = notify
+	s.mu.Unlock()
+}
+
+// takePendingReadyNotify atomically clears and returns the parked updates, so
+// they are published exactly once.
+func (s *State) takePendingReadyNotify() func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notify := s.pendingReadyNotify
+	s.pendingReadyNotify = nil
+	return notify
 }
 
 // takeMCPReloadPending atomically clears the parked-reload flag and reports
