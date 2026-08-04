@@ -43,6 +43,11 @@ type startedCommand struct {
 	writer    *switchWriter
 	startedAt time.Time
 
+	// processStartedAt is the OS creation time of the process, read once at
+	// launch like the background runner does. It is what proves a persisted pid
+	// still belongs to this command if the command is later adopted.
+	processStartedAt time.Time
+
 	// waited is closed, never sent on, so a tool call that returns without
 	// reading it cannot leave the wait goroutine parked forever.
 	waited  chan struct{}
@@ -70,7 +75,13 @@ func startForeground(command string, env *tooling.Env, commandShell platform.She
 		return nil, err
 	}
 
-	sc := &startedCommand{cmd: cmd, writer: writer, startedAt: time.Now(), waited: make(chan struct{})}
+	sc := &startedCommand{
+		cmd:              cmd,
+		writer:           writer,
+		startedAt:        time.Now(),
+		processStartedAt: platform.ProcessStartedAt(cmd.Process.Pid),
+		waited:           make(chan struct{}),
+	}
 	go func() {
 		sc.exitErr = cmd.Wait()
 		close(sc.waited)
@@ -170,6 +181,10 @@ func (h *adoptedHandle) Stop(grace time.Duration) error {
 
 func (h *adoptedHandle) PID() int {
 	return h.sc.pid()
+}
+
+func (h *adoptedHandle) ProcessStartedAt() time.Time {
+	return h.sc.processStartedAt
 }
 
 // adoption is what the pool gave back for a command it took over.
