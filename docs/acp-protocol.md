@@ -253,7 +253,9 @@ The `model` option is present only when the `models` list in the agent config is
 
 ### `session/load`
 
-Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, sends `available_commands_update`, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire.
+
+The replay precedes the response here, as ACP requires, and that is safe because the client named the session itself. Reopening a bundle through **`session/new`** (`coddy acp --session-id <id>`) is the other way round: the client only learns the id from the response, so the replay waits for it. Anything written earlier would arrive for a session the client has not registered.
 
 **Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
 
@@ -417,7 +419,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands from skills
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
@@ -509,7 +511,7 @@ See `external/memory/README.md` (including **Related work** and the link to [Mem
 ```json
 {
   "sessionUpdate": "current_mode_update",
-  "modeId": "agent"
+  "currentModeId": "agent"
 }
 ```
 

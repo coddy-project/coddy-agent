@@ -142,14 +142,14 @@ func TestMCPToolDefinitionsFilter(t *testing.T) {
 
 func TestCallMCPToolDisabledGuard(t *testing.T) {
 	st := &session.State{
-		ID:         "sess_mcp_guard",
-		CWD:        t.TempDir(),
-		Mode:       session.ModeAgent,
-		MCPClients: []*mcp.Client{mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}})},
+		ID:   "sess_mcp_guard",
+		CWD:  t.TempDir(),
+		Mode: session.ModeAgent,
 		MCPFilterFactory: func() func(server, tool string) bool {
 			return func(server, tool string) bool { return false }
 		},
 	}
+	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}}))
 	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
 	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
 		t.Fatal("disabled MCP tool must be rejected at dispatch")

@@ -178,6 +178,30 @@ func (s *mcpTrustState) createSession() error {
 	return nil
 }
 
+func (s *mcpTrustState) liveSession() error {
+	res, err := s.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: s.cwd})
+	if err != nil {
+		return fmt.Errorf("session/new: %w", err)
+	}
+	id := res.SessionID
+	s.cleanup = append(s.cleanup, func() { s.mgr.ForgetLiveSession(id) })
+	return nil
+}
+
+// settingsSaved is what PUT /coddy/config does to the live manager. The
+// reconnect it triggers must re-evaluate trust rather than replay the merged
+// list, so a project declaration nobody approved still does not spawn.
+func (s *mcpTrustState) settingsSaved() error {
+	next := *s.cfg
+	next.MCPServers = []config.MCPServerConfig{{
+		Name:     "unrelated",
+		Command:  os.Args[0],
+		Disabled: true,
+	}}
+	s.mgr.ReplaceConfig(&next)
+	return nil
+}
+
 func (s *mcpTrustState) markerHasRun() error {
 	if _, err := os.Stat(s.markerPath); err != nil {
 		return fmt.Errorf("marker %s missing: the approved MCP server did not start", s.markerPath)
@@ -219,6 +243,8 @@ func initializeMCPTrustScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the project mcp\.json is rewritten to run a different marker command$`, s.projectMCPJSONRewritten)
 	sc.Step(`^the operator approved the project MCP server "([^"]*)" for that workspace$`, s.operatorApproved)
 	sc.Step(`^an ACP client creates a session for that workspace$`, s.createSession)
+	sc.Step(`^an ACP client has a live session for that workspace$`, s.liveSession)
+	sc.Step(`^the operator saves settings that change the configured MCP servers$`, s.settingsSaved)
 	sc.Step(`^the marker command has run$`, s.markerHasRun)
 	sc.Step(`^the marker command has not run$`, s.markerHasNotRun)
 	sc.Step(`^coddy reports the project MCP server "([^"]*)" as awaiting approval$`, s.reportedAwaitingApproval)

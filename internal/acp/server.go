@@ -28,6 +28,12 @@ type Handler interface {
 	HandleSessionCancel(params SessionCancelParams)
 }
 
+// sessionReadyHandler publishes session-scoped notifications that must not be
+// written until the session/new or session/load response is on the wire.
+type sessionReadyHandler interface {
+	HandleSessionReady(sessionID string)
+}
+
 // Server is the ACP JSON-RPC server. Reads from stdin, writes to stdout.
 type Server struct {
 	handler Handler
@@ -140,10 +146,34 @@ func (s *Server) processLine(ctx context.Context, data []byte) error {
 		}
 		if err := s.sendResult(id, result); err != nil {
 			s.log.Error("failed to send result", "error", err)
+			return
 		}
+		s.handleSessionReady(method, paramsRaw, result)
 	}()
 
 	return nil
+}
+
+func (s *Server) handleSessionReady(method string, params json.RawMessage, result interface{}) {
+	ready, ok := s.handler.(sessionReadyHandler)
+	if !ok {
+		return
+	}
+	var sessionID string
+	switch method {
+	case "session/new":
+		if created, ok := result.(*SessionNewResult); ok && created != nil {
+			sessionID = created.SessionID
+		}
+	case "session/load":
+		var loaded SessionLoadParams
+		if err := unmarshalParams(params, &loaded); err == nil {
+			sessionID = loaded.SessionID
+		}
+	}
+	if sessionID != "" {
+		ready.HandleSessionReady(sessionID)
+	}
 }
 
 // handleResponse processes a response to a request we sent (e.g. permission or question).
