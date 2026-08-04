@@ -464,6 +464,35 @@ func TestProcessIdentityPersistsButStaysOutOfPublicSnapshotJSON(t *testing.T) {
 	}
 }
 
+// Unix has no process identity to record, so a bundle written there must look
+// exactly the way it did before the field existed - same bytes, not merely the
+// same fields. A coddy of either version has to be able to read the other's
+// session directory, and an extra key would also start showing up in the HTTP
+// task row through the shared type.
+func TestASnapshotWithoutAProcessIdentityPersistsAsItAlwaysDid(t *testing.T) {
+	snap := Snapshot{
+		ID:        "bg_1",
+		SessionID: "s1",
+		Kind:      KindCommand,
+		Command:   "npm run watch",
+		Status:    StatusRunning,
+		StartedAt: time.Date(2026, 8, 1, 12, 34, 56, 0, time.UTC),
+		PID:       4242,
+	}
+
+	persisted, err := marshalPersistedSnapshot(snap)
+	if err != nil {
+		t.Fatalf("marshalPersistedSnapshot(): %v", err)
+	}
+	before, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(): %v", err)
+	}
+	if string(persisted) != string(before) {
+		t.Fatalf("persisted record changed shape without an identity to add:\ngot  %s\nwant %s", persisted, before)
+	}
+}
+
 // A bundle written by a coddy that predates the process identity has a pid and
 // no process_started_at. Loading it must leave the identity empty rather than
 // invent one, because on Windows an empty identity is what makes the record fail
