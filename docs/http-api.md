@@ -143,7 +143,7 @@ the token as a `?access_token=` query parameter.
 | GET/PUT/DELETE | **`/coddy/sessions/{id}/plans/{slug}`** | Read, autosave, or discard a design plan file. |
 | PATCH | **`/coddy/sessions/{id}/plans/{slug}`** | Body **`{"runPlan":true}`** runs **`RunPlan`** (sync). Prefer **`POST /v1/responses`** with **`metadata.runPlanSlug`** for streaming. |
 
-After **`PUT`** **`/coddy/config`**, the next **`agent`** or **`plan`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes are applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends.
+After **`PUT`** **`/coddy/config`**, the next **`agent`** or **`plan`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes are applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
 
 ### Session memory REST (**`-tags=http,memory`**)
 

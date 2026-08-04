@@ -824,12 +824,44 @@ func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 			// A turn holds the lock; its release drains the parked reload.
 			continue
 		}
+		applied := true
 		if state.takeMCPReloadPending() {
-			clients := m.dialConfiguredMCPServers(ctx, state.GetCWD())
-			state.replaceConfiguredMCPClients(clients)
+			applied = m.applyConfiguredMCPReload(ctx, state)
 		}
 		unlock()
+		// A save that arrived while this one was dialing parked its reload
+		// behind our lock. Draining here applies the newest configuration to an
+		// idle session instead of leaving it on the superseded one until its
+		// next turn. Skipped once the deadline is gone: the drain would dial on
+		// a fresh budget and stretch this save well past the timeout that is
+		// supposed to bound it.
+		if applied {
+			m.drainPendingMCPReload(state.GetID(), state)
+		}
 	}
+}
+
+// applyConfiguredMCPReload dials the configured servers for the session and
+// installs them, replacing whatever the previous reload left. A dial the
+// context cut short is discarded instead: an empty or partial result then says
+// nothing about the operator's configuration, and installing it would strip a
+// healthy session of its MCP tools. Sessions share one deadline per settings
+// save, so this is what a server hanging in the session dialed first costs the
+// rest. It reports whether the swap happened; a discarded dial leaves the
+// reload parked for a later turn to retry.
+func (m *Manager) applyConfiguredMCPReload(ctx context.Context, st *State) bool {
+	clients := m.dialConfiguredMCPServers(ctx, st.GetCWD())
+	if err := ctx.Err(); err != nil {
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		st.markMCPReloadPending()
+		m.log.Warn("configured MCP reload ran out of time; keeping the current servers",
+			"session", st.GetID(), "error", err)
+		return false
+	}
+	st.replaceConfiguredMCPClients(clients)
+	return true
 }
 
 // drainPendingMCPReload applies a reload parked by reloadConfiguredMCPServers,
@@ -851,8 +883,7 @@ func (m *Manager) drainPendingMCPReload(sessionID string, st *State) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 	defer cancel()
-	clients := m.dialConfiguredMCPServers(ctx, st.GetCWD())
-	st.replaceConfiguredMCPClients(clients)
+	_ = m.applyConfiguredMCPReload(ctx, st)
 }
 
 // acquireTurnLockWithReloadDrain wraps the raw turn lock so its release also
