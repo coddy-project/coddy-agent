@@ -78,6 +78,28 @@ Feature: Prompt attachments in non-UTF-8 encodings
       }
       """
 
+  @windows
+  Scenario: Attaching a Windows-1251 file whose only Cyrillic is one short comment
+    Given a workspace file "short.go" encoded in windows-1251 with content:
+      """
+      package main
+
+      func main() {
+          // Готово
+      }
+      """
+    When I attach "short.go" to the prompt "проверь @short.go"
+    Then the prompt has a resource for "short.go"
+    And the resource mime type is "text/plain; charset=utf-8"
+    And the resource text is:
+      """
+      package main
+
+      func main() {
+          // Готово
+      }
+      """
+
   Scenario: Attaching a UTF-8 file still hydrates it unchanged
     Given a workspace file "utf8.md" encoded in utf-8 with content:
       """

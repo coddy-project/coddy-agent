@@ -36,8 +36,8 @@ func DecodeOutput(b []byte) string {
 
 // DecodeANSI converts bytes in the system ANSI code page (1251 on a Russian
 // install, 1252 on a Western one) to a Go string, reporting the code page it
-// used. It is the last-resort reading for a file a local editor saved without a
-// byte-order mark; ok is false when there is no usable code page.
+// used. It is the local-editor reading for a file saved without a byte-order
+// mark; ok is false when there is no usable code page.
 func DecodeANSI(b []byte) (text string, codePage uint32, ok bool) {
 	if len(b) == 0 {
 		return "", 0, false

@@ -39,6 +39,50 @@ jobs:
       - name: Run tests
         run: make test
 
+  # The suite above runs on Linux, so nothing behind //go:build windows is ever
+  # compiled by it. This job type-checks that half across every tag combination
+  # for the price of a cross-build, and catches a shared signature that only one
+  # platform still satisfies.
+  cross-build-windows:
+    name: Windows cross-build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Type-check the Windows build
+        run: make check-windows
+
+  # Cross-building proves the Windows code compiles, not that it works. These
+  # packages own the behaviour that differs by platform - the process group
+  # probe, the console shell, the background task pool that starts real
+  # processes through it - and their Windows-only tests have no other place to
+  # run. The scope is deliberately narrow; widen it as the rest of the tree is
+  # shown to hold on Windows.
+  test-windows:
+    name: Test suite (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run platform tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/...
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -55,6 +99,14 @@ jobs:
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: ./...
+
+      - name: Run golangci-lint against the Windows build
+        uses: golangci/golangci-lint-action@v7
+        env:
+          GOOS: windows
         with:
           version: v2.12.2
           args: ./...

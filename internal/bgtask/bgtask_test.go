@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -67,6 +66,8 @@ func (h *stubHandle) Wait() (int, error) {
 // PID is 0 for the stub: it runs no OS process, which is also the shape a
 // future non-command runner will have.
 func (h *stubHandle) PID() int { return 0 }
+
+func (h *stubHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
 func (h *stubHandle) Stop(time.Duration) error {
 	h.mu.Lock()
@@ -429,6 +430,106 @@ func TestTaskOutputAndMetadataPersistUnderTheSessionDir(t *testing.T) {
 	}
 }
 
+func TestProcessIdentityPersistsButStaysOutOfPublicSnapshotJSON(t *testing.T) {
+	started := time.Date(2026, 8, 1, 12, 34, 56, 700, time.UTC)
+	snap := Snapshot{
+		ID:               "bg_1",
+		Status:           StatusRunning,
+		StartedAt:        started.Add(-time.Second),
+		PID:              4242,
+		ProcessStartedAt: started,
+	}
+
+	persisted, err := marshalPersistedSnapshot(snap)
+	if err != nil {
+		t.Fatalf("marshalPersistedSnapshot(): %v", err)
+	}
+	if !strings.Contains(string(persisted), `"process_started_at"`) {
+		t.Fatalf("persisted snapshot has no process identity: %s", persisted)
+	}
+	loaded, err := unmarshalPersistedSnapshot(persisted)
+	if err != nil {
+		t.Fatalf("unmarshalPersistedSnapshot(): %v", err)
+	}
+	if !loaded.ProcessStartedAt.Equal(started) {
+		t.Fatalf("ProcessStartedAt = %v, want %v", loaded.ProcessStartedAt, started)
+	}
+
+	public, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("Marshal(): %v", err)
+	}
+	if strings.Contains(string(public), "process_started_at") {
+		t.Fatalf("public snapshot exposed the private process identity: %s", public)
+	}
+}
+
+// Unix has no process identity to record, so a bundle written there must look
+// exactly the way it did before the field existed - same bytes, not merely the
+// same fields. A coddy of either version has to be able to read the other's
+// session directory, and an extra key would also start showing up in the HTTP
+// task row through the shared type.
+func TestASnapshotWithoutAProcessIdentityPersistsAsItAlwaysDid(t *testing.T) {
+	snap := Snapshot{
+		ID:        "bg_1",
+		SessionID: "s1",
+		Kind:      KindCommand,
+		Command:   "npm run watch",
+		Status:    StatusRunning,
+		StartedAt: time.Date(2026, 8, 1, 12, 34, 56, 0, time.UTC),
+		PID:       4242,
+	}
+
+	persisted, err := marshalPersistedSnapshot(snap)
+	if err != nil {
+		t.Fatalf("marshalPersistedSnapshot(): %v", err)
+	}
+	before, err := json.MarshalIndent(snap, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(): %v", err)
+	}
+	if string(persisted) != string(before) {
+		t.Fatalf("persisted record changed shape without an identity to add:\ngot  %s\nwant %s", persisted, before)
+	}
+}
+
+// A bundle written by a coddy that predates the process identity has a pid and
+// no process_started_at. Loading it must leave the identity empty rather than
+// invent one, because on Windows an empty identity is what makes the record fail
+// closed: the pid is never proven, so it is never offered for reaping and never
+// handed to taskkill /T /F. Reading such a record is the one path where "no
+// identity" arrives from outside this process, so it is worth pinning.
+func TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity(t *testing.T) {
+	sessionDir := t.TempDir()
+	taskDir := filepath.Join(sessionDir, backgroundDirName, "bg_legacy")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	legacy := `{
+  "id": "bg_legacy",
+  "session_id": "s1",
+  "kind": "command",
+  "command": "npm run watch",
+  "status": "running",
+  "started_at": "2026-08-01T12:00:00Z",
+  "pid": 4242
+}`
+	if err := os.WriteFile(filepath.Join(taskDir, metaFileName), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	loaded := LoadPersisted(sessionDir)
+	if len(loaded) != 1 {
+		t.Fatalf("LoadPersisted() = %+v, want one row", loaded)
+	}
+	if loaded[0].PID != 4242 {
+		t.Fatalf("PID = %d, want the pid the legacy record carries", loaded[0].PID)
+	}
+	if !loaded[0].ProcessStartedAt.IsZero() {
+		t.Fatalf("ProcessStartedAt = %v, want the zero identity a legacy record has", loaded[0].ProcessStartedAt)
+	}
+}
+
 func TestLoadPersistedMarksInterruptedTasksOrphaned(t *testing.T) {
 	sessionDir := t.TempDir()
 	taskDir := filepath.Join(sessionDir, backgroundDirName, "bg_7")
@@ -786,18 +887,51 @@ func TestPersistedOutputReturnsABoundedTail(t *testing.T) {
 }
 
 // startDetachedHelper launches a process that leads its own group, standing in
-// for what an earlier coddy run left behind, and kills it when the test ends.
-func startDetachedHelper(t *testing.T) int {
+// for what an earlier coddy run left behind, and kills it when the test ends. It
+// returns the leader pid and its OS creation time: the survivor probe compares
+// that exact identity against the persisted record to tell the process apart
+// from a stranger that inherited its pid.
+//
+// It goes through CommandRunner rather than exec.Command directly so the helper
+// is started exactly the way a real task is - host shell, own process group -
+// and so these tests run on Windows instead of skipping for want of `sleep`.
+func startDetachedHelper(t *testing.T) (int, time.Time) {
 	t.Helper()
-	cmd := exec.Command("sleep", "600")
-	platform.DetachProcessGroup(cmd)
-	if err := cmd.Start(); err != nil {
+
+	handle, err := NewCommandRunner().Start(Spec{Command: helperSleepCommand(t)}, io.Discard)
+	if err != nil {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
-	pid := cmd.Process.Pid
-	go func() { _ = cmd.Wait() }()
-	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, time.Second) })
-	return pid
+	pid := handle.PID()
+	// identity is what the platform can prove about this pid, and it is what
+	// termination has to be given. Killing the helper is not allowed to lean on
+	// the substitute below.
+	identity := handle.ProcessStartedAt()
+
+	started := identity
+	if started.IsZero() {
+		// Unix identifies the process group rather than its creation time and
+		// deliberately leaves this value empty. Its probe ignores the fallback.
+		started = time.Now()
+	}
+	go func() { _, _ = handle.Wait() }()
+	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, identity, time.Second) })
+	return pid, started
+}
+
+// helperSleepCommand keeps the helper shell-neutral, the same way the background
+// task feature steps do.
+func helperSleepCommand(t *testing.T) string {
+	t.Helper()
+	switch kind := platform.CurrentShell().Kind; kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		return "Start-Sleep -Seconds 600"
+	case platform.ShellBash, platform.ShellSh:
+		return "sleep 600"
+	default:
+		t.Skipf("no portable sleep for shell %q", kind)
+		return ""
+	}
 }
 
 func TestSnapshotSilentFor(t *testing.T) {
@@ -845,14 +979,21 @@ func TestSurvivorsAreOnlyRecordsWithALiveProcess(t *testing.T) {
 	p := NewWithRunner(Config{}, &stubRunner{})
 	p.SetSessionDir("s1", sessionDir)
 
+	// The probe asks about a process GROUP, and tasks are started with Setpgid
+	// so the child leads its own group. The test therefore needs a real group
+	// leader, not this process, which usually is not one. Its start time has to
+	// be truthful too: the Windows probe rejects a pid whose process was created
+	// at a different time from the one the record claims.
+	leader, startedAt := startDetachedHelper(t)
+
 	write := func(id string, pid int, status Status) {
 		dir := filepath.Join(sessionDir, backgroundDirName, id)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(): %v", err)
 		}
-		data, err := json.Marshal(Snapshot{
+		data, err := marshalPersistedSnapshot(Snapshot{
 			ID: id, SessionID: "s1", Kind: KindCommand, Label: id,
-			Status: status, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+			Status: status, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 		})
 		if err != nil {
 			t.Fatalf("Marshal(): %v", err)
@@ -861,11 +1002,6 @@ func TestSurvivorsAreOnlyRecordsWithALiveProcess(t *testing.T) {
 			t.Fatalf("WriteFile(): %v", err)
 		}
 	}
-
-	// The probe asks about a process GROUP, and tasks are started with Setpgid
-	// so the child leads its own group. The test therefore needs a real group
-	// leader, not this process, which usually is not one.
-	leader := startDetachedHelper(t)
 
 	write("bg_alive", leader, StatusRunning)
 	write("bg_nopid", 0, StatusRunning)
@@ -906,15 +1042,15 @@ func TestStopReachesASurvivorByItsRecordedGroup(t *testing.T) {
 
 	// A real process this pool never started, in its own group, standing in for
 	// what an earlier coddy left behind.
-	pid := startDetachedHelper(t)
+	pid, startedAt := startDetachedHelper(t)
 
 	dir := filepath.Join(sessionDir, backgroundDirName, "bg_left")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
-		Status: StatusRunning, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+		Status: StatusRunning, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
@@ -930,7 +1066,7 @@ func TestStopReachesASurvivorByItsRecordedGroup(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if !platform.ProcessGroupAlive(pid) {
+		if !platform.ProcessGroupAlive(pid, startedAt) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -943,15 +1079,15 @@ func TestReapSurvivorsKillsAndRecordsThem(t *testing.T) {
 	p := NewWithRunner(Config{}, &stubRunner{})
 	p.SetSessionDir("s1", sessionDir)
 
-	pid := startDetachedHelper(t)
+	pid, startedAt := startDetachedHelper(t)
 
 	dir := filepath.Join(sessionDir, backgroundDirName, "bg_left")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_left", SessionID: "s1", Kind: KindCommand, Label: "sleep 600",
-		Status: StatusRunning, StartedAt: time.Now().Add(-time.Minute), PID: pid,
+		Status: StatusRunning, StartedAt: startedAt, PID: pid, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
@@ -963,10 +1099,10 @@ func TestReapSurvivorsKillsAndRecordsThem(t *testing.T) {
 	}
 
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && platform.ProcessGroupAlive(pid) {
+	for time.Now().Before(deadline) && platform.ProcessGroupAlive(pid, startedAt) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if platform.ProcessGroupAlive(pid) {
+	if platform.ProcessGroupAlive(pid, startedAt) {
 		t.Fatal("the reaped process group is still alive")
 	}
 
@@ -987,14 +1123,14 @@ func TestSurvivorsRefuseFinishedRecordsBecausePidsGetReused(t *testing.T) {
 	// A task that finished normally leaves a stale pid behind. The OS reuses
 	// pids, so that number may now belong to something else entirely; offering
 	// it for killing would hand the agent a stranger's process.
-	leader := startDetachedHelper(t)
+	leader, startedAt := startDetachedHelper(t)
 	dir := filepath.Join(sessionDir, backgroundDirName, "bg_done")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(): %v", err)
 	}
-	data, _ := json.Marshal(Snapshot{
+	data, _ := marshalPersistedSnapshot(Snapshot{
 		ID: "bg_done", SessionID: "s1", Kind: KindCommand, Label: "echo hi",
-		Status: StatusSucceeded, StartedAt: time.Now().Add(-time.Minute), PID: leader,
+		Status: StatusSucceeded, StartedAt: startedAt, PID: leader, ProcessStartedAt: startedAt,
 	})
 	if err := os.WriteFile(filepath.Join(dir, metaFileName), data, 0o644); err != nil {
 		t.Fatalf("WriteFile(): %v", err)
@@ -1006,7 +1142,7 @@ func TestSurvivorsRefuseFinishedRecordsBecausePidsGetReused(t *testing.T) {
 	if got := p.ReapSurvivors("s1"); len(got) != 0 {
 		t.Fatalf("ReapSurvivors() = %+v, want none for a finished record", got)
 	}
-	if !platform.ProcessGroupAlive(leader) {
+	if !platform.ProcessGroupAlive(leader, startedAt) {
 		t.Fatal("a finished record must not get an unrelated process killed")
 	}
 }
