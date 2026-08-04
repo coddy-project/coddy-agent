@@ -590,7 +590,7 @@ func (p *Pool) stopSurvivor(sessionID, taskID string) (Snapshot, bool) {
 		// Same reasoning as Survivors: a finished record's pid is stale, and
 		// pids get reused.
 		if snap.Status == StatusOrphaned && snap.PID > 0 && platform.ProcessGroupAlive(snap.PID, snap.ProcessStartedAt) {
-			_ = platform.TerminateProcessGroupByPID(snap.PID, defaultStopGrace)
+			_ = platform.TerminateProcessGroupByPID(snap.PID, snap.ProcessStartedAt, defaultStopGrace)
 			snap.Status = StatusStopped
 			finished := p.now()
 			snap.FinishedAt = &finished
@@ -646,7 +646,7 @@ func (p *Pool) ReapSurvivors(sessionID string) []Snapshot {
 
 	reaped := p.Survivors(sessionID)
 	for i := range reaped {
-		_ = platform.TerminateProcessGroupByPID(reaped[i].PID, defaultStopGrace)
+		_ = platform.TerminateProcessGroupByPID(reaped[i].PID, reaped[i].ProcessStartedAt, defaultStopGrace)
 		reaped[i].Status = StatusStopped
 		finished := p.now()
 		reaped[i].FinishedAt = &finished

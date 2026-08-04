@@ -32,8 +32,13 @@ func startProbeHelper(t *testing.T) (*exec.Cmd, int, time.Time) {
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
-	t.Cleanup(func() { _ = TerminateProcessGroupByPID(cmd.Process.Pid, time.Second) })
-	started := ProcessStartedAt(cmd.Process.Pid)
+	// identity is what the platform itself can prove about this pid, and it is
+	// what termination has to be given. Killing the helper is not allowed to lean
+	// on the substitute below.
+	identity := ProcessStartedAt(cmd.Process.Pid)
+	t.Cleanup(func() { _ = TerminateProcessGroupByPID(cmd.Process.Pid, identity, time.Second) })
+
+	started := identity
 	if started.IsZero() {
 		// Unix does not need a process creation identity; the group probe ignores
 		// the value. Keeping a real timestamp makes the helper useful there too.
@@ -90,7 +95,7 @@ func TestProcessGroupAliveIsRepeatable(t *testing.T) {
 func TestProcessGroupAliveRejectsAProcessThatExited(t *testing.T) {
 	cmd, pid, started := startProbeHelper(t)
 
-	if err := TerminateProcessGroupByPID(pid, time.Second); err != nil {
+	if err := TerminateProcessGroupByPID(pid, started, time.Second); err != nil {
 		t.Fatalf("TerminateProcessGroupByPID(): %v", err)
 	}
 	_ = cmd.Wait()

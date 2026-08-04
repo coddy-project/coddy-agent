@@ -4,6 +4,7 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
@@ -68,10 +69,12 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 // Windows has no process group to probe the way a unix signal 0 does, and the
 // obvious substitute - opening the process by pid - answers a different
 // question in two damaging ways. A process object outlives its own process for
-// as long as anybody holds a handle to it, so a corpse still opens; and opening
-// by number matches any process at all, where the unix probe only ever matches a
-// group leader and so filters out pid reuse for free. Both mistakes end at
-// background_reap running taskkill /T /F on the wrong tree.
+// as long as anybody holds a handle to it, and os.FindProcess opens one per call
+// and leaves it to the runtime to close, so probing a pid is itself what keeps a
+// corpse resolvable; and opening by number matches any process at all, where the
+// unix probe only ever matches a group leader and so filters out most pid reuse
+// for free. Both mistakes end at background_reap running taskkill /T /F on the
+// wrong tree.
 //
 // So this asks two questions instead. WaitForSingleObject with a zero timeout
 // reports whether the process object is signalled, which is the difference
@@ -84,10 +87,12 @@ func ProcessGroupAlive(pid int, startedAt time.Time) bool {
 		return false
 	}
 
-	// PROCESS_QUERY_LIMITED_INFORMATION is granted across integrity levels, so
-	// an elevated child does not read as gone the way it would with the wider
-	// rights os.FindProcess asks for. Failing to open means the pid cannot be
-	// shown to be this task, and an unproven pid is not one to offer for killing.
+	// PROCESS_QUERY_LIMITED_INFORMATION is the narrowest right that answers the
+	// question, so a child this run may not open with the wider rights
+	// os.FindProcess asks for does not read as gone. It is not a guarantee:
+	// access is still the target's to refuse. Failing to open means the pid
+	// cannot be shown to be this task, and an unproven pid is not one to offer
+	// for killing.
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return false
@@ -144,11 +149,38 @@ func processStartedAt(handle windows.Handle) (time.Time, error) {
 }
 
 // TerminateProcessGroupByPID kills a tree this process did not start, which is
-// what reaping survivors of a previous run needs.
-func TerminateProcessGroupByPID(pid int, grace time.Duration) error {
+// what reaping survivors of a previous run needs. startedAt is the identity the
+// record persisted, and it is checked here rather than trusted from the caller's
+// earlier probe.
+//
+// The verified handle is deliberately held open for the whole of taskkill.
+// Windows keeps a pid allocated for as long as any handle to its process object
+// is open, so holding one is what stops the number from being handed to a
+// stranger between the check and the kill - and it also keeps taskkill /T
+// resolving the tree by the parent pid that the children actually have. Without
+// it the identity check would only narrow the window rather than close it.
+//
+// Liveness is deliberately not required: a leader that has already exited can
+// still have running children, and those are exactly what reaping is for.
+func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duration) error {
 	if pid <= 0 {
 		return nil
 	}
+
+	// Query rights only. SYNCHRONIZE buys nothing here - nothing waits on the
+	// object - and every right asked for is one more the target may refuse.
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		// Nothing answers to this pid any more, so there is nothing to kill and
+		// nothing was left running. Same outcome as ESRCH on unix.
+		return nil
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+
+	if !processStartedAround(handle, startedAt) {
+		return fmt.Errorf("pid %d is not the process the task recorded", pid)
+	}
+
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
 	if err := kill.Start(); err != nil {
 		return err

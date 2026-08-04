@@ -84,7 +84,7 @@ func (s *backgroundReapState) cleanup() {
 		s.env.Background.StopSession(backgroundReapSessionID)
 	}
 	if s.pid > 0 {
-		_ = platform.TerminateProcessGroupByPID(s.pid, time.Second)
+		_ = platform.TerminateProcessGroupByPID(s.pid, s.started, time.Second)
 	}
 }
 

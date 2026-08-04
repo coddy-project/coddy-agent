@@ -464,6 +464,43 @@ func TestProcessIdentityPersistsButStaysOutOfPublicSnapshotJSON(t *testing.T) {
 	}
 }
 
+// A bundle written by a coddy that predates the process identity has a pid and
+// no process_started_at. Loading it must leave the identity empty rather than
+// invent one, because on Windows an empty identity is what makes the record fail
+// closed: the pid is never proven, so it is never offered for reaping and never
+// handed to taskkill /T /F. Reading such a record is the one path where "no
+// identity" arrives from outside this process, so it is worth pinning.
+func TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity(t *testing.T) {
+	sessionDir := t.TempDir()
+	taskDir := filepath.Join(sessionDir, backgroundDirName, "bg_legacy")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(): %v", err)
+	}
+	legacy := `{
+  "id": "bg_legacy",
+  "session_id": "s1",
+  "kind": "command",
+  "command": "npm run watch",
+  "status": "running",
+  "started_at": "2026-08-01T12:00:00Z",
+  "pid": 4242
+}`
+	if err := os.WriteFile(filepath.Join(taskDir, metaFileName), []byte(legacy), 0o644); err != nil {
+		t.Fatalf("WriteFile(): %v", err)
+	}
+
+	loaded := LoadPersisted(sessionDir)
+	if len(loaded) != 1 {
+		t.Fatalf("LoadPersisted() = %+v, want one row", loaded)
+	}
+	if loaded[0].PID != 4242 {
+		t.Fatalf("PID = %d, want the pid the legacy record carries", loaded[0].PID)
+	}
+	if !loaded[0].ProcessStartedAt.IsZero() {
+		t.Fatalf("ProcessStartedAt = %v, want the zero identity a legacy record has", loaded[0].ProcessStartedAt)
+	}
+}
+
 func TestLoadPersistedMarksInterruptedTasksOrphaned(t *testing.T) {
 	sessionDir := t.TempDir()
 	taskDir := filepath.Join(sessionDir, backgroundDirName, "bg_7")
@@ -837,14 +874,19 @@ func startDetachedHelper(t *testing.T) (int, time.Time) {
 		t.Skipf("cannot start a helper process: %v", err)
 	}
 	pid := handle.PID()
-	started := handle.ProcessStartedAt()
+	// identity is what the platform can prove about this pid, and it is what
+	// termination has to be given. Killing the helper is not allowed to lean on
+	// the substitute below.
+	identity := handle.ProcessStartedAt()
+
+	started := identity
 	if started.IsZero() {
 		// Unix identifies the process group rather than its creation time and
 		// deliberately leaves this value empty. Its probe ignores the fallback.
 		started = time.Now()
 	}
 	go func() { _, _ = handle.Wait() }()
-	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, time.Second) })
+	t.Cleanup(func() { _ = platform.TerminateProcessGroupByPID(pid, identity, time.Second) })
 	return pid, started
 }
 

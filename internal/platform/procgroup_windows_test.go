@@ -22,11 +22,14 @@ import (
 func TestProcessGroupAliveRejectsAKilledProcessWhoseHandleIsRetained(t *testing.T) {
 	cmd, pid, started := startProbeHelper(t)
 
-	if err := TerminateProcessGroupByPID(pid, time.Second); err != nil {
+	if err := TerminateProcessGroupByPID(pid, started, time.Second); err != nil {
 		t.Fatalf("TerminateProcessGroupByPID(): %v", err)
 	}
-	// Deliberately no cmd.Wait(): the handle stays open, which is the ordinary
-	// state after a run that was killed rather than drained.
+	// Deliberately no cmd.Wait(): the handle stays open. A coddy that is killed
+	// loses its own handles with it, so the holder in production is usually the
+	// probe itself - os.FindProcess opened one per call and left it to the
+	// runtime to close, which is how a corpse stayed resolvable for the rest of
+	// the run. This test reproduces that state with a handle it keeps on purpose.
 
 	alive := waitForProbe(pid, started, false)
 	runtime.KeepAlive(cmd)
@@ -40,10 +43,13 @@ func TestProcessGroupAliveRejectsAKilledProcessWhoseHandleIsRetained(t *testing.
 // pid has been recycled must not be offered for reaping: background_reap runs
 // taskkill /T /F on it, which would take down an unrelated process tree.
 //
-// The recorded start time is what tells the two apart - a task's process is
-// created moments after the pool stamps StartedAt, while a recycled pid belongs
-// to something started at a completely different time.
-func TestProcessGroupAliveRejectsARecycledPID(t *testing.T) {
+// The creation time is what tells the two apart, and this is where that
+// comparison is pinned. It does not wait for a real pid to be recycled - nothing
+// makes Windows do that on demand - so it drives the same decision the other way
+// round: one live process, several creation times the record could claim. A
+// recycled pid is the case where the time on file belongs to a process that is
+// gone, which is exactly a mismatch.
+func TestProcessGroupAliveRejectsACreationTimeTheRecordDoesNotMatch(t *testing.T) {
 	_, pid, started := startProbeHelper(t)
 
 	if ProcessGroupAlive(pid, started.Add(-time.Minute)) {
@@ -72,6 +78,28 @@ func TestProcessGroupAliveFailsClosedWithoutAStartTime(t *testing.T) {
 	if ProcessGroupAlive(pid, time.Time{}) {
 		t.Fatalf("ProcessGroupAlive(%d) = true without a recorded start time", pid)
 	}
+}
+
+// Proving the identity in one call and killing by number in the next would leave
+// a window for the pid to change hands in between, which is the same mistake in
+// a smaller form. The kill therefore re-checks the identity itself, under a
+// handle it holds for the whole of taskkill, and refuses a record that does not
+// describe the process rather than trusting whoever asked.
+func TestTerminateProcessGroupByPIDRefusesAPidTheRecordDoesNotDescribe(t *testing.T) {
+	cmd, pid, started := startProbeHelper(t)
+
+	for name, identity := range map[string]time.Time{
+		"a creation time from another process": started.Add(-time.Hour),
+		"no recorded identity at all":          {},
+	} {
+		if err := TerminateProcessGroupByPID(pid, identity, time.Second); err == nil {
+			t.Fatalf("TerminateProcessGroupByPID(%d) = nil for %s", pid, name)
+		}
+		if !ProcessGroupAlive(pid, started) {
+			t.Fatalf("the process was killed on %s", name)
+		}
+	}
+	runtime.KeepAlive(cmd)
 }
 
 // Identity is the safety boundary before background_reap runs taskkill /T /F.

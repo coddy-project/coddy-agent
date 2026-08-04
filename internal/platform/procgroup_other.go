@@ -62,10 +62,17 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 // The recorded process creation time is accepted and deliberately unused here.
 // The Windows implementation needs it to tell a recycled pid from the real
 // process, because opening a pid there matches anything; signalling a process
-// group only ever matches a group leader, which already filters nearly all reuse
-// out. The remaining gap would need a per-kernel start-time source (/proc on
-// Linux, sysctl on darwin), and paying that cost to narrow an already narrow
-// window is not worth splitting this file over.
+// group only ever matches a group leader, which substantially narrows reuse
+// without closing it - shells with job control, session leaders, and anything
+// that calls setsid all lead groups.
+//
+// Reading the leader's start time (/proc/<pid>/stat field 22 on Linux, sysctl on
+// darwin) would not simply close that gap, it would open a worse one: the group
+// outlives its leader, and a leader that exited while its children kept running
+// is precisely the survivor this probe exists to find. Rejecting it because the
+// pid no longer resolves to the process on file would lose the `npm run serve`
+// case that started the whole feature. Group membership, not the leader's
+// identity, is the question on unix, so this file asks only that.
 func ProcessGroupAlive(pid int, _ time.Time) bool {
 	if pid <= 0 {
 		return false
@@ -82,7 +89,12 @@ func ProcessStartedAt(int) time.Time {
 // TerminateProcessGroupByPID kills a group this process did not start, which is
 // what reaping survivors of a previous run needs: after a crash there is no
 // exec.Cmd left to ask, only the leader pid the bundle recorded.
-func TerminateProcessGroupByPID(pid int, grace time.Duration) error {
+//
+// The recorded process identity is accepted and unused for the same reason
+// ProcessGroupAlive ignores it: the signal addresses the process group, and
+// there is no group handle to hold across the kill the way Windows holds a
+// process object open.
+func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error {
 	if pid <= 0 {
 		return nil
 	}
