@@ -419,6 +419,29 @@ The same server in `.coddy/mcp.json`, plus a remote one:
 }
 ```
 
+The project-local `./.coddy/mcp.json` arrives with the checkout, so the
+repository - not you - would be choosing the command a session starts. Those
+entries are therefore **not started until approved** for that workspace
+(`mcp.project_trust: ask`, the default):
+
+```bash
+coddy mcp list
+```
+
+```bash
+coddy mcp trust <name>
+```
+
+The same decision is available at `POST /coddy/mcp/{name}/trust` and behind the
+shield button in Settings -> MCP servers. Approval is bound to the workspace and
+to a digest of the declaration, so rewriting the entry asks again. Servers in
+`config.yaml` and `~/.coddy/mcp.json` are yours and are never gated.
+
+For a workspace you already trust (or a CI job), set `mcp.project_trust: allow`
+in `config.yaml`, or pass `--mcp-project-trust allow` to `coddy acp` /
+`coddy http` for that process only; `deny` never loads project servers at all.
+Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway
@@ -507,6 +530,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.coddy/rules`, …)
+- [Codex hooks](docs/codex-hooks.md) - how `.cursor/rules/*.mdc` reach a Codex CLI session working on this repo
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and program-wide permission grants
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide

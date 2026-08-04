@@ -675,6 +675,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			code := http.StatusBadRequest
 			if !errors.Is(err, session.ErrPathTraversal) &&
 				!errors.Is(err, session.ErrFolderAttach) &&
+				!errors.Is(err, session.ErrNotDecodableText) &&
 				!os.IsNotExist(err) &&
 				!strings.Contains(err.Error(), "file too large") &&
 				!strings.Contains(err.Error(), "UTF-8") &&

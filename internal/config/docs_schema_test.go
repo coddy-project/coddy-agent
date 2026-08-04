@@ -176,6 +176,10 @@ func TestDocsConfigSchemaEnums(t *testing.T) {
 		enumAt("properties", "tools", "properties", "permission_mode"),
 		map[string]struct{}{PermModeAsk: {}, PermModeAcceptEdits: {}, PermModeBypass: {}})
 
+	assertSet("mcp.project_trust",
+		enumAt("properties", "mcp", "properties", "project_trust"),
+		map[string]struct{}{ProjectTrustAsk: {}, ProjectTrustAllow: {}, ProjectTrustDeny: {}})
+
 	assertSet("logger.format",
 		enumAt("properties", "logger", "properties", "format"),
 		map[string]struct{}{LogFormatText: {}, LogFormatJSON: {}})

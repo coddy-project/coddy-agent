@@ -3,6 +3,7 @@ package shell
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,255 @@ func TestBackgroundOutputReportsUnknownTasks(t *testing.T) {
 	if _, err := BackgroundOutputTool().Execute(context.Background(), `{"task_id":"bg_404"}`, env); err == nil {
 		t.Fatal("expected an error for an unknown task id")
 	}
+}
+
+// foregroundEnv wires a real pool for the foreground timeout tests and stops
+// whatever survives the assertions.
+func foregroundEnv(t *testing.T, enabled bool) *tooling.Env {
+	t.Helper()
+	// The temp directory is claimed first so that its cleanup is registered
+	// before the one below: cleanups run last-registered-first, and Windows
+	// refuses to remove a directory an adopted command still has open as its
+	// working directory.
+	cwd := t.TempDir()
+	pool := bgtask.NewWithRunner(bgtask.Config{}, bgtask.NewCommandRunner())
+	t.Cleanup(func() { pool.StopSession("unit-foreground") })
+	return &tooling.Env{
+		SessionID:         "unit-foreground",
+		CWD:               cwd,
+		BackgroundEnabled: enabled,
+		Background:        pool,
+	}
+}
+
+// runForegroundForTest runs one command with a tight timeout and reports how
+// long the tool itself blocked, which is what the hang was about.
+func runForegroundForTest(ctx context.Context, t *testing.T, command string, timeout int, env *tooling.Env) (string, time.Duration) {
+	t.Helper()
+	args, err := json.Marshal(runCommandArgs{Command: command, TimeoutSeconds: timeout})
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	out, err := executeRunCommandWithShell(ctx, string(args), env, platform.CurrentShell())
+	took := time.Since(began)
+	if err != nil {
+		t.Fatalf("run_command returned an error (%v); the model would never see the output", err)
+	}
+	return out, took
+}
+
+func lastingCommandForTest(t *testing.T) string {
+	t.Helper()
+	command, err := sleepCommand(platform.CurrentShell().Kind, 60)
+	if err != nil {
+		t.Skipf("no sleep form for this shell: %v", err)
+	}
+	return command
+}
+
+func TestForegroundTimeoutAdoptsIntoTheBackgroundPool(t *testing.T) {
+	env := foregroundEnv(t, true)
+	before := time.Now()
+
+	out, took := runForegroundForTest(context.Background(), t, lastingCommandForTest(t), 1, env)
+	if took > 20*time.Second {
+		t.Fatalf("run_command blocked for %s", took)
+	}
+
+	tasks := env.Background.List(env.SessionID)
+	if len(tasks) != 1 {
+		t.Fatalf("pool holds %d tasks, want exactly the adopted one; answer was %q", len(tasks), out)
+	}
+	snap := tasks[0]
+	if !strings.Contains(out, snap.ID) {
+		t.Fatalf("answer %q does not name the adopted task %q", out, snap.ID)
+	}
+	if snap.Status != bgtask.StatusRunning {
+		t.Fatalf("adopted task is %q, want running: adoption must not kill the command", snap.Status)
+	}
+	// The foreground limit that just expired must never become the hard limit.
+	if snap.TimeoutSeconds != 3600 {
+		t.Fatalf("adopted task has a hard timeout of %ds, want the pool maximum of 3600s", snap.TimeoutSeconds)
+	}
+	if snap.StartedAt.After(before.Add(time.Second)) {
+		t.Fatalf("adopted task started at %s, want the original foreground start around %s", snap.StartedAt, before)
+	}
+}
+
+func TestForegroundAdoptionNoticeSurvivesTheOutputCeiling(t *testing.T) {
+	snap := bgtask.Snapshot{ID: "bg_7", TimeoutSeconds: 3600}
+	result := joinNotice(adoptionNotice(snap, 30), strings.Repeat("noise\n", 400))
+
+	limit := 5
+	trimmed := tooling.ApplyOutputLimit(result, "run_command", &tooling.Env{OutputLineLimits: map[string]int{"run_command": limit}})
+	if !strings.Contains(trimmed, "bg_7") {
+		t.Fatalf("the task id did not survive truncation: %q", trimmed)
+	}
+	if !strings.Contains(trimmed, "Do NOT start this work a second time") {
+		t.Fatalf("the anti-retry warning did not survive truncation: %q", trimmed)
+	}
+}
+
+func TestForegroundTimeoutWithBackgroundDisabledTerminatesTheGroup(t *testing.T) {
+	env := foregroundEnv(t, false)
+
+	out, took := runForegroundForTest(context.Background(), t, lastingCommandForTest(t), 1, env)
+	if took > 20*time.Second {
+		t.Fatalf("run_command blocked for %s", took)
+	}
+	if got := env.Background.List(env.SessionID); len(got) != 0 {
+		t.Fatalf("pool holds %d tasks while background execution is disabled", len(got))
+	}
+	if !strings.Contains(out, "terminated") {
+		t.Fatalf("answer %q does not say the command was terminated", out)
+	}
+	if !strings.Contains(out, "background: true") {
+		t.Fatalf("answer %q does not tell the model what to do instead", out)
+	}
+}
+
+func TestForegroundTimeoutWithoutAPoolTerminatesTheGroup(t *testing.T) {
+	env := &tooling.Env{CWD: t.TempDir()}
+
+	out, took := runForegroundForTest(context.Background(), t, lastingCommandForTest(t), 1, env)
+	if took > 20*time.Second {
+		t.Fatalf("run_command blocked for %s", took)
+	}
+	if !strings.Contains(out, "terminated") {
+		t.Fatalf("answer %q does not say the command was terminated", out)
+	}
+}
+
+// TestForegroundTimeoutDoesNotWaitOnAPipeHoldingGrandchild is the regression
+// test for the original bug: killing the shell leaves whatever it spawned
+// holding the output pipe, and cmd.Wait used to block on that forever.
+func TestForegroundTimeoutDoesNotWaitOnAPipeHoldingGrandchild(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := lastingChildCommand(commandShell, 60)
+	if err != nil {
+		t.Skipf("no lasting-child form for this shell: %v", err)
+	}
+
+	_, took := runForegroundForTest(context.Background(), t, command, 1, &tooling.Env{CWD: t.TempDir()})
+	if took > 20*time.Second {
+		t.Fatalf("run_command blocked for %s on a command whose child held the output pipe", took)
+	}
+}
+
+func TestForegroundCancelledByContextIsNotAdopted(t *testing.T) {
+	env := foregroundEnv(t, true)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	_, took := runForegroundForTest(ctx, t, lastingCommandForTest(t), 300, env)
+	if took > 20*time.Second {
+		t.Fatalf("a cancelled run_command blocked for %s", took)
+	}
+	if got := env.Background.List(env.SessionID); len(got) != 0 {
+		t.Fatalf("a cancelled command was adopted into %d tasks; cancellation must terminate it", len(got))
+	}
+}
+
+func TestForegroundCommandStillReportsExitStatus(t *testing.T) {
+	env := &tooling.Env{CWD: t.TempDir()}
+
+	out, _ := runForegroundForTest(context.Background(), t, "exit 3", 30, env)
+	if !strings.Contains(out, "command failed:") || !strings.Contains(out, "exit status 3") {
+		t.Fatalf("answer %q does not report the command's own exit code", out)
+	}
+}
+
+// TestForegroundResultCarriesStderrWithoutRedirection guards the reason the
+// output matters at all: a dev server reports a busy port or a missing binary on
+// stderr, and the model must read it without having remembered to write 2>&1.
+func TestForegroundResultCarriesStderrWithoutRedirection(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := complainCommand(commandShell.Kind, "port 8080 is already in use")
+	if err != nil {
+		t.Skipf("no error-stream form for this shell: %v", err)
+	}
+
+	out, _ := runForegroundForTest(context.Background(), t, command, 30, &tooling.Env{CWD: t.TempDir()})
+	if !strings.Contains(out, "port 8080 is already in use") {
+		t.Fatalf("answer %q lost what the command wrote to stderr", out)
+	}
+}
+
+func TestRunCommandDescriptionWarnsAgainstRedirectingStderr(t *testing.T) {
+	for _, sh := range []platform.Shell{
+		{Kind: platform.ShellPwsh, Path: "pwsh"},
+		{Kind: platform.ShellBash, Path: "/bin/bash"},
+	} {
+		description := RunCommandToolForShell(sh).Definition.Description
+		if !strings.Contains(description, "2>&1") {
+			t.Fatalf("%s description does not tell the model that stderr is already captured: %q", sh.Kind, description)
+		}
+	}
+}
+
+// TestAdoptionNoticeForbidsASecondCopyOfTheWork covers what a live run showed:
+// told only not to raise timeout_seconds, a model reaches for a variant of the
+// same work instead - npm install --ignore-engines, then yarn install - and ends
+// up with two installs fighting over one directory.
+func TestAdoptionNoticeForbidsASecondCopyOfTheWork(t *testing.T) {
+	notice := adoptionNotice(bgtask.Snapshot{ID: "bg_2", TimeoutSeconds: 3600}, 30)
+	for _, want := range []string{
+		"not the same command with a larger timeout_seconds",
+		"not a variant with different flags",
+		"not another tool that does the same job",
+	} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("adoption notice does not rule out %q: %s", want, notice)
+		}
+	}
+}
+
+func TestRunCommandResultIsSanitised(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := printCommand(commandShell.Kind, "\x1b[31mred\x1b[0m")
+	if err != nil {
+		t.Skipf("no printing form for this shell: %v", err)
+	}
+
+	out, _ := runForegroundForTest(context.Background(), t, command, 30, &tooling.Env{CWD: t.TempDir()})
+	if !strings.Contains(out, "red") {
+		t.Fatalf("answer %q lost the text under the escape sequences", out)
+	}
+	if strings.ContainsRune(out, 0x1b) {
+		t.Fatalf("answer %q still carries escape sequences", out)
+	}
+}
+
+func TestTerminateReachesTheWholeProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("ProcessGroupAlive only checks the leader on Windows, so it cannot prove the group died")
+	}
+	commandShell := platform.CurrentShell()
+	command, err := lastingChildCommand(commandShell, 60)
+	if err != nil {
+		t.Skipf("no lasting-child form for this shell: %v", err)
+	}
+
+	sc, err := startForeground(command, &tooling.Env{CWD: t.TempDir()}, commandShell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := sc.pid()
+	if pid <= 0 {
+		t.Fatal("started command reports no pid")
+	}
+
+	sc.terminate("terminated")
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if !platform.ProcessGroupAlive(pid, sc.processStartedAt) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("process group %d is still alive after terminate", pid)
 }
 
 func TestHumanSeconds(t *testing.T) {

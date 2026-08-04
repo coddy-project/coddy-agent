@@ -6416,6 +6416,74 @@ textarea#composer {
   background: color-mix(in srgb, var(--text) 24%, transparent);
 }
 
+/* A project entry waiting for workspace approval, and one refused by policy. */
+.mcp-status-dot.is-needs_approval {
+  background: #ff9f0a;
+  box-shadow: 0 0 5px color-mix(in srgb, #ff9f0a 60%, transparent);
+}
+
+.mcp-status-dot.is-denied {
+  background: #ff453a;
+}
+
+/* Project-trust policy: its own fieldset above the server list. The MCP tab
+   owns it, next to the servers it governs, so it never joins the settings
+   document Save all flow. */
+.mcp-discovery-box {
+  min-inline-size: 0;
+}
+
+.mcp-discovery-box .settings-label {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.mcp-discovery-box .settings-input {
+  max-width: 420px;
+}
+
+.mcp-trust-note {
+  margin: 6px 0 0 26px;
+  font-size: 0.78rem;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+}
+
+.mcp-trust-note code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.74rem;
+  word-break: break-all;
+}
+
+.mcp-trust-note p {
+  margin: 0 0 6px;
+}
+
+/* The declaration an approval covers: label column, value wraps freely. */
+.mcp-trust-facts {
+  margin: 0 0 6px;
+}
+
+.mcp-trust-facts > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.mcp-trust-facts dt {
+  flex: 0 0 72px;
+  color: color-mix(in srgb, var(--text) 52%, transparent);
+}
+
+.mcp-trust-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.settings-btn-approve {
+  color: #ff9f0a;
+  border-color: color-mix(in srgb, #ff9f0a 45%, transparent);
+}
+
 .mcp-command {
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 0.74rem;

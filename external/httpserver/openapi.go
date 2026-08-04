@@ -116,7 +116,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** only.",
+						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1009,7 +1009,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/mcp": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List MCP servers",
-					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/coddy/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
 					"operationId": "listMCPServers",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1053,6 +1053,95 @@ func openAPISpec() map[string]interface{} {
 					"parameters":  []interface{}{mcpServerNameParam()},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Approve a project MCP server for this workspace",
+					"description": "Records the operator's approval of the **current** declaration of a project-local (`.coddy/mcp.json`) server for the server's workspace, so sessions may start it. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"operationId": "trustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Server approved; the response carries the approved `fingerprint`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":          map[string]interface{}{"type": "boolean"},
+											"fingerprint": map[string]interface{}{"type": "string", "description": "Digest the approval is bound to."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project MCP server approval",
+					"description": "Removes the workspace approval of a project-local server. Sessions already holding a connected client keep it; new sessions no longer start the server. `removed` reports whether an approval was actually on file.",
+					"operationId": "untrustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Approval withdrawn (or none was on file).",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":      map[string]interface{}{"type": "boolean"},
+											"removed": map[string]interface{}{"type": "boolean"},
+										},
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/project-trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Set the project MCP trust policy",
+					"description": "Persists **`mcp.project_trust`** into config.yaml and reloads it. Body: **`{\"policy\":\"ask\"|\"allow\"|\"deny\"}`**. `ask` (default) keeps project-local `.coddy/mcp.json` servers cold until each declaration is approved for its workspace; `allow` starts them automatically; `deny` never loads them. The MCP tab of the bundled UI edits this next to the servers it governs, so it never joins the settings-document save flow.",
+					"operationId": "setMCPProjectTrust",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"policy"},
+									"properties": map[string]interface{}{
+										"policy": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Policy stored; the response echoes the effective `project_trust`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":            map[string]interface{}{"type": "boolean"},
+											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+										},
+									},
+								},
+							},
+						},
 						"400": errorResponseRef(),
 					},
 				},
@@ -1476,19 +1565,23 @@ func openAPISpec() map[string]interface{} {
 				"MCPServerRow": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"name":      map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
-						"source":    map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
-						"origin":    map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
-						"readonly":  map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
-						"transport": map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
-						"command":   map[string]string{"type": "string"},
-						"args":      map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
-						"url":       map[string]string{"type": "string"},
-						"env":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
-						"headers":   map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
-						"enabled":   map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
-						"status":    map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type)."},
-						"error":     map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported."},
+						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
+						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":     map[string]string{"type": "string"},
+						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":         map[string]string{"type": "string"},
+						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
 						"tools": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
@@ -1499,7 +1592,9 @@ func openAPISpec() map[string]interface{} {
 				"MCPServerList": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"object": map[string]string{"type": "string", "example": "coddy.mcp_list"},
+						"object":        map[string]string{"type": "string", "example": "coddy.mcp_list"},
+						"workspace":     map[string]string{"type": "string", "description": "Workspace the rows were merged for; approvals are recorded against it."},
+						"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "Effective mcp.project_trust policy."},
 						"items": map[string]interface{}{
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
@@ -1706,7 +1801,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{

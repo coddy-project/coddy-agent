@@ -23,6 +23,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
+	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1766,6 +1767,87 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 }
 
+// TestResponsesAttachmentEncodings covers the two ends of attachment decoding
+// over HTTP: a Windows-1251 file is transcoded and reaches the runner as
+// readable text, while a binary file is refused with 400 rather than 500.
+func TestResponsesAttachmentEncodings(t *testing.T) {
+	const russian = "Первая строка заметки в кодировке Windows-1251.\n" +
+		"Вторая строка нужна, чтобы кодировка определялась уверенно.\n" +
+		"Третья строка завершает пример русского текста.\n"
+
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, d := range []string{filepath.Join(home, "memory"), sessRoot, wd} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cp1251, err := charmap.Windows1251.NewEncoder().Bytes([]byte(russian))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), cp1251, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+	if err := os.WriteFile(filepath.Join(wd, "logo.png"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, payload string) int {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	code := post("sess_http_attach_cp1251", `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("windows-1251 attachment status %d, want 200", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) < 2 || blocks[1].Type != "resource" || blocks[1].Resource == nil {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if blocks[1].Resource.Text != russian {
+		t.Fatalf("resource text %q, want %q", blocks[1].Resource.Text, russian)
+	}
+
+	code = post("sess_http_attach_binary", `{"model":"agent","input":"read @logo.png","stream":false,"attachments":[{"path":"logo.png"}]}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("binary attachment status %d, want 400", code)
+	}
+}
+
 func TestCoddyConfigSchemaValidateAndPut(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
@@ -2783,5 +2865,39 @@ mcp_servers:
 	}
 	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
 		t.Errorf("DELETE home-sourced status %d, want 200", status)
+	}
+
+	// Trust applies to project entries only: config.yaml servers are the
+	// operator's own, so approving one is refused rather than silently stored.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/broken/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust a config.yaml server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust unknown server status %d, want 400", status)
+	}
+	// Withdrawing an approval that was never granted is a no-op, not an error.
+	status, b = do(http.MethodPost, "/coddy/mcp/broken/untrust", "")
+	if status != http.StatusOK || !strings.Contains(string(b), `"removed":false`) {
+		t.Errorf("untrust without an approval = %d %s, want 200 removed:false", status, b)
+	}
+
+	// The project-trust policy is set through this surface (the MCP tab owns
+	// it) and rejects values the loader would not accept.
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"nonsense"}`); status != http.StatusBadRequest {
+		t.Errorf("unknown policy status %d %s, want 400", status, body)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"deny"}`); status != http.StatusOK {
+		t.Fatalf("set policy status %d %s", status, body)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got := reloaded.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Errorf("config.yaml project_trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if !strings.Contains(string(b), `"project_trust":"deny"`) {
+		t.Errorf("list does not report the new policy: %s", b)
 	}
 }

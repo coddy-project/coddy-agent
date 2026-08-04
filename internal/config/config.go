@@ -91,6 +91,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Rules.Validate(); err != nil {
 		return fmt.Errorf("rules: %w", err)
 	}
+	if err := cfg.MCP.Validate(); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
