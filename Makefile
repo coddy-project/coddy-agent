@@ -1,4 +1,4 @@
-.PHONY: build build-acp test lint clean install print-version hooks
+.PHONY: build build-acp test test-opencode-rules lint clean install print-version hooks
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -78,8 +78,12 @@ install:
 	cp $(BINARY) $(INSTALL_DIR)/coddy
 	@echo "Installed to $(INSTALL_DIR)/coddy"
 
+# Test the project plugin that attaches Cursor rules to OpenCode sessions.
+test-opencode-rules:
+	node --test .opencode/tests/project-rules.test.js
+
 # Run all tests.
-test:
+test: test-opencode-rules
 	go test ./...
 	go test -tags=memory ./...
 	go test -tags=http ./...

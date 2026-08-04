@@ -531,6 +531,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [AGENTS.md](AGENTS.md) - repo map and contributor notes for automation
 - [Rules](docs/rules.md) - project rules (`.cursor/rules`, `.coddy/rules`, …)
 - [Codex hooks](docs/codex-hooks.md) - how `.cursor/rules/*.mdc` reach a Codex CLI session working on this repo
+- [OpenCode hooks](docs/opencode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to OpenCode sessions working on this repo
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and program-wide permission grants
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide

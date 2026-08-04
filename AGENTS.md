@@ -39,7 +39,7 @@ Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives 
 
 All **code comments** plus **technical markdown authored for this repo** (including `docs/`, `DESIGN.md`, `AGENTS.md`) stay **English** unless an operator explicitly asks for another natural language.
 
-## Codex and Cursor rules
+## Codex, OpenCode, and Cursor rules
 
 Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/` or `.claude/` by hand.
 
@@ -51,6 +51,8 @@ Codex resolves its `AGENTS.md` chain once per session, walking from the reposito
 - The hook parses `.mdc` frontmatter directly, so adding, renaming, or removing a rule file needs no change here. It fails open, and a malformed rule never blocks an edit.
 
 Codex requires explicit approval for hooks and tracks them by content hash. Run **`/hooks`** once per clone, and again after editing `attach_rules.py`, otherwise the hook is skipped silently. Project-local hooks also load only when the `.codex/` layer is trusted. **`.codex/rules.md`** keeps the human-readable index of the rule files; the full guide, including how to probe the hook by hand, is **`docs/codex-hooks.md`**.
+
+When working in OpenCode, the project plugin **`.opencode/plugins/project-rules.js`** delivers the same rule set without copying it. It injects `alwaysApply: true` rules into every model request, activates scoped rules when a tool touches a path covered by their `globs`, and preserves the active set through compaction. If a write tool is the first operation to reveal a new scoped rule, the plugin rejects that one call so OpenCode can retry with the rule in its model context. See **`docs/opencode-hooks.md`** and run **`make test-opencode-rules`** after changing the plugin.
 
 ## Code Review Rules
 
