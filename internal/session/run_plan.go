@@ -34,7 +34,7 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	state.SetMode(string(ModeAgent))
 	if err := sender.SendSessionUpdate(sessionID, acp.ModeUpdate{
 		SessionUpdate: acp.UpdateTypeCurrentModeUpdate,
-		ModeID:        string(ModeAgent),
+		CurrentModeID: string(ModeAgent),
 	}); err != nil {
 		m.log.Warn("failed to send mode update", "error", err)
 	}

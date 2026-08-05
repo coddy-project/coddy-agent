@@ -253,7 +253,8 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -283,6 +284,25 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	// No explicit model override: effective model stays agent.model (p1/gpt-4o).
 	if modelCur != "p1/gpt-4o" {
 		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
+	}
+	var modeWire map[string]interface{}
+	for _, update := range sender.ups {
+		if _, ok := update.(acp.ModeUpdate); !ok {
+			continue
+		}
+		data, err := json.Marshal(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &modeWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if modeWire["currentModeId"] != "plan" {
+		t.Fatalf("currentModeId = %#v, want plan in %#v", modeWire["currentModeId"], modeWire)
+	}
+	if _, ok := modeWire["modeId"]; ok {
+		t.Fatalf("deprecated modeId emitted in %#v", modeWire)
 	}
 }
 
@@ -539,7 +559,7 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSessionNew: %v", err)
 	}
-	_ = res
+	m.HandleSessionReady(res.SessionID)
 	var slash *acp.AvailableCommandsUpdate
 	for _, u := range snd.ups {
 		if v, ok := u.(acp.AvailableCommandsUpdate); ok && v.SessionUpdate == acp.UpdateTypeAvailableCommandsUpdate {

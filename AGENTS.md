@@ -9,7 +9,7 @@ Short map for automation-friendly contributors.
 | `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `mcp`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
-| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). Guide: **`docs/background-tasks.md`**. |
+| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
@@ -32,6 +32,7 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 - On commit, **`.githooks/pre-commit`** calls **`scripts/checks.sh`**, which runs **`make lint`** by default. Commits touching only non-code files (docs, etc.) skip the gate.
 - Scope knobs: **`CODDY_HOOK_TESTS=fast`** also runs a quick **`go test ./...`**, **`CODDY_HOOK_TESTS=full`** the whole matrix; **`CODDY_HOOK_LINT=0`** skips the linter; **`CODDY_HOOK_SKIP=1`** bypasses everything.
 - Emergency bypass for a single commit: **`git commit --no-verify`**.
+- Both gates compile the **host** platform only. Changing a file behind **`//go:build windows`**, or a signature it shares with the rest of the tree, needs **`make check-windows`** (cross-build plus **`go vet`** over every non-**`ui`** tag combination, test files included) and **`make lint-windows`**. CI runs both, and additionally runs **`go test`** on a real **`windows-latest`** runner for **`internal/platform`**, **`internal/bgtask`**, and **`internal/tools/shell`**.
 
 ## Documentation contract
 
@@ -41,14 +42,36 @@ All **code comments** plus **technical markdown authored for this repo** (includ
 
 ## Codex and Cursor rules
 
-Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. This repository also keeps the detailed project rules in **`.cursor/rules/*.mdc`**.
+Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/` or `.claude/` by hand.
 
-When working in Codex:
+Codex resolves its `AGENTS.md` chain once per session, walking from the repository root down to the launch directory, so nested instruction files never load for a session started at the root. A lifecycle hook covers that gap and delivers the Cursor rules deterministically instead of asking the model to fetch them:
 
-- Treat **`.cursor/rules/*.mdc`** as authoritative project rules, not Cursor-only metadata.
-- Read the relevant Cursor rule files before changing code or docs covered by their `globs`.
-- Start with **`.codex/rules.md`** for the Cursor rules index.
-- Do not copy Cursor rules into `.codex/`; keep **`.cursor/rules/`** as the single source of truth and update the index if rule files are added, renamed, or removed.
+- **`.codex/hooks.json`** wires **`.codex/hooks/attach_rules.py`** to `SessionStart` and to `PreToolUse` on `apply_patch` / `Edit` / `Write`.
+- On session start the hook injects every rule with `alwaysApply: true`.
+- Before each patch it injects the rules whose `globs` cover the files being touched, at most once per rule per session.
+- The hook parses `.mdc` frontmatter directly, so adding, renaming, or removing a rule file needs no change here. It fails open, and a malformed rule never blocks an edit.
+
+Codex requires explicit approval for hooks and tracks them by content hash. Run **`/hooks`** once per clone, and again after editing `attach_rules.py`, otherwise the hook is skipped silently. Project-local hooks also load only when the `.codex/` layer is trusted. **`.codex/rules.md`** keeps the human-readable index of the rule files; the full guide, including how to probe the hook by hand, is **`docs/codex-hooks.md`**.
+
+## Code Review Rules
+
+Codex code review reads this section and applies it to changed files. Keep entries behavioural and repository-specific; formatting and lint stay in CI, where the pre-commit gate already runs **`make lint`**.
+
+### HTTP surface
+
+- Do not change routes, request or response shapes, or status codes in `external/httpserver/server.go` without updating `external/httpserver/openapi.go` in the same change. The served spec is what `/docs/` and generated clients consume, so drift is a silent API break. Safe path: update both, then reconcile `docs/http-api.md`.
+
+### Build tags
+
+- Do not let a package that builds by default import one that lives behind the `http`, `ui`, `scheduler`, `memory`, or `gateway` tags. Plain `make build` must keep compiling with the lean dependency set. Safe path: put the new code behind the same tag, or invert the dependency into an interface owned by the core package.
+
+### Project-local configuration
+
+- Do not read, merge, or execute project-local configuration (`.coddy/mcp.json`, MCP server definitions, hook scripts) without routing it through `TrustGate` in `internal/mcp`. Opening an untrusted checkout must not by itself grant code execution. Safe path: gate the read on the workspace trust decision and persist the approval through `TrustStore`.
+
+### Embedded UI
+
+- Do not treat a UI change as complete when only `external/ui/src/` moved. The binary serves `go:embed` assets, so unrebuilt sources ship the previous SPA. Safe path: run `make build TAGS="http ui"` and include the regenerated assets in the change.
 
 ## HTTP API development flow
 

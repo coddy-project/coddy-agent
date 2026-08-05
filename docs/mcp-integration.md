@@ -275,13 +275,33 @@ mcp_servers:
    config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
    trust gate admits, then any ACP client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
-3. `config_set` can add, replace, or delete a global `mcp_servers` entry while the session is running. Coddy validates and atomically writes the config, reconnects the effective config.yaml + `mcp.json` server set, preserves ACP-provided per-session servers, swaps the configured clients, and closes the old configured clients
-4. The refreshed MCP tool definitions and disable filters are visible to the next model call in the same ReAct turn; connection failures are returned as `config_set` warnings
-5. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call (unless the tool or its server has been disabled since)
+3. `config_set` can add, replace, or delete a global `mcp_servers` entry while
+   the session is running. Coddy validates and atomically writes the config,
+   reconnects the effective `config.yaml` + `mcp.json` server set for that
+   session, preserves ACP-provided per-session servers, and closes the replaced
+   configured clients. The refreshed tool definitions and disable filters are
+   visible to the next model call in the same ReAct turn; connection failures
+   are returned as `config_set` warnings
+4. Saving settings with a changed `mcp_servers` list reconnects the configured
+   servers for every active session; ACP client-supplied per-session servers
+   stay connected. The reconnect is a **fresh trust evaluation**, not a replay of
+   what the session started with: an unapproved project declaration stays cold,
+   and one whose approval was withdrawn in the meantime does not come back. A
+   session with a **turn in flight** is not swapped mid-turn — that turn already
+   handed the model a tool list, so the reload is parked and applied the moment
+   the turn releases its lock. All sessions share one deadline per save, and a
+   dial it cuts short is discarded rather than installed: a server hanging in
+   the session reconnected first must not strip the others of their tools. Those
+   sessions keep the servers they have and retry on their next turn
+5. During the ReAct loop, when LLM calls an MCP tool, the agent forwards the call
+   (unless the tool or its server has been disabled since)
 6. Results are returned to the LLM as tool observations
 7. On session end or `session/cancel`, MCP server connections are cleaned up
 
-For example, `config_set` can write an object to `/mcp_servers[name=context7]`; the selector makes the edit independent of list ordering. The bundled `/configure-coddy` skill documents the full path syntax and discovery safety checks.
+For example, `config_set` can write an object to
+`/mcp_servers[name=context7]`; the selector makes the edit independent of list
+ordering. The bundled `/configure-coddy` skill documents the full path syntax
+and discovery safety checks.
 
 ## Error Handling
 

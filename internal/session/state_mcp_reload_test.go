@@ -11,22 +11,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 )
 
-func TestReplaceGlobalMCPClientsPreservesSessionClients(t *testing.T) {
-	globalBefore := &mcp.Client{}
-	sessionClient := &mcp.Client{}
-	globalAfter := &mcp.Client{}
+func TestReplaceConfiguredMCPClientsPreservesSessionClients(t *testing.T) {
+	globalBefore := mcp.NewStaticClient("global-before", nil)
+	sessionClient := mcp.NewStaticClient("session", nil)
+	globalAfter := mcp.NewStaticClient("global-after", nil)
 	st := &State{}
-	st.AddMCPClient(globalBefore, true)
-	st.AddMCPClient(sessionClient, false)
+	st.addConfiguredMCPClient(globalBefore)
+	st.AddSessionMCPClient(sessionClient)
 
-	old := st.ReplaceGlobalMCPClients([]*mcp.Client{globalAfter})
-	if len(old) != 1 || old[0] != globalBefore {
-		t.Fatalf("old global clients = %+v", old)
-	}
+	st.replaceConfiguredMCPClients([]*mcp.Client{globalAfter})
 	got := st.GetMCPClients()
 	if len(got) != 2 || got[0] != globalAfter || got[1] != sessionClient {
 		t.Fatalf("MCP clients after reload = %+v", got)
@@ -61,13 +59,23 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 		Skills: config.Skills{Dirs: []string{skillsDir}},
 	}
 	mgr := NewManager(initial, nil, nil, slog.Default(), dir, nil)
-	st := &State{ID: "reload-mcp", CWD: dir, Mode: ModeAgent}
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+	otherCreated, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := mgr.SessionByID(otherCreated.SessionID)
+	t.Cleanup(st.CloseAll)
+	t.Cleanup(other.CloseAll)
 	reloadCtx, cancelReload := context.WithCancel(context.Background())
 	warnings, err := mgr.ReloadConfigForSession(reloadCtx, st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.CloseAll()
 	if len(warnings) != 0 {
 		t.Fatalf("warnings: %v", warnings)
 	}
@@ -78,6 +86,10 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 	tools := clients[0].Tools()
 	if len(tools) != 1 || tools[0].Name != "ping" {
 		t.Fatalf("MCP tools were not loaded immediately: %+v", tools)
+	}
+	otherClients := other.GetMCPClients()
+	if len(otherClients) != 1 || otherClients[0].Name() != "hot-mcp" {
+		t.Fatalf("other active session MCP clients = %+v", otherClients)
 	}
 	cancelReload()
 	for i := 0; i < 20; i++ {
