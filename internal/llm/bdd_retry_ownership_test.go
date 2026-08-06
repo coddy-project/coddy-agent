@@ -1,13 +1,18 @@
 package llm
 
 // Godog harness for features/llm_retry_ownership.feature: exercises the real
-// OpenAI and Anthropic providers against a request-counting HTTP server.
+// OpenAI, Anthropic, and Codex providers against a request-counting HTTP server.
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,11 +21,16 @@ import (
 )
 
 type retryOwnershipState struct {
-	server   *httptest.Server
-	provider Provider
-	mode     string
-	requests atomic.Int32
-	callErr  error
+	server    *httptest.Server
+	provider  Provider
+	mode      string
+	requests  atomic.Int32
+	callErr   error
+	// codex wiring: a temp auth.json and the previous CODDY_CODEX_BASE_URL so
+	// NewProvider's codex branch reaches the request-counting server.
+	prevCodexBaseURL string
+	setCodexBaseURL  bool
+	authDir          string
 }
 
 func (s *retryOwnershipState) reset() {
@@ -36,6 +46,14 @@ func (s *retryOwnershipState) cleanup() {
 		s.server.Close()
 		s.server = nil
 	}
+	if s.setCodexBaseURL {
+		_ = os.Setenv(EnvCodexBaseURL, s.prevCodexBaseURL)
+		s.setCodexBaseURL = false
+	}
+	if s.authDir != "" {
+		_ = os.RemoveAll(s.authDir)
+		s.authDir = ""
+	}
 }
 
 func (s *retryOwnershipState) aProviderWithOneConfiguredRetry(providerType, mode string) error {
@@ -46,7 +64,7 @@ func (s *retryOwnershipState) aProviderWithOneConfiguredRetry(providerType, mode
 		_, _ = w.Write([]byte(`{"error":{"message":"temporary failure","type":"server_error"}}`))
 	}))
 
-	provider, err := NewProvider(ProviderInput{
+	in := ProviderInput{
 		Type:          providerType,
 		Model:         "test-model",
 		APIKey:        "test-key",
@@ -54,13 +72,61 @@ func (s *retryOwnershipState) aProviderWithOneConfiguredRetry(providerType, mode
 		RetryMax:      1,
 		RetryBase:     time.Millisecond,
 		RetryMaxDelay: time.Millisecond,
-	})
+	}
+	if providerType == "codex" {
+		authPath, err := s.writeCodexAuthForRetryOwnership()
+		if err != nil {
+			return fmt.Errorf("create %s provider: %w", providerType, err)
+		}
+		// NewProvider's codex branch ignores BaseURL and resolves the endpoint
+		// from CODDY_CODEX_BASE_URL, so point it at the request-counting server.
+		s.prevCodexBaseURL = os.Getenv(EnvCodexBaseURL)
+		s.setCodexBaseURL = true
+		if err := os.Setenv(EnvCodexBaseURL, s.server.URL); err != nil {
+			return fmt.Errorf("create %s provider: set base URL: %w", providerType, err)
+		}
+		in.APIKey = ""
+		in.AuthPath = authPath
+	}
+
+	provider, err := NewProvider(in)
 	if err != nil {
 		return fmt.Errorf("create %s provider: %w", providerType, err)
 	}
 	s.provider = provider
 	s.mode = mode
 	return nil
+}
+
+// writeCodexAuthForRetryOwnership stages a Codex auth.json with a far-future
+// token so the auth source returns the static credential without an OAuth
+// refresh. It mirrors the codex_auth_test.go makeJWT shape without depending
+// on a *testing.T helper.
+func (s *retryOwnershipState) writeCodexAuthForRetryOwnership() (string, error) {
+	dir, err := os.MkdirTemp("", "coddy-retry-ownership-")
+	if err != nil {
+		return "", err
+	}
+	s.authDir = dir
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
+	payload := base64.RawURLEncoding.EncodeToString([]byte(
+		`{"exp":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}`))
+	auth := codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens: codexTokens{
+			AccessToken: header + "." + payload + ".sig",
+			AccountID:   "acct-1",
+		},
+	}
+	data, err := json.MarshalIndent(auth, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "auth.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (s *retryOwnershipState) theUpstreamRespondsWithARetryableServerError() error {

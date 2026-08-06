@@ -52,7 +52,10 @@ func (p *codexProvider) responsesClient(ctx context.Context) (responses.Response
 	if err != nil {
 		return responses.ResponseService{}, err
 	}
+	// The OpenAI SDK defaults to two HTTP retries; Coddy owns retry pacing
+	// through resilientProvider, so disable hidden retries here as well.
 	opts := []option.RequestOption{
+		option.WithMaxRetries(0),
 		option.WithBaseURL(p.baseURL),
 		option.WithAPIKey(cred.AccessToken),
 		option.WithHeader("OpenAI-Beta", "responses=experimental"),

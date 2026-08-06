@@ -14,3 +14,5 @@ Feature: Coddy owns LLM retries
       | openai    | streaming     |
       | anthropic | non-streaming |
       | anthropic | streaming     |
+      | codex     | non-streaming |
+      | codex     | streaming     |
