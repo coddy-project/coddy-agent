@@ -64,6 +64,7 @@ type Agent struct {
 	registry        *tools.Registry
 	environment     platform.Environment
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
+	configReloader  func(context.Context) ([]string, error)
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -89,6 +90,14 @@ func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, err
 		return
 	}
 	a.providerFactory = mk
+}
+
+// SetConfigReloader wires config_set to the process/session runtime owner.
+func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)) {
+	if a == nil {
+		return
+	}
+	a.configReloader = reload
 }
 
 // Run executes the ReAct loop and returns the stop reason.
@@ -129,11 +138,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolSet := ToolSetForMode(mode)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
-		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Get or create LLM provider.
 	provider, err := a.getProvider(mode)
@@ -194,9 +199,27 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+	}
+	if a.configReloader != nil {
+		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			return warnings, nil
+		}
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -642,6 +665,17 @@ func (a *Agent) runReActLoop(
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
 		}
+		if toolEnv.ConfigReloaded {
+			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
+			toolDefs = a.currentToolDefinitions(mode)
+			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
+			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
+			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
+			toolEnv.Background = a.backgroundPool(sd)
+			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.ConfigReloaded = false
+		}
 		// The model made progress (executed tool calls), so reset the empty-turn
 		// counter. The give-up notice is for CONSECUTIVE stalls (no answer and no
 		// tool call), not for a slow multi-step task that keeps acting between
@@ -953,6 +987,25 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
 }
 
+func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	toolSet := ToolSetForMode(mode)
+	available := a.registry.AllToolDefinitions()
+	if a.configReloader == nil {
+		filtered := available[:0]
+		for _, definition := range available {
+			if definition.Name != "config_set" {
+				filtered = append(filtered, definition)
+			}
+		}
+		available = filtered
+	}
+	defs := FilterToolDefinitions(available, toolSet)
+	if toolSet.Unrestricted() || mode == "plan" {
+		defs = append(defs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
+	}
+	return defs
+}
+
 // buildMessages constructs the message slice to send to the LLM.
 // The most recent user message is augmented with bodies of any explicitly invoked (/name) skills
 // so the LLM sees the full skill instructions immediately before the user's request.
@@ -1166,9 +1219,9 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get":
 		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_set":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1179,7 +1232,7 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_set":
 		return true
 	default:
 		return false

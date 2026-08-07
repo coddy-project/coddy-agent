@@ -120,6 +120,7 @@ func Run(args []string, deps CommandDeps) error {
 
 	var srv *acp.Server
 	var mgr *session.Manager
+	var s *Server
 	live := func() *config.Config {
 		if mgr != nil {
 			return mgr.Cfg()
@@ -130,6 +131,14 @@ func Run(args []string, deps CommandDeps) error {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		c := live()
 		loop := agent.NewAgent(c, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			warnings, err := mgr.ReloadConfigForSession(ctx, st)
+			if err == nil && s != nil {
+				s.ReplaceConfig(mgr.Cfg())
+				s.invalidateSlashCache()
+			}
+			return warnings, err
+		})
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
@@ -147,7 +156,7 @@ func Run(args []string, deps CommandDeps) error {
 		listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
 	}
 
-	s := New(cfg, mgr, log, paths.CWD)
+	s = New(cfg, mgr, log, paths.CWD)
 
 	// Out-of-band bearer tokens (--auth-token, then CODDY_HTTP_TOKEN) enable auth without
 	// writing the secret into config.yaml and survive PUT /coddy/config hot reloads.

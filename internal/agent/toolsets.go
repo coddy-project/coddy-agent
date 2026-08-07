@@ -28,6 +28,7 @@ var planToolNames = []string{
 	"background_wait",
 	"background_stop",
 	"question",
+	"config_get",
 	"plan_write",
 	"plan_list",
 	"plan_read",

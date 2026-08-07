@@ -672,6 +672,9 @@ func TestDeleteSkillOnDiskAndReadonly(t *testing.T) {
 	if err := DeleteSkill(cfg, ".", "generate-rules"); err == nil {
 		t.Error("expected bundled skill to be read-only")
 	}
+	if err := DeleteSkill(cfg, ".", "configure-coddy"); err == nil {
+		t.Error("expected configuration skill to be read-only")
+	}
 	// Unknown skill errors.
 	if err := DeleteSkill(cfg, ".", "nope"); err == nil {
 		t.Error("expected error for unknown skill")

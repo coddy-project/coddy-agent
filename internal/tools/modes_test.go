@@ -9,6 +9,12 @@ func TestRegistryIncludesWrite(t *testing.T) {
 	if _, ok := r.Get("write"); !ok {
 		t.Fatal("write should be registered")
 	}
+	if _, ok := r.Get("config_get"); !ok {
+		t.Fatal("config_get should be registered")
+	}
+	if tool, ok := r.Get("config_set"); !ok || !tool.RequiresPermission {
+		t.Fatal("config_set should be registered and require permission")
+	}
 }
 
 func TestAllToolDefinitionsIncludesReadAndWriteText(t *testing.T) {

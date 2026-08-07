@@ -222,12 +222,22 @@ func runACP(args []string) error {
 	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
-	ref := &serverRef{p: &srv, cfg: cfg}
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)

@@ -12,7 +12,8 @@ import (
 func withoutBundled(loaded []*skills.Skill) []*skills.Skill {
 	var out []*skills.Skill
 	for _, s := range loaded {
-		if skills.CanonicalCommandName(s) == "generate-rules" {
+		name := skills.CanonicalCommandName(s)
+		if name == "generate-rules" || name == "configure-coddy" {
 			continue
 		}
 		out = append(out, s)

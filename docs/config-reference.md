@@ -12,6 +12,26 @@ VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automa
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
 
+## Agent self-configuration
+
+Agent sessions expose two typed configuration tools:
+
+- `config_get` reads a slash-delimited path from the active YAML file. Secret-shaped fields, MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_set` sets or deletes a non-root path, validates the complete typed config, writes it atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. It always requires tool permission. If runtime reload fails, the config file and its backup are rolled back.
+
+Paths use JSON Pointer-style segments with an XPath-like selector for named sequence entries:
+
+| Path | Meaning |
+|---|---|
+| `/skills/dirs` | Mapping field |
+| `/skills/sources/-` | Append a sequence entry |
+| `/mcp_servers/0/command` | Sequence index |
+| `/mcp_servers[name=context7]` | Select a sequence object by scalar field; append it when setting if absent |
+
+The root path `/` is read-only. Use `delete: true` to remove the selected field or entry. Escape `/` as `~1` and `~` as `~0` inside a segment. Tool values are JSON even though the stored file is YAML. Unknown schema paths and invalid values are rejected before the active config changes.
+
+The bundled `/configure-coddy` skill teaches the agent this path syntax and the safe discovery/install workflow for MCP servers and skills. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
+
 ## Top-level keys
 
 | Key | Type | Purpose | Build tag |

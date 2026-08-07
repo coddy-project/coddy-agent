@@ -116,6 +116,60 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 	}
 }
 
+func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	initialSkills := filepath.Join(dir, "initial-skills")
+	if err := os.MkdirAll(initialSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 8\nskills:\n  dirs:\n    - "+initialSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &captureSender{}
+	mgr := session.NewManager(cfg, sender, noopRunner, slog.Default(), dir, nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+
+	nextSkills := filepath.Join(dir, "next-skills")
+	skillDir := filepath.Join(nextSkills, "hot-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: hot-skill\ndescription: Loaded after config reload.\n---\n\n# Hot\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 22\nskills:\n  dirs:\n    - "+nextSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	if mgr.Cfg().Agent.MaxTurns != 22 {
+		t.Fatalf("manager config was not replaced: %d", mgr.Cfg().Agent.MaxTurns)
+	}
+	found := false
+	for _, skill := range st.GetSkills() {
+		if skill.Name == "hot-skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("reloaded skill missing: %+v", st.GetSkills())
+	}
+}
+
 func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
@@ -519,15 +573,15 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	}
 	// Skills plus the built-in commands: compact (while compaction is enabled)
 	// and plugin (always).
-	if len(slash.AvailableCommands) != 4 {
+	if len(slash.AvailableCommands) != 5 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, compact, and plugin, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 
