@@ -24,7 +24,7 @@ type openAIProvider struct {
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMaxRetries(0)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
