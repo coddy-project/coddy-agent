@@ -75,10 +75,6 @@ func sleepCommand(kind platform.ShellKind, seconds int) (string, error) {
 	}
 }
 
-func (s *backgroundTasksState) sleepCommand(seconds int) (string, error) {
-	return sleepCommand(s.shell.Kind, seconds)
-}
-
 func (s *backgroundTasksState) start(command string, expectedSeconds, timeoutSeconds int) error {
 	args, err := json.Marshal(runCommandArgs{
 		Command:         command,
@@ -107,7 +103,7 @@ func (s *backgroundTasksState) start(command string, expectedSeconds, timeoutSec
 }
 
 func (s *backgroundTasksState) startSleeping(seconds int) error {
-	command, err := s.sleepCommand(seconds)
+	command, err := sleepCommand(s.shell.Kind, seconds)
 	if err != nil {
 		return err
 	}
@@ -115,7 +111,7 @@ func (s *backgroundTasksState) startSleeping(seconds int) error {
 }
 
 func (s *backgroundTasksState) startSleepingWithEstimate(seconds, estimate int) error {
-	command, err := s.sleepCommand(seconds)
+	command, err := sleepCommand(s.shell.Kind, seconds)
 	if err != nil {
 		return err
 	}
@@ -123,7 +119,7 @@ func (s *backgroundTasksState) startSleepingWithEstimate(seconds, estimate int) 
 }
 
 func (s *backgroundTasksState) startSleepingWithTimeout(seconds, timeout int) error {
-	command, err := s.sleepCommand(seconds)
+	command, err := sleepCommand(s.shell.Kind, seconds)
 	if err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Layout of a persisted task inside the session bundle:
@@ -19,6 +20,14 @@ const (
 	metaFileName      = "meta.json"
 	outputFileName    = "output.log"
 )
+
+// persistedSnapshot adds the process identity that is intentionally hidden from
+// the public Snapshot JSON. It is an internal authorization token for acting on
+// a pid, not part of the HTTP background-task surface.
+type persistedSnapshot struct {
+	Snapshot
+	ProcessStartedAt *time.Time `json:"process_started_at,omitempty"`
+}
 
 func prepareTaskDir(dir string) error {
 	return os.MkdirAll(dir, 0o755)
@@ -32,7 +41,7 @@ func (p *Pool) persist(t *task) {
 		return
 	}
 	snap := t.Snapshot(p.now())
-	data, err := json.MarshalIndent(snap, "", "  ")
+	data, err := marshalPersistedSnapshot(snap)
 	if err != nil {
 		return
 	}
@@ -73,8 +82,8 @@ func LoadPersisted(sessionDir string) []Snapshot {
 		if err != nil {
 			continue
 		}
-		var snap Snapshot
-		if err := json.Unmarshal(data, &snap); err != nil || snap.ID == "" {
+		snap, err := unmarshalPersistedSnapshot(data)
+		if err != nil || snap.ID == "" {
 			continue
 		}
 		if !snap.Status.Finished() {
@@ -122,11 +131,31 @@ func writePersistedSnapshot(sessionDir string, snap Snapshot) {
 	if strings.TrimSpace(sessionDir) == "" || strings.TrimSpace(snap.ID) == "" {
 		return
 	}
-	data, err := json.MarshalIndent(snap, "", "  ")
+	data, err := marshalPersistedSnapshot(snap)
 	if err != nil {
 		return
 	}
 	_ = os.WriteFile(filepath.Join(sessionDir, backgroundDirName, snap.ID, metaFileName), data, 0o644)
+}
+
+func marshalPersistedSnapshot(snap Snapshot) ([]byte, error) {
+	record := persistedSnapshot{Snapshot: snap}
+	if !snap.ProcessStartedAt.IsZero() {
+		startedAt := snap.ProcessStartedAt
+		record.ProcessStartedAt = &startedAt
+	}
+	return json.MarshalIndent(record, "", "  ")
+}
+
+func unmarshalPersistedSnapshot(data []byte) (Snapshot, error) {
+	var record persistedSnapshot
+	if err := json.Unmarshal(data, &record); err != nil {
+		return Snapshot{}, err
+	}
+	if record.ProcessStartedAt != nil {
+		record.Snapshot.ProcessStartedAt = *record.ProcessStartedAt
+	}
+	return record.Snapshot, nil
 }
 
 // PersistedOutput returns the captured log of a persisted task, capped at the

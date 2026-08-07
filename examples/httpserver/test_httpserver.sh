@@ -76,5 +76,8 @@ python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
 # Self-contained: boots its own authenticated + local coddy http instances.
 python3 "$HTTP_DIR/http_e2e_remote.py"
+# Self-contained: boots its own coddy, kills it mid-task, and makes a fresh one
+# reap what the killed run left behind.
+python3 "$HTTP_DIR/http_e2e_background_reap.py"
 
 echo "ok httpserver tests"

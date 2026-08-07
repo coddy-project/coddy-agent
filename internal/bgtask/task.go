@@ -112,6 +112,11 @@ type Snapshot struct {
 	// one whose processes are still on this machine, and reach the latter.
 	PID int `json:"pid,omitempty"`
 
+	// ProcessStartedAt is the exact OS creation time used to prove that a
+	// persisted pid still belongs to this task. Persistence writes it to the
+	// private meta record; the public HTTP snapshot deliberately omits it.
+	ProcessStartedAt time.Time `json:"-"`
+
 	// LastOutputAt is when the task last wrote anything. A task can be running
 	// and stuck at the same time; silence is the only signal available without
 	// knowing what the command is supposed to do.

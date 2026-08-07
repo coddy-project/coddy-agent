@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-opencode-rules lint clean install print-version hooks
+.PHONY: build build-acp test test-opencode-rules check-windows lint lint-windows clean install print-version hooks
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -98,6 +98,28 @@ test: test-opencode-rules
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
 
+# Type-check the Windows build without a Windows machine.
+#
+# The suite above runs on the host only, so every file behind //go:build windows
+# — the process group probe, console output decoding, the shell detector — is
+# invisible to it and to the linter. A change to a shared signature therefore
+# compiles here and breaks there, which is exactly the kind of drift nobody sees
+# until a user reports it. go vet builds test files too, so this covers the
+# Windows-only tests as well.
+#
+# The ui tag is deliberately absent: it embeds assets that only exist after
+# ui-build, and it carries no platform-specific code.
+check-windows:
+	GOOS=windows go build ./...
+	GOOS=windows go vet ./...
+	GOOS=windows go vet -tags=memory ./...
+	GOOS=windows go vet -tags=http ./...
+	GOOS=windows go vet -tags=http,memory ./...
+	GOOS=windows go vet -tags=scheduler ./...
+	GOOS=windows go vet -tags=scheduler,memory ./...
+	GOOS=windows go vet -tags=http,scheduler ./...
+	GOOS=windows go vet -tags=http,scheduler,memory ./...
+
 # Clean build artifacts.
 clean:
 	rm -rf $(BUILD_DIR)
@@ -105,6 +127,10 @@ clean:
 # Run the linter (requires golangci-lint).
 lint:
 	golangci-lint run ./...
+
+# Run the linter against the Windows build, which lint above never compiles.
+lint-windows:
+	GOOS=windows golangci-lint run ./...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify

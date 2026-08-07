@@ -384,7 +384,7 @@ type ToolCallResultItem struct {
 // ModeUpdate notifies the client that the current mode changed.
 type ModeUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "current_mode_update"
-	ModeID        string `json:"modeId"`
+	CurrentModeID string `json:"currentModeId"`
 }
 
 // ConfigOptionUpdate sends the full session configuration options state to the client.

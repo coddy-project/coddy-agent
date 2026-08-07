@@ -364,7 +364,7 @@ func TestTerminateReachesTheWholeProcessGroup(t *testing.T) {
 
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if !platform.ProcessGroupAlive(pid) {
+		if !platform.ProcessGroupAlive(pid, sc.processStartedAt) {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)

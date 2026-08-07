@@ -17,6 +17,7 @@ import (
 	"golang.org/x/text/encoding/charmap"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -187,16 +188,30 @@ func (s *attachmentEncodingState) soleResourceURI() (string, error) {
 	return uris[0], nil
 }
 
+// systemANSIReadsCyrillic reports whether the machine's ANSI code page reads
+// single-byte Cyrillic. Scenarios tagged @windows lean on that code page to
+// resolve a file too short for statistical detection, so they only hold on a
+// Cyrillic Windows install; everywhere else - other platforms, a Western ANSI
+// page - they are filtered out rather than failed.
+func systemANSIReadsCyrillic() bool {
+	text, _, ok := platform.DecodeANSI([]byte{0xCF, 0xF0, 0xE8})
+	return ok && text == "При"
+}
+
 func TestPromptAttachmentEncodingFeature(t *testing.T) {
+	opts := &godog.Options{
+		Format:   "pretty",
+		Paths:    []string{"../../features/prompt_attachment_encoding.feature"},
+		TestingT: t,
+		Strict:   true,
+	}
+	if !systemANSIReadsCyrillic() {
+		opts.Tags = "~@windows"
+	}
 	suite := godog.TestSuite{
 		Name:                "prompt-attachment-encoding",
 		ScenarioInitializer: initializeAttachmentEncodingScenario,
-		Options: &godog.Options{
-			Format:   "pretty",
-			Paths:    []string{"../../features/prompt_attachment_encoding.feature"},
-			TestingT: t,
-			Strict:   true,
-		},
+		Options:             opts,
 	}
 	if suite.Run() != 0 {
 		t.Fatal("prompt attachment encoding feature suite failed")

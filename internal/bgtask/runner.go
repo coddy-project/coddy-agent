@@ -28,6 +28,10 @@ type Handle interface {
 	// PID leads the process group the work runs in, or 0 when the work is not
 	// an OS process. It is persisted so a later coddy can reach a survivor.
 	PID() int
+	// ProcessStartedAt is the exact OS process creation time used to prove that
+	// a persisted pid still identifies this task. It is zero when the platform
+	// does not need or cannot provide a process identity.
+	ProcessStartedAt() time.Time
 }
 
 // CommandRunner runs shell commands through the detected host interpreter.
@@ -63,11 +67,15 @@ func (r *CommandRunner) Start(spec Spec, out io.Writer) (Handle, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return &commandHandle{cmd: cmd}, nil
+	return &commandHandle{
+		cmd:              cmd,
+		processStartedAt: platform.ProcessStartedAt(cmd.Process.Pid),
+	}, nil
 }
 
 type commandHandle struct {
-	cmd *exec.Cmd
+	cmd              *exec.Cmd
+	processStartedAt time.Time
 }
 
 func (h *commandHandle) Wait() (int, error) {
@@ -91,4 +99,8 @@ func (h *commandHandle) PID() int {
 		return 0
 	}
 	return h.cmd.Process.Pid
+}
+
+func (h *commandHandle) ProcessStartedAt() time.Time {
+	return h.processStartedAt
 }

@@ -86,6 +86,11 @@ The pool lives **inside the running `coddy` process**. Each task mirrors its met
 <sessionDir>/background/<task_id>/output.log
 ```
 
+`meta.json` also carries the process-group leader pid and, on Windows, its exact
+OS creation time as `process_started_at`. That identity is private persistence
+metadata rather than part of the HTTP task row: it exists only so a later coddy
+can prove that a reused pid does not belong to a different process.
+
 The in-memory output window is bounded (`tools.background.output_buffer_bytes`, 256 KiB) so a chatty task cannot grow without limit; the log on disk keeps everything. Reading a persisted log back is capped at its last 256 KiB, so a watcher left running for a day cannot be pulled into memory wholesale — the response flags the truncation.
 
 - **Server drain** and **session delete** terminate every running task of the affected scope, so shutting coddy down does not leave orphaned shell trees behind.
@@ -102,6 +107,17 @@ Two different problems, with two different answers.
 **Leftover**: a process that outlived the coddy run which started it, because that run was killed rather than drained. The task record persists the **process group leader pid**, so a fresh coddy can tell a record whose processes are gone (reported `orphaned`) from one whose processes are still on this machine. `background_list` marks those `still alive from an earlier run`, `background_stop` reaches one by id, and `background_reap` kills all of them for the session at once.
 
 Only a record that still claimed to be **running** when its process died is ever a reaping candidate. A task that finished normally leaves a stale pid, and the OS reuses pids — acting on one would kill an unrelated process.
+
+The probe behind that has to answer **"is this task's process still running"**, not "does something answer to this number", and the two platforms need different work to get there:
+
+- On unix, signalling **process group** `-pid` is already both checks at once: an exited task leaves an empty group (`ESRCH`), and a recycled pid only matches if it also leads a group, which narrows reuse a long way without closing it. Checking the leader's start time instead would open a worse hole — the group outlives its leader, and a leader that exited while its children kept running is exactly the survivor worth finding.
+- Windows has no comparable group probe, and the obvious substitute — opening the process by pid — is wrong in both directions. A process **object** outlives the process itself for as long as anybody holds a handle to it (and `os.FindProcess` opened one per probe, so probing was itself what kept a corpse resolvable); and opening by number matches **any** process, with no group-leader requirement to filter out pid reuse. So the Windows probe asks `WaitForSingleObject` with a zero timeout, which distinguishes a running process from a retained corpse, and then requires its exact **creation time** to equal the `process_started_at` captured from Windows when the task launched. A missing or unreadable identity fails closed.
+
+Proving the identity and then killing by number would still leave a window between the two, so on Windows the kill re-opens the pid, re-checks the creation time, and **holds that handle open for the whole of `taskkill`**. Windows keeps a pid allocated while any handle to its process object is open, so nothing can inherit the number in between — and `taskkill /T` still resolves the children that name it as their parent. Liveness is deliberately not required there: a leader that already exited can have running children, and those are the point.
+
+That comparison is why reaping never needs a fresh pid from the operator: the record carries everything needed to prove the pid still means what it meant.
+
+**Upgrading**: records written before `process_started_at` existed carry a pid and no identity. On Windows they can no longer be proven, so they are not listed as leftovers and `background_reap` will not touch them — the fail-closed side of the same rule. If such a run really did leave a process behind, kill it from the OS and delete the stale session bundle. Unix is unaffected: its probe never consumed the identity.
 
 There is deliberately **no** tool that kills an arbitrary pid. `run_command` can already run `kill`, and it goes through the permission gate; a dedicated tool would route around that.
 
@@ -171,13 +187,18 @@ type Runner interface {
 type Handle interface {
 	Wait() (exitCode int, err error)
 	Stop(grace time.Duration) error
+	PID() int
+	ProcessStartedAt() time.Time
 }
 ```
+
+`PID` is 0 and `ProcessStartedAt` is the zero time for work that is not an OS process — which is the shape a nested-agent runner has, and the reason a survivor probe never mistakes one for a pid it may kill.
 
 `CommandRunner` is the only implementation today, and `Spec.Kind` already carries a reserved `KindAgent` value that flows end to end through the snapshot, the persistence format, the HTTP surface, and the drawer. Spawning a nested agent as a background task is therefore a second `Runner` plus a tool that builds the `Spec` — not a second scheduling mechanism, a second status surface, or a second drawer. That work is intentionally **out of scope** for this change and belongs in its own PR.
 
 ## Tests
 
-- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`), and `features/foreground_timeout_adoption.feature` (handover of a foreground command that outlives its timeout, `internal/tools/shell/bdd_foreground_timeout_test.go`).
+- Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_reap.feature` (leftovers from an earlier run, `internal/tools/shell/bdd_background_reap_test.go`, which abandons a real second pool over the same bundle rather than stubbing the restart), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`), and `features/foreground_timeout_adoption.feature` (handover of a foreground command that outlives its timeout, `internal/tools/shell/bdd_foreground_timeout_test.go`).
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
-- End-to-end against a real model: `examples/httpserver/http_e2e_background.py` and `examples/acp/acp_e2e_background.py`.
+- The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for what only Windows can get wrong — reporting a killed process alive because its handle is still open, accepting a creation time the record does not describe, and killing a pid on such a record. Reading a bundle written before `process_started_at` existed is pinned in `internal/bgtask` (`TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity`).
+- End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own coddy mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.
