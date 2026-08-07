@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
 import { App } from "./ui/App";
+import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
@@ -15,6 +16,8 @@ bootstrapUiThemeFromCookie();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>
   </React.StrictMode>,
 );
