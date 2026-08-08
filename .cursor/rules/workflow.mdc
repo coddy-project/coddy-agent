@@ -1,6 +1,6 @@
 ---
-description: BDD-style workflow, HTTP OpenAPI and config schema sync before lint, final checks
-globs: **/*.go, docs/**/*.md, README.md
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks
+globs: **/*.go, docs/**/*.md, README.md, external/ui/**/*
 alwaysApply: true
 ---
 
@@ -31,10 +31,16 @@ When adding or changing behavior (including words like feature, add, implement, 
 2. Run the narrowest test scope that proves the failure is real.
 3. Implement the smallest change that makes the test pass (green).
 4. Run **`make test`** (default, **`http`**, **`scheduler`**, **`ui-build`** then **`http,ui`**, combined scheduler tags). Everything must pass.
-5. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
-6. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`docs/config.schema.json`** and the tables in **`docs/config-reference.md`** to match. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift, but descriptions, defaults, enums-in-prose, and the reference tables are not auto-checked - keep them accurate by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well.
-7. Update documentation and specs if needed.
-8. Run **`make lint`** (`golangci-lint`). Fix reported issues.
+5. **UI screenshots in the PR** - if the change touches the SPA (**`external/ui/**`**: `.tsx`, `styles.css`, rendered markup), attach screenshots of **every** changed surface to the PR description. Per edit, not one image per PR.
+   - Screenshot the **running build** you already verified per **`.cursor/rules/ui-verification.mdc`** (**`npx vite`** in **`external/ui`**, browser tools). Never a mockup, a hand-drawn approximation, or a re-used older image.
+   - One image per affected **view and state** - a new dialog needs open *and* the surface it returns to; a changed row needs the row in each state the edit reaches.
+   - Post **before/after** pairs for surfaces that already existed, so the visual diff is readable without checking out the branch.
+   - Add **narrow (390px)** and **wide (1280px)** when layout differs between them, and **light** plus **dark** when the change adds or edits colors (the repo ships 7 themes; cover any whose tokens the change touches).
+   - If a surface genuinely cannot be captured (no browser available, backend-gated screen), say so **explicitly** in the PR and state what was verified instead - do not silently omit it.
+6. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
+7. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`docs/config.schema.json`** and the tables in **`docs/config-reference.md`** to match. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift, but descriptions, defaults, enums-in-prose, and the reference tables are not auto-checked - keep them accurate by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well.
+8. Update documentation and specs if needed.
+9. Run **`make lint`** (`golangci-lint`). Fix reported issues.
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched.
 
@@ -43,13 +49,15 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 1. Add a regression test that fails on the broken code.
 2. Fix the code; confirm the new test passes.
 3. Run **`make test`**.
-4. If the bug or fix touches the HTTP API surface, complete step 5 (OpenAPI and docs) from the feature flow.
-5. If it touches **`internal/config`** yaml-tagged structs, complete step 6 (config schema sync) from the feature flow.
-6. Run **`make lint`**.
+4. If the fix changes anything the user sees in the SPA, complete step 5 (UI screenshots) from the feature flow - a visual bug fix without before/after images in the PR is not reviewable.
+5. If the bug or fix touches the HTTP API surface, complete step 6 (OpenAPI and docs) from the feature flow.
+6. If it touches **`internal/config`** yaml-tagged structs, complete step 7 (config schema sync) from the feature flow.
+7. Run **`make lint`**.
 
 ## Before calling work done
 
 - **`make test`** green.
+- **Screenshots of every changed UI surface attached to the PR** when **`external/ui/**`** changed, or an explicit note saying why a surface could not be captured.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`docs/config.schema.json`** and **`docs/config-reference.md`** updated when `internal/config` yaml fields changed.
 - **`make lint`** clean.

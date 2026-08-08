@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm } from "../components/useConfirm";
 import {
   schedulerCreateJob,
   schedulerDeleteJob,
@@ -79,6 +80,7 @@ export function SchedulerJobEditorSheet(props: {
   onSaved: (createdJobId?: string) => void;
   onDeleted: () => void;
 }) {
+  const confirm = useConfirm();
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [fieldErrs, setFieldErrs] = useState<FieldErrors>({});
@@ -447,7 +449,12 @@ export function SchedulerJobEditorSheet(props: {
     if (!jid) {
       return;
     }
-    const ok = window.confirm(`Delete scheduler job "${jid}"?`);
+    const ok = await confirm({
+      title: `Delete scheduler job "${jid}"?`,
+      message: "This scheduled job will be permanently deleted.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
