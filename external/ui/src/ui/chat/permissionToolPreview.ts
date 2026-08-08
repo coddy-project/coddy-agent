@@ -103,6 +103,7 @@ function questionForTool(
     case "ssh_run_command":
       return "Run this command?";
     case "write":
+    case "write_file":
       return "Write this file?";
     case "edit":
       return "Edit this file?";
@@ -261,8 +262,8 @@ export function buildToolCallPreview(
     };
   }
 
-  if (normalized === "write") {
-    const path = stringArg(args, "path");
+  if (normalized === "write" || normalized === "write_file") {
+    const path = stringArg(args, "path", "filePath");
     const content = stringArg(args, "content");
     return {
       toolName,

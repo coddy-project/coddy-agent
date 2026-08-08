@@ -12,11 +12,7 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
-import {
-  taskStatusLabel,
-  taskTimingLine,
-  taskTone,
-} from "../tasks/taskStatus";
+import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
 
@@ -124,12 +120,30 @@ export function ToolCallMessage(props: {
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+  const terminalStatus =
+    status === "completed" || status === "failed" || status === "cancelled";
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
     (props.kind || "").toLowerCase() === "question";
 
-  const isPatchTool = rawName.toLowerCase() === "apply_patch";
+  const rawNameLower = rawName.toLowerCase();
+  const kindLower = (props.kind || "").trim().toLowerCase();
+  const isPatchTool = rawNameLower === "apply_patch";
+  const isWriteTool =
+    !isPatchTool &&
+    (rawNameLower === "write" ||
+      rawNameLower === "write_file" ||
+      (!props.title && kindLower === "write"));
+  const argsTextIsCompleteJSON = useMemo(() => {
+    if (!props.argsText) return false;
+    try {
+      JSON.parse(props.argsText);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [props.argsText]);
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -225,24 +239,36 @@ export function ToolCallMessage(props: {
     setLoadingFull(false);
   }, [props.toolCallId]);
 
-  // Auto-fetch full args for patch tools. argsPreview from the sessions list is truncated
-  // (200 chars) which makes the JSON unparseable; we need the full args to render the diff.
+  // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
+  // leaves a completed patch or write payload unparseable, so restored cards match live SSE.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
   useEffect(() => {
-    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current)
-      return;
+    const needsFullArgs =
+      (isPatchTool && !patchContent) ||
+      (isWriteTool &&
+        terminalStatus &&
+        !!props.argsText &&
+        !argsTextIsCompleteJSON);
+    if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
     void fetchFn(props.toolCallId);
-  }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
+  }, [
+    argsTextIsCompleteJSON,
+    fetchFn,
+    isPatchTool,
+    isWriteTool,
+    patchContent,
+    props.argsText,
+    props.toolCallId,
+    terminalStatus,
+  ]);
 
   const canExpand =
-    !isQuestionTool &&
-    props.resultWasTruncated === true &&
-    (status === "completed" || status === "failed" || status === "cancelled");
+    !isQuestionTool && props.resultWasTruncated === true && terminalStatus;
   const fetchFull = props.onFetchToolCallFull;
 
   const onLoadMore = useCallback(async () => {
@@ -393,6 +419,7 @@ export function ToolCallMessage(props: {
               <PermissionToolPreview
                 preview={toolPreview}
                 interactive={false}
+                overflowControls={isPatchTool || isWriteTool}
               />
             ) : null}
             {showPatchResult || showResult ? (

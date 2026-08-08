@@ -33,3 +33,15 @@ test("raw tool result uses themed tokens, not hardcoded dark values", () => {
   expect(rule![0]).toMatch(/color:\s*var\(--coddy-surface-code-fg\)/);
   expect(rule![0]).not.toMatch(/rgba\(186/);
 });
+
+test("diff block leaves vertical overflow to the clip and scroll viewport modes", () => {
+  const css = cssText();
+  const diffRule = css.match(/\.diff-block\s*\{[^}]*\}/s);
+  const scrollRule = css.match(/\.tool-result-viewport--scroll\s*\{[^}]*\}/s);
+
+  expect(diffRule).toBeTruthy();
+  expect(diffRule![0]).toMatch(/overflow-x:\s*hidden/);
+  expect(diffRule![0]).not.toMatch(/overflow:\s*hidden/);
+  expect(scrollRule).toBeTruthy();
+  expect(scrollRule![0]).toMatch(/overflow-y:\s*auto/);
+});
