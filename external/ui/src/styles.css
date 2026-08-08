@@ -2172,7 +2172,7 @@ a.rail-brand {
 
 .diff-block {
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .diff-file-header {

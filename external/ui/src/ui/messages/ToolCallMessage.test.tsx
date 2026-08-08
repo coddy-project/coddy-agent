@@ -98,6 +98,103 @@ test("no load-more row when preview is not truncated", () => {
   );
 });
 
+test("large write arguments collapse, then scroll inside the card until less is clicked", () => {
+  const content = Array.from(
+    { length: 48 },
+    (_, i) => `export const value${i + 1} = ${i + 1};`,
+  ).join("\n");
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-write-large"
+      title="write"
+      kind="write"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "src/generated.ts", content })}
+      resultText="Wrote src/generated.ts"
+      durationMs={12}
+    />,
+  );
+  openToolDetails();
+
+  const args = screen.getByLabelText("Tool arguments");
+  expect(args.className).toContain("tool-result-viewport--tall");
+  expect(args.className).toContain("tool-result-viewport--clip");
+  expect(screen.getByTestId("tool-args-more-link")).toHaveTextContent(
+    "more...",
+  );
+
+  fireEvent.click(screen.getByTestId("tool-args-more-link"));
+  expect(args.className).toContain("tool-result-viewport--scroll");
+  expect(args.className).not.toContain("tool-result-viewport--clip");
+  expect(screen.getByTestId("tool-args-less-link")).toHaveTextContent("less");
+
+  fireEvent.click(screen.getByTestId("tool-args-less-link"));
+  expect(args.className).toContain("tool-result-viewport--clip");
+  expect(screen.getByTestId("tool-args-more-link")).toBeInTheDocument();
+});
+
+test("restored large write fetches full arguments before showing more link", async () => {
+  const fetchSpy = vi.fn();
+  const content = Array.from(
+    { length: 48 },
+    (_, i) => `restored line ${i + 1} with enough content for the viewport`,
+  ).join("\n");
+
+  function Harness() {
+    const [argsText, setArgsText] = useState(
+      '{\n  "content": "restored line 1 with enough content for the view...',
+    );
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      setArgsText(JSON.stringify({ filePath: "restored.txt", content }));
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-write-restored"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Wrote restored.txt"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+
+  render(<Harness />);
+  openToolDetails();
+
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-write-restored"),
+  );
+  await waitFor(() =>
+    expect(screen.getByTestId("tool-args-more-link")).toBeInTheDocument(),
+  );
+  expect(screen.getByLabelText("Tool arguments").className).toContain(
+    "tool-result-viewport--clip",
+  );
+});
+
+test("short write arguments keep their natural height without more link", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-short"
+      title="write"
+      kind="write"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "note.txt", content: "hello" })}
+      resultText="Wrote note.txt"
+      durationMs={4}
+    />,
+  );
+  openToolDetails();
+
+  expect(screen.getByLabelText("Tool arguments").className).not.toContain(
+    "tool-result-viewport--tall",
+  );
+  expect(screen.queryByTestId("tool-args-more-link")).toBeNull();
+});
+
 test("truncated tool does not show toggle without fetch handler", () => {
   render(
     <ToolCallMessage
@@ -164,7 +261,9 @@ test("question tool shows human timeline readout instead of raw JSON blobs", () 
       kind="question"
       status="completed"
       argsText={JSON.stringify({
-        questions: [{ question: "Go on?", options: [{ label: "Yes" }, { label: "No" }] }],
+        questions: [
+          { question: "Go on?", options: [{ label: "Yes" }, { label: "No" }] },
+        ],
       })}
       resultText={JSON.stringify({ answers: [["Yes"]] })}
       durationMs={10}
@@ -247,11 +346,17 @@ test("apply_patch renders DiffView instead of raw args JSON", () => {
   // DiffView rendered
   expect(container.querySelector(".diff-block")).not.toBeNull();
   // file path shown
-  expect(container.querySelector(".diff-file-path")?.textContent).toContain("src/app.ts");
+  expect(container.querySelector(".diff-file-path")?.textContent).toContain(
+    "src/app.ts",
+  );
   // add line class present
-  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(
+    container.querySelectorAll(".diff-line--add").length,
+  ).toBeGreaterThanOrEqual(1);
   // raw args JSON not shown
-  expect(container.querySelector("pre.tool-block[aria-label='Tool arguments']")).toBeNull();
+  expect(
+    container.querySelector("pre.tool-block[aria-label='Tool arguments']"),
+  ).toBeNull();
 });
 
 test("apply_patch omits raw result text and has no tool-result-pre", () => {
@@ -299,8 +404,12 @@ test("apply_patch with V4A patch format renders DiffView", () => {
   );
   openToolDetails();
   expect(container.querySelector(".diff-block")).not.toBeNull();
-  expect(container.querySelectorAll(".diff-line--del").length).toBeGreaterThanOrEqual(1);
-  expect(container.querySelectorAll(".diff-line--add").length).toBeGreaterThanOrEqual(1);
+  expect(
+    container.querySelectorAll(".diff-line--del").length,
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    container.querySelectorAll(".diff-line--add").length,
+  ).toBeGreaterThanOrEqual(1);
   expect(container.querySelector(".tool-result-pre")).toBeNull();
 });
 
@@ -321,7 +430,9 @@ test("apply_patch shows error text in body when execution fails", () => {
   openToolDetails();
   expect(container.querySelector(".tool-result-pre")).not.toBeNull();
   expect(container.querySelector("[aria-label='Tool result']")).not.toBeNull();
-  expect(container.querySelector(".tool-result-pre")?.textContent).toContain("file not found");
+  expect(container.querySelector(".tool-result-pre")?.textContent).toContain(
+    "file not found",
+  );
 });
 
 test("apply_patch with error shows diff alongside error text", () => {

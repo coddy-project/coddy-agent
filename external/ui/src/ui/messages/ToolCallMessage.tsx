@@ -33,6 +33,16 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
+const WRITE_ARGS_INITIAL_LINES = 15;
+const WRITE_ARGS_INITIAL_CHARS = 1200;
+
+function isLargeWriteArgs(text: string): boolean {
+  return (
+    text.length > WRITE_ARGS_INITIAL_CHARS ||
+    text.split(/\r?\n/).length > WRITE_ARGS_INITIAL_LINES
+  );
+}
+
 function QuestionToolTimelineReadout(props: {
   argsText?: string | undefined;
   resultText: string;
@@ -46,7 +56,10 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
         Answer using the Questions card in this chat. This row only mirrors the
         tool state.
       </p>
@@ -113,12 +126,30 @@ export function ToolCallMessage(props: {
   const rawName = (props.title || props.kind || "tool").trim();
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+  const terminalStatus =
+    status === "completed" || status === "failed" || status === "cancelled";
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
     (props.kind || "").toLowerCase() === "question";
 
   const isPatchTool = rawName.toLowerCase() === "apply_patch";
+  const rawNameLower = rawName.toLowerCase();
+  const kindLower = (props.kind || "").trim().toLowerCase();
+  const isWriteTool =
+    !isPatchTool &&
+    (rawNameLower === "write" ||
+      rawNameLower === "write_file" ||
+      (!props.title && kindLower === "write"));
+  const argsTextIsCompleteJSON = useMemo(() => {
+    if (!props.argsText) return false;
+    try {
+      JSON.parse(props.argsText);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [props.argsText]);
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -208,29 +239,46 @@ export function ToolCallMessage(props: {
 
   const [showExpanded, setShowExpanded] = useState(false);
   const [loadingFull, setLoadingFull] = useState(false);
+  const [showWriteArgsExpanded, setShowWriteArgsExpanded] = useState(false);
+  const writeArgsRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     setShowExpanded(false);
     setLoadingFull(false);
+    setShowWriteArgsExpanded(false);
+    if (writeArgsRef.current) writeArgsRef.current.scrollTop = 0;
   }, [props.toolCallId]);
 
-  // Auto-fetch full args for patch tools. argsPreview from the sessions list is truncated
-  // (200 chars) which makes the JSON unparseable; we need the full args to render the diff.
+  // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
+  // leaves a completed patch or write payload unparseable, so restored cards match live SSE.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
   useEffect(() => {
-    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    const needsFullArgs =
+      (isPatchTool && !patchContent) ||
+      (isWriteTool &&
+        terminalStatus &&
+        !!props.argsText &&
+        !argsTextIsCompleteJSON);
+    if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
     void fetchFn(props.toolCallId);
-  }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
+  }, [
+    argsTextIsCompleteJSON,
+    fetchFn,
+    isPatchTool,
+    isWriteTool,
+    patchContent,
+    props.argsText,
+    props.toolCallId,
+    terminalStatus,
+  ]);
 
   const canExpand =
-    !isQuestionTool &&
-    props.resultWasTruncated === true &&
-    (status === "completed" || status === "failed" || status === "cancelled");
+    !isQuestionTool && props.resultWasTruncated === true && terminalStatus;
   const fetchFull = props.onFetchToolCallFull;
 
   const onLoadMore = useCallback(async () => {
@@ -292,6 +340,9 @@ export function ToolCallMessage(props: {
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
   const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
+  const writeArgsCanCollapse =
+    showJsonArgs && isWriteTool && isLargeWriteArgs(args);
+  const writeArgsViewportMode = showWriteArgsExpanded ? "scroll" : "clip";
   const showDiffView = isPatchTool && !!patchContent;
   const showPatchResult =
     isPatchTool &&
@@ -332,7 +383,11 @@ export function ToolCallMessage(props: {
           <div
             className={[
               "thinking-body coddy-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
+              showDiffView &&
+              !showJsonArgs &&
+              !showJsonResult &&
+              !showPatchResult &&
+              !isQuestionTool
                 ? "coddy-tool-call-body--diff"
                 : "",
             ]
@@ -348,9 +403,51 @@ export function ToolCallMessage(props: {
               />
             ) : null}
             {showJsonArgs ? (
-              <pre className="tool-block" aria-label="Tool arguments">
-                {args}
-              </pre>
+              <>
+                <pre
+                  ref={writeArgsRef}
+                  className={[
+                    "tool-block",
+                    writeArgsCanCollapse &&
+                      `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${writeArgsViewportMode}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  aria-label="Tool arguments"
+                >
+                  {args}
+                </pre>
+                {writeArgsCanCollapse ? (
+                  <div className="tool-result-toggle-row">
+                    {showWriteArgsExpanded ? (
+                      <button
+                        type="button"
+                        className="tool-result-text-link"
+                        data-testid="tool-args-less-link"
+                        aria-expanded="true"
+                        onClick={() => {
+                          if (writeArgsRef.current) {
+                            writeArgsRef.current.scrollTop = 0;
+                          }
+                          setShowWriteArgsExpanded(false);
+                        }}
+                      >
+                        less
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="tool-result-text-link"
+                        data-testid="tool-args-more-link"
+                        aria-expanded="false"
+                        onClick={() => setShowWriteArgsExpanded(true)}
+                      >
+                        more...
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </>
             ) : null}
             {showDiffView && patchContent ? (
               <DiffView patch={patchContent} filePath={args} />
