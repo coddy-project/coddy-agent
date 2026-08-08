@@ -83,6 +83,7 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 - If the external HTTP surface changes, update `external/httpserver/openapi.go` so the served OpenAPI matches handlers in `external/httpserver/server.go`.
 - Keep `docs/http-api.md` aligned with the live behavior.
 - For UI changes, update sources under **`external/ui/src/`** and rebuild embedded assets via **`make build TAGS="http ui"`** (runs **npm** via **make ui-build**).
+- **Every** UI edit in a PR ships with a screenshot of the surface it changed (before/after when the surface already existed) — see step 5 of **`.claude/rules/workflow.md`**. If a surface cannot be captured, say so in the PR instead of omitting it.
 - Run full regression `make test`, then `make lint`.
 
 ## UI sources (`external/ui/`)
