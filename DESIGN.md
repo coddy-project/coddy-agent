@@ -35,6 +35,15 @@ Store the design reference images under `docs/assets/` and link to the specific 
 | text muted | `#52525B` | captions |
 | glass panel | `rgba(255,255,255,0.9)` | composer, drawers (light frost, not dark tint) |
 
+### Language (RU/EN)
+
+- **Picker:** segmented control **directly under the theme swatch grid** in **Settings → Appearance** (**`AppearanceLanguagePicker`**, **`data-testid="appearance-language-picker"`**). Three options — **Auto** / **English** / **Русский** (**`data-testid="lang-option-auto|en|ru"`**) — reuse the swatch border/accent treatment (`.appearance-lang-option`, `.is-active`, `data-active-locale="true"`). It lives inside `.appearance-sheet-body`, so it inherits the centered placeholder guard covered by `appearanceSettingsLayout.test.tsx`.
+- **Persistence:** cookie **`coddy_ui_lang`** (`en` | `ru`), same lifetime/flags as **`coddy_ui_theme`** (path `/`, `SameSite=Lax`, `; Secure` on https, 1-year `Max-Age`). **Auto** stores no cookie and resolves from **`navigator.language`** on each load; the cookie is cleared when Auto is chosen. Purely client-side — no config save (matches the Appearance tab convention).
+- **Bootstrap:** **`main.tsx`** calls **`initLocale(bootstrapUiLocaleFromUrlOrCookie())`** before React mounts; resolution order is **`?lang=en|ru`** (URL, also persisted to the cookie) > cookie > **`navigator.language`**. Sets **`document.documentElement.lang`**.
+- **i18n engine:** **`external/ui/src/ui/i18n/`** — `translate(key, params)` / `t`, a locale store with `useSyncExternalStore` subscriptions, and **`I18nProvider`** + **`useT()`**. **`main.tsx`** wraps **`<App/>`** in **`<I18nProvider>`**. Dictionaries live in **`messages/en.ts`** / **`messages/ru.ts`** (dot-notation keys grouped by area). **`useT()` works without a provider** (falls back to `translate`), so components render in tests without wrapping; English values match the former hardcoded literals exactly so existing English-asserting tests keep passing.
+- **Reactivity:** the highlight is driven by local `choice` state (cookie-derived), because picking **Auto** can resolve to the already-active locale (no locale-store notification); label translation re-renders via the locale store subscription.
+- **Coverage:** the **Appearance** and **Settings** surfaces are fully translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox). Conversation surfaces (chat, composer, sessions, messages, scheduler, tasks, tour) remain English for now and translate incrementally via the same dictionary.
+
 ### Frosted glass panels
 
 Floating **composer** card, **History** drawer chrome, **skills** slash menu, **Mode**, and **Model** dropdowns share **`--coddy-glass-panel-*`**: tint plus **`backdrop-filter`** on that surface **only**, so frosting stays **inside** the panel outline. Dimming overlays behind History or the slash sheet use **`--coddy-overlay-scrim-bg`** (**no** fullscreen blur behind the overlay).

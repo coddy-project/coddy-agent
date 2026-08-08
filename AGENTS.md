@@ -99,6 +99,8 @@ The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Mod
 
 **`MarkdownLineEditor`** (`external/ui/src/ui/markdown/`) is the shared markdown body editor (line gutter, wrap-aware numbering, active-line highlight, content-driven height). Used in the plan document card and scheduler job body. Visual and behaviour contract: **`DESIGN.md`** (**Markdown line editor**, **Plan mode plan document card**); functional checklist: **`docs/ui.md`**.
 
+**i18n (RU/EN)** lives in **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, **`I18nProvider`** + **`useT()`**, dictionaries **`messages/en.ts`** / **`messages/ru.ts`**). **`main.tsx`** wraps **`<App/>`** in **`<I18nProvider>`** and bootstraps locale (**`?lang=` > cookie > `navigator.language`**). The language picker is in **Settings → Appearance**, under the theme grid (**`AppearanceLanguagePicker`**); cookie **`coddy_ui_lang`** mirrors **`coddy_ui_theme`** (client-side only, no config save). Appearance + Settings surfaces are translated; conversation surfaces translate incrementally. Visual contract: **`DESIGN.md`** (**Language**); functional checklist: **`docs/ui.md`**.
+
 ## Python samples (`examples/`)
 
 See **`examples/README.md`** for layout (**`examples/httpserver/`**, **`examples/acp/`**, **`examples/shared/`**). Scripts may use a project-local interpreter (`.venv` recommended); follow each script header for prerequisites.
