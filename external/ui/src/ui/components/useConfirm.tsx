@@ -27,7 +27,6 @@ const ConfirmContext = createContext<ConfirmFn | null>(null);
 
 type PendingState = {
   options: ConfirmOptions;
-  resolve: (ok: boolean) => void;
 };
 
 // useConfirm returns a promise-based confirm() so call sites can replace a
@@ -53,8 +52,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   const confirm = useCallback<ConfirmFn>((options) => {
     return new Promise<boolean>((resolve) => {
+      // A second confirm() while one is still open supersedes it. Settle the
+      // superseded promise as cancelled, otherwise its caller awaits forever.
+      const superseded = resolveRef.current;
       resolveRef.current = resolve;
-      setPending({ options, resolve });
+      setPending({ options });
+      if (superseded) {
+        superseded(false);
+      }
     });
   }, []);
 

@@ -3983,8 +3983,8 @@ textarea#composer {
 }
 
 .confirm-dialog-icon--primary {
-  color: var(--coddy-skill-chip-text, var(--text));
-  background: rgba(147, 51, 234, 0.2);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .confirm-dialog-text {
@@ -3997,6 +3997,9 @@ textarea#composer {
   font-weight: 600;
   line-height: 1.35;
   color: var(--text);
+  /* Titles interpolate ids ("Delete scheduler job "<id>"?"), which can be one
+     long unbroken token — break it instead of overflowing the card. */
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-message {
@@ -4004,6 +4007,7 @@ textarea#composer {
   font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog-actions {
@@ -4046,13 +4050,13 @@ textarea#composer {
 }
 
 .confirm-dialog-btn--primary {
-  border-color: rgba(147, 51, 234, 0.55);
-  background: rgba(147, 51, 234, 0.22);
-  color: var(--coddy-skill-chip-text, var(--text));
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--coddy-blend-base));
+  color: var(--text);
 }
 
 .confirm-dialog-btn--primary:hover:not(:disabled) {
-  background: rgba(147, 51, 234, 0.34);
+  background: color-mix(in srgb, var(--accent) 34%, var(--coddy-blend-base));
 }
 
 .confirm-dialog-btn--danger {

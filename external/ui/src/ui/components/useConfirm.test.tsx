@@ -96,3 +96,23 @@ test("dialog is reused across sequential confirms", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith(false));
 });
+
+test("a second confirm() supersedes the open one instead of hanging it", async () => {
+  const onResult = vi.fn();
+  render(
+    <ConfirmProvider>
+      <Harness onResult={onResult} />
+    </ConfirmProvider>,
+  );
+
+  // Two overlapping confirms: the first must settle (false), not await forever.
+  fireEvent.click(screen.getByText("trigger"));
+  await screen.findByRole("dialog");
+  fireEvent.click(screen.getByText("trigger"));
+  await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith(false));
+
+  // The surviving dialog still resolves its own caller.
+  onResult.mockClear();
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith(true));
+});

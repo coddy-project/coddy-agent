@@ -47,19 +47,31 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
   // Focus Cancel first for destructive actions: an accidental Enter must not
   // confirm a delete. Kept as a ref so we can move focus without re-render loops.
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    // Whatever opened the dialog (the 🗑 row button, the sheet Delete button)
+    // gets focus back on close, the way the native confirm() used to.
+    const opener = document.activeElement as HTMLElement | null;
     // Move focus to Cancel when the dialog opens (Escape/Enter then dismisses).
     const id = window.setTimeout(() => {
       cancelRef.current?.focus();
     }, 0);
-    return () => window.clearTimeout(id);
+    return () => {
+      window.clearTimeout(id);
+      if (opener && opener.isConnected) {
+        opener.focus();
+      }
+    };
   }, [open]);
 
-  // Escape cancels the dialog. Listens on window so focus state does not matter.
+  // Escape cancels the dialog, Tab stays inside it. Listens on window in the
+  // CAPTURE phase and stops the event: the dialog is the topmost layer, so the
+  // drawer/sheet underneath (the sessions + scheduler Escape handler in App.tsx)
+  // must not close alongside it — the native confirm() blocked those keys too.
   useEffect(() => {
     if (!open) {
       return;
@@ -67,11 +79,38 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         onCancel();
+        return;
+      }
+      if (e.key !== "Tab") {
+        return;
+      }
+      // aria-modal="true" promises the rest of the page is inert; the portal
+      // renders outside the shell DOM order, so wrap Tab by hand.
+      const card = dialogRef.current;
+      if (!card) {
+        return;
+      }
+      const nodes = Array.from(
+        card.querySelectorAll<HTMLElement>("button:not([disabled])"),
+      );
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      const active = document.activeElement as HTMLElement | null;
+      const inside = card.contains(active);
+      if (e.shiftKey ? active === first || !inside : active === last || !inside) {
+        e.preventDefault();
+        e.stopPropagation();
+        (e.shiftKey ? last : first).focus();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onCancel]);
 
   if (!open) {
@@ -95,6 +134,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       }}
     >
       <div
+        ref={dialogRef}
         className="confirm-dialog"
         role="dialog"
         aria-modal="true"
