@@ -40,9 +40,9 @@ Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives 
 
 All **code comments** plus **technical markdown authored for this repo** (including `docs/`, `DESIGN.md`, `AGENTS.md`) stay **English** unless an operator explicitly asks for another natural language.
 
-## Codex, OpenCode, and Cursor rules
+## Codex, OpenCode, Cursor and ZCode rules
 
-Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/` or `.claude/` by hand.
+Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint, and ZCode resolves its `AGENTS.md` chain the same way. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/`, `.claude/`, or `.zcode/` by hand.
 
 Codex resolves its `AGENTS.md` chain once per session, walking from the repository root down to the launch directory, so nested instruction files never load for a session started at the root. A lifecycle hook covers that gap and delivers the Cursor rules deterministically instead of asking the model to fetch them:
 
@@ -54,6 +54,12 @@ Codex resolves its `AGENTS.md` chain once per session, walking from the reposito
 Codex requires explicit approval for hooks and tracks them by content hash. Run **`/hooks`** once per clone, and again after editing `attach_rules.py`, otherwise the hook is skipped silently. Project-local hooks also load only when the `.codex/` layer is trusted. **`.codex/rules.md`** keeps the human-readable index of the rule files; the full guide, including how to probe the hook by hand, is **`docs/codex-hooks.md`**.
 
 When working in OpenCode, the project plugin **`.opencode/plugins/project-rules.js`** delivers the same rule set without copying it. It injects `alwaysApply: true` rules into every model request, activates scoped rules when a tool touches a path covered by their `globs`, and preserves the active set through compaction. If a write tool is the first operation to reveal a new scoped rule, the plugin rejects that one call so OpenCode can retry with the rule in its model context. See **`docs/opencode-hooks.md`** and run **`make test-opencode-rules`** after changing the plugin.
+
+ZCode loads its `AGENTS.md` chain the same way and has the same gap, so a parallel hook delivers the Cursor rules there too:
+
+- **`.zcode/config.json`** wires **`.zcode/hooks/attach_rules.py`** to `SessionStart` and to `PreToolUse` on `Edit` / `Write` / `MultiEdit` / `ApplyPatch`, under `hooks.events` with `hooks.enabled: true`.
+- The behaviour matches the Codex hook (always-on rules at session start, scoped rules per edit, once per rule per session, fail open). The single difference is how edited paths are recovered: ZCode carries them as JSON fields of `tool_input` (`file_path`, `path`, ...), so this variant walks those fields instead of parsing an `apply_patch` blob.
+- Configuration-file hooks need no per-hook approval: a workspace config with `enabled: true` runs unconditionally. The command invokes `python` (not `python3`) because the `python3` name is a no-op Microsoft Store stub on Windows. The full guide, including how to probe the hook by hand and the Windows interpreter note, is **`docs/zcode-hooks.md`**.
 
 ## Code Review Rules
 
