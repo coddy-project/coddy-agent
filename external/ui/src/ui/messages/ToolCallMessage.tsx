@@ -135,6 +135,9 @@ export function ToolCallMessage(props: {
     (rawNameLower === "write" ||
       rawNameLower === "write_file" ||
       (!props.title && kindLower === "write"));
+  const isEditTool = !isPatchTool && rawNameLower === "edit";
+  /** Tools whose argument preview can be arbitrarily large and needs a capped viewport. */
+  const isLargePreviewTool = isPatchTool || isWriteTool || isEditTool;
   const argsTextIsCompleteJSON = useMemo(() => {
     if (!props.argsText) return false;
     try {
@@ -240,7 +243,8 @@ export function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
-  // leaves a completed patch or write payload unparseable, so restored cards match live SSE.
+  // leaves a completed patch, write, or edit payload unparseable, so restored cards match
+  // live SSE instead of rendering an empty preview.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
@@ -249,7 +253,7 @@ export function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      (isWriteTool &&
+      ((isWriteTool || isEditTool) &&
         terminalStatus &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
@@ -259,6 +263,7 @@ export function ToolCallMessage(props: {
   }, [
     argsTextIsCompleteJSON,
     fetchFn,
+    isEditTool,
     isPatchTool,
     isWriteTool,
     patchContent,
@@ -419,7 +424,7 @@ export function ToolCallMessage(props: {
               <PermissionToolPreview
                 preview={toolPreview}
                 interactive={false}
-                overflowControls={isPatchTool || isWriteTool}
+                overflowControls={isLargePreviewTool}
               />
             ) : null}
             {showPatchResult || showResult ? (

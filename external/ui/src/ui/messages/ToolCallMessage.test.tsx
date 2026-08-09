@@ -278,6 +278,94 @@ test("large apply_patch preview uses the same internal overflow controls", () =>
   }
 });
 
+test("large edit preview is capped like write and apply_patch", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const oldString = Array.from(
+      { length: 60 },
+      (_, i) => `const before${i + 1} = ${i + 1};`,
+    ).join("\n");
+    const newString = Array.from(
+      { length: 60 },
+      (_, i) => `const after${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-edit-large"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({
+          path: "src/edited.ts",
+          oldString,
+          newString,
+        })}
+        resultText="Edited src/edited.ts"
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    viewport.scrollTop = 64;
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(viewport.scrollTop).toBe(0);
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("restored edit recovers the diff from truncated list arguments", async () => {
+  const fetchSpy = vi.fn();
+  const oldString = Array.from(
+    { length: 30 },
+    (_, i) => `const before${i + 1} = ${i + 1};`,
+  ).join("\n");
+  const newString = Array.from(
+    { length: 30 },
+    (_, i) => `const after${i + 1} = ${i + 1};`,
+  ).join("\n");
+
+  function Harness() {
+    const [argsText, setArgsText] = useState(
+      '{"path":"src/edited.ts","oldString":"const before1 = 1;\\nconst befo',
+    );
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(
+        JSON.stringify({ path: "src/edited.ts", oldString, newString }),
+      );
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-edit-restored"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Edited src/edited.ts"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+
+  render(<Harness />);
+  openToolDetails();
+
+  // Truncated args parse to nothing, so the card starts with an empty "+0 −0" preview.
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-edit-restored"),
+  );
+  await waitFor(() =>
+    expect(screen.getByTitle("src/edited.ts")).toBeInTheDocument(),
+  );
+  expect(screen.getByText(/const after30/)).toBeInTheDocument();
+});
+
 test("truncated tool does not show toggle without fetch handler", () => {
   render(
     <ToolCallMessage

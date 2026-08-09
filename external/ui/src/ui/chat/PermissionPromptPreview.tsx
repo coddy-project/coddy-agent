@@ -172,14 +172,13 @@ export function PermissionToolPreview({
               type="button"
               className="tool-overflow-toggle"
               aria-expanded={expanded}
-              onClick={() =>
-                setExpanded((value) => {
-                  if (value && viewportRef.current) {
-                    viewportRef.current.scrollTop = 0;
-                  }
-                  return !value;
-                })
-              }
+              onClick={() => {
+                // Collapsing keeps the scrolled position, so reset it before clipping.
+                if (expanded && viewportRef.current) {
+                  viewportRef.current.scrollTop = 0;
+                }
+                setExpanded((value) => !value);
+              }}
             >
               {expanded ? "Less" : "More…"}
             </button>
