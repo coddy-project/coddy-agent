@@ -7,6 +7,7 @@ package httpserver
 // request goes over the real HTTP surface; a stub runner keeps it LLM-free.
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -43,6 +45,9 @@ type composerWatchState struct {
 	scriptDone   chan struct{}
 
 	watched string
+
+	eventsBody  *bufio.Reader
+	closeEvents func()
 }
 
 func (s *composerWatchState) reset() {
@@ -57,6 +62,11 @@ func (s *composerWatchState) reset() {
 }
 
 func (s *composerWatchState) close() {
+	if s.closeEvents != nil {
+		s.closeEvents()
+		s.closeEvents = nil
+		s.eventsBody = nil
+	}
 	if s.ts != nil {
 		s.ts.Close()
 		s.ts = nil
@@ -192,6 +202,70 @@ func (s *composerWatchState) scriptGotItsJSON() error {
 	return nil
 }
 
+func (s *composerWatchState) subscribesToServerEvents() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.ts.URL+"/coddy/events", nil)
+	if err != nil {
+		cancel()
+		return err
+	}
+	res, err := s.ts.Client().Do(req)
+	if err != nil {
+		cancel()
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		cancel()
+		res.Body.Close()
+		return errStatus("events stream", res.StatusCode, "")
+	}
+	s.eventsBody = bufio.NewReader(res.Body)
+	s.closeEvents = func() {
+		cancel()
+		res.Body.Close()
+	}
+	// Drain the connect-time snapshot so later reads see only new events.
+	return s.awaitEventFrame("event: ready")
+}
+
+// awaitEventFrame reads whole SSE frames until one contains want.
+func (s *composerWatchState) awaitEventFrame(want string) error {
+	if s.eventsBody == nil {
+		return fmt.Errorf("no event subscription")
+	}
+	var seen strings.Builder
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		line, err := s.eventsBody.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("read events (seen %q): %w", seen.String(), err)
+		}
+		seen.WriteString(line)
+		if strings.Contains(seen.String(), want) && strings.HasSuffix(seen.String(), "\n\n") {
+			return nil
+		}
+	}
+	return fmt.Errorf("timed out waiting for %q, seen %q", want, seen.String())
+}
+
+func (s *composerWatchState) toldTurnStarted() error {
+	if err := s.awaitEventFrame("turn_started"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *composerWatchState) toldTurnEnded() error {
+	// The turn is parked until something releases it; this scenario has no composer
+	// subscriber to do that, so the step releases it itself.
+	select {
+	case <-s.releaseTurn:
+	default:
+		close(s.releaseTurn)
+	}
+	return s.awaitEventFrame("turn_ended")
+}
+
 func (s *composerWatchState) watcherToldNoActiveStream() error {
 	if !strings.Contains(s.watched, "no_active_stream") {
 		return fmt.Errorf("watcher was not told the session is idle: %s", s.watched)
@@ -224,6 +298,9 @@ func initializeComposerWatchScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the watching client receives the terminating done frame$`, s.watcherSawDone)
 	sc.Step(`^the script still receives its plain JSON response$`, s.scriptGotItsJSON)
 	sc.Step(`^the watching client is told there is no active composer stream$`, s.watcherToldNoActiveStream)
+	sc.Step(`^a client is subscribed to the server event stream$`, s.subscribesToServerEvents)
+	sc.Step(`^the subscribed client is told the turn started for that session$`, s.toldTurnStarted)
+	sc.Step(`^the subscribed client is told the turn ended when it finishes$`, s.toldTurnEnded)
 }
 
 func TestComposerLiveWatchFeature(t *testing.T) {

@@ -776,6 +776,16 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/events": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Subscribe to server-wide session events",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",

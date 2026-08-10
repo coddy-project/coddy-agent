@@ -79,6 +79,12 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	}
 	defer unlock()
 
+	// This turn does not go through HandleSessionPromptWithSender, so it registers itself:
+	// otherwise it is invisible to turnActive and publishes no turn events, and a watching
+	// client sees the session go idle the moment it answered the prompt.
+	clearActive := s.mgr.MarkTurnActive(sessionID)
+	defer clearActive()
+
 	// A resumed turn is one somebody is watching by definition - they just answered its
 	// permission prompt - so it publishes like any other composer turn. The sender stays
 	// non-interactive: this turn has no HTTP response of its own for a client to read.

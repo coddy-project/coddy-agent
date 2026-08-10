@@ -51,6 +51,11 @@ type Manager struct {
 	// See turn_active.go for why it is a count rather than a set.
 	activeTurnMu sync.Mutex
 	activeTurns  map[string]int
+
+	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
+	turnObserverMu  sync.Mutex
+	turnObservers   map[int]func(TurnEvent)
+	turnObserverSeq int
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the

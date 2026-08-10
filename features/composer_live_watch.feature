@@ -18,3 +18,9 @@ Feature: Watching a composer turn from another client
   Scenario: A client that finds no turn running is told at once
     When a second client subscribes to the composer stream of that session
     Then the watching client is told there is no active composer stream
+
+  Scenario: An idle client is told a turn started in a session it is not driving
+    Given a client is subscribed to the server event stream
+    When a script starts an agent turn with "stream" set to false
+    Then the subscribed client is told the turn started for that session
+    And the subscribed client is told the turn ended when it finishes

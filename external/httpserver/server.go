@@ -56,6 +56,10 @@ type Server struct {
 	composerRelayMu sync.Mutex
 	composerRelays  map[string]*composerStreamRelay
 
+	// events fans server-wide turn lifecycle events out to GET /coddy/events subscribers.
+	events             *serverEventsHub
+	removeTurnObserver func()
+
 	codexAuthIssuer string
 	codexAuthMu     sync.Mutex
 	codexAuthLogins map[string]*codexAuthLoginAttempt
@@ -67,6 +71,9 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	if s.removeTurnObserver != nil {
+		s.removeTurnObserver()
+	}
 	s.cancelCodexAuthLogins()
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
@@ -89,8 +96,14 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
+		events:               newServerEventsHub(),
 	}
 	s.cfgAt.Store(cfg)
+	// Several servers may share one manager (tests do), so each takes its own removable
+	// observer registration rather than a single manager-wide slot.
+	if mgr != nil {
+		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
+	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.
 	bgtask.Default().SetDraining(false)

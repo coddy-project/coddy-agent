@@ -35,20 +35,31 @@ func (m *Manager) markTurnActive(sessionID string) func() {
 		m.activeTurns = make(map[string]int)
 	}
 	m.activeTurns[id]++
+	first := m.activeTurns[id] == 1
 	m.activeTurnMu.Unlock()
+	if first {
+		m.publishTurnEvent(id, TurnPhaseStarted)
+	}
 
 	released := false
 	return func() {
 		m.activeTurnMu.Lock()
-		defer m.activeTurnMu.Unlock()
 		if released {
+			m.activeTurnMu.Unlock()
 			return
 		}
 		released = true
-		if m.activeTurns[id] <= 1 {
+		last := m.activeTurns[id] <= 1
+		if last {
 			delete(m.activeTurns, id)
-			return
+		} else {
+			m.activeTurns[id]--
 		}
-		m.activeTurns[id]--
+		m.activeTurnMu.Unlock()
+		// Only the outer release ends the turn: a prompt that delegates to RunPlan marks
+		// the same session twice, and watchers must not be told it finished in between.
+		if last {
+			m.publishTurnEvent(id, TurnPhaseEnded)
+		}
 	}
 }

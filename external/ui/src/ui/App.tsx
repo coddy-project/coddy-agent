@@ -23,6 +23,7 @@ import {
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
+import { subscribeServerEvents } from "./chat/serverEvents";
 import { parseSSEBlocks } from "./chat/sse";
 import {
   consumeComposerSseReader,
@@ -752,6 +753,12 @@ export function App() {
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
+  /** True while GET /coddy/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {} });
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -1929,14 +1936,60 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
+
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void (async () => {
+        const loaded = await loadMessages(key, { preserveOnError: true });
+        if (!loaded || activeComposerSidRef.current.has(key)) return;
+        await rejoinComposerLiveStream(key, loaded);
+      })();
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void loadMessages(key, { preserveOnError: true });
+      void refreshSessionStats(key);
+    },
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    void subscribeServerEvents({
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onConnectedChange: setServerEventsConnected,
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
 
   useEffect(() => {
     if (!sessionsOpen) {
