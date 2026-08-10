@@ -126,3 +126,29 @@ test("a named error event in the trailing partial block is honoured", async () =
 
   expect(res.streamErrorMessage).toBe("late failure");
 });
+
+// Resume needs the sequence of the last frame the client actually consumed.
+test("the last relay frame id is reported", async () => {
+  const { res } = await drive(
+    `id: 7\n` + textEvent("a") + `id: 9\n` + textEvent("b"),
+  );
+
+  expect(res.lastEventId).toBe("9");
+  expect(res.desynced).toBe(false);
+});
+
+// A relay that dropped frames says so; the caller reloads instead of rendering a hole.
+test("a desync frame is reported without ending the stream", async () => {
+  const { res, items } = await drive(
+    `event: desync\ndata: {"object":"coddy.stream_desync","lastEventId":2,"resumedAt":9}\n\n` +
+      textEvent("after the gap"),
+  );
+
+  expect(res.desynced).toBe(true);
+  expect(res.streamErrorMessage).toBeNull();
+  const text = items
+    .filter((it) => it.type === "assistant_message")
+    .map((it) => (it as { content: string }).content)
+    .join("");
+  expect(text).toBe("after the gap");
+});

@@ -142,6 +142,10 @@ export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
   /** Machine-readable `error.code` of the frame that ended the stream, when it carried one. */
   streamErrorCode: string | null;
+  /** Sequence of the last relay frame consumed, for resuming after a dropped connection. */
+  lastEventId: string;
+  /** True when the relay reported it had already dropped frames this client never saw. */
+  desynced: boolean;
   flushToolQueue: () => void;
   finishThinking: () => void;
   ensureAssistant: (
@@ -363,6 +367,8 @@ export async function consumeComposerSseReader(
       let sawDone = false;
       let streamErrorMessage: string | null = null;
       let streamErrorCode: string | null = null;
+      let lastEventId = "";
+      let desynced = false;
       let streamHalted = false;
       while (true) {
         const step = await reader.read();
@@ -374,9 +380,19 @@ export async function consumeComposerSseReader(
           carry,
         );
         for (const ev of events) {
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") {
             sawDone = true;
             break;
+          }
+
+          // The relay trimmed frames this client never received, so what follows would
+          // render with a hole in it. Reporting it lets the caller reload the transcript.
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
           }
 
           // A failed turn - and the relay's "there is nothing to watch" answer -
@@ -667,7 +683,14 @@ export async function consumeComposerSseReader(
       if (carry.buf.trim()) {
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") continue;
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
+          }
           if (ev.event === "error") {
             let parsed: unknown;
             try {
@@ -884,6 +907,8 @@ export async function consumeComposerSseReader(
   return {
     streamErrorMessage,
     streamErrorCode,
+    lastEventId,
+    desynced,
     flushToolQueue,
     finishThinking,
     ensureAssistant,

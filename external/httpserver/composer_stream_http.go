@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,11 +58,12 @@ func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Reque
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
+	lastEventID := parseLastEventID(r)
 	for {
 		if rel := s.peekComposerRelay(id); rel != nil {
 			deadline.Stop()
 			ticker.Stop()
-			err := rel.serveSubscriber(r.Context(), w)
+			err := rel.serveSubscriberFrom(r.Context(), w, lastEventID)
 			if err != nil && !errors.Is(err, context.Canceled) {
 				s.log.Warn("composer stream subscriber", "session", id, "error", err)
 			}
@@ -82,6 +84,24 @@ func (s *Server) coddySessionComposerStream(w http.ResponseWriter, r *http.Reque
 			fl.Flush()
 		}
 	}
+}
+
+// parseLastEventID reads the frame a reconnecting client last saw, from the standard SSE
+// header or from the query parameter EventSource clients have to use instead. Anything
+// unparseable means "replay whatever is still buffered", which is the pre-resume behavior.
+func parseLastEventID(r *http.Request) uint64 {
+	raw := strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	if raw == "" {
+		raw = strings.TrimSpace(r.URL.Query().Get("last_event_id"))
+	}
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // writeSSEHeaders prepares a response for Server-Sent Events.

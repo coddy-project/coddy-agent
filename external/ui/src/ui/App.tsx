@@ -747,6 +747,8 @@ export function App() {
   const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
@@ -2843,9 +2845,16 @@ export function App() {
     };
 
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
       const res = await fetch(
         `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        { headers, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         return;
@@ -2856,6 +2865,8 @@ export function App() {
       const {
         streamErrorMessage,
         streamErrorCode,
+        lastEventId,
+        desynced,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2914,6 +2925,18 @@ export function App() {
           return false;
         }
       };
+
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
 
       // The relay had nothing to attach to. That is a state, not a failure: the turn
       // finished while we were reconnecting, or it ran somewhere this process cannot
