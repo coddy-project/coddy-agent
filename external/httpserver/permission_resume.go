@@ -79,8 +79,14 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	}
 	defer unlock()
 
-	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
+	// A resumed turn is one somebody is watching by definition - they just answered its
+	// permission prompt - so it publishes like any other composer turn. The sender stays
+	// non-interactive: this turn has no HTTP response of its own for a client to read.
+	rel := s.beginComposerRelay(sessionID)
+	defer s.endComposerRelay(sessionID, rel)
+	bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
+	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
 	ag.SetProviderFactory(s.agentProviderFactory)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {

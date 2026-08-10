@@ -105,8 +105,11 @@ func (r *composerStreamRelay) serveSubscriber(ctx context.Context, w http.Respon
 		if _, err := w.Write(replay); err != nil {
 			return err
 		}
-		fl.Flush()
 	}
+	// Flush even with an empty replay: the response headers are still unsent at this
+	// point, so a subscriber that attaches before the turn has produced anything would
+	// otherwise see its request hang rather than an open SSE stream.
+	fl.Flush()
 	for {
 		select {
 		case <-ctx.Done():

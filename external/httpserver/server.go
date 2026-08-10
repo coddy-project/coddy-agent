@@ -351,30 +351,32 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if httpModelIsCoddyProfile(model) {
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
-		if req.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
-			if lockErr != nil {
-				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-					return
-				}
-				s.log.Error("session turn lock", "error", lockErr)
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+		// Every profile turn publishes to a relay, whatever shape the caller asked its own
+		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
+		// watch from a browser. The lock is taken first in both branches - beginComposerRelay
+		// evicts any relay already registered for the session, so an unlocked second POST
+		// could cut the watchers off the first turn.
+		unlock, lockErr := s.mgr.AcquireComposerTurnLock(sessionID, st)
+		if lockErr != nil {
+			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
+				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
 				return
 			}
-			defer unlock()
+			s.log.Error("session turn lock", "error", lockErr)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer unlock()
+		rel := s.beginComposerRelay(sessionID)
+		defer s.endComposerRelay(sessionID, rel)
+		if req.Stream {
 			writeSSEHeaders(w)
-			rel := s.beginComposerRelay(sessionID)
-			defer s.endComposerRelay(sessionID, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
 		} else {
-			bridge = NewSender(s.activeCfg(), nil, false, model)
+			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		var promptOpts *session.PromptRunOpts
-		if req.Stream {
-			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
-		}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
@@ -382,13 +384,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts); err != nil {
 			s.log.Error("session prompt", "error", err)
-			if errors.Is(err, session.ErrSessionTurnBusy) && !req.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-				return
-			}
-			if req.Stream {
-				_ = bridge.SendError(err.Error())
-			} else {
+			// Watchers hear about the failure either way; only the caller's own answer
+			// differs between the two response shapes.
+			_ = bridge.SendError(err.Error())
+			_ = bridge.FinishStream()
+			if !req.Stream {
 				code := http.StatusInternalServerError
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					code = http.StatusConflict
@@ -399,8 +399,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		// Unconditional: for a relay sender this terminates the watched stream and writes
+		// nothing to w, so the JSON body below is unchanged.
+		_ = bridge.FinishStreamWithMetadata(meta)
 		if req.Stream {
-			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
 		reply := lastAssistantContent(st)
@@ -690,31 +692,30 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// See the same block in handleChatCompletions: the relay is opened for every profile
+		// turn, and the turn lock is taken before it in both branches.
 		var bridge *Sender
-		if body.Stream {
-			unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
-			if lockErr != nil {
-				if errors.Is(lockErr, session.ErrSessionTurnBusy) {
-					http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-					return
-				}
-				s.log.Error("session turn lock", "error", lockErr)
-				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+		unlock, lockErr := s.mgr.AcquireComposerTurnLock(sid, st)
+		if lockErr != nil {
+			if errors.Is(lockErr, session.ErrSessionTurnBusy) {
+				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
 				return
 			}
-			defer unlock()
+			s.log.Error("session turn lock", "error", lockErr)
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, lockErr.Error()), http.StatusInternalServerError)
+			return
+		}
+		defer unlock()
+		rel := s.beginComposerRelay(sid)
+		defer s.endComposerRelay(sid, rel)
+		if body.Stream {
 			writeSSEHeaders(w)
-			rel := s.beginComposerRelay(sid)
-			defer s.endComposerRelay(sid, rel)
 			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
 		} else {
-			bridge = NewSender(s.activeCfg(), nil, false, model)
+			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
 		wireBridgeSession(bridge, st)
-		var promptOpts *session.PromptRunOpts
-		if body.Stream {
-			promptOpts = &session.PromptRunOpts{SkipTurnLock: true}
-		}
+		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: body.Stream}
 		beforeSnap2 := session.TakeWorkspaceSnapshot(st.GetCWD())
 		promptParams := acp.SessionPromptParams{
 			SessionID: sid,
@@ -729,13 +730,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
 			s.log.Error("responses prompt", "error", err)
-			if errors.Is(err, session.ErrSessionTurnBusy) && !body.Stream {
-				http.Error(w, `{"error":{"message":"session busy: another agent turn is in progress"}}`, http.StatusConflict)
-				return
-			}
-			if body.Stream {
-				_ = bridge.SendError(err.Error())
-			} else {
+			_ = bridge.SendError(err.Error())
+			_ = bridge.FinishStream()
+			if !body.Stream {
 				code := http.StatusInternalServerError
 				if errors.Is(err, session.ErrSessionTurnBusy) {
 					code = http.StatusConflict
@@ -746,8 +743,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {
-			_ = bridge.FinishStreamWithMetadata(meta)
 			return
 		}
 		text := lastAssistantContent(st)

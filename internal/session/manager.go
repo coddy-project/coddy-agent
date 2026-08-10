@@ -488,11 +488,17 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	return m.HandleSessionPromptWithSender(ctx, params, m.server, nil)
 }
 
-// PromptRunOpts configures HandleSessionPromptWithSender for HTTP streaming paths that
-// acquire the turn lock before committing SSE headers.
+// PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
+// turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
+// before opening a relay for watchers.
 type PromptRunOpts struct {
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy http SSE).
 	SkipTurnLock bool
+	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
+	// client that drops the HTTP connection mid-turn does not kill it. A streaming composer
+	// POST sets this because its readers may come and go; a non-streaming caller keeps
+	// request-scoped cancellation, since hanging up is the only way it can stop a turn.
+	DetachFromRequest bool
 }
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
@@ -537,7 +543,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer unlock()
 
 	turnBase := ctx
-	if opts != nil && opts.SkipTurnLock {
+	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
 	turnCtx, cancel := context.WithCancel(turnBase)

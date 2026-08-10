@@ -447,19 +447,46 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+func TestHandleSessionPromptWithSenderDetachFromRequestSurvivesParentCancel(t *testing.T) {
+	res, perr, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{
+		SkipTurnLock:      true,
+		DetachFromRequest: true,
+	})
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if ctxErr != nil {
+		t.Fatalf("a detached turn must not see its parent's cancellation: %v", ctxErr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
+// Holding the turn lock outside the manager says nothing about who owns the turn's
+// lifetime. A caller that only sets SkipTurnLock - a non-streaming composer POST, which
+// can be stopped only by hanging up - keeps request-scoped cancellation.
+func TestHandleSessionPromptWithSenderStaysRequestScopedWithoutDetach(t *testing.T) {
+	_, _, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{SkipTurnLock: true})
+	if ctxErr == nil {
+		t.Fatal("turn context outlived the cancelled parent without DetachFromRequest")
+	}
+}
+
+// runPromptWithCancelledParent runs one turn whose parent context is cancelled while the
+// runner blocks, and reports what the runner saw of its own context.
+func runPromptWithCancelledParent(t *testing.T, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error, error) {
+	t.Helper()
 	runBlock := make(chan struct{})
 	cont := make(chan struct{})
+	var ctxErr error
 	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		close(runBlock)
 		<-cont
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		ctxErr = ctx.Err()
 		return string(acp.StopReasonEndTurn), nil
 	}
-	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
 	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
@@ -474,18 +501,13 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sn.SessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
-		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+		}, noopSender{}, opts)
 	}()
 	<-runBlock
 	cancel()
 	close(cont)
 	wg.Wait()
-	if perr != nil {
-		t.Fatalf("prompt: %v", perr)
-	}
-	if res == nil || res.StopReason != acp.StopReasonEndTurn {
-		t.Fatalf("unexpected %+v err=%v", res, perr)
-	}
+	return res, perr, ctxErr
 }
 
 // A turn running in this process must be reportable even where the flock probe cannot
