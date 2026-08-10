@@ -25,7 +25,10 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 	}
 	msgs := st.GetMessages()
 	var toolDefs []llm.ToolDefinition
-	if bridge != nil && bridge.stream {
+	// emit still means "the client asked for a stream" here: this path only ever receives
+	// senders built by NewSender. A relay-only sender must not reach it, or a request that
+	// asked for a plain JSON body would silently switch to the provider's streaming API.
+	if bridge != nil && bridge.emit {
 		resp, err := provider.Stream(ctx, msgs, toolDefs, func(chunk llm.StreamChunk) {
 			if chunk.TextDelta != "" {
 				_ = bridge.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
