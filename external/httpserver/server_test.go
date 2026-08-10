@@ -436,15 +436,6 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 
 func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	t.Helper()
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	sessRoot := filepath.Join(root, "sessions")
-	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		var sb strings.Builder
 		for _, b := range prompt {
@@ -455,6 +446,22 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
 		return string(acp.StopReasonEndTurn), nil
+	}
+	return testHTTPServerPersistWithRunner(t, runner)
+}
+
+// testHTTPServerPersistWithRunner is testHTTPServerPersist with a caller-supplied agent
+// runner, for tests that need a turn to block or to push updates through the sender.
+func testHTTPServerPersistWithRunner(t *testing.T, runner session.AgentRunner) (*session.Manager, *Server, string) {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: "/tmp"},

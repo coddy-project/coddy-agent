@@ -746,7 +746,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
-			turnActive := session.TurnLockHeld(dir)
+			turnActive := s.mgr.SessionTurnActiveInProcess(row.SessionID) || session.TurnLockHeld(dir)
 			actSeq, readSeq, _ := fs.ReadDiskActivity(row.SessionID)
 			ent["turnActive"] = turnActive
 			ent["activitySeq"] = actSeq
@@ -789,7 +789,7 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	dir := fs.SessionPath(id)
-	turnActive := session.TurnLockHeld(dir)
+	turnActive := s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(dir)
 	actSeq, readSeq, err := fs.ReadDiskActivity(id)
 	if err != nil {
 		s.log.Error("coddy session activity", "error", err)

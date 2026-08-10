@@ -46,6 +46,11 @@ type Manager struct {
 
 	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
 	stubTurnMu sync.Map // sessionID -> *sync.Mutex
+
+	// activeTurns counts prompt turns in flight in THIS process, keyed by session id.
+	// See turn_active.go for why it is a count rather than a set.
+	activeTurnMu sync.Mutex
+	activeTurns  map[string]int
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -513,6 +518,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
+
+	// Before the lock, not after: a turn queued behind another one is already active as
+	// far as a client watching the session is concerned.
+	clearActive := m.markTurnActive(params.SessionID)
+	defer clearActive()
 
 	var unlock func()
 	var err error

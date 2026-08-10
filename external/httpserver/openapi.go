@@ -576,7 +576,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (exclusive turn lock held), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
+					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -778,7 +778,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). With **no turn running** for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream**, so a client can fall back to the persisted transcript without waiting. While a turn *is* running but has not attached its relay yet, emits **SSE comments** (`: composer stream pending`) until it does or the wait window expires. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},

@@ -488,6 +488,48 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 	}
 }
 
+// A turn running in this process must be reportable even where the flock probe cannot
+// answer (TurnLockHeld is a no-op stub off unix, and a session with no persisted bundle
+// has no lock file at all), so that a second client can tell there is something to watch.
+func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
+	runBlock := make(chan struct{})
+	cont := make(chan struct{})
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(runBlock)
+		<-cont
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
+	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session reported active before any turn started")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+		})
+	}()
+
+	<-runBlock
+	if !m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session not reported active while its turn runs")
+	}
+	close(cont)
+	wg.Wait()
+
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session still reported active after the turn finished")
+	}
+}
+
 func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	skRoot := t.TempDir()
 	skillDir := filepath.Join(skRoot, "probe")
