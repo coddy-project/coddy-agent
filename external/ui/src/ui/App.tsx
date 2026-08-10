@@ -22,6 +22,7 @@ import {
   remoteSendErrorMessage,
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { parseSSEBlocks } from "./chat/sse";
 import {
   consumeComposerSseReader,
@@ -2801,6 +2802,7 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2859,6 +2861,26 @@ export function App() {
           return false;
         }
       };
+
+      // The relay had nothing to attach to. That is a state, not a failure: the turn
+      // finished while we were reconnecting, or it ran somewhere this process cannot
+      // see. Drop the placeholder bubble and let the finally block reconcile from the
+      // persisted transcript instead of accusing the user of an error.
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
+        flushToolQueue();
+        finishThinking();
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              !(
+                it.type === "assistant_message" &&
+                it.id === lastAssistantId &&
+                !it.content.trim()
+              ),
+          ),
+        );
+        return;
+      }
 
       if (streamErrorMessage) {
         flushToolQueue();

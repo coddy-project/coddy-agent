@@ -1,5 +1,9 @@
 import type { MutableRefObject } from "react";
-import { openAIStreamErrorMessage } from "./streamError";
+import {
+  namedErrorEventMessage,
+  openAIStreamErrorCode,
+  openAIStreamErrorMessage,
+} from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
 
@@ -136,6 +140,8 @@ export type ConsumeComposerSseParams = {
 
 export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
+  /** Machine-readable `error.code` of the frame that ended the stream, when it carried one. */
+  streamErrorCode: string | null;
   flushToolQueue: () => void;
   finishThinking: () => void;
   ensureAssistant: (
@@ -356,6 +362,7 @@ export async function consumeComposerSseReader(
 
       let sawDone = false;
       let streamErrorMessage: string | null = null;
+      let streamErrorCode: string | null = null;
       let streamHalted = false;
       while (true) {
         const step = await reader.read();
@@ -372,6 +379,27 @@ export async function consumeComposerSseReader(
             break;
           }
 
+          // A failed turn - and the relay's "there is nothing to watch" answer -
+          // arrives as a NAMED error event, so it never reaches the unnamed-data
+          // branch below. Left unhandled, the reader just keeps looping.
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? "Stream ended";
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            streamHalted = true;
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
+            break;
+          }
+
           if (!ev.event) {
             let delta: unknown;
             try {
@@ -382,6 +410,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               streamHalted = true;
               try {
                 await reader.cancel();
@@ -639,6 +668,17 @@ export async function consumeComposerSseReader(
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
           if (ev.data === "[DONE]") continue;
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? "Stream ended";
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            break;
+          }
           if (!ev.event) {
             let delta: unknown;
             try {
@@ -649,6 +689,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               break;
             }
             const d = delta as {
@@ -842,6 +883,7 @@ export async function consumeComposerSseReader(
 
   return {
     streamErrorMessage,
+    streamErrorCode,
     flushToolQueue,
     finishThinking,
     ensureAssistant,
