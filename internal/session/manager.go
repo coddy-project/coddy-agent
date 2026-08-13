@@ -46,6 +46,16 @@ type Manager struct {
 
 	// stubTurnMu guards in-process turns when flock is unavailable or SessionDir is empty.
 	stubTurnMu sync.Map // sessionID -> *sync.Mutex
+
+	// activeTurns counts prompt turns in flight in THIS process, keyed by session id.
+	// See turn_active.go for why it is a count rather than a set.
+	activeTurnMu sync.Mutex
+	activeTurns  map[string]int
+
+	// turnObservers receive the started/ended edges of activeTurns (see turn_events.go).
+	turnObserverMu  sync.Mutex
+	turnObservers   map[int]func(TurnEvent)
+	turnObserverSeq int
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -483,11 +493,17 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 	return m.HandleSessionPromptWithSender(ctx, params, m.server, nil)
 }
 
-// PromptRunOpts configures HandleSessionPromptWithSender for HTTP streaming paths that
-// acquire the turn lock before committing SSE headers.
+// PromptRunOpts configures HandleSessionPromptWithSender for HTTP paths that acquire the
+// turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
+// before opening a relay for watchers.
 type PromptRunOpts struct {
 	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy http SSE).
 	SkipTurnLock bool
+	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
+	// client that drops the HTTP connection mid-turn does not kill it. A streaming composer
+	// POST sets this because its readers may come and go; a non-streaming caller keeps
+	// request-scoped cancellation, since hanging up is the only way it can stop a turn.
+	DetachFromRequest bool
 }
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
@@ -514,6 +530,11 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
+	// Before the lock, not after: a turn queued behind another one is already active as
+	// far as a client watching the session is concerned.
+	clearActive := m.markTurnActive(params.SessionID)
+	defer clearActive()
+
 	var unlock func()
 	var err error
 	if opts != nil && opts.SkipTurnLock {
@@ -527,7 +548,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	defer unlock()
 
 	turnBase := ctx
-	if opts != nil && opts.SkipTurnLock {
+	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
 	turnCtx, cancel := context.WithCancel(turnBase)
