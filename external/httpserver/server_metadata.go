@@ -142,6 +142,16 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 	return st.EffectiveModelID(cfg)
 }
 
+// configuredModelMultimodal reports whether the selected YAML model explicitly
+// opts in to image/file inputs. Missing and unknown entries fail closed.
+func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
+	if cfg == nil {
+		return false
+	}
+	entry := cfg.FindModelEntry(modelID)
+	return entry != nil && entry.Multimodal
+}
+
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).
 func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string) error {
 	modelID = strings.TrimSpace(modelID)

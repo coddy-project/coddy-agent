@@ -14,10 +14,8 @@ export type OptimisticUserFile = {
  * Files → optimistic bubble metadata. Image files get a `previewUrl` object URL
  * so the sent bubble renders a real thumbnail; non-image files get metadata only.
  *
- * The URLs are intentionally never revoked: previews must survive transcript
- * merges (`preserveUserMessageFiles` copies `files` verbatim), and the browser
- * frees them at document unload. After a reload the server-side metadata has no
- * bytes, so chips fall back to the generic type icon.
+ * The URL survives optimistic transcript merges, then is revoked once the
+ * backend publishes the durable session thumbnail URL for the same message.
  */
 export function optimisticUserFiles(files: File[]): OptimisticUserFile[] {
   return files.map((f) => {

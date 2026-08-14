@@ -1028,6 +1028,52 @@ test("send is enabled by an image alone and sends empty text with the files", as
   vi.unstubAllGlobals();
 });
 
+test("attached images stay visible but are not sent after switching to a non-multimodal model", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  const common = {
+    isEmpty: false,
+    mode: "agent",
+    modes: ["agent", "plan"],
+    onModeChange: () => {},
+    onChange: () => {},
+    onSend,
+  };
+  const { rerender } = render(
+    <Composer {...common} value="" llmModelMultimodal={true} />,
+  );
+  const fileInput = screen.getByTestId(
+    "composer-file-input",
+  ) as HTMLInputElement;
+  fireEvent.change(fileInput, {
+    target: {
+      files: [new File(["img"], "photo.png", { type: "image/png" })],
+    },
+  });
+  await waitFor(() => screen.getByText("photo.png"));
+
+  rerender(<Composer {...common} value="" llmModelMultimodal={false} />);
+  const chip = screen.getByText("photo.png").closest(
+    ".composer-attachment-chip",
+  );
+  expect(chip).toHaveClass("composer-attachment-chip--disabled");
+  expect(chip).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  rerender(
+    <Composer
+      {...common}
+      value="send only this text"
+      llmModelMultimodal={false}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("send only this text");
+  expect(screen.getByText("photo.png")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
 test("Enter sends an image-only message", async () => {
   stubMatchMediaMobile(false);
   const onSend = vi.fn();

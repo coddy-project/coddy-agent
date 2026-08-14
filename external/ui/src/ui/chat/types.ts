@@ -1,5 +1,11 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type {
+  CoddyPermissionPayload,
+  PermissionResolvedState,
+} from "./permissionTypes";
+import type {
+  CoddyQuestionPayload,
+  QuestionResolvedState,
+} from "./questionTypes";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -47,7 +53,7 @@ export type TranscriptItem =
         name: string;
         mimeType: string;
         sizeBytes?: number;
-        /** Client-only blob URL for image previews; absent after a reload. */
+        /** Blob URL while optimistic; session asset URL after backend persistence. */
         previewUrl?: string;
       }[];
     }

@@ -349,9 +349,11 @@ A chip row (**`.composer-context-chips`**) renders as the **first child** of **`
 Attachments row (**`.composer-attachments`**) renders **inside** **`.composer-card`**, below workspace chips and above the field. All ingress paths are gated on the selected model's **`multimodal`** flag (paperclip picker, clipboard paste in **`textarea#composer`**, drag & drop onto **`.composer-card`**). Functional contract and regression table: **`docs/ui.md`** (**Composer file attachments (multimodal)**).
 
 - Chips (**`.composer-attachment-chip`**, 140px, 10px radius) show the file icon plus name; `image/*` files swap the icon for a **28×28 object-fit-cover thumbnail** (**`.composer-attachment-thumb`**, local object URL revoked on remove/unmount). Locked edit-mode chips stay icon-only (metadata has no bytes).
-- The **sent user bubble** echoes image attachments with an **optimistic 26×26 thumbnail** (**`.msg-user-file-thumb`**) from a `previewUrl` blob URL created at send time (`optimisticUserFiles.ts`). Client-only by design: the server persists metadata, so after a reload the bubble falls back to the type icon.
+- The **sent user bubble** echoes image attachments with an **optimistic 26×26 thumbnail** (**`.msg-user-file-thumb`**) from a `previewUrl` blob URL created at send time (`optimisticUserFiles.ts`). Once the server snapshot includes **`files[].preview_url`**, that durable session thumbnail replaces the blob and the blob URL is revoked; reloads keep the image preview.
 - Pasted clipboard images get deterministic names **`pasted-<n>.<ext>`** (browsers hand every clipboard image over as `image.png`).
 - Paste/drop against a non-multimodal model attaches nothing and flashes the inline notice **`.composer-attach-hint`** (**`role="status"`**, auto-clears) below the attachments row.
+- Switching to a non-multimodal model does not discard existing files: chips use **`.composer-attachment-chip--disabled`** (muted, grayscale, dashed border), attachment-only Send is disabled, and text sends omit while retaining them for a later multimodal selection.
+- The server repeats this capability check against the effective YAML model and drops any client-supplied **`inline_files`** when **`multimodal`** is false, so disabled files cannot reach the provider or session assets through a stale/custom client.
 - While files are dragged over the card it carries **`.composer-card--dragover`** (inset ring accent) as the drop-target affordance.
 - **Attachment-only send** is valid: an attachment alone unlocks **Send** (see **Composer primary action**).
 
@@ -371,7 +373,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
-- Idle **disabled** when the message field is empty **and no files are attached** (an attachment alone unlocks Send); streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
+- Idle **disabled** when the message field is empty **and no sendable files are attached** (a disabled attachment under a non-multimodal model does not unlock Send); streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
 Composer mode selector
 

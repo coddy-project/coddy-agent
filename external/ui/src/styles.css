@@ -4182,6 +4182,22 @@ textarea#composer {
   padding-right: 10px;
 }
 
+.composer-attachment-chip--disabled {
+  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-style: dashed;
+}
+
+.composer-attachment-chip--disabled .composer-attachment-chip-icon {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.composer-attachment-chip--disabled:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+}
+
 /* Image attachments swap the generic icon for a local object-URL thumbnail. */
 .composer-attachment-chip--image .composer-attachment-chip-icon {
   width: 28px;

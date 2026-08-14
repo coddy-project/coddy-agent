@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
@@ -107,7 +108,10 @@ function clipboardImageFiles(data: DataTransfer | null | undefined): File[] {
  * Browsers name every clipboard image "image.png"; give pasted files
  * deterministic per-composer names so chips and session history stay unambiguous.
  */
-function renamePastedImages(files: File[], seqRef: { current: number }): File[] {
+function renamePastedImages(
+  files: File[],
+  seqRef: { current: number },
+): File[] {
   return files.map((f) => {
     seqRef.current += 1;
     const name = `pasted-${seqRef.current}.${imageExtFromMime(f.type)}`;
@@ -147,9 +151,11 @@ function useImageObjectUrl(file: File): string | null {
 /** Live attachment chip; image files render a thumbnail instead of the generic icon. */
 function AttachedFileChip({
   file,
+  disabled,
   onRemove,
 }: {
   file: File;
+  disabled: boolean;
   onRemove: () => void;
 }) {
   const { svg, label } = fileTypeIcon(file.type, file.name);
@@ -160,10 +166,12 @@ function AttachedFileChip({
       className={[
         "composer-attachment-chip",
         thumbUrl ? "composer-attachment-chip--image" : "",
+        disabled ? "composer-attachment-chip--disabled" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       title={tip}
+      aria-disabled={disabled ? "true" : undefined}
       data-testid="composer-attachment-chip"
     >
       <span className="composer-attachment-chip-icon" aria-hidden="true">
@@ -219,6 +227,9 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Optional shared attachment state for composer layout transitions. */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
   llmReasoningLevels?: string[];
   /** Selected reasoning level (`metadata.reasoning`). */
@@ -274,7 +285,9 @@ export function Composer(props: {
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
   /** Transient reason a paste/drop was rejected (non-multimodal model); auto-clears. */
   const [attachHint, setAttachHint] = useState<string | null>(null);
   /** Files are being dragged over the composer card (drop-target affordance). */
@@ -282,9 +295,11 @@ export function Composer(props: {
   const attachHintTimerRef = useRef<number | null>(null);
   /** Names pasted images deterministically ("pasted-1.png"); clipboard files are all "image.png". */
   const pastedSeqRef = useRef(0);
-  /** An attachment-only send is valid: files alone unlock the send action. */
+  const attachmentSendingEnabled = props.llmModelMultimodal === true;
+  const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
+  /** Attachment-only send is valid only while the selected model accepts it. */
   const idleSendDisabled =
-    props.value.trim() === "" && attachedFiles.length === 0;
+    props.value.trim() === "" && sendableAttachedFiles.length === 0;
   const showAttachHint = useCallback(() => {
     setAttachHint("Selected model cannot accept attachments");
     if (attachHintTimerRef.current !== null) {
@@ -1466,10 +1481,9 @@ export function Composer(props: {
                 <AttachedFileChip
                   key={idx}
                   file={f}
+                  disabled={!attachmentSendingEnabled}
                   onRemove={() =>
-                    setAttachedFiles((prev) =>
-                      prev.filter((_, i) => i !== idx),
-                    )
+                    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
                   }
                 />
               ))}
@@ -1682,11 +1696,11 @@ export function Composer(props: {
                       return;
                     }
                     const txt = props.value.trim();
-                    if (!txt && attachedFiles.length === 0) {
+                    if (!txt && sendableAttachedFiles.length === 0) {
                       return;
                     }
-                    if (attachedFiles.length > 0) {
-                      const files = [...attachedFiles];
+                    if (sendableAttachedFiles.length > 0) {
+                      const files = [...sendableAttachedFiles];
                       setAttachedFiles([]);
                       props.onSend(txt, files);
                     } else {
@@ -1854,11 +1868,11 @@ export function Composer(props: {
                     return;
                   }
                   const txt = props.value.trim();
-                  if (!txt && attachedFiles.length === 0) {
+                  if (!txt && sendableAttachedFiles.length === 0) {
                     return;
                   }
-                  if (attachedFiles.length > 0) {
-                    const files = [...attachedFiles];
+                  if (sendableAttachedFiles.length > 0) {
+                    const files = [...sendableAttachedFiles];
                     setAttachedFiles([]);
                     props.onSend(txt, files);
                   } else {

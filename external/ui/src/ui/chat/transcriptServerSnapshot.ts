@@ -177,8 +177,8 @@ export function mergeTranscriptPreferLocalSuffix(
 }
 
 /**
- * Copies client-only `files` metadata from local user_message items into merged items.
- * The server never persists `files`, so after a merge the field would be lost.
+ * Keeps optimistic `files` metadata until the server publishes persisted file
+ * metadata, then lets the durable thumbnail URL replace the local blob URL.
  * We match by position (nth user_message in local → nth user_message in merged).
  */
 export function preserveUserMessageFiles(
@@ -199,9 +199,43 @@ export function preserveUserMessageFiles(
   return merged.map((it) => {
     if (it.type !== "user_message") return it;
     const files = localFiles[userIdx++];
+    if (it.files && it.files.length > 0) return it;
     if (!files || files.length === 0) return it;
     return { ...it, files };
   });
+}
+
+/** Release optimistic blob URLs once the same user row has a durable server preview. */
+export function revokeSupersededUserMessagePreviews(
+  merged: TranscriptItem[],
+  local: TranscriptItem[] | undefined,
+): void {
+  if (
+    !local ||
+    typeof URL === "undefined" ||
+    typeof URL.revokeObjectURL !== "function"
+  ) {
+    return;
+  }
+  const mergedUsers = merged.filter(
+    (it): it is Extract<TranscriptItem, { type: "user_message" }> =>
+      it.type === "user_message",
+  );
+  const localUsers = local.filter(
+    (it): it is Extract<TranscriptItem, { type: "user_message" }> =>
+      it.type === "user_message",
+  );
+  for (let i = 0; i < Math.min(mergedUsers.length, localUsers.length); i++) {
+    const hasDurablePreview = mergedUsers[i]?.files?.some(
+      (file) => file.previewUrl && !file.previewUrl.startsWith("blob:"),
+    );
+    if (!hasDurablePreview) continue;
+    for (const file of localUsers[i]?.files || []) {
+      if (file.previewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(file.previewUrl);
+      }
+    }
+  }
 }
 
 /**
