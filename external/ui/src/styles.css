@@ -1842,6 +1842,20 @@ a.rail-brand {
   white-space: nowrap;
 }
 
+/* Optimistic image preview: thumbnail replaces the icon until the page reloads. */
+.msg-user-file-chip--image .msg-user-file-chip-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .msg-user-foot {
   display: flex;
   flex-direction: row;
@@ -4166,6 +4180,52 @@ textarea#composer {
 .composer-attachment-chip--locked {
   opacity: 0.75;
   padding-right: 10px;
+}
+
+.composer-attachment-chip--disabled {
+  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+  background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-style: dashed;
+}
+
+.composer-attachment-chip--disabled .composer-attachment-chip-icon {
+  opacity: 0.48;
+  filter: grayscale(1);
+}
+
+.composer-attachment-chip--disabled:hover {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--coddy-blend-base));
+}
+
+/* Image attachments swap the generic icon for a local object-URL thumbnail. */
+.composer-attachment-chip--image .composer-attachment-chip-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.composer-attachment-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* Transient rejection notice for paste/drop when the model is not multimodal. */
+.composer-attach-hint {
+  padding: 6px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+/* Drop-target affordance while files are dragged over the composer card. */
+.composer-card--dragover {
+  border-color: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  box-shadow:
+    var(--coddy-glass-panel-shadow),
+    inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
 }
 
 .composer-bar-actions {

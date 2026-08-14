@@ -3,9 +3,14 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -171,7 +176,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -1938,6 +1943,7 @@ agent:
 func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, _ := testHTTPServerPersist(t)
+	srv.activeCfg().Models[0].Multimodal = true
 	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1976,10 +1982,166 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	}
 }
 
+func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	const sid = "sess_non_multimodal_direct"
+	payload := `{"model":"openai/gpt-4o","input":"hello","stream":true,` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	var userMsg *llm.Message
+	for i := range cp.seen {
+		if cp.seen[i].Role == llm.RoleUser {
+			userMsg = &cp.seen[i]
+		}
+	}
+	if userMsg == nil {
+		t.Fatal("no user message found")
+	}
+	if len(userMsg.ImageParts) != 0 {
+		t.Fatalf("non-multimodal provider received %d image parts", len(userMsg.ImageParts))
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 0 {
+		t.Fatalf("non-multimodal history retained image parts: %+v", snap.Messages)
+	}
+}
+
+func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	src := image.NewRGBA(image.Rect(0, 0, 320, 80))
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 320; x++ {
+			src.Set(x, y, color.RGBA{R: 40, G: uint8(y), B: uint8(x % 255), A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, src); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	payload, err := json.Marshal(map[string]interface{}{
+		"model":  "openai/gpt-4o",
+		"input":  "describe",
+		"stream": false,
+		"inline_files": []map[string]string{{
+			"name":     "wide.png",
+			"data_url": dataURL,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := "sess_persisted_thumbnail"
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 1 {
+		t.Fatalf("persisted messages missing image part: %+v", snap.Messages)
+	}
+	if snap.Messages[0].ImageParts[0].ThumbnailPath == "" {
+		t.Fatal("persisted image part is missing ThumbnailPath")
+	}
+
+	msgRes, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history struct {
+		Messages []struct {
+			Files []struct {
+				Name       string `json:"name"`
+				MimeType   string `json:"mime_type"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"files"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(msgRes.Body).Decode(&history); err != nil {
+		msgRes.Body.Close()
+		t.Fatal(err)
+	}
+	msgRes.Body.Close()
+	if msgRes.StatusCode != http.StatusOK {
+		t.Fatalf("messages status %d", msgRes.StatusCode)
+	}
+	if len(history.Messages) == 0 || len(history.Messages[0].Files) != 1 {
+		t.Fatalf("history missing file metadata: %+v", history.Messages)
+	}
+	file := history.Messages[0].Files[0]
+	if file.Name != "wide.png" || file.MimeType != "image/png" || file.PreviewURL == "" {
+		t.Fatalf("unexpected file metadata: %+v", file)
+	}
+
+	thumbRes, err := http.Get(ts.URL + file.PreviewURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer thumbRes.Body.Close()
+	if thumbRes.StatusCode != http.StatusOK {
+		t.Fatalf("thumbnail status %d", thumbRes.StatusCode)
+	}
+	if got := thumbRes.Header.Get("Content-Type"); got != "image/png" {
+		t.Fatalf("thumbnail Content-Type = %q", got)
+	}
+	cfg, err := png.DecodeConfig(thumbRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Width != 160 || cfg.Height != 40 {
+		t.Fatalf("thumbnail size = %dx%d, want 160x40", cfg.Width, cfg.Height)
+	}
+}
+
 // TestResponsesInlineFilesAcceptedForAgent verifies that inline_files are
 // accepted in agent/plan mode (images are forwarded to the LLM as ImageParts).
 func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
-	_, srv, _ := testHTTPServerPersist(t)
+	var imageParts []llm.ImagePart
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		imageParts = st.TakePendingImageParts()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	srv.activeCfg().Models[0].Multimodal = true
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1989,10 +2151,42 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = ioReadAllClose(res.Body)
-	// inline_files are now accepted for agent/plan mode; any non-4xx response is fine.
-	if res.StatusCode == http.StatusBadRequest {
-		t.Fatalf("inline_files should be accepted for agent mode, got 400")
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+	if len(imageParts) != 1 || imageParts[0].Name != "img.png" {
+		t.Fatalf("agent runner image parts = %+v, want img.png", imageParts)
+	}
+}
+
+func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
+	var imageParts []llm.ImagePart
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		imageParts = st.TakePendingImageParts()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
+		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model":"agent","input":"hi","stream":false,` +
+		`"metadata":{"model":"openai/text-only"},` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+	if len(imageParts) != 0 {
+		t.Fatalf("non-multimodal agent runner received %d image parts", len(imageParts))
 	}
 }
 

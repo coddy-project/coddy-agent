@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, expect, test } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { ChatScreen } from "./ChatScreen";
 
 afterEach(() => cleanup());
@@ -53,4 +59,47 @@ test("active chat wraps title in chat-title-column aligned with composer column"
   const col = container.querySelector(".chat-title-column");
   expect(col).toBeTruthy();
   expect(col?.querySelector(".chat-header")).toBeTruthy();
+});
+
+test("disabled attachments survive the empty-to-active composer transition", async () => {
+  const common = {
+    title: "",
+    sessionId: "",
+    heroAccentVerb: "know" as const,
+    heroComposerFocusEpoch: 0,
+    onTitleSave: () => {},
+    draft: "",
+    tokenUsage: null,
+    mode: "agent",
+    modes: ["agent", "plan"],
+    llmModels: ["openai/vision", "openai/text"],
+    llmModel: "openai/vision",
+    onLlmModelChange: () => {},
+    onModeChange: () => {},
+    onDraftChange: () => {},
+    onSend: () => {},
+  };
+  const { rerender } = render(
+    <ChatScreen {...common} items={[]} llmModelMultimodal={true} />,
+  );
+  fireEvent.change(screen.getByTestId("composer-file-input"), {
+    target: {
+      files: [new File(["img"], "photo.png", { type: "image/png" })],
+    },
+  });
+  await waitFor(() => screen.getByText("photo.png"));
+
+  rerender(
+    <ChatScreen
+      {...common}
+      sessionId="s1"
+      items={[{ type: "user_message", id: "1", content: "hello" }]}
+      llmModel="openai/text"
+      llmModelMultimodal={false}
+    />,
+  );
+
+  expect(
+    screen.getByText("photo.png").closest(".composer-attachment-chip"),
+  ).toHaveClass("composer-attachment-chip--disabled");
 });

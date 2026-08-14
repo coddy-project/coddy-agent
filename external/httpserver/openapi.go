@@ -761,7 +761,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
@@ -771,6 +771,27 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "OpenAI-shaped messages payload"},
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/assets/{name}/thumbnail": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read a persisted session image thumbnail",
+					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**; arbitrary original asset bytes are not exposed by this route.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "PNG thumbnail",
+							"content": map[string]interface{}{
+								"image/png": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}},
+							},
+						},
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"503": errorResponseRef(),
 					},
@@ -1731,6 +1752,12 @@ func openAPISpec() map[string]interface{} {
 							"type":        "string",
 							"description": "YAML `models[].model` selector persisted on assistant replies (Coddy extension).",
 						},
+						"files": map[string]interface{}{
+							"type":        "array",
+							"readOnly":    true,
+							"description": "Coddy transcript extension for uploaded files on a user row.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/CoddyMessageFile"},
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 						"compaction_summary": map[string]interface{}{
@@ -1739,6 +1766,18 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 					"required": []string{"role"},
+				},
+				"CoddyMessageFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string"},
+						"preview_url": map[string]interface{}{
+							"type":        "string",
+							"description": "Session-scoped URL for a bounded PNG preview; present only when the backend persisted a decodable image thumbnail.",
+						},
+					},
+					"required": []string{"name", "mime_type"},
 				},
 				"ChatCompletionRequest": map[string]interface{}{
 					"type": "object",
@@ -1817,7 +1856,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.coddy/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes when the effective YAML model has **`multimodal: true`**. Entries sent for a non-multimodal model are ignored and never forwarded to its provider. Each accepted file is saved to `~/.coddy/sessions/<id>/assets/`; decodable images also get a bounded PNG thumbnail for transcript history. For **`agent`** / **`plan`**, the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model, each entry also becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},

@@ -85,6 +85,17 @@ func AssetsPath(sessionDir string) string {
 	return filepath.Join(sessionDir, "assets")
 }
 
+// AssetThumbnailsPath is the directory containing bounded PNG previews for
+// image assets. Thumbnail files are UI-only and are not exposed to the agent.
+func AssetThumbnailsPath(sessionDir string) string {
+	return filepath.Join(AssetsPath(sessionDir), "thumbnails")
+}
+
+// AssetThumbnailPath returns the preview path corresponding to one saved asset.
+func AssetThumbnailPath(sessionDir, assetName string) string {
+	return filepath.Join(AssetThumbnailsPath(sessionDir), assetName+".png")
+}
+
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	dir = f.SessionPath(sessionID)
@@ -92,6 +103,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		return "", err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(AssetThumbnailsPath(dir), 0o755); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {

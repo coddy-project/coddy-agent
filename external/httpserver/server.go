@@ -615,7 +615,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		Metadata    json.RawMessage                `json:"metadata,omitempty"`
 		Attachments []session.PromptFileAttachment `json:"attachments,omitempty"`
 		// InlineFiles carries base64 data URIs from the browser file picker.
-		// Only supported for direct YAML model calls (not agent/plan).
+		// It is forwarded only when the effective YAML model is multimodal.
 		InlineFiles []inlineFileJSON `json:"inline_files,omitempty"`
 	}
 
@@ -672,7 +672,14 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
 		return
 	}
-	// inline_files are supported for both direct YAML calls and agent/plan mode.
+	inlineFiles := body.InlineFiles
+	effectiveModel := model
+	if httpModelIsCoddyProfile(model) {
+		effectiveModel = effectiveYAMLModel(s.activeCfg(), st)
+	}
+	if !configuredModelMultimodal(s.activeCfg(), effectiveModel) {
+		inlineFiles = nil
+	}
 
 	if httpModelIsCoddyProfile(model) {
 		cwdAbs, err := filepath.Abs(st.GetCWD())
@@ -735,9 +742,9 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			Prompt:    promptBlocks,
 			Meta:      sessionPromptMetaFromHTTP(body.Metadata),
 		}
-		if len(body.InlineFiles) > 0 {
-			promptParams.ImageParts = make([]acp.ImagePartRef, len(body.InlineFiles))
-			for i, f := range body.InlineFiles {
+		if len(inlineFiles) > 0 {
+			promptParams.ImageParts = make([]acp.ImagePartRef, len(inlineFiles))
+			for i, f := range inlineFiles {
 				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
 			}
 		}
@@ -773,6 +780,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(out)
 		return
 	}
+	imageParts := inlineFilesToImageParts(inlineFiles)
+	if err := session.SavePartsToAssets(imageParts, st.GetPersistedSessionDir()); err != nil {
+		s.log.Error("responses direct completion assets", "error", err)
+		http.Error(w, `{"error":{"message":"save inline files failed"}}`, http.StatusInternalServerError)
+		return
+	}
 
 	var bridge *Sender
 	if body.Stream {
@@ -784,7 +797,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	st.AddMessage(llm.Message{
 		Role:       llm.RoleUser,
 		Content:    strings.TrimSpace(body.Input),
-		ImageParts: inlineFilesToImageParts(body.InlineFiles),
+		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
