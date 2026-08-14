@@ -48,6 +48,10 @@ const (
 	// minUTF16SniffBytes is the shortest input worth testing for the interleaved
 	// byte pattern of BOM-less UTF-16; below it the parity ratio is meaningless.
 	minUTF16SniffBytes = 8
+	// minMojibakeRun is the shortest run of consecutive non-ASCII characters that
+	// reads as non-Latin text mis-decoded through a Latin code page. Below it a
+	// detected Latin reading is taken as genuine accented Western text.
+	minMojibakeRun = 3
 	// minUTF16FillerRatio is the share of one parity class that must be control
 	// bytes for the input to read as UTF-16. Real UTF-16 puts the code point's
 	// high byte there, which is 0x00 for Latin text and 0x04 for Cyrillic.
@@ -84,16 +88,102 @@ func DecodeToUTF8(data []byte) (text string, charset string, err error) {
 	if isBinary(data) {
 		return "", "", ErrUndecodable
 	}
-	if text, charset, ok := decodeDetected(data); ok {
-		return text, charset, nil
+	detected, detectedOK := decodeDetectedCandidate(data)
+	// A file written by a local editor on Windows is usually in the machine's ANSI
+	// code page (1251 on a Russian install), which is exactly the case chardet is
+	// least sure about when the file is short. That reading is therefore consulted
+	// both when detection failed outright and when it produced a Latin reading
+	// carrying the shape of mis-decoded non-Latin text.
+	ansi, ansiOK := decodeSystemANSICandidate(data)
+	if ansiOK && (!detectedOK || preferSystemANSI(detected.text, ansi.text)) {
+		return ansi.text, ansi.charset, nil
 	}
-	// Last resort on Windows: a file written by a local editor is usually in the
-	// machine's ANSI code page (1251 on a Russian install), which is exactly the
-	// case chardet is least sure about when the file is short.
-	if text, charset, ok := decodeSystemANSI(data); ok {
-		return text, charset, nil
+	if detectedOK {
+		return detected.text, detected.charset, nil
 	}
 	return "", "", ErrUndecodable
+}
+
+// preferSystemANSI reports whether the system ANSI reading should overrule the
+// detected one.
+//
+// A short file whose non-ASCII bytes are a small minority - source code with one
+// Russian comment, the everyday case on a Russian Windows install - starves the
+// statistical model twice over: ISO-8859-1 fits any byte sequence so it wins the
+// whole-input pass, and the concentrated pass of decodeDetected sees too few
+// bytes to score. Detection then returns a confident Latin reading and the file
+// silently decodes to mojibake. The ANSI reading takes over only when it makes a
+// positive claim the detected one did not, and neither reading looks mis-decoded.
+func preferSystemANSI(detected, ansi string) bool {
+	if hasNonLatinLetters(detected) || !hasNonLatinLetters(ansi) {
+		return false
+	}
+	// Non-Latin text read through a Latin code page comes out as an unbroken run
+	// of non-ASCII characters. Genuine Western text carries accents as isolated
+	// marks inside otherwise ASCII words, so a short run means the detected
+	// reading is the real one and the ANSI page would be the mistake.
+	if maxNonASCIIRun(detected) < minMojibakeRun {
+		return false
+	}
+	// The mirror image: Western text read through a Cyrillic page splits a word
+	// into an ASCII part and a non-Latin one ("resume" with its accents becomes
+	// "rйsumй"). A word that mixes scripts means the ANSI reading is the wrong one.
+	return !hasMixedScriptWord(ansi)
+}
+
+// maxNonASCIIRun returns the length of the longest run of consecutive non-ASCII,
+// non-space characters.
+func maxNonASCIIRun(text string) int {
+	best, run := 0, 0
+	for _, r := range text {
+		if r > unicode.MaxASCII && !unicode.IsSpace(r) {
+			run++
+			if run > best {
+				best = run
+			}
+			continue
+		}
+		run = 0
+	}
+	return best
+}
+
+// hasMixedScriptWord reports whether any run of letters mixes ASCII letters with
+// letters outside the Latin script.
+func hasMixedScriptWord(text string) bool {
+	ascii, nonLatin := false, false
+	mixed := func() bool {
+		got := ascii && nonLatin
+		ascii, nonLatin = false, false
+		return got
+	}
+	for _, r := range text {
+		if !unicode.IsLetter(r) {
+			if mixed() {
+				return true
+			}
+			continue
+		}
+		switch {
+		case r <= unicode.MaxASCII:
+			ascii = true
+		case !unicode.Is(unicode.Latin, r):
+			nonLatin = true
+		}
+	}
+	return mixed()
+}
+
+// decodeDetectedCandidate wraps decodeDetected in the candidate shape.
+func decodeDetectedCandidate(data []byte) (candidate, bool) {
+	text, charset, ok := decodeDetected(data)
+	return candidate{text: text, charset: charset}, ok
+}
+
+// decodeSystemANSICandidate wraps decodeSystemANSI in the candidate shape.
+func decodeSystemANSICandidate(data []byte) (candidate, bool) {
+	text, charset, ok := decodeSystemANSI(data)
+	return candidate{text: text, charset: charset}, ok
 }
 
 // decodeBOM handles the byte-order marks that identify an encoding outright.

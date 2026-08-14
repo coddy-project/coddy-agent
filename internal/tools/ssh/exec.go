@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 	gossh "golang.org/x/crypto/ssh"
 )
@@ -133,9 +135,11 @@ func executeSSHExec(ctx context.Context, argsJSON string, env *tooling.Env) (str
 	}
 	defer func() { _ = sess.Close() }()
 
-	var buf bytes.Buffer
-	sess.Stdout = &buf
-	sess.Stderr = &buf
+	// The session writes from its own goroutine and the timeout branch reads
+	// what arrived before it fired, so the sink has to be safe for both.
+	buf := &syncBuffer{}
+	sess.Stdout = buf
+	sess.Stderr = buf
 
 	cmdCtx, cmdCancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cmdCancel()
@@ -148,9 +152,12 @@ func executeSSHExec(ctx context.Context, argsJSON string, env *tooling.Env) (str
 	select {
 	case <-cmdCtx.Done():
 		_ = sess.Signal(gossh.SIGTERM)
-		return "", fmt.Errorf("ssh: command timed out after %d seconds", timeout)
+		// Closing the session unblocks sess.Run, so the goroutine is not left
+		// parked for the rest of the process.
+		_ = sess.Close()
+		return timedOutResult(timeout, buf.String()), nil
 	case runErr := <-done:
-		output := buf.String()
+		output := platform.SanitizeOutput(buf.String())
 		if runErr != nil {
 			if output == "" {
 				return fmt.Sprintf("command failed: %v", runErr), nil
@@ -162,6 +169,42 @@ func executeSSHExec(ctx context.Context, argsJSON string, env *tooling.Env) (str
 		}
 		return output, nil
 	}
+}
+
+// timedOutResult keeps whatever the remote command managed to print. Returning
+// an error instead would throw it away: the agent loop shows the model the error
+// text and drops the result string, so a command that had already printed the
+// answer would look like it printed nothing.
+//
+// The notice comes first because the tool output ceiling truncates from the end.
+// There is no process group to reach over SSH, so it says so rather than
+// implying the remote work is gone.
+func timedOutResult(timeout int, captured string) string {
+	notice := fmt.Sprintf(
+		"ssh: command timed out after %d seconds. A SIGTERM was sent, but the remote process may still be running: SSH gives no process group to terminate.\n"+
+			"Output captured before the timeout:", timeout)
+	if output := platform.SanitizeOutput(captured); output != "" {
+		return notice + "\n\n" + output
+	}
+	return notice
+}
+
+// syncBuffer is a bytes.Buffer that can be read while the session still writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // parseHostUser splits a "user@host" string into user and host parts.

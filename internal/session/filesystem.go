@@ -187,7 +187,7 @@ type LoadedSnapshot struct {
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	dir := f.SessionPath(sessionID)
 	metaPath := filepath.Join(dir, sessionMetaFile)
-	metaBytes, err := os.ReadFile(metaPath)
+	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("session not found on disk: %s", sessionID)
@@ -200,7 +200,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	}
 	var msgs []llm.Message
 	msgPath := filepath.Join(dir, messagesFile)
-	if b, readErr := os.ReadFile(msgPath); readErr == nil {
+	if b, readErr := readFileWithRetry(msgPath); readErr == nil {
 		var wrap messagesFileData
 		if jsonErr := json.Unmarshal(b, &wrap); jsonErr == nil {
 			msgs = wrap.Messages
@@ -583,18 +583,38 @@ func writeBytesAtomic(path string, data []byte) error {
 
 // renameWithRetry renames tmpPath over path, retrying briefly on transient
 // Windows sharing errors that occur when another handle holds the destination
-// open. On POSIX isRetryableRenameError is always false, so this is a single
+// open. On POSIX isRetryableFileLockError is always false, so this is a single
 // os.Rename with no behavior change.
 func renameWithRetry(tmpPath, path string) error {
 	const maxAttempts = 20
 	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = os.Rename(tmpPath, path); err == nil || !isRetryableRenameError(err) {
+		if err = os.Rename(tmpPath, path); err == nil || !isRetryableFileLockError(err) {
 			return err
 		}
 		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
 	}
 	return err
+}
+
+// readFileWithRetry reads path, retrying briefly on the transient Windows sharing
+// errors that an in-flight atomic write of the same file produces. Readers are not
+// only tests: the session list and activity endpoints read a bundle while its turn
+// keeps persisting. On POSIX isRetryableFileLockError is always false, so this is a
+// single os.ReadFile with no behavior change.
+func readFileWithRetry(path string) ([]byte, error) {
+	const maxAttempts = 20
+	var (
+		b   []byte
+		err error
+	)
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if b, err = os.ReadFile(path); err == nil || !isRetryableFileLockError(err) {
+			return b, err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return b, err
 }
 
 func writeJSONAtomic(path string, v interface{}) error {

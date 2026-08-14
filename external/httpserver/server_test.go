@@ -171,7 +171,7 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
 		}
@@ -436,15 +436,6 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 
 func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	t.Helper()
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	sessRoot := filepath.Join(root, "sessions")
-	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		var sb strings.Builder
 		for _, b := range prompt {
@@ -455,6 +446,22 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
 		return string(acp.StopReasonEndTurn), nil
+	}
+	return testHTTPServerPersistWithRunner(t, runner)
+}
+
+// testHTTPServerPersistWithRunner is testHTTPServerPersist with a caller-supplied agent
+// runner, for tests that need a turn to block or to push updates through the sender.
+func testHTTPServerPersistWithRunner(t *testing.T, runner session.AgentRunner) (*session.Manager, *Server, string) {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: "/tmp"},

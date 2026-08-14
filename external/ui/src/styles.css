@@ -2206,32 +2206,7 @@ a.rail-brand {
   cursor: wait;
 }
 
-/* ── Diff view (apply_patch tool result) ────────────────────────────── */
-
-.diff-block {
-  padding: 0;
-  overflow: hidden;
-}
-
-.diff-file-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 5%, var(--coddy-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.diff-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+/* ── Diff rows (shared by the permission tool previews) ─────────────── */
 
 .diff-hunk-header {
   display: block;
@@ -2319,7 +2294,7 @@ a.rail-brand {
   min-width: 0;
 }
 
-/* ── End diff view ──────────────────────────────────────────────────── */
+/* ── End diff rows ──────────────────────────────────────────────────── */
 
 .thinking-row {
   max-width: 720px;
@@ -2676,20 +2651,6 @@ a.rail-brand {
   > .tool-call-result-card
   + .tool-result-toggle-row {
   margin-top: -8px;
-}
-
-/* Diff-only body: body retains its padding (keeps correct left alignment with
-   summary text), but the diff-block breaks out via negative margins so the
-   diff rows sit edge-to-edge against the thinking-body border.  overflow:hidden
-   clips the diff to the parent's border-radius. */
-.coddy-tool-call-body--diff {
-  overflow: hidden;
-  padding: 0;
-  margin-left: 14px;
-}
-
-.coddy-tool-call-body--diff .diff-block {
-  /*margin: -10px -13px;*/
 }
 
 .md {
@@ -3930,6 +3891,168 @@ textarea#composer {
 .workspace-modal-btn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* ConfirmDialog — shared destructive-action confirmation popup. Shares the
+   frosted-glass token family and z-index 120 modal layer with WorkspaceFolderModal. */
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--coddy-overlay-scrim-bg);
+  padding: 16px;
+  animation: chat-fade-in 0.18s ease-out both;
+}
+
+.confirm-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(400px, calc(100vw - 32px));
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+  color: var(--text);
+  padding: 20px 20px 16px;
+}
+
+.confirm-dialog-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.confirm-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+}
+
+.confirm-dialog-icon--danger {
+  color: #fecaca;
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.confirm-dialog-icon--primary {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.confirm-dialog-text {
+  min-width: 0;
+}
+
+.confirm-dialog-title {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  /* Titles interpolate ids ("Delete scheduler job "<id>"?"), which can be one
+     long unbroken token — break it instead of overflowing the card. */
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-message {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-dialog-btn {
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: background 120ms ease, border-color 120ms ease,
+    box-shadow 120ms ease, transform 80ms ease;
+}
+
+.confirm-dialog-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.confirm-dialog-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.confirm-dialog-btn--cancel {
+  background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-color: color-mix(in srgb, var(--text) 16%, transparent);
+  color: color-mix(in srgb, var(--text) 62%, transparent);
+}
+
+.confirm-dialog-btn--cancel:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+}
+
+.confirm-dialog-btn--primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--coddy-blend-base));
+  color: var(--text);
+}
+
+.confirm-dialog-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 34%, var(--coddy-blend-base));
+}
+
+.confirm-dialog-btn--danger {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.18);
+  color: #fecaca;
+}
+
+.confirm-dialog-btn--danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.3);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
+[data-theme="light"] .confirm-dialog-btn--danger {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #b91c1c;
+}
+
+[data-theme="light"] .confirm-dialog-btn--danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.14);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+[data-theme="light"] .confirm-dialog-icon--danger {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-dialog-backdrop {
+    animation: none;
+  }
+  .confirm-dialog-btn {
+    transition: none;
+  }
 }
 
 .workspace-menu {

@@ -9,7 +9,7 @@ Short map for automation-friendly contributors.
 | `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `mcp`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
-| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). Guide: **`docs/background-tasks.md`**. |
+| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
@@ -32,6 +32,7 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 - On commit, **`.githooks/pre-commit`** calls **`scripts/checks.sh`**, which runs **`make lint`** by default. Commits touching only non-code files (docs, etc.) skip the gate.
 - Scope knobs: **`CODDY_HOOK_TESTS=fast`** also runs a quick **`go test ./...`**, **`CODDY_HOOK_TESTS=full`** the whole matrix; **`CODDY_HOOK_LINT=0`** skips the linter; **`CODDY_HOOK_SKIP=1`** bypasses everything.
 - Emergency bypass for a single commit: **`git commit --no-verify`**.
+- Both gates compile the **host** platform only. Changing a file behind **`//go:build windows`**, or a signature it shares with the rest of the tree, needs **`make check-windows`** (cross-build plus **`go vet`** over every non-**`ui`** tag combination, test files included) and **`make lint-windows`**. CI runs both, and additionally runs **`go test`** on a real **`windows-latest`** runner for **`internal/platform`**, **`internal/bgtask`**, and **`internal/tools/shell`**.
 
 ## Documentation contract
 
@@ -39,9 +40,9 @@ Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives 
 
 All **code comments** plus **technical markdown authored for this repo** (including `docs/`, `DESIGN.md`, `AGENTS.md`) stay **English** unless an operator explicitly asks for another natural language.
 
-## Codex and Cursor rules
+## Codex, OpenCode, Cursor and ZCode rules
 
-Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/` or `.claude/` by hand.
+Codex uses this **`AGENTS.md`** file as its repo instruction entrypoint, and ZCode resolves its `AGENTS.md` chain the same way. The detailed project rules live in **`.cursor/rules/*.mdc`**, which is their single source of truth. Do not copy rules into `.codex/`, `.claude/`, or `.zcode/` by hand.
 
 Codex resolves its `AGENTS.md` chain once per session, walking from the repository root down to the launch directory, so nested instruction files never load for a session started at the root. A lifecycle hook covers that gap and delivers the Cursor rules deterministically instead of asking the model to fetch them:
 
@@ -51,6 +52,14 @@ Codex resolves its `AGENTS.md` chain once per session, walking from the reposito
 - The hook parses `.mdc` frontmatter directly, so adding, renaming, or removing a rule file needs no change here. It fails open, and a malformed rule never blocks an edit.
 
 Codex requires explicit approval for hooks and tracks them by content hash. Run **`/hooks`** once per clone, and again after editing `attach_rules.py`, otherwise the hook is skipped silently. Project-local hooks also load only when the `.codex/` layer is trusted. **`.codex/rules.md`** keeps the human-readable index of the rule files; the full guide, including how to probe the hook by hand, is **`docs/codex-hooks.md`**.
+
+When working in OpenCode, the project plugin **`.opencode/plugins/project-rules.js`** delivers the same rule set without copying it. It injects `alwaysApply: true` rules into every model request, activates scoped rules when a tool touches a path covered by their `globs`, and preserves the active set through compaction. If a write tool is the first operation to reveal a new scoped rule, the plugin rejects that one call so OpenCode can retry with the rule in its model context. See **`docs/opencode-hooks.md`** and run **`make test-opencode-rules`** after changing the plugin.
+
+ZCode loads its `AGENTS.md` chain the same way and has the same gap, so a parallel hook delivers the Cursor rules there too:
+
+- **`.zcode/config.json`** wires **`.zcode/hooks/attach_rules.py`** to `SessionStart` and to `PreToolUse` on `Edit` / `Write` / `MultiEdit` / `ApplyPatch`, under `hooks.events` with `hooks.enabled: true`.
+- The behaviour matches the Codex hook (always-on rules at session start, scoped rules per edit, once per rule per session, fail open). The single difference is how edited paths are recovered: ZCode carries them as JSON fields of `tool_input` (`file_path`, `path`, ...), so this variant walks those fields instead of parsing an `apply_patch` blob.
+- Configuration-file hooks need no per-hook approval: a workspace config with `enabled: true` runs unconditionally. The command invokes `python` (not `python3`) because the `python3` name is a no-op Microsoft Store stub on Windows. The full guide, including how to probe the hook by hand and the Windows interpreter note, is **`docs/zcode-hooks.md`**.
 
 ## Code Review Rules
 
@@ -80,6 +89,7 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 - If the external HTTP surface changes, update `external/httpserver/openapi.go` so the served OpenAPI matches handlers in `external/httpserver/server.go`.
 - Keep `docs/http-api.md` aligned with the live behavior.
 - For UI changes, update sources under **`external/ui/src/`** and rebuild embedded assets via **`make build TAGS="http ui"`** (runs **npm** via **make ui-build**).
+- **Every** UI edit in a PR ships with a screenshot of the surface it changed (before/after when the surface already existed) — see step 5 of **`.claude/rules/workflow.md`**. If a surface cannot be captured, say so in the PR instead of omitting it.
 - Run full regression `make test`, then `make lint`.
 
 ## UI sources (`external/ui/`)

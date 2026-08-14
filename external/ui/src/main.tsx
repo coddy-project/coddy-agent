@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
 import { App } from "./ui/App";
+import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
 import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
 import { initLocale } from "./ui/i18n/i18n";
@@ -20,7 +21,9 @@ initLocale(bootstrapUiLocaleFromUrlOrCookie());
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <I18nProvider>
-      <App />
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
     </I18nProvider>
   </React.StrictMode>,
 );
