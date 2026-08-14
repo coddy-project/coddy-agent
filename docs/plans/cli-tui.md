@@ -1,7 +1,8 @@
 # Plan: interactive console TUI (`coddy` with no arguments)
 
-Status: v2 after cross-review (codex gpt-5.6-sol xhigh, cursor grok-4.6).
-Owner: feat/cli-tui branch.
+Status: implemented on feat/cli-tui (plan v2 + two post-implementation
+cross-review rounds: codex gpt-5.6-sol xhigh, cursor grok-4.6). Documented
+v1 divergences live in `docs/cli.md`; this file stays as the design record.
 Review deltas from v1 are marked inline as `[rev]`.
 
 ## 1. Goal
