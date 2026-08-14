@@ -5,7 +5,6 @@ export const messagesEn: Record<string, string> = {
   "appearance.themeLabel": "Theme",
   "appearance.themeGroupAria": "Theme",
   "appearance.languageLabel": "Language",
-  "appearance.languageGroupAria": "Language",
   "appearance.locale.auto": "Auto",
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",

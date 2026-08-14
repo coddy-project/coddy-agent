@@ -81,9 +81,11 @@ test("each theme block defines --accent", () => {
   }
 });
 
-test("language options remain three equal segments on narrow settings", () => {
-  const rule = cssText().match(/\.appearance-lang-option\s*\{[^}]*\}/s)?.[0];
-  expect(rule).toMatch(/flex:\s*1 1 0/);
+test("language select fills narrow settings without overflow", () => {
+  const rule = cssText().match(
+    /\.appearance-language-select\s*\{[^}]*\}/s,
+  )?.[0];
+  expect(rule).toMatch(/width:\s*100%/);
   expect(rule).toMatch(/min-width:\s*0/);
-  expect(rule).not.toContain("120px");
+  expect(rule).toMatch(/min-height:\s*40px/);
 });

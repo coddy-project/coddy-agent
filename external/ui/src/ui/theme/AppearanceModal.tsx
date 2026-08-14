@@ -9,7 +9,7 @@ import {
   readNavigatorLanguage,
   type UiLocale,
 } from "../i18n/localeCookie";
-import { UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
+import { isUiLocale, UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 
@@ -99,25 +99,30 @@ function readLocaleChoice(): LocaleChoice {
   return stored === null ? "auto" : stored;
 }
 
-/** AppearanceLanguagePicker — segmented control under the theme grid.
+/** AppearanceLanguagePicker — language select under the theme grid.
  * "Auto" resolves from navigator.language and stores no cookie; registered
  * locale choices persist `coddy_ui_lang`. Purely client-side (no config save). */
 export function AppearanceLanguagePicker() {
   const { t } = useT();
-  // `choice` (Auto vs explicit locale) is cookie-derived. Tracked in local
-  // state because picking "Auto" can resolve to the already-active locale, in
-  // which case setLocale does not notify subscribers — the local state update
-  // guarantees the highlight re-renders regardless.
+  // `choice` (Auto vs explicit locale) is cookie-derived. Local state keeps the
+  // controlled select accurate even when Auto resolves to the active locale and
+  // the locale store therefore has no change to publish.
   const [choice, setChoice] = useState<LocaleChoice>(() => readLocaleChoice());
 
-  const pick = useCallback((c: LocaleChoice) => {
+  const pick = useCallback((c: string) => {
     if (c === "auto") {
       clearUiLocaleCookie();
       setLocale(mapSystemLocaleToSupported(readNavigatorLanguage()));
-    } else {
-      writeUiLocaleCookie(c);
-      setLocale(c);
+      setChoice(c);
+      return;
     }
+
+    if (!isUiLocale(c)) {
+      return;
+    }
+
+    writeUiLocaleCookie(c);
+    setLocale(c);
     setChoice(c);
   }, []);
 
@@ -134,30 +139,26 @@ export function AppearanceLanguagePicker() {
       className="appearance-lang-block"
       data-testid="appearance-language-picker"
     >
-      <p className="appearance-section-label">
-        {t("appearance.languageLabel")}
-      </p>
-      <div
-        className="appearance-lang-row"
-        role="group"
-        aria-label={t("appearance.languageGroupAria")}
+      <label
+        className="appearance-section-label"
+        htmlFor="appearance-language-select"
       >
-        {options.map((opt) => {
-          const active = opt.id === choice;
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              className={`appearance-lang-option${active ? " is-active" : ""}`}
-              aria-pressed={active}
-              data-active-locale={active ? "true" : "false"}
-              data-testid={`lang-option-${opt.id}`}
-              onClick={() => pick(opt.id)}
-            >
+        {t("appearance.languageLabel")}
+      </label>
+      <div className="appearance-language-select-wrap">
+        <select
+          id="appearance-language-select"
+          className="appearance-language-select"
+          value={choice}
+          data-testid="appearance-language-select"
+          onChange={(event) => pick(event.currentTarget.value)}
+        >
+          {options.map((opt) => (
+            <option key={opt.id} value={opt.id}>
               {opt.label}
-            </button>
-          );
-        })}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

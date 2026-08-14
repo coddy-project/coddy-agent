@@ -3,7 +3,6 @@ export const messagesRu: Record<string, string> = {
   "appearance.themeLabel": "Тема",
   "appearance.themeGroupAria": "Тема",
   "appearance.languageLabel": "Язык",
-  "appearance.languageGroupAria": "Язык",
   "appearance.locale.auto": "Авто",
   "appearance.locale.en": "English",
   "appearance.locale.ru": "Русский",

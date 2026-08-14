@@ -39,47 +39,42 @@ function readCookie(): string | null {
   return null;
 }
 
-test("renders Auto and every registered locale", () => {
+test("renders one language select with Auto and every registered locale", () => {
   render(<AppearanceLanguagePicker />);
-  expect(screen.getByTestId("lang-option-auto")).toBeTruthy();
-  for (const locale of UI_LOCALE_IDS) {
-    expect(screen.getByTestId(`lang-option-${locale}`)).toBeTruthy();
-  }
+  const select = screen.getByRole("combobox", {
+    name: "Language",
+  }) as HTMLSelectElement;
+  expect(select).toBe(screen.getByTestId("appearance-language-select"));
+  expect([...select.options].map((option) => option.value)).toEqual([
+    "auto",
+    ...UI_LOCALE_IDS,
+  ]);
 });
 
-test("Auto is active when no cookie is stored", () => {
+test("Auto is selected when no cookie is stored", () => {
   render(<AppearanceLanguagePicker />);
-  expect(
-    screen.getByTestId("lang-option-auto").getAttribute("data-active-locale"),
-  ).toBe("true");
-  expect(
-    screen.getByTestId("lang-option-en").getAttribute("data-active-locale"),
-  ).toBe("false");
+  expect(screen.getByTestId("appearance-language-select")).toHaveValue("auto");
 });
 
-test("clicking Русский persists the cookie and switches the labels to russian", () => {
+test("selecting Русский persists the cookie and switches the labels to russian", () => {
   render(<AppearanceLanguagePicker />);
-  fireEvent.click(screen.getByTestId("lang-option-ru"));
+  fireEvent.change(screen.getByTestId("appearance-language-select"), {
+    target: { value: "ru" },
+  });
   expect(readCookie()).toBe("ru");
   expect(document.documentElement.lang).toBe("ru");
   // Section heading is now Russian.
   expect(screen.getByText("Язык")).toBeTruthy();
-  // Русский is now the active option.
-  expect(
-    screen.getByTestId("lang-option-ru").getAttribute("data-active-locale"),
-  ).toBe("true");
+  expect(screen.getByTestId("appearance-language-select")).toHaveValue("ru");
 });
 
-test("clicking Auto clears the cookie", () => {
+test("selecting Auto clears the cookie", () => {
   // Start from an explicit ru choice.
   document.cookie = `${CODDY_UI_LANG_COOKIE}=ru; Path=/`;
   render(<AppearanceLanguagePicker />);
-  expect(
-    screen.getByTestId("lang-option-ru").getAttribute("data-active-locale"),
-  ).toBe("true");
-  fireEvent.click(screen.getByTestId("lang-option-auto"));
+  const select = screen.getByTestId("appearance-language-select");
+  expect(select).toHaveValue("ru");
+  fireEvent.change(select, { target: { value: "auto" } });
   expect(readCookie()).toBeNull();
-  expect(
-    screen.getByTestId("lang-option-auto").getAttribute("data-active-locale"),
-  ).toBe("true");
+  expect(select).toHaveValue("auto");
 });
