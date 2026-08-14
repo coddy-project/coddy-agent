@@ -4,6 +4,9 @@ import "./styles.css";
 import { App } from "./ui/App";
 import { ConfirmProvider } from "./ui/components/useConfirm";
 import { bootstrapUiThemeFromCookie } from "./ui/theme/uiTheme";
+import { bootstrapUiLocaleFromUrlOrCookie } from "./ui/i18n/uiLocale";
+import { initLocale } from "./ui/i18n/i18n";
+import { I18nProvider } from "./ui/i18n/I18nProvider";
 import { installRemoteFetchShim } from "./ui/env/remoteEnv";
 import { startActiveHealthMonitor } from "./ui/env/activeHealth";
 
@@ -13,11 +16,14 @@ installRemoteFetchShim();
 // Begin probing the active environment's reachability (issue #60) so a dead remote is visible.
 startActiveHealthMonitor();
 bootstrapUiThemeFromCookie();
+initLocale(bootstrapUiLocaleFromUrlOrCookie());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ConfirmProvider>
-      <App />
-    </ConfirmProvider>
+    <I18nProvider>
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
+    </I18nProvider>
   </React.StrictMode>,
 );

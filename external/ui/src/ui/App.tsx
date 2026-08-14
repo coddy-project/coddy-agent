@@ -94,6 +94,7 @@ import {
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
+import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -174,9 +175,7 @@ async function markCoddySessionActivityRead(id: string): Promise<void> {
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
 type SchedulerEditorState =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  null | { mode: "create" } | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -617,6 +616,7 @@ function reasoningDurationCacheKey(text: string): string {
 }
 
 export function App() {
+  const { t } = useT();
   const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
@@ -1583,15 +1583,12 @@ export function App() {
     if (!sessionId.trim()) {
       return;
     }
-    const id = window.setInterval(
-      () => {
-        void refreshBackgroundTasks({ silent: true });
-        if (tasksOpen && tasksSelectedId) {
-          void refreshBackgroundTaskOutput(tasksSelectedId);
-        }
-      },
-      tasksPollIntervalMs(backgroundRunning),
-    );
+    const id = window.setInterval(() => {
+      void refreshBackgroundTasks({ silent: true });
+      if (tasksOpen && tasksSelectedId) {
+        void refreshBackgroundTaskOutput(tasksSelectedId);
+      }
+    }, tasksPollIntervalMs(backgroundRunning));
     return () => window.clearInterval(id);
   }, [
     sessionId,
@@ -2486,9 +2483,9 @@ export function App() {
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
       const ok = await confirm({
-        title: "Delete draft?",
-        message: "This draft conversation will be removed.",
-        confirmLabel: "Delete",
+        title: t("confirm.session.deleteDraft.title"),
+        message: t("confirm.session.deleteDraft.message"),
+        confirmLabel: t("common.delete"),
         variant: "danger",
       });
       if (!ok) {
@@ -2503,9 +2500,9 @@ export function App() {
       return;
     }
     const ok = await confirm({
-      title: "Delete chat?",
-      message: "This conversation will be permanently deleted.",
-      confirmLabel: "Delete",
+      title: t("confirm.session.deleteChat.title"),
+      message: t("confirm.session.deleteChat.message"),
+      confirmLabel: t("common.delete"),
       variant: "danger",
     });
     if (!ok) {
@@ -3815,7 +3812,6 @@ export function App() {
         />
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
-
 
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div

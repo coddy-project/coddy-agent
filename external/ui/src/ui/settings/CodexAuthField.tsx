@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
+import { translate } from "../i18n/i18n";
 
 type AuthStatus = {
   connected: boolean;
@@ -87,7 +89,7 @@ export function CodexAuthField(props: { providerName: string }) {
           return;
         }
         if (next.status === "failed") {
-          setError(next.error || "ChatGPT sign in failed.");
+          setError(next.error || translate("codexAuth.error.signInFailed"));
           setLoading(false);
           return;
         }
@@ -118,9 +120,7 @@ export function CodexAuthField(props: { providerName: string }) {
       }
       const next = (await response.json()) as DeviceLogin;
       if (!next.login_id || !next.verification_url || !next.user_code) {
-        throw new Error(
-          "The OAuth server returned an incomplete sign-in response.",
-        );
+        throw new Error(translate("codexAuth.error.incompleteResponse"));
       }
       setLogin(next);
       window.open(next.verification_url, "_blank", "noopener,noreferrer");
@@ -147,26 +147,22 @@ export function CodexAuthField(props: { providerName: string }) {
     }
   };
 
+  const { t } = useT();
   const connectedLabel =
     status.source === "codex_cli"
-      ? "Connected via the Codex CLI login on this server."
-      : "Connected with ChatGPT.";
+      ? t("codexAuth.connected.viaCli")
+      : t("codexAuth.connected.withChatGpt");
 
   return (
     <div className="settings-row" data-testid="codex-auth-field">
-      <span className="settings-label">ChatGPT account</span>
-      <p className="settings-field-desc">
-        Codex uses your ChatGPT subscription through OAuth. Credentials are
-        stored on the Coddy server and are never added to config.yaml.
-      </p>
+      <span className="settings-label">{t("codexAuth.fieldLabel")}</span>
+      <p className="settings-field-desc">{t("codexAuth.description")}</p>
       {status.connected ? (
         <p className="settings-muted codex-auth-status">{connectedLabel}</p>
       ) : null}
       {login?.user_code && login.verification_url ? (
         <div className="codex-auth-device">
-          <p className="settings-field-desc">
-            Enter this one-time code in the ChatGPT page:
-          </p>
+          <p className="settings-field-desc">{t("codexAuth.enterCode")}</p>
           <code className="codex-auth-code">{login.user_code}</code>
           <a
             className="settings-btn"
@@ -174,10 +170,10 @@ export function CodexAuthField(props: { providerName: string }) {
             target="_blank"
             rel="noreferrer"
           >
-            Open sign-in page
+            {t("codexAuth.openSignInPage")}
           </a>
           {login.status !== "failed" && login.status !== "completed" ? (
-            <span className="settings-muted">Waiting for confirmation…</span>
+            <span className="settings-muted">{t("codexAuth.waiting")}</span>
           ) : null}
         </div>
       ) : null}
@@ -189,7 +185,7 @@ export function CodexAuthField(props: { providerName: string }) {
             disabled={loading}
             onClick={() => void signOut()}
           >
-            {loading ? "Signing Out…" : "Sign Out"}
+            {loading ? t("codexAuth.signingOut") : t("codexAuth.signOut")}
           </button>
         ) : (
           <button
@@ -199,13 +195,15 @@ export function CodexAuthField(props: { providerName: string }) {
             disabled={!providerName || loading}
             onClick={() => void signIn()}
           >
-            {loading ? "Waiting for ChatGPT…" : "Sign In with ChatGPT"}
+            {loading
+              ? t("codexAuth.waitingForChatGpt")
+              : t("codexAuth.signInWithChatGpt")}
           </button>
         )}
       </div>
       {!providerName ? (
         <p className="settings-field-desc">
-          Enter a provider name before signing in.
+          {t("codexAuth.enterProviderName")}
         </p>
       ) : null}
       {error ? <p className="settings-error">{error}</p> : null}

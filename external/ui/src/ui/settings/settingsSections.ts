@@ -1,12 +1,8 @@
 import type { JsonSchema } from "./SchemaForm";
+import { translate } from "../i18n/i18n";
 
 export type SectionKind =
-  | "array"
-  | "object"
-  | "group"
-  | "skills"
-  | "mcp"
-  | "appearance";
+  "array" | "object" | "group" | "skills" | "mcp" | "appearance";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -25,21 +21,40 @@ export type SectionDescriptor = {
 };
 
 /**
- * Short blurbs for the mobile tile grid, keyed by section id. Schema
+ * i18n keys for known section labels and mobile tile blurbs. Unknown schema
+ * sections keep their server-provided title and description.
+ */
+const SECTION_LABEL_KEYS: Record<string, string> = {
+  appearance: "settings.section.appearance.label",
+  providers: "settings.section.providers.label",
+  models: "settings.section.models.label",
+  agent: "settings.section.agent.label",
+  tools: "settings.section.tools.label",
+  mcp_servers: "settings.section.mcp_servers.label",
+  skills: "settings.section.skills.label",
+  memory: "settings.section.memory.label",
+  system: "settings.section.system.label",
+  compaction: "settings.section.compaction.label",
+};
+
+/**
+ * i18n keys for the mobile tile blurbs, keyed by section id. Schema
  * `description` strings are full sentences (or missing), so these curated 3–5
  * word summaries keep the tiles readable; unmapped keys fall back to the schema
- * description.
+ * description. Values are translation keys resolved at render time so a locale
+ * switch re-renders the tiles.
  */
-export const SECTION_DESCRIPTIONS: Record<string, string> = {
-  appearance: "Theme & color mode",
-  providers: "LLM API connections",
-  models: "Named model configs",
-  agent: "ReAct agent defaults",
-  tools: "Tool permissions & limits",
-  mcp_servers: "External MCP tools",
-  skills: "Installed slash skills",
-  memory: "Long-term memory options",
-  system: "Scheduler, logs, prompts",
+const SECTION_DESC_KEYS: Record<string, string> = {
+  appearance: "settings.section.appearance.desc",
+  providers: "settings.section.providers.desc",
+  models: "settings.section.models.desc",
+  agent: "settings.section.agent.desc",
+  tools: "settings.section.tools.desc",
+  mcp_servers: "settings.section.mcp_servers.desc",
+  skills: "settings.section.skills.desc",
+  memory: "settings.section.memory.desc",
+  system: "settings.section.system.desc",
+  compaction: "settings.section.compaction.desc",
 };
 
 /** Config keys folded into the single "System" tab (rarely edited). */
@@ -69,10 +84,15 @@ export const ARRAY_LABEL_FIELDS: Record<string, string> = {
 export function deriveSettingsSections(
   schema: JsonSchema | null | undefined,
 ): SectionDescriptor[] {
+  const labelFor = (id: string, sub?: JsonSchema) => {
+    const key = SECTION_LABEL_KEYS[id];
+    return key ? translate(key) : sub?.title || id;
+  };
+
   const appearance: SectionDescriptor = {
     id: "appearance",
-    label: "Appearance",
-    description: SECTION_DESCRIPTIONS.appearance,
+    label: labelFor("appearance"),
+    description: translate(SECTION_DESC_KEYS.appearance),
     kind: "appearance",
   };
 
@@ -90,8 +110,13 @@ export function deriveSettingsSections(
   const seen = new Set<string>();
   let systemEmitted = false;
 
-  const descFor = (id: string, sub?: JsonSchema) =>
-    SECTION_DESCRIPTIONS[id] ?? sub?.description ?? undefined;
+  const descFor = (id: string, sub?: JsonSchema) => {
+    const key = SECTION_DESC_KEYS[id];
+    if (key) {
+      return translate(key);
+    }
+    return sub?.description ?? undefined;
+  };
 
   const emit = (key: string) => {
     const sub = props[key];
@@ -103,7 +128,7 @@ export function deriveSettingsSections(
       if (!systemEmitted) {
         out.push({
           id: "system",
-          label: "System",
+          label: labelFor("system"),
           description: descFor("system"),
           kind: "group",
           childKeys: SYSTEM_KEYS.filter((k) => props[k] !== undefined),
@@ -115,7 +140,7 @@ export function deriveSettingsSections(
     if (key === "skills") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "skills",
         schemaKey: key,
@@ -125,7 +150,7 @@ export function deriveSettingsSections(
     if (key === "mcp_servers") {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "mcp",
         schemaKey: key,
@@ -135,7 +160,7 @@ export function deriveSettingsSections(
     if (key in ARRAY_LABEL_FIELDS) {
       out.push({
         id: key,
-        label: sub.title || key,
+        label: labelFor(key, sub),
         description: descFor(key, sub),
         kind: "array",
         schemaKey: key,
@@ -145,7 +170,7 @@ export function deriveSettingsSections(
     }
     out.push({
       id: key,
-      label: sub.title || key,
+      label: labelFor(key, sub),
       description: descFor(key, sub),
       kind: "object",
       schemaKey: key,

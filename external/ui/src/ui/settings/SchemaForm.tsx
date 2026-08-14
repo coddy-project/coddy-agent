@@ -1,10 +1,9 @@
 import type { ChangeEvent, ReactNode } from "react";
 
 import { Combobox } from "./Combobox";
-import {
-  providerApiKeyFieldPlaceholder,
-} from "./providerApiKeyPlaceholder";
+import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 import { Switch } from "./Switch";
+import { useT } from "../i18n/I18nProvider";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -153,9 +152,16 @@ function SchemaField(props: {
   const path = props.path ?? name;
   const label = schema.title || name;
   const t = schema.type;
+  const { t: tr } = useT();
 
   if (fieldOverride) {
-    const override = fieldOverride({ path, schema, value, onChange, parentObj });
+    const override = fieldOverride({
+      path,
+      schema,
+      value,
+      onChange,
+      parentObj,
+    });
     if (override != null) {
       return <>{override}</>;
     }
@@ -241,8 +247,8 @@ function SchemaField(props: {
               <button
                 type="button"
                 className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-                aria-label="Remove"
-                title="Remove"
+                aria-label={tr("settings.array.removeAria")}
+                title={tr("settings.array.removeTitle")}
                 onClick={() => {
                   const next = arr.filter((_, j) => j !== i);
                   onChange(next);
@@ -261,7 +267,7 @@ function SchemaField(props: {
             onChange([...arr, seed]);
           }}
         >
-          Add
+          {tr("settings.array.add")}
         </button>
       </fieldset>
     );
@@ -387,9 +393,12 @@ export function SchemaForm(props: {
   fieldOverride?: FieldOverride | undefined;
 }) {
   const { schema, value, onChange, fieldOverride } = props;
+  const { t } = useT();
   if (schema.type !== "object" || !schema.properties) {
     return (
-      <p className="settings-muted">Unsupported schema root (expected object).</p>
+      <p className="settings-muted">
+        {t("settings.error.unsupportedSchemaRoot")}
+      </p>
     );
   }
   return (
