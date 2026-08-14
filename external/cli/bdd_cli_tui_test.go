@@ -273,17 +273,6 @@ func (s *cliTUIState) waitScreen(needle string, timeout time.Duration) error {
 	return fmt.Errorf("screen never showed %q; last frame:\n%s", needle, s.screenText())
 }
 
-func (s *cliTUIState) waitGone(needle string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if !strings.Contains(s.screenText(), needle) {
-			return nil
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	return fmt.Errorf("screen still shows %q", needle)
-}
-
 func (s *cliTUIState) typeText(text string) {
 	for _, r := range text {
 		s.app.OnTerminalInput([]byte(string(r)))

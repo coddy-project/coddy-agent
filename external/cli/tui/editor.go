@@ -42,13 +42,12 @@ type Editor struct {
 	cursorLine int
 	cursorCol  int // byte offset within lines[cursorLine]
 
-	scrollOffset     int
-	lastLayoutWidth  int
-	preferredVisCol  int
-	hasPreferredCol  bool
-	paddingX         int
-	focused          bool
-	borderColorSaved func(string) string
+	scrollOffset    int
+	lastLayoutWidth int
+	preferredVisCol int
+	hasPreferredCol bool
+	paddingX        int
+	focused         bool
 
 	history        []string
 	historyIndex   int // -1 = not browsing
@@ -555,7 +554,7 @@ func (e *Editor) refreshAutocomplete(force bool) {
 	}
 	sel := make([]SelectItem, 0, len(items))
 	for _, it := range items {
-		sel = append(sel, SelectItem{Value: it.Value, Label: it.Label, Description: it.Description})
+		sel = append(sel, SelectItem(it))
 	}
 	if e.acList == nil {
 		e.acList = NewSelectList(sel, e.acMaxRows, e.acStyle, e.acLayout)
@@ -569,9 +568,7 @@ func (e *Editor) refreshAutocomplete(force bool) {
 }
 
 func (e *Editor) applyCompletion(item SelectItem) {
-	lines, ln, col := e.provider.Apply(e.lines, e.cursorLine, e.cursorCol, AutocompleteItem{
-		Value: item.Value, Label: item.Label, Description: item.Description,
-	})
+	lines, ln, col := e.provider.Apply(e.lines, e.cursorLine, e.cursorCol, AutocompleteItem(item))
 	if len(lines) == 0 {
 		lines = []string{""}
 	}

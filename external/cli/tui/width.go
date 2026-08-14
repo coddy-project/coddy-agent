@@ -165,12 +165,6 @@ func (t *ansiTracker) reset() {
 	t.fgColor, t.bgColor = "", ""
 }
 
-func (t *ansiTracker) clear() {
-	t.reset()
-	t.linkOpen = false
-	t.linkParams, t.linkURL, t.linkTerm = "", "", ""
-}
-
 func (t *ansiTracker) process(code string) {
 	if params, url, term, ok := parseOsc8(code); ok {
 		if url == "" {
@@ -421,8 +415,6 @@ func wrapSingleLine(line string, width int) []string {
 		if tokenWidth > width && !isWhitespace {
 			if currentLine != "" {
 				wrapped = append(wrapped, currentLine+tracker.lineEndReset())
-				currentLine = ""
-				currentWidth = 0
 			}
 			broken := breakLongWord(token, width, tracker)
 			wrapped = append(wrapped, broken[:len(broken)-1]...)

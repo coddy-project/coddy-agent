@@ -156,7 +156,7 @@ func trimPartialClosingFence(text string) string {
 }
 
 var (
-	headingRegex   = regexp.MustCompile("^(#{1,6})\\s+(.*)$")
+	headingRegex   = regexp.MustCompile(`^(#{1,6})\s+(.*)$`)
 	hrRegex        = regexp.MustCompile(`^\s{0,3}((-\s*){3,}|(\*\s*){3,}|(_\s*){3,})$`)
 	bulletRegex    = regexp.MustCompile(`^(\s*)([-*+])\s+(.*)$`)
 	orderedRegex   = regexp.MustCompile(`^(\s*)(\d+)\.\s+(.*)$`)

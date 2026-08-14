@@ -111,10 +111,8 @@ type MainScreen struct {
 	showHardwareCursor bool
 	stopped            bool
 
-	lastRender    time.Time
-	renderPending bool
-	renderTimer   *time.Timer
-	renderCh      chan struct{}
+	lastRender time.Time
+	renderCh   chan struct{}
 }
 
 // NewMainScreen creates a renderer over t.

@@ -51,14 +51,13 @@ type App struct {
 	editor     *tui.Editor
 	foot       *footer
 
-	spinner     *tui.Loader
-	turnActive  bool
-	lastCtrlC   time.Time
-	expanded    bool
-	hideThink   bool
-	themeName   string
-	plain       bool
-	sessionsDir string
+	spinner    *tui.Loader
+	turnActive bool
+	lastCtrlC  time.Time
+	expanded   bool
+	hideThink  bool
+	themeName  string
+	plain      bool
 
 	// Streaming state.
 	curAssistant *assistantMessage
@@ -234,9 +233,7 @@ func (a *App) refreshFooterModel() {
 
 func (a *App) populateHeader() {
 	var contextFiles []string
-	for _, f := range a.cfg.Instructions.Files {
-		contextFiles = append(contextFiles, f)
-	}
+	contextFiles = append(contextFiles, a.cfg.Instructions.Files...)
 	var skillNames []string
 	rulesCount := 0
 	if st := a.mgr.SessionByID(a.sessionID); st != nil {
@@ -594,7 +591,7 @@ func (a *App) setModel(id string) {
 		if _, err := a.mgr.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
 			SessionID: sessionID, ConfigID: "model", Value: id,
 		}); err != nil {
-			a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
 			return
 		}
 	}()
@@ -792,7 +789,7 @@ func (a *App) newSession() {
 	go func() {
 		res, err := a.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
 		if err != nil {
-			a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "new session: " + err.Error()})
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "new session: " + err.Error()})
 			return
 		}
 		a.mgr.ForgetLiveSession(old)
@@ -806,9 +803,6 @@ func (a *App) newSession() {
 
 // sessionSwitched is an internal update completing /new.
 type sessionSwitched struct{ res *acp.SessionNewResult }
-
-// runCompactionOrSkill forwards non-client slash text as a prompt.
-func (a *App) runCompactionOrSkill(text string) { a.submitPrompt(text) }
 
 // slashCatalog merges server-advertised commands with client-side ones.
 func (a *App) slashCatalog() []tui.AutocompleteItem {
