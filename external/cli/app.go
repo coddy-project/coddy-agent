@@ -34,11 +34,16 @@ type turnDone struct {
 // App is the interactive console application: one UI goroutine over a
 // session manager, rendering ACP updates into a component tree.
 type App struct {
-	cfg   *config.Config
-	mgr   *session.Manager
-	log   *slog.Logger
-	term  appTerminal
-	theme *tui.Theme
+	cfg *config.Config
+	mgr backend
+	log *slog.Logger
+
+	// remoteURL is set when mgr talks to a remote coddy http server.
+	remoteURL string
+	// configOpts is the last adopted session option set (model catalog).
+	configOpts []acp.ConfigOption
+	term       appTerminal
+	theme      *tui.Theme
 
 	screen *tui.MainScreen
 
@@ -97,7 +102,7 @@ type App struct {
 }
 
 // newApp assembles the application over an existing manager and terminal.
-func newApp(cfg *config.Config, mgr *session.Manager, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
+func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	a := &App{
 		cfg:       cfg,
 		mgr:       mgr,
@@ -142,7 +147,7 @@ func (a *App) buildTree() {
 	a.editor.OnSubmit = a.onSubmit
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
-	a.foot = newFooter(a.theme, a.mgr.Cfg().Paths.CWD)
+	a.foot = newFooter(a.theme, a.cfg.Paths.CWD)
 
 	root := a.screen.Root
 	root.AddChild(a.header)
@@ -153,7 +158,7 @@ func (a *App) buildTree() {
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
 
-	provider := newCompletionProvider(a.mgr.Cfg().Paths.CWD, a.slashCatalog)
+	provider := newCompletionProvider(a.cfg.Paths.CWD, a.slashCatalog)
 	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
 }
 
@@ -170,7 +175,7 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 			}
 			a.mgr.SetPreferredSessionID(sessionID)
 		}
-		res, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
+		res, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
@@ -179,6 +184,9 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 		// once the UI loop is draining updates, so a large replay can never
 		// fill the channel while nothing consumes it.
 		a.readyPending = res.SessionID
+	}
+	if a.remoteURL != "" {
+		a.appendStatus(roleDim, "remote: "+tui.SanitizeText(a.remoteURL))
 	}
 	a.populateHeader()
 	return nil
@@ -217,6 +225,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 	if modes != nil {
 		a.modeID = modes.CurrentModeID
 	}
+	a.configOpts = opts
 	for _, opt := range opts {
 		if opt.ID == "model" {
 			a.modelID = opt.CurrentValue
@@ -612,6 +621,9 @@ func (a *App) stopSpinner() {
 // --- model / reasoning / expand toggles ---
 
 func (a *App) modelIDs() []string {
+	if values := a.adoptedModelValues(); len(values) > 0 {
+		return values
+	}
 	var ids []string
 	for _, m := range a.cfg.Models {
 		ids = append(ids, m.Model)
@@ -619,12 +631,29 @@ func (a *App) modelIDs() []string {
 	return ids
 }
 
+// adoptedModelValues lists the model option values from the current session
+// options (empty when the backend advertised none).
+func (a *App) adoptedModelValues() []string {
+	for _, opt := range a.configOpts {
+		if opt.ID != "model" {
+			continue
+		}
+		var values []string
+		for _, v := range opt.Options {
+			values = append(values, v.Value)
+		}
+		return values
+	}
+	return nil
+}
+
 func (a *App) openModelSelector() {
-	items := make([]tui.SelectItem, 0, len(a.cfg.Models))
+	ids := a.modelIDs()
+	items := make([]tui.SelectItem, 0, len(ids))
 	current := 0
-	for i, m := range a.cfg.Models {
-		items = append(items, tui.SelectItem{Value: m.Model, Label: tui.SanitizeText(m.Model)})
-		if m.Model == a.modelID {
+	for i, id := range ids {
+		items = append(items, tui.SelectItem{Value: id, Label: tui.SanitizeText(id)})
+		if id == a.modelID {
 			current = i
 		}
 	}
@@ -718,30 +747,18 @@ func (a *App) toggleThinking() {
 
 // loadToolResult reads the persisted full tool output for expand.
 func (a *App) loadToolResult(toolCallID string) (string, bool) {
-	st := a.mgr.SessionByID(a.sessionID)
-	if st == nil {
-		return "", false
-	}
-	dir := st.GetPersistedSessionDir()
-	if dir == "" {
-		return "", false
-	}
-	full, err := session.ReadToolCallResult(dir, toolCallID)
-	if err != nil || full == "" {
-		return "", false
-	}
-	return full, true
+	return a.mgr.ToolCallResult(a.sessionID, toolCallID)
 }
 
 // pickSessionBlocking shows the resume picker before the UI loop starts.
 func (a *App) pickSessionBlocking(ctx context.Context) error {
-	cwd := a.mgr.Cfg().Paths.CWD
+	cwd := a.cfg.Paths.CWD
 	res, err := a.mgr.HandleSessionList(ctx, acp.SessionListParams{CWD: &cwd})
 	if err != nil {
 		return fmt.Errorf("session list: %w", err)
 	}
 	if len(res.Sessions) == 0 {
-		newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
+		newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
@@ -778,7 +795,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 		case item := <-choice:
 			a.closeModal()
 			if item == nil {
-				newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
+				newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
 				if err != nil {
 					return fmt.Errorf("session/new: %w", err)
 				}
@@ -802,7 +819,7 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 	}
 	resCh := make(chan loadResult, 1)
 	go func() {
-		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.mgr.Cfg().Paths.CWD})
+		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.cfg.Paths.CWD})
 		mode := ""
 		if err == nil && res != nil && res.Modes != nil {
 			mode = res.Modes.CurrentModeID
@@ -877,7 +894,7 @@ func (a *App) startNewSessionWorker(old string) {
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		res, err := a.mgr.HandleSessionNew(a.workCtx, acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
+		res, err := a.mgr.HandleSessionNew(a.workCtx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
 		if err != nil {
 			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
@@ -941,13 +958,17 @@ func (a *App) ExitHint() string {
 	if a.sessionID == "" {
 		return ""
 	}
+	if a.remoteURL != "" {
+		return fmt.Sprintf("session: %s\ncontinue: coddy --remote %s --session-id %s  (or: coddy --remote %s -c)",
+			a.sessionID, a.remoteURL, a.sessionID, a.remoteURL)
+	}
 	return fmt.Sprintf("session: %s\ncontinue: coddy cli --session-id %s  (or: coddy -c)", a.sessionID, a.sessionID)
 }
 
 // StartContinue reopens the most recent session recorded for this folder
 // (the -c/--continue flag).
 func (a *App) StartContinue(ctx context.Context) error {
-	id, err := latestSessionID(a.mgr.FileStore(), a.mgr.Cfg().Paths.CWD)
+	id, err := latestBackendSessionID(ctx, a.mgr, a.cfg.Paths.CWD)
 	if err != nil {
 		return err
 	}

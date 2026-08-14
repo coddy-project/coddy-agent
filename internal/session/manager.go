@@ -722,6 +722,24 @@ func (m *Manager) SessionByID(id string) *State {
 	return m.getSession(id)
 }
 
+// ToolCallResult returns the persisted full output of one tool call in this
+// session ("", false when the session or the artifact is unavailable).
+func (m *Manager) ToolCallResult(sessionID, toolCallID string) (string, bool) {
+	st := m.getSession(sessionID)
+	if st == nil {
+		return "", false
+	}
+	dir := strings.TrimSpace(st.GetPersistedSessionDir())
+	if dir == "" {
+		return "", false
+	}
+	full, err := ReadToolCallResult(dir, toolCallID)
+	if err != nil || full == "" {
+		return "", false
+	}
+	return full, true
+}
+
 // HandleSessionReady publishes notifications that require the ACP client to
 // have registered the session after receiving session/new or session/load.
 func (m *Manager) HandleSessionReady(sessionID string) {

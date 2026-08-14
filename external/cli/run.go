@@ -21,6 +21,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -50,6 +51,8 @@ func Run(args []string, deps CommandDeps) error {
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
+	remoteFlag := fs.String("remote", "", "connect to a remote coddy http server (configured remote name, host:port, or http(s) URL)")
+	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")
 	themeFlag := fs.String("theme", "auto", "color theme: dark|light|auto")
 	plainFlag := fs.Bool("plain", false, "deterministic rendering for tests: no terminal queries or protocol negotiation")
 	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
@@ -101,6 +104,11 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
+	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
+	if err != nil {
+		return err
+	}
+
 	log, logCloser, err := isolatedLogger(cfg, paths.Home, *logLevel, *logFile)
 	if err != nil {
 		return err
@@ -136,14 +144,7 @@ func Run(args []string, deps CommandDeps) error {
 		if *resume {
 			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
 		}
-		lateSender := &lateBoundSender{}
-		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-			loop := agent.NewAgent(cfg, st, snd, log)
-			return loop.Run(rctx, prompt)
-		}
-		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
-		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
-		return PrintPrompt(ctx, mgr, PrintOptions{
+		popts := PrintOptions{
 			Prompt:       promptFlag,
 			Out:          os.Stdout,
 			ErrOut:       os.Stderr,
@@ -152,13 +153,40 @@ func Run(args []string, deps CommandDeps) error {
 			Model:        opts.model,
 			Mode:         opts.mode,
 			PermMode:     opts.permMode,
-		})
+			Config:       cfg,
+		}
+		if ropts != nil {
+			ropts.Log = log
+			h, herr := remote.NewHandler(*ropts)
+			if herr != nil {
+				return herr
+			}
+			h.SetServer(&printSender{mgr: h, cfg: cfg, out: os.Stdout, errOut: os.Stderr})
+			return PrintPrompt(ctx, h, popts)
+		}
+		lateSender := &lateBoundSender{}
+		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+			loop := agent.NewAgent(cfg, st, snd, log)
+			return loop.Run(rctx, prompt)
+		}
+		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		return PrintPrompt(ctx, mgr, popts)
 	}
 
 	term := tui.NewProcessTerminal()
 	term.SetPlain(*plainFlag)
 
-	app := buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+	var app *App
+	if ropts != nil {
+		ropts.Log = log
+		app, err = buildRemoteApp(cfg, ropts, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+		if err != nil {
+			return err
+		}
+	} else {
+		app = buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+	}
 	llmWarmupNotices(log, cfg)
 
 	// Startup that can fail happens before raw mode. With --resume no session
@@ -204,6 +232,22 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	return app
+}
+
+// buildRemoteApp wires the console against a remote coddy http server: the
+// remote handler replaces the manager and streams ACP updates back through
+// the app's sender.
+func buildRemoteApp(cfg *config.Config, ropts *remote.Options, log *slog.Logger, term appTerminal, themeName string, plain bool) (*App, error) {
+	h, err := remote.NewHandler(*ropts)
+	if err != nil {
+		return nil, err
+	}
+	lateSender := &lateBoundSender{}
+	h.SetServer(lateSender)
+	app := newApp(cfg, h, log, term, themeName, plain)
+	app.remoteURL = h.BaseURL()
+	lateSender.inner = app.Sender()
+	return app, nil
 }
 
 // lateBoundSender lets the manager be constructed before the app exists.

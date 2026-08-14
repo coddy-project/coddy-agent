@@ -107,6 +107,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.modeID = u.CurrentModeID
 		a.foot.SetSession("", a.modeID)
 	case acp.ConfigOptionUpdate:
+		a.configOpts = u.ConfigOptions
 		for _, opt := range u.ConfigOptions {
 			if opt.ID == "model" {
 				a.modelID = opt.CurrentValue

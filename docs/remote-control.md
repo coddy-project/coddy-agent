@@ -22,6 +22,14 @@ point the UI at it from another origin. Shipped:
 - **e2e parity proof**: `features/remote_api.feature` (godog) +
   `examples/httpserver/http_e2e_remote.py` — remote == local for auth, cwd change, session load,
   streaming, config redaction, and local fallback.
+- **Go remote client for the console and ACP** (branch `feat/cli-tui`): `internal/remote`
+  implements the session handler surface over the HTTP API (SSE frame translation back into ACP
+  updates, permission/question answers through `/coddy/sessions/{id}/permission|question`,
+  session list/load/cancel, remote model catalog). Consumed by `coddy` / `coddy cli` and
+  `coddy acp` via `--remote <name|host:port|url>` + `--remote-token` (or `CODDY_REMOTE_TOKEN`);
+  named remotes resolve from `httpserver.remotes`. Tokens stay out of config.yaml by design.
+  Specs: `features/remote_client.feature`, `features/cli_remote.feature`; live e2e:
+  `examples/cli/cli_e2e_remote.py`, `examples/acp/acp_remote.py`.
 
 ### Deferred (not built here)
 
