@@ -28,4 +28,4 @@ plain-text screen dump (`.txt`) used for layout comparisons in tests.
 
 Color contract comes from pi `theme/dark.json` and `theme/light.json`
 (`packages/coding-agent/src/modes/interactive/theme/`); coddy maps those token
-roles onto its own palette (see `DESIGN.md`).
+roles onto its own palette. The console visual contract is `docs/cli.md`.

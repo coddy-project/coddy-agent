@@ -167,7 +167,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory,cli`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -175,6 +175,7 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 | **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
+| **`cli`** | Interactive console TUI — bare **`coddy`** on a terminal (or **`coddy cli`**), pi-style chat with streaming, tool boxes, permission modals | [`docs/cli.md`](docs/cli.md) |
 | **`gateway.telegram`** | Telegram bot adapter — **`coddy gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
 

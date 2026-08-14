@@ -83,6 +83,9 @@ jobs:
       - name: Run platform tests
         run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/...
 
+      - name: Run console TUI tests (fake terminal, no pty)
+        run: go test -tags=cli ./external/cli/...
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -110,3 +113,9 @@ jobs:
         with:
           version: v2.12.2
           args: ./...
+
+      - name: Run golangci-lint over the cli-tagged console surface
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          args: --build-tags cli ./external/cli/... ./cmd/coddy/...
