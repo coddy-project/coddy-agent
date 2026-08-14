@@ -47,9 +47,20 @@ func (s *sender) SendSessionUpdate(sessionID string, update interface{}) error {
 }
 
 // RequestPermission blocks the calling turn worker until the operator picks
-// an option in the modal (or bypass mode short-circuits).
+// an option in the modal (or bypass mode short-circuits). The session-level
+// permission override wins over the YAML default, mirroring the agent's own
+// effective-mode resolution.
 func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if cfg := s.app.cfg; cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	mode := ""
+	if st := s.app.mgr.SessionByID(params.SessionID); st != nil {
+		mode = st.GetPermissionMode()
+	}
+	if mode == "" {
+		if cfg := s.app.cfg; cfg != nil {
+			mode = cfg.Tools.ResolvedPermMode()
+		}
+	}
+	if mode == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	req := permRequest{params: params, reply: make(chan *acp.PermissionResult, 1)}

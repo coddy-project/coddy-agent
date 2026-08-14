@@ -251,7 +251,7 @@ class CoddyTUI:
                 meta = call / "meta.json"
                 if meta.exists():
                     try:
-                        names.add(json.loads(meta.read_text()).get("tool_name", ""))
+                        names.add(json.loads(meta.read_text()).get("name", ""))
                     except json.JSONDecodeError:
                         continue
         return names

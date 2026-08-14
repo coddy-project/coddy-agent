@@ -1,0 +1,35 @@
+                                                                                                    
+ coddy v0.9.63-5-ga9b4d82-dirty                                                                     
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more                             
+                                                                                                    
+[Context]                                                                                           
+  AGENTS.md                                                                                         
+                                                                                                    
+[Skills]                                                                                            
+  generate-rules                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/coddy-cli-capture-light-work-bfslz2k5                                                          
+                                                                            (neuraldeep) qwen3.8-27b
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
