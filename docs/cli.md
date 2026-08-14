@@ -10,8 +10,17 @@ full binary is `make build TAGS="http ui scheduler memory cli"`). In builds
 without the tag, `coddy cli` explains how to rebuild and bare `coddy` keeps
 printing usage.
 
-Launch: bare `coddy` on a terminal (both stdin and stdout must be ttys — pipes
-and CI keep the usage contract), or explicitly `coddy cli [flags]`.
+Launch: bare `coddy` on a terminal (both stdin and stdout must be ttys —
+pipes and CI keep the usage contract), explicitly `coddy cli [flags]`, or with
+flag-style shortcuts routed to the console: `coddy -c` continues the latest
+session in this folder and `coddy -p "..."` runs one non-interactive prompt.
+Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
+after the terminal is restored:
+
+```
+session: sess_1a2b3c4d
+continue: coddy cli --session-id sess_1a2b3c4d  (or: coddy -c)
+```
 
 ## Visual model
 
@@ -83,16 +92,32 @@ selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
 `--session-id <id>` reopens (or creates) that session and replays its
-transcript. `--resume` opens the session picker first and creates nothing
+transcript. `-c/--continue` reopens the most recent session recorded for this
+folder (errors when none exists; mutually exclusive with `--session-id` and
+`--resume`). `--resume` opens the session picker first and creates nothing
 until you choose (mutually exclusive with `--session-id`; `--model`,
 `--mode`, and `--permission-mode` apply to whichever session the picker
 selects). `--model`, `--mode agent|plan`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
-manager config-option API before the UI starts. `--theme dark|light|auto`
-(auto falls back COLORFGBG → dark). `--plain` disables terminal queries,
-modifyOtherKeys, titles, and OSC 8 for deterministic automation. Logging is
-forced away from the terminal into `<home>/logs/cli.log` (`--log-file`,
-`--log-level`).
+manager config-option API before the UI starts, in every launch mode
+(interactive, `--continue`, `--resume`, and `--prompt`). `--theme
+dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
+terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
+automation. Logging is forced away from the terminal into
+`<home>/logs/cli.log` (`--log-file`, `--log-level`).
+
+## One-shot print mode (`-p/--prompt`)
+
+`coddy -p "..."` (or `coddy cli --prompt "..."`) runs a single agent turn
+without a terminal: assistant text streams to stdout, diagnostics go to
+stderr, and the process exits non-zero on errors or a cancelled turn. No tty
+is required, so it fits scripts and cron. The turn persists as a normal
+session, and `-c -p "..."` continues it — tokens, files, and tool state
+carry over exactly like the interactive console. Permission requests resolve
+non-interactively: `bypass` allows, anything else rejects the call with a
+note on stderr. The question tool returns empty answers. `--model`, `--mode`,
+`--permission-mode`, `--session-id`, and `--continue` all combine with
+`--prompt`; `--resume` does not (it needs the interactive picker).
 
 ## Security
 

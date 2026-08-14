@@ -92,6 +92,16 @@ func main() {
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
+	// Flag-looking arguments belong to the console surface: `coddy -c`,
+	// `coddy -p "..."`, `coddy --resume` mirror claude/pi ergonomics. Lean
+	// builds answer with the cli_stub rebuild hint.
+	if strings.HasPrefix(args[0], "-") {
+		if err := runCLI(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	var err error
 	switch args[0] {
@@ -131,6 +141,8 @@ func main() {
 func printUsage(w *os.File) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
+  %[1]s -c | --continue (console: continue the latest session here)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
   %[1]s -h | --help
   %[1]s -v | --version
   %[1]s cli [flags] (interactive console TUI)

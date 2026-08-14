@@ -279,16 +279,20 @@ func (a *App) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-a.closed:
+			// requestQuit closed the app: leave without waiting for the next
+			// event (double ctrl+c used to hang here until another key).
+			return a.quitErr
 		case data, ok := <-a.inputCh:
 			if !ok {
 				return nil
 			}
 			if a.handleGlobalKey(data) {
+				if a.quitRequested() {
+					return a.quitErr
+				}
 				render.now()
 				continue
-			}
-			if quit := a.quitRequested(); quit {
-				return a.quitErr
 			}
 			a.dispatchInput(data)
 			render.now()
@@ -929,4 +933,23 @@ func (a *App) handlePaste(body []byte) {
 	if qm, ok := a.modal.(*questionModal); ok {
 		qm.InsertPaste(string(body))
 	}
+}
+
+// ExitHint names the finished session and the command that reopens it,
+// printed after the terminal is restored (pi/opencode-style resume hint).
+func (a *App) ExitHint() string {
+	if a.sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("session: %s\ncontinue: coddy cli --session-id %s  (or: coddy -c)", a.sessionID, a.sessionID)
+}
+
+// StartContinue reopens the most recent session recorded for this folder
+// (the -c/--continue flag).
+func (a *App) StartContinue(ctx context.Context) error {
+	id, err := latestSessionID(a.mgr.FileStore(), a.mgr.Cfg().Paths.CWD)
+	if err != nil {
+		return err
+	}
+	return a.Start(ctx, id, false)
 }

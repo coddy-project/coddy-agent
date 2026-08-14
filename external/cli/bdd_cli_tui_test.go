@@ -80,6 +80,27 @@ type cliTUIState struct {
 	blockedCh    chan struct{}
 
 	prevSessionID string
+
+	printOut  *syncBuffer
+	printDone chan error
+}
+
+// syncBuffer is a goroutine-safe string sink for the one-shot print steps.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func (s *cliTUIState) reset() {
@@ -92,6 +113,8 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	s.printOut = nil
+	s.printDone = nil
 	s.directives = make(chan stubDirective, 16)
 	s.turnEnds = make(chan struct{}, 4)
 }
@@ -344,6 +367,11 @@ func (s *cliTUIState) operatorSubmitsPrompt(text string) error {
 func (s *cliTUIState) stubStreamsText(text string) error {
 	s.directives <- stubDirective{kind: "stream", text: text}
 	s.directives <- stubDirective{kind: "end"}
+	if s.printDone != nil {
+		// One-shot print mode has no screen; the output buffer is asserted
+		// by the dedicated step.
+		return s.waitTurnEnd(2 * time.Second)
+	}
 	if err := s.waitScreen(text, 3*time.Second); err != nil {
 		return err
 	}
@@ -689,6 +717,13 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator starts a new session$`, s.operatorStartsNewSession)
 	sc.Step(`^the cancelled turn emits a late text chunk "([^"]*)"$`, s.cancelledTurnEmitsLateChunk)
 	sc.Step(`^the transcript does not show "([^"]*)"$`, s.transcriptDoesNotShow)
+	sc.Step(`^the operator presses ctrl\+c twice$`, s.operatorPressesCtrlCTwice)
+	sc.Step(`^the console app stops within two seconds$`, s.consoleStopsWithinTwoSeconds)
+	sc.Step(`^the exit hint names the session and the continue command$`, s.exitHintNamesSessionAndContinue)
+	sc.Step(`^the console app starts continuing the latest session$`, s.appStartsContinuingLatest)
+	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
+	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)
 }
 
 func TestCLITUIFeature(t *testing.T) {
@@ -704,5 +739,93 @@ func TestCLITUIFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("cli tui feature suite failed")
+	}
+}
+
+// --- ctrl+c exit, continue, and one-shot print steps ---
+
+func (s *cliTUIState) operatorPressesCtrlCTwice() error {
+	s.press("\x03")
+	time.Sleep(50 * time.Millisecond)
+	s.press("\x03")
+	return nil
+}
+
+func (s *cliTUIState) consoleStopsWithinTwoSeconds() error {
+	select {
+	case err := <-s.appDone:
+		if err != nil {
+			return fmt.Errorf("app returned an error on quit: %v", err)
+		}
+		return nil
+	case <-time.After(2 * time.Second):
+		return fmt.Errorf("the console did not stop after double ctrl+c")
+	}
+}
+
+func (s *cliTUIState) exitHintNamesSessionAndContinue() error {
+	hint := s.app.ExitHint()
+	if !strings.Contains(hint, s.app.sessionID) {
+		return fmt.Errorf("exit hint %q does not name session %q", hint, s.app.sessionID)
+	}
+	if !strings.Contains(hint, "coddy cli --session-id") {
+		return fmt.Errorf("exit hint %q lacks the continue command", hint)
+	}
+	return nil
+}
+
+func (s *cliTUIState) appStartsContinuingLatest() error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.runCtx, s.runCancel = ctx, cancel
+	if err := s.app.StartContinue(ctx); err != nil {
+		cancel()
+		return err
+	}
+	s.appDone = make(chan error, 1)
+	go func() { s.appDone <- s.app.Run(ctx) }()
+	return s.waitScreen("coddy v", 3*time.Second)
+}
+
+func (s *cliTUIState) operatorRunsOneShot(prompt string) error {
+	if s.app == nil {
+		if err := s.buildApp(); err != nil {
+			return err
+		}
+	}
+	s.printOut = &syncBuffer{}
+	s.printDone = make(chan error, 1)
+	go func() {
+		s.printDone <- PrintPrompt(context.Background(), s.app.mgr, PrintOptions{
+			Prompt: prompt,
+			Out:    s.printOut,
+			ErrOut: &syncBuffer{},
+		})
+	}()
+	time.Sleep(100 * time.Millisecond)
+	return nil
+}
+
+func (s *cliTUIState) oneShotOutputContains(text string) error {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(s.printOut.String(), text) {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("one-shot output %q never contained %q", s.printOut.String(), text)
+}
+
+func (s *cliTUIState) oneShotEndsCleanly() error {
+	select {
+	case err := <-s.printDone:
+		return err
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("one-shot run did not finish")
 	}
 }

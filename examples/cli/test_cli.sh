@@ -44,6 +44,7 @@ fi
 
 CORE_SCRIPTS=(
   cli_smoke.py
+  cli_e2e_print.py
   cli_e2e_models.py
   cli_e2e_permissions.py
   cli_e2e_resume.py
@@ -52,6 +53,7 @@ CORE_SCRIPTS=(
 )
 ALL_SCRIPTS=(
   cli_smoke.py
+  cli_e2e_print.py
   cli_e2e_models.py
   cli_e2e_toolcalls_persist.py
   cli_e2e_permissions.py

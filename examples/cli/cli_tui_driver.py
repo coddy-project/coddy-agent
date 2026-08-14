@@ -73,6 +73,42 @@ def require_cli_build(binary: str) -> None:
         raise SystemExit("coddy binary lacks the cli tag: rebuild with make build TAGS=\"cli scheduler memory\"")
 
 
+def prepare_home(name: str, model: str = DEFAULT_MODEL) -> tuple[Path, Path]:
+    """Create a temp CODDY_HOME (config + .env) and workdir without spawning."""
+    home = Path(tempfile.mkdtemp(prefix=f"coddy-cli-{name}-home-"))
+    work = Path(tempfile.mkdtemp(prefix=f"coddy-cli-{name}-work-"))
+    _render_config_into(home, model)
+    _seed_env_into(home)
+    return home, work
+
+
+def _render_config_into(home: Path, model: str) -> None:
+    template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
+    resolved = template.replace("__E2E_LOG_PATH__", str(home / "e2e.log"))
+    resolved = resolved.replace(
+        'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{model}"\n  max_turns'
+    )
+    resolved = resolved.replace(
+        'memory:\n  enabled: true\n  model: "rpa/gpt-oss:120b"',
+        f'memory:\n  enabled: true\n  model: "{model}"',
+    )
+    (home / "config.yaml").write_text(resolved)
+    (home / "sessions").mkdir(exist_ok=True)
+    (home / "skills_fixture").mkdir(exist_ok=True)
+
+
+def _seed_env_into(home: Path) -> None:
+    if os.environ.get("NEURALDEEP_API_KEY"):
+        (home / ".env").write_text(f"NEURALDEEP_API_KEY={os.environ['NEURALDEEP_API_KEY']}\n")
+        return
+    global_env = Path.home() / ".coddy" / ".env"
+    if global_env.exists():
+        for line in global_env.read_text().splitlines():
+            if line.startswith("NEURALDEEP_API_KEY="):
+                (home / ".env").write_text(line + "\n")
+                return
+
+
 class CoddyTUI:
     """One interactive coddy console session in an emulated terminal."""
 
@@ -128,32 +164,11 @@ class CoddyTUI:
         )
 
     def _render_config(self) -> None:
-        template = (REPO_ROOT / "examples" / "config.demo.yaml").read_text()
-        resolved = template.replace("__E2E_LOG_PATH__", str(self.home / "e2e.log"))
-        resolved = resolved.replace(
-            'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{self.model}"\n  max_turns'
-        )
-        resolved = resolved.replace(
-            'memory:\n  enabled: true\n  model: "rpa/gpt-oss:120b"',
-            f'memory:\n  enabled: true\n  model: "{self.model}"',
-        )
-        (self.home / "config.yaml").write_text(resolved)
-        (self.home / "sessions").mkdir(exist_ok=True)
-        (self.home / "skills_fixture").mkdir(exist_ok=True)
+        _render_config_into(self.home, self.model)
 
     def _seed_env_file(self) -> None:
         """Copy exactly the NEURALDEEP_API_KEY line into the temp home .env."""
-        if os.environ.get("NEURALDEEP_API_KEY"):
-            (self.home / ".env").write_text(
-                f"NEURALDEEP_API_KEY={os.environ['NEURALDEEP_API_KEY']}\n"
-            )
-            return
-        global_env = Path.home() / ".coddy" / ".env"
-        if global_env.exists():
-            for line in global_env.read_text().splitlines():
-                if line.startswith("NEURALDEEP_API_KEY="):
-                    (self.home / ".env").write_text(line + "\n")
-                    return
+        _seed_env_into(self.home)
 
     # --- pty pumping ---
 

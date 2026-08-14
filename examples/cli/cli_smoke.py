@@ -23,6 +23,11 @@ def main() -> int:
             raise AssertionError(f"messages.json roles = {roles}")
         if "CLI_SMOKE_OK" not in tui.assistant_text():
             raise AssertionError("assistant reply with the token was not persisted")
+        # Double ctrl+c must exit promptly and print the resume hint.
+        tui.send("\x03")
+        tui.pump(0.2)
+        tui.send("\x03")
+        tui.wait_for("continue: coddy cli --session-id", timeout=10)
         return ok("cli_smoke")
     finally:
         tui.close()

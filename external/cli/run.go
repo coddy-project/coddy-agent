@@ -41,6 +41,12 @@ func Run(args []string, deps CommandDeps) error {
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	sessionID := fs.String("session-id", "", "reopen or create the session under this id")
 	resume := fs.Bool("resume", false, "open the session picker before starting")
+	var contFlag bool
+	fs.BoolVar(&contFlag, "continue", false, "continue the most recent session in this folder")
+	fs.BoolVar(&contFlag, "c", false, "shorthand for --continue")
+	var promptFlag string
+	fs.StringVar(&promptFlag, "prompt", "", "run one prompt non-interactively, print the answer, and exit")
+	fs.StringVar(&promptFlag, "p", "", "shorthand for --prompt")
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
 	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
@@ -62,8 +68,11 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
-	if !IsInteractiveTerminal() {
-		return errors.New("the interactive console needs a terminal on stdin and stdout (use `coddy acp` or `coddy http` for non-interactive automation)")
+	// One-shot print mode needs no terminal at all; only the interactive
+	// console insists on a tty.
+	printMode := strings.TrimSpace(promptFlag) != ""
+	if !printMode && !IsInteractiveTerminal() {
+		return errors.New("the interactive console needs a terminal on stdin and stdout (or run one prompt with -p/--prompt)")
 	}
 
 	cli := config.CLIPaths{
@@ -104,36 +113,81 @@ func Run(args []string, deps CommandDeps) error {
 		return err
 	}
 
-	term := tui.NewProcessTerminal()
-	term.SetPlain(*plainFlag)
-
-	app := buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
-	llmWarmupNotices(log, cfg)
-
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Startup that can fail happens before raw mode. With --resume no session
-	// is created here: the picker inside the interactive loop decides first
-	// and the startup options apply to whichever session it picks.
+	// Flag conflicts shared by both modes.
 	if *resume && strings.TrimSpace(*sessionID) != "" {
 		return errors.New("--resume and --session-id are mutually exclusive")
+	}
+	if contFlag && strings.TrimSpace(*sessionID) != "" {
+		return errors.New("--continue and --session-id are mutually exclusive")
+	}
+	if contFlag && *resume {
+		return errors.New("--continue and --resume are mutually exclusive")
 	}
 	opts := startupOptions{
 		model:    strings.TrimSpace(*modelFlag),
 		mode:     strings.TrimSpace(*modeFlag),
 		permMode: strings.TrimSpace(*permMode),
 	}
+
+	if printMode {
+		if *resume {
+			return errors.New("--resume needs the interactive picker; use --continue or --session-id with --prompt")
+		}
+		lateSender := &lateBoundSender{}
+		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
+			loop := agent.NewAgent(cfg, st, snd, log)
+			return loop.Run(rctx, prompt)
+		}
+		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
+		return PrintPrompt(ctx, mgr, PrintOptions{
+			Prompt:       promptFlag,
+			Out:          os.Stdout,
+			ErrOut:       os.Stderr,
+			SessionID:    strings.TrimSpace(*sessionID),
+			ContinueLast: contFlag,
+			Model:        opts.model,
+			Mode:         opts.mode,
+			PermMode:     opts.permMode,
+		})
+	}
+
+	term := tui.NewProcessTerminal()
+	term.SetPlain(*plainFlag)
+
+	app := buildApp(cfg, store, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
+	llmWarmupNotices(log, cfg)
+
+	// Startup that can fail happens before raw mode. With --resume no session
+	// is created here: the picker inside the interactive loop decides first
+	// and the startup options apply to whichever session it picks.
 	if !*resume {
-		if err := app.Start(ctx, strings.TrimSpace(*sessionID), false); err != nil {
-			return err
+		var startErr error
+		if contFlag {
+			startErr = app.StartContinue(ctx)
+		} else {
+			startErr = app.Start(ctx, strings.TrimSpace(*sessionID), false)
+		}
+		if startErr != nil {
+			return startErr
 		}
 		if err := app.ApplyStartupOptions(ctx, opts.model, opts.mode, opts.permMode); err != nil {
 			return err
 		}
 	}
 
-	return runInteractive(ctx, app, term, *resume, opts)
+	if err := runInteractive(ctx, app, term, *resume, opts); err != nil {
+		return err
+	}
+	// The resume hint prints after the terminal is fully restored, so it
+	// lands in normal scrollback under the finished transcript.
+	if hint := app.ExitHint(); hint != "" {
+		fmt.Println(hint)
+	}
+	return nil
 }
 
 // buildApp wires the manager triple (store -> manager -> app) with the app's

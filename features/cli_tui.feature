@@ -87,3 +87,21 @@ Feature: Interactive console TUI
     When the operator submits the prompt "fresh session work"
     And the stub turn streams the text "fresh reply"
     Then the transcript shows the assistant text "fresh reply"
+
+  Scenario: Double ctrl+c exits the console immediately and reports the session
+    When the console app starts
+    And the operator presses ctrl+c twice
+    Then the console app stops within two seconds
+    And the exit hint names the session and the continue command
+
+  Scenario: Continuing reopens the most recent session in this folder
+    Given a previous console session with the prompt "continue me" and the reply "continued"
+    When the console app starts continuing the latest session
+    Then the transcript shows a user message block containing "continue me"
+    And the transcript shows the assistant text "continued"
+
+  Scenario: A one-shot prompt prints the answer and exits
+    When the operator runs a one-shot prompt "automation ping"
+    And the stub turn streams the text "automation pong"
+    Then the one-shot output contains "automation pong"
+    And the one-shot run ends cleanly
