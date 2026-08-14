@@ -4,12 +4,20 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rivo/uniseg"
 )
 
 const maxHistoryEntries = 100
+
+// Large pastes collapse into an atomic marker (pi thresholds).
+const (
+	pasteMarkerLineThreshold = 10
+	pasteMarkerCharThreshold = 1000
+)
 
 // EditorTheme styles the editor chrome.
 type EditorTheme struct {
@@ -57,6 +65,9 @@ type Editor struct {
 
 	killRing []string
 
+	pastes       map[int]string
+	pasteCounter int
+
 	provider    AutocompleteProvider
 	acList      *SelectList
 	acOpen      bool
@@ -80,6 +91,7 @@ func NewEditor(t Terminal, theme EditorTheme, paddingX int) *Editor {
 		historyIndex: -1,
 		paddingX:     paddingX,
 		acMaxRows:    5,
+		pastes:       map[int]string{},
 	}
 }
 
@@ -241,7 +253,8 @@ func (e *Editor) HandleInput(data []byte) {
 }
 
 // InsertPaste inserts a bracketed-paste body, normalizing line endings and
-// tabs (4 spaces, pi normalizeText).
+// tabs (4 spaces, pi normalizeText). Large pastes collapse into an atomic
+// `[paste #N +K lines]` marker; the body is expanded again on submit.
 func (e *Editor) InsertPaste(body string) {
 	body = strings.ReplaceAll(body, "\r\n", "\n")
 	body = strings.ReplaceAll(body, "\r", "\n")
@@ -252,7 +265,44 @@ func (e *Editor) InsertPaste(body string) {
 			b.WriteRune(r)
 		}
 	}
-	e.insertText(b.String())
+	text := b.String()
+	lineCount := strings.Count(text, "\n") + 1
+	if lineCount > pasteMarkerLineThreshold || len(text) > pasteMarkerCharThreshold {
+		e.pasteCounter++
+		e.pastes[e.pasteCounter] = text
+		var marker string
+		if lineCount > pasteMarkerLineThreshold {
+			marker = fmt.Sprintf("[paste #%d +%d lines]", e.pasteCounter, lineCount)
+		} else {
+			marker = fmt.Sprintf("[paste #%d %d chars]", e.pasteCounter, len(text))
+		}
+		e.insertText(marker)
+		return
+	}
+	e.insertText(text)
+}
+
+var pasteMarkerRegex = regexp.MustCompile(`\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]`)
+
+// expandPasteMarkers substitutes stored paste bodies back into the text.
+func (e *Editor) expandPasteMarkers(text string) string {
+	if len(e.pastes) == 0 {
+		return text
+	}
+	return pasteMarkerRegex.ReplaceAllStringFunc(text, func(m string) string {
+		sub := pasteMarkerRegex.FindStringSubmatch(m)
+		if len(sub) < 2 {
+			return m
+		}
+		id, err := strconv.Atoi(sub[1])
+		if err != nil {
+			return m
+		}
+		if body, ok := e.pastes[id]; ok {
+			return body
+		}
+		return m
+	})
 }
 
 func isPrintableInput(s string) bool {
@@ -277,12 +327,14 @@ func (e *Editor) submit() {
 		e.insertNewline()
 		return
 	}
-	text := strings.TrimSpace(e.Text())
+	text := strings.TrimSpace(e.expandPasteMarkers(e.Text()))
 	e.lines = []string{""}
 	e.cursorLine, e.cursorCol = 0, 0
 	e.scrollOffset = 0
 	e.historyIndex = -1
 	e.hasPreferredCol = false
+	e.pastes = map[int]string{}
+	e.pasteCounter = 0
 	e.closeAutocomplete()
 	e.notifyChange()
 	if e.OnSubmit != nil {
