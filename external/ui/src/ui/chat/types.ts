@@ -43,7 +43,13 @@ export type TranscriptItem =
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
       /** Inline file attachments sent with this message. */
-      files?: { name: string; mimeType: string; sizeBytes?: number }[];
+      files?: {
+        name: string;
+        mimeType: string;
+        sizeBytes?: number;
+        /** Client-only blob URL for image previews; absent after a reload. */
+        previewUrl?: string;
+      }[];
     }
   | {
       id: string;

@@ -15,6 +15,7 @@ import {
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
 import { getEnv } from "./env/remoteEnv";
 import {
   isAbortError,
@@ -3109,13 +3110,7 @@ export function App() {
         content: text,
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
-          ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
-            }
+          ? { files: optimisticUserFiles(opts.files) }
           : {}),
       };
       const assistantId = newId("a");

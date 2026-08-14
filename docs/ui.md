@@ -207,7 +207,7 @@ Regression
   - **Clipboard paste** in **`textarea#composer`**: image items (`kind === "file"`, `image/*`) are attached and the default paste is cancelled; plain-text paste is untouched. Pasted images get deterministic names **`pasted-<n>.<ext>`** (browsers name every clipboard image `image.png`).
   - **Drag & drop** onto **`.composer-card`**: dropped files attach like a picker selection; while files are dragged over the card it shows the **`.composer-card--dragover`** drop-target affordance.
 - When the model is **not** multimodal, paste/drop rejection shows the transient inline notice **`.composer-attach-hint`** (`role="status"`, auto-clears after ~4s) instead of attaching.
-- Attachment chips show a **local object-URL thumbnail** (**`.composer-attachment-chip--image`** + **`.composer-attachment-thumb`**, 28×28 cover) for `image/*` files instead of the generic type icon; non-image files and locked edit-mode chips keep the icon. Thumbnails exist only in the composer — transcript bubbles stay metadata-only.
+- Attachment chips show a **local object-URL thumbnail** (**`.composer-attachment-chip--image`** + **`.composer-attachment-thumb`**, 28×28 cover) for `image/*` files instead of the generic type icon; non-image files and locked edit-mode chips keep the icon. The **sent user bubble** also renders a thumbnail (**`.msg-user-file-chip--image`** + **`.msg-user-file-thumb`**, 26×26) from the **`previewUrl`** blob URL attached to the optimistic item (**`optimisticUserFiles.ts`**); it survives transcript merges (**`preserveUserMessageFiles`** copies `files` verbatim) but is client-only — after a reload the server metadata has no bytes and chips fall back to the type icon.
 - **Attachment-only send** is valid: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`.
 - Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon (or thumbnail for images).
 - On send, **`App.tsx`** reads each file as a data URL via **`FileReader`** and includes **`inline_files: [{name, data_url}]`** in the **`POST /v1/responses`** body.
@@ -226,6 +226,7 @@ Regression
 | FA6 | Dropping files on `.composer-card` attaches them and toggles `composer-card--dragover` | `Composer.test.tsx` |
 | FA7 | `image/*` chips render `composer-attachment-thumb`; non-image chips keep the icon | `Composer.test.tsx` |
 | FA8 | Attachment alone unlocks Send/Enter and submits `onSend("", files)` | `Composer.test.tsx` |
+| FA9 | Sent bubble renders `msg-user-file-thumb` from `previewUrl` (image only); metadata-only entries keep the icon | `UserMessage.test.tsx`, `optimisticUserFiles.test.ts` |
 
 ## Composer slash skills and mirror caret
 

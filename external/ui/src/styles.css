@@ -1842,6 +1842,20 @@ a.rail-brand {
   white-space: nowrap;
 }
 
+/* Optimistic image preview: thumbnail replaces the icon until the page reloads. */
+.msg-user-file-chip--image .msg-user-file-chip-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.msg-user-file-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .msg-user-foot {
   display: flex;
   flex-direction: row;
