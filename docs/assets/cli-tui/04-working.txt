@@ -1,12 +1,15 @@
 
- coddy v0.9.63-5-ga9b4d82-dirty
+ coddy v0.9.63-22-g29eff94-dirty
  escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more
+
+ Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code.
 
 [Context]
   AGENTS.md
 
 [Skills]
   generate-rules
+
 
  What is 17*23? Explain briefly, then answer.
 
@@ -16,11 +19,8 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-/tmp/coddy-cli-capture-work-rkjx2vyj
+/tmp/coddy-cli-capture-work-fmt0itcd
                                                                             (neuraldeep) qwen3.8-27b
-
-
-
 
 
 

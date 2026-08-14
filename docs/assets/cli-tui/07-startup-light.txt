@@ -1,6 +1,8 @@
 
- coddy v0.9.63-5-ga9b4d82-dirty
+ coddy v0.9.63-22-g29eff94-dirty
  escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more
+
+ Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code.
 
 [Context]
   AGENTS.md
@@ -10,10 +12,8 @@
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-/tmp/coddy-cli-capture-light-work-bfslz2k5
+/tmp/coddy-cli-capture-light-work-k84oa8v8
                                                                             (neuraldeep) qwen3.8-27b
-
-
 
 
 

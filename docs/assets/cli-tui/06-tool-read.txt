@@ -1,10 +1,7 @@
 
- 17 × 23 = (17 × 20) + (17 × 3) = 340 + 51 = 391.
 
- Use the read tool to read demo.py, then say what it defines.
-
- memory: memory...
- The user is asking to read demo.py using the read tool and explain what it defines.
+ The user is asking me to read demo.py using the read tool and explain what it defines. Let's do
+ that.
 
 
 
@@ -18,18 +15,21 @@
      return f"Hello, {name}!"
 
 
- Simple.
+
+ The file exists and is very small. It defines a single function called greet.
 
 
 
 
- demo.py is a demo module that defines a single function:
+ demo.py is a tiny demo module that defines one function:
 
- - greet(name: str) -> str — takes a string name and returns the greeting "Hello, {name}!".
+ - greet(name: str) -> str — takes a string argument and returns the greeting "Hello, {name}!"
+   (e.g., greet("Ada") → "Hello, Ada!").
+
+ That's the only thing it defines; there are no classes, constants, or imports.
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-/tmp/coddy-cli-capture-work-rkjx2vyj
-↑13.9k ↓113 2.0%/262.1k (auto)                                              (neuraldeep) qwen3.8-27b
-
+/tmp/coddy-cli-capture-work-fmt0itcd
+↑14k ↓168 2.0%/262.1k (auto)                                                (neuraldeep) qwen3.8-27b
