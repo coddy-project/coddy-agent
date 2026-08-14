@@ -66,7 +66,8 @@ models:
 
   # Reasoning models expose a reasoning-level selector in the composer.
   # Levels are auto-detected from the model id (gpt-5* -> minimal,low,medium,high;
-  # o-series and Claude thinking models -> low,medium,high). Override or disable below.
+  # o-series, gpt-oss*, qwen3* — qwen3, qwen3.5, qwen3.6, ... — and Claude thinking
+  # models -> low,medium,high). Override or disable below.
   # - model: "openai/gpt-5"
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
@@ -76,10 +77,15 @@ models:
   #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
   #   reasoning_default: medium
 
+  # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
   #   multimodal: false
+
+  # - model: "neuraldeep/qwen3.6-35b-a3b"
+  #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
+  #   multimodal: true
 
 agent:
   model: "openai/gpt-4o"

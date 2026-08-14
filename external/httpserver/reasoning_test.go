@@ -23,9 +23,15 @@ import (
 func reasoningHTTPConfig() *config.Config {
 	return &config.Config{
 		Agent: config.Agent{Model: "openai/gpt-5"},
+		Providers: []config.ProviderConfig{
+			{Name: "openai", Type: "openai"},
+			{Name: "neuraldeep", Type: "neuraldeep"},
+		},
 		Models: []config.ModelEntry{
 			{Model: "openai/gpt-5", MaxTokens: 100, ReasoningDefault: "medium"},
 			{Model: "openai/gpt-4o", MaxTokens: 100},
+			{Model: "neuraldeep/qwen3.6-35b-a3b", MaxTokens: 100},
+			{Model: "neuraldeep/gpt-oss-120b", MaxTokens: 100},
 		},
 	}
 }
@@ -74,6 +80,13 @@ func TestGETModelsReasoningLevels(t *testing.T) {
 	if len(got["openai/gpt-4o"].levels) != 0 {
 		t.Errorf("gpt-4o reasoning_levels = %v, want empty", got["openai/gpt-4o"].levels)
 	}
+	// Qwen3 and gpt-oss families auto-detect to the standard level set.
+	if !reflect.DeepEqual(got["neuraldeep/qwen3.6-35b-a3b"].levels, []string{"low", "medium", "high"}) {
+		t.Errorf("qwen3.6 reasoning_levels = %v", got["neuraldeep/qwen3.6-35b-a3b"].levels)
+	}
+	if !reflect.DeepEqual(got["neuraldeep/gpt-oss-120b"].levels, []string{"low", "medium", "high"}) {
+		t.Errorf("gpt-oss reasoning_levels = %v", got["neuraldeep/gpt-oss-120b"].levels)
+	}
 }
 
 func TestProfileMetadataPatchReasoning(t *testing.T) {
@@ -103,6 +116,17 @@ func TestProfileMetadataPatchReasoning(t *testing.T) {
 	// A level not supported by the current model is rejected (minimal not valid for gpt-4o).
 	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"openai/gpt-4o","reasoning":"high"}`)); err == nil {
 		t.Error("expected error for reasoning on non-reasoning model")
+	}
+
+	// Auto-detected levels of qwen3 / gpt-oss models are selectable in the same way.
+	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/qwen3.6-35b-a3b","reasoning":"high"}`)); err != nil {
+		t.Fatalf("qwen patch: %v", err)
+	}
+	if _, err := profileMetadataPatch(cfg, st, json.RawMessage(`{"model":"neuraldeep/gpt-oss-120b","reasoning":"low"}`)); err != nil {
+		t.Fatalf("gpt-oss patch: %v", err)
+	}
+	if got := st.GetSelectedReasoning(); got != "low" {
+		t.Errorf("selected reasoning = %q, want low", got)
 	}
 }
 
