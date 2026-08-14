@@ -1,369 +1,370 @@
 # Plan: interactive console TUI (`coddy` with no arguments)
 
-Status: draft for cross-review (codex + cursor), then implementation.
+Status: v2 after cross-review (codex gpt-5.6-sol xhigh, cursor grok-4.6).
 Owner: feat/cli-tui branch.
+Review deltas from v1 are marked inline as `[rev]`.
 
 ## 1. Goal
 
-Add a fourth surface to coddy: an interactive terminal UI, visually replicating
-the pi coding agent's TUI (pi-mono `b1efcf7d7`, v0.84.2) as closely as
-practical ("pixel-perfect" for layout, borders, prefixes, spacing, spinner,
-markdown styling), with colors taken from coddy's own SPA palette. Bare `coddy`
-in a terminal starts it, so newcomers get a chat instead of a usage dump.
+Add a fourth surface to coddy: an interactive terminal UI, replicating the pi
+coding agent's TUI (pi-mono `b1efcf7d7`, v0.84.2, MIT — Mario Zechner) in
+layout, borders, prefixes, spacing, spinner, and markdown styling, with colors
+from coddy's SPA palette. Bare `coddy` on a TTY starts it.
 
-Reference captures: `docs/assets/pi-tui-reference/` (PNG + plain-text screen
-dumps of every target state, taken from pi 0.84.2 against
-`neuraldeep/qwen3.8-27b`).
+`[rev]` "Pixel parity" is **visual chrome parity**: geometry, borders,
+prefixes (`→ `, `│ `, `(i/n)`), spinner frames, tool-box structure, editor
+rules, footer layout. It is *not* transcript-equality with the pi reference
+dumps (those contain pi-specific content: pi version line, pi skills, pi slash
+catalog). Undo/yank-pop, kitty protocol negotiation, `!` bash mode, images,
+and pi's `/settings`, session-picker scope/sort/rename controls are **out of
+scope for v1** (documented divergences, follow-ups). Attribution: package doc
+comment + `docs/cli.md` credit pi-tui (MIT, commit `b1efcf7d7`).
 
-Everything the TUI does must reuse existing coddy machinery: `session.Manager`,
-`agent.NewAgent(...).Run`, `acp.UpdateSender` updates, `permission.Options`,
-config options (`mode` / `model` / `permission_mode`), skills slash catalog,
-`/compact` and `/plugin` built-ins, session store snapshots and replay. No new
-agent-side behavior.
+Reference captures: `docs/assets/pi-tui-reference/` (PNG + `.txt`, committed).
+The `.txt` dumps are the layout oracle for chrome only `[rev]`.
+
+Everything reuses existing coddy machinery: `session.Manager`,
+`agent.NewAgent(...).Run`, `acp.UpdateSender`, `permission.Options` (already
+applied by the agent — the TUI renders `params.Options` as given `[rev]`),
+config options (`mode`/`model`/`permission_mode`), skills slash catalog,
+`/compact` + `/plugin` built-ins, session snapshots and replay.
 
 ## 2. Placement and build wiring
 
-Decision follows the repo's existing optional-surface pattern (http/gateway):
-
-- New package **`external/cli`** behind **`//go:build cli`**, TUI framework in
-  subpackage **`external/cli/tui`** (also `//go:build cli` on every file).
+- Package **`external/cli`** (app) + **`external/cli/tui`** (framework),
+  every file `//go:build cli`.
 - **`cmd/coddy/cli.go`** (`//go:build cli`) + **`cmd/coddy/cli_stub.go`**
-  (`//go:build !cli`) exposing `runCLI(args []string) error`. Stub returns
-  "interactive console is not built in (rebuild with: go build -tags=cli)".
-- Dispatch in `cmd/coddy/main.go`:
-  - explicit subcommand `coddy cli [flags]` added to the switch and usage text;
-  - bare `coddy` (no args): when stdin **and** stdout are terminals, run
-    `runCLI(nil)`; otherwise keep today's behavior (usage to stderr, exit 1) so
-    scripts and pipes never hang. In `!cli` builds bare `coddy` keeps printing
-    usage (plus one hint line naming the `cli` tag) — the lean build contract
-    from AGENTS.md stays intact.
-  - TTY check uses `golang.org/x/term.IsTerminal` (promoted from go.sum;
-    zero-download, no new third-party dependency).
-- Import cycle break mirrors `httpserver.CommandDeps`: `external/cli.Run(args,
-  cli.CommandDeps{EnsureHome, OpenStore})` receives the two `cmd/coddy` helpers
-  it needs; everything else (`config`, `session`, `agent`, `acp`, `skills`,
-  `permission`) is imported directly, same as the gateway does.
-- Standard flags on the `cli` subcommand: `--config`, `--home`, `--cwd`,
-  `--sessions-dir`, `--session-id` (reopen a session), `--resume` (open the
-  session picker first), `--model`, `--mode agent|plan`,
-  `--permission-mode ask|accept_edits|bypass`, `--theme dark|light|auto`,
-  `--log-level/--log-file`, `config.SkillsAutoDiscoveryFlagName`,
-  `config.ProjectTrustFlagName`, `--plain` (see e2e), `--no-alt-hints`
-  omitted — keep flag set minimal, extend later.
-- Logger: before `logger.New`, force output away from stderr (file under
-  `<home>/logs/cli.log` unless `--log-file` given). Stderr writes would corrupt
-  the inline TUI.
-- Makefile: `TAGS="cli"` builds it; `make test` gains `go test -tags=cli ./...`
-  and `go test -tags="cli scheduler memory" ./...` rows; `check-windows` gains
-  the same two combos; recommended full build becomes
-  `TAGS="http ui scheduler memory cli"` (Dockerfile, README,
-  `examples/build_coddy.sh`).
-
-Go dependency policy: **no new third-party modules.** Rendering is hand-rolled
-ANSI (port of pi-tui's model). Promote to direct requires only:
-`golang.org/x/term` (raw mode, size, IsTerminal), `github.com/rivo/uniseg`
-(grapheme clusters), `github.com/mattn/go-runewidth` (cell widths) — all
-already in go.sum/go.mod as indirects.
+  (`//go:build !cli`): `runCLI(args []string) error`; stub explains the tag.
+  `[rev]` The TTY check lives in tagged files too: `cliIsInteractive() bool`
+  in `cli.go` uses `x/term.IsTerminal`; the `!cli` stub returns false with
+  **zero new imports**, so the lean default build gains no dependency.
+- Dispatch: explicit `coddy cli [flags]` case + bare `coddy`:
+  `if len(args) == 0 { if cliIsInteractive() { err = runCLI(nil) } else
+  { printUsage(os.Stderr); os.Exit(1) } }`. `[rev]` `runCLI` re-checks TTY
+  itself and fails with a clear message before touching raw mode (covers
+  `coddy cli < /dev/null`, redirected stdout, CI).
+- `[rev]` Dependency facts: `golang.org/x/term` is **absent from go.mod**
+  (present only in go.sum) — an explicit `go get golang.org/x/term` is
+  required. `rivo/uniseg` + `mattn/go-runewidth` are indirect and only get
+  promoted. All three resolve without network beyond the module cache.
+- Import-cycle break: `cli.CommandDeps{EnsureHome, OpenStore}` `[rev]` (two
+  fields; `NewServerRef` is HTTP-specific and not copied).
+- Flags: `--config --home --cwd --sessions-dir --session-id --resume --model
+  --mode agent|plan --permission-mode ask|accept_edits|bypass --theme
+  dark|light|auto --plain --log-level --log-file`, plus
+  `config.SkillsAutoDiscoveryFlagName`, `config.ProjectTrustFlagName`.
+- `[rev]` Flags are **applied**, not just parsed:
+  - `--session-id` → `mgr.SetPreferredSessionID(id)` before `HandleSessionNew`
+    (reopen semantics identical to ACP `cmd/coddy/main.go:231`);
+  - `--resume` → **no session is created**; the picker runs first, then
+    either `HandleSessionLoad` (choice) or `HandleSessionNew` (esc → new);
+  - `--model` → `HandleSessionSetConfigOption{ConfigID:"model"}` (validated
+    against YAML models by the manager);
+  - `--mode` → `HandleSessionSetMode`;
+  - `--permission-mode` → `HandleSessionSetConfigOption{ConfigID:
+    "permission_mode"}`;
+  - every error from these calls is fatal **before** raw mode starts; no
+    `res, _ :=` discards `[rev]`.
+- `[rev]` Logger: the CLI forces `cfg.Logger` outputs to exactly `["file"]`
+  (default path `<home>/logs/cli.log`), overriding YAML stdout/stderr choices
+  — `ApplyOverrides` with `Output="file"` + file path, plus a hard fallback
+  that drops stdout/stderr from `cfg.Logger.Outputs` if YAML sneaks them in.
+  Unit-tested before raw mode.
+- `--plain` `[rev]` (specified): no modifyOtherKeys push, no OSC title, no
+  OSC 11 theme query, `clearOnShrink=false`, no OSC 8 hyperlinks; raw mode,
+  diff rendering, bracketed paste stay. Purpose: deterministic e2e through
+  pyte and dumb terminals.
+- Makefile `[rev]`:
+  - `test`: add `go test -tags=cli ./...`, `go test -tags="cli scheduler
+    memory" ./...`, `go test -tags="http cli" ./...`, and
+    `go test -tags="http scheduler ui memory cli" ./...` (release set).
+  - `lint`: append a tagged pass over the new surface:
+    `golangci-lint run --build-tags cli ./external/cli/... ./cmd/coddy/...`;
+    same addition in `lint-windows`.
+  - `check-windows`: add `-tags=cli` and `-tags="cli scheduler memory"`
+    build+vet rows.
+  - `FULL_TAGS` → `http ui scheduler memory cli`.
+- `[rev]` Release surfaces: append `cli` (keeping `gateway` where present) in
+  `Dockerfile`, `.github/workflows/release-binaries.yaml`,
+  `.github/workflows/docker-build-push.yaml`, `examples/build_coddy.sh`
+  (default TAGS `http scheduler memory cli`), README, `docs/build.md`.
+- `[rev]` CI windows job: add `go test -tags=cli ./external/cli/...` to the
+  `windows-latest` matrix (fake-terminal unit + lifecycle tests are
+  OS-agnostic; raw-tty paths are guarded and skipped without a console).
 
 ## 3. `external/cli/tui` — framework port (pi-tui main-screen subset)
 
-Port pi-tui's **regular (inline) mode** only; alt-screen/fullscreen mode is out
-of scope for v1. Byte-level conventions copied from pi:
+As v1 (Component/Container, line-diff renderer with synchronized output,
+`SEGMENT_RESET`, APC cursor marker, 16 ms throttle, StdinBuffer, keys,
+Text/TruncatedText/Spacer/Box/DynamicBorder/Loader/SelectList/Editor/Markdown,
+truecolor+256 theme engine), with review deltas:
 
-- `Component` interface: `Render(width int) []string` (each line's visible
-  width ≤ width), optional `HandleInput([]byte)` via type assertion,
-  `Invalidate()`. `Container` concatenates children.
-- Renderer (`mainscreen.go`): every frame wrapped in synchronized output
-  `\x1b[?2026h … \x1b[?2026l`; per-line suffix `SEGMENT_RESET =
-  "\x1b[0m\x1b]8;;\x07"`; cursor marker APC `"\x1b_pi:c\x07"` scanned in the
-  bottom `rows` lines, stripped, hardware cursor positioned (hidden unless
-  enabled); line-based diff: find first/last changed line, `\r` + `\x1b[2K` +
-  rewrite only the changed range, relative `\x1b[nA/nB` movement, `\r\n` scroll
-  at bottom; full clear `\x1b[2J\x1b[H\x1b[3J` on width change, height change,
-  shrink (`clearOnShrink`), or change above the viewport; 16 ms render
-  throttle, immediate render after keyboard input.
-- Terminal (`terminal.go`): `x/term.MakeRaw` on stdin, bracketed paste
-  `\x1b[?2004h/l`, `SIGWINCH` resize (Windows: poll size), modifyOtherKeys
-  push `\x1b[>4;2m` on start / `\x1b[>4;0m` on stop (Kitty protocol
-  negotiation deferred; parser still accepts CSI-u sequences so terminals in
-  that mode work), cursor hide/show, title set. Windows: enable VT input and
-  output modes via `internal/platform` console helpers (extend that package —
-  it already owns Windows console handling).
-- Input splitting (`stdinbuf.go`): port of pi's StdinBuffer — reassemble CSI /
-  SS3 / OSC / DCS / APC / bracketed-paste bodies from chunked reads, lone-ESC
-  timeout 10 ms (100 ms over SSH).
-- Keys (`keys.go`): `MatchesKey(data, "ctrl+c")` covering letters, digits,
-  arrows, home/end/pgup/pgdn, delete/backspace/tab/enter/escape, f-keys,
-  ctrl/alt/shift modifiers in legacy, modifyOtherKeys (`\x1b[27;m;ku` and
-  `\x1b[k;mu`) and Kitty (`CSI k;m u`) encodings.
-- Width utils (`width.go`): `VisibleWidth` (ANSI-aware: CSI final in
-  `m G K H J`, OSC, APC skipped; tab = 3 cols; grapheme clusters via uniseg;
-  East-Asian wide = 2), `TruncateToWidth(text, w, ellipsis="...")`,
-  `WrapTextWithANSI` (re-applies active SGR at continuation starts, trims line
-  ends), `ApplyBackgroundToLine` (pad to width, wrap with bg).
-- Widgets, each a byte-faithful port:
-  - `Text` (paddingX/Y, optional bg fn; empty text → no lines);
-  - `TruncatedText`, `Spacer` (empty strings), `Box` (left pad + bg);
-  - `DynamicBorder` — `strings.Repeat("─", width)` through a color fn;
-  - `Loader` — braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, 80 ms, renders
-    `["", " <frame> <message>"]`;
-  - `SelectList` — `→ ` selected prefix, two-column label+description when
-    width > 40 (primary col clamp 12..32 for slash menu), windowed scroll with
-    dim `  (i/n)` info line, filter = prefix match;
-  - `Editor` — multi-line, grapheme-aware wrapping with CJK break points,
-    full-width `─` top/bottom borders (scrolled state: `─── ↑ N more ───…`),
-    reverse-video fake cursor `\x1b[7m…\x1b[0m`, sticky visual column, history
-    (cap 100, up on first line / down on last), kill ops (ctrl+w/u/k, alt+d),
-    word moves, large-paste collapse to `[paste #N +K lines]` atomic markers,
-    autocomplete hook (slash commands + `@` file paths via filesystem walk),
-    max visible lines `max(5, rows*3/10)` with scroll borders. Undo/yank-pop
-    deferred (documented gap).
-  - `Markdown` — headings (h1 bold+underline+color, h2 bold+color, h3+ `### `
-    prefix), bold/italic/strike, inline code, fenced blocks with
-    `` ```lang `` border lines + 2-space indent, blockquote `│ ` prefix,
-    `─`×min(width,80) hr, lists (`- ` / `N. ` / `[x] `, 4-space nesting),
-    box-drawing tables, OSC 8 hyperlinks when the terminal supports them.
-    Parser: hand-rolled block/inline scanner sufficient for the above (no new
-    dependency); LaTeX and mermaid out of scope.
-- Theme (`theme.go`): pi's token roles (`accent border borderAccent
-  borderMuted success error warning muted dim text thinkingText selectedBg
-  userMessageBg toolPendingBg toolSuccessBg toolErrorBg toolTitle toolOutput
-  md* syntax* thinking* bashMode`), truecolor `\x1b[38;2;r;g;bm` with 256-color
-  quantization fallback (6×6×6 cube + gray ramp) when `COLORTERM` absent;
-  `Fg()` resets with `\x1b[39m`, `Bg()` with `\x1b[49m`. Bold/italic/underline
-  emitted directly.
-- Syntax highlighting in code fences: v1 ships a small keyword/string/comment
-  highlighter for go/python/js/ts/json/yaml/bash and falls back to plain
-  `mdCodeBlock` color otherwise (pi uses highlight.js; a Go port of that is
-  out of scope — documented divergence).
-
-### Coddy color scheme (dark / light)
-
-Structure and roles stay pi's; values come from coddy's SPA tokens
-(`external/ui/src/styles.css` default theme) with tool/status tints kept close
-to pi where coddy has no equivalent:
-
-| Role | dark | light | source |
-|------|------|-------|--------|
-| accent | `#9333ea` | `#7c3aed` | `--accent` |
-| border | `#a585c9` | `#7c3aed` | `--coddy-hero-accent` |
-| borderAccent | `#c4b5fd` | `#6d28d9` | context ring / link-action |
-| borderMuted | `#3f3f46` | `#d4d4d8` | zinc scale |
-| text | `#ffffff` | `#18181b` | `--text` |
-| muted | `#9ca3af` | `#52525b` | `--muted` |
-| dim | `#6b7280` | `#71717a` | zinc scale |
-| success | `#3fb950` | `#2ea043` | diff-add |
-| error | `#f85149` | `#cf222e` | diff-del |
-| warning | `#d29922` | `#9a6700` | GitHub-ish amber |
-| selectedBg | `#2d2d2d` | `#e4e4e7` | `--bubble-user` |
-| userMessageBg | `#2d2d2d` | `#e4e4e7` | `--bubble-user` |
-| toolPendingBg | `#26222e` | `#ececf4` | violet-tinted pi analog |
-| toolSuccessBg | `#22301f`→keep pi `#283228`-style tint | `#e8f0e8` | pi analog |
-| toolErrorBg | `#3c2828` | `#f0e8e8` | pi values |
-| mdHeading | `#c4b5fd` | `#6d28d9` | violet scale |
-| mdLink | `#a78bfa` | `#7c3aed` | `--coddy-link` |
-| mdCode | `#9333ea`-tinted `#c4a7e7` | `#6d28d9` | accent family |
-| thinkingText | `#9ca3af` | `#52525b` | muted |
-| bashMode | `#3fb950` | `#2ea043` | success |
-
-`--theme auto` (default): OSC 11 background query with 500 ms timeout, fall
-back to `COLORFGBG`, else dark. Exact final values live in
-`external/cli/theme_dark.go` / `theme_light.go` and get tuned against the
-reference PNGs during implementation.
+- `[rev]` **Untrusted-text boundary (blocker fix).** All text that enters
+  components from outside the renderer — LLM chunks, tool previews, titles,
+  file names, session titles, skills, rules, MCP names, config values — is
+  sanitized first: `SanitizeText()` strips ESC (0x1b), C0 controls except
+  `\n`/`\t`, DEL, and C1 bytes. Only renderer-generated styling (theme fg/bg,
+  bold/italic, OSC 8 built by the markdown renderer from validated URLs)
+  exists in rendered lines. `internal/platform/ansi.go` precedent noted; the
+  sanitizer lives in `tui` and is applied by every app-side component
+  constructor/setter. Unit tests include hostile inputs (OSC 52 clipboard,
+  title changes, cursor moves, mode switches, fake chrome).
+- `[rev]` Width parser semantics kept byte-compatible with pi (`m G K H J`
+  CSI finals + OSC + APC are invisible; other CSI count as text). This is
+  safe *because* app text is sanitized — no foreign CSI can reach lines.
+  Documented in the package doc.
+- `[rev]` **Terminal restoration ownership (blocker fix).** One
+  `App.Shutdown()` path restores: modifyOtherKeys off, bracketed paste off,
+  cursor show, raw-mode restore, title reset — invoked via (a) normal exit,
+  (b) `defer` + `recover` around the UI loop (panic re-raised after restore),
+  (c) `signal.NotifyContext(SIGINT, SIGTERM)`, (d) init-failure unwind
+  (errors after `MakeRaw` restore before returning). `SIGTSTP`/`SIGCONT`
+  suspend is a documented v1 gap. Lifecycle unit tests use the fake terminal
+  and assert the exact restore byte sequence in every path.
+- `[rev]` `clearOnShrink` defaults **off** in the coddy app (matches pi's
+  shipped setting default; avoids `\x1b[3J` scrollback destruction in normal
+  operation). Width/height changes still full-redraw.
+- `[rev]` OSC 11 auto-theme: the reply arrives on stdin; the app installs an
+  input filter (pi-style input listener) that consumes `\x1b]11;...` replies
+  before editor dispatch, with a 500 ms fallback to `COLORFGBG` → dark. Only
+  when `--theme auto` and not `--plain`. Typed input during the probe is
+  buffered normally (filter passes everything else through). e2e always pins
+  `--theme dark`.
+- Theme values: as v1 table, with decisions fixed `[rev]`:
+  `toolSuccessBg` dark `#243024` / light `#e8f0e8`; `borderAccent` dark
+  `#c4b5fd` sourced from `--coddy-context-ring-inner` family (not
+  link-action). Final values live in `external/cli/theme_dark.go` /
+  `theme_light.go` `[rev]` (app package, wired into `tui.Theme` maps).
 
 ## 4. `external/cli` — the interactive app
 
-Wiring (copies `cmd/coddy/gateway.go` + ACP main):
+### Wiring and lifecycle `[rev]` (reworked after review)
 
-```go
-store   := deps.OpenStore(sessionsRoot, cfg)
-sender  := cliapp.NewSender(app)           // implements acp.UpdateSender
-runner  := func(ctx, st, prompt, snd) { return agent.NewAgent(cfg, st, snd, log).Run(ctx, prompt) }
-mgr     := session.NewManager(cfg, sender, runner, log, paths.CWD, store)
-res, _  := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: paths.CWD})
-mgr.HandleSessionReady(res.SessionID)      // slash catalog + deferred replay
-```
+One `Sender` (implements `acp.UpdateSender`) is created **before** the
+manager and passed as the manager's server sender *and* used for every
+`HandleSessionPromptWithSender` call — mode/config/slash-catalog updates,
+context-usage, and replay all reach the UI through the same object.
 
-The TUI sender is the **manager's** sender, so mode/config/slash-catalog
-updates and `session/load` transcript replay arrive without extra plumbing.
-Prompts go through `mgr.HandleSessionPromptWithSender(ctx, params, sender,
-nil)` on a worker goroutine; `session.ErrSessionTurnBusy` renders a status
-line. All sender callbacks are serialized into the UI goroutine via a channel
-(updates may arrive from the turn goroutine).
+Concurrency contract `[rev]`:
+- `Sender.SendSessionUpdate` posts to a **buffered channel** (size 1024)
+  drained by the UI goroutine; if the buffer is full the post blocks — that
+  is acceptable because every manager call that can emit updates
+  (`HandleSessionLoad`, `HandleSessionPromptWithSender`,
+  `HandleSessionReady`, `HandleSessionNew`) is **always invoked from worker
+  goroutines, never from the UI goroutine**. The UI goroutine only renders,
+  handles input, and spawns workers. This rule makes replay deadlock
+  impossible and is asserted by a test that loads a large session while the
+  UI loop is paused.
+- `RequestPermission` / `RequestQuestion` block their worker on a reply
+  channel; the UI shows the modal and replies. Ctx cancellation returns
+  `Outcome:"cancelled"`.
+- Updates carry `SessionID`; the app drops updates whose id differs from the
+  active session (stale turns after `/new`, `/resume`) `[rev]`.
+- Session switch: cancel active turn (`HandleSessionCancel`), wait for the
+  worker to return, then `ForgetLiveSession(oldID)` on `/new` `[rev]`; MCP
+  clients of the abandoned state close via the manager's usual paths (noted:
+  `State.CloseAll` exists if leak tests show otherwise).
 
-Update rendering map (struct → visual):
+Startup sequences `[rev]`:
+- default: `HandleSessionNew` (with preferred id when `--session-id`) →
+  apply `--model/--mode/--permission-mode` → `HandleSessionReady(id)`.
+- `--resume`: picker over `HandleSessionList` `[rev]` (manager API, not raw
+  store) → `HandleSessionLoad` → `HandleSessionReady(id)` `[rev]` (ACP
+  invokes readiness after load as well — `internal/acp/server.go:157,168`).
+- Errors from any of these render to stderr and exit non-zero **before** raw
+  mode; after raw mode they funnel through Shutdown.
+
+### Update rendering `[rev]` (corrected map)
 
 | Update | Rendering |
 |---|---|
-| `MessageChunkUpdate` text | streaming assistant `Markdown` (grow in place) |
-| `MessageChunkUpdate` reasoning | italic `thinkingText` block, collapsible with ctrl+t ("Thinking..." when collapsed) |
-| `ToolCallUpdate` (pending) | `Spacer` + Box `toolPendingBg`: bold tool title line (`read path`, `$ command`, etc.) |
-| `ToolCallStatusUpdate` in_progress | same box, args preview |
-| completed / failed | box bg → `toolSuccessBg` / `toolErrorBg`, preview from `coddy.toolResultPreview` meta, collapsed to 10 lines + `... (N more lines, ctrl+o to expand)` |
-| cancelled | box bg error + `cancelled` note |
-| `PlanUpdate` | todo widget above editor: `✓`/`◐`/`○` list, dim completed (pi plan-mode style) |
-| `TokenUsageUpdate` / `UsageUpdate` | footer stats (`↑in ↓out` and `N.N%/262k`) |
-| `ModeUpdate` / `ConfigOptionUpdate` | footer right segment + selector state |
-| `AvailableCommandsUpdate` | slash autocomplete catalog |
-| `MemoryPhaseUpdate` (memory tag) | dim status line while recall/persist runs |
+| `MessageChunkUpdate` `agent_message_chunk` + text | streaming assistant Markdown |
+| `MessageChunkUpdate` `agent_message_chunk` + reasoning | italic thinking block (ctrl+t collapses) |
+| `MessageChunkUpdate` `user_message_chunk` `[rev]` | user Box (replay path; live echo is local — see below) |
+| `ToolCallUpdate` pending | Box `toolPendingBg`; title = tool name; kind glyph |
+| `ToolCallStatusUpdate` in_progress | args preview from raw `InputJSON` `[rev]` (title heuristic: `read`/`write` show `path` arg, `run_command` shows `$ command`, else tool name — parsed from args JSON, sanitized) |
+| completed / failed | bg → success/error; preview from `coddy.toolResultPreview` meta (**server truncates at 19 lines** `[rev]`); collapsed to 10 lines client-side with `... (ctrl+o to expand)` |
+| ctrl+o expand `[rev]` | reads the full text via `session.ReadToolCallResult(sessionDir, toolCallID)`; missing file → keep preview + dim note |
+| cancelled | error bg + `cancelled` note |
+| `PlanUpdate` | todo widget above editor: `✓` completed, `◐` in_progress, `○` pending, `✗` failed `[rev]` |
+| `TokenUsageUpdate` | footer; the TUI **accumulates** per-turn `Input`/`Output` sums itself; `TotalTokens` taken from the update `[rev]` |
+| `UsageUpdate` | footer context percent |
+| `ModeUpdate` / `ConfigOptionUpdate` | footer + selector state |
+| `AvailableCommandsUpdate` | slash catalog |
+| `MemoryPhaseUpdate` + `MemoryMessageChunkUpdate` `[rev]` | dim status line + collapsible memory block (memory builds) |
 
-Layout (top→bottom, pi structure): header (logo `coddy v<version>` bold accent
-+ dim version; compact hint line; ctrl+o expands full hints + `[Context]`
-instruction files, `[Skills]` names, `[Rules]` count, `[MCP]` servers) →
-chat container → pending/status (spinner `⠴ Working...`, esc hint) → plan
-widget → editor (bordered) → footer (line 1: dim cwd `(git-branch)` •
-session title; line 2: `↑tok ↓tok  N.N%/ctx (auto)` left, `(provider) model •
-mode[ • reasoning]` right).
+Live user echo `[rev]`: on submit the app appends the user Box locally
+(manager does not emit it live); replayed `user_message_chunk` renders the
+same component; the two never coexist because replay only happens on load.
 
-Modals (replace editor input focus, pi-style): permission request
-(`RequestPermission` → SelectList of `params.Options` under an accent
-`DynamicBorder`, tool title + `PromptBody` above; honors bypass short-circuit
-like `serverRef`), question tool (`RequestQuestion` → one SelectList per
-question, multi-select via space), model selector (ctrl+l or `/model`),
-session picker (`/resume` or `--resume`; rows from
-`store.ListSnapshots(cwd, false)`: title, relative time, id prefix; enter →
-`HandleSessionLoad` + transcript replay), mode picker (`/mode`), theme picker
-(`/theme`).
+Prompt errors `[rev]`: non-busy errors from `HandleSessionPromptWithSender`
+render as an error status line; the editor regains focus with the submitted
+text recoverable from history (`up`).
 
-Client-side slash commands (dispatched before `HandleSessionPrompt`, pi
-parity): `/model`, `/mode`, `/resume`, `/new`, `/theme`, `/hotkeys`, `/quit`.
-Server-driven: `/compact`, `/plugin`, `/<skill>` pass through as prompt text
-(the agent intercepts). The autocomplete list merges both sets.
+### Layout, commands, keys
 
-Key bindings (fixed v1, pi defaults): enter submit, shift+enter/ctrl+j
-newline, escape interrupt (→ `HandleSessionCancel`), ctrl+c clear then exit,
-ctrl+d exit on empty, ctrl+l model selector, ctrl+p / ctrl+shift+p cycle
-model, shift+tab cycle reasoning level (only when the model declares
-`reasoning_levels`), ctrl+o expand last tool output + header hints, ctrl+t
-toggle thinking, up/down history at edges, `!cmd` bash mode (local shell run,
-streamed into a `bashMode`-bordered block; output is NOT sent to the model in
-v1), `@path` autocomplete inserts file mentions (hydrated by the manager).
+As v1 (header/chat/status/plan-widget/editor/footer) with review deltas:
+- Header `[rev]` per pi dumps: line `coddy` bold accent + dim version;
+  compact hint line; dim onboarding line; `[Context]` (instruction files) and
+  `[Skills]` (names) at startup; ctrl+o toggles the expanded hint list adding
+  `[Rules]` count and `[MCP]` servers. Divergence from pi's expanded view
+  (skill paths, "Tool output: expanded") documented in docs/cli.md.
+- Footer `[rev]` per pi dumps: line 1 dim `cwd (git-branch) • title`
+  (branch omitted when not a git repo; title omitted until set; ` • plan`
+  badge appended in plan mode — coddy-specific divergence); line 2 left
+  `↑in ↓out  N.N%/262k` (arrows appear once non-zero), right
+  `(provider) model[ • reasoning]`.
+- Slash commands `[rev]` (explicit list): server-driven `/compact`, `/plugin`,
+  `/<skill>`; client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
+  `/hotkeys`, `/quit`. pi's remaining 25+ commands are out of scope; the
+  autocomplete two-column layout is identical.
+- Session picker `[rev]`: simplified v1 — accent borders, title rows
+  (`HandleSessionList` entries: title, relative time, id prefix), search
+  input filtering by title substring. pi's scope/sort/rename/delete toggles
+  are follow-ups; divergence documented.
+- Keys: as v1 minus `!` bash mode `[rev]` (dropped from v1 scope: it would
+  bypass `run_command` permission machinery; follow-up must route through the
+  session tool path). shift+tab reasoning cycle validates against
+  `cfg.FindModelEntry(model).ReasoningLevels` client-side and persists via
+  `State.SetSelectedReasoning` `[rev]` (documented: no manager config-option
+  API for reasoning exists).
+- `@path` autocomplete `[rev]`: own walker capped at 50k entries skipping
+  `.git`, `node_modules`, `.coddy` (mirrors
+  `external/httpserver/workspace_files.go` constants; extracting a shared
+  collector is a noted follow-up).
+- MCP trust `[rev]`: `HandleSessionNew` already routes project servers
+  through `TrustGate`; when a server needs approval the TUI shows a dim
+  status hint naming `coddy mcp trust <name>` (no interactive approval UI in
+  v1; documented).
 
 ## 5. Tests
 
-### Unit (tag `cli`, standard `go test`)
+### Unit (as v1, plus `[rev]`)
 
-`external/cli/tui`: renderer diff decisions (fake terminal capturing writes —
-port of pi's virtual-terminal idea with a plain write recorder + expected
-escape sequences), width/wrap/truncate tables (CJK, emoji, ANSI), editor ops
-(insert, wrap, history, kill ops, paste markers), keys matrix, markdown golden
-lines (stripped and styled), select-list windows, theme fg/bg emission and 256
-fallback. `external/cli`: sender update → component state transitions with a
-stub screen; footer formatting; slash dispatch; permission modal option
-plumbing. Test names follow repo sentence style.
+- Sanitizer hostile-input suite (OSC 52, title, cursor, mode switches).
+- Terminal lifecycle restore-sequence tests for every exit path.
+- Logger-isolation test (outputs forced to file even when YAML says stderr).
+- Update-channel test: large replay with paused UI loop (no deadlock).
+- Stale-update filtering; token accumulation; failed-plan glyph; tool title
+  heuristic; ctrl+o disk read (missing file case); question custom answer.
+- Dispatch tests in `cmd/coddy` `[rev]`: bare TTY → runCLI, bare non-TTY →
+  usage, `coddy cli` non-TTY → clear error, `!cli` stub message.
 
-### BDD happy path (`features/cli_tui.feature`, harness `external/cli/bdd_cli_tui_test.go`)
+### BDD (`features/cli_tui.feature` — written FIRST `[rev]`)
 
-Stub-runner scenarios (no LLM, in-memory fake terminal 100×35):
-
-1. Bare start renders header, editor borders, footer with default model id.
-2. Submitted prompt renders user block, streamed chunks render markdown,
-   footer shows token usage.
-3. Tool call renders pending→success box with preview and expand hint.
-4. Permission mode ask: run_command asks, arrow+enter allows, turn continues
-   (uses `permission.Options` path).
-5. Escape mid-turn cancels: `HandleSessionCancel` fires, status shows
-   interrupt, editor usable again.
-6. `/model` switch updates footer and `SetSelectedModelID` persists.
-7. Resume: second start with `--session-id` replays transcript rows.
-
-Harness: `//go:build cli`, `Paths: ../../features/cli_tui.feature`,
-`Strict: true`, stub `AgentRunner` emitting scripted updates (same trick as
-httpserver BDD), fake `Terminal` interface implementation.
+Scenarios (stub runner, fake terminal): the seven from v1 **plus** `[rev]`:
+8. Replayed transcript renders user rows as user boxes (discriminator).
+9. Question tool with custom answer: free-text editor path returns the typed
+   answer.
+10. Prompt error (non-busy) renders an error line and the editor recovers.
+11. `/new` forgets the old live session and stale updates are dropped.
+Model-switch scenario asserts through `HandleSessionSetConfigOption` `[rev]`.
+Edge cases stay in unit tests per repo workflow.
 
 ### E2E (`examples/cli/`, live `neuraldeep/qwen3.8-27b`)
 
-New runner `examples/test_cli.sh` → `examples/cli/test_cli.sh`. Python driver
-`examples/cli/cli_tui_driver.py`: pexpect (pty) + pyte (screen emulation),
-`wait_for_text` / `wait_quiet` / `send_keys` / screen dumps on failure —
-the same pipeline already used to capture the reference PNGs. New dev-only
-Python deps (pexpect, pyte) documented in `examples/README.md`; runner
-bootstraps a `.venv` like other example scripts and **skips gracefully**
-when they are missing. Model comes from `MODEL` env (default
-`neuraldeep/qwen3.8-27b`); config `examples/cli/config.demo.yaml` defines the
-`neuraldeep` provider with empty `api_key` so the conventional
-`NEURALDEEP_API_KEY` env var resolves it (`config.EffectiveAPIKey`); the
-runner sources `~/.coddy/.env` when the var is unset. Assertions favor on-disk
-session artifacts (identical to ACP twins) plus screen greps.
+`[rev]` Contract fixed before scripts are written:
+- Runner `examples/cli/test_cli.sh` (+ `examples/test_cli.sh` shim) builds
+  with `TAGS="cli scheduler memory"` via `examples/build_coddy.sh` override.
+- Config: **shared** `examples/config.demo.yaml` gains the `neuraldeep`
+  provider (empty `api_key` → conventional `NEURALDEEP_API_KEY`) and the
+  `neuraldeep/qwen3.8-27b` model row `[rev]` (additive; ACP/HTTP defaults
+  unchanged). CLI runner default `MODEL=neuraldeep/qwen3.8-27b` (user
+  requirement). If `NEURALDEEP_API_KEY` is unset and `~/.coddy/.env` defines
+  it, the runner copies **that single line** into the temp
+  `$CODDY_HOME/.env` `[rev]` (the mechanism config already loads; no global
+  env sourcing).
+- Python deps: `examples/cli/requirements.txt` (pexpect, pyte, pinned).
+  Missing deps → runner **fails** with install instructions `[rev]` (no
+  silent skip). Linux-only, stated in `examples/README.md`.
+- Every script: temp `CODDY_HOME` + workdir, fixed 100×35 pty, `--theme
+  dark --plain` `[rev]`, cleanup trap killing the child, unique session ids.
+- Assertions: disk artifacts (session dirs, tool_calls, todos, plans,
+  memory, scheduler files — same as ACP twins) are authoritative; screen
+  greps only on deterministic chrome (`coddy v`, `Working...` `[rev]` not
+  braille frames, borders, fixture tokens like `DEMO_SKILL_TOKEN`).
+- Full set (user requirement) runs by default; `CLI_E2E_ONLY=<stem>` and
+  `CLI_E2E_CORE=1` (smoke, models, permissions, resume, compact,
+  toolcalls_persist) exist for iteration; runtime cost documented `[rev]`.
+- `cli_e2e_permissions.py` forces determinism with a prompt that instructs
+  an exact `run_command` invocation; if the model declines, the script
+  retries once, then fails with the transcript `[rev]`.
+- Parity matrix as v1 (12 twins + permissions + resume; REST-only surfaces
+  n/a).
 
-Feature parity matrix (ACP + HTTP e2e set → CLI):
+## 6. Docs
 
-| Existing script(s) | CLI twin | Notes |
-|---|---|---|
-| acp_smoke_gateway / http_smoke_gateway | `cli_smoke.py` | boot, header, prompt, reply text on screen, session dir created, clean exit |
-| acp/http_e2e_models | `cli_e2e_models.py` | ctrl+l selector lists YAML models; switch; footer + `session.json` reflect it |
-| acp/http_e2e_web | `cli_e2e_web.py` | websearch+webfetch tool boxes; tool_calls/*/meta.json |
-| acp/http_e2e_todo | `cli_e2e_todo.py` | plan widget visible; todo backlog drains (disk todos) |
-| acp/http_e2e_skills_slash | `cli_e2e_skills_slash.py` | fixture skill in slash menu; DEMO token in reply |
-| acp/http_e2e_rules | `cli_e2e_rules.py` | glob + mention rule tokens |
-| acp/http_e2e_memory | `cli_e2e_memory.py` | tags include `memory`; recall + persist |
-| acp/http_e2e_background | `cli_e2e_background.py` | background task meta/output on disk; tool boxes |
-| acp/http_e2e_toolcalls_persist | `cli_e2e_toolcalls_persist.py` | args.json/result.md/meta.json |
-| acp/http_e2e_compact | `cli_e2e_compact.py` | `/compact` → compaction_summary row + confirmation |
-| acp/http_e2e_plan_files | `cli_e2e_plan_files.py` | plan mode via `/mode`, plan file marker, run plan |
-| acp/http_e2e_scheduler_agent | `cli_e2e_scheduler_agent.py` | scheduler tools through CLI prompt (tags scheduler) |
-| — (CLI-unique) | `cli_e2e_permissions.py` | `--permission-mode ask`: modal appears, allow via keys, tool runs |
-| — (CLI-unique) | `cli_e2e_resume.py` | exchange, quit, relaunch `--resume`, transcript replayed |
-| http_e2e_scheduler_api | n/a | REST CRUD surface, no CLI equivalent (curl-only) |
-| http_e2e_remote | n/a | remote auth REST surface |
-| http_e2e_background_reap | n/a | kill -9 recovery already covered by ACP-less harness; CLI adds nothing |
-| composer watch / workspace REST / mcp REST | n/a | HTTP-only surfaces |
+As v1 plus `[rev]`: `docs/build.md` tag table, release workflow notes,
+`docs/assets/pi-tui-reference/README.md` pointer to `docs/cli.md` as the
+console visual contract, `examples/README.md` python deps + Linux-only note,
+PR screenshots: PNG renders of coddy's own TUI states (same
+pexpect+pyte+chromium pipeline as the reference set — scripted in
+`examples/cli/capture.py` `[rev]`) covering startup, chat+tool, permission
+modal, plan widget, selectors, both themes.
 
-### Regression
+No YAML config changes in v1. Rules files are untouched, so no rules sync is
+triggered `[rev]`.
 
-`make test` (now including the two `cli` rows) and `make lint` green;
-`make check-windows` + `make lint-windows` because `internal/platform` gains
-console helpers and new tagged files exist.
+## 7. Milestones `[rev]` (reordered: spec first, vertical slice early)
 
-## 6. Docs and follow-ups
+1. **Spec + skeleton**: `features/cli_tui.feature` (all 11 scenarios),
+   `external/cli/bdd_cli_tui_test.go` harness (red), `cmd/coddy` dispatch
+   tests (red), `cli.go`/`cli_stub.go`, Makefile tags (test/lint/
+   check-windows rows), `go get golang.org/x/term`. Everything compiles under
+   every tag combo from day one.
+2. **Vertical slice**: fake terminal + minimal renderer (full-frame, no diff
+   yet) + minimal editor line + Sender + wiring: create session, submit
+   prompt to stub runner, render streamed chunk, clean shutdown. BDD 1–2
+   green. Terminal interface frozen here.
+3. **Renderer parity**: line-diff, synchronized output, cursor marker,
+   clear strategies, throttle; width/wrap/truncate utils; sanitizer;
+   restoration lifecycle; unit suites green.
+4. **Real terminal layer**: raw mode, StdinBuffer, keys, resize
+   (`terminal_unix.go` / `terminal_windows.go` from the start), logger
+   isolation; check-windows green.
+5. **Widgets**: Editor (full), SelectList, Loader, Markdown, Box, borders;
+   goldens against chrome fragments of the reference dumps.
+6. **App features**: tool boxes (+disk expand), plan widget, thinking,
+   footer, header, permission + question modals (incl. custom answer),
+   selectors (model/mode/session/theme), client slash commands, replay,
+   stale-update guard, token accumulation. BDD 3–11 green.
+7. **Live e2e**: config.demo additions, driver, capture.py, 14 scripts,
+   runner; run full suite against neuraldeep/qwen3.8-27b.
+8. **Chrome pixel pass**: compare coddy states against reference chrome;
+   capture coddy PNG set for the PR.
+9. **Docs + full regression**: docs listed above; `make test`, `make lint`
+   (with the new tagged pass), `make check-windows`, `make lint-windows`.
 
-- `docs/cli.md` — user guide + visual contract (the TUI equivalent of
-  DESIGN.md sections): layout, key map, theming, reference gallery links.
-- README: quick-start section, build tags table row.
-- `AGENTS.md`: `external/cli` row in the repo map + build notes.
-- `docs/architecture.md`: fourth client box.
-- `examples/README.md`: cli harness section + python deps.
-- No YAML config schema changes in v1 (flags/env only) → no
-  `config.schema.json` sync needed. If a `cli:` config block appears later it
-  follows workflow step 7.
-- CHANGELOG entry if repo keeps one (it does not — skip).
+## 8. Resolved review items (log)
 
-## 7. Milestones (implementation order, red→green each)
-
-1. `external/cli/tui`: width utils + theme + Text/Spacer/Container + renderer
-   with fake-terminal unit tests (red first).
-2. Terminal raw mode + stdin buffer + keys.
-3. Editor + SelectList + Loader + Markdown (+DynamicBorder, Box).
-4. `external/cli` app shell: wiring, header, editor submit → stub runner
-   render loop; `features/cli_tui.feature` scenarios 1–2 green.
-5. Sender: chunks, tool boxes, plan widget, footer; scenarios 3, 5 green.
-6. Permission + question modals (scenario 4), model/mode/session selectors
-   (scenarios 6–7), client slash commands, bash mode.
-7. cmd wiring (`cli.go`/stub, bare-`coddy` TTY check), Makefile matrix,
-   Windows console helpers, check-windows clean.
-8. Pixel pass: compare against `docs/assets/pi-tui-reference/*.txt` states;
-   fix spacing/prefix/border divergences.
-9. examples/cli e2e suite against neuraldeep/qwen3.8-27b; wire runner.
-10. Docs; `make test`; `make lint`; screenshots of the new surface for the PR
-    (captured with the same pexpect+pyte pipeline).
-
-## 8. Risks / open questions for reviewers
-
-1. **Scope of editor internals**: undo stack, kill-ring yank/pop, jump-mode
-   are deferred; is that acceptable for "pixel parity" (visual yes,
-   behavioral partial)?
-2. **Kitty keyboard protocol**: v1 ships legacy + modifyOtherKeys parsing
-   only; shift+enter falls back to ctrl+j on terminals that cannot report it.
-   Acceptable?
-3. **Syntax highlighting**: keyword-level highlighter vs pi's highlight.js.
-   Visual difference inside code fences.
-4. **`!` bash mode**: local-only execution, output not fed to the model
-   (pi feeds it as context). Follow-up could append it to the next prompt.
-5. **Bare `coddy` TTY heuristic**: usage-on-pipe keeps CI/scripts safe, but
-   `coddy < file` in a terminal still starts nothing — fine?
-6. **Windows**: compile-verified + platform console helpers, but no CI
-   runtime test for the TUI itself (existing windows-latest job covers
-   platform/bgtask/shell only). Accept as v1 constraint?
-7. **e2e runtime cost**: 14 live-model scripts × qwen3.8-27b. Runner supports
-   `CLI_E2E_ONLY=<stem>` filtering like a dev knob. Accept full set in the
-   default runner, or trim to a core subset by default?
+- x/term go.mod status corrected (cursor#1). PNGs are committed; finding
+  about their absence was a false positive (cursor#2, verified via
+  `git ls-files`).
+- Footer/header/tool-title/preview-truncation corrected to match code and
+  dumps (cursor#3–6, codex#7–9,11).
+- Reasoning API reality documented (cursor#7, codex#30).
+- Sender unification + no-premature-New + Ready-after-Load (cursor#13–15,
+  codex#3–6).
+- `!` bash mode deferred (cursor#16, codex#28).
+- Logger forced to file (cursor#17, codex#31).
+- Oracle narrowed to chrome (cursor#18, codex#43).
+- Slash list + picker scope pinned; `/settings` explicitly out (cursor#19–20,
+  codex#15).
+- `/new` forget + stale updates (cursor#21, codex#25).
+- Memory chunk updates (cursor#23, codex#8).
+- MCP trust hint (cursor#24).
+- `--plain` specified (cursor#25, codex#34).
+- e2e config/env/skip policy fixed (cursor#27–28,33, codex#48–49).
+- Matrix/lint/CI/release tags (cursor#29–31, codex#35–38).
+- docs/build.md + reference README pointer (cursor#32, codex#39).
+- Escape-injection sanitizer (codex#18).
+- Restoration ownership (codex#19).
+- TTY inside runCLI (codex#20).
+- Scrollback-preserving shrink default (codex#22).
+- OSC 11 input filter (codex#23).
+- Deadlock-free channel contract (codex#24).
+- User echo + discriminator (codex#7,26).
+- Question custom answers (codex#10).
+- Walk caps for `@` (codex#29).
+- License/provenance (codex#33).
+- Milestone reorder: spec-first + vertical slice (codex#53–57, cursor#51–55).
