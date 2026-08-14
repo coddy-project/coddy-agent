@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,9 +18,17 @@ func writeSnapshotFixture(t *testing.T, root, id, cwd string, updatedAt time.Tim
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stamp := updatedAt.UTC().Format(time.RFC3339)
-	meta := `{"id":"` + id + `","cwd":"` + cwd + `","updatedAt":"` + stamp + `"}`
-	if err := os.WriteFile(filepath.Join(dir, "session.json"), []byte(meta), 0o644); err != nil {
+	// Marshal properly: Windows paths carry backslashes that would corrupt
+	// hand-concatenated JSON.
+	meta, err := json.Marshal(map[string]string{
+		"id":        id,
+		"cwd":       cwd,
+		"updatedAt": updatedAt.UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "session.json"), meta, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
