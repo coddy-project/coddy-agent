@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
@@ -13,11 +12,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	// Internal messages first: they carry their own session semantics.
 	switch u := msg.update.(type) {
 	case turnDone:
+		// The turn belongs to the session that started it; clear the running
+		// flag even when the UI has already switched sessions (/new, /resume),
+		// otherwise the editor would refuse prompts forever.
+		if u.sessionID == a.turnSessionID {
+			a.turnActive = false
+			a.stopSpinner()
+		}
 		if u.sessionID != a.sessionID {
 			return
 		}
-		a.turnActive = false
-		a.stopSpinner()
 		a.curAssistant = nil
 		if u.err != nil {
 			a.appendStatus(roleError, "Turn failed: "+u.err.Error())
@@ -156,5 +160,4 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 		}
 		tb.SetStatus(u.Status, preview, omitted, total)
 	}
-	_ = tui.SanitizeText
 }

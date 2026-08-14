@@ -83,6 +83,7 @@ func (t *ProcessTerminal) Stop() {
 	t.mu.Unlock()
 	if !t.plain {
 		t.Write("\x1b[>4;0m\x1b[?2004l")
+		t.Write("\x1b]0;\x07") // reset the window title set by SetTitle
 	}
 	t.ShowCursor()
 	if old != nil {

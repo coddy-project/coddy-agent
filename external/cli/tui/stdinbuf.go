@@ -100,14 +100,14 @@ func (b *StdinBuffer) armEscTimer() {
 	b.timer = time.AfterFunc(b.escTimeout, func() {
 		b.mu.Lock()
 		b.timer = nil
-		if len(b.buf) > 0 && b.buf[0] == 0x1b {
-			// Treat the pending ESC (or ESC-prefixed partial) as-is.
-			seq := make([]byte, len(b.buf))
-			copy(seq, b.buf)
+		// Only a LONE ESC resolves to the escape key; a partial CSI/OSC tail
+		// keeps waiting for its remaining bytes (pi rule: the timeout is for
+		// disambiguating a bare escape press, never for truncating sequences).
+		if len(b.buf) == 1 && b.buf[0] == 0x1b {
 			b.buf = nil
 			b.mu.Unlock()
 			if b.Emit != nil {
-				b.Emit(seq)
+				b.Emit([]byte{0x1b})
 			}
 			return
 		}
@@ -122,12 +122,19 @@ func nextSequenceLen(buf []byte) (int, bool) {
 		return 0, false
 	}
 	if buf[0] != 0x1b {
-		// UTF-8 rune or plain byte: emit the full contiguous non-ESC run.
+		// UTF-8 rune or plain byte: emit the contiguous non-ESC run, holding
+		// back a trailing incomplete multi-byte sequence until the rest of
+		// the rune arrives (tty reads split runes routinely).
 		i := 0
 		for i < len(buf) && buf[i] != 0x1b {
 			i++
 		}
-		return i, true
+		run := buf[:i]
+		complete := completeUTF8Prefix(run)
+		if complete == 0 {
+			return len(run), false // lone partial rune: wait for more bytes
+		}
+		return complete, true
 	}
 	if len(buf) == 1 {
 		return 1, false // lone ESC so far
@@ -180,6 +187,24 @@ func nextSequenceLen(buf []byte) (int, bool) {
 		}
 		return len(buf), false
 	}
+}
+
+// completeUTF8Prefix returns the length of the longest prefix of b that ends
+// on a rune boundary. Bytes of an unfinished trailing rune are excluded.
+func completeUTF8Prefix(b []byte) int {
+	end := len(b)
+	for back := 1; back <= 4 && back <= len(b); back++ {
+		c := b[len(b)-back]
+		if c&0xc0 == 0x80 {
+			continue // continuation byte, keep scanning backwards
+		}
+		need := utf8SeqLen(c)
+		if need > back {
+			end = len(b) - back // rune incomplete: cut before its lead byte
+		}
+		break
+	}
+	return end
 }
 
 func utf8SeqLen(b byte) int {

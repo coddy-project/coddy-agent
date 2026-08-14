@@ -29,6 +29,10 @@ func (a *App) dispatchSlash(text string) bool {
 		a.openModelSelector()
 		return true
 	case "mode":
+		if len(fields) > 1 && (fields[1] == "agent" || fields[1] == "plan") {
+			a.applyMode(fields[1])
+			return true
+		}
 		a.openModeSelector()
 		return true
 	case "resume":
@@ -50,6 +54,16 @@ func (a *App) dispatchSlash(text string) bool {
 	return false
 }
 
+// applyMode switches the session mode through the manager.
+func (a *App) applyMode(mode string) {
+	sessionID := a.sessionID
+	go func() {
+		if err := a.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: sessionID, ModeID: mode}); err != nil {
+			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "mode: " + err.Error()})
+		}
+	}()
+}
+
 func (a *App) openModeSelector() {
 	items := []tui.SelectItem{
 		{Value: "agent", Label: "agent", Description: "Full tool access"},
@@ -62,13 +76,7 @@ func (a *App) openModeSelector() {
 			a.screen.RequestRender()
 			return
 		}
-		sessionID := a.sessionID
-		mode := item.Value
-		go func() {
-			if err := a.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: sessionID, ModeID: mode}); err != nil {
-				_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "mode: " + err.Error()})
-			}
-		}()
+		a.applyMode(item.Value)
 	}
 	a.openModal(sel)
 }
@@ -89,8 +97,9 @@ func (a *App) openThemeSelector() {
 	a.openModal(sel)
 }
 
-// switchTheme rebuilds themed content in place.
+// switchTheme rebuilds themed content in place, preserving the editor text.
 func (a *App) switchTheme(name string) {
+	pendingText := a.editor.Text()
 	a.applyTheme(name)
 	// Rebuild the static chrome; transcript components keep their pre-baked
 	// colors (documented v1 limitation, matches a fresh-session restart).
@@ -115,6 +124,9 @@ func (a *App) switchTheme(name string) {
 	a.editorWrap.AddChild(a.editor)
 	root.AddChild(a.editorWrap)
 	root.AddChild(a.foot)
+	if pendingText != "" {
+		a.editor.SetText(pendingText)
+	}
 	a.screen.SetFocus(a.editor)
 	a.screen.Invalidate()
 }
@@ -159,7 +171,7 @@ func (a *App) openResumePicker(res *acp.SessionListResult) {
 	for _, s := range res.Sessions {
 		label := s.SessionID
 		if s.Title != nil && *s.Title != "" {
-			label = *s.Title
+			label = tui.SanitizeText(*s.Title)
 		}
 		desc := s.SessionID
 		if s.UpdatedAt != nil && *s.UpdatedAt != "" {

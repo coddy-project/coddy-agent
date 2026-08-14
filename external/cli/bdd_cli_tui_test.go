@@ -354,10 +354,14 @@ func (s *cliTUIState) transcriptShowsPendingToolBox(tool string) error {
 	return s.waitScreen(tool, 2*time.Second)
 }
 
-func (s *cliTUIState) stubToolCompletes(preview string) error {
-	s.directives <- stubDirective{kind: "tool_done", preview: preview}
+func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
+	var lines []string
+	for i := 1; i <= count; i++ {
+		lines = append(lines, fmt.Sprintf("preview line %d", i))
+	}
+	s.directives <- stubDirective{kind: "tool_done", preview: strings.Join(lines, "\n")}
 	s.directives <- stubDirective{kind: "end"}
-	if err := s.waitScreen(preview, 3*time.Second); err != nil {
+	if err := s.waitScreen("preview line 1", 3*time.Second); err != nil {
 		return err
 	}
 	return s.waitTurnEnd(2 * time.Second)
@@ -368,12 +372,9 @@ func (s *cliTUIState) toolBoxShowsPreview(preview string) error {
 }
 
 func (s *cliTUIState) toolBoxShowsExpandHint() error {
-	// Collapsed hint appears only when content exceeds the cap; a one-line
-	// preview renders without it, so assert the box itself completed instead.
-	if s.activeToolID == "" {
-		return fmt.Errorf("no tool call was started")
-	}
-	return nil
+	// The 14-line preview exceeds the 10-line collapse cap, so the box must
+	// advertise expansion.
+	return s.waitScreen("ctrl+o to expand", 2*time.Second)
 }
 
 func (s *cliTUIState) permissionModeIs(mode string) error {
@@ -628,7 +629,7 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 		return s.stubStartsToolCall(tool, "path", path)
 	})
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
-	sc.Step(`^the stub tool call completes with preview "([^"]*)"$`, s.stubToolCompletes)
+	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)

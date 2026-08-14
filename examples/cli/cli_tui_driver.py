@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -278,6 +279,12 @@ class CoddyTUI:
         except Exception:
             pass
         finally:
+            try:
+                # pexpect makes the child a session leader; killing its whole
+                # process group reaps shell children (background sleeps etc.).
+                os.killpg(self.child.pid, signal.SIGKILL)
+            except Exception:
+                pass
             try:
                 self.child.terminate(force=True)
             except Exception:

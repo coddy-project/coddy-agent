@@ -25,8 +25,8 @@ Feature: Interactive console TUI
     And the operator submits the prompt "read the readme"
     And the stub turn starts a tool call named "read" with argument path "README.md"
     Then the transcript shows a pending tool box titled "read"
-    When the stub tool call completes with preview "# Coddy"
-    Then the tool box shows the preview "# Coddy"
+    When the stub tool call completes with a preview of 14 lines
+    Then the tool box shows the preview "preview line 1"
     And the tool box shows the expand hint
 
   Scenario: Ask permission mode renders a modal and allow continues the turn
@@ -84,3 +84,6 @@ Feature: Interactive console TUI
     And the operator starts a new session
     And the cancelled turn emits a late text chunk "stale text"
     Then the transcript does not show "stale text"
+    When the operator submits the prompt "fresh session work"
+    And the stub turn streams the text "fresh reply"
+    Then the transcript shows the assistant text "fresh reply"

@@ -114,7 +114,9 @@ func (f *footer) Render(width int) []string {
 }
 
 func detectGitBranch(cwd string) string {
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Stderr = nil // never inherit the tty; raw mode must stay clean
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

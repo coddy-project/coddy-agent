@@ -24,7 +24,7 @@ func newPermissionModal(theme *tui.Theme, params acp.PermissionRequestParams, re
 	m := &permissionModal{theme: theme}
 	items := make([]tui.SelectItem, 0, len(params.Options))
 	for _, opt := range params.Options {
-		items = append(items, tui.SelectItem{Value: opt.OptionID, Label: opt.Name})
+		items = append(items, tui.SelectItem{Value: opt.OptionID, Label: tui.SanitizeText(opt.Name)})
 	}
 	m.list = tui.NewSelectList(items, max(len(items), 3), selectListTheme(theme), tui.SelectListLayout{})
 	m.list.OnSelect = func(item tui.SelectItem) {
@@ -109,8 +109,17 @@ func (m *questionModal) buildQuestion() {
 	}
 	th := m.theme
 	items := make([]tui.SelectItem, 0, len(q.Options)+1)
-	for _, opt := range q.Options {
-		items = append(items, tui.SelectItem{Value: opt.Label, Label: opt.Label, Description: opt.Description})
+	for i, opt := range q.Options {
+		label := tui.SanitizeText(opt.Label)
+		display := label
+		if q.Multiple {
+			box := "[ ] "
+			if m.selected[i] {
+				box = "[x] "
+			}
+			display = box + label
+		}
+		items = append(items, tui.SelectItem{Value: label, Label: display, Description: tui.SanitizeText(opt.Description)})
 	}
 	if q.Custom {
 		items = append(items, tui.SelectItem{Value: customAnswerValue, Label: "Custom answer..."})
@@ -220,8 +229,22 @@ func (m *questionModal) HandleInput(data []byte) {
 		if key, ok := tui.ParseKey(data); ok && key.String() == "space" {
 			if it := m.list.SelectedItem(); it != nil {
 				for i, opt := range q.Options {
-					if opt.Label == it.Value {
+					if tui.SanitizeText(opt.Label) == it.Value {
 						m.selected[i] = !m.selected[i]
+					}
+				}
+			}
+			// Rebuild so the [x] markers reflect the toggle, keeping the
+			// cursor on the same row.
+			keep := ""
+			if it := m.list.SelectedItem(); it != nil {
+				keep = it.Value
+			}
+			m.buildQuestion()
+			if keep != "" {
+				for idx, opt := range q.Options {
+					if tui.SanitizeText(opt.Label) == keep {
+						m.list.SetSelectedIndex(idx)
 					}
 				}
 			}
@@ -232,4 +255,11 @@ func (m *questionModal) HandleInput(data []byte) {
 		}
 	}
 	m.list.HandleInput(data)
+}
+
+// InsertPaste forwards paste bodies to the custom answer editor when active.
+func (m *questionModal) InsertPaste(body string) {
+	if m.inCustom && m.custom != nil {
+		m.custom.InsertPaste(body)
+	}
 }

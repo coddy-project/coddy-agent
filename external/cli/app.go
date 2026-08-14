@@ -51,13 +51,14 @@ type App struct {
 	editor     *tui.Editor
 	foot       *footer
 
-	spinner    *tui.Loader
-	turnActive bool
-	lastCtrlC  time.Time
-	expanded   bool
-	hideThink  bool
-	themeName  string
-	plain      bool
+	spinner       *tui.Loader
+	turnActive    bool
+	turnSessionID string
+	lastCtrlC     time.Time
+	expanded      bool
+	hideThink     bool
+	themeName     string
+	plain         bool
 
 	// Streaming state.
 	curAssistant *assistantMessage
@@ -272,7 +273,7 @@ func (a *App) Run(ctx context.Context) error {
 			a.dispatchInput(data)
 			render.now()
 		case body := <-a.pasteCh:
-			a.editor.InsertPaste(string(body))
+			a.handlePaste(body)
 			render.now()
 		case msg := <-a.updatesCh:
 			a.applyLoopMessage(msg)
@@ -445,7 +446,11 @@ func (a *App) dispatchInput(data []byte) {
 		}
 		return
 	}
-	a.screen.HandleInput(data)
+	// The loop renders right after dispatch, so route to the focused
+	// component directly instead of the renderer's render-on-input helper.
+	if h, ok := a.screen.Focused().(tui.InputHandler); ok {
+		h.HandleInput(data)
+	}
 }
 
 func (a *App) requestQuit(err error) {
@@ -519,6 +524,7 @@ func (a *App) submitPrompt(text string) {
 	a.startSpinner()
 	a.turnActive = true
 	sessionID := a.sessionID
+	a.turnSessionID = sessionID
 	go func() {
 		res, err := a.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
 			SessionID: sessionID,
@@ -689,7 +695,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 	for _, s := range res.Sessions {
 		label := s.SessionID
 		if s.Title != nil && *s.Title != "" {
-			label = *s.Title
+			label = tui.SanitizeText(*s.Title)
 		}
 		desc := ""
 		if s.UpdatedAt != nil {
@@ -732,16 +738,19 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 func (a *App) loadSession(ctx context.Context, id string) error {
 	a.resetTranscript()
 	a.sessionID = id
-	errCh := make(chan error, 1)
+	type loadResult struct {
+		err  error
+		mode string
+	}
+	resCh := make(chan loadResult, 1)
 	go func() {
 		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.mgr.Cfg().Paths.CWD})
-		if err == nil && res != nil {
-			if res.Modes != nil {
-				a.modeID = res.Modes.CurrentModeID
-			}
+		mode := ""
+		if err == nil && res != nil && res.Modes != nil {
+			mode = res.Modes.CurrentModeID
 		}
 		a.mgr.HandleSessionReady(id)
-		errCh <- err
+		resCh <- loadResult{err: err, mode: mode}
 	}()
 	// Drain replay updates while the load runs.
 	for {
@@ -750,9 +759,12 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 			return ctx.Err()
 		case msg := <-a.updatesCh:
 			a.applyLoopMessage(msg)
-		case err := <-errCh:
-			if err != nil {
-				return fmt.Errorf("session load: %w", err)
+		case res := <-resCh:
+			if res.err != nil {
+				return fmt.Errorf("session load: %w", res.err)
+			}
+			if res.mode != "" {
+				a.modeID = res.mode
 			}
 			// Drain any remaining queued replay updates.
 			for {
@@ -783,6 +795,8 @@ func (a *App) newSession() {
 	old := a.sessionID
 	if a.turnActive {
 		a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: old})
+		a.turnActive = false
+		a.stopSpinner()
 	}
 	a.resetTranscript()
 	sessionID := ""
@@ -824,8 +838,21 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 func (a *App) refreshServerCommands(cmds []acp.AvailableCommand) {
 	var items []tui.AutocompleteItem
 	for _, c := range cmds {
-		name := strings.TrimPrefix(c.Name, "/")
-		items = append(items, tui.AutocompleteItem{Value: name, Label: name, Description: c.Description})
+		name := tui.SanitizeText(strings.TrimPrefix(c.Name, "/"))
+		items = append(items, tui.AutocompleteItem{Value: name, Label: name, Description: tui.SanitizeText(c.Description)})
 	}
 	a.slashServer = items
+}
+
+// handlePaste routes bracketed-paste bodies: the editor when no modal is
+// open, the question modal's custom editor when it is typing, and dropped
+// otherwise (pastes must never leak into a hidden editor behind a modal).
+func (a *App) handlePaste(body []byte) {
+	if a.modal == nil {
+		a.editor.InsertPaste(string(body))
+		return
+	}
+	if qm, ok := a.modal.(*questionModal); ok {
+		qm.InsertPaste(string(body))
+	}
 }

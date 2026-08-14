@@ -43,8 +43,8 @@ Top to bottom:
   cursor movement with sticky column; prompt history (up/down at edges, cap
   100); large pastes collapse into `[paste #N +K lines]` markers; scrolled
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
-  first line, `@` file mentions (workspace walk capped at 50k entries,
-  `.git`/`node_modules`/`.coddy` skipped), `tab` forces file completion.
+  first line, `@` file mentions (workspace walk capped at 50k entries;
+  hidden directories, `node_modules`, and `.coddy` are skipped), `tab` forces file completion.
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
 
@@ -84,7 +84,9 @@ selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `--resume` opens the session picker first and creates nothing
-until you choose. `--model`, `--mode agent|plan`, and
+until you choose (mutually exclusive with `--session-id`; `--model`,
+`--mode`, and `--permission-mode` apply to whichever session the picker
+selects). `--model`, `--mode agent|plan`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
 manager config-option API before the UI starts. `--theme dark|light|auto`
 (auto falls back COLORFGBG → dark). `--plain` disables terminal queries,

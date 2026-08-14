@@ -83,6 +83,15 @@ func (s *SelectList) SetFilter(filter string) {
 	s.selectedIndex = 0
 }
 
+// SetSelectedIndex moves the cursor to index, clamped to the filtered range.
+func (s *SelectList) SetSelectedIndex(index int) {
+	if len(s.filteredItems) == 0 {
+		s.selectedIndex = 0
+		return
+	}
+	s.selectedIndex = max(0, min(index, len(s.filteredItems)-1))
+}
+
 // SelectedItem returns the current selection or nil.
 func (s *SelectList) SelectedItem() *SelectItem {
 	if s.selectedIndex < 0 || s.selectedIndex >= len(s.filteredItems) {

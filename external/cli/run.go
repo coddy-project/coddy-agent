@@ -114,17 +114,26 @@ func Run(args []string, deps CommandDeps) error {
 	defer cancel()
 
 	// Startup that can fail happens before raw mode. With --resume no session
-	// is created here: the picker inside the interactive loop decides first.
+	// is created here: the picker inside the interactive loop decides first
+	// and the startup options apply to whichever session it picks.
+	if *resume && strings.TrimSpace(*sessionID) != "" {
+		return errors.New("--resume and --session-id are mutually exclusive")
+	}
+	opts := startupOptions{
+		model:    strings.TrimSpace(*modelFlag),
+		mode:     strings.TrimSpace(*modeFlag),
+		permMode: strings.TrimSpace(*permMode),
+	}
 	if !*resume {
 		if err := app.Start(ctx, strings.TrimSpace(*sessionID), false); err != nil {
 			return err
 		}
-		if err := app.ApplyStartupOptions(ctx, strings.TrimSpace(*modelFlag), strings.TrimSpace(*modeFlag), strings.TrimSpace(*permMode)); err != nil {
+		if err := app.ApplyStartupOptions(ctx, opts.model, opts.mode, opts.permMode); err != nil {
 			return err
 		}
 	}
 
-	return runInteractive(ctx, app, term, *resume)
+	return runInteractive(ctx, app, term, *resume, opts)
 }
 
 // buildApp wires the manager triple (store -> manager -> app) with the app's
@@ -173,9 +182,16 @@ func llmWarmupNotices(log *slog.Logger, cfg *config.Config) {
 	_ = cfg
 }
 
+// startupOptions carries --model/--mode/--permission-mode into the resume path.
+type startupOptions struct {
+	model    string
+	mode     string
+	permMode string
+}
+
 // runInteractive owns the raw-mode lifecycle: every exit path restores the
 // terminal (normal quit, error, panic, signal).
-func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, resume bool) (err error) {
+func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, resume bool, opts startupOptions) (err error) {
 	buf := tui.NewStdinBuffer(tui.EscTimeout())
 	buf.Emit = app.OnTerminalInput
 	buf.EmitPaste = app.OnTerminalPaste
@@ -207,6 +223,9 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 
 	if resume {
 		if err := app.Start(ctx, "", true); err != nil {
+			return err
+		}
+		if err := app.ApplyStartupOptions(ctx, opts.model, opts.mode, opts.permMode); err != nil {
 			return err
 		}
 		app.populateHeader()
