@@ -104,8 +104,8 @@ only control sequences in rendered lines are renderer-generated styling.
 
 Permission mode `ask` renders every request as a modal; `bypass` short-circuits
 exactly like the ACP `serverRef` path. Project-local MCP servers still go
-through the workspace trust gate; a server pending approval is reported with a
-`coddy mcp trust <name>` hint.
+through the workspace trust gate; a server pending approval stays disconnected
+and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
 ## Testing
 
