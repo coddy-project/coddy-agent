@@ -17,6 +17,9 @@ type userMessage struct {
 
 func newUserMessage(theme *tui.Theme, text string) *userMessage {
 	u := &userMessage{}
+	// One clear separator row keeps the box from sitting flush against the
+	// block above it (pi spacing).
+	u.AddChild(tui.NewSpacer(1))
 	box := tui.NewBox(1, 1, theme.BgFn(roleUserMsgBg))
 	box.AddChild(tui.NewText(theme.Fg(roleUserMsgText, tui.SanitizeText(text)), 0, 0, nil))
 	u.AddChild(box)
@@ -66,6 +69,12 @@ func (a *assistantMessage) HasContent() bool { return a.thinkingText != "" || a.
 
 func (a *assistantMessage) rebuild() {
 	a.Clear()
+	if a.thinkingText == "" && a.answerText == "" {
+		return
+	}
+	// Separator row before the block: assistant text follows a user box or a
+	// tool box and must not glue to it (pi spacing).
+	a.AddChild(tui.NewSpacer(1))
 	if a.thinkingText != "" {
 		if a.hideThinking {
 			if a.thinkingLabel == nil {
