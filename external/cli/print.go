@@ -41,6 +41,9 @@ type printSender struct {
 	out    io.Writer
 	errOut io.Writer
 	wrote  bool
+	// remote suppresses the local bypass fallback: a permission event from a
+	// remote server means its policy wants an explicit answer.
+	remote bool
 }
 
 func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -67,7 +70,7 @@ func (p *printSender) RequestPermission(_ context.Context, params acp.Permission
 	if st := p.mgr.SessionByID(params.SessionID); st != nil {
 		mode = st.GetPermissionMode()
 	}
-	if mode == "" && p.cfg != nil {
+	if mode == "" && p.cfg != nil && !p.remote {
 		mode = p.cfg.Tools.ResolvedPermMode()
 	}
 	if mode == config.PermModeBypass {

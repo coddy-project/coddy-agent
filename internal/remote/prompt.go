@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -46,8 +47,9 @@ type chunkFrame struct {
 // metaFrame is the coddy_meta event payload emitted right before [DONE].
 type metaFrame struct {
 	Metadata struct {
-		Model    string `json:"model"`
-		APIModel string `json:"api_model"`
+		Model      string `json:"model"`
+		APIModel   string `json:"api_model"`
+		StopReason string `json:"stop_reason"`
 	} `json:"metadata"`
 }
 
@@ -73,7 +75,15 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		mode = "agent"
 	}
 
-	body := responsesRequest{Model: mode, Input: promptText(params.Prompt), Stream: true}
+	// The turn gets its own cancellable context so session/cancel can abort
+	// the stream even while the sender is blocked in a permission or
+	// question round-trip.
+	turnCtx, cancelTurn := context.WithCancel(ctx)
+	defer cancelTurn()
+	h.beginTurn(st, cancelTurn)
+	defer h.endTurn(st)
+
+	body := responsesRequest{Model: mode, Input: promptInput(params.Prompt), Stream: true}
 	if selected != "" {
 		body.Metadata = map[string]string{"model": selected}
 	}
@@ -94,7 +104,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	req, err := h.newRequest(ctx, http.MethodPost, "/v1/responses", bytes.NewReader(raw))
+	req, err := h.newRequest(turnCtx, http.MethodPost, "/v1/responses", bytes.NewReader(raw))
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +112,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	res, err := h.hc.Do(req)
 	if err != nil {
-		if ctx.Err() != nil || h.consumeCancelled(sid) {
+		if h.endTurn(st) || ctx.Err() != nil {
 			return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
 		}
 		return nil, fmt.Errorf("remote coddy %s: %w", h.opts.BaseURL, err)
@@ -117,32 +127,48 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		return nil, h.remoteError(res, payload)
 	}
 
-	turn := &turnStream{h: h, ctx: ctx, sessionID: sid, sender: sender}
+	turn := &turnStream{h: h, ctx: turnCtx, sessionID: sid, sender: sender}
 	streamErr := readSSE(res.Body, turn.onFrame)
+	cancelled := h.endTurn(st)
 
-	if ctx.Err() != nil || h.consumeCancelled(sid) {
-		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
-	}
-	if turn.turnErr != "" {
+	switch {
+	case turn.turnErr != "":
 		return nil, fmt.Errorf("remote coddy: %s", turn.turnErr)
-	}
-	if streamErr != nil {
+	case turn.done:
+		stop := acp.StopReasonEndTurn
+		if turn.stopReason != "" {
+			stop = acp.StopReason(turn.stopReason)
+		}
+		return &acp.SessionPromptResult{StopReason: stop}, nil
+	case cancelled:
+		// HandleSessionCancel already asked the server to stop the turn.
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
+	case ctx.Err() != nil:
+		// The surface is going away (quit, SIGINT in print mode): the server
+		// runs detached, so ask it to stop instead of leaving the session
+		// busy and the tools running.
+		cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if cerr := h.cancelSession(cctx, sid); cerr != nil {
+			h.log.Warn("remote cancel on abort", "session", sid, "error", cerr)
+		}
+		return &acp.SessionPromptResult{StopReason: acp.StopReasonCancelled}, nil
+	case streamErr != nil:
 		return nil, fmt.Errorf("remote coddy: stream: %w", streamErr)
-	}
-	if !turn.done {
+	default:
 		return nil, fmt.Errorf("remote coddy: stream ended before [DONE]")
 	}
-	return &acp.SessionPromptResult{StopReason: acp.StopReasonEndTurn}, nil
 }
 
 // turnStream tracks one in-flight remote turn while its SSE stream is read.
 type turnStream struct {
-	h         *Handler
-	ctx       context.Context
-	sessionID string
-	sender    acp.UpdateSender
-	done      bool
-	turnErr   string
+	h          *Handler
+	ctx        context.Context
+	sessionID  string
+	sender     acp.UpdateSender
+	done       bool
+	turnErr    string
+	stopReason string
 }
 
 // onFrame translates one SSE frame into ACP updates or answer round-trips.
@@ -196,8 +222,13 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		return t.onQuestion(f.data)
 	case "coddy_meta":
 		var meta metaFrame
-		if json.Unmarshal([]byte(f.data), &meta) == nil && meta.Metadata.Model != "" {
-			t.h.rememberEffectiveModel(t.sessionID, meta.Metadata.Model)
+		if json.Unmarshal([]byte(f.data), &meta) == nil {
+			if meta.Metadata.Model != "" {
+				t.h.rememberEffectiveModel(t.sessionID, meta.Metadata.Model)
+			}
+			if meta.Metadata.StopReason != "" {
+				t.stopReason = meta.Metadata.StopReason
+			}
 		}
 	case "error":
 		var env errorEnvelope
@@ -255,7 +286,9 @@ func (t *turnStream) onPermission(data string) error {
 	answer := map[string]string{"toolCallId": params.ToolCall.ToolCallID, "optionId": optionID}
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/permission"
 	if perr := t.h.postJSON(t.ctx, path, answer, nil); perr != nil {
-		t.h.log.Warn("remote permission answer", "error", perr)
+		// The server stays blocked on an unanswered permission; failing the
+		// turn beats a silent mutual deadlock.
+		return fmt.Errorf("permission answer: %w", perr)
 	}
 	return nil
 }
@@ -274,17 +307,29 @@ func (t *turnStream) onQuestion(data string) error {
 	answer := map[string]interface{}{"requestId": params.RequestID, "answers": answers}
 	path := "/coddy/sessions/" + url.PathEscape(t.sessionID) + "/question"
 	if qerr := t.h.postJSON(t.ctx, path, answer, nil); qerr != nil {
-		t.h.log.Warn("remote question answer", "error", qerr)
+		return fmt.Errorf("question answer: %w", qerr)
 	}
 	return nil
 }
 
-// promptText joins the text blocks of an ACP prompt.
-func promptText(blocks []acp.ContentBlock) string {
+// promptInput flattens an ACP prompt for the HTTP input field: text blocks
+// verbatim, embedded resource blocks (editor context) inlined with their URI
+// so the remote agent sees the same context a local turn would hydrate.
+func promptInput(blocks []acp.ContentBlock) string {
 	var b strings.Builder
 	for _, blk := range blocks {
-		if blk.Type == "text" {
+		switch blk.Type {
+		case "text":
 			b.WriteString(blk.Text)
+		case "resource":
+			if blk.Resource == nil || blk.Resource.Text == "" {
+				continue
+			}
+			b.WriteString("\n\n")
+			if blk.Resource.URI != "" {
+				b.WriteString("[" + blk.Resource.URI + "]\n")
+			}
+			b.WriteString(blk.Resource.Text)
 		}
 	}
 	return b.String()

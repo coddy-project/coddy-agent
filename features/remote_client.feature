@@ -44,3 +44,17 @@ Feature: Remote client for the coddy HTTP API
     And the client sends the prompt "newer"
     When the client lists remote sessions
     Then the first listed session is the newest one
+
+  Scenario: Loading a remote plan session keeps the plan profile
+    Given the remote agent replies with "plan sketch"
+    And the client starts a session
+    And the client sends the prompt "draft a plan"
+    And the remote session is switched to plan mode
+    When a fresh client loads that session
+    Then the loaded session mode is "plan"
+
+  Scenario: The server stop reason reaches the client
+    Given the remote agent replies with "capped" and stops at the turn limit
+    And the client starts a session
+    When the client sends the prompt "long job"
+    Then the turn ends with stop reason "max_turns"

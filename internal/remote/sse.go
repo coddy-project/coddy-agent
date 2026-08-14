@@ -59,9 +59,9 @@ func readSSE(r io.Reader, onFrame func(sseFrame) error) error {
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				if ferr := flush(); ferr != nil && !errors.Is(ferr, errStopStream) {
-					return ferr
-				}
+				// Per the SSE spec an event not yet terminated by a blank
+				// line is discarded at EOF; flushing it would let a
+				// truncated [DONE] pass for a clean completion.
 				return nil
 			}
 			return err

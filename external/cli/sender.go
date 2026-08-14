@@ -55,7 +55,10 @@ func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if st := s.app.mgr.SessionByID(params.SessionID); st != nil {
 		mode = st.GetPermissionMode()
 	}
-	if mode == "" {
+	if mode == "" && s.app.remoteURL == "" {
+		// Local fallback only: a remote server sends a permission event
+		// precisely because ITS policy wants a human answer, so the local
+		// bypass setting must never auto-approve it.
 		if cfg := s.app.cfg; cfg != nil {
 			mode = cfg.Tools.ResolvedPermMode()
 		}

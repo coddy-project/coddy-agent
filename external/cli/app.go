@@ -42,8 +42,11 @@ type App struct {
 	remoteURL string
 	// configOpts is the last adopted session option set (model catalog).
 	configOpts []acp.ConfigOption
-	term       appTerminal
-	theme      *tui.Theme
+	// toolFullCache and toolFullPending back the async remote ctrl+o expand.
+	toolFullCache   map[string]string
+	toolFullPending map[string]bool
+	term            appTerminal
+	theme           *tui.Theme
 
 	screen *tui.MainScreen
 
@@ -104,21 +107,23 @@ type App struct {
 // newApp assembles the application over an existing manager and terminal.
 func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	a := &App{
-		cfg:       cfg,
-		mgr:       mgr,
-		log:       log,
-		term:      term,
-		themeName: themeName,
-		plain:     plain,
-		toolBoxes: map[string]*toolBox{},
-		updatesCh: make(chan updateMsg, 1024),
-		permCh:    make(chan permRequest),
-		questCh:   make(chan questRequest),
-		inputCh:   make(chan []byte, 64),
-		pasteCh:   make(chan []byte, 8),
-		resizeCh:  make(chan struct{}, 1),
-		closed:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
+		cfg:             cfg,
+		mgr:             mgr,
+		log:             log,
+		term:            term,
+		themeName:       themeName,
+		plain:           plain,
+		toolBoxes:       map[string]*toolBox{},
+		toolFullCache:   map[string]string{},
+		toolFullPending: map[string]bool{},
+		updatesCh:       make(chan updateMsg, 1024),
+		permCh:          make(chan permRequest),
+		questCh:         make(chan questRequest),
+		inputCh:         make(chan []byte, 64),
+		pasteCh:         make(chan []byte, 8),
+		resizeCh:        make(chan struct{}, 1),
+		closed:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 	a.workCtx, a.workStop = context.WithCancel(context.Background())
 	a.applyTheme(themeName)
@@ -745,9 +750,38 @@ func (a *App) toggleThinking() {
 	}
 }
 
-// loadToolResult reads the persisted full tool output for expand.
+// loadToolResult reads the persisted full tool output for expand. Locally
+// this is a disk read; remotely the fetch runs on a worker goroutine (the
+// REST call can take seconds) and the box re-expands when the result lands.
 func (a *App) loadToolResult(toolCallID string) (string, bool) {
-	return a.mgr.ToolCallResult(a.sessionID, toolCallID)
+	if full, ok := a.toolFullCache[toolCallID]; ok {
+		return full, true
+	}
+	if a.remoteURL == "" {
+		return a.mgr.ToolCallResult(a.sessionID, toolCallID)
+	}
+	if a.toolFullPending[toolCallID] {
+		return "", false
+	}
+	a.toolFullPending[toolCallID] = true
+	sessionID := a.sessionID
+	a.workers.Add(1)
+	go func() {
+		defer a.workers.Done()
+		full, ok := a.mgr.ToolCallResult(sessionID, toolCallID)
+		select {
+		case a.updatesCh <- updateMsg{sessionID: sessionID, update: toolFullLoaded{id: toolCallID, text: full, ok: ok}}:
+		case <-a.closed:
+		}
+	}()
+	return "", false
+}
+
+// toolFullLoaded delivers an asynchronously fetched full tool result.
+type toolFullLoaded struct {
+	id   string
+	text string
+	ok   bool
 }
 
 // pickSessionBlocking shows the resume picker before the UI loop starts.
@@ -816,16 +850,21 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 	type loadResult struct {
 		err  error
 		mode string
+		opts []acp.ConfigOption
 	}
 	resCh := make(chan loadResult, 1)
 	go func() {
 		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.cfg.Paths.CWD})
 		mode := ""
-		if err == nil && res != nil && res.Modes != nil {
-			mode = res.Modes.CurrentModeID
+		var opts []acp.ConfigOption
+		if err == nil && res != nil {
+			if res.Modes != nil {
+				mode = res.Modes.CurrentModeID
+			}
+			opts = res.ConfigOptions
 		}
 		a.mgr.HandleSessionReady(id)
-		resCh <- loadResult{err: err, mode: mode}
+		resCh <- loadResult{err: err, mode: mode, opts: opts}
 	}()
 	// Drain replay updates while the load runs.
 	for {
@@ -840,6 +879,14 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 			}
 			if res.mode != "" {
 				a.modeID = res.mode
+			}
+			if len(res.opts) > 0 {
+				a.configOpts = res.opts
+				for _, opt := range res.opts {
+					if opt.ID == "model" {
+						a.modelID = opt.CurrentValue
+					}
+				}
 			}
 			// Drain any remaining queued replay updates.
 			for {
@@ -860,6 +907,8 @@ func (a *App) resetTranscript() {
 	a.chat.Clear()
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
+	a.toolFullCache = map[string]string{}
+	a.toolFullPending = map[string]bool{}
 	a.curAssistant = nil
 	a.curMemory = nil
 	a.lastToolID = ""

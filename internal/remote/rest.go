@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,20 @@ type errorEnvelope struct {
 	Error struct {
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+// apiError carries the HTTP status so callers can branch on 404 vs failure.
+type apiError struct {
+	status  int
+	message string
+}
+
+func (e *apiError) Error() string { return e.message }
+
+// isNotFound reports whether err is a remote 404.
+func isNotFound(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.status == http.StatusNotFound
 }
 
 // newRequest builds a request with auth and JSON headers against the remote base.
@@ -46,11 +61,11 @@ func (h *Handler) newRequest(ctx context.Context, method, path string, body io.R
 // error envelope.
 func (h *Handler) remoteError(res *http.Response, body []byte) error {
 	if res.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("remote coddy %s: unauthorized (check --remote-token or CODDY_REMOTE_TOKEN)", h.opts.BaseURL)
+		return &apiError{status: res.StatusCode, message: fmt.Sprintf("remote coddy %s: unauthorized (check --remote-token or CODDY_REMOTE_TOKEN)", h.opts.BaseURL)}
 	}
 	var env errorEnvelope
 	if json.Unmarshal(body, &env) == nil && strings.TrimSpace(env.Error.Message) != "" {
-		return fmt.Errorf("remote coddy: %s", env.Error.Message)
+		return &apiError{status: res.StatusCode, message: "remote coddy: " + env.Error.Message}
 	}
 	msg := strings.TrimSpace(string(body))
 	if len(msg) > 200 {
@@ -59,7 +74,7 @@ func (h *Handler) remoteError(res *http.Response, body []byte) error {
 	if msg == "" {
 		msg = res.Status
 	}
-	return fmt.Errorf("remote coddy: %s", msg)
+	return &apiError{status: res.StatusCode, message: "remote coddy: " + msg}
 }
 
 // getJSON performs GET path and decodes the response into out.
@@ -228,6 +243,7 @@ type messagesResponse struct {
 	Messages        []messageRow `json:"messages"`
 	SelectedModelID string       `json:"selectedModelId,omitempty"`
 	Model           string       `json:"model,omitempty"`
+	Mode            string       `json:"mode,omitempty"`
 }
 
 func (h *Handler) sessionMessages(ctx context.Context, id string) (*messagesResponse, error) {

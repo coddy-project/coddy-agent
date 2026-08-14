@@ -244,6 +244,9 @@ func runACP(args []string) error {
 		// Remote client mode: no local store, scheduler, or agent loop; every
 		// session call proxies to the remote coddy http server.
 		ropts.Log = log
+		if ropts.Insecure && ropts.Token != "" {
+			log.Warn("sending the bearer token over plain http", "remote", ropts.BaseURL, "hint", "prefer https or a trusted network")
+		}
 		h, err := remote.NewHandler(*ropts)
 		if err != nil {
 			return err

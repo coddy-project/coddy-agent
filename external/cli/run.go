@@ -157,11 +157,12 @@ func Run(args []string, deps CommandDeps) error {
 		}
 		if ropts != nil {
 			ropts.Log = log
+			warnInsecureRemote(ropts, os.Stderr)
 			h, herr := remote.NewHandler(*ropts)
 			if herr != nil {
 				return herr
 			}
-			h.SetServer(&printSender{mgr: h, cfg: cfg, out: os.Stdout, errOut: os.Stderr})
+			h.SetServer(&printSender{mgr: h, cfg: cfg, out: os.Stdout, errOut: os.Stderr, remote: true})
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
@@ -180,6 +181,7 @@ func Run(args []string, deps CommandDeps) error {
 	var app *App
 	if ropts != nil {
 		ropts.Log = log
+		warnInsecureRemote(ropts, os.Stderr)
 		app, err = buildRemoteApp(cfg, ropts, log, term, resolveThemeName(*themeFlag, *plainFlag), *plainFlag)
 		if err != nil {
 			return err
@@ -232,6 +234,16 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	return app
+}
+
+// warnInsecureRemote flags a bearer token about to travel over plain http to
+// another machine. The connection still proceeds: LAN use is the main remote
+// scenario, but the operator should know the token is readable on the wire.
+func warnInsecureRemote(ropts *remote.Options, w io.Writer) {
+	if ropts == nil || !ropts.Insecure || ropts.Token == "" {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "warning: sending the bearer token over plain http to %s; prefer https or a trusted network\n", ropts.BaseURL)
 }
 
 // buildRemoteApp wires the console against a remote coddy http server: the

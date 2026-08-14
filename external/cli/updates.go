@@ -114,6 +114,14 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			}
 		}
 		a.refreshFooterModel()
+	case toolFullLoaded:
+		delete(a.toolFullPending, u.id)
+		if u.ok {
+			a.toolFullCache[u.id] = u.text
+			if tb, ok := a.toolBoxes[u.id]; ok && a.expanded {
+				tb.SetExpanded(true)
+			}
+		}
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.MemoryPhaseUpdate:

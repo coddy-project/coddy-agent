@@ -2,6 +2,7 @@ package remote
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -45,9 +46,29 @@ func Resolve(cfg *config.Config, remoteArg, tokenArg string) (*Options, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("--remote: invalid server address %q (want a configured remote name, host:port, or http(s) URL)", remoteArg)
 	}
+	if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+		return nil, fmt.Errorf("--remote: server address must be a bare origin without query, fragment, or credentials")
+	}
 	token := strings.TrimSpace(tokenArg)
 	if token == "" {
 		token = strings.TrimSpace(os.Getenv(TokenEnvVar))
 	}
-	return &Options{BaseURL: strings.TrimRight(target, "/"), Token: token}, nil
+	base := u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
+	return &Options{
+		BaseURL:  base,
+		Token:    token,
+		Insecure: u.Scheme == "http" && !isLoopbackHost(u.Hostname()),
+	}, nil
+}
+
+// isLoopbackHost reports whether the host stays on this machine, where plain
+// http cannot leak the bearer token onto a network.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }

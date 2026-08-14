@@ -391,11 +391,12 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    prompt,
 			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
-		}, bridge, promptOpts); err != nil {
+		}, bridge, promptOpts)
+		if err != nil {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
 			// differs between the two response shapes.
@@ -412,6 +413,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		if promptRes != nil && promptRes.StopReason != "" {
+			// Remote clients (internal/remote) recover the ACP stop reason
+			// from here; [DONE] alone cannot carry it.
+			meta["stop_reason"] = string(promptRes.StopReason)
+		}
 		// Unconditional: for a relay sender this terminates the watched stream and writes
 		// nothing to w, so the JSON body below is unchanged.
 		_ = bridge.FinishStreamWithMetadata(meta)
@@ -748,7 +754,8 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
 			}
 		}
-		if _, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts); err != nil {
+		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		if err != nil {
 			s.log.Error("responses prompt", "error", err)
 			_ = bridge.SendError(err.Error())
 			_ = bridge.FinishStream()
@@ -763,6 +770,11 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		s.captureAndStoreTurnDiff(st, beforeSnap2)
 		meta := metadataResponse(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st))
+		if promptRes != nil && promptRes.StopReason != "" {
+			// Remote clients (internal/remote) recover the ACP stop reason
+			// from here; [DONE] alone cannot carry it.
+			meta["stop_reason"] = string(promptRes.StopReason)
+		}
 		_ = bridge.FinishStreamWithMetadata(meta)
 		if body.Stream {
 			return

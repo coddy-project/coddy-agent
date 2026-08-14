@@ -29,6 +29,9 @@ type Options struct {
 	Log *slog.Logger
 	// HTTPClient overrides the transport (tests); nil uses a dedicated client.
 	HTTPClient *http.Client
+	// Insecure marks a plain-http non-loopback target: the bearer token
+	// travels cleartext, so surfaces warn the operator once.
+	Insecure bool
 }
 
 // Handler is a remote-backed implementation of the session handler surface
@@ -49,8 +52,11 @@ type Handler struct {
 type sessionState struct {
 	mode          string
 	modelID       string
-	cancelled     bool
 	pendingReplay []messageRow
+	// turnCancel aborts the in-flight turn's stream; turnCancelled records
+	// that the cancel targeted that turn (never a later one).
+	turnCancel    context.CancelFunc
+	turnCancelled bool
 }
 
 type remoteModel struct {
@@ -106,16 +112,20 @@ func (h *Handler) session(id string) *sessionState {
 	return st
 }
 
-// consumeCancelled reports whether a cancel was requested for the session's
-// current turn and clears the mark, so it never leaks into the next turn.
-func (h *Handler) consumeCancelled(id string) bool {
+// beginTurn registers the cancel hook for one in-flight turn.
+func (h *Handler) beginTurn(st *sessionState, cancel context.CancelFunc) {
+	h.mu.Lock()
+	st.turnCancel = cancel
+	st.turnCancelled = false
+	h.mu.Unlock()
+}
+
+// endTurn drops the cancel hook and reports whether the turn was cancelled.
+func (h *Handler) endTurn(st *sessionState) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if st, ok := h.sessions[id]; ok && st.cancelled {
-		st.cancelled = false
-		return true
-	}
-	return false
+	st.turnCancel = nil
+	return st.turnCancelled
 }
 
 // rememberEffectiveModel records the model the server reports for a turn so
@@ -191,11 +201,20 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 
 	st := h.session(id)
 	if preferred != "" {
-		if msgs, err := h.sessionMessages(ctx, id); err == nil && len(msgs.Messages) > 0 {
+		msgs, err := h.sessionMessages(ctx, id)
+		switch {
+		case isNotFound(err):
+			// no such session remotely: a fresh one starts under this id
+		case err != nil:
+			return nil, fmt.Errorf("session/new: reopen %s: %w", id, err)
+		case len(msgs.Messages) > 0:
 			h.mu.Lock()
 			st.pendingReplay = msgs.Messages
 			if msgs.SelectedModelID != "" {
 				st.modelID = msgs.SelectedModelID
+			}
+			if msgs.Mode != "" {
+				st.mode = msgs.Mode
 			}
 			h.mu.Unlock()
 		}
@@ -223,6 +242,9 @@ func (h *Handler) HandleSessionLoad(ctx context.Context, params acp.SessionLoadP
 	h.mu.Lock()
 	if msgs.SelectedModelID != "" {
 		st.modelID = msgs.SelectedModelID
+	}
+	if msgs.Mode != "" {
+		st.mode = msgs.Mode
 	}
 	h.mu.Unlock()
 	h.replayMessages(id, msgs.Messages)
@@ -340,12 +362,21 @@ func (h *Handler) HandleSessionSetConfigOption(ctx context.Context, params acp.S
 	}
 }
 
-// HandleSessionCancel asks the remote server to cancel the running turn.
+// HandleSessionCancel cancels the in-flight turn: it aborts the local stream
+// (which also unblocks a pending permission or question modal) and asks the
+// remote server to stop the detached turn. A cancel with no turn running is
+// forwarded to the server only, so it can never poison a later turn.
 func (h *Handler) HandleSessionCancel(params acp.SessionCancelParams) {
 	st := h.session(params.SessionID)
 	h.mu.Lock()
-	st.cancelled = true
+	cancel := st.turnCancel
+	if cancel != nil {
+		st.turnCancelled = true
+	}
 	h.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	go func() {
 		if err := h.cancelSession(context.Background(), params.SessionID); err != nil {
 			h.log.Warn("remote cancel", "session", params.SessionID, "error", err)

@@ -95,6 +95,7 @@ type remoteClientState struct {
 	replyText      string
 	askPermission  bool
 	recordToolCall bool
+	stopReason     string
 
 	client    *remote.Handler
 	sender    *recordingClientSender
@@ -104,6 +105,7 @@ type remoteClientState struct {
 	promptErr error
 
 	replaySender *recordingClientSender
+	loadResult   *acp.SessionLoadResult
 	listResult   *acp.SessionListResult
 }
 
@@ -118,6 +120,7 @@ func (s *remoteClientState) reset() error {
 	s.replyText = ""
 	s.askPermission = false
 	s.recordToolCall = false
+	s.stopReason = ""
 	s.client = nil
 	s.sender = nil
 	s.sessionID = ""
@@ -125,6 +128,7 @@ func (s *remoteClientState) reset() error {
 	s.lastStop = ""
 	s.promptErr = nil
 	s.replaySender = nil
+	s.loadResult = nil
 	s.listResult = nil
 	return nil
 }
@@ -210,6 +214,9 @@ func (s *remoteClientState) startServer(token string) error {
 			})
 			st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: s.replyText})
 		}
+		if s.stopReason != "" {
+			return s.stopReason, nil
+		}
 		return string(acp.StopReasonEndTurn), nil
 	}
 	cfg := &config.Config{
@@ -257,6 +264,28 @@ func (s *remoteClientState) agentAsksPermission(text string) error {
 func (s *remoteClientState) agentRepliesWithToolCall(text string) error {
 	s.replyText = text
 	s.recordToolCall = true
+	return nil
+}
+
+func (s *remoteClientState) agentRepliesAndStopsAtTurnLimit(text string) error {
+	s.replyText = text
+	s.stopReason = string(acp.StopReasonMaxTurns)
+	return nil
+}
+
+func (s *remoteClientState) remoteSessionSwitchedToPlan() error {
+	return s.mgr.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{
+		SessionID: s.sessionID, ModeID: "plan",
+	})
+}
+
+func (s *remoteClientState) loadedSessionModeIs(mode string) error {
+	if s.loadResult == nil || s.loadResult.Modes == nil {
+		return fmt.Errorf("no load result captured")
+	}
+	if s.loadResult.Modes.CurrentModeID != mode {
+		return fmt.Errorf("loaded mode %q, want %q", s.loadResult.Modes.CurrentModeID, mode)
+	}
 	return nil
 }
 
@@ -372,7 +401,8 @@ func (s *remoteClientState) freshClientLoads() error {
 		return err
 	}
 	h.SetServer(s.replaySender)
-	_, err = h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: s.sessionID, CWD: s.root})
+	res, err := h.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: s.sessionID, CWD: s.root})
+	s.loadResult = res
 	return err
 }
 
@@ -446,6 +476,9 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the remote agent replies with "([^"]*)"$`, s.agentReplies)
 	sc.Step(`^the remote agent asks permission before replying "([^"]*)"$`, s.agentAsksPermission)
 	sc.Step(`^the remote agent replies with "([^"]*)" and records a tool call$`, s.agentRepliesWithToolCall)
+	sc.Step(`^the remote agent replies with "([^"]*)" and stops at the turn limit$`, s.agentRepliesAndStopsAtTurnLimit)
+	sc.Step(`^the remote session is switched to plan mode$`, s.remoteSessionSwitchedToPlan)
+	sc.Step(`^the loaded session mode is "([^"]*)"$`, s.loadedSessionModeIs)
 	sc.Step(`^the client answers permissions with "([^"]*)"$`, s.clientAnswersPermissions)
 	sc.Step(`^the client starts a session$`, s.clientStartsSession)
 	sc.Step(`^the client sends the prompt "([^"]*)"$`, s.clientSendsPrompt)

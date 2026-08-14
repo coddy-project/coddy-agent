@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -52,6 +53,20 @@ func (c *collectSender) texts() []string {
 	return out
 }
 
+// blockingPermissionSender blocks RequestPermission until its context dies,
+// mimicking a modal the operator never answers.
+type blockingPermissionSender struct {
+	collectSender
+	started chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingPermissionSender) RequestPermission(ctx context.Context, _ acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	b.once.Do(func() { close(b.started) })
+	<-ctx.Done()
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
 // ---- readSSE ----
 
 func TestReadSSEParsesNamedEventsMultilineDataAndSkipsNoise(t *testing.T) {
@@ -81,13 +96,15 @@ func TestReadSSEParsesNamedEventsMultilineDataAndSkipsNoise(t *testing.T) {
 	}
 }
 
-func TestReadSSEFlushesTrailingFrameOnEOF(t *testing.T) {
+func TestReadSSEDiscardsUnterminatedFramesAtEOF(t *testing.T) {
+	// Per the SSE spec an event without its terminating blank line is
+	// dropped: a truncated [DONE] must not pass for a clean completion.
 	var frames []sseFrame
-	err := readSSE(strings.NewReader("data: tail"), func(f sseFrame) error {
+	err := readSSE(strings.NewReader("data: [DONE]"), func(f sseFrame) error {
 		frames = append(frames, f)
 		return nil
 	})
-	if err != nil || len(frames) != 1 || frames[0].data != "tail" {
+	if err != nil || len(frames) != 0 {
 		t.Fatalf("err=%v frames=%#v", err, frames)
 	}
 }
@@ -127,6 +144,25 @@ func TestResolveMapsNamesAddressesAndTokens(t *testing.T) {
 	}
 	if _, err = Resolve(cfg, "ftp://box", ""); err == nil {
 		t.Fatal("non-http scheme must fail")
+	}
+	if _, err = Resolve(cfg, "http://box:1/?access_token=x", ""); err == nil {
+		t.Fatal("query strings must be rejected")
+	}
+	if _, err = Resolve(cfg, "http://user:pass@box:1", ""); err == nil {
+		t.Fatal("credentials in the URL must be rejected")
+	}
+
+	opts, err = Resolve(cfg, "box.example:19980", "t")
+	if err != nil || !opts.Insecure {
+		t.Fatalf("plain http off-box must flag Insecure, got %+v %v", opts, err)
+	}
+	opts, err = Resolve(cfg, "127.0.0.1:19980", "t")
+	if err != nil || opts.Insecure {
+		t.Fatalf("loopback must not flag Insecure, got %+v %v", opts, err)
+	}
+	opts, err = Resolve(cfg, "https://box.example:19980", "t")
+	if err != nil || opts.Insecure {
+		t.Fatalf("https must not flag Insecure, got %+v %v", opts, err)
 	}
 }
 
@@ -258,18 +294,25 @@ func TestQuestionEventsRoundTripThroughTheAnswerEndpoint(t *testing.T) {
 	}
 }
 
-func TestCancelledTurnsReportTheCancelledStopReason(t *testing.T) {
-	release := make(chan struct{})
+func TestCancelAbortsATurnBlockedOnAPermissionModal(t *testing.T) {
+	// The stream delivers a permission event and then nothing: the reader is
+	// blocked inside RequestPermission. session/cancel must abort the turn
+	// context, unblock the round-trip, and report the cancelled stop reason.
+	cancelled := make(chan struct{})
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: permission\n" +
+			"data: {\"sessionId\":\"sess_test\",\"toolCall\":{\"toolCallId\":\"perm-1\",\"status\":\"pending\"},\"options\":[{\"optionId\":\"allow\",\"name\":\"Allow\",\"kind\":\"allow_once\"}]}\n\n"))
 		w.(http.Flusher).Flush()
-		<-release
-		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		<-r.Context().Done()
 	})
 	mux.HandleFunc("POST /coddy/sessions/{id}/cancel", func(w http.ResponseWriter, _ *http.Request) {
-		close(release)
+		close(cancelled)
 		_, _ = w.Write([]byte(`{"object":"coddy.session_cancelled","id":"sess_test"}`))
+	})
+	mux.HandleFunc("POST /coddy/sessions/{id}/permission", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -278,7 +321,7 @@ func TestCancelledTurnsReportTheCancelledStopReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sender := &collectSender{}
+	sender := &blockingPermissionSender{started: make(chan struct{})}
 	h.SetServer(sender)
 	done := make(chan struct{})
 	var res *acp.SessionPromptResult
@@ -289,10 +332,137 @@ func TestCancelledTurnsReportTheCancelledStopReason(t *testing.T) {
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
 		}, sender, nil)
 	}()
+	select {
+	case <-sender.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("permission round-trip never started")
+	}
 	h.HandleSessionCancel(acp.SessionCancelParams{SessionID: "sess_test"})
-	<-done
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel did not unblock the permission round-trip")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the server never received the cancel request")
+	}
 	if res == nil || res.StopReason != acp.StopReasonCancelled {
 		t.Fatalf("res = %+v", res)
+	}
+}
+
+func TestServerStopReasonAndCancelledMetaWin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: coddy_meta\ndata: {\"metadata\":{\"model\":\"m\",\"stop_reason\":\"max_turns\"}}\n\n" +
+			"data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	sender := &collectSender{}
+	res, err := promptOnce(t, srv, sender)
+	if err != nil || res.StopReason != acp.StopReasonMaxTurns {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestAStaleCancelDoesNotPoisonTheNextTurn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/cancel") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"fine\"}}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	// Cancel while nothing runs, then run a clean turn.
+	h.HandleSessionCancel(acp.SessionCancelParams{SessionID: "sess_test"})
+	res, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_test",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}, sender, nil)
+	if err != nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("res=%+v err=%v", res, err)
+	}
+}
+
+func TestAFailedPermissionAnswerFailsTheTurnInsteadOfDeadlocking(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: permission\n" +
+			"data: {\"sessionId\":\"sess_test\",\"toolCall\":{\"toolCallId\":\"perm-1\",\"status\":\"pending\"},\"options\":[]}\n\n"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	})
+	mux.HandleFunc("POST /coddy/sessions/{id}/permission", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"boom"}}`, http.StatusInternalServerError)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	sender := &collectSender{}
+	_, err := promptOnce(t, srv, sender)
+	if err == nil || !strings.Contains(err.Error(), "permission answer") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestResourceBlocksReachTheRemoteInput(t *testing.T) {
+	var got struct {
+		Input string `json:"input"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	_, err = h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: "sess_test",
+		Prompt: []acp.ContentBlock{
+			{Type: "text", Text: "explain this"},
+			{Type: "resource", Resource: &acp.Resource{URI: "file:///a.go", Text: "package a"}},
+		},
+	}, sender, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Input, "explain this") || !strings.Contains(got.Input, "package a") || !strings.Contains(got.Input, "file:///a.go") {
+		t.Fatalf("input %q lacks the resource block", got.Input)
+	}
+}
+
+func TestPreferredReopenPropagatesServerFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/messages") {
+			http.Error(w, `{"error":{"message":"disk on fire"}}`, http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"remote/alpha","data":[{"id":"remote/alpha","owned_by":"r"}]}`))
+	}))
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	h.SetPreferredSessionID("sess_existing")
+	if _, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{}); err == nil || !strings.Contains(err.Error(), "disk on fire") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
