@@ -138,7 +138,7 @@ For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release bi
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 make install   # copies build/coddy to ~/.local/bin or /usr/local/bin
 ```
 
@@ -151,7 +151,7 @@ When **`TAGS`** includes **`http`** and **`ui`**, run **`make ui-build`** first.
 ```bash
 make ui-build
 VERSION="$(make -s print-version)"
-go build -tags=http,ui,scheduler,memory \
+go build -tags=http,ui,scheduler,memory,cli \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=${VERSION}" \
   -o build/coddy \
   ./cmd/coddy/
@@ -183,7 +183,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, and **`memory`** - the same feature set as **`make build TAGS="http ui scheduler memory"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - a superset of **`make build TAGS="http ui scheduler memory cli"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -266,7 +266,7 @@ Other setups (Anthropic, NeuralDeep, Ollama, a non-default **`api_base`**, and e
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
 
 **`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
 
@@ -565,7 +565,7 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | Target | What it does |
 |--------|--------------|
 | `make` / `make build` | Build `build/coddy` with the current `TAGS` (see [Build tags](#build-tags)). With `http`+`ui` it first runs `ui-build` (installs and bundles the embedded SPA). |
-| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory"`. Lean ACP-only binary: `make build` (no tags). |
+| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli"`. Lean ACP-only binary: `make build` (no tags). |
 | `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
 | `make test` | Run `go test` across the tag combinations (default, `http`, `scheduler`, `ui`, and mixes) plus `ui-build`. |
 | `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
@@ -573,13 +573,13 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
 | `make clean` | Remove the `build/` directory. |
 
-`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
+`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory cli"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
 
 > **Windows note.** The `Makefile` targets need a Unix-like shell — run them from **Git Bash** (or WSL/MSYS2), not `cmd`/PowerShell. Building with the `ui` tag also requires **Node.js/npm** on `PATH`. If `make ui-build` (or `make build TAGS="…ui…"`) fails with `npm error enoent … open '…\package.json'`, you are on an npm that mishandles `--prefix`; build the UI from inside its directory instead:
 >
 > ```bash
 > (cd external/ui && npm install && npm run build:go)
-> make build TAGS="http ui scheduler memory"   # ui-build now sees the prebuilt assets
+> make build TAGS="http ui scheduler memory cli"   # ui-build now sees the prebuilt assets
 > ```
 
 ### Common commands
@@ -592,7 +592,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_coddy.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 
 ./build/coddy -v    # same as --version
 

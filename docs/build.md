@@ -48,7 +48,7 @@ The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via
 - **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**)
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 make install
 ```
 
@@ -84,7 +84,7 @@ Manual one-liner aligned with **`make build`**:
 
 ```bash
 go build \
-  -tags=http,ui,scheduler,memory \
+  -tags=http,ui,scheduler,memory,cli \
   -ldflags "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=$(make -s print-version)" \
   -o build/coddy \
   ./cmd/coddy/
@@ -95,13 +95,13 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory"
+make build TAGS="http ui scheduler memory cli"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
 
 ```bash
-go build -tags=http,ui,scheduler,memory ...
+go build -tags=http,ui,scheduler,memory,cli ...
 ```
 
 Order does not matter for these tags.
@@ -144,4 +144,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory), clone the repo and use **`make build TAGS="http ui scheduler memory"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console), clone the repo and use **`make build TAGS="http ui scheduler memory cli"`** (or **`go build -tags=...`** as above).

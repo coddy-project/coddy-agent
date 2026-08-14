@@ -1,35 +1,35 @@
-                                                                                                    
- coddy v0.9.63-5-ga9b4d82-dirty                                                                     
- escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more                             
-                                                                                                    
-[Context]                                                                                           
-  AGENTS.md                                                                                         
-                                                                                                    
-[Skills]                                                                                            
-  generate-rules                                                                                    
+
+ coddy v0.9.63-5-ga9b4d82-dirty
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more
+
+[Context]
+  AGENTS.md
+
+[Skills]
+  generate-rules
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-/                                                                                                   
+/
 ────────────────────────────────────────────────────────────────────────────────────────────────────
-→ model           Select model (opens selector UI)                                                  
-  mode            Switch between agent and plan mode                                                
-  resume          Resume another session                                                            
-  new             Start a new session                                                               
-  theme           Switch color theme                                                                
-  (1/10)                                                                                            
-/tmp/coddy-cli-capture-work-rkjx2vyj                                                                
+→ model           Select model (opens selector UI)
+  mode            Switch between agent and plan mode
+  resume          Resume another session
+  new             Start a new session
+  theme           Switch color theme
+  (1/10)
+/tmp/coddy-cli-capture-work-rkjx2vyj
                                                                             (neuraldeep) qwen3.8-27b
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
-                                                                                                    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

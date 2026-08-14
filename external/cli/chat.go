@@ -103,14 +103,15 @@ type toolBox struct {
 	args   string
 	status string // pending | in_progress | completed | failed | cancelled
 
-	preview   string
-	fullText  string
-	expanded  bool
-	box       *tui.Box
-	loadFull  func(id string) (string, bool)
-	omitted   int
-	totalOut  int
-	hasResult bool
+	preview    string
+	fullText   string
+	expanded   bool
+	loadFailed bool
+	box        *tui.Box
+	loadFull   func(id string) (string, bool)
+	omitted    int
+	totalOut   int
+	hasResult  bool
 }
 
 func newToolBox(theme *tui.Theme, id, name, kind string, loadFull func(id string) (string, bool)) *toolBox {
@@ -143,6 +144,8 @@ func (t *toolBox) SetExpanded(expanded bool) {
 	if expanded && t.fullText == "" && t.loadFull != nil {
 		if full, ok := t.loadFull(t.id); ok {
 			t.fullText = tui.SanitizeText(full)
+		} else {
+			t.loadFailed = true
 		}
 	}
 	t.rebuild()
@@ -204,9 +207,15 @@ func (t *toolBox) rebuild() {
 	t.AddChild(tui.NewSpacer(1))
 	box := tui.NewBox(1, 1, t.theme.BgFn(t.bgRole()))
 	box.AddChild(tui.NewText(t.theme.Fg(roleToolTitle, t.title()), 0, 0, nil))
+	if t.status == "cancelled" {
+		box.AddChild(tui.NewText(t.theme.Fg(roleError, "cancelled"), 0, 0, nil))
+	}
 	body := t.preview
 	if t.expanded && t.fullText != "" {
 		body = t.fullText
+	}
+	if t.expanded && t.loadFailed {
+		box.AddChild(tui.NewText(t.theme.Fg(roleDim, "full output unavailable (tool_calls result missing)"), 0, 0, nil))
 	}
 	if body != "" {
 		lines := strings.Split(body, "\n")

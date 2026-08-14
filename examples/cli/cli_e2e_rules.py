@@ -27,9 +27,8 @@ def main() -> int:
             "rule token you applied."
         )
         tui.wait_idle(timeout=420)
-        joined = "\n".join(m.get("content", "") for m in tui.messages())
-        if GLOB_TOKEN not in joined:
-            raise AssertionError("glob rule token missing from the transcript")
+        if GLOB_TOKEN not in tui.assistant_text():
+            raise AssertionError("glob rule token missing from the assistant reply")
         return ok("cli_e2e_rules")
     finally:
         tui.close()

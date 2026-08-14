@@ -7,14 +7,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
-
-	"io"
-	"log/slog"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -207,7 +207,11 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 			return
 		}
 		restored = true
+		if app.turnActive && app.sessionID != "" {
+			app.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: app.sessionID})
+		}
 		app.Close()
+		app.JoinWorkers(3 * time.Second)
 		app.stopSpinner()
 		app.screen.FinishInline()
 		app.screen.Stop()

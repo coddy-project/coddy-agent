@@ -23,9 +23,8 @@ def main() -> int:
         tui.send(CR)
         tui.wait_for("Working...", timeout=30)
         tui.wait_idle(timeout=240)
-        joined = "\n".join(m.get("content", "") for m in tui.messages())
-        if DEMO_TOKEN not in joined:
-            raise AssertionError("demo skill token missing from the transcript")
+        if DEMO_TOKEN not in tui.assistant_text():
+            raise AssertionError("demo skill token missing from the assistant reply")
         return ok("cli_e2e_skills_slash")
     finally:
         tui.close()

@@ -70,9 +70,9 @@ func splitModelID(id string) (provider, model string) {
 func (f *footer) Render(width int) []string {
 	th := f.theme
 
-	line1 := f.cwd
+	line1 := tui.SanitizeText(f.cwd)
 	if f.gitBranch != "" {
-		line1 += " (" + f.gitBranch + ")"
+		line1 += " (" + tui.SanitizeText(f.gitBranch) + ")"
 	}
 	if f.title != "" {
 		line1 += " • " + tui.SanitizeText(f.title)
@@ -92,12 +92,12 @@ func (f *footer) Render(width int) []string {
 	right := ""
 	if f.model != "" {
 		if f.provider != "" {
-			right = "(" + f.provider + ") " + f.model
+			right = "(" + tui.SanitizeText(f.provider) + ") " + tui.SanitizeText(f.model)
 		} else {
-			right = f.model
+			right = tui.SanitizeText(f.model)
 		}
 		if f.reasoning != "" {
-			right += " • " + f.reasoning
+			right += " • " + tui.SanitizeText(f.reasoning)
 		}
 	}
 

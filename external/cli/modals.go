@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
@@ -108,18 +109,19 @@ func (m *questionModal) buildQuestion() {
 		return
 	}
 	th := m.theme
+	// Value carries the option INDEX so answers return the original label
+	// even when sanitizing changed (or collided) the display text.
 	items := make([]tui.SelectItem, 0, len(q.Options)+1)
 	for i, opt := range q.Options {
-		label := tui.SanitizeText(opt.Label)
-		display := label
+		display := tui.SanitizeText(opt.Label)
 		if q.Multiple {
 			box := "[ ] "
 			if m.selected[i] {
 				box = "[x] "
 			}
-			display = box + label
+			display = box + display
 		}
-		items = append(items, tui.SelectItem{Value: label, Label: display, Description: tui.SanitizeText(opt.Description)})
+		items = append(items, tui.SelectItem{Value: strconv.Itoa(i), Label: display, Description: tui.SanitizeText(opt.Description)})
 	}
 	if q.Custom {
 		items = append(items, tui.SelectItem{Value: customAnswerValue, Label: "Custom answer..."})
@@ -180,18 +182,22 @@ func (m *questionModal) confirm(item tui.SelectItem) {
 		}
 		return
 	}
+	chosen, err := strconv.Atoi(item.Value)
+	if err != nil || chosen < 0 || chosen >= len(q.Options) {
+		return
+	}
 	if q.Multiple {
 		// Space toggles; enter on an item includes it and confirms the set.
 		var answers []string
 		for i, opt := range q.Options {
-			if m.selected[i] || opt.Label == item.Value {
+			if m.selected[i] || i == chosen {
 				answers = append(answers, opt.Label)
 			}
 		}
 		m.finishQuestion(answers)
 		return
 	}
-	m.finishQuestion([]string{item.Value})
+	m.finishQuestion([]string{q.Options[chosen].Label})
 }
 
 func (m *questionModal) finishQuestion(answers []string) {
@@ -227,26 +233,18 @@ func (m *questionModal) HandleInput(data []byte) {
 	q := m.question()
 	if q != nil && q.Multiple {
 		if key, ok := tui.ParseKey(data); ok && key.String() == "space" {
+			keep := -1
 			if it := m.list.SelectedItem(); it != nil {
-				for i, opt := range q.Options {
-					if tui.SanitizeText(opt.Label) == it.Value {
-						m.selected[i] = !m.selected[i]
-					}
+				if idx, err := strconv.Atoi(it.Value); err == nil && idx >= 0 && idx < len(q.Options) {
+					m.selected[idx] = !m.selected[idx]
+					keep = idx
 				}
 			}
 			// Rebuild so the [x] markers reflect the toggle, keeping the
 			// cursor on the same row.
-			keep := ""
-			if it := m.list.SelectedItem(); it != nil {
-				keep = it.Value
-			}
 			m.buildQuestion()
-			if keep != "" {
-				for idx, opt := range q.Options {
-					if tui.SanitizeText(opt.Label) == keep {
-						m.list.SetSelectedIndex(idx)
-					}
-				}
+			if keep >= 0 {
+				m.list.SetSelectedIndex(keep)
 			}
 			if m.render != nil {
 				m.render()

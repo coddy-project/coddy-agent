@@ -269,6 +269,11 @@ func (m *MainScreen) doRender() {
 			if i > 0 {
 				b.WriteString("\r\n")
 			}
+			if VisibleWidth(line) > width {
+				// A component failed to truncate; clip so the physical wrap
+				// cannot desync the row bookkeeping.
+				line = clipToWidth(line, width) + segmentReset
+			}
 			b.WriteString(line)
 		}
 		b.WriteString("\x1b[?2026l")

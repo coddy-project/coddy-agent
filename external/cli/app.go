@@ -54,6 +54,9 @@ type App struct {
 	spinner       *tui.Loader
 	turnActive    bool
 	turnSessionID string
+	switching     bool
+	pendingSwitch func()
+	readyPending  string
 	lastCtrlC     time.Time
 	expanded      bool
 	hideThink     bool
@@ -62,6 +65,7 @@ type App struct {
 
 	// Streaming state.
 	curAssistant *assistantMessage
+	curMemory    *assistantMessage
 	toolBoxes    map[string]*toolBox
 	lastToolID   string
 
@@ -81,6 +85,9 @@ type App struct {
 	closed    chan struct{}
 	closeOnce sync.Once
 	doneCh    chan struct{}
+	workers   sync.WaitGroup
+	workCtx   context.Context
+	workStop  context.CancelFunc
 
 	modal tui.Component
 
@@ -108,6 +115,7 @@ func newApp(cfg *config.Config, mgr *session.Manager, log *slog.Logger, term app
 		closed:    make(chan struct{}),
 		doneCh:    make(chan struct{}),
 	}
+	a.workCtx, a.workStop = context.WithCancel(context.Background())
 	a.applyTheme(themeName)
 	a.buildTree()
 	return a
@@ -167,7 +175,10 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 			return fmt.Errorf("session/new: %w", err)
 		}
 		a.adoptSession(res.SessionID, res.Modes, res.ConfigOptions)
-		go a.mgr.HandleSessionReady(res.SessionID)
+		// Ready (slash catalog + deferred replay for reopened bundles) fires
+		// once the UI loop is draining updates, so a large replay can never
+		// fill the channel while nothing consumes it.
+		a.readyPending = res.SessionID
 	}
 	a.populateHeader()
 	return nil
@@ -202,6 +213,7 @@ func (a *App) ApplyStartupOptions(ctx context.Context, model, mode, permMode str
 
 func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOption) {
 	a.sessionID = id
+	a.reasoning = ""
 	if modes != nil {
 		a.modeID = modes.CurrentModeID
 	}
@@ -253,6 +265,14 @@ func (a *App) populateHeader() {
 // Run drives the UI loop until quit. The terminal must already be started.
 func (a *App) Run(ctx context.Context) error {
 	defer close(a.doneCh)
+	if id := a.readyPending; id != "" {
+		a.readyPending = ""
+		a.workers.Add(1)
+		go func() {
+			defer a.workers.Done()
+			a.mgr.HandleSessionReady(id)
+		}()
+	}
 	render := a.newRenderScheduler()
 	render.now()
 	for {
@@ -297,8 +317,27 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the loop channels (idempotent).
-func (a *App) Close() { a.closeOnce.Do(func() { close(a.closed) }) }
+// Close releases the loop channels and cancels turn workers (idempotent).
+func (a *App) Close() {
+	a.closeOnce.Do(func() {
+		close(a.closed)
+		a.workStop()
+	})
+}
+
+// JoinWorkers waits for in-flight turn workers up to the timeout so
+// persistence and lock release finish before the process exits.
+func (a *App) JoinWorkers(timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		a.workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+	}
+}
 
 type renderScheduler struct {
 	app     *App
@@ -525,8 +564,10 @@ func (a *App) submitPrompt(text string) {
 	a.turnActive = true
 	sessionID := a.sessionID
 	a.turnSessionID = sessionID
+	a.workers.Add(1)
 	go func() {
-		res, err := a.mgr.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		defer a.workers.Done()
+		res, err := a.mgr.HandleSessionPromptWithSender(a.workCtx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
 		}, a.Sender(), nil)
@@ -576,10 +617,15 @@ func (a *App) modelIDs() []string {
 
 func (a *App) openModelSelector() {
 	items := make([]tui.SelectItem, 0, len(a.cfg.Models))
-	for _, m := range a.cfg.Models {
-		items = append(items, tui.SelectItem{Value: m.Model, Label: m.Model})
+	current := 0
+	for i, m := range a.cfg.Models {
+		items = append(items, tui.SelectItem{Value: m.Model, Label: tui.SanitizeText(m.Model)})
+		if m.Model == a.modelID {
+			current = i
+		}
 	}
 	sel := newSelectorModal(a.theme, "Select model", items, 10, a.screen.RequestRender)
+	sel.list.SetSelectedIndex(current)
 	sel.OnDone = func(item *tui.SelectItem) {
 		a.closeModal()
 		if item == nil {
@@ -603,8 +649,13 @@ func (a *App) setModel(id string) {
 	}()
 }
 
-// statusErr is an internal update rendered as an error status line.
-type statusErr struct{ msg string }
+// statusErr is an internal update rendered as an error status line. Errors
+// from an abandoned session are dropped unless always is set (session-switch
+// failures must surface even though the ids no longer match).
+type statusErr struct {
+	msg    string
+	always bool
+}
 
 func (a *App) cycleModel(dir int) {
 	ids := a.modelIDs()
@@ -653,8 +704,11 @@ func (a *App) toggleExpanded() {
 
 func (a *App) toggleThinking() {
 	a.hideThink = !a.hideThink
-	if a.curAssistant != nil {
-		a.curAssistant.SetHideThinking(a.hideThink)
+	// The toggle is global: every rendered assistant/memory block follows.
+	for _, child := range a.chat.Children() {
+		if msg, ok := child.(*assistantMessage); ok {
+			msg.SetHideThinking(a.hideThink)
+		}
 	}
 }
 
@@ -786,27 +840,47 @@ func (a *App) resetTranscript() {
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
 	a.curAssistant = nil
+	a.curMemory = nil
 	a.lastToolID = ""
 	a.foot.ResetTokens()
 }
 
-// newSession starts a fresh session (used by /new).
+// newSession starts a fresh session (used by /new). Switches serialize: a
+// second switch while one is in flight is refused, and a switch during a
+// live turn waits for that turn to end before touching manager state.
 func (a *App) newSession() {
-	old := a.sessionID
-	if a.turnActive {
-		a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: old})
-		a.turnActive = false
-		a.stopSpinner()
+	if a.switching {
+		a.appendStatus(roleWarning, "A session switch is already in progress")
+		return
 	}
+	a.switching = true
+	a.deferUntilTurnEnd(func() { a.startNewSessionWorker(a.sessionID) })
+}
+
+// deferUntilTurnEnd runs fn now when idle, or after the active turn's
+// turnDone arrives (the turn is cancelled to make that prompt).
+func (a *App) deferUntilTurnEnd(fn func()) {
+	if !a.turnActive {
+		fn()
+		return
+	}
+	a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.turnSessionID})
+	a.pendingSwitch = fn
+}
+
+func (a *App) startNewSessionWorker(old string) {
 	a.resetTranscript()
-	sessionID := ""
+	a.workers.Add(1)
 	go func() {
-		res, err := a.mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
+		defer a.workers.Done()
+		res, err := a.mgr.HandleSessionNew(a.workCtx, acp.SessionNewParams{CWD: a.mgr.Cfg().Paths.CWD})
 		if err != nil {
-			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "new session: " + err.Error()})
+			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
 		}
-		a.mgr.ForgetLiveSession(old)
+		if old != "" && old != res.SessionID {
+			a.mgr.ForgetLiveSession(old)
+		}
 		select {
 		case a.updatesCh <- updateMsg{sessionID: res.SessionID, update: sessionSwitched{res: res}}:
 		case <-a.closed:

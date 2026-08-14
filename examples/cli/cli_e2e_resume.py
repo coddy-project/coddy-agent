@@ -31,9 +31,20 @@ def main() -> int:
     try:
         second.wait_for("coddy v", timeout=30)
         second.wait_for("RESUME_E2E_MARKER", timeout=60)  # replayed transcript
+    finally:
+        second.close(keep_dirs=True)
+
+    # The interactive --resume picker must land on the same transcript.
+    from cli_tui_driver import CR
+
+    third = CoddyTUI("resume-3", home=str(home), workdir=str(work), extra_args=["--resume"])
+    try:
+        third.wait_for("Resume Session", timeout=30)
+        third.send(CR)  # first (most recent) row
+        third.wait_for("RESUME_E2E_MARKER", timeout=60)
         return ok("cli_e2e_resume")
     finally:
-        second.close()
+        third.close()
 
 
 if __name__ == "__main__":

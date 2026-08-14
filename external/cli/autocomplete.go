@@ -114,7 +114,10 @@ func (p *completionProvider) workspaceFiles() []string {
 		if relErr != nil {
 			return nil
 		}
-		files = append(files, filepath.ToSlash(rel))
+		clean := tui.SanitizeText(filepath.ToSlash(rel))
+		if clean != "" {
+			files = append(files, clean)
+		}
 		return nil
 	})
 	sort.Strings(files)

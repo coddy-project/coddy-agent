@@ -2,7 +2,8 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary (matches default Docker BUILD_TAGS): make build TAGS="http ui scheduler memory"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli"
+#     (default Docker BUILD_TAGS additionally includes gateway)
 #     http     OpenAI-compatible gateway (coddy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -116,6 +117,7 @@ test: test-opencode-rules
 # ui-build, and it carries no platform-specific code.
 check-windows:
 	GOOS=windows go build ./...
+	GOOS=windows go build -tags=cli ./...
 	GOOS=windows go vet ./...
 	GOOS=windows go vet -tags=memory ./...
 	GOOS=windows go vet -tags=http ./...

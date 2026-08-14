@@ -61,9 +61,11 @@ func (t *ProcessTerminal) Start(onInput func([]byte), onResize func()) error {
 		_ = err
 	}
 	t.refreshSize()
+	// Bracketed paste stays on even in plain mode (deterministic and needed
+	// for paste-collapse behavior); only protocol negotiation is skipped.
+	t.Write("\x1b[?2004h")
 	if !t.plain {
-		// Bracketed paste on, modifyOtherKeys mode 2 (pi fallback path).
-		t.Write("\x1b[?2004h\x1b[>4;2m")
+		t.Write("\x1b[>4;2m") // modifyOtherKeys mode 2 (pi fallback path)
 	}
 	go t.readLoop()
 	watchResize(t)
@@ -82,9 +84,10 @@ func (t *ProcessTerminal) Stop() {
 	old := t.oldState
 	t.mu.Unlock()
 	if !t.plain {
-		t.Write("\x1b[>4;0m\x1b[?2004l")
+		t.Write("\x1b[>4;0m")
 		t.Write("\x1b]0;\x07") // reset the window title set by SetTitle
 	}
+	t.Write("\x1b[?2004l")
 	t.ShowCursor()
 	if old != nil {
 		_ = term.Restore(int(t.in.Fd()), old)

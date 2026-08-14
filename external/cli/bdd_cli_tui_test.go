@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,6 +56,7 @@ type stubDirective struct {
 }
 
 type cliTUIState struct {
+	mu   sync.Mutex
 	home string
 	cwd  string
 
@@ -133,7 +135,9 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	for {
 		select {
 		case <-ctx.Done():
+			s.mu.Lock()
 			s.sawCancel = true
+			s.mu.Unlock()
 			return string(acp.StopReasonCancelled), nil
 		case d := <-s.directives:
 			switch d.kind {
@@ -157,10 +161,22 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: args}}},
 				})
 			case "tool_done":
+				lineCount := strings.Count(d.preview, "\n") + 1
+				var meta map[string]interface{}
+				if lineCount > 10 {
+					meta = map[string]interface{}{
+						"coddy": map[string]interface{}{
+							"toolResultPreview": map[string]interface{}{
+								"truncated": true, "totalLines": lineCount + 5, "previewLines": lineCount,
+							},
+						},
+					}
+				}
 				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
-					Status: "completed",
-					Meta:   map[string]interface{}{"coddy.toolResultPreview": d.preview},
+					Status:  "completed",
+					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: d.preview}}},
+					Meta:    meta,
 				})
 			case "permission":
 				res, err := snd.RequestPermission(ctx, acp.PermissionRequestParams{
@@ -173,18 +189,24 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					},
 				})
 				if err == nil && res != nil {
+					s.mu.Lock()
 					s.permOutcome, s.permOption = res.Outcome, res.OptionID
+					s.mu.Unlock()
 				}
 			case "question":
 				res, err := snd.RequestQuestion(ctx, *d.qParams)
 				if err == nil && res != nil {
+					s.mu.Lock()
 					s.questionAns = res.Answers
+					s.mu.Unlock()
 				}
 			case "block":
 				s.blockedCh = d.blockCh
 				select {
 				case <-ctx.Done():
+					s.mu.Lock()
 					s.sawCancel = true
+					s.mu.Unlock()
 					close(d.blockCh)
 					return string(acp.StopReasonCancelled), nil
 				case <-d.blockCh:
@@ -400,7 +422,10 @@ func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 	s.press("\r")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if s.permOutcome != "" {
+		s.mu.Lock()
+		got := s.permOutcome
+		s.mu.Unlock()
+		if got != "" {
 			s.directives <- stubDirective{kind: "end"}
 			return s.waitTurnEnd(2 * time.Second)
 		}
@@ -410,8 +435,11 @@ func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 }
 
 func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) error {
-	if s.permOutcome != outcome || s.permOption != option {
-		return fmt.Errorf("permission observed %q/%q, want %q/%q", s.permOutcome, s.permOption, outcome, option)
+	s.mu.Lock()
+	gotOutcome, gotOption := s.permOutcome, s.permOption
+	s.mu.Unlock()
+	if gotOutcome != outcome || gotOption != option {
+		return fmt.Errorf("permission observed %q/%q, want %q/%q", gotOutcome, gotOption, outcome, option)
 	}
 	return nil
 }
@@ -431,7 +459,10 @@ func (s *cliTUIState) stubObservesCancellation() error {
 	if err := s.waitTurnEnd(3 * time.Second); err != nil {
 		return err
 	}
-	if !s.sawCancel {
+	s.mu.Lock()
+	saw := s.sawCancel
+	s.mu.Unlock()
+	if !saw {
 		return fmt.Errorf("stub turn was not cancelled")
 	}
 	return nil
@@ -542,7 +573,10 @@ func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
 	s.press("\r")
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(s.questionAns) > 0 {
+		s.mu.Lock()
+		n := len(s.questionAns)
+		s.mu.Unlock()
+		if n > 0 {
 			s.directives <- stubDirective{kind: "end"}
 			return s.waitTurnEnd(2 * time.Second)
 		}
@@ -552,8 +586,11 @@ func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
 }
 
 func (s *cliTUIState) stubObservesQuestionAnswer(answer string) error {
-	if len(s.questionAns) == 0 || len(s.questionAns[0]) == 0 || s.questionAns[0][0] != answer {
-		return fmt.Errorf("question answers = %v, want %q", s.questionAns, answer)
+	s.mu.Lock()
+	ans := s.questionAns
+	s.mu.Unlock()
+	if len(ans) == 0 || len(ans[0]) == 0 || ans[0][0] != answer {
+		return fmt.Errorf("question answers = %v, want %q", ans, answer)
 	}
 	return nil
 }
@@ -573,18 +610,14 @@ func (s *cliTUIState) editorAcceptsNewInput() error {
 }
 
 func (s *cliTUIState) operatorStartsNewSession() error {
-	oldID := s.app.sessionID
-	s.prevSessionID = oldID
+	// Captured before any input is sent: the later sessionID write on the UI
+	// goroutine is ordered after this read via the input channel.
+	s.prevSessionID = s.app.sessionID
 	s.typeText("/new")
 	s.press("\r")
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if s.app.sessionID != "" && s.app.sessionID != oldID {
-			return nil
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	return fmt.Errorf("session id did not change from %q", oldID)
+	// The status line confirms adoption; reading the frame snapshot is
+	// mutex-guarded, so no direct app-field polling is needed.
+	return s.waitScreen("Started new session", 3*time.Second)
 }
 
 func (s *cliTUIState) cancelledTurnEmitsLateChunk(text string) error {

@@ -18,6 +18,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
 			a.stopSpinner()
+			// A permission or question modal belonging to this turn is now
+			// orphaned (the worker already unblocked via ctx cancellation).
+			switch a.modal.(type) {
+			case *permissionModal, *questionModal:
+				a.closeModal()
+			}
+			if fn := a.pendingSwitch; fn != nil {
+				a.pendingSwitch = nil
+				fn()
+			}
 		}
 		if u.sessionID != a.sessionID {
 			return
@@ -30,14 +40,28 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		return
 	case sessionSwitched:
+		a.switching = false
 		a.adoptSession(u.res.SessionID, u.res.Modes, u.res.ConfigOptions)
 		a.populateHeader()
 		a.appendStatus(roleDim, "Started new session "+u.res.SessionID)
 		return
+	case sessionResumed:
+		a.switching = false
+		a.adoptSession(u.id, u.modes, u.opts)
+		a.populateHeader()
+		a.refreshFooterModel()
+		a.foot.SetSession("", a.modeID)
+		return
 	case statusErr:
-		a.appendStatus(roleError, u.msg)
+		if u.always || msg.sessionID == "" || a.sessionID == "" || msg.sessionID == a.sessionID {
+			a.switching = false
+			a.appendStatus(roleError, u.msg)
+		}
 		return
 	case resumeList:
+		if msg.sessionID != "" && a.sessionID != "" && msg.sessionID != a.sessionID {
+			return
+		}
 		a.openResumePicker(u.res)
 		return
 	}
@@ -94,11 +118,16 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case acp.MemoryPhaseUpdate:
 		if u.Status == "started" {
 			a.appendStatus(roleDim, "memory: "+u.Phase+"...")
+			a.curMemory = nil
 		}
 	case acp.MemoryMessageChunkUpdate:
-		// Memory copilot deltas render as a dim collapsed stream; v1 keeps
-		// only a lightweight trace to avoid transcript noise.
-		_ = u
+		// Memory copilot deltas render as a dim italic stream under the
+		// phase status line (collapses with ctrl+t like thinking).
+		if a.curMemory == nil {
+			a.curMemory = newAssistantMessage(a.theme, a.mdTheme, a.hideThink)
+			a.chat.AddChild(a.curMemory)
+		}
+		a.curMemory.AppendThinking(u.Delta)
 	}
 }
 
@@ -126,20 +155,24 @@ func (a *App) applyMessageChunk(u acp.MessageChunkUpdate) {
 }
 
 func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
-	preview := ""
+	// The manager truncates previews server-side and describes the cut in
+	// nested meta: {"coddy": {"toolResultPreview": {truncated, totalLines,
+	// previewLines}}}. The preview text itself arrives in Content.
 	omitted := 0
 	total := 0
 	if u.Meta != nil {
-		if p, ok := u.Meta["coddy.toolResultPreview"].(string); ok {
-			preview = p
-		}
-		if v, ok := u.Meta["coddy.toolResultOmittedLines"].(float64); ok {
-			omitted = int(v)
-		}
-		if v, ok := u.Meta["coddy.toolResultTotalLines"].(float64); ok {
-			total = int(v)
+		if coddy, ok := u.Meta["coddy"].(map[string]interface{}); ok {
+			if pv, ok := coddy["toolResultPreview"].(map[string]interface{}); ok {
+				totalLines := intFromAny(pv["totalLines"])
+				previewLines := intFromAny(pv["previewLines"])
+				if totalLines > previewLines && previewLines > 0 {
+					total = totalLines
+					omitted = totalLines - previewLines
+				}
+			}
 		}
 	}
+	preview := ""
 	switch u.Status {
 	case "in_progress":
 		// Content carries the raw argument JSON while streaming.
@@ -150,14 +183,22 @@ func (a *App) applyToolStatus(tb *toolBox, u acp.ToolCallStatusUpdate) {
 		}
 		tb.SetStatus("in_progress", "", 0, 0)
 	case "completed", "failed", "cancelled":
-		if preview == "" {
-			for _, item := range u.Content {
-				if item.Content.Text != "" {
-					preview = item.Content.Text
-					break
-				}
+		for _, item := range u.Content {
+			if item.Content.Text != "" {
+				preview = item.Content.Text
+				break
 			}
 		}
 		tb.SetStatus(u.Status, preview, omitted, total)
 	}
+}
+
+func intFromAny(v interface{}) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+	return 0
 }

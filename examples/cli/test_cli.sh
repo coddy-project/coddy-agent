@@ -16,8 +16,15 @@ set -u
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 CLI_DIR="$ROOT/examples/cli"
-export CODDY_BIN="${CODDY_BIN:-$ROOT/build/coddy}"
 export MODEL="${MODEL:-neuraldeep/qwen3.8-27b}"
+
+# Build a current binary unless the caller pinned one (CODDY_BIN) or opted
+# out (CLI_E2E_NO_BUILD=1). Testing a stale build is worse than waiting.
+if [ -z "${CODDY_BIN:-}" ] && [ "${CLI_E2E_NO_BUILD:-0}" != "1" ]; then
+  echo "building coddy with TAGS=\"cli scheduler memory\"..."
+  (cd "$ROOT" && make build TAGS="cli scheduler memory" >/dev/null)
+fi
+export CODDY_BIN="${CODDY_BIN:-$ROOT/build/coddy}"
 
 if [ ! -x "$CODDY_BIN" ]; then
   echo "error: no coddy binary at $CODDY_BIN" >&2

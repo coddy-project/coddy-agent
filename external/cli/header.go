@@ -81,6 +81,8 @@ func (h *header) rebuild() {
 	} else {
 		h.AddChild(tui.NewText(th.Fg(roleDim, compactHints), 1, 0, nil))
 	}
+	h.AddChild(tui.NewSpacer(1))
+	h.AddChild(tui.NewText(th.Fg(roleDim, "Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code."), 1, 0, nil))
 
 	if len(h.contextFiles) > 0 {
 		h.AddChild(tui.NewSpacer(1))

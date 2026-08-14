@@ -49,7 +49,7 @@ def css_color(value: object, default: str, light: bool) -> str:
 def snapshot(tui: CoddyTUI, outdir: Path, name: str, light: bool = False) -> None:
     bg = "#f8f8fa" if light else DEFAULT_BG
     fg = "#18181b" if light else DEFAULT_FG
-    (outdir / f"{name}.txt").write_text(tui.text() + "\n")
+    (outdir / f"{name}.txt").write_text("\n".join(l.rstrip() for l in tui.text().splitlines()) + "\n")
     rows_html = []
     for y in range(ROWS):
         row = tui.screen.buffer[y]

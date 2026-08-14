@@ -119,3 +119,11 @@ jobs:
         with:
           version: v2.12.2
           args: --build-tags cli ./external/cli/... ./cmd/coddy/...
+
+      - name: Run golangci-lint over the cli surface for the Windows build
+        uses: golangci/golangci-lint-action@v7
+        env:
+          GOOS: windows
+        with:
+          version: v2.12.2
+          args: --build-tags cli ./external/cli/... ./cmd/coddy/...

@@ -120,6 +120,8 @@ func (e *Editor) SetText(text string) {
 	e.cursorLine = len(e.lines) - 1
 	e.cursorCol = len(e.lines[e.cursorLine])
 	e.hasPreferredCol = false
+	e.pastes = map[int]string{}
+	e.pasteCounter = 0
 	e.refreshAutocomplete(false)
 	e.notifyChange()
 }
@@ -284,6 +286,35 @@ func (e *Editor) InsertPaste(body string) {
 
 var pasteMarkerRegex = regexp.MustCompile(`\[paste #(\d+)(?: (?:\+\d+ lines|\d+ chars))?\]`)
 
+// markerRangeEndingAt reports a paste marker whose closing bracket sits at
+// col (backspace lands right after it).
+func (e *Editor) markerRangeEndingAt(line string, col int) (start, end, id int, ok bool) {
+	for _, m := range pasteMarkerRegex.FindAllStringSubmatchIndex(line, -1) {
+		if m[1] == col {
+			markerID, err := strconv.Atoi(line[m[2]:m[3]])
+			if err != nil {
+				return 0, 0, 0, false
+			}
+			return m[0], m[1], markerID, true
+		}
+	}
+	return 0, 0, 0, false
+}
+
+// markerRangeStartingAt reports a paste marker beginning exactly at col.
+func (e *Editor) markerRangeStartingAt(line string, col int) (start, end, id int, ok bool) {
+	for _, m := range pasteMarkerRegex.FindAllStringSubmatchIndex(line, -1) {
+		if m[0] == col {
+			markerID, err := strconv.Atoi(line[m[2]:m[3]])
+			if err != nil {
+				return 0, 0, 0, false
+			}
+			return m[0], m[1], markerID, true
+		}
+	}
+	return 0, 0, 0, false
+}
+
 // expandPasteMarkers substitutes stored paste bodies back into the text.
 func (e *Editor) expandPasteMarkers(text string) string {
 	if len(e.pastes) == 0 {
@@ -378,6 +409,15 @@ func (e *Editor) insertText(s string) {
 func (e *Editor) deleteCharBackward() {
 	if e.cursorCol > 0 {
 		line := e.lines[e.cursorLine]
+		if start, end, id, ok := e.markerRangeEndingAt(line, e.cursorCol); ok {
+			delete(e.pastes, id)
+			e.lines[e.cursorLine] = line[:start] + line[end:]
+			e.cursorCol = start
+			e.hasPreferredCol = false
+			e.refreshAutocomplete(false)
+			e.notifyChange()
+			return
+		}
 		prev := prevGraphemeStart(line, e.cursorCol)
 		e.lines[e.cursorLine] = line[:prev] + line[e.cursorCol:]
 		e.cursorCol = prev
@@ -398,6 +438,13 @@ func (e *Editor) deleteCharBackward() {
 func (e *Editor) deleteCharForward() {
 	line := e.lines[e.cursorLine]
 	if e.cursorCol < len(line) {
+		if start, end, id, ok := e.markerRangeStartingAt(line, e.cursorCol); ok {
+			delete(e.pastes, id)
+			e.lines[e.cursorLine] = line[:start] + line[end:]
+			e.refreshAutocomplete(false)
+			e.notifyChange()
+			return
+		}
 		next := nextGraphemeEnd(line, e.cursorCol)
 		e.lines[e.cursorLine] = line[:e.cursorCol] + line[next:]
 	} else if e.cursorLine < len(e.lines)-1 {

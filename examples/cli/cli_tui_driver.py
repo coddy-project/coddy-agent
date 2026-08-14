@@ -31,6 +31,14 @@ except ImportError as exc:  # pragma: no cover - guarded by the runner
     )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _term_handler(signum, frame):  # noqa: ARG001 - signal signature
+    # `timeout` sends SIGTERM; convert it so `finally` blocks reap children.
+    raise SystemExit(143)
+
+
+signal.signal(signal.SIGTERM, _term_handler)
 COLS = int(os.environ.get("CLI_E2E_COLS", "100"))
 ROWS = int(os.environ.get("CLI_E2E_ROWS", "35"))
 DEFAULT_MODEL = os.environ.get("MODEL", "neuraldeep/qwen3.8-27b")
@@ -170,6 +178,9 @@ class CoddyTUI:
             self.pump(0.3)
             if needle in self.text():
                 return
+            if not self.child.isalive():
+                self.dump(f"child exited while waiting for {needle!r}")
+                raise AssertionError(f"coddy exited before showing {needle!r}")
         self.dump(f"wait_for({needle!r}) timed out")
         raise AssertionError(f"screen never showed {needle!r}")
 
@@ -186,6 +197,9 @@ class CoddyTUI:
         """Wait until the working spinner label disappears."""
         self.pump(1.0)
         self.wait_gone("Working...", timeout=timeout)
+        if not self.child.isalive():
+            self.dump("child exited while waiting for idle")
+            raise AssertionError("coddy exited during the turn")
 
     def send(self, data: str) -> None:
         self.child.send(data.encode())
@@ -241,6 +255,12 @@ class CoddyTUI:
         if isinstance(data, dict):
             return data.get("messages", [])
         return data
+
+    def assistant_text(self) -> str:
+        """Concatenated assistant-role message content (assertion target)."""
+        return "\n".join(
+            m.get("content", "") for m in self.messages() if m.get("role") == "assistant"
+        )
 
     def tool_call_names(self) -> set[str]:
         names: set[str] = set()

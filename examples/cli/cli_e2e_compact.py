@@ -25,8 +25,16 @@ def main() -> int:
             raise AssertionError("no compaction_summary row in messages.json")
         tui.prompt("Which token did I ask you to remember? Answer with the token only.")
         tui.wait_idle(timeout=240)
-        joined = "\n".join(m.get("content", "") for m in tui.messages())
-        if "COMPACT_E2E_ALPHA" not in joined:
+        # Only assistant rows AFTER the compaction row prove the summary kept
+        # the token; the original user prompt row must not satisfy this.
+        msgs = tui.messages()
+        compaction_at = next((i for i, m in enumerate(msgs) if m.get("compaction_summary")), None)
+        if compaction_at is None:
+            raise AssertionError("compaction row disappeared")
+        after = "\n".join(
+            m.get("content", "") for m in msgs[compaction_at + 1 :] if m.get("role") == "assistant"
+        )
+        if "COMPACT_E2E_ALPHA" not in after:
             raise AssertionError("post-compaction follow-up lost the summary context")
         return ok("cli_e2e_compact")
     finally:

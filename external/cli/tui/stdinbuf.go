@@ -122,11 +122,16 @@ func nextSequenceLen(buf []byte) (int, bool) {
 		return 0, false
 	}
 	if buf[0] != 0x1b {
-		// UTF-8 rune or plain byte: emit the contiguous non-ESC run, holding
-		// back a trailing incomplete multi-byte sequence until the rest of
-		// the rune arrives (tty reads split runes routinely).
+		// Control bytes (CR, LF, TAB, BS, DEL, ...) are their own key events;
+		// a coalesced read like "abc\r" must become "abc" then enter.
+		if isControlByte(buf[0]) {
+			return 1, true
+		}
+		// Printable UTF-8 run: emit up to the next ESC or control byte,
+		// holding back a trailing incomplete multi-byte sequence until the
+		// rest of the rune arrives (tty reads split runes routinely).
 		i := 0
-		for i < len(buf) && buf[i] != 0x1b {
+		for i < len(buf) && buf[i] != 0x1b && !isControlByte(buf[i]) {
 			i++
 		}
 		run := buf[:i]
@@ -188,6 +193,9 @@ func nextSequenceLen(buf []byte) (int, bool) {
 		return len(buf), false
 	}
 }
+
+// isControlByte reports C0 controls and DEL (never part of printable text).
+func isControlByte(b byte) bool { return b < 0x20 || b == 0x7f }
 
 // completeUTF8Prefix returns the length of the longest prefix of b that ends
 // on a rune boundary. Bytes of an unfinished trailing rune are excluded.

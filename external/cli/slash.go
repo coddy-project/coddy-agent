@@ -4,7 +4,9 @@ package cli
 
 import (
 	"context"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -70,6 +72,9 @@ func (a *App) openModeSelector() {
 		{Value: "plan", Label: "plan", Description: "Read-only planning tools"},
 	}
 	sel := newSelectorModal(a.theme, "Select mode", items, 4, a.screen.RequestRender)
+	if a.modeID == "plan" {
+		sel.list.SetSelectedIndex(1)
+	}
 	sel.OnDone = func(item *tui.SelectItem) {
 		a.closeModal()
 		if item == nil {
@@ -173,9 +178,9 @@ func (a *App) openResumePicker(res *acp.SessionListResult) {
 		if s.Title != nil && *s.Title != "" {
 			label = tui.SanitizeText(*s.Title)
 		}
-		desc := s.SessionID
+		desc := shortSessionID(s.SessionID)
 		if s.UpdatedAt != nil && *s.UpdatedAt != "" {
-			desc = *s.UpdatedAt + " · " + s.SessionID
+			desc = relativeTime(*s.UpdatedAt) + " · " + desc
 		}
 		items = append(items, tui.SelectItem{Value: s.SessionID, Label: label, Description: desc})
 	}
@@ -191,32 +196,77 @@ func (a *App) openResumePicker(res *acp.SessionListResult) {
 	a.openModal(sel)
 }
 
-// resumeInto switches the transcript to an existing session.
+// resumeInto switches the transcript to an existing session, serialized the
+// same way as /new: never while another switch runs, and only after a live
+// turn has ended.
 func (a *App) resumeInto(id string) {
-	old := a.sessionID
-	if a.turnActive {
-		a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: old})
-		a.turnActive = false
-		a.stopSpinner()
+	if a.switching {
+		a.appendStatus(roleWarning, "A session switch is already in progress")
+		return
 	}
+	a.switching = true
+	a.deferUntilTurnEnd(func() { a.startResumeWorker(a.sessionID, id) })
+}
+
+func (a *App) startResumeWorker(old, id string) {
 	a.resetTranscript()
 	a.sessionID = id
+	a.workers.Add(1)
 	go func() {
+		defer a.workers.Done()
 		cwd := a.mgr.Cfg().Paths.CWD
-		res, err := a.mgr.HandleSessionLoad(context.Background(), acp.SessionLoadParams{SessionID: id, CWD: cwd})
+		res, err := a.mgr.HandleSessionLoad(a.workCtx, acp.SessionLoadParams{SessionID: id, CWD: cwd})
 		if err != nil {
-			_ = a.Sender().SendSessionUpdate(id, statusErr{msg: "resume: " + err.Error()})
+			_ = a.Sender().SendSessionUpdate(id, statusErr{msg: "resume: " + err.Error(), always: true})
 			return
 		}
-		if res != nil && res.Modes != nil {
-			select {
-			case a.updatesCh <- updateMsg{sessionID: id, update: acp.ModeUpdate{SessionUpdate: "current_mode_update", CurrentModeID: res.Modes.CurrentModeID}}:
-			case <-a.closed:
-			}
+		var modes *acp.ModeState
+		var opts []acp.ConfigOption
+		if res != nil {
+			modes = res.Modes
+			opts = res.ConfigOptions
+		}
+		select {
+		case a.updatesCh <- updateMsg{sessionID: id, update: sessionResumed{id: id, modes: modes, opts: opts}}:
+		case <-a.closed:
 		}
 		if old != "" && old != id {
 			a.mgr.ForgetLiveSession(old)
 		}
 		a.mgr.HandleSessionReady(id)
 	}()
+}
+
+// sessionResumed is an internal update completing /resume.
+type sessionResumed struct {
+	id    string
+	modes *acp.ModeState
+	opts  []acp.ConfigOption
+}
+
+// shortSessionID trims a session id to a readable prefix.
+func shortSessionID(id string) string {
+	if len(id) > 16 {
+		return id[:16]
+	}
+	return id
+}
+
+// relativeTime renders an RFC3339 timestamp as a coarse "Nx ago" label.
+func relativeTime(stamp string) string {
+	t, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return stamp
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return strconv.Itoa(int(d.Minutes())) + "m ago"
+	case d < 24*time.Hour:
+		return strconv.Itoa(int(d.Hours())) + "h ago"
+	default:
+		return strconv.Itoa(int(d.Hours()/24)) + "d ago"
+	}
 }

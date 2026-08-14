@@ -21,8 +21,7 @@ def main() -> int:
         roles = [m.get("role") for m in msgs]
         if "user" not in roles or "assistant" not in roles:
             raise AssertionError(f"messages.json roles = {roles}")
-        joined = "\n".join(m.get("content", "") for m in msgs)
-        if "CLI_SMOKE_OK" not in joined:
+        if "CLI_SMOKE_OK" not in tui.assistant_text():
             raise AssertionError("assistant reply with the token was not persisted")
         return ok("cli_smoke")
     finally:

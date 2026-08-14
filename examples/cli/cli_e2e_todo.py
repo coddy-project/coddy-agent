@@ -23,6 +23,8 @@ def main() -> int:
         content = todo.read_text()
         if "tea" not in content.lower() and "boil" not in content.lower():
             raise AssertionError(f"todos/active.md has unexpected content:\n{content}")
+        if "[x]" not in content:
+            raise AssertionError(f"no completed items recorded in todos/active.md:\n{content}")
         return ok("cli_e2e_todo")
     finally:
         tui.close()

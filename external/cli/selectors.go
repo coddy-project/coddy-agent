@@ -62,8 +62,7 @@ func (m *selectorModal) HandleInput(data []byte) {
 		switch key.String() {
 		case "backspace":
 			if m.filter != "" {
-				runes := []rune(m.filter)
-				m.filter = string(runes[:len(runes)-1])
+				m.filter = tui.TrimLastGrapheme(m.filter)
 				m.list.SetFilter(m.filter)
 				m.rebuild()
 				if m.onChange != nil {

@@ -70,12 +70,14 @@ func (s *SelectList) SetItems(items []SelectItem) {
 	s.selectedIndex = 0
 }
 
-// SetFilter keeps items whose value starts with filter (case-insensitive).
+// SetFilter keeps items whose value starts with filter, or whose label
+// contains it (case-insensitive) so titled rows stay searchable.
 func (s *SelectList) SetFilter(filter string) {
 	lower := strings.ToLower(filter)
 	var filtered []SelectItem
 	for _, it := range s.items {
-		if strings.HasPrefix(strings.ToLower(it.Value), lower) {
+		if strings.HasPrefix(strings.ToLower(it.Value), lower) ||
+			(it.Label != "" && strings.Contains(strings.ToLower(it.Label), lower)) {
 			filtered = append(filtered, it)
 		}
 	}

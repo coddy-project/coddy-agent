@@ -743,3 +743,18 @@ func SliceByColumn(line string, startCol, length int) string {
 	}
 	return b.String()
 }
+
+// TrimLastGrapheme removes the final grapheme cluster from s.
+func TrimLastGrapheme(s string) string {
+	if s == "" {
+		return s
+	}
+	last := 0
+	g := uniseg.NewGraphemes(s)
+	offset := 0
+	for g.Next() {
+		last = offset
+		offset += len(g.Str())
+	}
+	return s[:last]
+}

@@ -2,14 +2,18 @@
 
 package tui
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // SanitizeText removes terminal control bytes from untrusted text before it
 // enters any component: ESC (so no CSI/OSC/DCS/APC can form), every C0
-// control except newline and tab, DEL, and C1 controls (0x80-0x9f appear as
-// UTF-8 runes). Model output, tool results, file names, titles, skill and
-// MCP names all pass through here; the only escape sequences in rendered
-// lines are the ones the renderer itself generates.
+// control except newline and tab, DEL, C1 controls (both as UTF-8 runes and
+// as raw invalid bytes), and invalid UTF-8 bytes. Model output, tool
+// results, file names, titles, skill and MCP names all pass through here;
+// the only escape sequences in rendered lines are the ones the renderer
+// itself generates.
 func SanitizeText(s string) string {
 	clean := true
 	for i := 0; i < len(s); i++ {
@@ -18,36 +22,34 @@ func SanitizeText(s string) string {
 			clean = false
 			break
 		}
-		if b == 0x7f {
-			clean = false
-			break
+		if b == 0x7f || b >= 0x80 {
+			// Non-ASCII needs the rune-level pass (C1 and invalid bytes).
+			clean = b < 0x80
+			if !clean {
+				break
+			}
 		}
 	}
-	if clean && !hasC1(s) {
+	if clean {
 		return s
 	}
 	var b strings.Builder
 	b.Grow(len(s))
-	for _, r := range s {
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
 		switch {
+		case r == utf8.RuneError && size == 1:
+			// Invalid byte (raw C1 or broken UTF-8): dropped.
 		case r == '\n' || r == '\t':
 			b.WriteRune(r)
 		case r < 0x20 || r == 0x7f:
-			// dropped
+			// C0 controls and DEL: dropped.
 		case r >= 0x80 && r <= 0x9f:
-			// C1 controls dropped
+			// C1 controls: dropped.
 		default:
-			b.WriteRune(r)
+			b.WriteString(s[i : i+size])
 		}
+		i += size
 	}
 	return b.String()
-}
-
-func hasC1(s string) bool {
-	for _, r := range s {
-		if r >= 0x80 && r <= 0x9f {
-			return true
-		}
-	}
-	return false
 }

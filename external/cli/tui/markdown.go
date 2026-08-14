@@ -200,6 +200,10 @@ func renderMarkdownLines(text string, width int, th MarkdownTheme) []string {
 				}
 			}
 			for _, b := range rendered {
+				if VisibleWidth(b) > width-2 {
+					out = append(out, prefixLines("  ", WrapTextWithANSI(b, max(1, width-2)))...)
+					continue
+				}
 				out = append(out, "  "+b)
 			}
 			out = append(out, th.CodeBlockBorder("```"))
@@ -253,7 +257,6 @@ func renderMarkdownLines(text string, width int, th MarkdownTheme) []string {
 			for _, q := range inner {
 				out = append(out, th.QuoteBorder("│ ")+th.Quote(th.Italic(q)))
 			}
-			i++
 			continue
 		}
 
@@ -503,6 +506,14 @@ func renderInline(text string, th MarkdownTheme, stylePrefix string) string {
 		i++
 	}
 	return b.String()
+}
+
+func prefixLines(prefix string, lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, prefix+l)
+	}
+	return out
 }
 
 // FormatTokenCount renders 1234 as "1.2k" (pi footer formatTokens).
