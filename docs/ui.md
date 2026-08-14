@@ -189,7 +189,7 @@ Shape and glyphs
 - The hit target is a **perfect circle**: equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`** (currently **42×42px** in **`styles.css`**). Do **not** ship a rounded square or squircle for this control unless the visual spec explicitly changes again.
 - **Play** (**idle**, draft non-empty): Unicode triangle **`▶`**, enlarged vs body text (**`~22px`** glyph via **`composer-send-glyph`**), slight horizontal nudge for optical centering.
 - **Stop** (**while streaming**): filled square **`.composer-stop-square`** (**14x14px**, centered in the **42px** circle). Stays in **`composer-bar-actions`** on the right, next to the context ring.
-- **Disabled** idle state when textarea is whitespace-only (**`:disabled`** on **`composer-send-play`**).
+- **Disabled** idle state when textarea is whitespace-only **and no files are attached** (**`:disabled`** on **`composer-send-play`**); an attachment alone unlocks Send (see **Composer file attachments (multimodal)**).
 
 Behavior (unchanged summary)
 
@@ -203,7 +203,13 @@ Regression
 ## Composer file attachments (multimodal)
 
 - The paperclip button (**`data-testid="composer-file-input"`** hidden `<input type="file">` triggered by a visible icon button) appears in the composer **only** when the active model has **`multimodal: true`** from **`GET /v1/models`**. The flag is derived from **`models[].multimodal`** in YAML config and propagated through **`ModelInfo.multimodal`** → **`llmModelMultimodal`** in **`App.tsx`** → **`Composer`** prop.
-- Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon.
+- Besides the paperclip picker, files enter **`attachedFiles`** through two more ingress paths, both gated on **`llmModelMultimodal`**:
+  - **Clipboard paste** in **`textarea#composer`**: image items (`kind === "file"`, `image/*`) are attached and the default paste is cancelled; plain-text paste is untouched. Pasted images get deterministic names **`pasted-<n>.<ext>`** (browsers name every clipboard image `image.png`).
+  - **Drag & drop** onto **`.composer-card`**: dropped files attach like a picker selection; while files are dragged over the card it shows the **`.composer-card--dragover`** drop-target affordance.
+- When the model is **not** multimodal, paste/drop rejection shows the transient inline notice **`.composer-attach-hint`** (`role="status"`, auto-clears after ~4s) instead of attaching.
+- Attachment chips show a **local object-URL thumbnail** (**`.composer-attachment-chip--image`** + **`.composer-attachment-thumb`**, 28×28 cover) for `image/*` files instead of the generic type icon; non-image files and locked edit-mode chips keep the icon. Thumbnails exist only in the composer — transcript bubbles stay metadata-only.
+- **Attachment-only send** is valid: **Send** (button or **Enter**) unlocks with attachments even when the draft is empty and submits **`onSend("", files)`**; the server accepts an empty-string `input` alongside `inline_files`.
+- Attached files are held in **`attachedFiles: File[]`** state on **`Composer`**. Preview chips appear above the composer input showing file name and type icon (or thumbnail for images).
 - On send, **`App.tsx`** reads each file as a data URL via **`FileReader`** and includes **`inline_files: [{name, data_url}]`** in the **`POST /v1/responses`** body.
 - **Agent / plan turns**: the server writes each file to **`~/.coddy/sessions/<id>/assets/`** (permissions **`0o444`**) and injects a **`<coddy_session_assets>`** XML block into the user message so the agent can **`read`** or **`cp`** those paths. Duplicate asset names get **`_1`**, **`_2`** suffixes (see `internal/session/assets.go` **`SavePartsToAssets`**).
 - **Direct YAML model turns**: each file becomes an **`image_url`** content part sent inline to the provider.
@@ -215,6 +221,11 @@ Regression
 | FA1 | Paperclip visible only when `llmModelMultimodal` is true | `Composer.test.tsx` |
 | FA2 | File chips render in user bubble after send | `stripCoddyAttachments.test.ts` |
 | FA3 | Chips persist on reload via `parseSessionAssetFiles` | `stripCoddyAttachments.test.ts` |
+| FA4 | Pasting an image attaches it as `pasted-<n>.<ext>` chip (multimodal only) | `Composer.test.tsx` |
+| FA5 | Paste/drop with a non-multimodal model shows `composer-attach-hint` and attaches nothing | `Composer.test.tsx` |
+| FA6 | Dropping files on `.composer-card` attaches them and toggles `composer-card--dragover` | `Composer.test.tsx` |
+| FA7 | `image/*` chips render `composer-attachment-thumb`; non-image chips keep the icon | `Composer.test.tsx` |
+| FA8 | Attachment alone unlocks Send/Enter and submits `onSend("", files)` | `Composer.test.tsx` |
 
 ## Composer slash skills and mirror caret
 

@@ -344,6 +344,16 @@ A chip row (**`.composer-context-chips`**) renders as the **first child** of **`
 - **Pre-session (draft/home)** — chips show the server-default workspace. Choices are kept client-side (**pending**) and previewed via **`GET /coddy/workspace/context?path=`**; the first send applies them to the fresh session id (**`POST .../workspace`**) before **`POST /v1/responses`**. Navigating to another session drops pending choices.
 - Menus follow the **`Mode`**/**`Model`** conventions: anchored **`mode-menu--portal`** (**`opens-down`** on the hero, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
 
+### Composer attachments (multimodal ingress)
+
+Attachments row (**`.composer-attachments`**) renders **inside** **`.composer-card`**, below workspace chips and above the field. All ingress paths are gated on the selected model's **`multimodal`** flag (paperclip picker, clipboard paste in **`textarea#composer`**, drag & drop onto **`.composer-card`**). Functional contract and regression table: **`docs/ui.md`** (**Composer file attachments (multimodal)**).
+
+- Chips (**`.composer-attachment-chip`**, 140px, 10px radius) show the file icon plus name; `image/*` files swap the icon for a **28×28 object-fit-cover thumbnail** (**`.composer-attachment-thumb`**, local object URL revoked on remove/unmount). Locked edit-mode chips stay icon-only (metadata has no bytes).
+- Pasted clipboard images get deterministic names **`pasted-<n>.<ext>`** (browsers hand every clipboard image over as `image.png`).
+- Paste/drop against a non-multimodal model attaches nothing and flashes the inline notice **`.composer-attach-hint`** (**`role="status"`**, auto-clears) below the attachments row.
+- While files are dragged over the card it carries **`.composer-card--dragover`** (inset ring accent) as the drop-target affordance.
+- **Attachment-only send** is valid: an attachment alone unlocks **Send** (see **Composer primary action**).
+
 ### Composer context meter
 
 Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`ContextUsageRing`**: inner stroke always visible; outer progress arc only when usage **> 0**, flat color (no gradient or shadow), fill from **12 o'clock** clockwise. Colors use **`--coddy-context-ring-inner`** and **`--coddy-context-ring-fg`** (both themes in **`styles.css`**). Dark outer arc **`#f5f3ff`** (logo stroke); light outer arc **`var(--accent)`**.
@@ -360,7 +370,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
-- Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
+- Idle **disabled** when the message field is empty **and no files are attached** (an attachment alone unlocks Send); streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
 Composer mode selector
 

@@ -786,6 +786,274 @@ test("send with attached file passes files to onSend", async () => {
   vi.unstubAllGlobals();
 });
 
+/** jsdom has no real clipboard: dispatch a native paste event carrying image items. */
+function pasteWithImages(el: Element, files: File[]) {
+  const ev = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", {
+    value: {
+      items: files.map((f) => ({
+        kind: "file",
+        type: f.type,
+        getAsFile: () => f,
+      })),
+    },
+    configurable: true,
+  });
+  fireEvent(el, ev);
+}
+
+/** jsdom has no DataTransfer: dispatch a native drop event carrying files. */
+function dropFiles(el: Element, files: File[]) {
+  const ev = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "dataTransfer", {
+    value: { types: ["Files"], files },
+    configurable: true,
+  });
+  fireEvent(el, ev);
+}
+
+test("pasting an image attaches it under a deterministic pasted-N name", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  expect(screen.getByText("pasted-1.png")).toBeTruthy();
+  pasteWithImages(ta, [new File(["img2"], "image.png", { type: "image/jpeg" })]);
+  expect(screen.getByText("pasted-2.jpg")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("pasting an image when the model is not multimodal shows a hint and no chip", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  expect(screen.getByTestId("composer-attach-hint").textContent).toBe(
+    "Selected model cannot accept attachments",
+  );
+  expect(screen.queryByText("pasted-1.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("plain-text paste attaches nothing and shows no hint", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ev = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", { value: { items: [] } });
+  fireEvent(ta, ev);
+  expect(screen.queryByTestId("composer-attach-hint")).toBeNull();
+  expect(screen.queryByText("pasted-1.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("dropping files on the composer card attaches them", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  dropFiles(card, [new File(["data"], "img.png", { type: "image/png" })]);
+  expect(screen.getByText("img.png")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("dropping files when the model is not multimodal shows a hint", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  dropFiles(card, [new File(["data"], "img.png", { type: "image/png" })]);
+  expect(screen.getByTestId("composer-attach-hint").textContent).toBe(
+    "Selected model cannot accept attachments",
+  );
+  expect(screen.queryByText("img.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("dragging files over the composer card toggles the drop-target affordance", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+  Object.defineProperty(dragOver, "dataTransfer", {
+    value: { types: ["Files"] },
+  });
+  fireEvent(card, dragOver);
+  expect(card).toHaveClass("composer-card--dragover");
+  const dragLeave = new Event("dragleave", { bubbles: true, cancelable: true });
+  fireEvent(card, dragLeave);
+  expect(card).not.toHaveClass("composer-card--dragover");
+  vi.unstubAllGlobals();
+});
+
+test("image attachments render a thumbnail; non-image ones keep the icon", () => {
+  stubMatchMediaMobile(false);
+  const createObjectURL = vi.fn(() => "blob:coddy-thumb-1");
+  const revokeObjectURL = vi.fn();
+  const urlCtor = URL as unknown as {
+    createObjectURL?: (f: File) => string;
+    revokeObjectURL?: (u: string) => void;
+  };
+  const origCreate = urlCtor.createObjectURL;
+  const origRevoke = urlCtor.revokeObjectURL;
+  urlCtor.createObjectURL = createObjectURL;
+  urlCtor.revokeObjectURL = revokeObjectURL;
+  try {
+    render(
+      <Composer
+        value=""
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        llmModelMultimodal={true}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    const fileInput = screen.getByTestId(
+      "composer-file-input",
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [
+          new File(["data"], "img.png", { type: "image/png" }),
+          new File(["data"], "notes.txt", { type: "text/plain" }),
+        ],
+      },
+    });
+    const thumbs = screen.getAllByTestId("composer-attachment-thumb");
+    expect(thumbs).toHaveLength(1);
+    expect(thumbs[0]?.getAttribute("src")).toBe("blob:coddy-thumb-1");
+    const imgChip = thumbs[0]?.closest(".composer-attachment-chip");
+    expect(imgChip).toHaveClass("composer-attachment-chip--image");
+    expect(screen.getByText("notes.txt")).toBeTruthy();
+  } finally {
+    urlCtor.createObjectURL = origCreate;
+    urlCtor.revokeObjectURL = origRevoke;
+    vi.unstubAllGlobals();
+  }
+});
+
+test("send is enabled by an image alone and sends empty text with the files", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const sendBtn = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  expect(sendBtn.disabled).toBe(true);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  await waitFor(() => screen.getByText("pasted-1.png"));
+  expect(sendBtn.disabled).toBe(false);
+  fireEvent.click(sendBtn);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]];
+  expect(sentText).toBe("");
+  expect(sentFiles).toHaveLength(1);
+  expect(sentFiles[0]?.name).toBe("pasted-1.png");
+  vi.unstubAllGlobals();
+});
+
+test("Enter sends an image-only message", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  await waitFor(() => screen.getByText("pasted-1.png"));
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]];
+  expect(sentText).toBe("");
+  expect(sentFiles).toHaveLength(1);
+  vi.unstubAllGlobals();
+});
+
 test("arrow keys move the slash highlight and Enter picks the highlighted row", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: true,

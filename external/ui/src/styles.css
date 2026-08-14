@@ -4168,6 +4168,36 @@ textarea#composer {
   padding-right: 10px;
 }
 
+/* Image attachments swap the generic icon for a local object-URL thumbnail. */
+.composer-attachment-chip--image .composer-attachment-chip-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.composer-attachment-thumb {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+/* Transient rejection notice for paste/drop when the model is not multimodal. */
+.composer-attach-hint {
+  padding: 6px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+/* Drop-target affordance while files are dragged over the composer card. */
+.composer-card--dragover {
+  border-color: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  box-shadow:
+    var(--coddy-glass-panel-shadow),
+    inset 0 0 0 1px color-mix(in srgb, var(--text) 30%, transparent);
+}
+
 .composer-bar-actions {
   display: flex;
   align-items: center;
