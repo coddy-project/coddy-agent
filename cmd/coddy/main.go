@@ -76,6 +76,15 @@ func main() {
 
 	args := os.Args[1:]
 	if len(args) == 0 {
+		// Bare `coddy` on a terminal opens the interactive console (builds
+		// with -tags cli); pipes and lean builds keep the usage contract.
+		if cliInteractiveDefault() {
+			if err := runCLI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(os.Stderr)
 		os.Exit(1)
 	}
@@ -88,6 +97,8 @@ func main() {
 	switch args[0] {
 	case "acp":
 		err = runACP(args[1:])
+	case "cli":
+		err = runCLI(args[1:])
 	case "http":
 		err = runHTTP(args[1:])
 	case "gateway":
@@ -119,8 +130,10 @@ func main() {
 
 func printUsage(w *os.File) {
 	_, _ = fmt.Fprintf(w, `Usage:
+  %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s gateway [flags] (messenger gateway: Telegram etc.)
