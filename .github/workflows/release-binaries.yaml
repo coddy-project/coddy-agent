@@ -31,7 +31,7 @@ defaults:
     shell: bash
 
 env:
-  GO_BUILD_TAGS: "http,ui,scheduler,memory"
+  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli"
 
 jobs:
   release-binaries:

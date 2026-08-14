@@ -1,0 +1,35 @@
+ The available_skills description for using-superpowers says "Use at the start of every
+ conversation - establishes how to find and use skills, requires invoking the Skill tool before any
+ response including clarification questions." Hmm, that's a strong instruction. But the guidance
+ also says "read only when the user asks about pi itself" — that's about the pi docs. For skills:
+ "if the task matches the description, use the read tool to load the skill file."
+
+ A simple greeting doesn't match any skill's task description (brainstorming is before creative
+ work, etc.). Using superpowers says "start of every conversation"... this is borderline. Reading
+ is cheap and harmless, so if I follow the instructions I'd probably read it. Actually, let me
+ think practically: the user just greeted me. Replying with "Hi! How can I help you today?" is
+ natural. Loading a skill for a greeting seems excessive, but the skill explicitly states it's
+ required before any response.
+
+ Let me just quickly read it anyway to comply.
+
+
+ [skill] using-superpowers (ctrl+o to expand)
+
+
+ The user just said "hi" — it's a greeting. The using-superpowers skill has been loaded. There's no
+ task here that would require any other skills (just a greeting). I should respond to the greeting
+ naturally and offer to help.
+
+ No further skills are needed — it's just a simple greeting, with no feature creation, bug fixing,
+ or creative work.
+
+ Hi! 👋 What can I help you with today?
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-storage-Repository-coddy-coddy-agent/57735ca1-c6df-4bcb-ac6d-bfc07a39f3b7/scrat...
+↑5.2k ↓68 1.3%/262k (auto)                                         (neuraldeep) qwen3.8-27b • medium
+
+

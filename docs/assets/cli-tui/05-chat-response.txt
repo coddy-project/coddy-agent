@@ -1,0 +1,35 @@
+  AGENTS.md
+
+[Skills]
+  generate-rules
+
+
+ What is 17*23? Explain briefly, then answer.
+
+ memory: memory...
+
+
+
+
+
+ (no memory hits)
+
+
+ The user is asking for a simple calculation: 17*23. I'll explain it concisely and then give the
+ answer.
+
+ 17 × 23 = 17 × 20 + 17 × 3 = 340 + 51 = 391.
+
+
+
+
+ Calculation: Break 23 into 20 + 3, so 17×23 = (17×20) + (17×3) = 340 + 51.
+
+ Answer: 391
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/coddy-cli-capture-work-fmt0itcd
+↑4.6k ↓45 2.0%/262.1k (auto)                                                (neuraldeep) qwen3.8-27b
+

@@ -1,0 +1,35 @@
+    ~/.agents/skills/using-superpowers/SKILL.md
+    ~/.agents/skills/verification-before-completion/SKILL.md
+    ~/.agents/skills/writing-plans/SKILL.md
+    ~/.agents/skills/writing-skills/SKILL.md
+
+
+ Warning: fd not found. Offline mode enabled, skipping download.
+
+ Tool output: expanded
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Only showing models from configured providers. Use /login to add providers.
+
+>
+
+→ qwen3.8-27b [neuraldeep] ✓
+  kimi-k2-0711-preview [moonshotai]
+  kimi-k2-0905-preview [moonshotai]
+  kimi-k2-thinking [moonshotai]
+  kimi-k2-thinking-turbo [moonshotai]
+  kimi-k2-turbo-preview [moonshotai]
+  kimi-k2.5 [moonshotai]
+  kimi-k2.6 [moonshotai]
+  kimi-k2.7-code [moonshotai]
+  kimi-k2.7-code-highspeed [moonshotai]
+  (1/21)
+
+  Model Name: Qwen 3.8 27B (neuraldeep)
+
+  Model catalogs refreshed.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-storage-Repository-coddy-coddy-agent/57735ca1-c6df-4bcb-ac6d-bfc07a39f3b7/scrat...
+0.0%/262k (auto)                                                   (neuraldeep) qwen3.8-27b • medium

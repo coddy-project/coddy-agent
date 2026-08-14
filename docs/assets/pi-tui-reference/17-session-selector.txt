@@ -1,0 +1,35 @@
+
+ pi v0.84.2
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+[Skills]
+  brainstorming, dispatching-parallel-agents, executing-plans, find-skills,
+finishing-a-development-branch, receiving-code-review, requesting-code-review,
+subagent-driven-development, systematic-debugging, test-driven-development, using-git-worktrees,
+using-superpowers, verification-before-completion, writing-plans, writing-skills
+
+
+ Warning: fd not found. Offline mode enabled, skipping download.
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Resume Session (Current Folder)                  ◉ Current Folder | ○ All  Name: All  Sort: Threaded
+tab scope · re:<pattern> regex · "phrase" exact
+ctrl+s sort · ctrl+n named · ctrl+d delete · ctrl+p path (off) · ctrl+r rename
+
+>
+
+› hi                                                                                           14 1m
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-storage-Repository-coddy-coddy-agent/57735ca1-c6df-4bcb-ac6d-bfc07a39f3b7/scrat...
+0.0%/262k (auto)                                                   (neuraldeep) qwen3.8-27b • medium
+
+
+
+
+
