@@ -17,7 +17,6 @@ def main() -> int:
         # Switch by explicit id (validated by the manager against YAML models).
         tui.type_text("/model rpa/gpt-oss:20b")
         tui.send(CR)
-        tui.send(CR)
         tui.wait_for("(rpa) gpt-oss:20b", timeout=20)
         session = tui.single_session_dir() / "session.json"
         data = json.loads(session.read_text())

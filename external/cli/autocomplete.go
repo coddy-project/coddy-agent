@@ -44,15 +44,20 @@ func (p *completionProvider) Suggestions(lines []string, cursorLine, cursorCol i
 	before := line[:cursorCol]
 
 	// Slash commands: only on the first line, message starting with "/".
+	// An exact value match sorts first so enter picks it over longer
+	// prefix-sharing commands (pi behavior: /mode must not resolve to /model).
 	if cursorLine == 0 && strings.HasPrefix(line, "/") && !strings.Contains(before, " ") {
-		prefix := strings.TrimPrefix(before, "/")
-		var out []tui.AutocompleteItem
+		prefix := strings.ToLower(strings.TrimPrefix(before, "/"))
+		var exact, rest []tui.AutocompleteItem
 		for _, item := range p.commands() {
-			if strings.HasPrefix(strings.ToLower(item.Value), strings.ToLower(prefix)) {
-				out = append(out, item)
+			lowered := strings.ToLower(item.Value)
+			if lowered == prefix {
+				exact = append(exact, item)
+			} else if strings.HasPrefix(lowered, prefix) {
+				rest = append(rest, item)
 			}
 		}
-		return out
+		return append(exact, rest...)
 	}
 
 	// @path mentions: token starting with "@", or tab-forced file completion.

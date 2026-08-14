@@ -18,7 +18,6 @@ def main() -> int:
         tui.wait_idle(timeout=240)
         tui.type_text("/compact")
         tui.send(CR)
-        tui.send(CR)
         tui.wait_for("Working...", timeout=60)
         tui.wait_idle(timeout=300)
         msgs = tui.messages()

@@ -18,7 +18,6 @@ def main() -> int:
         tui.wait_for("coddy v", timeout=30)
         tui.type_text("/mode")
         tui.send(CR)
-        tui.send(CR)
         tui.wait_for("Select mode", timeout=15)
         tui.send("\x1b[B")  # down to plan
         tui.send(CR)

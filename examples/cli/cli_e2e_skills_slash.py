@@ -21,7 +21,6 @@ def main() -> int:
         tui.wait_for("coddy_slash_demo", timeout=20)  # header [Skills] section
         tui.type_text("/coddy_slash_demo run the demo")
         tui.send(CR)
-        tui.send(CR)
         tui.wait_for("Working...", timeout=30)
         tui.wait_idle(timeout=240)
         joined = "\n".join(m.get("content", "") for m in tui.messages())

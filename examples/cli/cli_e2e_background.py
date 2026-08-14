@@ -33,8 +33,8 @@ def main() -> int:
                     meta = task / "meta.json"
                     out = task / "output.log"
                     if meta.exists() and out.exists():
-                        state = json.loads(meta.read_text()).get("state", "")
-                        if state in ("succeeded", "stopped") and "BG_E2E_DONE" in out.read_text():
+                        status = json.loads(meta.read_text()).get("status", "")
+                        if status in ("succeeded", "stopped") and "BG_E2E_DONE" in out.read_text():
                             seen = True
             time.sleep(0.5)
         if not seen:
