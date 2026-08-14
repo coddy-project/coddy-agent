@@ -1,0 +1,35 @@
+ alt+enter to queue follow-up                                                                       
+ alt+up to edit all queued messages                                                                 
+ ctrl+v to paste image (with text fallback)                                                         
+ drop files to attach                                                                               
+                                                                                                    
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.              
+                                                                                                    
+[Skills]                                                                                            
+  user                                                                                              
+    ~/.agents/skills/brainstorming/SKILL.md                                                         
+    ~/.agents/skills/dispatching-parallel-agents/SKILL.md                                           
+    ~/.agents/skills/executing-plans/SKILL.md                                                       
+    ~/.agents/skills/find-skills/SKILL.md                                                           
+    ~/.agents/skills/finishing-a-development-branch/SKILL.md                                        
+    ~/.agents/skills/receiving-code-review/SKILL.md                                                 
+    ~/.agents/skills/requesting-code-review/SKILL.md                                                
+    ~/.agents/skills/subagent-driven-development/SKILL.md                                           
+    ~/.agents/skills/systematic-debugging/SKILL.md                                                  
+    ~/.agents/skills/test-driven-development/SKILL.md                                               
+    ~/.agents/skills/using-git-worktrees/SKILL.md                                                   
+    ~/.agents/skills/using-superpowers/SKILL.md                                                     
+    ~/.agents/skills/verification-before-completion/SKILL.md                                        
+    ~/.agents/skills/writing-plans/SKILL.md                                                         
+    ~/.agents/skills/writing-skills/SKILL.md                                                        
+                                                                                                    
+                                                                                                    
+ Warning: fd not found. Offline mode enabled, skipping download.                                    
+                                                                                                    
+ Tool output: expanded                                                                              
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-storage-Repository-coddy-coddy-agent/57735ca1-c6df-4bcb-ac6d-bfc07a39f3b7/scrat...
+0.0%/262k (auto)                                                   (neuraldeep) qwen3.8-27b • medium

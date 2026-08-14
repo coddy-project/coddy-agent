@@ -1,0 +1,35 @@
+    ~/.agents/skills/using-superpowers/SKILL.md                                                     
+    ~/.agents/skills/verification-before-completion/SKILL.md                                        
+    ~/.agents/skills/writing-plans/SKILL.md                                                         
+    ~/.agents/skills/writing-skills/SKILL.md                                                        
+                                                                                                    
+                                                                                                    
+ Warning: fd not found. Offline mode enabled, skipping download.                                    
+                                                                                                    
+ Tool output: expanded                                                                              
+                                                                                                    
+────────────────────────────────────────────────────────────────────────────────────────────────────
+first line                                                                                          
+second line                                                                                         
+third line                                                                                          
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-storage-Repository-coddy-coddy-agent/57735ca1-c6df-4bcb-ac6d-bfc07a39f3b7/scrat...
+0.0%/262k (auto)                                                   (neuraldeep) qwen3.8-27b • medium
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
