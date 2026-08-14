@@ -16,6 +16,20 @@ export const messagesRu: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  "common.cancel": "Отмена",
+  "common.confirm": "Подтвердить",
+  "common.confirmAction": "Подтвердить действие",
+  "common.delete": "Удалить",
+
+  "confirm.session.deleteDraft.title": "Удалить черновик?",
+  "confirm.session.deleteDraft.message": "Этот черновик беседы будет удалён.",
+  "confirm.session.deleteChat.title": "Удалить чат?",
+  "confirm.session.deleteChat.message":
+    "Эта беседа будет удалена без возможности восстановления.",
+  "confirm.scheduler.deleteJob.title": "Удалить задачу планировщика «{id}»?",
+  "confirm.scheduler.deleteJob.message":
+    "Эта запланированная задача будет удалена без возможности восстановления.",
+
   "settings.title": "Настройки",
   "settings.aria.panel": "Настройки",
   "settings.aria.close": "Закрыть настройки",

@@ -1,33 +1,41 @@
 import { expect, test } from "vitest";
-import { messagesEn } from "./messages/en";
-import { messagesRu } from "./messages/ru";
+import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
 
-test("english and russian dictionaries expose the same keys", () => {
-  const en = new Set(Object.keys(messagesEn));
-  const ru = new Set(Object.keys(messagesRu));
-  const missingInRu = [...en].filter((k) => !ru.has(k));
-  const missingInEn = [...ru].filter((k) => !en.has(k));
-  expect({ missingInRu, missingInEn }).toEqual({
-    missingInRu: [],
-    missingInEn: [],
-  });
+test("every registered dictionary exposes the default locale keys", () => {
+  const defaultKeys = new Set(
+    Object.keys(UI_LOCALES[UI_LOCALE_DEFAULT].messages),
+  );
+  for (const locale of UI_LOCALE_IDS) {
+    const localeKeys = new Set(Object.keys(UI_LOCALES[locale].messages));
+    const missing = [...defaultKeys].filter((key) => !localeKeys.has(key));
+    const extra = [...localeKeys].filter((key) => !defaultKeys.has(key));
+    expect({ locale, missing, extra }).toEqual({
+      locale,
+      missing: [],
+      extra: [],
+    });
+  }
 });
 
 test("no dictionary value is the empty string", () => {
-  for (const [key, value] of Object.entries(messagesEn)) {
-    expect(value, `empty english value for ${key}`).not.toBe("");
-  }
-  for (const [key, value] of Object.entries(messagesRu)) {
-    expect(value, `empty russian value for ${key}`).not.toBe("");
+  for (const locale of UI_LOCALE_IDS) {
+    for (const [key, value] of Object.entries(UI_LOCALES[locale].messages)) {
+      expect(value, `empty ${locale} value for ${key}`).not.toBe("");
+    }
   }
 });
 
-test("every interpolation token used in english is present in russian", () => {
+test("every interpolation token used in the default locale exists everywhere", () => {
   const token = (s: string) =>
     (s.match(/\{(\w+)\}/g) ?? []).map((m) => m).sort();
-  for (const [key, en] of Object.entries(messagesEn)) {
-    const ru = messagesRu[key];
-    if (ru === undefined) continue;
-    expect(token(en), `token mismatch for ${key}`).toEqual(token(ru));
+  const defaults = UI_LOCALES[UI_LOCALE_DEFAULT].messages;
+  for (const locale of UI_LOCALE_IDS) {
+    for (const [key, fallback] of Object.entries(defaults)) {
+      const translated = UI_LOCALES[locale].messages[key];
+      if (translated === undefined) continue;
+      expect(token(translated), `token mismatch for ${locale}:${key}`).toEqual(
+        token(fallback),
+      );
+    }
   }
 });

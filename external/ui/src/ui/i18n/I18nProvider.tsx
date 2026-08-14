@@ -11,7 +11,7 @@ import {
   translate,
   type TranslateParams,
 } from "./i18n";
-import type { UiLocale } from "./localeCookie";
+import { UI_LOCALE_DEFAULT, type UiLocale } from "./locales";
 
 type I18nContextValue = {
   locale: UiLocale;
@@ -24,7 +24,7 @@ export function I18nProvider(props: { children: React.ReactNode }) {
   const locale = useSyncExternalStore(
     onLocaleChange,
     getLocale,
-    () => "en" as UiLocale,
+    () => UI_LOCALE_DEFAULT,
   );
 
   const t = useCallback(

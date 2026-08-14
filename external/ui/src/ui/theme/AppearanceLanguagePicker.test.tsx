@@ -3,6 +3,7 @@ import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { AppearanceLanguagePicker } from "./AppearanceModal";
 import { CODDY_UI_LANG_COOKIE } from "../i18n/localeCookie";
 import { initLocale } from "../i18n/i18n";
+import { UI_LOCALE_IDS } from "../i18n/locales";
 
 function setLocation(href: string) {
   Object.defineProperty(window, "location", {
@@ -38,11 +39,12 @@ function readCookie(): string | null {
   return null;
 }
 
-test("renders the three Auto / English / Русский options", () => {
+test("renders Auto and every registered locale", () => {
   render(<AppearanceLanguagePicker />);
   expect(screen.getByTestId("lang-option-auto")).toBeTruthy();
-  expect(screen.getByTestId("lang-option-en")).toBeTruthy();
-  expect(screen.getByTestId("lang-option-ru")).toBeTruthy();
+  for (const locale of UI_LOCALE_IDS) {
+    expect(screen.getByTestId(`lang-option-${locale}`)).toBeTruthy();
+  }
 });
 
 test("Auto is active when no cookie is stored", () => {

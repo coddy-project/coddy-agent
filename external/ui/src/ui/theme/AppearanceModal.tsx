@@ -9,6 +9,7 @@ import {
   readNavigatorLanguage,
   type UiLocale,
 } from "../i18n/localeCookie";
+import { UI_LOCALES, UI_LOCALE_IDS } from "../i18n/locales";
 import { UI_THEME_IDS, LIGHT_THEMES, type UiThemeMode } from "./themeCookie";
 import { readAppliedUiTheme, setUiTheme } from "./uiTheme";
 
@@ -99,8 +100,8 @@ function readLocaleChoice(): LocaleChoice {
 }
 
 /** AppearanceLanguagePicker — segmented control under the theme grid.
- * "Auto" resolves from navigator.language and stores no cookie; "English" /
- * "Русский" persist `coddy_ui_lang`. Purely client-side (no config save). */
+ * "Auto" resolves from navigator.language and stores no cookie; registered
+ * locale choices persist `coddy_ui_lang`. Purely client-side (no config save). */
 export function AppearanceLanguagePicker() {
   const { t } = useT();
   // `choice` (Auto vs explicit locale) is cookie-derived. Tracked in local
@@ -122,8 +123,10 @@ export function AppearanceLanguagePicker() {
 
   const options: { id: LocaleChoice; label: string }[] = [
     { id: "auto", label: t("appearance.locale.auto") },
-    { id: "en", label: t("appearance.locale.en") },
-    { id: "ru", label: t("appearance.locale.ru") },
+    ...UI_LOCALE_IDS.map((id) => ({
+      id,
+      label: t(UI_LOCALES[id].labelKey),
+    })),
   ];
 
   return (

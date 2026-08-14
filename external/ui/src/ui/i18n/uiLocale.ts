@@ -5,14 +5,12 @@ import {
   mapSystemLocaleToSupported,
   readNavigatorLanguage,
 } from "./localeCookie";
+import { isUiLocale, UI_LOCALE_DEFAULT } from "./locales";
 
-export const UI_LOCALE_DEFAULT: UiLocale = "en";
+export { UI_LOCALE_DEFAULT } from "./locales";
 
 export function resolveUiLocale(stored: UiLocale | null): UiLocale {
-  if (stored === "en" || stored === "ru") {
-    return stored;
-  }
-  return UI_LOCALE_DEFAULT;
+  return stored ?? UI_LOCALE_DEFAULT;
 }
 
 export function applyUiLocale(locale: UiLocale): void {
@@ -26,26 +24,17 @@ export function readAppliedUiLocale(): UiLocale {
   if (typeof document === "undefined") {
     return UI_LOCALE_DEFAULT;
   }
-  const lang = document.documentElement.lang;
-  if (lang === "ru") {
-    return "ru";
-  }
-  return UI_LOCALE_DEFAULT;
+  const lang = document.documentElement.lang.trim().toLowerCase();
+  return isUiLocale(lang) ? lang : UI_LOCALE_DEFAULT;
 }
 
-/** Parse ?lang= from the current URL (en or ru). */
+/** Parse a registered locale id from ?lang= in the current URL. */
 export function readUiLocaleFromUrl(): UiLocale | null {
   if (typeof window === "undefined") {
     return null;
   }
   const raw = new URLSearchParams(window.location.search).get("lang");
-  if (raw === "ru") {
-    return "ru";
-  }
-  if (raw === "en") {
-    return "en";
-  }
-  return null;
+  return raw !== null && isUiLocale(raw) ? raw : null;
 }
 
 export function bootstrapUiLocaleFromUrlOrCookie(): UiLocale {

@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { ConfirmDialog, type ConfirmDialogVariant } from "./ConfirmDialog";
+import { useT } from "../i18n/I18nProvider";
 
 export type ConfirmOptions = {
   /** Short question shown as the dialog heading, e.g. "Delete chat?". */
@@ -36,14 +37,13 @@ type PendingState = {
 export function useConfirm(): ConfirmFn {
   const ctx = useContext(ConfirmContext);
   if (!ctx) {
-    throw new Error(
-      "useConfirm must be used within a <ConfirmProvider> tree.",
-    );
+    throw new Error("useConfirm must be used within a <ConfirmProvider> tree.");
   }
   return ctx;
 }
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useT();
   const [pending, setPending] = useState<PendingState | null>(null);
 
   // Keep the latest resolver around so cancel/confirm handlers always close the
@@ -63,17 +63,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const settle = useCallback(
-    (ok: boolean) => {
-      const r = resolveRef.current;
-      resolveRef.current = null;
-      setPending(null);
-      if (r) {
-        r(ok);
-      }
-    },
-    [],
-  );
+  const settle = useCallback((ok: boolean) => {
+    const r = resolveRef.current;
+    resolveRef.current = null;
+    setPending(null);
+    if (r) {
+      r(ok);
+    }
+  }, []);
 
   const onConfirm = useCallback(() => settle(true), [settle]);
   const onCancel = useCallback(() => settle(false), [settle]);
@@ -87,10 +84,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
         open={!!pending}
         title={pending?.options.title ?? ""}
         message={pending?.options.message}
-        confirmLabel={pending?.options.confirmLabel ?? "Confirm"}
-        cancelLabel={pending?.options.cancelLabel}
+        confirmLabel={pending?.options.confirmLabel ?? t("common.confirm")}
+        cancelLabel={pending?.options.cancelLabel ?? t("common.cancel")}
         variant={pending?.options.variant}
-        ariaLabel={pending?.options.title ?? "Confirm action"}
+        ariaLabel={pending?.options.title ?? t("common.confirmAction")}
         onConfirm={onConfirm}
         onCancel={onCancel}
         dataTestId="app-confirm-dialog"

@@ -1,14 +1,15 @@
+import {
+  isUiLocale,
+  UI_LOCALE_DEFAULT,
+  UI_LOCALE_IDS,
+  type UiLocale,
+} from "./locales";
+
 export const CODDY_UI_LANG_COOKIE = "coddy_ui_lang";
 
 const MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
-export type UiLocale = "en" | "ru";
-
-export const UI_LOCALE_IDS: UiLocale[] = ["en", "ru"];
-
-function isValidLocale(v: string): v is UiLocale {
-  return (UI_LOCALE_IDS as string[]).includes(v);
-}
+export { UI_LOCALE_IDS, type UiLocale } from "./locales";
 
 export function readUiLocaleCookie(): UiLocale | null {
   if (typeof document === "undefined") {
@@ -26,7 +27,7 @@ export function readUiLocaleCookie(): UiLocale | null {
     } catch {
       return null;
     }
-    if (isValidLocale(v)) {
+    if (isUiLocale(v)) {
       return v;
     }
     return null;
@@ -35,11 +36,12 @@ export function readUiLocaleCookie(): UiLocale | null {
 }
 
 export function mapSystemLocaleToSupported(lang: string): UiLocale {
-  const base = lang.trim().toLowerCase().split("-")[0];
-  if (base === "ru") {
-    return "ru";
+  const normalized = lang.trim().toLowerCase().replaceAll("_", "-");
+  if (isUiLocale(normalized)) {
+    return normalized;
   }
-  return "en";
+  const base = normalized.split("-")[0] ?? "";
+  return isUiLocale(base) ? base : UI_LOCALE_DEFAULT;
 }
 
 export function readNavigatorLanguage(): string {

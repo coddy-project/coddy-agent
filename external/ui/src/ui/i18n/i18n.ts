@@ -1,19 +1,18 @@
-import { messagesEn } from "./messages/en";
-import { messagesRu } from "./messages/ru";
-import { type UiLocale, UI_LOCALE_IDS } from "./localeCookie";
+import {
+  isUiLocale,
+  UI_LOCALES,
+  UI_LOCALE_DEFAULT,
+  type UiLocale,
+} from "./locales";
 import { applyUiLocale } from "./uiLocale";
 
 export type TranslateParams = Record<string, string | number>;
 
-let currentLocale: UiLocale = "en";
+let currentLocale: UiLocale = UI_LOCALE_DEFAULT;
 const listeners = new Set<() => void>();
 
-function isValidLocale(v: string): v is UiLocale {
-  return (UI_LOCALE_IDS as string[]).includes(v);
-}
-
 function dictFor(locale: UiLocale): Record<string, string> {
-  return locale === "ru" ? messagesRu : messagesEn;
+  return UI_LOCALES[locale].messages;
 }
 
 function interpolate(raw: string, params?: TranslateParams): string {
@@ -52,7 +51,7 @@ export function initLocale(locale: UiLocale): void {
  * stamping a cookie. Returns false for unsupported locale ids.
  */
 export function setLocale(lang: string): boolean {
-  if (!isValidLocale(lang)) {
+  if (!isUiLocale(lang)) {
     return false;
   }
   if (currentLocale !== lang) {
@@ -65,13 +64,13 @@ export function setLocale(lang: string): boolean {
   return true;
 }
 
-/** Translate a key for the current locale; falls back to English then the key. */
+/** Translate a key for the current locale; falls back to the default then the key. */
 export function translate(key: string, params?: TranslateParams): string {
   const primary = dictFor(currentLocale)[key];
   if (primary !== undefined) {
     return interpolate(primary, params);
   }
-  const fallback = messagesEn[key];
+  const fallback = UI_LOCALES[UI_LOCALE_DEFAULT].messages[key];
   if (fallback !== undefined) {
     return interpolate(fallback, params);
   }

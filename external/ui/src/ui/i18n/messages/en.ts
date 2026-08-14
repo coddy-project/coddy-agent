@@ -18,6 +18,21 @@ export const messagesEn: Record<string, string> = {
   "appearance.theme.nord": "Nord",
   "appearance.theme.rosePine": "Rosé Pine",
 
+  "common.cancel": "Cancel",
+  "common.confirm": "Confirm",
+  "common.confirmAction": "Confirm action",
+  "common.delete": "Delete",
+
+  "confirm.session.deleteDraft.title": "Delete draft?",
+  "confirm.session.deleteDraft.message":
+    "This draft conversation will be removed.",
+  "confirm.session.deleteChat.title": "Delete chat?",
+  "confirm.session.deleteChat.message":
+    "This conversation will be permanently deleted.",
+  "confirm.scheduler.deleteJob.title": 'Delete scheduler job "{id}"?',
+  "confirm.scheduler.deleteJob.message":
+    "This scheduled job will be permanently deleted.",
+
   "settings.title": "Settings",
   "settings.aria.panel": "Settings",
   "settings.aria.close": "Close settings",
