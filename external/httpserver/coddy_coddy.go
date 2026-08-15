@@ -975,6 +975,7 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["mode"] = string(st.GetMode())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))

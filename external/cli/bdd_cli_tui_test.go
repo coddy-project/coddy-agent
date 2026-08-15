@@ -804,6 +804,7 @@ func (s *cliTUIState) operatorRunsOneShot(prompt string) error {
 			Prompt: prompt,
 			Out:    s.printOut,
 			ErrOut: &syncBuffer{},
+			Config: s.cfg,
 		})
 	}()
 	time.Sleep(100 * time.Millisecond)

@@ -119,6 +119,29 @@ note on stderr. The question tool returns empty answers. `--model`, `--mode`,
 `--permission-mode`, `--session-id`, and `--continue` all combine with
 `--prompt`; `--resume` does not (it needs the interactive picker).
 
+## Remote mode (`--remote`)
+
+`--remote <target>` points the console (interactive and `-p` print runs) at a
+remote `coddy http` server instead of running the agent in-process. The
+target is a configured remote name (`httpserver.remotes`), a bare
+`host:port` (scheme defaults to http), or a full http(s) URL. The bearer
+token comes from `--remote-token` or `CODDY_REMOTE_TOKEN`; tokens are
+deliberately never read from config.yaml. The same pair of flags works on
+`coddy acp`, so an ACP editor can drive a remote coddy too.
+
+Remotely, turns execute on the server in its workspace: the transcript, tool
+boxes, thinking, plan updates, token and context stats stream back over SSE;
+permission and question modals answer through the server's REST endpoints;
+`ctrl+o` fetches full tool output from the server. The model selector lists
+the remote catalog (`GET /v1/models`), `/mode` picks the agent or plan
+profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
+server's session list (the local folder filter does not apply). The
+permission mode is governed by the remote server's configuration:
+`--permission-mode` and the `/permissions` option are rejected with a clear
+error. Reasoning-level cycling is unavailable remotely in v1. Sessions
+persist only on the server; the startup banner shows `remote: <url>` and the
+exit hint prints a reconnect command with `--remote` included.
+
 ## Security
 
 All text from outside the renderer — model output, tool previews, titles,

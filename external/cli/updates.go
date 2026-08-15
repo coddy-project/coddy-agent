@@ -107,12 +107,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		a.modeID = u.CurrentModeID
 		a.foot.SetSession("", a.modeID)
 	case acp.ConfigOptionUpdate:
+		a.configOpts = u.ConfigOptions
 		for _, opt := range u.ConfigOptions {
 			if opt.ID == "model" {
 				a.modelID = opt.CurrentValue
 			}
 		}
 		a.refreshFooterModel()
+	case toolFullLoaded:
+		delete(a.toolFullPending, u.id)
+		if u.ok {
+			a.toolFullCache[u.id] = u.text
+			if tb, ok := a.toolBoxes[u.id]; ok && a.expanded {
+				tb.SetExpanded(true)
+			}
+		}
 	case acp.AvailableCommandsUpdate:
 		a.refreshServerCommands(u.AvailableCommands)
 	case acp.MemoryPhaseUpdate:

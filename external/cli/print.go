@@ -29,16 +29,21 @@ type PrintOptions struct {
 	Model    string
 	Mode     string
 	PermMode string
+	// Config supplies paths and the permission fallback (local and remote).
+	Config *config.Config
 }
 
 // printSender streams assistant text to a writer and resolves permissions
 // non-interactively: bypass allows, anything else rejects with a note.
 type printSender struct {
-	mgr    *session.Manager
+	mgr    backend
 	cfg    *config.Config
 	out    io.Writer
 	errOut io.Writer
 	wrote  bool
+	// remote suppresses the local bypass fallback: a permission event from a
+	// remote server means its policy wants an explicit answer.
+	remote bool
 }
 
 func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
@@ -65,7 +70,7 @@ func (p *printSender) RequestPermission(_ context.Context, params acp.Permission
 	if st := p.mgr.SessionByID(params.SessionID); st != nil {
 		mode = st.GetPermissionMode()
 	}
-	if mode == "" && p.cfg != nil {
+	if mode == "" && p.cfg != nil && !p.remote {
 		mode = p.cfg.Tools.ResolvedPermMode()
 	}
 	if mode == config.PermModeBypass {
@@ -87,16 +92,19 @@ func (p *printSender) RequestQuestion(_ context.Context, _ acp.QuestionRequestPa
 // PrintPrompt runs one prompt turn without a TUI and streams the assistant
 // text to opts.Out. The session persists like any other surface, so a later
 // `coddy -c` (interactive or print) continues it.
-func PrintPrompt(ctx context.Context, mgr *session.Manager, opts PrintOptions) error {
+func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	if strings.TrimSpace(opts.Prompt) == "" {
 		return fmt.Errorf("empty prompt")
 	}
-	cfg := mgr.Cfg()
-	cwd := cfg.Paths.CWD
+	cfg := opts.Config
+	cwd := ""
+	if cfg != nil {
+		cwd = cfg.Paths.CWD
+	}
 
 	switch {
 	case opts.ContinueLast:
-		id, err := latestSessionID(mgr.FileStore(), cwd)
+		id, err := latestBackendSessionID(ctx, mgr, cwd)
 		if err != nil {
 			return err
 		}

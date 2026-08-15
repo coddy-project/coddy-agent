@@ -119,7 +119,7 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		m := SessionMeta{
 			Version:   sessionFileLayout,
 			ID:        sessionID,
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
 			return "", wErr
@@ -419,7 +419,7 @@ func (f *FileStore) Save(state *State) error {
 		bytes.Equal(oldMsgBytes, newMsgBytes) &&
 		newActivitySeq == prevMeta.ActivitySeq
 
-	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
 		updatedAt = prevMeta.UpdatedAt
 	}

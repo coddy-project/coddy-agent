@@ -16,6 +16,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
@@ -179,6 +180,8 @@ func runACP(args []string) error {
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
+	remoteFlag := fs.String("remote", "", "serve ACP against a remote coddy http server (configured remote name, host:port, or http(s) URL)")
+	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
@@ -232,6 +235,33 @@ func runACP(args []string) error {
 		return fmt.Errorf("log: %w", err)
 	}
 	defer func() { _ = logCloser.Close() }()
+
+	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
+	if err != nil {
+		return err
+	}
+	if ropts != nil {
+		// Remote client mode: no local store, scheduler, or agent loop; every
+		// session call proxies to the remote coddy http server.
+		ropts.Log = log
+		if ropts.Insecure && ropts.Token != "" {
+			log.Warn("sending the bearer token over plain http", "remote", ropts.BaseURL, "hint", "prefer https or a trusted network")
+		}
+		h, err := remote.NewHandler(*ropts)
+		if err != nil {
+			return err
+		}
+		if pid := strings.TrimSpace(*persistedSession); pid != "" {
+			if err := session.ValidateFolderSessionID(pid); err != nil {
+				return fmt.Errorf("--session-id: %w", err)
+			}
+			h.SetPreferredSessionID(pid)
+		}
+		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
+		srv := acp.NewServer(h, log)
+		h.SetServer(srv)
+		return srv.Run(context.Background(), os.Stdin)
+	}
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)

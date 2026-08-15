@@ -138,7 +138,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -761,7 +761,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent` or `plan`) so remote clients restore it on load. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
