@@ -111,6 +111,101 @@ func TestNewProviderNeuralDeepIsSupported(t *testing.T) {
 	}
 }
 
+// streamStubProvider builds an unwrapped openai provider against a server
+// that replays the given SSE body for every request.
+func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse)
+	}))
+	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
+}
+
+// TestOpenAIStreamSkipsUndecodableFrame verifies that one malformed SSE data
+// frame between valid chunks does not abort the stream (lenient parsing).
+func TestOpenAIStreamSkipsUndecodableFrame(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"+
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\n\n"+ // truncated JSON
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"+
+			"data: [DONE]\n\n")
+	defer done()
+
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if resp.Content != "Hello" {
+		t.Errorf("content = %q, want %q", resp.Content, "Hello")
+	}
+}
+
+// TestOpenAIStreamAllFramesUndecodable verifies that a stream yielding no
+// decodable chunk fails with the offending frame preserved in the error.
+func TestOpenAIStreamAllFramesUndecodable(t *testing.T) {
+	p, done := streamStubProvider(t, "data: {\"choices\":[{\"index\n\n"+"data: [DONE]\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail when no frame decodes")
+	}
+	if !strings.Contains(err.Error(), `{"choices":[{"index`) {
+		t.Errorf("error %q must include the undecodable frame payload", err)
+	}
+}
+
+// TestOpenAIStreamStandardErrorObject verifies that a data frame carrying an
+// {"error": ...} object (llama.cpp b9038+, gateways) surfaces the message.
+func TestOpenAIStreamStandardErrorObject(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n"+
+			"data: {\"error\":{\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}}\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "slot unavailable") {
+		t.Fatalf("error = %v, want message containing %q", err, "slot unavailable")
+	}
+}
+
+// TestOpenAIStreamCancelKeepsPartial pins the cancellation contract: a stream
+// cancelled after emitting content returns the partial response together with
+// a context.Canceled-wrapped error.
+func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel from inside onChunk so the first delta is observed deterministically
+	// before the context is torn down.
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		if c.TextDelta != "" {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if resp == nil || resp.Content != "partial" {
+		t.Fatalf("resp = %+v, want partial content preserved", resp)
+	}
+}
+
 // TestOpenAITextOnlyMessageIsString verifies that a user Message without
 // ImageParts still results in a plain string content field.
 func TestOpenAITextOnlyMessageIsString(t *testing.T) {

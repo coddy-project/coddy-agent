@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/tidwall/gjson"
 )
 
 // openAIProvider implements Provider using the OpenAI API (or compatible).
@@ -50,133 +48,6 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 		return nil, fmt.Errorf("openai complete: %w", err)
 	}
 	return p.parseCompletion(resp)
-}
-
-func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	params := p.buildParams(messages, tools)
-	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
-	defer func() { _ = stream.Close() }()
-
-	var fullContent string
-	var toolCalls []ToolCall
-	var stopReason string
-	var inputTokens, outputTokens int
-
-	// Accumulate tool call deltas by index.
-	type tcBuilder struct {
-		id   string
-		name string
-		args string
-	}
-	builders := make(map[int]*tcBuilder)
-
-	finalizeOpenAIToolBuilders := func() []ToolCall {
-		var out []ToolCall
-		for i := 0; i < len(builders); i++ {
-			b, ok := builders[i]
-			if !ok {
-				continue
-			}
-			out = append(out, ToolCall{ID: b.id, Name: b.name, InputJSON: b.args})
-		}
-		return out
-	}
-
-	for stream.Next() {
-		chunk := stream.Current()
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		choice := chunk.Choices[0]
-
-		if choice.FinishReason != "" {
-			stopReason = mapOpenAIStopReason(string(choice.FinishReason))
-		}
-
-		delta := choice.Delta
-
-		if delta.Content != "" {
-			fullContent += delta.Content
-			onChunk(StreamChunk{TextDelta: delta.Content})
-		}
-
-		raw := delta.RawJSON()
-		if raw != "" {
-			r := gjson.Get(raw, "reasoning_content").String()
-			if r == "" {
-				r = gjson.Get(raw, "thinking").String()
-			}
-			if r != "" {
-				onChunk(StreamChunk{ReasoningDelta: r})
-			}
-		}
-
-		for _, tc := range delta.ToolCalls {
-			idx := int(tc.Index)
-			if _, ok := builders[idx]; !ok {
-				builders[idx] = &tcBuilder{}
-			}
-			b := builders[idx]
-			if tc.ID != "" {
-				b.id = tc.ID
-			}
-			if tc.Function.Name != "" {
-				b.name = tc.Function.Name
-			}
-			b.args += tc.Function.Arguments
-		}
-
-		if chunk.Usage.TotalTokens > 0 {
-			inputTokens = int(chunk.Usage.PromptTokens)
-			outputTokens = int(chunk.Usage.CompletionTokens)
-		}
-	}
-
-	if err := stream.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
-			toolCalls = finalizeOpenAIToolBuilders()
-			if strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0 {
-				sr := stopReason
-				if sr == "" {
-					if len(toolCalls) > 0 {
-						sr = "tool_use"
-					} else {
-						sr = "end_turn"
-					}
-				}
-				return &Response{
-					Content:      fullContent,
-					ToolCalls:    toolCalls,
-					StopReason:   sr,
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
-				}, fmt.Errorf("openai stream: %w", err)
-			}
-		}
-		return nil, fmt.Errorf("openai stream: %w", err)
-	}
-
-	toolCalls = finalizeOpenAIToolBuilders()
-	for i := range toolCalls {
-		tc := toolCalls[i]
-		onChunk(StreamChunk{ToolCall: &tc})
-	}
-
-	if stopReason == "" {
-		if len(toolCalls) > 0 {
-			stopReason = "tool_use"
-		} else {
-			stopReason = "end_turn"
-		}
-	}
-
-	return &Response{
-		Content:      fullContent,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-	}, nil
 }
 
 func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition) openai.ChatCompletionNewParams {
