@@ -162,6 +162,8 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2, 0},
 		{"streamed 500 after emitted deltas is not retried",
 			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
+		{"streamed 500 after deltas with status-like message text is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -263,7 +265,12 @@ func TestSSEScannerFrameAssembly(t *testing.T) {
 // TestStreamErrorSnippetRuneBoundary verifies the diagnostic snippet never
 // splits a multibyte rune at the truncation point.
 func TestStreamErrorSnippetRuneBoundary(t *testing.T) {
-	payload := strings.Repeat("я", streamErrorSnippetLimit) // 2 bytes per rune
+	// One ASCII byte shifts the 2-byte runes so the truncation index lands on
+	// a continuation byte and the boundary back-off is actually exercised.
+	payload := "a" + strings.Repeat("я", streamErrorSnippetLimit)
+	if utf8.RuneStart(payload[streamErrorSnippetLimit]) {
+		t.Fatal("test setup: truncation index must fall inside a rune")
+	}
 	got := streamErrorSnippet([]byte(payload))
 	if !strings.HasSuffix(got, "...") {
 		t.Fatalf("snippet must be truncated with ellipsis")
