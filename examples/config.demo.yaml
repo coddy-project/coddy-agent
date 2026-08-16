@@ -3,6 +3,11 @@ providers:
     type: openai
     api_base: "https://api.rpa.icu"
     api_key: "https://t.me/evilfreelancer"
+  # api_key intentionally empty: resolves from NEURALDEEP_API_KEY
+  # (conventional <NAME>_API_KEY env var; the cli e2e runner seeds it).
+  - name: neuraldeep
+    type: openai
+    api_base: "https://api.neuraldeep.ru/v1"
 
 models:
   - model: "rpa/gpt-oss:120b"
@@ -13,6 +18,10 @@ models:
     max_tokens: 8192
     temperature: 0.2
     max_context_tokens: 8192
+  - model: "neuraldeep/qwen3.8-27b"
+    max_tokens: 32000
+    temperature: 0.6
+    max_context_tokens: 262144
 
 agent:
   model: "rpa/gpt-oss:120b"

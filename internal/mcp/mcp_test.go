@@ -958,3 +958,67 @@ func TestHelperTrustMarker(t *testing.T) {
 		_ = os.WriteFile(path, []byte("started\n"), 0o600)
 	}
 }
+
+// A config.yaml mutation from the MCP management surface must serialize with
+// the staged config transactions (config_commit / config_rollback / HTTP PUT):
+// they all write the same file, and an unserialized writer could overwrite a
+// transaction mid-flight.
+func TestGlobalServerMutationSerializesWithConfigTransactions(t *testing.T) {
+	cfg, cfgPath, home := writeTestConfig(t)
+	cwd := t.TempDir()
+	paths := config.Paths{Home: home, CWD: home, ConfigPath: cfgPath}
+
+	cmds, err := config.ParseUCICommands([]string{"set agent.max_turns=2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inReload := make(chan struct{})
+	release := make(chan struct{})
+	commitDone := make(chan error, 1)
+	go func() {
+		_, _, err := config.CommitUCICommandsAndReload(paths, cmds, func() ([]string, error) {
+			close(inReload)
+			<-release
+			return nil, nil
+		})
+		commitDone <- err
+	}()
+	// The staged transaction wrote the file and is parked mid-reload, still
+	// holding the config file lock.
+	<-inReload
+
+	mutDone := make(chan error, 1)
+	go func() {
+		mutDone <- SetServerDisabled(cfg, cwd, "cfg-srv", true)
+	}()
+	select {
+	case <-mutDone:
+		t.Fatal("MCP config mutation entered while a config transaction held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-commitDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-mutDone; err != nil {
+		t.Fatal(err)
+	}
+
+	// Serialization alone is not enough: the MCP mutation waited behind the
+	// staged commit, so it must have applied on top of the committed file, not
+	// persisted its stale pre-commit snapshot over it. Both changes survive.
+	final, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Agent.MaxTurns != 2 {
+		t.Fatalf("MCP mutation erased the staged commit: max_turns = %d, want 2", final.Agent.MaxTurns)
+	}
+	if len(final.MCPServers) != 1 || !final.MCPServers[0].Disabled {
+		t.Fatalf("MCP mutation lost: servers = %+v, want cfg-srv disabled", final.MCPServers)
+	}
+	if !cfg.MCPServers[0].Disabled {
+		t.Fatal("mutation was not mirrored back into the caller's config object")
+	}
+}

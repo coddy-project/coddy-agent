@@ -18,33 +18,70 @@ import (
 )
 
 // Sender implements acp.UpdateSender for HTTP (streaming SSE or silent non-stream).
+//
+// Emitting frames and being able to answer a prompt are separate capabilities, so they
+// are separate fields. A sender may publish the whole SSE frame sequence to a relay while
+// no interactive client owns the request: watchers see the turn, but permission and
+// question requests still resolve the way they do for a silent non-stream call, because
+// the caller that started the turn is not reading anything and can never answer.
 type Sender struct {
 	cfg *config.Config
 
-	mu         sync.Mutex
-	stream     bool
-	w          io.Writer
-	flusher    http.Flusher
-	chatID     string
-	created    int64
-	model      string
-	sessionDir string
+	mu sync.Mutex
+	// emit is true when frames are written to w at all.
+	emit bool
+	// interactive is true when a client is reading the response and can answer a
+	// permission or question request.
+	interactive bool
+	w           io.Writer
+	flusher     http.Flusher
+	chatID      string
+	created     int64
+	model       string
+	sessionDir  string
 }
 
-// NewSender creates a bridge. Pass w=nil when stream is false.
-func NewSender(cfg *config.Config, w http.ResponseWriter, stream bool, model string) *Sender {
+// NewSender creates a bridge for an HTTP response. Pass w=nil when stream is false.
+//
+// w is an io.Writer rather than an http.ResponseWriter so a relay can be a sink too; a
+// writer that also implements http.Flusher is flushed after every frame.
+func NewSender(cfg *config.Config, w io.Writer, stream bool, model string) *Sender {
 	s := &Sender{
-		cfg:     cfg,
-		stream:  stream,
-		w:       w,
-		chatID:  newChatID(),
-		created: time.Now().Unix(),
-		model:   model,
+		cfg:         cfg,
+		emit:        stream,
+		interactive: stream,
+		w:           w,
+		chatID:      newChatID(),
+		created:     time.Now().Unix(),
+		model:       model,
 	}
 	if w != nil {
 		if f, ok := w.(http.Flusher); ok {
 			s.flusher = f
 		}
+	}
+	return s
+}
+
+// NewRelaySender creates a bridge that emits the full SSE frame sequence to relay while
+// the HTTP request itself answers with a plain JSON body.
+//
+// It is deliberately NOT interactive: RequestPermission auto-rejects and RequestQuestion
+// errors, exactly as they do for the silent non-stream sender it replaces. A headless
+// caller - a script POSTing stream:false - can therefore never be left blocked waiting
+// for an answer from a browser that may not be open.
+func NewRelaySender(cfg *config.Config, relay io.Writer, model string) *Sender {
+	s := &Sender{
+		cfg:         cfg,
+		emit:        true,
+		interactive: false,
+		w:           relay,
+		chatID:      newChatID(),
+		created:     time.Now().Unix(),
+		model:       model,
+	}
+	if f, ok := relay.(http.Flusher); ok {
+		s.flusher = f
 	}
 	return s
 }
@@ -64,7 +101,7 @@ func wireBridgeSession(bridge *Sender, st *session.State) {
 
 // SendSessionUpdate forwards agent chunks to SSE when streaming.
 func (s *Sender) SendSessionUpdate(_ string, update interface{}) error {
-	if !s.stream || s.w == nil {
+	if !s.emit || s.w == nil {
 		return nil
 	}
 	switch u := update.(type) {
@@ -154,7 +191,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
-	if !s.stream || s.w == nil {
+	if !s.interactive || s.w == nil {
 		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 	}
 	sid := strings.TrimSpace(params.SessionID)
@@ -201,7 +238,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 
 // RequestQuestion emits a composer SSE question event and waits for POST /coddy/sessions/{id}/question.
 func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequestParams) (*acp.QuestionResult, error) {
-	if !s.stream || s.w == nil {
+	if !s.interactive || s.w == nil {
 		return nil, fmt.Errorf("question tool requires streaming responses")
 	}
 	sid := strings.TrimSpace(params.SessionID)
@@ -227,7 +264,7 @@ func (s *Sender) RequestQuestion(ctx context.Context, params acp.QuestionRequest
 
 // WriteCoddyMetaSSE emits a named event with Coddy response metadata (effective model). No-op when not streaming.
 func (s *Sender) WriteCoddyMetaSSE(metadata map[string]string) error {
-	if !s.stream || s.w == nil || len(metadata) == 0 {
+	if !s.emit || s.w == nil || len(metadata) == 0 {
 		return nil
 	}
 	payload := map[string]interface{}{"metadata": metadata}
@@ -236,7 +273,7 @@ func (s *Sender) WriteCoddyMetaSSE(metadata map[string]string) error {
 
 // FinishStream writes coddy_meta (when metadata non-nil), then [DONE] for SSE.
 func (s *Sender) FinishStreamWithMetadata(meta map[string]string) error {
-	if s.stream && s.w != nil && len(meta) > 0 {
+	if s.emit && s.w != nil && len(meta) > 0 {
 		_ = s.WriteCoddyMetaSSE(meta)
 	}
 	return s.FinishStream()
@@ -244,12 +281,27 @@ func (s *Sender) FinishStreamWithMetadata(meta map[string]string) error {
 
 // FinishStream writes [DONE] for SSE.
 func (s *Sender) FinishStream() error {
-	if !s.stream || s.w == nil {
+	if !s.emit || s.w == nil {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := io.WriteString(s.w, "data: [DONE]\n\n")
+	if s.flusher != nil {
+		s.flusher.Flush()
+	}
+	return err
+}
+
+// SendError writes an OpenAI-shaped error frame through the same writer as every other
+// frame, so a teed relay sees the failure instead of just watching the stream close.
+func (s *Sender) SendError(msg string) error {
+	if !s.emit || s.w == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := fmt.Fprintf(s.w, "data: {\"error\":{\"message\":%q}}\n\n", msg)
 	if s.flusher != nil {
 		s.flusher.Flush()
 	}

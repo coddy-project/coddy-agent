@@ -260,6 +260,14 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		if p.maxTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(p.maxTokens))
 		}
+		// Qwen3-family thinking is a chat-template switch (vLLM/SGLang convention for
+		// open-weight Qwen), not an effort tier: pin it on so the selected effort is
+		// honored even when the serving template defaults thinking off.
+		if isQwenChatTemplateModel(p.model) {
+			params.SetExtraFields(map[string]any{
+				"chat_template_kwargs": map[string]any{"enable_thinking": true},
+			})
+		}
 	} else {
 		if p.maxTokens > 0 {
 			params.MaxTokens = openai.Int(int64(p.maxTokens))
@@ -295,6 +303,13 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 	}
 
 	return params
+}
+
+// isQwenChatTemplateModel matches Qwen3-family models whose thinking mode is
+// controlled by the chat template (chat_template_kwargs.enable_thinking) rather
+// than reasoning_effort alone. Qwen2.5 has no thinking mode.
+func isQwenChatTemplateModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "qwen3")
 }
 
 func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response, error) {

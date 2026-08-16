@@ -1,5 +1,11 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type {
+  CoddyPermissionPayload,
+  PermissionResolvedState,
+} from "./permissionTypes";
+import type {
+  CoddyQuestionPayload,
+  QuestionResolvedState,
+} from "./questionTypes";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -43,7 +49,13 @@ export type TranscriptItem =
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
       /** Inline file attachments sent with this message. */
-      files?: { name: string; mimeType: string; sizeBytes?: number }[];
+      files?: {
+        name: string;
+        mimeType: string;
+        sizeBytes?: number;
+        /** Blob URL while optimistic; session asset URL after backend persistence. */
+        previewUrl?: string;
+      }[];
     }
   | {
       id: string;

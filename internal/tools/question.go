@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -68,7 +69,41 @@ func QuestionTool() *tooling.Tool {
 }
 
 type questionArgs struct {
-	Questions []acp.QuestionPrompt `json:"questions"`
+	Questions json.RawMessage `json:"questions"`
+}
+
+// decodeQuestionPrompts tolerates the encodings models actually produce for
+// the questions argument: the canonical JSON array, a single question object,
+// and either of those double-encoded inside a JSON string.
+func decodeQuestionPrompts(raw json.RawMessage, depth int) ([]acp.QuestionPrompt, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	switch trimmed[0] {
+	case '[':
+		var qs []acp.QuestionPrompt
+		if err := json.Unmarshal(trimmed, &qs); err != nil {
+			return nil, fmt.Errorf("parse args: %w", err)
+		}
+		return qs, nil
+	case '{':
+		var q acp.QuestionPrompt
+		if err := json.Unmarshal(trimmed, &q); err != nil {
+			return nil, fmt.Errorf("parse args: %w", err)
+		}
+		return []acp.QuestionPrompt{q}, nil
+	case '"':
+		if depth >= 1 {
+			return nil, fmt.Errorf("parse args: questions is a string nested inside a string")
+		}
+		var inner string
+		if err := json.Unmarshal(trimmed, &inner); err != nil {
+			return nil, fmt.Errorf("parse args: %w", err)
+		}
+		return decodeQuestionPrompts(json.RawMessage(inner), depth+1)
+	}
+	return nil, fmt.Errorf("parse args: questions must be an array of question objects")
 }
 
 func executeQuestion(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
@@ -76,11 +111,15 @@ func executeQuestion(ctx context.Context, argsJSON string, env *tooling.Env) (st
 	if err != nil {
 		return "", err
 	}
-	if len(args.Questions) == 0 {
+	questions, err := decodeQuestionPrompts(args.Questions, 0)
+	if err != nil {
+		return "", err
+	}
+	if len(questions) == 0 {
 		return "", fmt.Errorf("questions must be non-empty")
 	}
-	for i := range args.Questions {
-		q := &args.Questions[i]
+	for i := range questions {
+		q := &questions[i]
 		if strings.TrimSpace(q.Question) == "" {
 			return "", fmt.Errorf("question %d: question text is required", i)
 		}
@@ -105,7 +144,7 @@ func executeQuestion(ctx context.Context, argsJSON string, env *tooling.Env) (st
 		SessionID:  env.SessionID,
 		RequestID:  rid,
 		ToolCallID: toolCallID,
-		Questions:  args.Questions,
+		Questions:  questions,
 	})
 	if err != nil {
 		return "", err

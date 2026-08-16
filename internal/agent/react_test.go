@@ -33,6 +33,21 @@ func (resumePermissionSender) RequestQuestion(context.Context, acp.QuestionReque
 	return &acp.QuestionResult{}, nil
 }
 
+type recordingPermissionSender struct {
+	requests []acp.PermissionRequestParams
+}
+
+func (s *recordingPermissionSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *recordingPermissionSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.requests = append(s.requests, p)
+	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+}
+
+func (s *recordingPermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
 type resumePermissionProvider struct {
 	t    *testing.T
 	seen []llm.Message
@@ -56,6 +71,32 @@ func (p *resumePermissionProvider) Stream(_ context.Context, messages []llm.Mess
 // "thinking" bubble, leaving the user with no visible answer.
 type emptyThenAnswerProvider struct {
 	calls int
+}
+
+type configReloadProvider struct {
+	calls int
+	tools [][]llm.ToolDefinition
+}
+
+func (p *configReloadProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *configReloadProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	p.tools = append(p.tools, append([]llm.ToolDefinition(nil), defs...))
+	switch p.calls {
+	case 1:
+		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"commands":["set skills.auto_discovery=false"]}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	case 2:
+		call := llm.ToolCall{ID: "cfg-2", Name: "config_commit", InputJSON: `{}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	}
+	onChunk(llm.StreamChunk{TextDelta: "Configuration reloaded."})
+	return &llm.Response{Content: "Configuration reloaded.", StopReason: "end_turn"}, nil
 }
 
 func (p *emptyThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
@@ -211,6 +252,106 @@ func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != llm.RoleAssistant || last.Content != "Here is the real answer." {
 		t.Fatalf("conversation dead-ended on a thinking-only turn: last message = %+v", last)
+	}
+}
+
+func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+	cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+	cfg.Agent.Model = "fake/model"
+	st := &session.State{ID: "sess_config_reload", CWD: dir, Mode: session.ModeAgent}
+	provider := &configReloadProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
+	}
+	contains := func(defs []llm.ToolDefinition, name string) bool {
+		for _, def := range defs {
+			if def.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains(provider.tools[0], "load_skill") {
+		t.Fatal("load_skill should be present before config_set")
+	}
+	if !contains(provider.tools[1], "load_skill") {
+		t.Fatal("staging alone must not reload the runtime")
+	}
+	if contains(provider.tools[2], "load_skill") {
+		t.Fatal("load_skill should be removed after same-turn config_commit reload")
+	}
+}
+
+// Committing the agent's own config can start MCP processes and change the
+// permission policy itself, so accept_edits must still prompt for
+// config_commit (unlike project file writes), the prompt must show the staged
+// commands, and only the explicit bypass mode may skip the dialog.
+func TestConfigCommitPermissionPerMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode        string
+		wantPrompts int
+	}{
+		{mode: config.PermModeAcceptEdits, wantPrompts: 1},
+		{mode: config.PermModeBypass, wantPrompts: 0},
+	} {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config.yaml")
+		if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+		cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+		cfg.Agent.Model = "fake/model"
+		cfg.Tools.PermissionMode = tc.mode
+		st := &session.State{ID: "sess_cfg_perm_" + tc.mode, CWD: dir, Mode: session.ModeAgent}
+		sender := &recordingPermissionSender{}
+		provider := &configReloadProvider{}
+		ag := NewAgent(cfg, st, sender, nil)
+		ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+		ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+		if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+			t.Fatalf("mode %s: %v", tc.mode, err)
+		}
+		var commitPrompts []acp.PermissionRequestParams
+		for _, req := range sender.requests {
+			if strings.Contains(req.ToolCall.Title, "config_commit") {
+				commitPrompts = append(commitPrompts, req)
+			}
+		}
+		if len(commitPrompts) != tc.wantPrompts {
+			t.Fatalf("mode %s: config_commit permission prompts = %d, want %d", tc.mode, len(commitPrompts), tc.wantPrompts)
+		}
+		if tc.wantPrompts > 0 {
+			body := ""
+			for _, item := range commitPrompts[0].ToolCall.Content {
+				body += item.Content.Text
+			}
+			if !strings.Contains(body, "set skills.auto_discovery=false") {
+				t.Fatalf("mode %s: permission prompt does not show the staged commands: %q", tc.mode, body)
+			}
+		}
 	}
 }
 

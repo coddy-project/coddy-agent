@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dedupeAdjacentDuplicateThinkingCompleted,
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
+  preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./transcriptServerSnapshot";
 import type { TranscriptItem } from "./types";
 
@@ -148,6 +150,103 @@ describe("keepLocalTranscriptIfServerEmpty", () => {
       prevItems: [u("1", "other session")],
     });
     expect(r).toBeNull();
+  });
+});
+
+describe("preserveUserMessageFiles", () => {
+  it("prefers persisted server thumbnails over optimistic blob URLs", () => {
+    const server: TranscriptItem[] = [
+      {
+        ...u("server", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
+        }],
+      },
+    ];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)).toEqual(server);
+  });
+
+  it("keeps optimistic files while the server snapshot has no file metadata", () => {
+    const server = [u("server", "hello")];
+    const local: TranscriptItem[] = [
+      {
+        ...u("local", "hello"),
+        files: [{
+          name: "photo.png",
+          mimeType: "image/png",
+          previewUrl: "blob:optimistic-photo",
+        }],
+      },
+    ];
+    expect(preserveUserMessageFiles(server, local)[0]).toMatchObject({
+      files: local[0]!.type === "user_message" ? local[0]!.files : undefined,
+    });
+  });
+
+  it("revokes an optimistic blob after the persisted thumbnail arrives", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const server: TranscriptItem[] = [
+        {
+          ...u("server", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "/coddy/sessions/sess_a/assets/photo.png/thumbnail",
+          }],
+        },
+      ];
+      const local: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(server, local);
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:optimistic-photo");
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
+  it("does not revoke a blob that is still only an optimistic local tail", () => {
+    const revokeObjectURL = vi.fn();
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    try {
+      const optimistic: TranscriptItem[] = [
+        {
+          ...u("local", "hello"),
+          files: [{
+            name: "photo.png",
+            mimeType: "image/png",
+            previewUrl: "blob:optimistic-photo",
+          }],
+        },
+      ];
+      revokeSupersededUserMessagePreviews(optimistic, optimistic);
+      expect(revokeObjectURL).not.toHaveBeenCalled();
+    } finally {
+      URL.revokeObjectURL = original;
+    }
   });
 });
 

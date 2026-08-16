@@ -93,7 +93,7 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 }
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
-	return &tools.Env{
+	env := &tools.Env{
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
@@ -122,10 +122,36 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 			a.state.AppendPlanDocument(doc)
 		},
 		LoadSkillBody:     a.loadSkillBody,
+		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
+	if a.configReloader != nil {
+		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			env.PermissionMode = effectivePermMode(a.state, next)
+			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
+			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
+			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
+			env.Background = a.backgroundPool(sessionDir)
+			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
+			return warnings, nil
+		}
+	}
+	return env
 }
 
 // backgroundPool returns the process-wide task pool, telling it where this
@@ -159,11 +185,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	toolSet := ToolSetForMode(mode)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
-		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 	provider, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)

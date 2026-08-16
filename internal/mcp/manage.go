@@ -6,8 +6,10 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -218,25 +220,75 @@ func SetProjectTrust(cfg *config.Config, policy string) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	cfg.MCP = next
-	return persistConfigYAML(cfg)
+	// Same read-modify-write discipline as mutateGlobalServer: apply the trust
+	// change to a fresh on-disk config under the lock, then mirror it back.
+	return config.WithConfigFileLock(func() error {
+		fresh, err := freshGlobalConfig(cfg)
+		if err != nil {
+			return err
+		}
+		fresh.MCP = next
+		if err := persistConfigYAML(fresh); err != nil {
+			return err
+		}
+		cfg.MCP = next
+		return nil
+	})
 }
 
-// mutateGlobalServer edits one config.yaml server in memory and persists the
-// whole config atomically (same flow as the skills source editor).
+// mutateGlobalServer edits one config.yaml server and persists the whole
+// config atomically (same flow as the skills source editor). The whole
+// read-modify-write runs under the process-wide config file lock: the mutation
+// applies to a FRESH on-disk config, not to the caller's potentially stale
+// runtime object, so it cannot erase changes another writer (a staged
+// config_commit, the HTTP PUT handler) landed while this call waited for the
+// lock. The result is mirrored back into the caller's object afterwards.
 func mutateGlobalServer(cfg *config.Config, name string, mutate func(*config.MCPServerConfig)) error {
-	found := false
-	for i := range cfg.MCPServers {
-		if cfg.MCPServers[i].Name == name {
-			mutate(&cfg.MCPServers[i])
-			found = true
-			break
+	return config.WithConfigFileLock(func() error {
+		fresh, err := freshGlobalConfig(cfg)
+		if err != nil {
+			return err
 		}
+		idx := -1
+		for i := range fresh.MCPServers {
+			if fresh.MCPServers[i].Name == name {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fmt.Errorf("mcp server %q not found in config.yaml", name)
+		}
+		mutate(&fresh.MCPServers[idx])
+		if err := persistConfigYAML(fresh); err != nil {
+			return err
+		}
+		for i := range cfg.MCPServers {
+			if cfg.MCPServers[i].Name == name {
+				cfg.MCPServers[i] = fresh.MCPServers[idx]
+				break
+			}
+		}
+		return nil
+	})
+}
+
+// freshGlobalConfig re-reads the active YAML so a mutation applies to the
+// latest on-disk state. Callers hold the config file lock. A missing file
+// falls back to the caller's config (it will be created by the persist).
+func freshGlobalConfig(cfg *config.Config) (*config.Config, error) {
+	if strings.TrimSpace(cfg.Paths.ConfigPath) == "" {
+		return cfg, nil
 	}
-	if !found {
-		return fmt.Errorf("mcp server %q not found in config.yaml", name)
+	reloaded, err := config.LoadWithPaths(cfg.Paths)
+	switch {
+	case err == nil && reloaded != nil:
+		return reloaded, nil
+	case errors.Is(err, os.ErrNotExist):
+		return cfg, nil
+	default:
+		return nil, fmt.Errorf("reload config before mcp change: %w", err)
 	}
-	return persistConfigYAML(cfg)
 }
 
 // persistConfigYAML backs up and atomically rewrites config.yaml from cfg.

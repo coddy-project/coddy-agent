@@ -116,6 +116,60 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 	}
 }
 
+func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	initialSkills := filepath.Join(dir, "initial-skills")
+	if err := os.MkdirAll(initialSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 8\nskills:\n  dirs:\n    - "+initialSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &captureSender{}
+	mgr := session.NewManager(cfg, sender, noopRunner, slog.Default(), dir, nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+
+	nextSkills := filepath.Join(dir, "next-skills")
+	skillDir := filepath.Join(nextSkills, "hot-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: hot-skill\ndescription: Loaded after config reload.\n---\n\n# Hot\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 22\nskills:\n  dirs:\n    - "+nextSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	if mgr.Cfg().Agent.MaxTurns != 22 {
+		t.Fatalf("manager config was not replaced: %d", mgr.Cfg().Agent.MaxTurns)
+	}
+	found := false
+	for _, skill := range st.GetSkills() {
+		if skill.Name == "hot-skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("reloaded skill missing: %+v", st.GetSkills())
+	}
+}
+
 func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
@@ -447,19 +501,46 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+func TestHandleSessionPromptWithSenderDetachFromRequestSurvivesParentCancel(t *testing.T) {
+	res, perr, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{
+		SkipTurnLock:      true,
+		DetachFromRequest: true,
+	})
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if ctxErr != nil {
+		t.Fatalf("a detached turn must not see its parent's cancellation: %v", ctxErr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
+// Holding the turn lock outside the manager says nothing about who owns the turn's
+// lifetime. A caller that only sets SkipTurnLock - a non-streaming composer POST, which
+// can be stopped only by hanging up - keeps request-scoped cancellation.
+func TestHandleSessionPromptWithSenderStaysRequestScopedWithoutDetach(t *testing.T) {
+	_, _, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{SkipTurnLock: true})
+	if ctxErr == nil {
+		t.Fatal("turn context outlived the cancelled parent without DetachFromRequest")
+	}
+}
+
+// runPromptWithCancelledParent runs one turn whose parent context is cancelled while the
+// runner blocks, and reports what the runner saw of its own context.
+func runPromptWithCancelledParent(t *testing.T, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error, error) {
+	t.Helper()
 	runBlock := make(chan struct{})
 	cont := make(chan struct{})
+	var ctxErr error
 	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		close(runBlock)
 		<-cont
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		ctxErr = ctx.Err()
 		return string(acp.StopReasonEndTurn), nil
 	}
-	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
 	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
@@ -474,17 +555,54 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sn.SessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
-		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+		}, noopSender{}, opts)
 	}()
 	<-runBlock
 	cancel()
 	close(cont)
 	wg.Wait()
-	if perr != nil {
-		t.Fatalf("prompt: %v", perr)
+	return res, perr, ctxErr
+}
+
+// A turn running in this process must be reportable even where the flock probe cannot
+// answer (TurnLockHeld is a no-op stub off unix, and a session with no persisted bundle
+// has no lock file at all), so that a second client can tell there is something to watch.
+func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
+	runBlock := make(chan struct{})
+	cont := make(chan struct{})
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(runBlock)
+		<-cont
+		return string(acp.StopReasonEndTurn), nil
 	}
-	if res == nil || res.StopReason != acp.StopReasonEndTurn {
-		t.Fatalf("unexpected %+v err=%v", res, perr)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
+	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session reported active before any turn started")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+		})
+	}()
+
+	<-runBlock
+	if !m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session not reported active while its turn runs")
+	}
+	close(cont)
+	wg.Wait()
+
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session still reported active after the turn finished")
 	}
 }
 
@@ -519,15 +637,15 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	}
 	// Skills plus the built-in commands: compact (while compaction is enabled)
 	// and plugin (always).
-	if len(slash.AvailableCommands) != 4 {
+	if len(slash.AvailableCommands) != 5 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, compact, and plugin, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 

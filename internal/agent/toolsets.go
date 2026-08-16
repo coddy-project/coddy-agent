@@ -28,6 +28,10 @@ var planToolNames = []string{
 	"background_wait",
 	"background_stop",
 	"question",
+	"config_get",
+	// Read-only view of staged config commands; staging and committing stay
+	// agent-mode-only.
+	"config_changes",
 	"plan_write",
 	"plan_list",
 	"plan_read",

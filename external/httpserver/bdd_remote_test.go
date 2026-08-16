@@ -49,18 +49,20 @@ func errStatus(msg string, status int, body string) error {
 }
 
 type remoteFeatureState struct {
-	root      string
-	sessRoot  string
-	ts        *httptest.Server
-	mgr       *session.Manager
-	srv       *Server
-	token     string // token the server requires ("" = local/no-auth)
-	bearer    string // token the client presents ("" = none)
-	folders   map[string]string
-	sessionID string
-	status    int
-	rawBody   string
-	body      map[string]interface{}
+	root        string
+	sessRoot    string
+	ts          *httptest.Server
+	mgr         *session.Manager
+	srv         *Server
+	token       string // token the server requires ("" = local/no-auth)
+	bearer      string // token the client presents ("" = none)
+	folders     map[string]string
+	sessionID   string
+	status      int
+	rawBody     string
+	body        map[string]interface{}
+	contentType string
+	previewURL  string
 }
 
 func (s *remoteFeatureState) reset() error {
@@ -78,6 +80,8 @@ func (s *remoteFeatureState) reset() error {
 	s.status = 0
 	s.rawBody = ""
 	s.body = nil
+	s.contentType = ""
+	s.previewURL = ""
 	return nil
 }
 
@@ -114,14 +118,19 @@ func (s *remoteFeatureState) start(token string) error {
 		return string(acp.StopReasonEndTurn), nil
 	}
 	cfg := &config.Config{
-		Paths:      config.Paths{Home: home, CWD: s.root},
-		Models:     []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Paths: config.Paths{Home: home, CWD: s.root},
+		Models: []config.ModelEntry{{
+			Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2, Multimodal: true,
+		}},
 		Agent:      config.Agent{Model: "openai/gpt-4o"},
 		HTTPServer: config.HTTPServerConfig{AuthToken: token},
 	}
 	store := &session.FileStore{Root: s.sessRoot}
 	s.mgr = session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, store)
 	s.srv = New(cfg, s.mgr, slog.Default(), s.root)
+	s.srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) {
+		return remoteStubProvider{}, nil
+	}
 	s.ts = httptest.NewServer(s.srv.Handler())
 	return nil
 }
@@ -170,6 +179,7 @@ func (s *remoteFeatureState) do(req *http.Request) error {
 	s.status = res.StatusCode
 	raw, _ := io.ReadAll(res.Body)
 	s.rawBody = string(raw)
+	s.contentType = res.Header.Get("Content-Type")
 	s.body = nil
 	var parsed map[string]interface{}
 	if json.Unmarshal(raw, &parsed) == nil {
@@ -218,6 +228,73 @@ func (s *remoteFeatureState) sendPrompt(text string) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return s.do(req)
+}
+
+type remoteStubProvider struct{}
+
+func (remoteStubProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{Content: "stub", StopReason: "end_turn"}, nil
+}
+
+func (remoteStubProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	onChunk(llm.StreamChunk{TextDelta: "stub"})
+	return &llm.Response{Content: "stub", StopReason: "end_turn"}, nil
+}
+
+func (s *remoteFeatureState) sendPNGImage() error {
+	const onePixelPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	payload := map[string]interface{}{
+		"model":  "openai/gpt-4o",
+		"input":  "restore this image",
+		"stream": false,
+		"inline_files": []map[string]string{{
+			"name":     "pixel.png",
+			"data_url": "data:image/png;base64," + onePixelPNG,
+		}},
+	}
+	buf, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/v1/responses", bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.do(req)
+}
+
+func (s *remoteFeatureState) transcriptExposesPersistedThumbnail() error {
+	if err := s.requestMessages(); err != nil {
+		return err
+	}
+	if err := s.succeeds(); err != nil {
+		return err
+	}
+	messages, _ := s.body["messages"].([]interface{})
+	for _, rawMessage := range messages {
+		message, _ := rawMessage.(map[string]interface{})
+		files, _ := message["files"].([]interface{})
+		for _, rawFile := range files {
+			file, _ := rawFile.(map[string]interface{})
+			if preview, _ := file["preview_url"].(string); preview != "" {
+				s.previewURL = preview
+				return nil
+			}
+		}
+	}
+	return errStatus("transcript missing persisted thumbnail", s.status, s.rawBody)
+}
+
+func (s *remoteFeatureState) requestPersistedThumbnail() error {
+	if s.previewURL == "" {
+		return fmt.Errorf("persisted thumbnail URL is empty")
+	}
+	return s.get(s.previewURL)
+}
+
+func (s *remoteFeatureState) responseIsPNG() error {
+	if s.contentType != "image/png" || !strings.HasPrefix(s.rawBody, "\x89PNG\r\n\x1a\n") {
+		return errStatus("response is not a PNG thumbnail", s.status, s.rawBody)
+	}
+	return nil
 }
 
 // ---- assertions ----
@@ -359,6 +436,8 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I request the model list$`, s.requestModels)
 	sc.Step(`^I switch the session workspace to folder "([^"]+)"$`, s.switchWorkspace)
 	sc.Step(`^I send the prompt "([^"]+)" to the session$`, s.sendPrompt)
+	sc.Step(`^I send a PNG image to the direct model$`, s.sendPNGImage)
+	sc.Step(`^I request the persisted thumbnail$`, s.requestPersistedThumbnail)
 	sc.Step(`^I list sessions$`, s.listSessions)
 	sc.Step(`^I request the server config$`, s.requestConfig)
 
@@ -369,6 +448,8 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.cwdPersistedAs)
 	sc.Step(`^the streamed response terminates cleanly$`, s.streamedResponseTerminates)
 	sc.Step(`^the session transcript includes the prompt "([^"]+)"$`, s.transcriptIncludesPrompt)
+	sc.Step(`^the session transcript exposes a persisted thumbnail$`, s.transcriptExposesPersistedThumbnail)
+	sc.Step(`^the response is a PNG image$`, s.responseIsPNG)
 	sc.Step(`^the session list includes the session$`, s.sessionListIncludesSession)
 	sc.Step(`^the config response hides the auth token$`, s.configHidesToken)
 	sc.Step(`^the config response reports authentication is configured$`, s.configReportsAuthConfigured)

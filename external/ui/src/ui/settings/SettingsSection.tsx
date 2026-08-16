@@ -8,6 +8,7 @@ import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
+import { useT } from "../i18n/I18nProvider";
 
 const NEURALDEEP_API_BASE = "https://api.neuraldeep.ru/v1";
 
@@ -37,7 +38,8 @@ function stringList(v: unknown, key: string): string[] {
 
 function NeuralDeepAPIBaseField(props: { ctx: FieldOverrideContext }) {
   const { schema } = props.ctx;
-  const label = schema.title || "API base URL";
+  const { t } = useT();
+  const label = schema.title || t("settings.field.apiBaseFallback");
 
   // NeuralDeep speaks an OpenAI-compatible API at a fixed endpoint; the base URL
   // is not user-configurable. Show it read-only (greyed) but do NOT persist it
@@ -109,6 +111,7 @@ export function SettingsSection(props: {
   isMobileShell?: boolean;
 }) {
   const { section, schema, doc, setDoc } = props;
+  const { t } = useT();
   const props_ = schema.properties ?? {};
 
   const providerNames = stringList(doc.providers, "name");
@@ -124,7 +127,11 @@ export function SettingsSection(props: {
   if (section.kind === "skills") {
     const sub = props_.skills;
     if (!sub) {
-      return <p className="settings-muted">Skills schema unavailable.</p>;
+      return (
+        <p className="settings-muted">
+          {t("settings.error.skillsSchemaUnavailable")}
+        </p>
+      );
     }
     return (
       <SkillsSection
@@ -147,7 +154,11 @@ export function SettingsSection(props: {
   if (section.kind === "array") {
     const sub = props_[key];
     if (!sub) {
-      return <p className="settings-muted">Section schema unavailable.</p>;
+      return (
+        <p className="settings-muted">
+          {t("settings.error.sectionSchemaUnavailable")}
+        </p>
+      );
     }
     const override: FieldOverride | undefined =
       key === "models"
@@ -161,7 +172,7 @@ export function SettingsSection(props: {
                 }
                 onChange={(v) => ctx.onChange(v)}
                 providers={providerNames}
-                label={ctx.schema.title || "Model id"}
+                label={ctx.schema.title || t("settings.field.modelIdFallback")}
               />
             ) : null
         : key === "providers"
@@ -213,7 +224,11 @@ export function SettingsSection(props: {
   // object section (agent, tools, memory, …)
   const sub = props_[key];
   if (!sub) {
-    return <p className="settings-muted">Section schema unavailable.</p>;
+    return (
+      <p className="settings-muted">
+        {t("settings.error.sectionSchemaUnavailable")}
+      </p>
+    );
   }
   const override: FieldOverride | undefined =
     key === "agent" || key === "memory"
@@ -227,7 +242,9 @@ export function SettingsSection(props: {
               }
               onChange={(v) => ctx.onChange(v)}
               models={modelIds}
-              label={ctx.schema.title || "Default model"}
+              label={
+                ctx.schema.title || t("settings.field.defaultModelFallback")
+              }
               description={ctx.schema.description}
             />
           ) : null

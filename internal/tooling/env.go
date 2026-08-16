@@ -1,6 +1,7 @@
 package tooling
 
 import (
+	"context"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -74,6 +75,22 @@ type Env struct {
 	// name, plus the list of available command names, backing the model-driven
 	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
 	LoadSkillBody func(name string) (body string, available []string, found bool)
+
+	// ConfigPath is the active Coddy YAML file exposed to the config_* tool family.
+	ConfigPath string
+
+	// ConfigHome and ConfigCWD preserve the path-expansion context used to load ConfigPath.
+	ConfigHome string
+	ConfigCWD  string
+
+	// ReloadConfig applies ConfigPath to the live process and current session.
+	// config_commit and config_rollback refuse to write when this hook is unavailable.
+	ReloadConfig func(ctx context.Context) (warnings []string, err error)
+
+	// ConfigReloaded is set after a successful config_commit or config_rollback
+	// so the ReAct loop can refresh definitions before the next model call in
+	// the same user turn.
+	ConfigReloaded bool
 
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key

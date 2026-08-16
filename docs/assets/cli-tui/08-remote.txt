@@ -1,0 +1,35 @@
+ Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code.
+
+[Context]
+  AGENTS.md
+ remote: http://nas02:19980
+
+
+ Reply with one short sentence naming the host you run on (run: hostname).
+
+
+ The user is asking me to run hostname and reply in a short single sentence indicating the host I'm
+ running on.
+
+
+
+
+ $ hostname
+
+ nas02
+
+
+
+ The hostname is nas02. Please respond with a short single sentence.
+
+
+
+
+ I run on host nas02.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/coddy-cli-remote-shot-work-ncc1fitv
+↑7.7k ↓49 1.6%/262.1k (auto)                                                (neuraldeep) qwen3.8-27b
+

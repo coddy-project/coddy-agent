@@ -79,9 +79,29 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	}
 	defer unlock()
 
-	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
+	// This turn does not go through HandleSessionPromptWithSender, so it registers itself:
+	// otherwise it is invisible to turnActive and publishes no turn events, and a watching
+	// client sees the session go idle the moment it answered the prompt.
+	clearActive := s.mgr.MarkTurnActive(sessionID)
+	defer clearActive()
+
+	// A resumed turn is one somebody is watching by definition - they just answered its
+	// permission prompt - so it publishes like any other composer turn. The sender stays
+	// non-interactive: this turn has no HTTP response of its own for a client to read.
+	rel := s.beginComposerRelay(sessionID)
+	defer s.endComposerRelay(sessionID, rel)
+	bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
+	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
+		if err == nil {
+			s.ReplaceConfig(s.mgr.Cfg())
+			s.invalidateSlashCache()
+		}
+		return warnings, err
+	})
 	ag.SetProviderFactory(s.agentProviderFactory)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)

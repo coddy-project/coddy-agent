@@ -9,16 +9,19 @@ Short map for automation-friendly contributors.
 | `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `mcp`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
+| `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
+| `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
 | `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
+| `external/cli` | Interactive console TUI (**`-tags cli`**): bare **`coddy`** on a terminal, pi-style rendering in **`external/cli/tui`**. Guide: **`docs/cli.md`**. |
 | `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
 
 ## Builds
 
-Run **`make build TAGS=http`** for the HTTP gateway only (**`coddy http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
+Run **`make build TAGS=http`** for the HTTP gateway only (**`coddy http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `coddy`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping Coddy-hosted experiences.
 
@@ -99,6 +102,8 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 The composer exposes **`Mode`** (**`agent`** / **`plan`**) and a separate **`Model`** YAML backend selector (**`metadata.model`**; list rows with **`owned_by`** other than **`coddy`** from **`GET /v1/models`**). Default YAML id comes from **`default_agent_model`**; persisted preference uses cookie **`coddy_llm_model`**. Parallel **`POST /v1/responses`** per session, **Stop** (**cancel** + partial assistant persistence), and transcript merge after **`GET .../messages`** are specified in **`DESIGN.md`** (**Multi-session streaming and Stop**) and **`docs/ui.md`**.
 
 **`MarkdownLineEditor`** (`external/ui/src/ui/markdown/`) is the shared markdown body editor (line gutter, wrap-aware numbering, active-line highlight, content-driven height). Used in the plan document card and scheduler job body. Visual and behaviour contract: **`DESIGN.md`** (**Markdown line editor**, **Plan mode plan document card**); functional checklist: **`docs/ui.md`**.
+
+**UI localization** lives in **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry that connects each supported locale to its picker label and dictionary; English and Russian ship today. Add a locale by adding its dictionary and one registry entry — picker options, locale validation, bootstrap, and parity coverage derive from that registry. When user-facing copy is added or changed on a localized surface, add the key to **every registered dictionary in the same change**; **`messagesParity.test.ts`** enforces key and interpolation-token parity. **`main.tsx`** bootstraps locale (**`?lang=` > cookie > `navigator.language`**) and wraps **`<App/>`** plus the shared confirmation provider in **`<I18nProvider>`**. The language picker is in **Settings → Appearance**, under the theme grid (**`AppearanceLanguagePicker`**); cookie **`coddy_ui_lang`** mirrors **`coddy_ui_theme`** (client-side only, no config save). Appearance, Settings, and shared destructive confirmation dialogs are translated; remaining conversation surfaces translate incrementally. Visual contract: **`DESIGN.md`** (**Localization and language**); functional checklist: **`docs/ui.md`**.
 
 ## Python samples (`examples/`)
 
