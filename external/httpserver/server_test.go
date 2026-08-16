@@ -1813,6 +1813,13 @@ agent:
 	if sch["type"] != "object" {
 		t.Fatalf("schema root type %v", sch["type"])
 	}
+	providers := sch["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	properties := items["properties"].(map[string]interface{})
+	providerName := properties["name"].(map[string]interface{})
+	if got, want := providerName["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
+		t.Fatalf("provider name pattern: got %v want %v", got, want)
+	}
 
 	jbody := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],"agent":{"model":"openai/gpt-4o","max_turns":12}}`
 	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/config/validate", strings.NewReader(jbody))

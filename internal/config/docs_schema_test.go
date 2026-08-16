@@ -127,6 +127,21 @@ func TestDocsConfigSchemaMatchesStructs(t *testing.T) {
 	checkSchemaNodeMatchesType(t, "$", reflect.TypeOf(Config{}), doc)
 }
 
+// TestDocsConfigSchemaProviderNamePatternUsesHTMLVCompatibleHyphen ensures the
+// published schema can be used directly as an HTML pattern attribute. Modern
+// browsers compile such patterns with the RegExp v flag, which requires a
+// literal hyphen in a character class to be escaped.
+func TestDocsConfigSchemaProviderNamePatternUsesHTMLVCompatibleHyphen(t *testing.T) {
+	doc := loadDocsSchema(t)
+	providers := doc["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	properties := items["properties"].(map[string]interface{})
+	name := properties["name"].(map[string]interface{})
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
+		t.Fatalf("provider name pattern: got %v want %v", got, want)
+	}
+}
+
 // TestDocsConfigSchemaEnums pins schema enums to the constants the loader validates against.
 func TestDocsConfigSchemaEnums(t *testing.T) {
 	doc := loadDocsSchema(t)
