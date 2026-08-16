@@ -9,11 +9,13 @@ function cssText(): string {
   return readFileSync(join(dir, "../../styles.css"), "utf8");
 }
 
-test("prompt enhancement control is anchored in the textarea's top-right corner", () => {
+test("prompt enhancement control is compact in the composer context row", () => {
   const css = cssText();
   const block = css.match(/\.composer-enhance-btn\s*\{([^}]+)\}/s);
   expect(block).not.toBeNull();
-  expect(block![1]).toMatch(/position:\s*absolute/);
-  expect(block![1]).toMatch(/top:\s*\d+px/);
-  expect(block![1]).toMatch(/right:\s*\d+px/);
+  expect(block![1]).toMatch(/flex:\s*0 0 24px/);
+  expect(block![1]).toMatch(/margin-left:\s*auto/);
+  expect(block![1]).toMatch(/width:\s*24px/);
+  expect(block![1]).toMatch(/height:\s*24px/);
+  expect(block![1]).not.toMatch(/position:\s*absolute/);
 });

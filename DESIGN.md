@@ -377,7 +377,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
 ### Prompt improvement control
 
-The prompt improvement control (**`data-testid="composer-enhance-btn"`**) is an icon button inside the composer field — anchored to the **top-right corner** of **`textarea#composer`**, never in the lower action bar. Its native tooltip and accessible name are both **`Improve prompt`**. It is disabled for a blank draft and while improving or generating; an active request spins the icon. Clicking it calls **`POST /coddy/enhance-prompt`**, replaces the draft only after a successful response, and leaves the original intact on failure. **Ctrl+Z** / **⌘Z** restores the immediately preceding draft after a successful improvement.
+The prompt improvement control (**`data-testid="composer-enhance-btn"`**) is a compact **24×24px** icon button in the composer workspace-context row. It shares that row with the environment, folder, branch, and worktree controls, but is aligned to the **right edge** of the composer card; it never appears in the textarea or lower action bar. Its native tooltip and accessible name are both **`Improve prompt`**. It is disabled for a blank draft and while improving or generating; an active request spins the icon. Clicking it calls **`POST /coddy/enhance-prompt`**, replaces the draft only after a successful response, and leaves the original intact on failure. **Ctrl+Z** / **⌘Z** restores the immediately preceding draft after a successful improvement.
 
 Composer mode selector
 

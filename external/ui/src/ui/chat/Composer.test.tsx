@@ -617,7 +617,7 @@ function stubMatchMediaMobile(isMobile: boolean) {
   }));
 }
 
-test("enhance button is inside the textarea field with an explanatory title", () => {
+test("enhance button shares the composer context row with workspace controls", () => {
   stubMatchMediaMobile(false);
   render(
     <Composer
@@ -633,7 +633,8 @@ test("enhance button is inside the textarea field with an explanatory title", ()
 
   const button = screen.getByTestId("composer-enhance-btn");
   expect(button).toHaveAttribute("title", "Improve prompt");
-  expect(button.closest(".composer-field-wrap")).not.toBeNull();
+  expect(button.closest(".composer-context-row")).not.toBeNull();
+  expect(button.closest(".composer-field-wrap")).toBeNull();
   expect(button.closest(".composer-bar")).toBeNull();
   vi.unstubAllGlobals();
 });

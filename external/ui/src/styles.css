@@ -3265,7 +3265,7 @@ textarea#composer {
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 16px 52px 10px 16px;
+  padding: 16px 16px 10px;
   outline: none;
 }
 
@@ -3286,7 +3286,7 @@ textarea#composer {
 .composer-mirror-inner {
   box-sizing: border-box;
   width: 100%;
-  padding: 16px 52px 10px 16px;
+  padding: 16px 16px 10px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -3322,20 +3322,18 @@ textarea#composer {
 }
 
 .composer-enhance-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
+  flex: 0 0 24px;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
   background: var(--coddy-surface-muted);
   border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
-  border-radius: 9px;
+  border-radius: 7px;
   cursor: pointer;
 }
 
