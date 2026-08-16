@@ -74,10 +74,13 @@ function PreviewBody({ preview }: { preview: Preview }) {
 export function PermissionToolPreview({
   preview,
   interactive = true,
+  overflowControls = false,
 }: {
   preview: Preview;
-  /** Transcript foldouts render the full preview and omit nested controls. */
+  /** Permission prompts include copy and overflow controls. */
   interactive?: boolean;
+  /** Selected transcript previews keep overflow controls without adding copy. */
+  overflowControls?: boolean;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -85,6 +88,7 @@ export function PermissionToolPreview({
   const hasBody =
     preview.kind !== "path" &&
     !(preview.kind === "diff" && preview.lines.length === 0);
+  const canToggleOverflow = interactive || overflowControls;
   const previewIdentity = [
     preview.toolName,
     preview.header,
@@ -92,30 +96,44 @@ export function PermissionToolPreview({
   ].join("\0");
 
   const measure = useCallback(() => {
-    if (!interactive || expanded) return;
+    if (!canToggleOverflow || expanded) return;
     const node = viewportRef.current;
     if (!node) {
       setOverflows(false);
       return;
     }
     setOverflows(node.scrollHeight > node.clientHeight + 1);
-  }, [expanded, interactive]);
+  }, [canToggleOverflow, expanded]);
 
   useLayoutEffect(() => {
-    if (interactive) setExpanded(false);
-  }, [interactive, previewIdentity]);
+    if (canToggleOverflow) setExpanded(false);
+  }, [canToggleOverflow, previewIdentity]);
 
   useLayoutEffect(() => {
-    if (!interactive || !hasBody || expanded) return;
+    if (!canToggleOverflow || !hasBody || expanded) return;
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
     const node = viewportRef.current;
-    if (node) observer.observe(node);
-    return () => observer.disconnect();
-  }, [expanded, hasBody, interactive, measure, previewIdentity]);
+    // Transcript foldouts keep the body display:none until the <details> opens;
+    // the mount-time measure then sees zero heights. Re-measure on the toggle
+    // event itself, because not every engine reports the un-hide as a resize.
+    const details = node ? node.closest("details") : null;
+    if (details) details.addEventListener("toggle", measure);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      if (node) observer.observe(node);
+    }
+    return () => {
+      if (details) details.removeEventListener("toggle", measure);
+      observer?.disconnect();
+    };
+  }, [canToggleOverflow, expanded, hasBody, measure, previewIdentity]);
 
-  const viewportMode = !interactive ? "static" : expanded ? "scroll" : "clip";
+  const viewportMode = !canToggleOverflow
+    ? "static"
+    : expanded
+      ? "scroll"
+      : "clip";
 
   return (
     <div className="permission-preview">
@@ -155,16 +173,24 @@ export function PermissionToolPreview({
             data-testid="permission-preview-viewport"
           >
             <PreviewBody preview={preview} />
-            {interactive && overflows && !expanded ? (
+            {canToggleOverflow && overflows && !expanded ? (
               <span className="permission-preview-fade" aria-hidden />
             ) : null}
           </div>
-          {interactive && overflows ? (
+          {canToggleOverflow && overflows ? (
             <button
               type="button"
               className="tool-overflow-toggle"
               aria-expanded={expanded}
-              onClick={() => setExpanded((value) => !value)}
+              data-testid={expanded ? "tool-preview-less" : "tool-preview-more"}
+              onClick={(e) => {
+                e.preventDefault();
+                // Collapsing keeps the scrolled position, so reset it before clipping.
+                if (expanded && viewportRef.current) {
+                  viewportRef.current.scrollTop = 0;
+                }
+                setExpanded((value) => !value);
+              }}
             >
               {expanded ? "Less" : "More…"}
             </button>

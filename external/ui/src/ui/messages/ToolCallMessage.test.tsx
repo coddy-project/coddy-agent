@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,6 +15,55 @@ afterEach(() => cleanup());
 
 function openToolDetails() {
   fireEvent.click(screen.getByLabelText("Tool summary"));
+}
+
+function mockPreviewOverflow() {
+  const scrollHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const clientHeight = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientHeight",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return (this as HTMLElement).dataset.testid ===
+        "permission-preview-viewport"
+        ? 520
+        : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return (this as HTMLElement).dataset.testid ===
+        "permission-preview-viewport"
+        ? 120
+        : 0;
+    },
+  });
+  return () => {
+    if (scrollHeight) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "scrollHeight",
+        scrollHeight,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    }
+    if (clientHeight) {
+      Object.defineProperty(
+        HTMLElement.prototype,
+        "clientHeight",
+        clientHeight,
+      );
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+    }
+  };
 }
 
 test("truncated tool shows the shared More button, fetches once, then Less restores preview", async () => {
@@ -107,6 +157,214 @@ test("no load-more row when preview is not truncated", () => {
   expect(screen.getByLabelText("Tool result").className).not.toContain(
     "tool-result-viewport--tall",
   );
+});
+
+test("large write preview scrolls inside the tool card until Less is clicked", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `export const value${i + 1} = ${i + 1};`,
+    ).join("\n");
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-write-large"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/generated.ts", content })}
+        resultText="Wrote src/generated.ts"
+        durationMs={12}
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(screen.getByText("More…")).toHaveClass("tool-overflow-toggle");
+    expect(container.querySelector(".permission-preview .md-copy")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    viewport.scrollTop = 80;
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(viewport.scrollTop).toBe(0);
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("restored large write fetches full arguments before showing More", async () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const fetchSpy = vi.fn();
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `restored line ${i + 1} with enough content for the viewport`,
+    ).join("\n");
+
+    function Harness() {
+      const [argsText, setArgsText] = useState(
+        '{"path":"restored.txt","content":"restored line 1...',
+      );
+      const onFetch = useCallback(async (id: string) => {
+        fetchSpy(id);
+        await Promise.resolve();
+        setArgsText(JSON.stringify({ path: "restored.txt", content }));
+      }, []);
+      return (
+        <ToolCallMessage
+          toolCallId="tc-write-restored"
+          title="write"
+          kind="write"
+          status="completed"
+          argsText={argsText}
+          resultText="Wrote restored.txt"
+          onFetchToolCallFull={onFetch}
+        />
+      );
+    }
+
+    render(<Harness />);
+    openToolDetails();
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith("tc-write-restored"),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "More…" })).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/restored line 48/)).toBeInTheDocument();
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("large apply_patch preview uses the same internal overflow controls", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const body = Array.from(
+      { length: 40 },
+      (_, i) => `+new line ${i + 1}`,
+    ).join("\n");
+    const patch = [
+      "--- a/src/large.ts",
+      "+++ b/src/large.ts",
+      "@@ -0,0 +1,40 @@",
+      body,
+    ].join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-patch-large"
+        title="apply_patch"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ filePath: "src/large.ts", patch })}
+        resultText="Patch applied successfully"
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    expect(screen.getByRole("button", { name: "Less" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("large edit preview is capped like write and apply_patch", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const oldString = Array.from(
+      { length: 60 },
+      (_, i) => `const before${i + 1} = ${i + 1};`,
+    ).join("\n");
+    const newString = Array.from(
+      { length: 60 },
+      (_, i) => `const after${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-edit-large"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({
+          path: "src/edited.ts",
+          oldString,
+          newString,
+        })}
+        resultText="Edited src/edited.ts"
+      />,
+    );
+    openToolDetails();
+
+    const viewport = screen.getByTestId("permission-preview-viewport");
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    fireEvent.click(screen.getByRole("button", { name: "More…" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--scroll");
+    viewport.scrollTop = 64;
+    fireEvent.click(screen.getByRole("button", { name: "Less" }));
+    expect(viewport).toHaveClass("permission-preview-viewport--clip");
+    expect(viewport.scrollTop).toBe(0);
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("restored edit recovers the diff from truncated list arguments", async () => {
+  const fetchSpy = vi.fn();
+  const oldString = Array.from(
+    { length: 30 },
+    (_, i) => `const before${i + 1} = ${i + 1};`,
+  ).join("\n");
+  const newString = Array.from(
+    { length: 30 },
+    (_, i) => `const after${i + 1} = ${i + 1};`,
+  ).join("\n");
+
+  function Harness() {
+    const [argsText, setArgsText] = useState(
+      '{"path":"src/edited.ts","oldString":"const before1 = 1;\\nconst befo',
+    );
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(
+        JSON.stringify({ path: "src/edited.ts", oldString, newString }),
+      );
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-edit-restored"
+        title="edit"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Edited src/edited.ts"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+
+  render(<Harness />);
+  openToolDetails();
+
+  // Truncated args parse to nothing, so the card starts with an empty "+0 −0" preview.
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-edit-restored"),
+  );
+  await waitFor(() =>
+    expect(screen.getByTitle("src/edited.ts")).toBeInTheDocument(),
+  );
+  expect(screen.getByText(/const after30/)).toBeInTheDocument();
 });
 
 test("truncated tool does not show toggle without fetch handler", () => {
@@ -541,4 +799,185 @@ test("an ordinary tool row carries no background chip", () => {
     />,
   );
   expect(screen.queryByTestId(/^tool-bgtask-chip-/)).toBeNull();
+});
+
+test("restored in_progress write still fetches full arguments", async () => {
+  const fetchSpy = vi.fn(async () => {});
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-inflight"
+      title="write"
+      kind="write"
+      status="in_progress"
+      argsText={'{"path":"restored.txt","content":"start of a long'}
+      onFetchToolCallFull={fetchSpy}
+    />,
+  );
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-write-inflight"),
+  );
+});
+
+test("arguments re-truncated by a reconcile trigger a second fetch", async () => {
+  const full = JSON.stringify({
+    path: "reconciled.txt",
+    content: "line\n".repeat(60),
+  });
+  const truncated = full.slice(0, 200) + "...";
+  const fetchSpy = vi.fn();
+  let setArgsExternal: (v: string) => void = () => {};
+  function Harness() {
+    const [argsText, setArgsText] = useState(truncated);
+    setArgsExternal = setArgsText;
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(full);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-write-reconcile"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Wrote reconciled.txt"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  // A later loadMessages reconcile overwrites the recovered args with the
+  // truncated list preview again; the card must fetch once more, not go blank.
+  act(() => setArgsExternal(truncated));
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+});
+
+test("overflow toggle appears after a collapsed foldout is opened", async () => {
+  let revealed = false;
+  const sh = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const ch = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientHeight",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 520
+        : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 120
+        : 0;
+    },
+  });
+  try {
+    const content = Array.from({ length: 48 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-write-foldout"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/foldout.ts", content })}
+        resultText="Wrote src/foldout.ts"
+      />,
+    );
+    // Collapsed foldout: the hidden viewport measures 0, so no toggle is offered.
+    expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+    revealed = true;
+    openToolDetails();
+    // The <details> toggle event is what real browsers deliver when the body
+    // stops being display:none; ResizeObserver is unavailable here like in
+    // engines that miss the un-hide resize.
+    const details = container.querySelector("details");
+    fireEvent(details!, new Event("toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument(),
+    );
+  } finally {
+    if (sh) {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", sh);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    }
+    if (ch) {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", ch);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+    }
+  }
+});
+
+test("preview and result toggles expose distinct test ids", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `export const value${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-write-testids"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/ids.ts", content })}
+        resultText={"line\n".repeat(20)}
+        resultWasTruncated={true}
+        onFetchToolCallFull={vi.fn(async () => {})}
+      />,
+    );
+    openToolDetails();
+    expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("tool-preview-more"));
+    expect(screen.getByTestId("tool-preview-less")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("write_file cards render the shared write preview", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-file"
+      title="write_file"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "src/wf.ts", content: "hello" })}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(screen.getByTitle("src/wf.ts")).toBeInTheDocument();
+  expect(screen.getByText("hello")).toBeInTheDocument();
+});
+
+test("short write previews never offer overflow controls without real overflow", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-short"
+      title="write"
+      status="completed"
+      argsText={'{"path":"n.txt","content":"short"}'}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+  expect(screen.queryByText("More…")).toBeNull();
 });

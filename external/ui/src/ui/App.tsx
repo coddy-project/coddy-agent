@@ -66,6 +66,7 @@ import {
   type ToolsPermissionPolicy,
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
+import { pickRicherToolArgs } from "./chat/toolCallArgs";
 import {
   clearQuestionPromptRecords,
   mergeStoredQuestionPromptsIntoTranscript,
@@ -2292,7 +2293,7 @@ export function App() {
           const pickedArgs =
             titleLower === "question"
               ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : row.argsPreview;
+              : pickRicherToolArgs(cur.argsText, row.argsPreview);
           if (pickedArgs) merged.argsText = pickedArgs;
         }
         if (row.resultPreview) merged.resultText = row.resultPreview;

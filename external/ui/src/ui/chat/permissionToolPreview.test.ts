@@ -64,6 +64,17 @@ test("builds compact previews for every filesystem mutation tool", () => {
     text: "hello",
   });
   expect(
+    buildToolCallPreview({
+      title: "write_file",
+      argsText: JSON.stringify({ filePath: "src/b.ts", content: "world" }),
+    }),
+  ).toMatchObject({
+    title: "Write this file?",
+    header: "src/b.ts",
+    kind: "code",
+    text: "world",
+  });
+  expect(
     buildPermissionToolPreview(
       payload("mkdir", { path: "src/new", parents: true }),
     ),
