@@ -6,6 +6,8 @@ import {
   type FieldOverride,
   type JsonSchema,
 } from "./SchemaForm";
+import { useT } from "../i18n/I18nProvider";
+import { translate } from "../i18n/i18n";
 
 type View = { mode: "list" } | { mode: "edit"; index: number };
 
@@ -25,7 +27,7 @@ function rowLabel(
       return String(v);
     }
   }
-  return `(unnamed #${index + 1})`;
+  return translate("settings.array.unnamed", { n: index + 1 });
 }
 
 /**
@@ -46,18 +48,22 @@ export function SettingsArraySection(props: {
   backLabelUsesItemName?: boolean | undefined;
 }) {
   const { schema, value, onChange, labelField, fieldOverride } = props;
+  const { t } = useT();
   const [view, setView] = useState<View>({ mode: "list" });
   const itemSchema = schema.items;
   const arr = Array.isArray(value) ? value : [];
 
   if (!itemSchema) {
-    return <p className="settings-muted">This section has no item schema.</p>;
+    return <p className="settings-muted">{t("settings.error.noItemSchema")}</p>;
   }
 
   if (view.mode === "edit") {
     const index = view.index;
     const item =
-      index >= 0 && index < arr.length && arr[index] !== null && typeof arr[index] === "object"
+      index >= 0 &&
+      index < arr.length &&
+      arr[index] !== null &&
+      typeof arr[index] === "object"
         ? (arr[index] as Record<string, unknown>)
         : (defaultForSchema(itemSchema) as Record<string, unknown>);
     return (
@@ -67,7 +73,7 @@ export function SettingsArraySection(props: {
             type="button"
             className="settings-btn settings-btn-back"
             data-testid="settings-detail-back"
-            title="Back to list"
+            title={t("settings.array.backTitle")}
             onClick={() => setView({ mode: "list" })}
           >
             <span className="settings-btn-back-arrow" aria-hidden>
@@ -75,7 +81,7 @@ export function SettingsArraySection(props: {
             </span>
             {props.backLabelUsesItemName
               ? rowLabel(item, labelField, index)
-              : "Back to list"}
+              : t("settings.array.back")}
           </button>
         </div>
         <SchemaForm
@@ -98,7 +104,7 @@ export function SettingsArraySection(props: {
         <p className="settings-field-desc">{schema.description}</p>
       ) : null}
       {arr.length === 0 ? (
-        <p className="settings-muted">Nothing here yet. Use Add to create one.</p>
+        <p className="settings-muted">{t("settings.array.empty")}</p>
       ) : (
         <ul className="settings-master-list">
           {arr.map((row, i) => (
@@ -114,8 +120,10 @@ export function SettingsArraySection(props: {
               <button
                 type="button"
                 className="settings-btn settings-btn-icon settings-btn-danger"
-                aria-label={`Remove ${rowLabel(row, labelField, i)}`}
-                title="Remove"
+                aria-label={t("settings.array.removeRowAria", {
+                  name: rowLabel(row, labelField, i),
+                })}
+                title={t("settings.array.removeTitle")}
                 onClick={() => onChange(arr.filter((_, j) => j !== i))}
               >
                 <IconTrash />
@@ -135,7 +143,7 @@ export function SettingsArraySection(props: {
           setView({ mode: "edit", index: next.length - 1 });
         }}
       >
-        {props.addLabel ?? "Add"}
+        {props.addLabel ?? t("settings.array.add")}
       </button>
     </div>
   );

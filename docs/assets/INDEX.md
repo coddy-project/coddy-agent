@@ -45,6 +45,15 @@ with representative Coddy filesystem, search, shell, and patch tool payloads.
 - `screenshot-tool-previews-overflow-light.png` - collapsed `More…` and expanded `Less` states in the Light theme
 - `screenshot-tool-previews-overflow-dark.png` - collapsed `More…` and expanded `Less` states in the Dark theme
 
+## Persisted image attachments (August 2026)
+
+Captured from the embedded SPA against a disposable NeuralDeep-backed session.
+
+- `pr-98-disabled-attachment-1280-dark.png` - wide Dark composer after switching an attached image to a non-multimodal model
+- `pr-98-disabled-attachment-390-dark.png` - narrow Dark variant
+- `pr-98-disabled-attachment-390-light.png` - narrow Light variant
+- `pr-98-persisted-thumbnail-1280-dark.png` - sent image thumbnail restored from the session backend after a full reload
+
 ## Primary
 
 - `ref-home-1.png` - landing page with collapsed left rail and centered composer

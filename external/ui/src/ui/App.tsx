@@ -15,6 +15,8 @@ import {
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { getEnv } from "./env/remoteEnv";
 import {
   isAbortError,
@@ -22,6 +24,8 @@ import {
   remoteSendErrorMessage,
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
+import { subscribeServerEvents } from "./chat/serverEvents";
 import { parseSSEBlocks } from "./chat/sse";
 import {
   consumeComposerSseReader,
@@ -49,6 +53,7 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
 import {
@@ -91,10 +96,8 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
+import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -175,9 +178,7 @@ async function markCoddySessionActivityRead(id: string): Promise<void> {
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
 type SchedulerEditorState =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; jobId: string };
+  null | { mode: "create" } | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -618,6 +619,8 @@ function reasoningDurationCacheKey(text: string): string {
 }
 
 export function App() {
+  const { t } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -747,14 +750,20 @@ export function App() {
   const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** True while GET /coddy/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {} });
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -1577,15 +1586,12 @@ export function App() {
     if (!sessionId.trim()) {
       return;
     }
-    const id = window.setInterval(
-      () => {
-        void refreshBackgroundTasks({ silent: true });
-        if (tasksOpen && tasksSelectedId) {
-          void refreshBackgroundTaskOutput(tasksSelectedId);
-        }
-      },
-      tasksPollIntervalMs(backgroundRunning),
-    );
+    const id = window.setInterval(() => {
+      void refreshBackgroundTasks({ silent: true });
+      if (tasksOpen && tasksSelectedId) {
+        void refreshBackgroundTaskOutput(tasksSelectedId);
+      }
+    }, tasksPollIntervalMs(backgroundRunning));
     return () => window.clearInterval(id);
   }, [
     sessionId,
@@ -1932,14 +1938,60 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
+
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void (async () => {
+        const loaded = await loadMessages(key, { preserveOnError: true });
+        if (!loaded || activeComposerSidRef.current.has(key)) return;
+        await rejoinComposerLiveStream(key, loaded);
+      })();
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void loadMessages(key, { preserveOnError: true });
+      void refreshSessionStats(key);
+    },
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    void subscribeServerEvents({
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onConnectedChange: setServerEventsConnected,
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -2083,7 +2135,10 @@ export function App() {
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
@@ -2262,8 +2317,13 @@ export function App() {
         : viewingTrim === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -2433,13 +2493,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm("Delete draft");
+      const ok = await confirm({
+        title: t("confirm.session.deleteDraft.title"),
+        message: t("confirm.session.deleteDraft.message"),
+        confirmLabel: t("common.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2448,13 +2510,15 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm("Delete chat");
+    const ok = await confirm({
+      title: t("confirm.session.deleteChat.title"),
+      message: t("confirm.session.deleteChat.message"),
+      confirmLabel: t("common.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2789,9 +2853,16 @@ export function App() {
     };
 
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
       const res = await fetch(
         `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        { headers, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         return;
@@ -2801,6 +2872,9 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
+        lastEventId,
+        desynced,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2859,6 +2933,38 @@ export function App() {
           return false;
         }
       };
+
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
+
+      // The relay had nothing to attach to. That is a state, not a failure: the turn
+      // finished while we were reconnecting, or it ran somewhere this process cannot
+      // see. Drop the placeholder bubble and let the finally block reconcile from the
+      // persisted transcript instead of accusing the user of an error.
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
+        flushToolQueue();
+        finishThinking();
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              !(
+                it.type === "assistant_message" &&
+                it.id === lastAssistantId &&
+                !it.content.trim()
+              ),
+          ),
+        );
+        return;
+      }
 
       if (streamErrorMessage) {
         flushToolQueue();
@@ -3014,13 +3120,7 @@ export function App() {
         content: text,
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
-          ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
-            }
+          ? { files: optimisticUserFiles(opts.files) }
           : {}),
       };
       const assistantId = newId("a");
@@ -3709,13 +3809,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }
@@ -3724,7 +3817,6 @@ export function App() {
         />
 
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
-
 
         {schedulerOpen && schedulerHttpLinked === true ? (
           <div

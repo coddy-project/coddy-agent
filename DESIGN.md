@@ -35,6 +35,16 @@ Store the design reference images under `docs/assets/` and link to the specific 
 | text muted | `#52525B` | captions |
 | glass panel | `rgba(255,255,255,0.9)` | composer, drawers (light frost, not dark tint) |
 
+### Localization and language
+
+- **Picker:** one native language select **directly under the theme swatch grid** in **Settings → Appearance** (**`AppearanceLanguagePicker`**, **`data-testid="appearance-language-select"`**). It renders **Auto** followed by every locale in **`UI_LOCALE_IDS`**; the current registry supplies **English** and **Русский**. The select fills the available settings width and remains usable on narrow shells. It lives inside `.appearance-sheet-body`, so it inherits the centered placeholder guard covered by `appearanceSettingsLayout.test.tsx`.
+- **Persistence:** cookie **`coddy_ui_lang`** stores a registered locale id (currently `en` or `ru`), with the same lifetime/flags as **`coddy_ui_theme`** (path `/`, `SameSite=Lax`, `; Secure` on https, 1-year `Max-Age`). **Auto** stores no cookie and resolves from **`navigator.language`** on each load; the cookie is cleared when Auto is chosen. Purely client-side — no config save (matches the Appearance tab convention).
+- **Bootstrap:** **`main.tsx`** calls **`initLocale(bootstrapUiLocaleFromUrlOrCookie())`** before React mounts; resolution order is **`?lang=<registered-id>`** (URL, also persisted to the cookie) > cookie > **`navigator.language`**. Sets **`document.documentElement.lang`**.
+- **i18n engine:** **`external/ui/src/ui/i18n/`** — `translate(key, params)` / `t`, a locale store with `useSyncExternalStore` subscriptions, and **`I18nProvider`** + **`useT()`**. **`locales.ts`** is the single registry for supported locale ids, picker label keys, and dictionaries; **`main.tsx`** wraps the app and shared confirmation provider in **`I18nProvider`**. Dictionaries use dot-notation keys grouped by area. **`useT()` works without a provider** (falls back to `translate`), so components render in tests without wrapping; default-English values match the former hardcoded literals exactly so existing English-asserting tests keep passing.
+- **Dictionary contract:** every registered dictionary must contain the same keys and interpolation tokens as the default locale. Add or change the key in every dictionary in the same patch; `messagesParity.test.ts` validates the contract and prevents a newly registered locale from silently drifting.
+- **Reactivity:** the controlled select value is driven by local `choice` state (cookie-derived), because picking **Auto** can resolve to the already-active locale (no locale-store notification); label translation re-renders via the locale store subscription.
+- **Coverage:** the **Appearance** and **Settings** surfaces are fully translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox). Shared destructive confirmations for drafts, chats, and scheduler jobs are translated too. Remaining conversation surfaces (chat, composer, sessions, messages, scheduler, tasks, tour) translate incrementally through the same registry.
+
 ### Frosted glass panels
 
 Floating **composer** card, **History** drawer chrome, **skills** slash menu, **Mode**, and **Model** dropdowns share **`--coddy-glass-panel-*`**: tint plus **`backdrop-filter`** on that surface **only**, so frosting stays **inside** the panel outline. Dimming overlays behind History or the slash sheet use **`--coddy-overlay-scrim-bg`** (**no** fullscreen blur behind the overlay).
@@ -334,6 +344,19 @@ A chip row (**`.composer-context-chips`**) renders as the **first child** of **`
 - **Pre-session (draft/home)** — chips show the server-default workspace. Choices are kept client-side (**pending**) and previewed via **`GET /coddy/workspace/context?path=`**; the first send applies them to the fresh session id (**`POST .../workspace`**) before **`POST /v1/responses`**. Navigating to another session drops pending choices.
 - Menus follow the **`Mode`**/**`Model`** conventions: anchored **`mode-menu--portal`** (**`opens-down`** on the hero, **`opens-up`** when docked) on desktop, full-width bottom sheet (**`mode-menu--sheet`**) on narrow shells.
 
+### Composer attachments (multimodal ingress)
+
+Attachments row (**`.composer-attachments`**) renders **inside** **`.composer-card`**, below workspace chips and above the field. All ingress paths are gated on the selected model's **`multimodal`** flag (paperclip picker, clipboard paste in **`textarea#composer`**, drag & drop onto **`.composer-card`**). Functional contract and regression table: **`docs/ui.md`** (**Composer file attachments (multimodal)**).
+
+- Chips (**`.composer-attachment-chip`**, 140px, 10px radius) show the file icon plus name; `image/*` files swap the icon for a **28×28 object-fit-cover thumbnail** (**`.composer-attachment-thumb`**, local object URL revoked on remove/unmount). Locked edit-mode chips stay icon-only (metadata has no bytes).
+- The **sent user bubble** echoes image attachments with an **optimistic 26×26 thumbnail** (**`.msg-user-file-thumb`**) from a `previewUrl` blob URL created at send time (`optimisticUserFiles.ts`). Once the server snapshot includes **`files[].preview_url`**, that durable session thumbnail replaces the blob and the blob URL is revoked; reloads keep the image preview.
+- Pasted clipboard images get deterministic names **`pasted-<n>.<ext>`** (browsers hand every clipboard image over as `image.png`).
+- Paste/drop against a non-multimodal model attaches nothing and flashes the inline notice **`.composer-attach-hint`** (**`role="status"`**, auto-clears) below the attachments row.
+- Switching to a non-multimodal model does not discard existing files: chips use **`.composer-attachment-chip--disabled`** (muted, grayscale, dashed border), attachment-only Send is disabled, and text sends omit while retaining them for a later multimodal selection.
+- The server repeats this capability check against the effective YAML model and drops any client-supplied **`inline_files`** when **`multimodal`** is false, so disabled files cannot reach the provider or session assets through a stale/custom client.
+- While files are dragged over the card it carries **`.composer-card--dragover`** (inset ring accent) as the drop-target affordance.
+- **Attachment-only send** is valid: an attachment alone unlocks **Send** (see **Composer primary action**).
+
 ### Composer context meter
 
 Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`ContextUsageRing`**: inner stroke always visible; outer progress arc only when usage **> 0**, flat color (no gradient or shadow), fill from **12 o'clock** clockwise. Colors use **`--coddy-context-ring-inner`** and **`--coddy-context-ring-fg`** (both themes in **`styles.css`**). Dark outer arc **`#f5f3ff`** (logo stroke); light outer arc **`var(--accent)`**.
@@ -350,7 +373,7 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
 - **Circular button** (**not** pill or squircle): fixed equal **width** and **height**, **`border-radius: 50%`**, **`box-sizing: border-box`**. Intended diameter **42px** in production CSS (**may track token scale**, but stays a **circle**).
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
-- Idle **disabled** when message field empty; streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
+- Idle **disabled** when the message field is empty **and no sendable files are attached** (a disabled attachment under a non-multimodal model does not unlock Send); streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
 Composer mode selector
 

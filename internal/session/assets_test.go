@@ -1,7 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"encoding/base64"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,5 +108,46 @@ func TestSavePartsToAssets_EmptyDataURL(t *testing.T) {
 	}
 	if parts[0].FilePath != "" {
 		t.Fatalf("empty DataURL should leave FilePath empty")
+	}
+}
+
+func TestSavePartsToAssets_CreatesPersistedImageThumbnail(t *testing.T) {
+	dir := t.TempDir()
+	src := image.NewRGBA(image.Rect(0, 0, 320, 80))
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 320; x++ {
+			src.Set(x, y, color.RGBA{R: uint8(x % 255), G: uint8(y), B: 120, A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, src); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	parts := []llm.ImagePart{{DataURL: dataURL, Name: "wide.png"}}
+
+	if err := SavePartsToAssets(parts, dir); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if parts[0].ThumbnailPath == "" {
+		t.Fatal("expected ThumbnailPath to be populated")
+	}
+	if filepath.Dir(parts[0].ThumbnailPath) != AssetThumbnailsPath(dir) {
+		t.Fatalf("thumbnail path %q is outside thumbnail directory", parts[0].ThumbnailPath)
+	}
+	f, err := os.Open(parts[0].ThumbnailPath)
+	if err != nil {
+		t.Fatalf("open thumbnail: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+	thumb, err := png.Decode(f)
+	if err != nil {
+		t.Fatalf("decode thumbnail: %v", err)
+	}
+	if got := thumb.Bounds().Dx(); got != 160 {
+		t.Fatalf("thumbnail width = %d, want 160", got)
+	}
+	if got := thumb.Bounds().Dy(); got != 40 {
+		t.Fatalf("thumbnail height = %d, want 40", got)
 	}
 }

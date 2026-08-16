@@ -27,6 +27,9 @@ type ImagePart struct {
 	// When set the agent informs the model of this location so it can reference the file
 	// directly without re-reading the base64 payload.
 	FilePath string `json:"file_path,omitempty"`
+	// ThumbnailPath is the absolute path of the persisted, bounded PNG preview
+	// used by transcript clients. Providers never receive this file directly.
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
 }
 
 // Message is a single turn in a conversation.

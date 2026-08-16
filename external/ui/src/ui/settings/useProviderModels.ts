@@ -28,8 +28,12 @@ export function useProviderModels() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/coddy/providers/${encodeURIComponent(name)}/models`);
-      const data = (await res.json().catch(() => ({}))) as ProviderModelsResponse;
+      const res = await fetch(
+        `/coddy/providers/${encodeURIComponent(name)}/models`,
+      );
+      const data = (await res
+        .json()
+        .catch(() => ({}))) as ProviderModelsResponse;
       if (!res.ok || !data.ok) {
         setModels([]);
         setError(data?.error || `HTTP ${res.status}`);

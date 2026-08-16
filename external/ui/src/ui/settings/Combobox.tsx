@@ -1,4 +1,11 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useT } from "../i18n/I18nProvider";
 
 export type ComboOption = { value: string; label?: string };
 
@@ -18,7 +25,9 @@ export function Combobox(props: {
   testid?: string | undefined;
   disabled?: boolean | undefined;
 }) {
-  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } = props;
+  const { value, onChange, options, placeholder, ariaLabel, testid, disabled } =
+    props;
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -110,7 +119,7 @@ export function Combobox(props: {
         type="button"
         className="settings-combobox-toggle"
         tabIndex={-1}
-        aria-label="Toggle options"
+        aria-label={t("settings.combobox.toggleAria")}
         disabled={disabled}
         onMouseDown={(e) => {
           e.preventDefault();

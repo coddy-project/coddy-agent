@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { IconTrash } from "./SchemaForm";
 import { Switch } from "./Switch";
+import { useT } from "../i18n/I18nProvider";
+import { translate } from "../i18n/i18n";
 import {
   MCP_SERVER_TEMPLATE,
   PROJECT_TRUST_OPTIONS,
@@ -63,8 +65,17 @@ async function apiSend(
 // Plug glyph shared with the Skills list style.
 function IconServer() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <rect x="2" y="3" width="20" height="7" rx="2" />
       <rect x="2" y="14" width="20" height="7" rx="2" />
       <line x1="6" y1="6.5" x2="6.01" y2="6.5" />
@@ -75,8 +86,17 @@ function IconServer() {
 
 function IconSync() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M21 2v6h-6" />
       <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
       <path d="M3 22v-6h6" />
@@ -87,8 +107,17 @@ function IconSync() {
 
 function IconPencil() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
     </svg>
   );
@@ -97,8 +126,17 @@ function IconPencil() {
 // Shield glyph for the workspace trust control on project-local rows.
 function IconShield() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
       <path d="M12 3l7 3v6c0 4.4-3 8.2-7 9-4-.8-7-4.6-7-9V6Z" />
       <path d="M9 12l2 2 4-4" />
     </svg>
@@ -107,9 +145,18 @@ function IconShield() {
 
 function IconChevron(props: { open: boolean }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden
-      style={{ transform: props.open ? "rotate(90deg)" : undefined }}>
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ transform: props.open ? "rotate(90deg)" : undefined }}
+    >
       <polyline points="9 18 15 12 9 6" />
     </svg>
   );
@@ -118,17 +165,19 @@ function IconChevron(props: { open: boolean }) {
 function statusTitle(row: MCPServerRow): string {
   switch (row.status) {
     case "connected":
-      return `Connected — ${row.tools.length} tool${row.tools.length === 1 ? "" : "s"}`;
+      return row.tools.length === 1
+        ? translate("mcp.status.connectedOne", { count: row.tools.length })
+        : translate("mcp.status.connectedMany", { count: row.tools.length });
     case "error":
-      return row.error || "Probe failed";
+      return row.error || translate("mcp.status.probeFailed");
     case "disabled":
-      return "Disabled";
+      return translate("mcp.status.disabled");
     case "needs_approval":
-      return "Waiting for your approval — not started, not contacted";
+      return translate("mcp.status.needsApproval");
     case "denied":
-      return "Project MCP servers are switched off by mcp.project_trust: deny";
+      return translate("mcp.status.denied");
     default:
-      return row.error || "Transport not supported";
+      return row.error || translate("mcp.status.unsupported");
   }
 }
 
@@ -139,7 +188,12 @@ function targetLine(row: MCPServerRow): string {
 }
 
 /** Editor state: null = closed; name empty = adding a new server. */
-type EditorState = { name: string; text: string; isNew: boolean; scope: MCPScope };
+type EditorState = {
+  name: string;
+  text: string;
+  isNew: boolean;
+  scope: MCPScope;
+};
 
 /**
  * MCPSection is the Settings -> MCP servers tab: the merged server list from
@@ -150,6 +204,7 @@ type EditorState = { name: string; text: string; isNew: boolean; scope: MCPScope
  * settings document.
  */
 export function MCPSection() {
+  const { t } = useT();
   const [servers, setServers] = useState<MCPServerRow[]>([]);
   const [projectTrust, setProjectTrust] = useState<ProjectTrust>("ask");
   const [workspace, setWorkspace] = useState("");
@@ -164,16 +219,19 @@ export function MCPSection() {
 
   // firstLoad guards the "Loading…" placeholder so refreshes never collapse
   // the list height (same pattern as the Skills tab).
-  const loadServers = useCallback(async (firstLoad = false, refresh = false) => {
-    if (firstLoad) setLoading(true);
-    if (refresh) setRefreshing(true);
-    const list = await fetchServers(refresh);
-    setServers(list.items);
-    setProjectTrust(list.projectTrust);
-    setWorkspace(list.workspace);
-    if (firstLoad) setLoading(false);
-    if (refresh) setRefreshing(false);
-  }, []);
+  const loadServers = useCallback(
+    async (firstLoad = false, refresh = false) => {
+      if (firstLoad) setLoading(true);
+      if (refresh) setRefreshing(true);
+      const list = await fetchServers(refresh);
+      setServers(list.items);
+      setProjectTrust(list.projectTrust);
+      setWorkspace(list.workspace);
+      if (firstLoad) setLoading(false);
+      if (refresh) setRefreshing(false);
+    },
+    [],
+  );
 
   useEffect(() => {
     void loadServers(true);
@@ -191,9 +249,16 @@ export function MCPSection() {
   const onToggleServer = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
       const action = row.enabled ? "disable" : "enable";
-      const res = await apiSend(`/coddy/mcp/${encodeURIComponent(row.name)}/${action}`, "POST");
-      if (!res.ok) setError(res.error || `Failed to ${action} ${row.name}`);
-      else await loadServers();
+      const res = await apiSend(
+        `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
+        "POST",
+      );
+      if (!res.ok) {
+        setError(
+          res.error ||
+            translate("mcp.error.toggleServer", { action, name: row.name }),
+        );
+      } else await loadServers();
     });
   };
 
@@ -204,8 +269,11 @@ export function MCPSection() {
         `/coddy/mcp/${encodeURIComponent(row.name)}/tools/${encodeURIComponent(tool)}/${action}`,
         "POST",
       );
-      if (!res.ok) setError(res.error || `Failed to ${action} ${tool}`);
-      else await loadServers();
+      if (!res.ok) {
+        setError(
+          res.error || translate("mcp.error.toggleTool", { action, tool }),
+        );
+      } else await loadServers();
     });
   };
 
@@ -214,9 +282,12 @@ export function MCPSection() {
   // MCP API, so it never joins the settings document Save all flow.
   const onProjectTrustChange = (next: ProjectTrust) => {
     withBusy("project-trust", async () => {
-      const res = await apiSend("/coddy/mcp/project-trust", "POST", { policy: next });
-      if (!res.ok) setError(res.error || "Failed to change the project trust policy");
-      else await loadServers();
+      const res = await apiSend("/coddy/mcp/project-trust", "POST", {
+        policy: next,
+      });
+      if (!res.ok) {
+        setError(res.error || translate("mcp.error.changeTrustPolicy"));
+      } else await loadServers();
     });
   };
 
@@ -225,23 +296,41 @@ export function MCPSection() {
   const onToggleTrust = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
       const action = row.trusted ? "untrust" : "trust";
-      const res = await apiSend(`/coddy/mcp/${encodeURIComponent(row.name)}/${action}`, "POST");
-      if (!res.ok) setError(res.error || `Failed to ${action} ${row.name}`);
-      else await loadServers();
+      const res = await apiSend(
+        `/coddy/mcp/${encodeURIComponent(row.name)}/${action}`,
+        "POST",
+      );
+      if (!res.ok) {
+        setError(
+          res.error ||
+            translate("mcp.error.toggleTrust", { action, name: row.name }),
+        );
+      } else await loadServers();
     });
   };
 
   const onDelete = (row: MCPServerRow) => {
     withBusy(row.name, async () => {
-      const res = await apiSend(`/coddy/mcp/${encodeURIComponent(row.name)}`, "DELETE");
-      if (!res.ok) setError(res.error || `Failed to delete ${row.name}`);
-      else await loadServers();
+      const res = await apiSend(
+        `/coddy/mcp/${encodeURIComponent(row.name)}`,
+        "DELETE",
+      );
+      if (!res.ok) {
+        setError(
+          res.error || translate("mcp.error.delete", { name: row.name }),
+        );
+      } else await loadServers();
     });
   };
 
   const openAdd = () => {
     setEditorError(null);
-    setEditor({ name: "", text: MCP_SERVER_TEMPLATE, isNew: true, scope: "local" });
+    setEditor({
+      name: "",
+      text: MCP_SERVER_TEMPLATE,
+      isNew: true,
+      scope: "local",
+    });
   };
 
   const openEdit = (row: MCPServerRow) => {
@@ -265,7 +354,7 @@ export function MCPSection() {
     }
     const { entry, error: parseErr } = parseServerEntryJson(editor.text);
     if (parseErr || !entry) {
-      setEditorError(parseErr || "Invalid entry.");
+      setEditorError(parseErr || translate("mcp.error.invalidEntry"));
       return;
     }
     setEditorBusy(true);
@@ -277,7 +366,7 @@ export function MCPSection() {
         entry,
       );
       if (!res.ok) {
-        setEditorError(res.error || "Failed to save server");
+        setEditorError(res.error || translate("mcp.error.saveServer"));
       } else {
         setEditor(null);
         await loadServers();
@@ -289,18 +378,10 @@ export function MCPSection() {
   return (
     <div className="settings-mcp-section">
       <fieldset className="settings-fieldset mcp-discovery-box">
-        <legend>MCP discovery</legend>
-        <p className="settings-field-desc">
-          The project-local <code>./.coddy/mcp.json</code> arrives with the checkout, so the
-          repository — not you — picks the command a session would start. On <code>Ask</code> its
-          servers are neither started nor contacted until you approve that exact declaration for
-          this workspace (shield button in the list below); rewriting an approved entry asks again.
-          Servers you add here are approved by the act of writing them. Entries from{" "}
-          <code>config.yaml</code> and <code>~/.coddy/mcp.json</code> are yours and are never
-          gated.
-        </p>
+        <legend>{t("mcp.discovery.legend")}</legend>
+        <p className="settings-field-desc">{t("mcp.discovery.description")}</p>
         <label className="settings-label" htmlFor="mcp-project-trust">
-          Project servers
+          {t("mcp.discovery.projectServersLabel")}
         </label>
         <select
           id="mcp-project-trust"
@@ -312,21 +393,15 @@ export function MCPSection() {
         >
           {PROJECT_TRUST_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
-              {opt.label}
+              {t(opt.labelKey)}
             </option>
           ))}
         </select>
       </fieldset>
 
       <fieldset className="settings-fieldset mcp-servers-box">
-        <legend>MCP servers</legend>
-        <p className="settings-field-desc">
-          Model Context Protocol servers from three levels: <code>config.yaml</code>{" "}
-          (<code>mcp_servers</code>) and the global <code>~/.coddy/mcp.json</code>, merged with the
-          local <code>./.coddy/mcp.json</code> of the project (Cursor-compatible; later levels
-          override by name). Switch off a whole server or individual tools — toggles persist into
-          the file that defines the server and reach running sessions on their next turn.
-        </p>
+        <legend>{t("mcp.servers.legend")}</legend>
+        <p className="settings-field-desc">{t("mcp.servers.description")}</p>
 
         <div className="mcp-toolbar">
           <button
@@ -335,15 +410,15 @@ export function MCPSection() {
             onClick={openAdd}
             data-testid="mcp-add-server"
           >
-            Add server
+            {t("mcp.addServer")}
           </button>
           <button
             type="button"
             className="settings-btn settings-btn-icon"
             disabled={refreshing}
             onClick={() => void loadServers(false, true)}
-            title="Re-probe all servers"
-            aria-label="Refresh MCP servers"
+            title={t("mcp.refresh.title")}
+            aria-label={t("mcp.refresh.aria")}
             data-testid="mcp-refresh"
           >
             <IconSync />
@@ -365,13 +440,9 @@ export function MCPSection() {
 
         {servers.length === 0 ? (
           loading ? (
-            <p className="settings-muted">Loading…</p>
+            <p className="settings-muted">{t("mcp.loading")}</p>
           ) : (
-            <p className="settings-muted">
-              No MCP servers configured. Add one here (saved to the local{" "}
-              <code>./.coddy/mcp.json</code> or the global <code>~/.coddy/mcp.json</code>) or
-              declare it under <code>mcp_servers</code> in <code>config.yaml</code>.
-            </p>
+            <p className="settings-muted">{t("mcp.empty")}</p>
           )
         ) : (
           <ul className="mcp-list" data-testid="mcp-list">
@@ -379,14 +450,28 @@ export function MCPSection() {
               const isOpen = !!expanded[row.name];
               const editable = !row.readonly;
               return (
-                <li key={row.name} className={`mcp-list-item${row.enabled ? "" : " is-disabled"}`}>
+                <li
+                  key={row.name}
+                  className={`mcp-list-item${row.enabled ? "" : " is-disabled"}`}
+                >
                   <div className="mcp-list-item-head">
                     <button
                       type="button"
                       className="mcp-expand-btn"
-                      onClick={() => setExpanded((p) => ({ ...p, [row.name]: !isOpen }))}
-                      title={isOpen ? "Collapse tools" : "Expand tools"}
-                      aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.name} tools`}
+                      onClick={() =>
+                        setExpanded((p) => ({ ...p, [row.name]: !isOpen }))
+                      }
+                      title={
+                        isOpen
+                          ? t("mcp.expand.collapse")
+                          : t("mcp.expand.expand")
+                      }
+                      aria-label={t("mcp.expand.aria", {
+                        action: isOpen
+                          ? t("mcp.expand.collapse")
+                          : t("mcp.expand.expand"),
+                        name: row.name,
+                      })}
                       aria-expanded={isOpen}
                       data-testid={`mcp-expand-${row.name}`}
                     >
@@ -403,7 +488,9 @@ export function MCPSection() {
                         {row.name}
                         <span
                           className="skills-list-item-badge"
-                          title={`Defined in ${originLabel(row.origin)}`}
+                          title={t("mcp.badge.definedIn", {
+                            origin: originLabel(row.origin),
+                          })}
                         >
                           {row.source}
                         </span>
@@ -427,10 +514,19 @@ export function MCPSection() {
                         onClick={() => onToggleTrust(row)}
                         title={
                           row.trusted
-                            ? `Approved for this workspace (${row.fingerprint ?? ""}) — click to withdraw`
-                            : `Approve running "${targetLine(row)}" in this workspace`
+                            ? t("mcp.trust.approvedTitle", {
+                                fingerprint: row.fingerprint ?? "",
+                              })
+                            : t("mcp.trust.approveTitle", {
+                                target: targetLine(row),
+                              })
                         }
-                        aria-label={`${row.trusted ? "Withdraw approval of" : "Approve"} MCP server ${row.name}`}
+                        aria-label={t(
+                          row.trusted
+                            ? "mcp.trust.withdrawAria"
+                            : "mcp.trust.approveAria",
+                          { name: row.name },
+                        )}
                         data-testid={`mcp-trust-${row.name}`}
                       >
                         <IconShield />
@@ -440,8 +536,17 @@ export function MCPSection() {
                       checked={row.enabled}
                       disabled={!!busy[row.name]}
                       onChange={() => onToggleServer(row)}
-                      title={row.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
-                      ariaLabel={`${row.enabled ? "Disable" : "Enable"} MCP server ${row.name}`}
+                      title={
+                        row.enabled
+                          ? t("mcp.switch.enabledTitle")
+                          : t("mcp.switch.disabledTitle")
+                      }
+                      ariaLabel={t(
+                        row.enabled
+                          ? "mcp.switch.disableAria"
+                          : "mcp.switch.enableAria",
+                        { name: row.name },
+                      )}
                       dataTestId={`mcp-toggle-${row.name}`}
                     />
                     <button
@@ -451,10 +556,12 @@ export function MCPSection() {
                       onClick={() => openEdit(row)}
                       title={
                         editable
-                          ? `Edit entry (${originLabel(row.origin)})`
-                          : "Defined in config.yaml — edit it in the config sections"
+                          ? t("mcp.edit.title", {
+                              origin: originLabel(row.origin),
+                            })
+                          : t("mcp.edit.readonlyTitle")
                       }
-                      aria-label={`Edit ${row.name}`}
+                      aria-label={t("mcp.edit.aria", { name: row.name })}
                       data-testid={`mcp-edit-${row.name}`}
                     >
                       <IconPencil />
@@ -466,29 +573,32 @@ export function MCPSection() {
                       onClick={() => onDelete(row)}
                       title={
                         editable
-                          ? `Delete from ${originLabel(row.origin)}`
-                          : "Defined in config.yaml — cannot delete here"
+                          ? t("mcp.delete.title", {
+                              origin: originLabel(row.origin),
+                            })
+                          : t("mcp.delete.readonlyTitle")
                       }
-                      aria-label={`Delete ${row.name}`}
+                      aria-label={t("mcp.delete.aria", { name: row.name })}
                       data-testid={`mcp-delete-${row.name}`}
                     >
                       <IconTrash />
                     </button>
                   </div>
 
-                  {row.status === "needs_approval" || row.status === "denied" ? (
-                    <div className="mcp-trust-note" data-testid={`mcp-trust-note-${row.name}`}>
+                  {row.status === "needs_approval" ||
+                  row.status === "denied" ? (
+                    <div
+                      className="mcp-trust-note"
+                      data-testid={`mcp-trust-note-${row.name}`}
+                    >
                       {row.status === "denied" ? (
-                        <p>
-                          Project MCP servers are switched off by{" "}
-                          <code>mcp.project_trust: deny</code>. This entry is never started.
-                        </p>
+                        <p>{t("mcp.note.denied")}</p>
                       ) : (
                         <>
                           <p>
-                            Declared by <code>{row.source_path ?? "./.coddy/mcp.json"}</code>, which
-                            travels with the checkout, so it is neither started nor contacted yet.
-                            Approving covers exactly this declaration:
+                            {t("mcp.note.declaredBy", {
+                              path: row.source_path ?? "./.coddy/mcp.json",
+                            })}
                           </p>
                           <dl className="mcp-trust-facts">
                             {declarationFacts(row).map((fact) => (
@@ -500,16 +610,15 @@ export function MCPSection() {
                               </div>
                             ))}
                             <div>
-                              <dt>in</dt>
+                              <dt>{t("mcp.fact.in")}</dt>
                               <dd>
-                                <code>{workspace || "the session workspace"}</code>
+                                <code>
+                                  {workspace || t("mcp.note.workspaceFallback")}
+                                </code>
                               </dd>
                             </div>
                           </dl>
-                          <p>
-                            Environment and header <em>names</em> are listed, never their values.
-                            Editing the entry asks again.
-                          </p>
+                          <p>{t("mcp.note.namesOnly")}</p>
                         </>
                       )}
                     </div>
@@ -530,31 +639,49 @@ export function MCPSection() {
                     row.tools.length === 0 ? (
                       <p className="settings-muted mcp-tools-empty">
                         {row.status === "connected"
-                          ? "This server advertises no tools."
-                          : "No tool list — the server is not reachable."}
+                          ? t("mcp.tools.emptyConnected")
+                          : t("mcp.tools.notReachable")}
                       </p>
                     ) : (
-                      <ul className="mcp-tools" data-testid={`mcp-tools-${row.name}`}>
+                      <ul
+                        className="mcp-tools"
+                        data-testid={`mcp-tools-${row.name}`}
+                      >
                         {row.tools.map((tool) => (
-                          <li key={tool.name} className={`mcp-tool-row${tool.enabled ? "" : " is-disabled"}`}>
+                          <li
+                            key={tool.name}
+                            className={`mcp-tool-row${tool.enabled ? "" : " is-disabled"}`}
+                          >
                             <div className="mcp-tool-text">
                               <div className="mcp-tool-name">{tool.name}</div>
                               {tool.description ? (
-                                <div className="skills-list-item-desc">{tool.description}</div>
+                                <div className="skills-list-item-desc">
+                                  {tool.description}
+                                </div>
                               ) : null}
                             </div>
                             <Switch
                               checked={tool.enabled}
-                              disabled={!!busy[`${row.name}__${tool.name}`] || !row.enabled}
-                              onChange={() => onToggleTool(row, tool.name, tool.enabled)}
+                              disabled={
+                                !!busy[`${row.name}__${tool.name}`] ||
+                                !row.enabled
+                              }
+                              onChange={() =>
+                                onToggleTool(row, tool.name, tool.enabled)
+                              }
                               title={
                                 !row.enabled
-                                  ? "Server is disabled"
+                                  ? t("mcp.toolSwitch.serverDisabled")
                                   : tool.enabled
-                                    ? "Enabled — click to disable"
-                                    : "Disabled — click to enable"
+                                    ? t("mcp.switch.enabledTitle")
+                                    : t("mcp.switch.disabledTitle")
                               }
-                              ariaLabel={`${tool.enabled ? "Disable" : "Enable"} tool ${tool.name} of ${row.name}`}
+                              ariaLabel={t(
+                                tool.enabled
+                                  ? "mcp.toolSwitch.disableAria"
+                                  : "mcp.toolSwitch.enableAria",
+                                { tool: tool.name, server: row.name },
+                              )}
                               dataTestId={`mcp-tool-toggle-${row.name}-${tool.name}`}
                             />
                           </li>
@@ -582,21 +709,26 @@ function MCPEditorCard(props: {
   onCancel: () => void;
 }) {
   const { editor, error, busy, onChange, onSave, onCancel } = props;
+  const { t } = useT();
   return (
     <div className="mcp-editor" data-testid="mcp-editor">
       {editor.isNew ? (
         <input
           className="settings-input"
           type="text"
-          placeholder="server-name"
+          placeholder={t("mcp.editor.namePlaceholder")}
           value={editor.name}
           onChange={(e) => onChange({ ...editor, name: e.target.value })}
-          aria-label="Server name"
+          aria-label={t("mcp.editor.nameAria")}
           data-testid="mcp-editor-name"
         />
       ) : null}
       {editor.isNew ? (
-        <div className="mcp-editor-scope" role="radiogroup" aria-label="Server scope">
+        <div
+          className="mcp-editor-scope"
+          role="radiogroup"
+          aria-label={t("mcp.editor.scopeAria")}
+        >
           <label className="mcp-editor-scope-option">
             <input
               type="radio"
@@ -605,9 +737,7 @@ function MCPEditorCard(props: {
               onChange={() => onChange({ ...editor, scope: "local" })}
               data-testid="mcp-editor-scope-local"
             />
-            <span>
-              Local — <code>./.coddy/mcp.json</code>
-            </span>
+            <span>{t("mcp.editor.scopeLocal")}</span>
           </label>
           <label className="mcp-editor-scope-option">
             <input
@@ -617,9 +747,7 @@ function MCPEditorCard(props: {
               onChange={() => onChange({ ...editor, scope: "global" })}
               data-testid="mcp-editor-scope-global"
             />
-            <span>
-              Global — <code>~/.coddy/mcp.json</code>
-            </span>
+            <span>{t("mcp.editor.scopeGlobal")}</span>
           </label>
         </div>
       ) : null}
@@ -629,14 +757,16 @@ function MCPEditorCard(props: {
         spellCheck={false}
         value={editor.text}
         onChange={(e) => onChange({ ...editor, text: e.target.value })}
-        aria-label="Server entry JSON"
+        aria-label={t("mcp.editor.jsonAria")}
         data-testid="mcp-editor-json"
       />
       <p className="settings-field-desc">
-        One <code>mcpServers</code> entry in Cursor format: <code>command</code>/<code>args</code>/
-        <code>env</code> (object), optional <code>disabled</code> and <code>disabledTools</code>.
-        Saved to{" "}
-        <code>{editor.scope === "global" ? "~/.coddy/mcp.json" : "./.coddy/mcp.json"}</code>.
+        {t("mcp.editor.formatDescription", {
+          path:
+            editor.scope === "global"
+              ? "~/.coddy/mcp.json"
+              : "./.coddy/mcp.json",
+        })}
       </p>
       {error ? <p className="settings-error">{error}</p> : null}
       <div className="mcp-editor-actions">
@@ -647,10 +777,15 @@ function MCPEditorCard(props: {
           onClick={onSave}
           data-testid="mcp-editor-save"
         >
-          Save
+          {t("mcp.editor.save")}
         </button>
-        <button type="button" className="settings-btn" disabled={busy} onClick={onCancel}>
-          Cancel
+        <button
+          type="button"
+          className="settings-btn"
+          disabled={busy}
+          onClick={onCancel}
+        >
+          {t("mcp.editor.cancel")}
         </button>
       </div>
     </div>

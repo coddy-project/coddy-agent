@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -121,10 +123,12 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
 	s.mux.HandleFunc("GET /coddy/slash-commands", s.coddySlashCommandsGet)
 	s.mux.HandleFunc("GET /coddy/commands", s.coddyCommandsGet)
+	s.mux.HandleFunc("GET /coddy/events", s.coddyEventsStream)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}/thumbnail", s.coddySessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
@@ -746,7 +750,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
-			turnActive := session.TurnLockHeld(dir)
+			turnActive := s.mgr.SessionTurnActiveInProcess(row.SessionID) || session.TurnLockHeld(dir)
 			actSeq, readSeq, _ := fs.ReadDiskActivity(row.SessionID)
 			ent["turnActive"] = turnActive
 			ent["activitySeq"] = actSeq
@@ -789,7 +793,7 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	dir := fs.SessionPath(id)
-	turnActive := session.TurnLockHeld(dir)
+	turnActive := s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(dir)
 	actSeq, readSeq, err := fs.ReadDiskActivity(id)
 	if err != nil {
 		s.log.Error("coddy session activity", "error", err)
@@ -809,6 +813,10 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 }
 
 func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
+	return llmMsgsToCoddyOpenAIForSession("", msgs)
+}
+
+func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -847,6 +855,26 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
 		}
+		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
+			files := make([]map[string]interface{}, 0, len(m.ImageParts))
+			for _, part := range m.ImageParts {
+				name := strings.TrimSpace(part.Name)
+				if name == "" && part.FilePath != "" {
+					name = filepath.Base(part.FilePath)
+				}
+				file := map[string]interface{}{
+					"name":      name,
+					"mime_type": imagePartMIMEType(part),
+				}
+				if sessionID != "" && part.FilePath != "" && part.ThumbnailPath != "" {
+					assetName := filepath.Base(part.FilePath)
+					file["preview_url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
+				}
+				files = append(files, file)
+			}
+			item["files"] = files
+		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
 				"slug":      m.PlanDocument.Slug,
@@ -864,6 +892,70 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return out
 }
 
+func imagePartMIMEType(part llm.ImagePart) string {
+	if strings.HasPrefix(part.DataURL, "data:") {
+		end := strings.IndexAny(part.DataURL[5:], ";,")
+		if end >= 0 {
+			raw := part.DataURL[5 : 5+end]
+			if mediaType, _, err := mime.ParseMediaType(raw); err == nil && mediaType != "" {
+				return mediaType
+			}
+		}
+	}
+	for _, name := range []string{part.Name, part.FilePath} {
+		if mediaType := mime.TypeByExtension(filepath.Ext(name)); mediaType != "" {
+			if base, _, err := mime.ParseMediaType(mediaType); err == nil {
+				return base
+			}
+			return mediaType
+		}
+	}
+	return "application/octet-stream"
+}
+
+func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
+		return
+	}
+	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sessionDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	path := session.AssetThumbnailPath(sessionDir, name)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset thumbnail", "error", err)
+		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name+".png", info.ModTime(), f)
+}
+
 func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -877,12 +969,13 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAI(st.GetMessages()),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, st.GetMessages()),
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["mode"] = string(st.GetMode())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))

@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
@@ -77,6 +78,127 @@ function displayLlmId(id: string): string {
   return m || "Model";
 }
 
+/** File extension for an image MIME type ("image/svg+xml" -> "svg"). */
+function imageExtFromMime(mime: string): string {
+  const wellKnown: Record<string, string> = {
+    png: "png",
+    jpeg: "jpg",
+    gif: "gif",
+    webp: "webp",
+    "svg+xml": "svg",
+    bmp: "bmp",
+  };
+  const sub = (mime.split("/")[1] || "").toLowerCase();
+  return wellKnown[sub] || sub.replace(/[^a-z0-9]/g, "") || "png";
+}
+
+/** Image files carried by a clipboard **`DataTransfer`** (`kind === "file"` + `image/*` MIME). */
+function clipboardImageFiles(data: DataTransfer | null | undefined): File[] {
+  if (!data || !data.items) return [];
+  const out: File[] = [];
+  for (const item of Array.from(data.items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const f = item.getAsFile();
+    if (f) out.push(f);
+  }
+  return out;
+}
+
+/**
+ * Browsers name every clipboard image "image.png"; give pasted files
+ * deterministic per-composer names so chips and session history stay unambiguous.
+ */
+function renamePastedImages(
+  files: File[],
+  seqRef: { current: number },
+): File[] {
+  return files.map((f) => {
+    seqRef.current += 1;
+    const name = `pasted-${seqRef.current}.${imageExtFromMime(f.type)}`;
+    return new File([f], name, {
+      type: f.type || "image/png",
+      lastModified: f.lastModified,
+    });
+  });
+}
+
+/** Local preview URL for an attached image; revoked when the file changes or the chip unmounts. */
+function useImageObjectUrl(file: File): string | null {
+  const url = useMemo(() => {
+    if (!file.type.startsWith("image/")) return null;
+    if (
+      typeof URL === "undefined" ||
+      typeof URL.createObjectURL !== "function"
+    ) {
+      return null;
+    }
+    return URL.createObjectURL(file);
+  }, [file]);
+  useEffect(() => {
+    if (!url) return;
+    return () => {
+      if (
+        typeof URL !== "undefined" &&
+        typeof URL.revokeObjectURL === "function"
+      ) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [url]);
+  return url;
+}
+
+/** Live attachment chip; image files render a thumbnail instead of the generic icon. */
+function AttachedFileChip({
+  file,
+  disabled,
+  onRemove,
+}: {
+  file: File;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const { svg, label } = fileTypeIcon(file.type, file.name);
+  const thumbUrl = useImageObjectUrl(file);
+  const tip = `${file.name}\n${label} · ${fmtBytes(file.size)}`;
+  return (
+    <span
+      className={[
+        "composer-attachment-chip",
+        thumbUrl ? "composer-attachment-chip--image" : "",
+        disabled ? "composer-attachment-chip--disabled" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={tip}
+      aria-disabled={disabled ? "true" : undefined}
+      data-testid="composer-attachment-chip"
+    >
+      <span className="composer-attachment-chip-icon" aria-hidden="true">
+        {thumbUrl ? (
+          <img
+            className="composer-attachment-thumb"
+            src={thumbUrl}
+            alt=""
+            data-testid="composer-attachment-thumb"
+          />
+        ) : (
+          svg
+        )}
+      </span>
+      <span className="composer-attachment-chip-name">{file.name}</span>
+      <button
+        type="button"
+        className="composer-attachment-chip-remove"
+        aria-label={`Remove ${file.name}`}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
+  );
+}
+
 type SlashRow = { name: string; description: string };
 
 type WorkspaceFileRow = { name: string; path_rel: string; kind: string };
@@ -105,6 +227,9 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Optional shared attachment state for composer layout transitions. */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
   llmReasoningLevels?: string[];
   /** Selected reasoning level (`metadata.reasoning`). */
@@ -137,7 +262,6 @@ export function Composer(props: {
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
 }) {
-  const idleSendDisabled = props.value.trim() === "";
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -161,7 +285,39 @@ export function Composer(props: {
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
+  /** Transient reason a paste/drop was rejected (non-multimodal model); auto-clears. */
+  const [attachHint, setAttachHint] = useState<string | null>(null);
+  /** Files are being dragged over the composer card (drop-target affordance). */
+  const [dragOverCard, setDragOverCard] = useState(false);
+  const attachHintTimerRef = useRef<number | null>(null);
+  /** Names pasted images deterministically ("pasted-1.png"); clipboard files are all "image.png". */
+  const pastedSeqRef = useRef(0);
+  const attachmentSendingEnabled = props.llmModelMultimodal === true;
+  const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
+  /** Attachment-only send is valid only while the selected model accepts it. */
+  const idleSendDisabled =
+    props.value.trim() === "" && sendableAttachedFiles.length === 0;
+  const showAttachHint = useCallback(() => {
+    setAttachHint("Selected model cannot accept attachments");
+    if (attachHintTimerRef.current !== null) {
+      window.clearTimeout(attachHintTimerRef.current);
+    }
+    attachHintTimerRef.current = window.setTimeout(() => {
+      setAttachHint(null);
+      attachHintTimerRef.current = null;
+    }, 4000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (attachHintTimerRef.current !== null) {
+        window.clearTimeout(attachHintTimerRef.current);
+      }
+    },
+    [],
+  );
   const [composerScrollTop, setComposerScrollTop] = useState(0);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
@@ -1250,7 +1406,40 @@ export function Composer(props: {
         <label className="sr-only" htmlFor="composer">
           Message
         </label>
-        <div className="composer-card" ref={composerCardRef}>
+        <div
+          className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
+          ref={composerCardRef}
+          onDragOver={(ev) => {
+            const dt = ev.dataTransfer;
+            if (!dt || !Array.from(dt.types || []).includes("Files")) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(true);
+          }}
+          onDragLeave={(ev) => {
+            const to = ev.relatedTarget;
+            if (to instanceof Node && ev.currentTarget.contains(to)) {
+              return;
+            }
+            setDragOverCard(false);
+          }}
+          onDrop={(ev) => {
+            const files = ev.dataTransfer
+              ? Array.from(ev.dataTransfer.files || [])
+              : [];
+            if (files.length === 0) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(false);
+            if (!props.llmModelMultimodal) {
+              showAttachHint();
+              return;
+            }
+            setAttachedFiles((prev) => [...prev, ...files]);
+          }}
+        >
           <div className="composer-context-row">
             <EnvironmentChip />
             {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
@@ -1288,39 +1477,25 @@ export function Composer(props: {
                   </span>
                 );
               })}
-              {attachedFiles.map((f, idx) => {
-                const { svg, label } = fileTypeIcon(f.type, f.name);
-                const tip = `${f.name}\n${label} · ${fmtBytes(f.size)}`;
-                return (
-                  <span
-                    key={idx}
-                    className="composer-attachment-chip"
-                    title={tip}
-                  >
-                    <span
-                      className="composer-attachment-chip-icon"
-                      aria-hidden="true"
-                    >
-                      {svg}
-                    </span>
-                    <span className="composer-attachment-chip-name">
-                      {f.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="composer-attachment-chip-remove"
-                      aria-label={`Remove ${f.name}`}
-                      onClick={() =>
-                        setAttachedFiles((prev) =>
-                          prev.filter((_, i) => i !== idx),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
+              {attachedFiles.map((f, idx) => (
+                <AttachedFileChip
+                  key={idx}
+                  file={f}
+                  disabled={!attachmentSendingEnabled}
+                  onRemove={() =>
+                    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+          {attachHint ? (
+            <div
+              className="composer-attach-hint"
+              role="status"
+              data-testid="composer-attach-hint"
+            >
+              {attachHint}
             </div>
           ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
@@ -1408,6 +1583,21 @@ export function Composer(props: {
                     updatePickerMenus(props.value, el.selectionStart);
                     syncComposerScroll();
                   }
+                }}
+                onPaste={(ev) => {
+                  const images = clipboardImageFiles(ev.clipboardData);
+                  if (images.length === 0) {
+                    return; // plain-text paste: keep the browser default
+                  }
+                  ev.preventDefault();
+                  if (!props.llmModelMultimodal) {
+                    showAttachHint();
+                    return;
+                  }
+                  setAttachedFiles((prev) => [
+                    ...prev,
+                    ...renamePastedImages(images, pastedSeqRef),
+                  ]);
                 }}
                 onKeyDown={(ev) => {
                   if (ev.key === "Escape" && contextPopoverOpen) {
@@ -1506,11 +1696,11 @@ export function Composer(props: {
                       return;
                     }
                     const txt = props.value.trim();
-                    if (!txt) {
+                    if (!txt && sendableAttachedFiles.length === 0) {
                       return;
                     }
-                    if (attachedFiles.length > 0) {
-                      const files = [...attachedFiles];
+                    if (sendableAttachedFiles.length > 0) {
+                      const files = [...sendableAttachedFiles];
                       setAttachedFiles([]);
                       props.onSend(txt, files);
                     } else {
@@ -1678,11 +1868,11 @@ export function Composer(props: {
                     return;
                   }
                   const txt = props.value.trim();
-                  if (!txt) {
+                  if (!txt && sendableAttachedFiles.length === 0) {
                     return;
                   }
-                  if (attachedFiles.length > 0) {
-                    const files = [...attachedFiles];
+                  if (sendableAttachedFiles.length > 0) {
+                    const files = [...sendableAttachedFiles];
                     setAttachedFiles([]);
                     props.onSend(txt, files);
                   } else {

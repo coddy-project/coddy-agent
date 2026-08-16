@@ -119,6 +119,36 @@ func TestActiveTodoPersistence(t *testing.T) {
 	}
 }
 
+func TestListSnapshotsOrdersSameSecondSessionsByRecency(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	// The older session deliberately gets the lexicographically smaller id:
+	// with second-granularity timestamps the tie-break would list it first,
+	// which is exactly the -c/--continue bug this guards against.
+	for attempt := range 3 {
+		older := fmt.Sprintf("sess_a%d", attempt)
+		newer := fmt.Sprintf("sess_z%d", attempt)
+		for _, id := range []string{older, newer} {
+			dir, err := fs.EnsureLayout(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := &State{ID: id, CWD: "/tmp/order", Mode: ModeAgent, SessionDir: dir}
+			if err := fs.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		rows, err := fs.ListSnapshots("/tmp/order", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 0 || rows[0].SessionID != newer {
+			t.Fatalf("attempt %d: newest session %q is not first: %+v", attempt, newer, rows)
+		}
+	}
+}
+
 func TestListSnapshotsSkipsMarkedSchedulerRunsByMeta(t *testing.T) {
 	root := t.TempDir()
 	fs := &FileStore{Root: root}

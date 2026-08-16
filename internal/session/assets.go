@@ -1,13 +1,23 @@
 package session
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+)
+
+const (
+	assetThumbnailMaxEdge   = 160
+	assetThumbnailMaxPixels = 40_000_000
 )
 
 // SavePartsToAssets decodes every ImagePart DataURL and writes it to
@@ -39,8 +49,63 @@ func SavePartsToAssets(parts []llm.ImagePart, sessionDir string) error {
 			return fmt.Errorf("write asset %s: %w", name, err)
 		}
 		p.FilePath = dest
+		thumb, ok := makeImageThumbnail(data)
+		if !ok {
+			continue
+		}
+		if err := os.MkdirAll(AssetThumbnailsPath(sessionDir), 0o755); err != nil {
+			return fmt.Errorf("thumbnail dir: %w", err)
+		}
+		thumbPath := AssetThumbnailPath(sessionDir, name)
+		if err := writeReadOnly(thumbPath, thumb); err != nil {
+			return fmt.Errorf("write thumbnail %s: %w", name, err)
+		}
+		p.ThumbnailPath = thumbPath
 	}
 	return nil
+}
+
+// makeImageThumbnail returns a PNG bounded to assetThumbnailMaxEdge while
+// preserving aspect ratio. Unsupported or unreasonably large images keep their
+// original asset but do not get a transcript preview.
+func makeImageThumbnail(data []byte) ([]byte, bool) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+		return nil, false
+	}
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if pixels <= 0 || pixels > assetThumbnailMaxPixels {
+		return nil, false
+	}
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	srcBounds := src.Bounds()
+	srcW, srcH := srcBounds.Dx(), srcBounds.Dy()
+	dstW, dstH := srcW, srcH
+	if srcW > assetThumbnailMaxEdge || srcH > assetThumbnailMaxEdge {
+		if srcW >= srcH {
+			dstW = assetThumbnailMaxEdge
+			dstH = max(1, srcH*assetThumbnailMaxEdge/srcW)
+		} else {
+			dstH = assetThumbnailMaxEdge
+			dstW = max(1, srcW*assetThumbnailMaxEdge/srcH)
+		}
+	}
+	dst := image.NewNRGBA(image.Rect(0, 0, dstW, dstH))
+	for y := 0; y < dstH; y++ {
+		sy := srcBounds.Min.Y + y*srcH/dstH
+		for x := 0; x < dstW; x++ {
+			sx := srcBounds.Min.X + x*srcW/dstW
+			dst.Set(x, y, src.At(sx, sy))
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, dst); err != nil {
+		return nil, false
+	}
+	return encoded.Bytes(), true
 }
 
 // decodeDataURLBytes decodes the payload of a data URI.

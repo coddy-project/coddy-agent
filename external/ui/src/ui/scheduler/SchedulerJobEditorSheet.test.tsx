@@ -1,6 +1,7 @@
 import React from "react";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ConfirmProvider } from "../components/useConfirm";
 import { SchedulerJobEditorSheet } from "./SchedulerJobEditorSheet";
 
 vi.mock("./api", () => ({
@@ -33,17 +34,19 @@ afterEach(() => cleanup());
 
 test("body markdown wrap keeps editor spacing hook class for layout CSS", async () => {
   render(
-    <SchedulerJobEditorSheet
-      open
-      mode="edit"
-      jobId="demo"
-      availableModels={["m"]}
-      defaultModel="m"
-      currentCwd="/tmp"
-      onClose={() => {}}
-      onSaved={() => {}}
-      onDeleted={() => {}}
-    />,
+    <ConfirmProvider>
+      <SchedulerJobEditorSheet
+        open
+        mode="edit"
+        jobId="demo"
+        availableModels={["m"]}
+        defaultModel="m"
+        currentCwd="/tmp"
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />
+    </ConfirmProvider>,
   );
   await waitFor(() => {
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();

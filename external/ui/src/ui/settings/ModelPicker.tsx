@@ -1,4 +1,5 @@
 import { Combobox } from "./Combobox";
+import { useT } from "../i18n/I18nProvider";
 
 /**
  * ModelPicker selects a default model id from the configured logical models, or
@@ -13,7 +14,8 @@ export function ModelPicker(props: {
   description?: string | undefined;
 }) {
   const { value, onChange, models } = props;
-  const label = props.label ?? "Default model";
+  const { t } = useT();
+  const label = props.label ?? t("settings.field.defaultModelFallback");
 
   return (
     <div className="settings-row" data-testid="model-picker">
@@ -27,7 +29,7 @@ export function ModelPicker(props: {
         options={models.map((m) => ({ value: m }))}
         ariaLabel={label}
         testid="model-picker-input"
-        placeholder="provider/model-id"
+        placeholder={t("settings.field.modelPlaceholder")}
       />
     </div>
   );

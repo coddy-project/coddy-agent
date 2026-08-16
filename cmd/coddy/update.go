@@ -32,11 +32,11 @@ func runUpdate(args []string) error {
 		return err
 	}
 	err := update.Run(context.Background(), update.Options{
-		Repo:           strings.TrimSpace(*repo),
-		TargetVersion:  strings.TrimSpace(*version),
-		CheckOnly:      *check,
-		Yes:            yes,
-		Stdout:         os.Stdout,
+		Repo:          strings.TrimSpace(*repo),
+		TargetVersion: strings.TrimSpace(*version),
+		CheckOnly:     *check,
+		Yes:           yes,
+		Stdout:        os.Stdout,
 	})
 	if errors.Is(err, update.ErrUpdateAvailable) {
 		os.Exit(1)

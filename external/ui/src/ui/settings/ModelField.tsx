@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Combobox } from "./Combobox";
 import { useProviderModels } from "./useProviderModels";
+import { useT } from "../i18n/I18nProvider";
 
 function providerOf(value: string): string {
   const i = value.indexOf("/");
@@ -20,13 +21,15 @@ export function ModelField(props: {
   label?: string | undefined;
 }) {
   const { value, onChange, providers } = props;
-  const label = props.label ?? "Model id";
+  const { t } = useT();
+  const label = props.label ?? t("settings.field.modelIdFallback");
 
   const inferred = providerOf(value);
   const [provider, setProvider] = useState<string>(
-    inferred && providers.includes(inferred) ? inferred : providers[0] ?? "",
+    inferred && providers.includes(inferred) ? inferred : (providers[0] ?? ""),
   );
-  const { loading, models, error, fetched, fetchModels, reset } = useProviderModels();
+  const { loading, models, error, fetched, fetchModels, reset } =
+    useProviderModels();
 
   const modelOptions = models.map((m) => ({
     value: `${provider}/${m.id}`,
@@ -45,9 +48,9 @@ export function ModelField(props: {
             reset();
           }}
           options={providers.map((p) => ({ value: p }))}
-          ariaLabel="Provider"
+          ariaLabel={t("settings.field.providerAria")}
           testid="model-field-provider"
-          placeholder="provider"
+          placeholder={t("settings.field.providerPlaceholder")}
         />
         <button
           type="button"
@@ -56,19 +59,19 @@ export function ModelField(props: {
           disabled={!provider || loading}
           onClick={() => void fetchModels(provider)}
         >
-          {loading ? "Fetching…" : "Fetch models"}
+          {loading
+            ? t("settings.field.fetching")
+            : t("settings.field.fetchModels")}
         </button>
       </div>
 
       {fetched && error ? (
         <p className="settings-field-desc">
-          Couldn't fetch models: {error}. Type the model id manually below.
+          {t("settings.field.fetchError", { error })}
         </p>
       ) : null}
       {fetched && !error && models.length === 0 ? (
-        <p className="settings-field-desc">
-          No models returned. Type the model id manually below.
-        </p>
+        <p className="settings-field-desc">{t("settings.field.noModels")}</p>
       ) : null}
 
       <Combobox
@@ -77,7 +80,7 @@ export function ModelField(props: {
         options={modelOptions}
         ariaLabel={label}
         testid="model-field-model"
-        placeholder="provider/model-id"
+        placeholder={t("settings.field.modelPlaceholder")}
       />
     </div>
   );

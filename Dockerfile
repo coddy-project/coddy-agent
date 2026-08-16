@@ -25,7 +25,7 @@ ARG VERSION=dev
 # Default build includes the messenger gateway so the image can run `coddy gateway`
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
-ARG BUILD_TAGS=http,scheduler,ui,memory,gateway
+ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 
