@@ -14,9 +14,19 @@ import (
 // backupFileName is the single config backup sidecar written next to config.yaml.
 const backupFileName = "config.yaml.bak"
 
+// prevFileName is the pre-commit snapshot written by config_commit. Unlike the
+// backup (refreshed to the current content on every successful load), it keeps
+// the previous committed configuration so config_rollback can restore it.
+const prevFileName = "config.yaml.prev"
+
 // BackupPath returns the path to the config backup file for the given config file path.
 func BackupPath(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), backupFileName)
+}
+
+// PrevConfigPath returns the path to the pre-commit snapshot for the given config file path.
+func PrevConfigPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), prevFileName)
 }
 
 // WriteBackup writes data to config.yaml.bak atomically.

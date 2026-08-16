@@ -77,11 +77,19 @@ func runGateway(args []string) error {
 
 	// Build a null ACP sender (gateway uses its own per-message senders).
 	nullSender := &nullUpdateSender{}
+	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		active := cfg
+		if mgr != nil {
+			active = mgr.Cfg()
+		}
+		loop := agent.NewAgent(active, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, nullSender, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, nullSender, runner, log, paths.CWD, store)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

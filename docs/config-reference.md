@@ -12,6 +12,32 @@ VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automa
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
 
+## Agent self-configuration
+
+Agent sessions expose a typed configuration tool family with staged, uci-like semantics:
+
+- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields (including `api_key_command`), MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_set` **stages** UCI-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file. Unknown schema paths and commands that would make the config invalid are rejected at staging time. Echoed command lists mask secret-shaped values as `<redacted>`; the staged store keeps the original values.
+- `config_changes` lists the staged commands that a commit would apply (secrets redacted).
+- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev` (an empty document when the config file did not exist yet, so the first commit stays reversible), writes atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. Because a commit can start MCP processes and change the permission policy itself, it prompts for tool permission in both `ask` and `accept_edits` modes - only `tools.permission_mode: bypass` skips the dialog - and the prompt lists the staged commands with secrets redacted. The agent is additionally instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept; if even that restore fails, the staged list stays consumed so a blind retry cannot replay it.
+- `config_revert` discards staged commands (all of them, or those under one path).
+- `config_rollback` restores the pre-commit snapshot over the active file (swapping the two, so a second rollback undoes the first) and hot-reloads. It carries the same permission policy as `config_commit`, and the agent warns the user before calling it.
+
+Commands and paths are dotted like OpenWrt's `uci` CLI, with a selector for named sequence entries:
+
+| Command | Meaning |
+|---|---|
+| `set agent.max_turns=40` | Set a mapping field |
+| `set mcp_servers[name=context7]={"command":"npx"}` | Select a sequence object by scalar field; append it when setting if absent |
+| `add_list skills.dirs=/opt/skills` | Append a sequence entry |
+| `del_list skills.dirs=/opt/skills` | Remove a matching sequence entry |
+| `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `skills.dirs.0` (path form) | Sequence index |
+
+The root path (`.` or `/`) is read-only. Values are JSON for objects and arrays; string-typed fields take the literal text. Staged commands persist in the session bundle, so they survive restarts and HTTP permission resumes.
+
+The bundled `/configure-coddy` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
+
 ## Top-level keys
 
 | Key | Type | Purpose | Build tag |

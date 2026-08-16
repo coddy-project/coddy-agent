@@ -62,9 +62,7 @@ type Manager struct {
 // ACP client omits cwd; may be empty if every session supplies a non-empty cwd.
 // store may be nil to disable persistence.
 func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner, log *slog.Logger, defaultCWD string, store *FileStore) *Manager {
-	skillsDirs := make([]string, len(cfg.Skills.Dirs))
-	copy(skillsDirs, cfg.Skills.Dirs)
-
+	skillsDirs := append([]string(nil), cfg.Skills.Dirs...)
 	m := &Manager{
 		server:     server,
 		runner:     runner,
@@ -99,17 +97,92 @@ func (m *Manager) ReplaceConfig(next *config.Config) {
 	if next == nil {
 		return
 	}
-	previous := m.activeCfg()
-	skillsDirs := make([]string, len(next.Skills.Dirs))
-	copy(skillsDirs, next.Skills.Dirs)
-	m.skillsLoad = skills.NewLoader(skillsDirs)
-	m.cfgAt.Store(next)
+	previous := m.storeConfig(next)
 	if previous != nil && reflect.DeepEqual(previous.MCPServers, next.MCPServers) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
 	defer cancel()
 	m.reloadConfiguredMCPServers(ctx)
+}
+
+// storeConfig replaces the process configuration and the loader used by new
+// sessions. It returns the previous configuration so callers can decide
+// whether active MCP clients need reconnecting.
+func (m *Manager) storeConfig(next *config.Config) *config.Config {
+	previous := m.activeCfg()
+	m.skillsLoad = skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
+	m.cfgAt.Store(next)
+	return previous
+}
+
+// ReloadConfigForSession reloads config.yaml and applies runtime-owned state to
+// the current session. Configured MCP clients are replaced; ACP session MCP
+// clients are preserved. Individual MCP start failures are returned as warnings.
+func (m *Manager) ReloadConfigForSession(ctx context.Context, st *State) ([]string, error) {
+	current := m.activeCfg()
+	if current == nil {
+		return nil, fmt.Errorf("active config is unavailable")
+	}
+	next, err := config.LoadWithPaths(current.Paths)
+	if err != nil {
+		return nil, err
+	}
+	loader := skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
+	var warnings []string
+	var loadedSkills []*skills.Skill
+	if st != nil {
+		loadedSkills, err = loader.LoadAll(st.GetCWD(), next.Paths.Home, next.Skills.ManagedDir(next.Paths.Home))
+		if err != nil {
+			warnings = append(warnings, "load skills: "+err.Error())
+			loadedSkills = st.GetSkills()
+		}
+	}
+
+	var nextGlobal []*mcp.Client
+	if st != nil {
+		cwd := st.GetCWD()
+		gate := mcp.NewTrustGate(next)
+		for _, srv := range mcp.ListManagedServersTolerant(next, cwd, m.log) {
+			if srv.Config.Disabled {
+				continue
+			}
+			client, connectErr := gate.Connect(ctx, srv, cwd, m.log)
+			if connectErr != nil {
+				warnings = append(warnings, fmt.Sprintf("connect MCP %s: %v", srv.Config.Name, connectErr))
+				continue
+			}
+			nextGlobal = append(nextGlobal, client)
+		}
+	}
+
+	previous := m.storeConfig(next)
+	if st != nil {
+		st.ReplaceSkills(loadedSkills)
+		st.ReplaceRulesCatalog(DiscoverRules(next, st.GetCWD()))
+		st.MCPFilterFactory = func() func(server, tool string) bool {
+			return config.BuildMCPToolFilter(EffectiveMCPServers(m.activeCfg(), st.GetCWD(), m.log))
+		}
+		if ctx.Err() == nil {
+			st.replaceConfiguredMCPClients(nextGlobal)
+		} else {
+			for _, client := range nextGlobal {
+				_ = client.Close()
+			}
+			st.markMCPReloadPending()
+		}
+		m.sendAvailableSlashCommands(st.GetID(), st)
+	}
+	if previous == nil || !reflect.DeepEqual(previous.MCPServers, next.MCPServers) {
+		reloadCtx, cancel := context.WithTimeout(context.Background(), mcpReloadTimeout)
+		defer cancel()
+		m.reloadConfiguredMCPServersExcept(reloadCtx, st)
+	}
+	return warnings, nil
+}
+
+func (m *Manager) loadSkills(cwd string, cfg *config.Config) ([]*skills.Skill, error) {
+	return m.skillsLoad.LoadAll(cwd, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home))
 }
 
 // SetPreferredSessionID pins the identifier used for the next session/new invocation (typically from --session-id).
@@ -257,7 +330,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 }
 
 func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir string, mcpServers []acp.MCPServer) (*State, error) {
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home, m.activeCfg().Skills.ManagedDir(m.activeCfg().Paths.Home))
+	active := m.activeCfg()
+	loadedSkills, err := m.loadSkills(cwd, active)
 	if err != nil {
 		m.log.Warn("failed to load skills", "error", err)
 	}
@@ -342,7 +416,8 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.RestoreActivityFromSnapshot(snap.Meta.ActivitySeq, snap.Meta.ReadActivitySeq)
 	restoreContextBreakdown(st)
 
-	loadedSkills, err := m.skillsLoad.LoadAll(cwd, m.activeCfg().Paths.Home, m.activeCfg().Skills.ManagedDir(m.activeCfg().Paths.Home))
+	active := m.activeCfg()
+	loadedSkills, err := m.loadSkills(cwd, active)
 	if err != nil {
 		m.log.Warn("failed to load skills on session load", "error", err)
 	}
@@ -849,9 +924,19 @@ func (m *Manager) dialConfiguredMCPServers(ctx context.Context, cwd string) []*m
 // a turn releasing concurrently either observes it in its own drain or leaves
 // the lock free for us to take here.
 func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
+	m.reloadConfiguredMCPServersExcept(ctx, nil)
+}
+
+// reloadConfiguredMCPServersExcept applies a settings reload to every active
+// session except skip. config_commit uses skip for the session it refreshes at
+// the safe boundary between its current and next model calls.
+func (m *Manager) reloadConfiguredMCPServersExcept(ctx context.Context, skip *State) {
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
 	for _, state := range m.sessions {
+		if state == skip {
+			continue
+		}
 		states = append(states, state)
 	}
 	m.mu.RUnlock()

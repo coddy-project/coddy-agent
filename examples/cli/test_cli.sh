@@ -64,6 +64,7 @@ ALL_SCRIPTS=(
   cli_e2e_todo.py
   cli_e2e_skills_slash.py
   cli_e2e_rules.py
+  cli_e2e_config.py
   cli_e2e_background.py
   cli_e2e_compact.py
   cli_e2e_plan_files.py

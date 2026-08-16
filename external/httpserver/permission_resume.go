@@ -94,6 +94,14 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
+		if err == nil {
+			s.ReplaceConfig(s.mgr.Cfg())
+			s.invalidateSlashCache()
+		}
+		return warnings, err
+	})
 	ag.SetProviderFactory(s.agentProviderFactory)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)

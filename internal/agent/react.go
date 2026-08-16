@@ -64,6 +64,7 @@ type Agent struct {
 	registry        *tools.Registry
 	environment     platform.Environment
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
+	configReloader  func(context.Context) ([]string, error)
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -89,6 +90,14 @@ func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, err
 		return
 	}
 	a.providerFactory = mk
+}
+
+// SetConfigReloader wires config_commit and config_rollback to the process/session runtime owner.
+func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)) {
+	if a == nil {
+		return
+	}
+	a.configReloader = reload
 }
 
 // Run executes the ReAct loop and returns the stop reason.
@@ -129,11 +138,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Load skills applicable to this context.
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
-	toolSet := ToolSetForMode(mode)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
-		toolDefs = append(toolDefs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
-	}
+	toolDefs := a.currentToolDefinitions(mode)
 
 	// Get or create LLM provider.
 	provider, err := a.getProvider(mode)
@@ -194,9 +199,27 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		},
 		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
 		LoadSkillBody:     a.loadSkillBody,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
 		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
 		Background:        a.backgroundPool(sd),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+	}
+	if a.configReloader != nil {
+		toolEnv.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			return warnings, nil
+		}
 	}
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
@@ -642,6 +665,17 @@ func (a *Agent) runReActLoop(
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
 		}
+		if toolEnv.ConfigReloaded {
+			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
+			toolDefs = a.currentToolDefinitions(mode)
+			toolEnv.PermissionMode = effectivePermMode(a.state, a.cfg)
+			toolEnv.CommandAllowlist = append([]string(nil), a.cfg.Tools.CommandAllowlist...)
+			toolEnv.SSHConnectTimeout = a.cfg.Tools.SSHConnectTimeout
+			toolEnv.OutputLineLimits = a.cfg.Tools.OutputLimits.AsMap()
+			toolEnv.Background = a.backgroundPool(sd)
+			toolEnv.BackgroundEnabled = a.cfg.Tools.Background.ResolvedEnabled()
+			toolEnv.ConfigReloaded = false
+		}
 		// The model made progress (executed tool calls), so reset the empty-turn
 		// counter. The give-up notice is for CONSECUTIVE stalls (no answer and no
 		// tool call), not for a slow multi-step task that keeps acting between
@@ -817,6 +851,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
+	} else if configWriteTool(tc.Name) {
+		// Committing or rolling back the agent's own configuration can start
+		// new MCP processes and change the permission policy itself, so
+		// accept_edits does NOT auto-approve it the way it approves project
+		// file writes. Only the explicit bypass mode skips the prompt.
+		requiresPerm = env.PermissionMode != config.PermModeBypass
 	} else if filesystemWriteTool(tc.Name) {
 		switch env.PermissionMode {
 		case config.PermModeBypass, config.PermModeAcceptEdits:
@@ -837,6 +877,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 
 	if requiresPerm && !skipPermission {
+		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == "config_commit" {
+			// The commit call itself carries no arguments, so the dialog must
+			// show the staged commands it would apply (secrets redacted) -
+			// otherwise the operator confirms blindly.
+			if pending := tools.PendingConfigSummary(env); len(pending) > 0 {
+				promptBody += "\n\nStaged config commands to be committed:\n" + strings.Join(pending, "\n")
+			}
+		}
+		if tc.Name == "config_rollback" {
+			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
+				"changes committed after that snapshot leave the active file."
+		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -845,7 +898,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Kind:       toolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{
-					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
@@ -951,6 +1004,29 @@ func (a *Agent) callMCPTool(ctx context.Context, serverName, toolName, argsJSON 
 		}
 	}
 	return "", fmt.Errorf("MCP server not found: %s", serverName)
+}
+
+func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
+	toolSet := ToolSetForMode(mode)
+	available := a.registry.AllToolDefinitions()
+	if a.configReloader == nil {
+		// Without a runtime reloader the staged config flow cannot commit, so
+		// the whole editing family is hidden; config_get stays read-only.
+		filtered := available[:0]
+		for _, definition := range available {
+			switch definition.Name {
+			case "config_set", "config_changes", "config_commit", "config_revert", "config_rollback":
+			default:
+				filtered = append(filtered, definition)
+			}
+		}
+		available = filtered
+	}
+	defs := FilterToolDefinitions(available, toolSet)
+	if toolSet.Unrestricted() || mode == "plan" {
+		defs = append(defs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
+	}
+	return defs
 }
 
 // buildMessages constructs the message slice to send to the LLM.
@@ -1166,9 +1242,9 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes":
 		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1180,6 +1256,18 @@ func toolKind(name string) string {
 func filesystemWriteTool(name string) bool {
 	switch name {
 	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+		return true
+	default:
+		return false
+	}
+}
+
+// configWriteTool names the tools that write the agent's own configuration.
+// They get a stricter permission policy than project file writes: accept_edits
+// never auto-approves them (see executeToolCall).
+func configWriteTool(name string) bool {
+	switch name {
+	case "config_commit", "config_rollback":
 		return true
 	default:
 		return false
