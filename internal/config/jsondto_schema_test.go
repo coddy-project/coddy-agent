@@ -37,7 +37,7 @@ func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
 	items := providers["items"].(map[string]interface{})
 	pprops := items["properties"].(map[string]interface{})
 	name := pprops["name"].(map[string]interface{})
-	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_-]*$`; got != want {
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
 		t.Fatalf("provider name pattern: got %v want %v", got, want)
 	}
 	apiKey := pprops["api_key"].(map[string]interface{})

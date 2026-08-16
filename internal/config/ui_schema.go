@@ -180,7 +180,9 @@ func ensureObjectMatchesSchema(obj map[string]interface{}, schemaProps map[strin
 func UISchemaMap() map[string]interface{} {
 	providerName := strProp("Provider name",
 		"Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).")
-	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_-]*$`
+	// HTML pattern attributes are compiled with the JavaScript RegExp v flag.
+	// Escape the hyphen so the schema can be rendered by modern browsers.
+	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_\-]*$`
 	providerAPIKey := strProp("API key",
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
 	providerAPIKey["x-coddy-provider-api-key-env-placeholder"] = true

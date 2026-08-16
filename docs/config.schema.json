@@ -21,7 +21,7 @@
           "name": {
             "type": "string",
             "description": "Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter.",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$"
           },
           "type": {
             "type": "string",
