@@ -195,6 +195,139 @@ func TestConfigRevertDropsAllOrByPath(t *testing.T) {
 	}
 }
 
+func TestConfigCommitAbortsWhenStagingCannotBeConsumed(t *testing.T) {
+	const original = "agent:\n  max_turns: 21\n"
+	env := testConfigToolsEnv(t, original)
+	reloads := 0
+	env.ReloadConfig = func(context.Context) ([]string, error) {
+		reloads++
+		return nil, nil
+	}
+	stageCommands(t, env, "set agent.max_turns=7")
+
+	// A read-only session dir makes removing config_staging.json fail while
+	// reads still work. The commit must then abort before touching the config,
+	// so a later retry cannot replay an already applied batch.
+	if err := os.Chmod(env.SessionDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(env.SessionDir, 0o755) })
+
+	_, err := executeConfigCommit(context.Background(), "{}", env)
+	if err == nil || !strings.Contains(err.Error(), "config was not changed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reloads != 0 {
+		t.Fatalf("reloads = %d, want 0", reloads)
+	}
+	raw, readErr := os.ReadFile(env.ConfigPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(raw) != original {
+		t.Fatalf("aborted commit changed config: %q", raw)
+	}
+	if pending := pendingOf(t, env); len(pending) != 1 {
+		t.Fatalf("staged commands must survive the aborted commit, got %v", pending)
+	}
+}
+
+func TestConfigCommitKeepsStagingConsumedWhenRollbackFails(t *testing.T) {
+	const original = "agent:\n  max_turns: 21\nskills:\n  dirs:\n    - /opt/base\n"
+	env := testConfigToolsEnv(t, original)
+	dir := filepath.Dir(env.ConfigPath)
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	reloads := 0
+	env.ReloadConfig = func(context.Context) ([]string, error) {
+		reloads++
+		if reloads == 1 {
+			// Sabotage the directory before failing the reload, so the tool's
+			// commit.Rollback() cannot restore the previous file: the committed
+			// change stays active on disk.
+			if err := os.Chmod(dir, 0o555); err != nil {
+				return nil, err
+			}
+			return nil, os.ErrInvalid
+		}
+		return nil, nil
+	}
+	stageCommands(t, env, "add_list skills.dirs=/opt/extra")
+
+	_, err := executeConfigCommit(context.Background(), "{}", env)
+	if err == nil || !strings.Contains(err.Error(), "stay consumed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The non-idempotent command is live in the file, so it must not be
+	// replayable from staging.
+	raw, readErr := os.ReadFile(env.ConfigPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !strings.Contains(string(raw), "/opt/extra") {
+		t.Fatalf("expected the committed change to remain active: %q", raw)
+	}
+	if pending := pendingOf(t, env); len(pending) != 0 {
+		t.Fatalf("staged commands must stay consumed after a failed rollback, got %v", pending)
+	}
+}
+
+func TestConfigRevertWithPathOnEmptyStagingSucceeds(t *testing.T) {
+	env := testConfigToolsEnv(t, "agent: {}\n")
+	out, err := executeConfigRevert(context.Background(), `{"path":"agent.max_turns"}`, env)
+	if err != nil {
+		t.Fatalf("revert with path on empty staging: %v", err)
+	}
+	if !strings.Contains(out, `"pending":[]`) {
+		t.Fatalf("unexpected revert result: %s", out)
+	}
+}
+
+func TestConfigToolOutputsRedactSecretValues(t *testing.T) {
+	env := testConfigToolsEnv(t, "agent: {}\n")
+	out := stageCommands(t, env, "set httpserver.auth_token=t0p-secret")
+	if strings.Contains(out, "t0p-secret") {
+		t.Fatalf("config_set echoed a secret value: %s", out)
+	}
+	listed, err := executeConfigChanges(context.Background(), "{}", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(listed, "t0p-secret") || !strings.Contains(listed, "<redacted>") {
+		t.Fatalf("config_changes leaked a secret value: %s", listed)
+	}
+	if summary := PendingConfigSummary(env); len(summary) != 1 || strings.Contains(summary[0], "t0p-secret") {
+		t.Fatalf("permission summary leaked a secret value: %v", summary)
+	}
+	// The staging store must keep the original value for the commit to apply.
+	configStagingMu.Lock()
+	stored, err := loadStagedConfigCommands(env)
+	configStagingMu.Unlock()
+	if err != nil || len(stored) != 1 || !strings.Contains(stored[0], "t0p-secret") {
+		t.Fatalf("staging must keep the raw command: %v, %v", stored, err)
+	}
+
+	// The commit result (its "applied" list goes into the transcript) must be
+	// masked too, while the file receives the raw value.
+	env.ReloadConfig = func(context.Context) ([]string, error) { return nil, nil }
+	committed, err := executeConfigCommit(context.Background(), "{}", env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(committed, "t0p-secret") || !strings.Contains(committed, "<redacted>") {
+		t.Fatalf("config_commit leaked a secret value: %s", committed)
+	}
+	raw, err := os.ReadFile(env.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "t0p-secret") {
+		t.Fatalf("commit must write the raw value to disk: %q", raw)
+	}
+}
+
 func TestConfigRollbackWithoutSnapshotErrors(t *testing.T) {
 	env := testConfigToolsEnv(t, "agent:\n  max_turns: 21\n")
 	env.ReloadConfig = func(context.Context) ([]string, error) { return nil, nil }

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -80,17 +81,21 @@ func executeConfigSet(_ context.Context, argsJSON string, env *tooling.Env) (str
 	return marshalToolResult(map[string]interface{}{
 		"ok":          true,
 		"config_file": env.ConfigPath,
-		"pending":     pending,
+		"pending":     redactPendingForDisplay(pending),
 		"hint":        configSetHint,
 	}, "config_set")
 }
 
 func marshalToolResult(result map[string]interface{}, toolName string) (string, error) {
-	out, err := json.Marshal(result)
-	if err != nil {
+	// A plain Encoder keeps "<redacted>" placeholders readable in tool output
+	// instead of <-escaping them.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(result); err != nil {
 		return "", fmt.Errorf("%s encode result: %w", toolName, err)
 	}
-	return string(out), nil
+	return strings.TrimRight(buf.String(), "\n"), nil
 }
 
 func toolConfigPaths(env *tooling.Env) config.Paths {

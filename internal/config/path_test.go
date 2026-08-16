@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testPathConfig(t *testing.T, body string) Paths {
@@ -196,6 +197,74 @@ func TestCommitRejectsUnknownSchemaPathWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestUCICommandRedactedString(t *testing.T) {
+	cases := []struct {
+		line string
+		want string
+	}{
+		{line: "set providers.0.api_key=sk-secret", want: "set providers.0.api_key=<redacted>"},
+		{line: "set providers.0.api_key_command=vault read key", want: "set providers.0.api_key_command=<redacted>"},
+		{line: "set mcp_servers[name=x].env.0.value=tok-123", want: "set mcp_servers[name=x].env.0.value=<redacted>"},
+		{line: "set httpserver.auth_token='t0p'", want: "set httpserver.auth_token=<redacted>"},
+		{line: "add_list skills.dirs=/opt/skills", want: "add_list skills.dirs=/opt/skills"},
+		{line: "delete mcp_servers[name=x]", want: "delete mcp_servers[name=x]"},
+		{line: "set agent.max_turns=20", want: "set agent.max_turns=20"},
+	}
+	for _, tc := range cases {
+		cmd, err := ParseUCICommand(tc.line)
+		if err != nil {
+			t.Fatalf("ParseUCICommand(%q): %v", tc.line, err)
+		}
+		if got := cmd.RedactedString(); got != tc.want {
+			t.Fatalf("RedactedString(%q) = %q, want %q", tc.line, got, tc.want)
+		}
+	}
+
+	// Secrets embedded in a JSON object value are masked field by field.
+	cmd, err := ParseUCICommand(`set mcp_servers[name=x]={"command":"npx","env":[{"name":"K","value":"tok-embedded"}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cmd.RedactedString()
+	if strings.Contains(got, "tok-embedded") || !strings.Contains(got, "<redacted>") || !strings.Contains(got, "npx") {
+		t.Fatalf("embedded secret not masked: %q", got)
+	}
+}
+
+func TestFirstCommitIntoMissingFileWritesSnapshotForRollback(t *testing.T) {
+	dir := t.TempDir()
+	paths := Paths{Home: dir, CWD: dir, ConfigPath: filepath.Join(dir, "config.yaml")}
+	commit, err := CommitUCICommands(paths, mustParseUCI(t, "set agent.max_turns=9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit.Config.Agent.MaxTurns != 9 {
+		t.Fatalf("first commit did not apply: %+v", commit.Config.Agent)
+	}
+	snapshot, err := os.ReadFile(PrevConfigPath(paths.ConfigPath))
+	if err != nil {
+		t.Fatalf("first commit must leave a snapshot: %v", err)
+	}
+	if len(snapshot) != 0 {
+		t.Fatalf("snapshot of a missing file should be empty, got %q", snapshot)
+	}
+
+	rollback, err := RollbackConfigFromSnapshot(paths)
+	if err != nil {
+		t.Fatalf("rollback after first commit: %v", err)
+	}
+	if rollback.Config.Agent.MaxTurns == 9 {
+		t.Fatal("rollback did not return to the pre-commit defaults")
+	}
+	raw, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) != 0 {
+		t.Fatalf("restored config should be the empty pre-commit document, got %q", raw)
+	}
+}
+
 func TestCommitRollbackRestoresMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	paths := Paths{Home: dir, CWD: dir, ConfigPath: filepath.Join(dir, "config.yaml")}
@@ -252,6 +321,122 @@ func TestRollbackConfigFromSnapshotSwaps(t *testing.T) {
 	}
 	if again.Config.Agent.MaxTurns != 20 {
 		t.Fatalf("second rollback restored max_turns = %d, want 20", again.Config.Agent.MaxTurns)
+	}
+}
+
+// The transaction functions roll their files back on internal failures while
+// still holding configPathWriteMu, so the helper they use must never try to
+// take that non-reentrant mutex again. Calling it under a held lock would
+// deadlock (and time the test run out) if the helper regressed to locking.
+func TestInternalRollbackHelpersRunUnderHeldWriteLock(t *testing.T) {
+	paths := testPathConfig(t, "agent:\n  max_turns: 13\n")
+	commit, err := CommitUCICommands(paths, mustParseUCI(t, "set agent.max_turns=20"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPathWriteMu.Lock()
+	err = commit.rollbackLocked()
+	configPathWriteMu.Unlock()
+	if err != nil {
+		t.Fatalf("commit rollbackLocked: %v", err)
+	}
+	if got := maxTurnsOf(t, paths); got != 13 {
+		t.Fatalf("commit rollback restored max_turns = %d, want 13", got)
+	}
+
+	if _, err := CommitUCICommands(paths, mustParseUCI(t, "set agent.max_turns=20")); err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := RollbackConfigFromSnapshot(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPathWriteMu.Lock()
+	err = rollback.rollbackLocked()
+	configPathWriteMu.Unlock()
+	if err != nil {
+		t.Fatalf("snapshot rollbackLocked: %v", err)
+	}
+	if got := maxTurnsOf(t, paths); got != 20 {
+		t.Fatalf("snapshot rollback undo restored max_turns = %d, want 20", got)
+	}
+}
+
+func maxTurnsOf(t *testing.T, paths Paths) int {
+	t.Helper()
+	cfg, err := LoadWithPaths(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Agent.MaxTurns
+}
+
+// The whole transaction - disk mutation plus runtime application - must run
+// under one lock. If a second writer could squeeze in between another
+// transaction's file write and its runtime install, the process could end up
+// running a config that no longer matches the file.
+func TestConfigWritersSerializeFileAndRuntimeApplication(t *testing.T) {
+	paths := testPathConfig(t, "agent:\n  max_turns: 1\n")
+
+	installed := ""
+	install := func() {
+		raw, err := os.ReadFile(paths.ConfigPath)
+		if err != nil {
+			t.Errorf("read config during install: %v", err)
+			return
+		}
+		installed = string(raw)
+	}
+
+	cmds := mustParseUCI(t, "set agent.max_turns=2")
+	inReload := make(chan struct{})
+	release := make(chan struct{})
+	commitDone := make(chan error, 1)
+	go func() {
+		_, _, err := CommitUCICommandsAndReload(paths, cmds, func() ([]string, error) {
+			close(inReload)
+			<-release
+			install()
+			return nil, nil
+		})
+		commitDone <- err
+	}()
+	// The commit transaction wrote the file and is paused mid-reload, still
+	// holding the config file lock.
+	<-inReload
+
+	putDone := make(chan error, 1)
+	go func() {
+		putDone <- WithConfigFileLock(func() error {
+			if err := AtomicWriteConfigYAML(paths.ConfigPath, []byte("agent:\n  max_turns: 3\n")); err != nil {
+				return err
+			}
+			install()
+			return nil
+		})
+	}()
+	select {
+	case <-putDone:
+		t.Fatal("second writer entered while the commit transaction still held the lock")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-commitDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-putDone; err != nil {
+		t.Fatal(err)
+	}
+	final, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed != string(final) {
+		t.Fatalf("runtime installed %q but the file holds %q", installed, final)
+	}
+	if !strings.Contains(installed, "max_turns: 3") {
+		t.Fatalf("final installed config should be the second writer's: %q", installed)
 	}
 }
 

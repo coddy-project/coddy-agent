@@ -35,12 +35,9 @@ func executeConfigChanges(_ context.Context, _ string, env *tooling.Env) (string
 	if err != nil {
 		return "", err
 	}
-	if pending == nil {
-		pending = []string{}
-	}
 	result := map[string]interface{}{
 		"config_file": env.ConfigPath,
-		"pending":     pending,
+		"pending":     redactPendingForDisplay(pending),
 	}
 	if len(pending) > 0 {
 		result["hint"] = "Nothing is applied until config_commit."

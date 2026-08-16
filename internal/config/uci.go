@@ -26,6 +26,11 @@ const (
 	UCIOpDelete  = "delete"
 )
 
+// ErrConfigStateUncertain marks transaction failures where the automatic file
+// restore also failed: the on-disk configuration may match neither the
+// previous nor the new state, so callers must not assume a clean revert.
+var ErrConfigStateUncertain = errors.New("config state is uncertain")
+
 // UCICommand is one staged configuration edit in uci-like notation.
 type UCICommand struct {
 	Op    string
@@ -39,6 +44,66 @@ func (c UCICommand) String() string {
 		return UCIOpDelete + " " + c.Path
 	}
 	return c.Op + " " + c.Path + "=" + c.Value
+}
+
+// RedactedString renders the command for display (permission prompts, change
+// listings), masking values addressed at secret-shaped paths and secret-shaped
+// fields inside JSON object values. The stored command keeps the original value.
+func (c UCICommand) RedactedString() string {
+	if c.Op == UCIOpDelete {
+		return c.String()
+	}
+	var keys []string
+	if tokens, err := parseDottedConfigPath(c.Path); err == nil {
+		keys = configPathKeys(tokens)
+	}
+	if configSecretPath(keys) {
+		return c.Op + " " + c.Path + "=" + redactedConfigValue
+	}
+	var decoded interface{}
+	if json.Unmarshal([]byte(c.Value), &decoded) == nil && redactSecretJSON(&decoded, keys) {
+		// A plain Encoder keeps "<redacted>" readable instead of <-escaping it.
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(decoded); err == nil {
+			return c.Op + " " + c.Path + "=" + strings.TrimRight(buf.String(), "\n")
+		}
+	}
+	return c.String()
+}
+
+// redactSecretJSON masks secret-shaped fields inside a decoded JSON value.
+func redactSecretJSON(v *interface{}, path []string) bool {
+	switch node := (*v).(type) {
+	case map[string]interface{}:
+		changed := false
+		for key, child := range node {
+			next := appendPath(path, key)
+			if configSecretPath(next) {
+				node[key] = redactedConfigValue
+				changed = true
+				continue
+			}
+			c := child
+			if redactSecretJSON(&c, next) {
+				node[key] = c
+				changed = true
+			}
+		}
+		return changed
+	case []interface{}:
+		changed := false
+		for i := range node {
+			c := node[i]
+			if redactSecretJSON(&c, path) {
+				node[i] = c
+				changed = true
+			}
+		}
+		return changed
+	}
+	return false
 }
 
 // ParseUCICommand parses one "verb path[=value]" line.
@@ -199,10 +264,10 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		replacement, err := decodeUCIValue(cmd.Value, target)
 		if err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if _, err := mutateConfigNode(root, tokens, replacement, false); err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		return nil
 	case UCIOpDelete:
@@ -211,10 +276,10 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		mutated, err := mutateConfigNode(root, tokens, nil, true)
 		if err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if !mutated {
-			return fmt.Errorf("%s: path does not exist", cmd.String())
+			return fmt.Errorf("%s: path does not exist", cmd.RedactedString())
 		}
 		return nil
 	case UCIOpAddList:
@@ -225,10 +290,10 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		replacement, err := decodeUCIValue(cmd.Value, target)
 		if err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if _, err := mutateConfigNode(root, appendTokens, replacement, false); err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		return nil
 	case UCIOpDelList:
@@ -237,10 +302,10 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 		}
 		node, exists, err := findConfigNode(root, tokens)
 		if err != nil {
-			return fmt.Errorf("%s: %w", cmd.String(), err)
+			return fmt.Errorf("%s: %w", cmd.RedactedString(), err)
 		}
 		if !exists || node.Kind != yaml.SequenceNode {
-			return fmt.Errorf("%s: path is not an existing list", cmd.String())
+			return fmt.Errorf("%s: path is not an existing list", cmd.RedactedString())
 		}
 		kept := node.Content[:0]
 		removed := 0
@@ -252,7 +317,7 @@ func applyUCICommand(root *yaml.Node, cmd UCICommand) error {
 			kept = append(kept, entry)
 		}
 		if removed == 0 {
-			return fmt.Errorf("%s: no list entry equals %q", cmd.String(), cmd.Value)
+			return fmt.Errorf("%s: no list entry equals %q", cmd.RedactedString(), cmd.Value)
 		}
 		node.Content = kept
 		return nil
@@ -343,6 +408,13 @@ func (r *ConfigCommitResult) Rollback() error {
 	}
 	configPathWriteMu.Lock()
 	defer configPathWriteMu.Unlock()
+	return r.rollbackLocked()
+}
+
+// rollbackLocked restores the files while the caller already holds
+// configPathWriteMu; the transaction functions use it on their internal
+// failure paths, where taking the non-reentrant mutex again would deadlock.
+func (r *ConfigCommitResult) rollbackLocked() error {
 	var restoreErr error
 	if r.existed {
 		restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.previous))
@@ -351,7 +423,7 @@ func (r *ConfigCommitResult) Rollback() error {
 	}
 	snapshot := PrevConfigPath(r.paths.ConfigPath)
 	if r.prevExisted {
-		restoreErr = errors.Join(restoreErr, atomicWriteFile(snapshot, r.prevSnapshot, 0o644))
+		restoreErr = errors.Join(restoreErr, atomicWriteFile(snapshot, r.prevSnapshot, 0o600))
 	} else if err := os.Remove(snapshot); err != nil && !errors.Is(err, os.ErrNotExist) {
 		restoreErr = errors.Join(restoreErr, err)
 	}
@@ -362,12 +434,41 @@ func (r *ConfigCommitResult) Rollback() error {
 // validate, snapshot the previous file to config.yaml.prev, write atomically,
 // and reload the typed config from disk.
 func CommitUCICommands(paths Paths, cmds []UCICommand) (*ConfigCommitResult, error) {
+	configPathWriteMu.Lock()
+	defer configPathWriteMu.Unlock()
+	return commitUCICommandsLocked(paths, cmds)
+}
+
+// CommitUCICommandsAndReload runs the whole commit transaction - disk
+// mutation AND runtime application via reload - under the config file lock,
+// so no other writer can interleave between the write and the moment the
+// runtime picks it up. On reload failure the files are restored (and reload is
+// invoked again to re-apply them); if that restore fails the error wraps
+// ErrConfigStateUncertain.
+func CommitUCICommandsAndReload(paths Paths, cmds []UCICommand, reload func() ([]string, error)) (*ConfigCommitResult, []string, error) {
+	configPathWriteMu.Lock()
+	defer configPathWriteMu.Unlock()
+	result, err := commitUCICommandsLocked(paths, cmds)
+	if err != nil {
+		return nil, nil, err
+	}
+	warnings, err := reload()
+	if err != nil {
+		rbErr := result.rollbackLocked()
+		_, restoreErr := reload()
+		if rbErr != nil || restoreErr != nil {
+			return nil, nil, fmt.Errorf("reload committed config: %w (rollback: %v; restore reload: %v): %w", err, rbErr, restoreErr, ErrConfigStateUncertain)
+		}
+		return nil, nil, fmt.Errorf("reload committed config: %w (change rolled back)", err)
+	}
+	return result, warnings, nil
+}
+
+// commitUCICommandsLocked is the commit body; callers hold configPathWriteMu.
+func commitUCICommandsLocked(paths Paths, cmds []UCICommand) (*ConfigCommitResult, error) {
 	if len(cmds) == 0 {
 		return nil, fmt.Errorf("no staged config commands to commit")
 	}
-	configPathWriteMu.Lock()
-	defer configPathWriteMu.Unlock()
-
 	previous, existed, err := readExistingConfigBytes(paths.ConfigPath)
 	if err != nil {
 		return nil, err
@@ -395,22 +496,29 @@ func CommitUCICommands(paths Paths, cmds []UCICommand) (*ConfigCommitResult, err
 		if err := WriteBackup(paths.ConfigPath, previous); err != nil {
 			return nil, fmt.Errorf("backup config: %w", err)
 		}
-		if err := atomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o644); err != nil {
-			return nil, fmt.Errorf("snapshot config: %w", err)
-		}
+	}
+	// The snapshot is written even for the first commit into a missing file
+	// (as an empty document), so config_rollback can always return to the
+	// pre-commit state.
+	if err := atomicWriteFile(PrevConfigPath(paths.ConfigPath), previous, 0o600); err != nil {
+		return nil, fmt.Errorf("snapshot config: %w", err)
 	}
 	if err := AtomicWriteConfigYAML(paths.ConfigPath, updated); err != nil {
-		_ = result.Rollback()
-		return nil, fmt.Errorf("write config: %w", err)
+		if rbErr := result.rollbackLocked(); rbErr != nil {
+			return nil, fmt.Errorf("write config: %w (restore failed: %v): %w", err, rbErr, ErrConfigStateUncertain)
+		}
+		return nil, fmt.Errorf("write config: %w (previous files restored)", err)
 	}
 	result.Changed = !existed || !bytes.Equal(previous, updated)
 	for _, cmd := range cmds {
-		result.Applied = append(result.Applied, cmd.String())
+		result.Applied = append(result.Applied, cmd.RedactedString())
 	}
 	reloaded, err := loadWithPathsLocked(paths)
 	if err != nil {
-		_ = result.Rollback()
-		return nil, fmt.Errorf("reload config: %w", err)
+		if rbErr := result.rollbackLocked(); rbErr != nil {
+			return nil, fmt.Errorf("reload config: %w (restore failed: %v): %w", err, rbErr, ErrConfigStateUncertain)
+		}
+		return nil, fmt.Errorf("reload config: %w (previous files restored)", err)
 	}
 	result.Config = reloaded
 	return result, nil
@@ -419,6 +527,17 @@ func CommitUCICommands(paths Paths, cmds []UCICommand) (*ConfigCommitResult, err
 // loadWithPathsLocked reloads the typed config while configPathWriteMu is held.
 func loadWithPathsLocked(paths Paths) (*Config, error) {
 	return LoadWithPaths(paths)
+}
+
+// WithConfigFileLock runs fn while holding the process-wide config file write
+// lock shared with the staged commit and rollback transactions. Every writer
+// of the active config file (agent config tools, the HTTP PUT handler) must
+// serialize on this mutex, or concurrent writes can interleave backup, write,
+// and reload steps of two transactions.
+func WithConfigFileLock(fn func() error) error {
+	configPathWriteMu.Lock()
+	defer configPathWriteMu.Unlock()
+	return fn()
 }
 
 // ConfigRollbackResult records a snapshot restore and can undo it.
@@ -438,9 +557,14 @@ func (r *ConfigRollbackResult) Rollback() error {
 	}
 	configPathWriteMu.Lock()
 	defer configPathWriteMu.Unlock()
+	return r.rollbackLocked()
+}
+
+// rollbackLocked undoes the swap while the caller already holds configPathWriteMu.
+func (r *ConfigRollbackResult) rollbackLocked() error {
 	var restoreErr error
 	restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.replaced))
-	restoreErr = errors.Join(restoreErr, atomicWriteFile(r.SnapshotPath, r.restored, 0o644))
+	restoreErr = errors.Join(restoreErr, atomicWriteFile(r.SnapshotPath, r.restored, 0o600))
 	return restoreErr
 }
 
@@ -451,7 +575,34 @@ func (r *ConfigRollbackResult) Rollback() error {
 func RollbackConfigFromSnapshot(paths Paths) (*ConfigRollbackResult, error) {
 	configPathWriteMu.Lock()
 	defer configPathWriteMu.Unlock()
+	return rollbackConfigFromSnapshotLocked(paths)
+}
 
+// RollbackConfigFromSnapshotAndReload runs the whole snapshot restore - disk
+// swap AND runtime application via reload - under the config file lock. On
+// reload failure the swap is undone (and reload re-applies the undone files);
+// if that undo fails the error wraps ErrConfigStateUncertain.
+func RollbackConfigFromSnapshotAndReload(paths Paths, reload func() ([]string, error)) (*ConfigRollbackResult, []string, error) {
+	configPathWriteMu.Lock()
+	defer configPathWriteMu.Unlock()
+	result, err := rollbackConfigFromSnapshotLocked(paths)
+	if err != nil {
+		return nil, nil, err
+	}
+	warnings, err := reload()
+	if err != nil {
+		undoErr := result.rollbackLocked()
+		_, restoreErr := reload()
+		if undoErr != nil || restoreErr != nil {
+			return nil, nil, fmt.Errorf("reload restored config: %w (undo: %v; restore reload: %v): %w", err, undoErr, restoreErr, ErrConfigStateUncertain)
+		}
+		return nil, nil, fmt.Errorf("reload restored config: %w (rollback undone)", err)
+	}
+	return result, warnings, nil
+}
+
+// rollbackConfigFromSnapshotLocked is the restore body; callers hold configPathWriteMu.
+func rollbackConfigFromSnapshotLocked(paths Paths) (*ConfigRollbackResult, error) {
 	snapshotPath := PrevConfigPath(paths.ConfigPath)
 	snapshot, snapshotExists, err := readExistingConfigBytes(snapshotPath)
 	if err != nil {
@@ -480,14 +631,18 @@ func RollbackConfigFromSnapshot(paths Paths) (*ConfigRollbackResult, error) {
 	if err := AtomicWriteConfigYAML(paths.ConfigPath, snapshot); err != nil {
 		return nil, fmt.Errorf("restore config: %w", err)
 	}
-	if err := atomicWriteFile(snapshotPath, current, 0o644); err != nil {
-		_ = AtomicWriteConfigYAML(paths.ConfigPath, current)
-		return nil, fmt.Errorf("swap snapshot: %w", err)
+	if err := atomicWriteFile(snapshotPath, current, 0o600); err != nil {
+		if rbErr := AtomicWriteConfigYAML(paths.ConfigPath, current); rbErr != nil {
+			return nil, fmt.Errorf("swap snapshot: %w (restore failed: %v): %w", err, rbErr, ErrConfigStateUncertain)
+		}
+		return nil, fmt.Errorf("swap snapshot: %w (previous config restored)", err)
 	}
 	reloaded, err := loadWithPathsLocked(paths)
 	if err != nil {
-		_ = result.Rollback()
-		return nil, fmt.Errorf("reload restored config: %w", err)
+		if rbErr := result.rollbackLocked(); rbErr != nil {
+			return nil, fmt.Errorf("reload restored config: %w (undo failed: %v): %w", err, rbErr, ErrConfigStateUncertain)
+		}
+		return nil, fmt.Errorf("reload restored config: %w (swap undone)", err)
 	}
 	result.Config = reloaded
 	return result, nil

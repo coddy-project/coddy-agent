@@ -37,18 +37,13 @@ func executeConfigRollback(ctx context.Context, _ string, env *tooling.Env) (str
 	}
 	configStagingMu.Lock()
 	defer configStagingMu.Unlock()
-	rollback, err := config.RollbackConfigFromSnapshot(toolConfigPaths(env))
+	// The combined transaction holds the config file lock across the disk swap
+	// AND the runtime reload, so no other config writer can interleave.
+	rollback, warnings, err := config.RollbackConfigFromSnapshotAndReload(toolConfigPaths(env), func() ([]string, error) {
+		return env.ReloadConfig(ctx)
+	})
 	if err != nil {
 		return "", err
-	}
-	warnings, err := env.ReloadConfig(ctx)
-	if err != nil {
-		undoErr := rollback.Rollback()
-		_, restoreErr := env.ReloadConfig(ctx)
-		if undoErr != nil || restoreErr != nil {
-			return "", fmt.Errorf("reload restored config: %w (undo: %v; restore reload: %v)", err, undoErr, restoreErr)
-		}
-		return "", fmt.Errorf("reload restored config: %w (rollback undone)", err)
 	}
 	env.ConfigReloaded = true
 	result := map[string]interface{}{

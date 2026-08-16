@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -48,21 +49,30 @@ func executeConfigCommit(ctx context.Context, _ string, env *tooling.Env) (strin
 	if err != nil {
 		return "", err
 	}
-	commit, err := config.CommitUCICommands(toolConfigPaths(env), cmds)
-	if err != nil {
-		return "", err
-	}
-	warnings, err := env.ReloadConfig(ctx)
-	if err != nil {
-		rollbackErr := commit.Rollback()
-		_, restoreErr := env.ReloadConfig(ctx)
-		if rollbackErr != nil || restoreErr != nil {
-			return "", fmt.Errorf("reload committed config: %w (rollback: %v; restore reload: %v)", err, rollbackErr, restoreErr)
-		}
-		return "", fmt.Errorf("reload committed config: %w (change rolled back; staged commands kept)", err)
-	}
+	// Consume the staged commands before applying them: once the commit is
+	// live a leftover staging file must not allow a replay (add_list applied
+	// twice), so a consumption failure aborts while nothing has changed, and
+	// every failure after this point restores the staged list explicitly.
 	if err := saveStagedConfigCommands(env, nil); err != nil {
-		return "", err
+		return "", fmt.Errorf("consume staged config commands: %w (config was not changed)", err)
+	}
+	// The combined transaction holds the config file lock across the disk
+	// write AND the runtime reload, so no other config writer (another
+	// session's commit, the HTTP PUT handler) can interleave between them.
+	commit, warnings, err := config.CommitUCICommandsAndReload(toolConfigPaths(env), cmds, func() ([]string, error) {
+		return env.ReloadConfig(ctx)
+	})
+	if err != nil {
+		if errors.Is(err, config.ErrConfigStateUncertain) {
+			// The active file may still hold (part of) the change; restoring
+			// the staged list would let a blind retry replay non-idempotent
+			// commands such as add_list.
+			return "", fmt.Errorf("%w; staged commands stay consumed to prevent a replay - inspect the config file, then re-stage with config_set", err)
+		}
+		if restoreErr := saveStagedConfigCommands(env, pending); restoreErr != nil {
+			return "", fmt.Errorf("%w (staged commands were lost: %v; stage them again with config_set)", err, restoreErr)
+		}
+		return "", fmt.Errorf("%w; staged commands kept", err)
 	}
 	env.ConfigReloaded = true
 	result := map[string]interface{}{

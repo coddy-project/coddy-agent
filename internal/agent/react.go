@@ -851,6 +851,12 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				requiresPerm = true
 			}
 		}
+	} else if configWriteTool(tc.Name) {
+		// Committing or rolling back the agent's own configuration can start
+		// new MCP processes and change the permission policy itself, so
+		// accept_edits does NOT auto-approve it the way it approves project
+		// file writes. Only the explicit bypass mode skips the prompt.
+		requiresPerm = env.PermissionMode != config.PermModeBypass
 	} else if filesystemWriteTool(tc.Name) {
 		switch env.PermissionMode {
 		case config.PermModeBypass, config.PermModeAcceptEdits:
@@ -871,6 +877,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	}
 
 	if requiresPerm && !skipPermission {
+		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
+		if tc.Name == "config_commit" {
+			// The commit call itself carries no arguments, so the dialog must
+			// show the staged commands it would apply (secrets redacted) -
+			// otherwise the operator confirms blindly.
+			if pending := tools.PendingConfigSummary(env); len(pending) > 0 {
+				promptBody += "\n\nStaged config commands to be committed:\n" + strings.Join(pending, "\n")
+			}
+		}
+		if tc.Name == "config_rollback" {
+			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
+				"changes committed after that snapshot leave the active file."
+		}
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -879,7 +898,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				Kind:       toolKind(tc.Name),
 				Status:     "pending",
 				Content: []acp.ToolCallResultItem{
-					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: permission.PromptBody(tc.Name, tc.InputJSON)}},
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: promptBody}},
 				},
 			},
 			Options: permission.Options(tc.Name, tc.InputJSON),
@@ -1236,7 +1255,19 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv":
+		return true
+	default:
+		return false
+	}
+}
+
+// configWriteTool names the tools that write the agent's own configuration.
+// They get a stricter permission policy than project file writes: accept_edits
+// never auto-approves them (see executeToolCall).
+func configWriteTool(name string) bool {
+	switch name {
+	case "config_commit", "config_rollback":
 		return true
 	default:
 		return false

@@ -51,7 +51,9 @@ func executeConfigRevert(_ context.Context, argsJSON string, env *tooling.Env) (
 	}
 	path := strings.TrimSpace(args.Path)
 	var remaining []string
-	if path != "" {
+	// Reverting an already empty staging area is a no-op, with or without a
+	// path filter.
+	if path != "" && len(pending) > 0 {
 		cmds, err := config.ParseUCICommands(pending)
 		if err != nil {
 			return "", err
@@ -65,12 +67,9 @@ func executeConfigRevert(_ context.Context, argsJSON string, env *tooling.Env) (
 	if err := saveStagedConfigCommands(env, remaining); err != nil {
 		return "", err
 	}
-	if remaining == nil {
-		remaining = []string{}
-	}
 	return marshalToolResult(map[string]interface{}{
 		"ok":      true,
-		"pending": remaining,
+		"pending": redactPendingForDisplay(remaining),
 	}, "config_revert")
 }
 

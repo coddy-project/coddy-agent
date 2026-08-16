@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -90,4 +91,33 @@ func stagingKey(env *tooling.Env) string {
 		return ""
 	}
 	return strings.TrimSpace(env.SessionID)
+}
+
+// redactPendingForDisplay renders staged commands with secret-shaped values
+// masked. The staging store keeps the original commands; only what is shown to
+// the model, the transcript, and permission prompts is redacted.
+func redactPendingForDisplay(pending []string) []string {
+	out := make([]string, 0, len(pending))
+	for _, line := range pending {
+		if cmd, err := config.ParseUCICommand(line); err == nil {
+			out = append(out, cmd.RedactedString())
+		} else {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// PendingConfigSummary returns the redacted staged commands for the session.
+// The ReAct loop embeds it into the config_commit permission prompt so the
+// operator sees exactly what a commit would apply. Empty when nothing is
+// staged or the staging store is unreadable.
+func PendingConfigSummary(env *tooling.Env) []string {
+	configStagingMu.Lock()
+	defer configStagingMu.Unlock()
+	pending, err := loadStagedConfigCommands(env)
+	if err != nil {
+		return nil
+	}
+	return redactPendingForDisplay(pending)
 }

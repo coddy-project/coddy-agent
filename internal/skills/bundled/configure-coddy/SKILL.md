@@ -18,7 +18,7 @@ Configuration edits never apply immediately. The flow is always:
 5. **Commit** with `config_commit` only after that agreement. The commit validates the batch, snapshots the previous file, writes atomically, and hot-reloads the running session - new skills, rules, tools, and MCP servers become usable in the same turn, no restart needed.
 6. If the user declines or changes their mind, drop the staged commands with `config_revert` (optionally scoped to one path).
 
-`config_commit` also goes through Coddy's permission gate. Never weaken the permission policy merely to avoid that prompt, and never call `config_commit` before the user agreed to save.
+`config_commit` also goes through Coddy's permission gate: it prompts even in `accept_edits` mode (a config commit can start MCP processes and change the permission policy itself), and the dialog lists the staged commands with secrets redacted. Never weaken the permission policy merely to avoid that prompt, and never call `config_commit` before the user agreed to save.
 
 ## Command syntax (uci-like)
 

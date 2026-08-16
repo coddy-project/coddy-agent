@@ -515,7 +515,7 @@ func configSecretPath(path []string) bool {
 	}
 	last := strings.ToLower(strings.ReplaceAll(path[len(path)-1], "-", "_"))
 	switch last {
-	case "api_key", "auth_token", "token", "proxy", "password", "secret":
+	case "api_key", "api_key_command", "auth_token", "token", "proxy", "password", "secret":
 		return true
 	case "value":
 		for _, part := range path[:len(path)-1] {
