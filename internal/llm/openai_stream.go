@@ -119,7 +119,23 @@ func streamErrorSnippet(payload []byte) string {
 	return s
 }
 
-// newStreamServerError formats a server-reported streaming failure. obj is
+// streamServerError is a failure the server reported inside an SSE stream.
+// It keeps the HTTP-style status code structurally so retry classification
+// (httpStatusFromError) treats streamed errors like their pre-stream
+// equivalents: 5xx retryable, 4xx not.
+type streamServerError struct {
+	code int
+	msg  string
+}
+
+func (e *streamServerError) Error() string {
+	if e.code > 0 {
+		return fmt.Sprintf("server error %d: %s", e.code, e.msg)
+	}
+	return "server error: " + e.msg
+}
+
+// newStreamServerError parses a server-reported streaming failure. obj is
 // the error object ({"code":400,"message":"...","type":"..."} for llama.cpp)
 // or any other payload the server put in the error frame.
 func newStreamServerError(obj []byte) error {
@@ -127,10 +143,7 @@ func newStreamServerError(obj []byte) error {
 	if msg == "" {
 		msg = streamErrorSnippet(obj)
 	}
-	if code := gjson.GetBytes(obj, "code").Int(); code > 0 {
-		return fmt.Errorf("server error %d: %s", code, msg)
-	}
-	return fmt.Errorf("server error: %s", msg)
+	return &streamServerError{code: int(gjson.GetBytes(obj, "code").Int()), msg: msg}
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.
@@ -171,8 +184,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	scanner := newSSEScanner(raw.Body)
 	var streamErr error
-	var done, decodedAny bool
-	var lastBadFrame string
+	var done bool
 
 	for scanner.Next() {
 		frame := scanner.Frame()
@@ -202,12 +214,12 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 		var chunk openai.ChatCompletionChunk
 		if err := json.Unmarshal(payload, &chunk); err != nil {
-			// Tolerate one broken frame the way JS SSE clients do; keep the
-			// payload so a fully undecodable stream still yields diagnostics.
-			lastBadFrame = streamErrorSnippet(payload)
-			continue
+			// A non-empty data frame that is not JSON means the stream is
+			// corrupt; failing silently here would truncate the response.
+			// Carry the payload so the operator sees what the server sent.
+			streamErr = fmt.Errorf("undecodable SSE frame: %s", streamErrorSnippet(payload))
+			break
 		}
-		decodedAny = true
 
 		if len(chunk.Choices) == 0 {
 			if chunk.Usage.TotalTokens > 0 {
@@ -262,9 +274,6 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	if streamErr == nil {
 		streamErr = scanner.Err()
-	}
-	if streamErr == nil && !decodedAny && lastBadFrame != "" {
-		streamErr = fmt.Errorf("undecodable SSE frame: %s", lastBadFrame)
 	}
 
 	if streamErr != nil {

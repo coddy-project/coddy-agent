@@ -205,6 +205,10 @@ func httpStatusFromError(err error) int {
 	if errors.As(err, &oai) && oai.StatusCode > 0 {
 		return oai.StatusCode
 	}
+	var sse *streamServerError
+	if errors.As(err, &sse) && sse.code > 0 {
+		return sse.code
+	}
 	var ant *anthropic.Error
 	if errors.As(err, &ant) && ant.StatusCode > 0 {
 		return ant.StatusCode

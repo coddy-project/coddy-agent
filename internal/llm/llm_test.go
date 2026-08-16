@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -122,9 +123,11 @@ func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
 	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
 }
 
-// TestOpenAIStreamSkipsUndecodableFrame verifies that one malformed SSE data
-// frame between valid chunks does not abort the stream (lenient parsing).
-func TestOpenAIStreamSkipsUndecodableFrame(t *testing.T) {
+// TestOpenAIStreamUndecodableFrameFails verifies that a malformed non-empty
+// data frame after valid chunks aborts the stream with the offending payload
+// preserved: silently skipping it would return a truncated response as
+// success.
+func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
 	p, done := streamStubProvider(t,
 		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"+
 			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\n\n"+ // truncated JSON
@@ -132,12 +135,58 @@ func TestOpenAIStreamSkipsUndecodableFrame(t *testing.T) {
 			"data: [DONE]\n\n")
 	defer done()
 
-	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
-	if err != nil {
-		t.Fatalf("Stream: %v", err)
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail on a malformed non-empty data frame")
 	}
-	if resp.Content != "Hello" {
-		t.Errorf("content = %q, want %q", resp.Content, "Hello")
+	if !strings.Contains(err.Error(), "undecodable SSE frame") || !strings.Contains(err.Error(), `{"choices":[{"index":0,"delta":{"content":`) {
+		t.Errorf("error %q must name the undecodable frame and carry its payload", err)
+	}
+}
+
+// TestOpenAIStreamedErrorRetryClassification verifies that server errors
+// reported inside the SSE stream retry like their pre-stream HTTP
+// equivalents: 5xx retryable, 4xx not.
+func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
+	cases := []struct {
+		name         string
+		frame        string
+		wantRequests int32
+	}{
+		{"streamed 400 is not retried",
+			"error: {\"code\":400,\"message\":\"the request exceeds the available context size\",\"type\":\"invalid_request_error\"}\n\n", 1},
+		{"streamed 500 is retried once",
+			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, tc.frame)
+			}))
+			defer srv.Close()
+
+			prov, err := NewProvider(ProviderInput{
+				Type:          "openai",
+				Model:         "qwen3-1.7b",
+				BaseURL:       srv.URL,
+				RetryMax:      1,
+				RetryBase:     time.Millisecond,
+				RetryMaxDelay: time.Millisecond,
+			})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			if err == nil {
+				t.Fatal("Stream must fail")
+			}
+			if got := requests.Load(); got != tc.wantRequests {
+				t.Errorf("upstream requests = %d, want %d", got, tc.wantRequests)
+			}
+		})
 	}
 }
 
