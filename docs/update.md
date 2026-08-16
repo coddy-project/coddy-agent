@@ -2,6 +2,8 @@
 
 Use **`coddy update`** to download official release binaries from [GitHub Releases](https://github.com/coddy-project/coddy-agent/releases) and replace the **`coddy`** executable you are running.
 
+On Windows, Coddy starts a short-lived helper from the system temporary directory. The helper waits for `coddy update` to exit, keeps a backup of the installed executable, replaces it, and starts the updated Coddy again. The helper's status lines continue in the same `cmd.exe` or PowerShell console after the `update` command returns.
+
 ## What gets installed
 
 CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**:
@@ -77,6 +79,7 @@ coddy update --help
 ## Limitations
 
 - Only platforms listed in the release table are supported; others get a clear error.
-- On Windows the running process may lock the executable; close other **`coddy`** instances if replace fails.
+- On Windows, Coddy retries a transient executable lock for 30 seconds. If the update cannot be installed, the current executable is left in place. If the updated binary cannot be started, Coddy restores the backup.
+- Asset downloads resume after a temporary connection failure (up to three attempts). GitHub supports the HTTP range requests Coddy uses to resume; a server that does not support ranges is downloaded again from the beginning.
 - **`coddy update`** needs outbound HTTPS to **`api.github.com`** and the asset CDN (GitHub release downloads).
 - Config under **`$CODDY_HOME`** is not modified; only the binary is replaced.
