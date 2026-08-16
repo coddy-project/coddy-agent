@@ -205,6 +205,18 @@ func httpStatusFromError(err error) int {
 	if errors.As(err, &oai) && oai.StatusCode > 0 {
 		return oai.StatusCode
 	}
+	var sse *streamServerError
+	if errors.As(err, &sse) {
+		// The typed streamed error is authoritative: no fallthrough to the
+		// substring matcher below, whose needles could occur inside the
+		// server-provided message text. After chunks already reached the
+		// caller the error must not classify as retryable at all: replaying
+		// the request would emit the same deltas a second time.
+		if sse.emitted {
+			return 0
+		}
+		return sse.code
+	}
 	var ant *anthropic.Error
 	if errors.As(err, &ant) && ant.StatusCode > 0 {
 		return ant.StatusCode

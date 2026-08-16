@@ -93,6 +93,15 @@ providers:
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
 
+### llama.cpp as an OpenAI-compatible provider
+
+`llama-server` works as a `type: openai` provider (`api_base: "http://host:8080/v1"`). Recommended launch flags:
+
+- `--jinja` — enables the model's chat template on the server, which is required for **tool calling**. Without it llama.cpp silently ignores the `tools` parameter and the agent loop degrades to plain text answers.
+- `-c <n>` — set the context window large enough for an agent prompt (system prompt plus tool schemas plus history; 16k is a practical minimum, more is better). When a request exceeds the server context, llama.cpp reports `the request exceeds the available context size` — raise `-c` or trim `max_context_tokens`.
+
+llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE `error:` field; Coddy understands both that dialect and the current `data: {"error": ...}` shape and surfaces the server's message in the error.
+
 For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or run the terminal equivalent for ACP and headless setups:
 
 ```bash

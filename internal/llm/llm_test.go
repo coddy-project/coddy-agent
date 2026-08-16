@@ -10,8 +10,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestWrappedStreamCancelIsCanceled(t *testing.T) {
@@ -108,6 +110,238 @@ func TestNewProviderNeuralDeepIsSupported(t *testing.T) {
 		BaseURL: "https://example.invalid/v1",
 	}); err != nil {
 		t.Fatalf("NewProvider(neuraldeep): %v", err)
+	}
+}
+
+// streamStubProvider builds an unwrapped openai provider against a server
+// that replays the given SSE body for every request.
+func streamStubProvider(t *testing.T, sse string) (*openAIProvider, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, sse)
+	}))
+	return newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, ""), srv.Close
+}
+
+// TestOpenAIStreamUndecodableFrameFails verifies that a malformed non-empty
+// data frame after valid chunks aborts the stream with the offending payload
+// preserved: silently skipping it would return a truncated response as
+// success.
+func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"+
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\n\n"+ // truncated JSON
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n"+
+			"data: [DONE]\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail on a malformed non-empty data frame")
+	}
+	if !strings.Contains(err.Error(), "undecodable SSE frame") || !strings.Contains(err.Error(), `{"choices":[{"index":0,"delta":{"content":`) {
+		t.Errorf("error %q must name the undecodable frame and carry its payload", err)
+	}
+}
+
+// TestOpenAIStreamedErrorRetryClassification verifies that server errors
+// reported inside the SSE stream retry like their pre-stream HTTP
+// equivalents: 5xx retryable, 4xx not.
+func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
+	const contentChunk = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"
+	cases := []struct {
+		name         string
+		body         string
+		wantRequests int32
+		wantDeltas   int32
+	}{
+		{"streamed 400 is not retried",
+			"error: {\"code\":400,\"message\":\"the request exceeds the available context size\",\"type\":\"invalid_request_error\"}\n\n", 1, 0},
+		{"streamed 500 is retried once",
+			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2, 0},
+		{"streamed 500 after emitted deltas is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
+		{"streamed 500 after deltas with status-like message text is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"upstream said 500 Internal Server Error\",\"type\":\"server_error\"}\n\n", 1, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var requests, deltas atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			prov, err := NewProvider(ProviderInput{
+				Type:          "openai",
+				Model:         "qwen3-1.7b",
+				BaseURL:       srv.URL,
+				RetryMax:      1,
+				RetryBase:     time.Millisecond,
+				RetryMaxDelay: time.Millisecond,
+			})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+				if c.TextDelta != "" {
+					deltas.Add(1)
+				}
+			})
+			if err == nil {
+				t.Fatal("Stream must fail")
+			}
+			if got := requests.Load(); got != tc.wantRequests {
+				t.Errorf("upstream requests = %d, want %d", got, tc.wantRequests)
+			}
+			if got := deltas.Load(); got != tc.wantDeltas {
+				t.Errorf("text deltas delivered = %d, want %d (retries must not replay deltas)", got, tc.wantDeltas)
+			}
+		})
+	}
+}
+
+// TestSSEScannerFrameAssembly pins the lenient scanner's frame handling:
+// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM) and
+// the llama.cpp dialect ("error:" field, unterminated final frame).
+func TestSSEScannerFrameAssembly(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []sseFrame
+	}{
+		{"crlf line endings",
+			"data: {\"a\":1}\r\n\r\ndata: [DONE]\r\n\r\n",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("[DONE]\n")}}},
+		{"multiple data lines join with newline",
+			"data: line1\ndata: line2\n\n",
+			[]sseFrame{{data: []byte("line1\nline2\n")}}},
+		{"comment-only frames and blank runs are skipped",
+			": ping\n\n\n\n: pong\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"unterminated final frame is dispatched",
+			"data: {\"a\":1}\n\ndata: tail",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("tail\n")}}},
+		{"error field is preserved separately",
+			"error: {\"code\":400}\n\n",
+			[]sseFrame{{errData: []byte("{\"code\":400}\n")}}},
+		{"leading BOM is stripped",
+			"\xef\xbb\xbfdata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"field without colon or value is harmless",
+			"data\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("\n")}, {data: []byte("x\n")}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := newSSEScanner(strings.NewReader(tc.input))
+			var got []sseFrame
+			for sc.Next() {
+				f := sc.Frame()
+				got = append(got, sseFrame{
+					data:    append([]byte(nil), f.data...),
+					errData: append([]byte(nil), f.errData...),
+				})
+			}
+			if err := sc.Err(); err != nil {
+				t.Fatalf("scanner error: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("frames = %d, want %d (%q)", len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
+					t.Errorf("frame %d = {data:%q err:%q}, want {data:%q err:%q}",
+						i, got[i].data, got[i].errData, tc.want[i].data, tc.want[i].errData)
+				}
+			}
+		})
+	}
+}
+
+// TestStreamErrorSnippetRuneBoundary verifies the diagnostic snippet never
+// splits a multibyte rune at the truncation point.
+func TestStreamErrorSnippetRuneBoundary(t *testing.T) {
+	// One ASCII byte shifts the 2-byte runes so the truncation index lands on
+	// a continuation byte and the boundary back-off is actually exercised.
+	payload := "a" + strings.Repeat("я", streamErrorSnippetLimit)
+	if utf8.RuneStart(payload[streamErrorSnippetLimit]) {
+		t.Fatal("test setup: truncation index must fall inside a rune")
+	}
+	got := streamErrorSnippet([]byte(payload))
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("snippet must be truncated with ellipsis")
+	}
+	if !utf8.ValidString(strings.TrimSuffix(got, "...")) {
+		t.Errorf("snippet split a multibyte rune")
+	}
+}
+
+// TestOpenAIStreamAllFramesUndecodable verifies that a stream yielding no
+// decodable chunk fails with the offending frame preserved in the error.
+func TestOpenAIStreamAllFramesUndecodable(t *testing.T) {
+	p, done := streamStubProvider(t, "data: {\"choices\":[{\"index\n\n"+"data: [DONE]\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("Stream must fail when no frame decodes")
+	}
+	if !strings.Contains(err.Error(), `{"choices":[{"index`) {
+		t.Errorf("error %q must include the undecodable frame payload", err)
+	}
+}
+
+// TestOpenAIStreamStandardErrorObject verifies that a data frame carrying an
+// {"error": ...} object (llama.cpp b9038+, gateways) surfaces the message.
+func TestOpenAIStreamStandardErrorObject(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"x\"}}]}\n\n"+
+			"data: {\"error\":{\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}}\n\n")
+	defer done()
+
+	_, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "slot unavailable") {
+		t.Fatalf("error = %v, want message containing %q", err, "slot unavailable")
+	}
+}
+
+// TestOpenAIStreamCancelKeepsPartial pins the cancellation contract: a stream
+// cancelled after emitting content returns the partial response together with
+// a context.Canceled-wrapped error.
+func TestOpenAIStreamCancelKeepsPartial(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n")
+		if fl != nil {
+			fl.Flush()
+		}
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	p := newOpenAIProvider("qwen3-1.7b", "", srv.URL, nil, 0, 0, "")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Cancel from inside onChunk so the first delta is observed deterministically
+	// before the context is torn down.
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		if c.TextDelta != "" {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if resp == nil || resp.Content != "partial" {
+		t.Fatalf("resp = %+v, want partial content preserved", resp)
 	}
 }
 
