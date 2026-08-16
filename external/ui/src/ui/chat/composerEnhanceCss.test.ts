@@ -19,3 +19,10 @@ test("prompt enhancement control is compact in the composer context row", () => 
   expect(block![1]).toMatch(/height:\s*24px/);
   expect(block![1]).not.toMatch(/position:\s*absolute/);
 });
+
+test("prompt enhancement control is pinned to the mobile context row's top-right", () => {
+  const css = cssText();
+  expect(css).toMatch(
+    /@media\s*\(max-width:\s*520px\)\s*\{\s*\.composer-context-row\s*\{[^}]*position:\s*relative[^}]*padding-right:\s*44px[^}]*\}\s*\.composer-enhance-btn\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px/s,
+  );
+});

@@ -3539,6 +3539,21 @@ textarea#composer {
 .composer-context-row > .composer-context-chips {
   padding: 0;
 }
+
+@media (max-width: 520px) {
+  .composer-context-row {
+    position: relative;
+    padding-right: 44px;
+  }
+
+  .composer-enhance-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    margin-left: 0;
+  }
+}
+
 .workspace-chip-wrap {
   display: inline-flex;
 }
