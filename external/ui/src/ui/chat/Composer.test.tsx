@@ -617,6 +617,132 @@ function stubMatchMediaMobile(isMobile: boolean) {
   }));
 }
 
+test("enhance button is inside the textarea field with an explanatory title", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  expect(button).toHaveAttribute("title", "Improve prompt");
+  expect(button.closest(".composer-field-wrap")).not.toBeNull();
+  expect(button.closest(".composer-bar")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("enhance button posts the draft and replaces it with the result", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      object: "coddy.enhance_prompt",
+      text: "Refactor the memory endpoint and add tests.",
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith(
+      "Refactor the memory endpoint and add tests.",
+    );
+  });
+  const call = fetchMock.mock.calls.find(
+    ([url]) => url === "/coddy/enhance-prompt",
+  );
+  expect(call).toBeDefined();
+  expect(call![0]).toBe("/coddy/enhance-prompt");
+  expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({
+    text: "fix memory thing",
+  });
+  vi.unstubAllGlobals();
+});
+
+test("enhance request carries the active session id", async () => {
+  stubMatchMediaMobile(false);
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ text: "Better draft." }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      sessionId="sess_abc123"
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const call = fetchMock.mock.calls.find(
+    ([url]) => url === "/coddy/enhance-prompt",
+  );
+  expect(call).toBeDefined();
+  const init = call![1] as RequestInit;
+  expect((init.headers as Record<string, string>)["X-Coddy-Session-ID"]).toBe(
+    "sess_abc123",
+  );
+  vi.unstubAllGlobals();
+});
+
+test("Ctrl+Z restores the draft before prompt enhancement", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "Better draft." }),
+    }),
+  );
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={(_mode) => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith("Better draft."));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "z",
+    ctrlKey: true,
+  });
+  expect(onChange).toHaveBeenLastCalledWith("fix memory thing");
+  vi.unstubAllGlobals();
+});
+
 test("desktop: Ctrl+Enter calls onSend", () => {
   stubMatchMediaMobile(false);
   const onSend = vi.fn();

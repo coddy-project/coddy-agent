@@ -3265,7 +3265,7 @@ textarea#composer {
   background: transparent;
   border: 0;
   border-radius: 0;
-  padding: 16px 16px 10px;
+  padding: 16px 52px 10px 16px;
   outline: none;
 }
 
@@ -3286,7 +3286,7 @@ textarea#composer {
 .composer-mirror-inner {
   box-sizing: border-box;
   width: 100%;
-  padding: 16px 16px 10px;
+  padding: 16px 52px 10px 16px;
   white-space: pre-wrap;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -3319,6 +3319,51 @@ textarea#composer {
   font-weight: 400;
   font-style: normal;
   font-variant-numeric: normal;
+}
+
+.composer-enhance-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  background: var(--coddy-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.composer-enhance-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 17%, var(--coddy-surface-muted));
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--coddy-blend-base));
+}
+
+.composer-enhance-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-enhance-icon {
+  display: block;
+  transform-origin: center;
+}
+
+.composer-enhance-icon.is-spinning {
+  animation: session-spin 0.8s linear infinite;
+}
+
+.composer-enhance-err {
+  padding: 0 12px 8px;
+  color: rgba(251, 113, 133, 0.95);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 /* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */

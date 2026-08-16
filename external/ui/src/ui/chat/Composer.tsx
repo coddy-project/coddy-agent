@@ -319,6 +319,12 @@ export function Composer(props: {
     [],
   );
   const [composerScrollTop, setComposerScrollTop] = useState(0);
+  /** True while the prompt-improvement request is in flight. */
+  const [enhancing, setEnhancing] = useState(false);
+  /** Request failure shown without changing the user's draft. */
+  const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
+  /** Draft saved just before improving it so Ctrl+Z can restore it once. */
+  const preEnhanceRef = useRef<string | null>(null);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
@@ -687,6 +693,55 @@ export function Composer(props: {
     },
     [props.sessionId],
   );
+
+  const enhancePrompt = useCallback(async () => {
+    if (enhancing || props.generating) {
+      return;
+    }
+    const draft = props.value.trim();
+    if (!draft) {
+      return;
+    }
+    preEnhanceRef.current = props.value;
+    setEnhancing(true);
+    setEnhanceErr(null);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sessionID = (props.sessionId || "").trim();
+      if (sessionID) {
+        headers["X-Coddy-Session-ID"] = sessionID;
+      }
+      const response = await fetch("/coddy/enhance-prompt", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text: draft }),
+      });
+      if (!response.ok) {
+        setEnhanceErr(
+          response.status === 503
+            ? "Couldn't improve the prompt: no model is configured."
+            : "Couldn't improve the prompt. Your draft is unchanged.",
+        );
+        preEnhanceRef.current = null;
+        return;
+      }
+      const body = (await response.json()) as { text?: string };
+      const enhanced = (body.text || "").trim();
+      if (enhanced) {
+        props.onChange(enhanced);
+      } else {
+        preEnhanceRef.current = null;
+      }
+    } catch {
+      preEnhanceRef.current = null;
+      setEnhanceErr("Couldn't improve the prompt. Your draft is unchanged.");
+    } finally {
+      setEnhancing(false);
+      requestAnimationFrame(() => taRef.current?.focus());
+    }
+  }, [enhancing, props.generating, props.value, props.sessionId, props.onChange]);
 
   const updateSlashMenu = useCallback(
     (value: string, caret: number) => {
@@ -1549,6 +1604,8 @@ export function Composer(props: {
                   const v = ev.target.value;
                   const caret = ev.target.selectionStart ?? v.length;
                   setCaretPos(caret);
+                  preEnhanceRef.current = null;
+                  setEnhanceErr(null);
                   props.onChange(v);
                   updatePickerMenus(v, caret);
                 }}
@@ -1600,6 +1657,18 @@ export function Composer(props: {
                   ]);
                 }}
                 onKeyDown={(ev) => {
+                  if (
+                    ev.key === "z" &&
+                    (ev.metaKey || ev.ctrlKey) &&
+                    !ev.shiftKey &&
+                    preEnhanceRef.current !== null
+                  ) {
+                    ev.preventDefault();
+                    const restored = preEnhanceRef.current;
+                    preEnhanceRef.current = null;
+                    props.onChange(restored);
+                    return;
+                  }
                   if (ev.key === "Escape" && contextPopoverOpen) {
                     ev.preventDefault();
                     closeContextPopover();
@@ -1709,8 +1778,42 @@ export function Composer(props: {
                   }
                 }}
               />
+              <button
+                type="button"
+                className="composer-enhance-btn"
+                aria-label="Improve prompt"
+                title="Improve prompt"
+                data-testid="composer-enhance-btn"
+                disabled={enhancing || props.generating || idleSendDisabled}
+                onClick={() => void enhancePrompt()}
+              >
+                <svg
+                  className={
+                    enhancing
+                      ? "composer-enhance-icon is-spinning"
+                      : "composer-enhance-icon"
+                  }
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  width="14"
+                  height="14"
+                  aria-hidden="true"
+                >
+                  <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+                </svg>
+              </button>
             </div>
           </div>
+
+          {enhanceErr ? (
+            <div
+              className="composer-enhance-err"
+              role="status"
+              data-testid="composer-enhance-err"
+            >
+              {enhanceErr}
+            </div>
+          ) : null}
 
           <div className="composer-bar">
             <div className="composer-tabs" aria-label="Composer options">

@@ -375,6 +375,10 @@ See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 - **Glyphs** live in **`composer-send-glyph`**. **Play** state uses **`~22px`** **▶**; **stop** uses **`.composer-stop-square`** (**14×14px** filled block, centered in the circle). Ring + stop stay **right-aligned** in **`composer-bar-actions`** (same row as mode tabs). Keep contrast high (**`composer-send-play`** vs **`composer-send-stop`**).
 - Idle **disabled** when the message field is empty **and no sendable files are attached** (a disabled attachment under a non-multimodal model does not unlock Send); streaming shows **stop** affordance (see **`docs/ui.md`**, section **Composer primary action**).
 
+### Prompt improvement control
+
+The prompt improvement control (**`data-testid="composer-enhance-btn"`**) is an icon button inside the composer field — anchored to the **top-right corner** of **`textarea#composer`**, never in the lower action bar. Its native tooltip and accessible name are both **`Improve prompt`**. It is disabled for a blank draft and while improving or generating; an active request spins the icon. Clicking it calls **`POST /coddy/enhance-prompt`**, replaces the draft only after a successful response, and leaves the original intact on failure. **Ctrl+Z** / **⌘Z** restores the immediately preceding draft after a successful improvement.
+
 Composer mode selector
 
 - **`GET /v1/models`** merges Coddy profiles and YAML backends in one list. Split by **`owned_by`**: **`coddy`** means session profiles **`agent`** and **`plan`** only. Any other **`owned_by`** marks a configured **`models[].model`** row (YAML backend).
