@@ -20,13 +20,13 @@ func ConfigGetTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "config_get",
-			Description: "Read a redacted value from Coddy's active YAML configuration using a slash path. Select sequence entries with /field[key=value]. Use / for the whole file.",
+			Description: "Read a redacted value from Coddy's active YAML configuration using a dotted uci-style path. Select sequence entries with field[key=value]. Use \".\" for the whole file.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"path": map[string]interface{}{
 						"type":        "string",
-						"description": "Slash path such as /skills, /agent/model, or /mcp_servers[name=context7].",
+						"description": "Dotted path such as skills, agent.model, skills.dirs.0, or mcp_servers[name=context7].",
 					},
 				},
 				"required": []interface{}{"path"},
@@ -64,8 +64,4 @@ func executeConfigGet(_ context.Context, argsJSON string, env *tooling.Env) (str
 		return "", fmt.Errorf("config_get encode result: %w", err)
 	}
 	return string(out), nil
-}
-
-func toolConfigPaths(env *tooling.Env) config.Paths {
-	return config.Paths{Home: env.ConfigHome, CWD: env.ConfigCWD, ConfigPath: env.ConfigPath}
 }

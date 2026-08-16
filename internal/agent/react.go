@@ -92,7 +92,7 @@ func (a *Agent) SetProviderFactory(mk func(llm.ProviderInput) (llm.Provider, err
 	a.providerFactory = mk
 }
 
-// SetConfigReloader wires config_set to the process/session runtime owner.
+// SetConfigReloader wires config_commit and config_rollback to the process/session runtime owner.
 func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)) {
 	if a == nil {
 		return
@@ -991,9 +991,13 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 	toolSet := ToolSetForMode(mode)
 	available := a.registry.AllToolDefinitions()
 	if a.configReloader == nil {
+		// Without a runtime reloader the staged config flow cannot commit, so
+		// the whole editing family is hidden; config_get stays read-only.
 		filtered := available[:0]
 		for _, definition := range available {
-			if definition.Name != "config_set" {
+			switch definition.Name {
+			case "config_set", "config_changes", "config_commit", "config_revert", "config_rollback":
+			default:
 				filtered = append(filtered, definition)
 			}
 		}
@@ -1219,9 +1223,9 @@ func isASCIILetter(c byte) bool {
 // toolKind maps a tool name to an ACP tool call kind.
 func toolKind(name string) string {
 	switch name {
-	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get":
+	case "read", "keep_result", "glob", "grep", "websearch", "webfetch", "config_get", "config_changes":
 		return "read"
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_set":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
 		return "write"
 	case "run_command":
 		return "run_command"
@@ -1232,7 +1236,7 @@ func toolKind(name string) string {
 
 func filesystemWriteTool(name string) bool {
 	switch name {
-	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_set":
+	case "write", "edit", "apply_patch", "mkdir", "rmdir", "touch", "rm", "mv", "config_commit", "config_rollback":
 		return true
 	default:
 		return false

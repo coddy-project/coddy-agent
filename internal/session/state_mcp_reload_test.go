@@ -97,7 +97,7 @@ func TestReloadConfigForSessionConnectsNewMCPImmediately(t *testing.T) {
 		got, callErr := clients[0].CallTool(callCtx, "ping", `{}`)
 		cancelCall()
 		if callErr != nil {
-			t.Fatalf("MCP should outlive the config_set turn context: %v", callErr)
+			t.Fatalf("MCP should outlive the config_commit turn context: %v", callErr)
 		}
 		if got != "pong" {
 			t.Fatalf("ping result = %q", got)

@@ -5,91 +5,94 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-var configSetMu sync.Mutex
+// configSetHint reminds the model that staging is not saving.
+const configSetHint = "Nothing is applied yet. Review with config_changes, confirm with the user, then run config_commit."
 
 type configSetArgs struct {
-	Path   string          `json:"path"`
-	Value  json.RawMessage `json:"value"`
-	Delete bool            `json:"delete"`
+	Commands []string `json:"commands"`
 }
 
-// ConfigSetTool atomically edits the active config and reloads the runtime.
+// ConfigSetTool stages UCI-style edits to the active config without applying them.
 func ConfigSetTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "config_set",
-			Description: "Set or delete one value in Coddy's active YAML configuration, validate and atomically write it, then hot-reload skills, rules, built-in tools, and configured MCP servers. Use selectors such as /mcp_servers[name=context7] and '-' to append to a sequence.",
+			Name: "config_set",
+			Description: "Stage edits to Coddy's active YAML configuration using OpenWrt-uci-like commands: " +
+				"\"set <path>=<value>\", \"add_list <path>=<value>\", \"del_list <path>=<value>\", \"delete <path>\". " +
+				"Paths are dotted, e.g. agent.max_turns or mcp_servers[name=context7].command; values are JSON or plain scalars. " +
+				"Nothing is applied until config_commit: stage, review with config_changes, ask the user to confirm saving, then commit.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"path": map[string]interface{}{
-						"type":        "string",
-						"description": "A non-root slash path in the typed config schema.",
-					},
-					"value": map[string]interface{}{
-						"description": "Any JSON value. Required unless delete is true.",
-					},
-					"delete": map[string]interface{}{
-						"type":        "boolean",
-						"description": "Delete the selected mapping key or sequence entry.",
-						"default":     false,
+					"commands": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "UCI-like commands staged in order, e.g. [\"set agent.max_turns=20\"].",
 					},
 				},
-				"required": []interface{}{"path"},
+				"required": []interface{}{"commands"},
 			},
 		},
-		RequiresPermission: true,
-		Execute:            executeConfigSet,
+		Execute: executeConfigSet,
 	}
 }
 
-func executeConfigSet(ctx context.Context, argsJSON string, env *tooling.Env) (string, error) {
+func executeConfigSet(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {
 	if env == nil || strings.TrimSpace(env.ConfigPath) == "" {
 		return "", fmt.Errorf("active config path is unavailable")
 	}
-	if env.ReloadConfig == nil {
-		return "", fmt.Errorf("runtime config reload is unavailable; config was not changed")
-	}
-	configSetMu.Lock()
-	defer configSetMu.Unlock()
-	var args configSetArgs
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+	configStagingMu.Lock()
+	defer configStagingMu.Unlock()
+	args, err := tooling.ParseArgs[configSetArgs](argsJSON)
+	if err != nil {
 		return "", fmt.Errorf("config_set parse args: %w", err)
 	}
-	edit, err := config.EditConfigPath(toolConfigPaths(env), args.Path, args.Value, args.Delete)
+	newCmds, err := config.ParseUCICommands(args.Commands)
 	if err != nil {
 		return "", err
 	}
-	warnings, err := env.ReloadConfig(ctx)
+	staged, err := loadStagedConfigCommands(env)
 	if err != nil {
-		rollbackErr := edit.Rollback()
-		_, restoreErr := env.ReloadConfig(ctx)
-		if rollbackErr != nil || restoreErr != nil {
-			return "", fmt.Errorf("reload updated config: %w (rollback: %v; restore reload: %v)", err, rollbackErr, restoreErr)
-		}
-		return "", fmt.Errorf("reload updated config: %w (change rolled back)", err)
+		return "", err
 	}
-	env.ConfigReloaded = true
-	result := map[string]interface{}{
+	pending := append([]string(nil), staged...)
+	for _, cmd := range newCmds {
+		pending = append(pending, cmd.String())
+	}
+	allCmds, err := config.ParseUCICommands(pending)
+	if err != nil {
+		return "", err
+	}
+	// Dry-run the whole pending batch against the file as it is right now, so a
+	// broken command is rejected before it is staged.
+	if err := config.DryRunUCICommands(toolConfigPaths(env), allCmds); err != nil {
+		return "", err
+	}
+	if err := saveStagedConfigCommands(env, pending); err != nil {
+		return "", err
+	}
+	return marshalToolResult(map[string]interface{}{
 		"ok":          true,
 		"config_file": env.ConfigPath,
-		"path":        strings.TrimSpace(args.Path),
-		"changed":     edit.Changed,
-		"reloaded":    true,
-	}
-	if len(warnings) > 0 {
-		result["warnings"] = warnings
-	}
+		"pending":     pending,
+		"hint":        configSetHint,
+	}, "config_set")
+}
+
+func marshalToolResult(result map[string]interface{}, toolName string) (string, error) {
 	out, err := json.Marshal(result)
 	if err != nil {
-		return "", fmt.Errorf("config_set encode result: %w", err)
+		return "", fmt.Errorf("%s encode result: %w", toolName, err)
 	}
 	return string(out), nil
+}
+
+func toolConfigPaths(env *tooling.Env) config.Paths {
+	return config.Paths{Home: env.ConfigHome, CWD: env.ConfigCWD, ConfigPath: env.ConfigPath}
 }

@@ -6,7 +6,7 @@ Skills are reusable instruction packs that extend the agent with slash commands,
 
 ---
 
-Coddy ships a read-only `/configure-coddy` system skill. When a user asks the agent to find or install an MCP server or skill, it instructs the agent to verify the upstream source, use the typed `config_get` / `config_set` tools, avoid echoing secrets, and confirm the component after hot reload.
+Coddy ships a read-only `/configure-coddy` system skill. When a user asks the agent to change a Coddy setting or to find or install an MCP server or skill, it instructs the agent to verify the upstream source, stage uci-like edits with the typed `config_get` / `config_set` tools, ask the user to confirm before `config_commit` applies and hot-reloads them, avoid echoing secrets, and confirm the component after reload. It also documents `config_rollback` for returning to the pre-commit snapshot.
 
 ## Where to get skills
 
@@ -230,7 +230,7 @@ Instructions the agent will follow when this skill is active.
 
 Then add the parent directory to `skills.dirs` in `config.yaml`, or drop the directory into `~/.coddy/skills/` or `${CWD}/.coddy/skills/`.
 
-In a running agent session, changing `skills.dirs`, `skills.sources`, or `skills.auto_discovery` through `config_set` immediately rebuilds the skill catalog. An external installer such as `coddy plugin install` or `npx skills add` changes files on disk, so follow it with an idempotent `config_set` of `skills.dirs` to refresh the running loader. Adding an entry to `skills.sources` alone still does not fetch or install anything.
+In a running agent session, committing a change to `skills.dirs`, `skills.sources`, or `skills.auto_discovery` through the staged config tools (`config_set` + `config_commit`) immediately rebuilds the skill catalog. An external installer such as `coddy plugin install` or `npx skills add` changes files on disk, so follow it with an idempotent commit of `set skills.dirs=[...]` to refresh the running loader. Adding an entry to `skills.sources` alone still does not fetch or install anything.
 
 To share it with others, publish to GitHub and list it on [skills.sh](https://skills.sh) or submit to [neuraldeep.ru/skills](https://neuraldeep.ru/skills).
 

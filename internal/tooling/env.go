@@ -76,7 +76,7 @@ type Env struct {
 	// load_skill tool. Optional; nil when skills auto-discovery is disabled.
 	LoadSkillBody func(name string) (body string, available []string, found bool)
 
-	// ConfigPath is the active Coddy YAML file exposed to config_get/config_set.
+	// ConfigPath is the active Coddy YAML file exposed to the config_* tool family.
 	ConfigPath string
 
 	// ConfigHome and ConfigCWD preserve the path-expansion context used to load ConfigPath.
@@ -84,11 +84,12 @@ type Env struct {
 	ConfigCWD  string
 
 	// ReloadConfig applies ConfigPath to the live process and current session.
-	// config_set refuses to write when this hook is unavailable.
+	// config_commit and config_rollback refuse to write when this hook is unavailable.
 	ReloadConfig func(ctx context.Context) (warnings []string, err error)
 
-	// ConfigReloaded is set after a successful config_set so the ReAct loop can
-	// refresh definitions before the next model call in the same user turn.
+	// ConfigReloaded is set after a successful config_commit or config_rollback
+	// so the ReAct loop can refresh definitions before the next model call in
+	// the same user turn.
 	ConfigReloaded bool
 
 	// OutputLineLimits caps how many lines each tool result or error may

@@ -51,7 +51,11 @@ func (s *configToolsFeatureState) reset() error {
 	s.readRaw = ""
 	s.read = configToolsRead{}
 	// Reload stays unwired until the scenario asks for a hot-reloadable session.
+	// SessionDir points at the temp dir so staged commands persist file-backed,
+	// the same way a persisted session does.
 	s.env = &tooling.Env{
+		SessionID:  filepath.Base(dir),
+		SessionDir: dir,
 		ConfigPath: s.path,
 		ConfigHome: dir,
 		ConfigCWD:  dir,
@@ -126,54 +130,149 @@ func (s *configToolsFeatureState) readDoesNotExpose(secret string) error {
 	return nil
 }
 
-func (s *configToolsFeatureState) setConfigPath(path string, value *godog.DocString) error {
-	args, err := json.Marshal(map[string]interface{}{
-		"path":  path,
-		"value": json.RawMessage(value.Content),
-	})
+func (s *configToolsFeatureState) stageConfigCommands(doc *godog.DocString) error {
+	var commands []string
+	for _, line := range strings.Split(doc.Content, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			commands = append(commands, trimmed)
+		}
+	}
+	args, err := json.Marshal(map[string]interface{}{"commands": commands})
 	if err != nil {
 		return err
 	}
 	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_set", string(args), s.env)
-	return nil
+	return s.lastErr
 }
 
-func (s *configToolsFeatureState) deleteConfigPath(path string) error {
-	args, err := json.Marshal(map[string]interface{}{"path": path, "delete": true})
+func (s *configToolsFeatureState) pendingCommands() ([]string, error) {
+	raw, err := s.registry.Execute(context.Background(), "config_changes", "{}", s.env)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_set", string(args), s.env)
-	return nil
+	var got struct {
+		Pending []string `json:"pending"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		return nil, err
+	}
+	return got.Pending, nil
 }
 
-func (s *configToolsFeatureState) updateSucceededAndChanged() error {
+func (s *configToolsFeatureState) stagingListsPending(want int) error {
 	if s.lastErr != nil {
 		return s.lastErr
 	}
 	var got struct {
-		OK       bool `json:"ok"`
-		Changed  bool `json:"changed"`
-		Reloaded bool `json:"reloaded"`
+		OK      bool     `json:"ok"`
+		Pending []string `json:"pending"`
 	}
 	if err := json.Unmarshal([]byte(s.result), &got); err != nil {
 		return err
 	}
-	if !got.OK || !got.Changed || !got.Reloaded {
-		return fmt.Errorf("config_set result = %s, want ok, changed, and reloaded", s.result)
+	if !got.OK || len(got.Pending) != want {
+		return fmt.Errorf("config_set result = %s, want ok with %d pending commands", s.result, want)
 	}
 	return nil
 }
 
-func (s *configToolsFeatureState) reloadedOnce() error {
-	if s.reloads != 1 {
-		return fmt.Errorf("reloads = %d, want 1", s.reloads)
+func (s *configToolsFeatureState) listConfigChanges() error {
+	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_changes", "{}", s.env)
+	return s.lastErr
+}
+
+func (s *configToolsFeatureState) changeListShows(command string) error {
+	if s.lastErr != nil {
+		return s.lastErr
 	}
-	if s.reloaded == nil {
+	var got struct {
+		Pending []string `json:"pending"`
+	}
+	if err := json.Unmarshal([]byte(s.result), &got); err != nil {
+		return err
+	}
+	for _, pending := range got.Pending {
+		if pending == command {
+			return nil
+		}
+	}
+	return fmt.Errorf("config_changes = %s, want pending command %q", s.result, command)
+}
+
+func (s *configToolsFeatureState) commitStagedConfig() error {
+	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_commit", "{}", s.env)
+	return nil
+}
+
+func (s *configToolsFeatureState) commitSucceededWithApplied() error {
+	if s.lastErr != nil {
+		return s.lastErr
+	}
+	var got struct {
+		OK       bool     `json:"ok"`
+		Applied  []string `json:"applied"`
+		Reloaded bool     `json:"reloaded"`
+	}
+	if err := json.Unmarshal([]byte(s.result), &got); err != nil {
+		return err
+	}
+	if !got.OK || len(got.Applied) == 0 || !got.Reloaded {
+		return fmt.Errorf("config_commit result = %s, want ok, applied commands, and reloaded", s.result)
+	}
+	return nil
+}
+
+func (s *configToolsFeatureState) revertStagedConfig() error {
+	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_revert", "{}", s.env)
+	return s.lastErr
+}
+
+func (s *configToolsFeatureState) rollbackCommittedConfig() error {
+	s.result, s.lastErr = s.registry.Execute(context.Background(), "config_rollback", "{}", s.env)
+	return nil
+}
+
+func (s *configToolsFeatureState) rollbackWarnsPreviousRestored() error {
+	if s.lastErr != nil {
+		return s.lastErr
+	}
+	var got struct {
+		OK      bool   `json:"ok"`
+		Warning string `json:"warning"`
+	}
+	if err := json.Unmarshal([]byte(s.result), &got); err != nil {
+		return err
+	}
+	if !got.OK || !strings.Contains(got.Warning, "previous configuration") {
+		return fmt.Errorf("config_rollback result = %s, want ok with a previous-configuration warning", s.result)
+	}
+	return nil
+}
+
+func (s *configToolsFeatureState) noCommandsRemainStaged() error {
+	pending, err := s.pendingCommands()
+	if err != nil {
+		return err
+	}
+	if len(pending) != 0 {
+		return fmt.Errorf("staged commands remain: %v", pending)
+	}
+	return nil
+}
+
+func (s *configToolsFeatureState) reloadedTimes(want int) error {
+	if s.reloads != want {
+		return fmt.Errorf("reloads = %d, want %d", s.reloads, want)
+	}
+	if want > 0 && s.reloaded == nil {
 		return fmt.Errorf("runtime did not receive reloaded config")
 	}
 	return nil
 }
+
+func (s *configToolsFeatureState) reloadedOnce() error   { return s.reloadedTimes(1) }
+func (s *configToolsFeatureState) reloadedTwice() error  { return s.reloadedTimes(2) }
+func (s *configToolsFeatureState) notReloaded() error    { return s.reloadedTimes(0) }
 
 func (s *configToolsFeatureState) configPathEquals(path, want string) error {
 	if err := s.readConfigPath(path); err != nil {
@@ -202,11 +301,9 @@ func (s *configToolsFeatureState) reloadedMaxTurns(want int) error {
 	return nil
 }
 
-// The pre-change backup written by the edit is refreshed by the reload that
-// follows it, so the spec only pins the safety net down to its existence.
-func (s *configToolsFeatureState) configBackupExists() error {
-	if _, err := os.Stat(config.BackupPath(s.path)); err != nil {
-		return fmt.Errorf("config backup: %w", err)
+func (s *configToolsFeatureState) preCommitSnapshotExists() error {
+	if _, err := os.Stat(config.PrevConfigPath(s.path)); err != nil {
+		return fmt.Errorf("pre-commit snapshot: %w", err)
 	}
 	return nil
 }
@@ -228,14 +325,23 @@ func initializeConfigToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the read names the active config file$`, s.readNamesConfigFile)
 	sc.Step(`^the read is marked as redacted$`, s.readIsRedacted)
 	sc.Step(`^the read does not expose "([^"]*)"$`, s.readDoesNotExpose)
-	sc.Step(`^the agent sets config path "([^"]+)" to:$`, s.setConfigPath)
-	sc.Step(`^the agent deletes config path "([^"]+)"$`, s.deleteConfigPath)
-	sc.Step(`^the config update succeeds and reports the file was changed$`, s.updateSucceededAndChanged)
+	sc.Step(`^the agent stages config commands:$`, s.stageConfigCommands)
+	sc.Step(`^the staging result lists (\d+) pending commands$`, s.stagingListsPending)
+	sc.Step(`^the agent lists config changes$`, s.listConfigChanges)
+	sc.Step(`^the change list shows "([^"]+)"$`, s.changeListShows)
+	sc.Step(`^the agent commits the staged config$`, s.commitStagedConfig)
+	sc.Step(`^the commit succeeds and reports the applied commands$`, s.commitSucceededWithApplied)
+	sc.Step(`^the agent reverts the staged config$`, s.revertStagedConfig)
+	sc.Step(`^the agent rolls back the committed config$`, s.rollbackCommittedConfig)
+	sc.Step(`^the rollback warns that the previous configuration replaced the current one$`, s.rollbackWarnsPreviousRestored)
+	sc.Step(`^no config commands remain staged$`, s.noCommandsRemainStaged)
 	sc.Step(`^the runtime config is reloaded once$`, s.reloadedOnce)
+	sc.Step(`^the runtime config is reloaded twice$`, s.reloadedTwice)
+	sc.Step(`^the runtime config is not reloaded$`, s.notReloaded)
 	sc.Step(`^config path "([^"]+)" equals "([^"]*)"$`, s.configPathEquals)
 	sc.Step(`^config path "([^"]+)" is absent$`, s.configPathAbsent)
 	sc.Step(`^the reloaded config still limits the agent to (\d+) turns$`, s.reloadedMaxTurns)
-	sc.Step(`^a config backup sits next to the active file$`, s.configBackupExists)
+	sc.Step(`^a pre-commit snapshot sits next to the active file$`, s.preCommitSnapshotExists)
 }
 
 func TestConfigToolsFeature(t *testing.T) {

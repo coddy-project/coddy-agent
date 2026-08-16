@@ -2,11 +2,9 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -26,43 +24,6 @@ type ConfigPathValue struct {
 	Redacted bool
 }
 
-// ConfigEditResult records an atomic config edit and can restore the previous file.
-type ConfigEditResult struct {
-	Config         *Config
-	Changed        bool
-	paths          Paths
-	previous       []byte
-	existed        bool
-	previousBackup []byte
-	backupExisted  bool
-}
-
-// Rollback restores the config file as it existed before EditConfigPath.
-func (r *ConfigEditResult) Rollback() error {
-	if r == nil {
-		return nil
-	}
-	configPathWriteMu.Lock()
-	defer configPathWriteMu.Unlock()
-	return r.restoreFiles()
-}
-
-func (r *ConfigEditResult) restoreFiles() error {
-	var restoreErr error
-	if r.existed {
-		restoreErr = errors.Join(restoreErr, AtomicWriteConfigYAML(r.paths.ConfigPath, r.previous))
-	} else if err := os.Remove(r.paths.ConfigPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		restoreErr = errors.Join(restoreErr, err)
-	}
-	backupPath := BackupPath(r.paths.ConfigPath)
-	if r.backupExisted {
-		restoreErr = errors.Join(restoreErr, atomicWriteFile(backupPath, r.previousBackup, 0o644))
-	} else if err := os.Remove(backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		restoreErr = errors.Join(restoreErr, err)
-	}
-	return restoreErr
-}
-
 type configPathSelector struct {
 	field string
 	value string
@@ -73,11 +34,11 @@ type configPathToken struct {
 	selector *configPathSelector
 }
 
-// ReadConfigPath reads one slash-delimited path from the active YAML file.
-// Sequence entries can be selected by a scalar field, for example
-// /mcp_servers[name=context7]/command. Secret-shaped values are redacted.
+// ReadConfigPath reads one path from the active YAML file. Paths are dotted
+// uci-style ("mcp_servers[name=context7].command"); legacy slash paths are
+// still accepted. Secret-shaped values are redacted.
 func ReadConfigPath(paths Paths, path string) (*ConfigPathValue, error) {
-	tokens, err := parseConfigPath(path)
+	tokens, err := parseAnyConfigPath(path)
 	if err != nil {
 		return nil, err
 	}
@@ -111,100 +72,6 @@ func ReadConfigPath(paths Paths, path string) (*ConfigPathValue, error) {
 		return nil, fmt.Errorf("decode config value: %w", err)
 	}
 	return &ConfigPathValue{Exists: true, Value: value, Redacted: redacted}, nil
-}
-
-// EditConfigPath atomically sets or deletes one path in the active YAML config,
-// validates the resulting typed config, writes it, and reloads it from disk.
-func EditConfigPath(paths Paths, path string, value json.RawMessage, deleteValue bool) (*ConfigEditResult, error) {
-	tokens, err := parseConfigPath(path)
-	if err != nil {
-		return nil, err
-	}
-	if len(tokens) == 0 {
-		return nil, fmt.Errorf("config root cannot be replaced; set a specific path")
-	}
-	if _, err := configSchemaType(tokens); err != nil {
-		return nil, err
-	}
-	if !deleteValue && len(value) == 0 {
-		return nil, fmt.Errorf("value is required unless delete is true")
-	}
-
-	var replacement *yaml.Node
-	if !deleteValue {
-		var decoded interface{}
-		if err := json.Unmarshal(value, &decoded); err != nil {
-			return nil, fmt.Errorf("value must be valid JSON: %w", err)
-		}
-		replacement = &yaml.Node{}
-		if err := replacement.Encode(decoded); err != nil {
-			return nil, fmt.Errorf("encode config value: %w", err)
-		}
-	}
-
-	configPathWriteMu.Lock()
-	defer configPathWriteMu.Unlock()
-
-	previous, existed, err := readExistingConfigBytes(paths.ConfigPath)
-	if err != nil {
-		return nil, err
-	}
-	previousBackup, backupExisted, err := readExistingConfigBytes(BackupPath(paths.ConfigPath))
-	if err != nil {
-		return nil, err
-	}
-	result := &ConfigEditResult{
-		paths:          paths,
-		previous:       append([]byte(nil), previous...),
-		existed:        existed,
-		previousBackup: append([]byte(nil), previousBackup...),
-		backupExisted:  backupExisted,
-	}
-	base := previous
-	if !existed || len(bytes.TrimSpace(base)) == 0 {
-		base = []byte("{}\n")
-	}
-	doc, err := parseConfigDocument(base)
-	if err != nil {
-		return nil, fmt.Errorf("parse config: %w", err)
-	}
-	mutated, err := mutateConfigNode(configDocumentRoot(doc), tokens, replacement, deleteValue)
-	if err != nil {
-		return nil, err
-	}
-	if !mutated {
-		expanded := expandEnvEscaped(ExpandPathVars(string(base), paths))
-		result.Config, err = parseValidateYAMLBytes(expanded, paths)
-		return result, err
-	}
-	updated, err := marshalConfigDocument(doc)
-	if err != nil {
-		return nil, fmt.Errorf("serialize config: %w", err)
-	}
-
-	expanded := expandEnvEscaped(ExpandPathVars(string(updated), paths))
-	if _, err := parseValidateYAMLBytes(expanded, paths); err != nil {
-		return nil, fmt.Errorf("updated config is invalid: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(paths.ConfigPath), 0o755); err != nil {
-		return nil, fmt.Errorf("create config directory: %w", err)
-	}
-	if existed {
-		if err := WriteBackup(paths.ConfigPath, previous); err != nil {
-			return nil, fmt.Errorf("backup config: %w", err)
-		}
-	}
-	if err := AtomicWriteConfigYAML(paths.ConfigPath, updated); err != nil {
-		return nil, fmt.Errorf("write config: %w", err)
-	}
-	result.Changed = !existed || !bytes.Equal(previous, updated)
-	reloaded, err := LoadWithPaths(paths)
-	if err != nil {
-		_ = result.restoreFiles()
-		return nil, fmt.Errorf("reload config: %w", err)
-	}
-	result.Config = reloaded
-	return result, nil
 }
 
 func readConfigBytes(path string) ([]byte, error) {
@@ -286,19 +153,29 @@ func parseConfigPath(input string) ([]configPathToken, error) {
 		if part == "" {
 			return nil, fmt.Errorf("config path contains an empty segment")
 		}
-		token := configPathToken{key: part}
-		if open := strings.IndexByte(part, '['); open > 0 && strings.HasSuffix(part, "]") {
-			selector := strings.TrimSuffix(part[open+1:], "]")
-			field, value, ok := strings.Cut(selector, "=")
-			if !ok || strings.TrimSpace(field) == "" || strings.TrimSpace(value) == "" {
-				return nil, fmt.Errorf("invalid selector in config path segment %q", part)
-			}
-			token.key = part[:open]
-			token.selector = &configPathSelector{field: strings.TrimSpace(field), value: strings.TrimSpace(value)}
+		token, err := parseConfigSegment(part)
+		if err != nil {
+			return nil, err
 		}
 		tokens = append(tokens, token)
 	}
 	return tokens, nil
+}
+
+// parseConfigSegment parses one path segment with an optional [field=value]
+// selector attached to a sequence field name.
+func parseConfigSegment(part string) (configPathToken, error) {
+	token := configPathToken{key: part}
+	if open := strings.IndexByte(part, '['); open > 0 && strings.HasSuffix(part, "]") {
+		selector := strings.TrimSuffix(part[open+1:], "]")
+		field, value, ok := strings.Cut(selector, "=")
+		if !ok || strings.TrimSpace(field) == "" || strings.TrimSpace(value) == "" {
+			return configPathToken{}, fmt.Errorf("invalid selector in config path segment %q", part)
+		}
+		token.key = part[:open]
+		token.selector = &configPathSelector{field: strings.TrimSpace(field), value: strings.TrimSpace(value)}
+	}
+	return token, nil
 }
 
 func configSchemaType(tokens []configPathToken) (reflect.Type, error) {

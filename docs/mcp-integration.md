@@ -275,13 +275,14 @@ mcp_servers:
    config.yaml + `~/.coddy/mcp.json` + `./.coddy/mcp.json` list that the workspace
    trust gate admits, then any ACP client-supplied servers
 2. The agent calls `tools/list` on each server and registers the tools
-3. `config_set` can add, replace, or delete a global `mcp_servers` entry while
-   the session is running. Coddy validates and atomically writes the config,
-   reconnects the effective `config.yaml` + `mcp.json` server set for that
-   session, preserves ACP-provided per-session servers, and closes the replaced
-   configured clients. The refreshed tool definitions and disable filters are
-   visible to the next model call in the same ReAct turn; connection failures
-   are returned as `config_set` warnings
+3. The staged config tools can add, replace, or delete a global `mcp_servers`
+   entry while the session is running: `config_set` stages the uci-like command
+   and `config_commit` (after the user confirms) validates and atomically
+   writes the config, reconnects the effective `config.yaml` + `mcp.json`
+   server set for that session, preserves ACP-provided per-session servers, and
+   closes the replaced configured clients. The refreshed tool definitions and
+   disable filters are visible to the next model call in the same ReAct turn;
+   connection failures are returned as `config_commit` warnings
 4. Saving settings with a changed `mcp_servers` list reconnects the configured
    servers for every active session; ACP client-supplied per-session servers
    stay connected. The reconnect is a **fresh trust evaluation**, not a replay of
@@ -298,10 +299,11 @@ mcp_servers:
 6. Results are returned to the LLM as tool observations
 7. On session end or `session/cancel`, MCP server connections are cleaned up
 
-For example, `config_set` can write an object to
-`/mcp_servers[name=context7]`; the selector makes the edit independent of list
-ordering. The bundled `/configure-coddy` skill documents the full path syntax
-and discovery safety checks.
+For example, `config_set` can stage
+`set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}`;
+the selector makes the edit independent of list ordering. The bundled
+`/configure-coddy` skill documents the full command syntax, the
+confirm-then-commit workflow, and discovery safety checks.
 
 ## Error Handling
 

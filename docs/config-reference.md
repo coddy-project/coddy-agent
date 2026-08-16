@@ -14,23 +14,29 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 
 ## Agent self-configuration
 
-Agent sessions expose two typed configuration tools:
+Agent sessions expose a typed configuration tool family with staged, uci-like semantics:
 
-- `config_get` reads a slash-delimited path from the active YAML file. Secret-shaped fields, MCP environment values, and HTTP header values are returned as `<redacted>`.
-- `config_set` sets or deletes a non-root path, validates the complete typed config, writes it atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. It always requires tool permission. If runtime reload fails, the config file and its backup are rolled back.
+- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields, MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_set` **stages** UCI-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file. Unknown schema paths and commands that would make the config invalid are rejected at staging time.
+- `config_changes` lists the staged commands that a commit would apply.
+- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev`, writes atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. It always requires tool permission, and the agent is instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept.
+- `config_revert` discards staged commands (all of them, or those under one path).
+- `config_rollback` restores the pre-commit snapshot over the active file (swapping the two, so a second rollback undoes the first) and hot-reloads. It requires permission and the agent warns the user before calling it.
 
-Paths use JSON Pointer-style segments with an XPath-like selector for named sequence entries:
+Commands and paths are dotted like OpenWrt's `uci` CLI, with a selector for named sequence entries:
 
-| Path | Meaning |
+| Command | Meaning |
 |---|---|
-| `/skills/dirs` | Mapping field |
-| `/skills/sources/-` | Append a sequence entry |
-| `/mcp_servers/0/command` | Sequence index |
-| `/mcp_servers[name=context7]` | Select a sequence object by scalar field; append it when setting if absent |
+| `set agent.max_turns=40` | Set a mapping field |
+| `set mcp_servers[name=context7]={"command":"npx"}` | Select a sequence object by scalar field; append it when setting if absent |
+| `add_list skills.dirs=/opt/skills` | Append a sequence entry |
+| `del_list skills.dirs=/opt/skills` | Remove a matching sequence entry |
+| `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `skills.dirs.0` (path form) | Sequence index |
 
-The root path `/` is read-only. Use `delete: true` to remove the selected field or entry. Escape `/` as `~1` and `~` as `~0` inside a segment. Tool values are JSON even though the stored file is YAML. Unknown schema paths and invalid values are rejected before the active config changes.
+The root path (`.` or `/`) is read-only. Values are JSON for objects and arrays; string-typed fields take the literal text. Staged commands persist in the session bundle, so they survive restarts and HTTP permission resumes.
 
-The bundled `/configure-coddy` skill teaches the agent this path syntax and the safe discovery/install workflow for MCP servers and skills. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
+The bundled `/configure-coddy` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
 
 ## Top-level keys
 

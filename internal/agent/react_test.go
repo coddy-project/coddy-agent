@@ -70,8 +70,13 @@ func (p *configReloadProvider) Complete(context.Context, []llm.Message, []llm.To
 func (p *configReloadProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
 	p.calls++
 	p.tools = append(p.tools, append([]llm.ToolDefinition(nil), defs...))
-	if p.calls == 1 {
-		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"path":"/skills/auto_discovery","value":false}`}
+	switch p.calls {
+	case 1:
+		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"commands":["set skills.auto_discovery=false"]}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	case 2:
+		call := llm.ToolCall{ID: "cfg-2", Name: "config_commit", InputJSON: `{}`}
 		onChunk(llm.StreamChunk{ToolCall: &call})
 		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
 	}
@@ -257,8 +262,8 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
 		t.Fatal(err)
 	}
-	if provider.calls != 2 {
-		t.Fatalf("provider calls = %d, want 2", provider.calls)
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
 	}
 	contains := func(defs []llm.ToolDefinition, name string) bool {
 		for _, def := range defs {
@@ -271,8 +276,11 @@ func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
 	if !contains(provider.tools[0], "load_skill") {
 		t.Fatal("load_skill should be present before config_set")
 	}
-	if contains(provider.tools[1], "load_skill") {
-		t.Fatal("load_skill should be removed after same-turn config reload")
+	if !contains(provider.tools[1], "load_skill") {
+		t.Fatal("staging alone must not reload the runtime")
+	}
+	if contains(provider.tools[2], "load_skill") {
+		t.Fatal("load_skill should be removed after same-turn config_commit reload")
 	}
 }
 

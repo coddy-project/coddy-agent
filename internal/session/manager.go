@@ -928,8 +928,8 @@ func (m *Manager) reloadConfiguredMCPServers(ctx context.Context) {
 }
 
 // reloadConfiguredMCPServersExcept applies a settings reload to every active
-// session except skip. config_set uses skip for the session it refreshes at the
-// safe boundary between its current and next model calls.
+// session except skip. config_commit uses skip for the session it refreshes at
+// the safe boundary between its current and next model calls.
 func (m *Manager) reloadConfiguredMCPServersExcept(ctx context.Context, skip *State) {
 	m.mu.RLock()
 	states := make([]*State, 0, len(m.sessions))
