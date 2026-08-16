@@ -295,11 +295,11 @@ Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklis
 | --- | --- |
 | Component | **`ToolCallMessage.tsx`** - **`thinking-row coddy-tool-call-row`**, **`details.thinking-details.coddy-tool-details`**, **`data-testid`**: **`tool-details-{toolCallId}`** |
 | Summary | Same pattern as **thinking** (**`thinking-summary`**, **`thinking-left`**, **`thinking-chevron`**, **`thinking-label`**, **`thinking-dur`**), **`aria-label="Tool summary"`** |
-| Args | Shared static **`PermissionToolPreview`** (no copy / approval actions); large **write**, **apply_patch**, and **edit** bodies retain measured **More…** / **Less** overflow controls |
+| Args | Shared **`PermissionToolPreview`** (no copy / approval actions); large **write** / **write_file**, **apply_patch**, and **edit** bodies keep measured **More…** (**`data-testid="tool-preview-more"`**) / **Less** (**`data-testid="tool-preview-less"`**) overflow controls |
 | Result | **`div.tool-call-result-card`**, **`aria-label="Tool result"`**, with inner **`pre.tool-result-pre`** |
 | Markdown | Not used for tool **result** or **user** bubbles; **assistant** still uses Markdown per below |
 | List merge | **`App.tsx`** **`loadMessages`** merges **`GET /coddy/sessions/{id}/tool-calls`** rows into **`resultText`**, **`resultWasTruncated`**, timing |
-| Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / completed **`write`** / **`edit`** cards - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**) |
+| Full text | First result **More…**, or automatic incomplete-args recovery for restored **`apply_patch`** / **`write`** / **`write_file`** / **`edit`** cards in any status - **`GET /coddy/sessions/{id}/tool-calls/{toolCallId}`**, using JSON **`result`** and **`args`** (same object includes **`meta`**). Transcript reconciles never replace complete args with the truncated 200-char **`argsPreview`** (**`pickRicherToolArgs`**), so live cards keep full previews across permission answers |
 | CSS | **`styles.css`**: **`.coddy-tool-call-row`**, transparent **`.coddy-tool-call-body`**, shared **`.permission-preview*`**, **`.tool-call-result-card`**, **`thinking-details:not([open])` body hidden**, plus result viewport / toggle classes above |
 
 - `assistant_message`

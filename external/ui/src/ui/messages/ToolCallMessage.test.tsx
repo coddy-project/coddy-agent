@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -798,4 +799,185 @@ test("an ordinary tool row carries no background chip", () => {
     />,
   );
   expect(screen.queryByTestId(/^tool-bgtask-chip-/)).toBeNull();
+});
+
+test("restored in_progress write still fetches full arguments", async () => {
+  const fetchSpy = vi.fn(async () => {});
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-inflight"
+      title="write"
+      kind="write"
+      status="in_progress"
+      argsText={'{"path":"restored.txt","content":"start of a long'}
+      onFetchToolCallFull={fetchSpy}
+    />,
+  );
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith("tc-write-inflight"),
+  );
+});
+
+test("arguments re-truncated by a reconcile trigger a second fetch", async () => {
+  const full = JSON.stringify({
+    path: "reconciled.txt",
+    content: "line\n".repeat(60),
+  });
+  const truncated = full.slice(0, 200) + "...";
+  const fetchSpy = vi.fn();
+  let setArgsExternal: (v: string) => void = () => {};
+  function Harness() {
+    const [argsText, setArgsText] = useState(truncated);
+    setArgsExternal = setArgsText;
+    const onFetch = useCallback(async (id: string) => {
+      fetchSpy(id);
+      await Promise.resolve();
+      setArgsText(full);
+    }, []);
+    return (
+      <ToolCallMessage
+        toolCallId="tc-write-reconcile"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={argsText}
+        resultText="Wrote reconciled.txt"
+        onFetchToolCallFull={onFetch}
+      />
+    );
+  }
+  render(<Harness />);
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+  // A later loadMessages reconcile overwrites the recovered args with the
+  // truncated list preview again; the card must fetch once more, not go blank.
+  act(() => setArgsExternal(truncated));
+  await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+});
+
+test("overflow toggle appears after a collapsed foldout is opened", async () => {
+  let revealed = false;
+  const sh = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "scrollHeight",
+  );
+  const ch = Object.getOwnPropertyDescriptor(
+    HTMLElement.prototype,
+    "clientHeight",
+  );
+  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 520
+        : 0;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get() {
+      return revealed &&
+        (this as HTMLElement).dataset.testid === "permission-preview-viewport"
+        ? 120
+        : 0;
+    },
+  });
+  try {
+    const content = Array.from({ length: 48 }, (_, i) => `line ${i}`).join(
+      "\n",
+    );
+    const { container } = render(
+      <ToolCallMessage
+        toolCallId="tc-write-foldout"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/foldout.ts", content })}
+        resultText="Wrote src/foldout.ts"
+      />,
+    );
+    // Collapsed foldout: the hidden viewport measures 0, so no toggle is offered.
+    expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+    revealed = true;
+    openToolDetails();
+    // The <details> toggle event is what real browsers deliver when the body
+    // stops being display:none; ResizeObserver is unavailable here like in
+    // engines that miss the un-hide resize.
+    const details = container.querySelector("details");
+    fireEvent(details!, new Event("toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument(),
+    );
+  } finally {
+    if (sh) {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", sh);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollHeight");
+    }
+    if (ch) {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", ch);
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+    }
+  }
+});
+
+test("preview and result toggles expose distinct test ids", () => {
+  const restoreMeasurements = mockPreviewOverflow();
+  try {
+    const content = Array.from(
+      { length: 48 },
+      (_, i) => `export const value${i + 1} = ${i + 1};`,
+    ).join("\n");
+    render(
+      <ToolCallMessage
+        toolCallId="tc-write-testids"
+        title="write"
+        kind="write"
+        status="completed"
+        argsText={JSON.stringify({ path: "src/ids.ts", content })}
+        resultText={"line\n".repeat(20)}
+        resultWasTruncated={true}
+        onFetchToolCallFull={vi.fn(async () => {})}
+      />,
+    );
+    openToolDetails();
+    expect(screen.getByTestId("tool-preview-more")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("tool-preview-more"));
+    expect(screen.getByTestId("tool-preview-less")).toBeInTheDocument();
+    expect(screen.getByTestId("tool-result-more")).toBeInTheDocument();
+  } finally {
+    restoreMeasurements();
+  }
+});
+
+test("write_file cards render the shared write preview", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-file"
+      title="write_file"
+      status="completed"
+      argsText={JSON.stringify({ filePath: "src/wf.ts", content: "hello" })}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(screen.getByTitle("src/wf.ts")).toBeInTheDocument();
+  expect(screen.getByText("hello")).toBeInTheDocument();
+});
+
+test("short write previews never offer overflow controls without real overflow", () => {
+  render(
+    <ToolCallMessage
+      toolCallId="tc-write-short"
+      title="write"
+      status="completed"
+      argsText={'{"path":"n.txt","content":"short"}'}
+      resultText="ok"
+    />,
+  );
+  openToolDetails();
+  expect(screen.queryByTestId("tool-preview-more")).toBeNull();
+  expect(screen.queryByText("More…")).toBeNull();
 });

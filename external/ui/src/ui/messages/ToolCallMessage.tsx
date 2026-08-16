@@ -243,18 +243,23 @@ export function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
-  // leaves a completed patch, write, or edit payload unparseable, so restored cards match
-  // live SSE instead of rendering an empty preview.
+  // leaves a patch, write, or edit payload unparseable, so restored cards match live SSE
+  // instead of rendering an empty preview. Any status qualifies: a session restored while
+  // its tool was still in_progress carries the same truncated preview.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
+  // Complete args re-arm the fetch: a later transcript reconcile can replace them
+  // with the truncated list preview again, and the card must recover once more.
+  useEffect(() => {
+    if (argsTextIsCompleteJSON) fetchAttemptedRef.current = false;
+  }, [argsTextIsCompleteJSON]);
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
       ((isWriteTool || isEditTool) &&
-        terminalStatus &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
@@ -269,7 +274,6 @@ export function ToolCallMessage(props: {
     patchContent,
     props.argsText,
     props.toolCallId,
-    terminalStatus,
   ]);
 
   const canExpand =

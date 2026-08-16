@@ -112,11 +112,21 @@ export function PermissionToolPreview({
   useLayoutEffect(() => {
     if (!canToggleOverflow || !hasBody || expanded) return;
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
     const node = viewportRef.current;
-    if (node) observer.observe(node);
-    return () => observer.disconnect();
+    // Transcript foldouts keep the body display:none until the <details> opens;
+    // the mount-time measure then sees zero heights. Re-measure on the toggle
+    // event itself, because not every engine reports the un-hide as a resize.
+    const details = node ? node.closest("details") : null;
+    if (details) details.addEventListener("toggle", measure);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      if (node) observer.observe(node);
+    }
+    return () => {
+      if (details) details.removeEventListener("toggle", measure);
+      observer?.disconnect();
+    };
   }, [canToggleOverflow, expanded, hasBody, measure, previewIdentity]);
 
   const viewportMode = !canToggleOverflow
@@ -172,7 +182,9 @@ export function PermissionToolPreview({
               type="button"
               className="tool-overflow-toggle"
               aria-expanded={expanded}
-              onClick={() => {
+              data-testid={expanded ? "tool-preview-less" : "tool-preview-more"}
+              onClick={(e) => {
+                e.preventDefault();
                 // Collapsing keeps the scrolled position, so reset it before clipping.
                 if (expanded && viewportRef.current) {
                   viewportRef.current.scrollTop = 0;

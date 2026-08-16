@@ -45,3 +45,40 @@ test("preview viewport modifiers win over the base overflow shorthand", () => {
   expect(staticRule![0]).toMatch(/max-height:\s*none/);
   expect(staticRule![0]).toMatch(/overflow:\s*visible/);
 });
+
+// DESIGN.md pins the phone cap at 170px inside @media (max-width: 520px). The
+// media rule must only tighten max-height: re-declaring the overflow shorthand
+// there would beat the `--scroll` modifier on phones and kill internal scrolling.
+test("phone media cap keeps 170px and never re-declares overflow", () => {
+  const css = cssText();
+
+  const mediaBlocks: string[] = [];
+  const marker = "@media (max-width: 520px)";
+  for (
+    let at = css.indexOf(marker);
+    at !== -1;
+    at = css.indexOf(marker, at + marker.length)
+  ) {
+    const open = css.indexOf("{", at);
+    let depth = 1;
+    let end = open + 1;
+    while (end < css.length && depth > 0) {
+      if (css[end] === "{") depth++;
+      else if (css[end] === "}") depth--;
+      end++;
+    }
+    mediaBlocks.push(css.slice(open + 1, end - 1));
+  }
+  expect(mediaBlocks.length).toBeGreaterThan(0);
+
+  const viewportRules = mediaBlocks.flatMap(
+    (block) =>
+      block.match(/\.permission-preview-viewport[^{]*\{[^}]*\}/gms) || [],
+  );
+  expect(
+    viewportRules.some((rule) => /max-height:\s*170px/.test(rule)),
+  ).toBe(true);
+  for (const rule of viewportRules) {
+    expect(rule).not.toMatch(/overflow/);
+  }
+});
