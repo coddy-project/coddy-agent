@@ -43,6 +43,8 @@ export function SettingsArraySection(props: {
   labelField?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
   addLabel?: string | undefined;
+  /** Optional item factory for section-specific omission/default semantics. */
+  newItem?: (() => unknown) | undefined;
   /** When true (desktop), the item form's back button shows the item's name
    * (provider / model) instead of the generic "Back to list". */
   backLabelUsesItemName?: boolean | undefined;
@@ -137,7 +139,7 @@ export function SettingsArraySection(props: {
         className="settings-btn settings-master-add"
         data-testid="settings-master-add"
         onClick={() => {
-          const seed = defaultForSchema(itemSchema);
+          const seed = props.newItem?.() ?? defaultForSchema(itemSchema);
           const next = [...arr, seed];
           onChange(next);
           setView({ mode: "edit", index: next.length - 1 });

@@ -194,6 +194,72 @@ const modelsSchema: JsonSchema = {
   },
 };
 
+const reasoningModelsSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    models: {
+      type: "array",
+      title: "Logical models",
+      items: {
+        type: "object",
+        properties: {
+          model: { type: "string", title: "Model id" },
+          reasoning_levels: {
+            type: "array",
+            title: "Reasoning levels",
+            items: { type: "string" },
+          },
+        },
+        "x-coddy-property-order": ["model", "reasoning_levels"],
+      },
+    },
+  },
+};
+
+test("adding a fetched model leaves reasoning auto-detection enabled", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true, models: [{ id: "qwen3.8-27b" }] }),
+    })),
+  );
+
+  function ReasoningModelsHarness() {
+    const [doc, setDoc] = React.useState<Record<string, unknown>>({
+      providers: [{ name: "valera", type: "openai" }],
+      models: [],
+    });
+    return (
+      <>
+        <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
+        <SettingsSection
+          section={modelsSection}
+          schema={reasoningModelsSchema}
+          doc={doc}
+          setDoc={setDoc}
+        />
+      </>
+    );
+  }
+
+  render(<ReasoningModelsHarness />);
+  fireEvent.click(screen.getByTestId("settings-master-add"));
+  fireEvent.click(screen.getByTestId("model-field-fetch"));
+  await waitFor(() =>
+    expect(screen.getByTestId("model-field-fetch").textContent).toBe(
+      "Fetch models",
+    ),
+  );
+  fireEvent.focus(screen.getByTestId("model-field-model"));
+  fireEvent.mouseDown(await screen.findByText("valera/qwen3.8-27b"));
+
+  const saved = JSON.parse(
+    screen.getByTestId("settings-doc").textContent || "{}",
+  );
+  expect(saved.models).toEqual([{ model: "valera/qwen3.8-27b" }]);
+});
+
 test("renaming the sole model id follows through to agent.model", async () => {
   function ModelsHarness() {
     const [doc, setDoc] = React.useState<Record<string, unknown>>({
