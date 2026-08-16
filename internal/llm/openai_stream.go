@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
@@ -42,15 +43,16 @@ const sseMaxScanSize = bufio.MaxScanTokenSize << 9
 // "error:" field is preserved, and frames with no payload are skipped instead
 // of being dispatched as empty JSON documents.
 type sseScanner struct {
-	scn *bufio.Scanner
-	cur sseFrame
-	err error
+	scn   *bufio.Scanner
+	cur   sseFrame
+	err   error
+	first bool
 }
 
 func newSSEScanner(r io.Reader) *sseScanner {
 	scn := bufio.NewScanner(r)
 	scn.Buffer(nil, sseMaxScanSize)
-	return &sseScanner{scn: scn}
+	return &sseScanner{scn: scn, first: true}
 }
 
 // Next advances to the next non-empty frame. It returns false at end of
@@ -71,6 +73,11 @@ func (s *sseScanner) Next() bool {
 	}
 	for s.scn.Scan() {
 		line := s.scn.Bytes()
+		if s.first {
+			// The EventSource spec strips one leading U+FEFF BOM.
+			line = bytes.TrimPrefix(line, []byte("\xef\xbb\xbf"))
+			s.first = false
+		}
 		if len(line) == 0 {
 			if flush() {
 				return true
@@ -113,19 +120,26 @@ const streamErrorSnippetLimit = 2048
 
 func streamErrorSnippet(payload []byte) string {
 	s := strings.TrimSpace(string(payload))
-	if len(s) > streamErrorSnippetLimit {
-		return s[:streamErrorSnippetLimit] + "..."
+	if len(s) <= streamErrorSnippetLimit {
+		return s
 	}
-	return s
+	cut := streamErrorSnippetLimit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // streamServerError is a failure the server reported inside an SSE stream.
 // It keeps the HTTP-style status code structurally so retry classification
 // (httpStatusFromError) treats streamed errors like their pre-stream
-// equivalents: 5xx retryable, 4xx not.
+// equivalents: 5xx retryable, 4xx not. emitted records whether chunks were
+// already delivered to the caller before the failure: retrying such a call
+// would stream the same deltas twice, so classification refuses the code.
 type streamServerError struct {
-	code int
-	msg  string
+	code    int
+	msg     string
+	emitted bool
 }
 
 func (e *streamServerError) Error() string {
@@ -138,12 +152,12 @@ func (e *streamServerError) Error() string {
 // newStreamServerError parses a server-reported streaming failure. obj is
 // the error object ({"code":400,"message":"...","type":"..."} for llama.cpp)
 // or any other payload the server put in the error frame.
-func newStreamServerError(obj []byte) error {
+func newStreamServerError(obj []byte, emitted bool) error {
 	msg := gjson.GetBytes(obj, "message").String()
 	if msg == "" {
 		msg = streamErrorSnippet(obj)
 	}
-	return &streamServerError{code: int(gjson.GetBytes(obj, "code").Int()), msg: msg}
+	return &streamServerError{code: int(gjson.GetBytes(obj, "code").Int()), msg: msg, emitted: emitted}
 }
 
 // Stream implements Provider.Stream over the lenient SSE path.
@@ -182,6 +196,15 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		return out
 	}
 
+	// emitted flips once any chunk reached the caller; a retry after that
+	// would deliver the same deltas twice, so streamed server errors carry
+	// it to disable retry classification.
+	var emitted bool
+	emit := func(c StreamChunk) {
+		emitted = true
+		onChunk(c)
+	}
+
 	scanner := newSSEScanner(raw.Body)
 	var streamErr error
 	var done bool
@@ -191,7 +214,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 		if payload := bytes.TrimSpace(frame.errData); len(payload) > 0 {
 			// llama.cpp <= 2025 mid-stream error frame ("error: {...}").
-			streamErr = newStreamServerError(payload)
+			streamErr = newStreamServerError(payload, emitted)
 			break
 		}
 
@@ -208,7 +231,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 		}
 		if e := gjson.GetBytes(payload, "error"); e.Exists() && e.Type != gjson.Null {
 			// Standard-shaped in-band error object (llama.cpp b9038+, gateways).
-			streamErr = newStreamServerError([]byte(e.Raw))
+			streamErr = newStreamServerError([]byte(e.Raw), emitted)
 			break
 		}
 
@@ -238,7 +261,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 		if delta.Content != "" {
 			fullContent += delta.Content
-			onChunk(StreamChunk{TextDelta: delta.Content})
+			emit(StreamChunk{TextDelta: delta.Content})
 		}
 
 		if raw := delta.RawJSON(); raw != "" {
@@ -247,7 +270,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				r = gjson.Get(raw, "thinking").String()
 			}
 			if r != "" {
-				onChunk(StreamChunk{ReasoningDelta: r})
+				emit(StreamChunk{ReasoningDelta: r})
 			}
 		}
 
@@ -303,7 +326,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	toolCalls = finalizeOpenAIToolBuilders()
 	for i := range toolCalls {
 		tc := toolCalls[i]
-		onChunk(StreamChunk{ToolCall: &tc})
+		emit(StreamChunk{ToolCall: &tc})
 	}
 
 	if stopReason == "" {

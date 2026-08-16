@@ -206,7 +206,10 @@ func httpStatusFromError(err error) int {
 		return oai.StatusCode
 	}
 	var sse *streamServerError
-	if errors.As(err, &sse) && sse.code > 0 {
+	if errors.As(err, &sse) && sse.code > 0 && !sse.emitted {
+		// A streamed error after chunks already reached the caller must not
+		// classify as retryable: replaying the request would emit the same
+		// deltas a second time.
 		return sse.code
 	}
 	var ant *anthropic.Error

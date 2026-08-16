@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestWrappedStreamCancelIsCanceled(t *testing.T) {
@@ -148,23 +149,27 @@ func TestOpenAIStreamUndecodableFrameFails(t *testing.T) {
 // reported inside the SSE stream retry like their pre-stream HTTP
 // equivalents: 5xx retryable, 4xx not.
 func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
+	const contentChunk = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n"
 	cases := []struct {
 		name         string
-		frame        string
+		body         string
 		wantRequests int32
+		wantDeltas   int32
 	}{
 		{"streamed 400 is not retried",
-			"error: {\"code\":400,\"message\":\"the request exceeds the available context size\",\"type\":\"invalid_request_error\"}\n\n", 1},
+			"error: {\"code\":400,\"message\":\"the request exceeds the available context size\",\"type\":\"invalid_request_error\"}\n\n", 1, 0},
 		{"streamed 500 is retried once",
-			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2},
+			"error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 2, 0},
+		{"streamed 500 after emitted deltas is not retried",
+			contentChunk + "error: {\"code\":500,\"message\":\"slot unavailable\",\"type\":\"server_error\"}\n\n", 1, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var requests atomic.Int32
+			var requests, deltas atomic.Int32
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				requests.Add(1)
 				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = io.WriteString(w, tc.frame)
+				_, _ = io.WriteString(w, tc.body)
 			}))
 			defer srv.Close()
 
@@ -179,14 +184,92 @@ func TestOpenAIStreamedErrorRetryClassification(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewProvider: %v", err)
 			}
-			_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			_, err = prov.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+				if c.TextDelta != "" {
+					deltas.Add(1)
+				}
+			})
 			if err == nil {
 				t.Fatal("Stream must fail")
 			}
 			if got := requests.Load(); got != tc.wantRequests {
 				t.Errorf("upstream requests = %d, want %d", got, tc.wantRequests)
 			}
+			if got := deltas.Load(); got != tc.wantDeltas {
+				t.Errorf("text deltas delivered = %d, want %d (retries must not replay deltas)", got, tc.wantDeltas)
+			}
 		})
+	}
+}
+
+// TestSSEScannerFrameAssembly pins the lenient scanner's frame handling:
+// SSE-spec behaviors (CRLF, multi-line data join, comments, leading BOM) and
+// the llama.cpp dialect ("error:" field, unterminated final frame).
+func TestSSEScannerFrameAssembly(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []sseFrame
+	}{
+		{"crlf line endings",
+			"data: {\"a\":1}\r\n\r\ndata: [DONE]\r\n\r\n",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("[DONE]\n")}}},
+		{"multiple data lines join with newline",
+			"data: line1\ndata: line2\n\n",
+			[]sseFrame{{data: []byte("line1\nline2\n")}}},
+		{"comment-only frames and blank runs are skipped",
+			": ping\n\n\n\n: pong\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"unterminated final frame is dispatched",
+			"data: {\"a\":1}\n\ndata: tail",
+			[]sseFrame{{data: []byte("{\"a\":1}\n")}, {data: []byte("tail\n")}}},
+		{"error field is preserved separately",
+			"error: {\"code\":400}\n\n",
+			[]sseFrame{{errData: []byte("{\"code\":400}\n")}}},
+		{"leading BOM is stripped",
+			"\xef\xbb\xbfdata: x\n\n",
+			[]sseFrame{{data: []byte("x\n")}}},
+		{"field without colon or value is harmless",
+			"data\n\ndata: x\n\n",
+			[]sseFrame{{data: []byte("\n")}, {data: []byte("x\n")}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := newSSEScanner(strings.NewReader(tc.input))
+			var got []sseFrame
+			for sc.Next() {
+				f := sc.Frame()
+				got = append(got, sseFrame{
+					data:    append([]byte(nil), f.data...),
+					errData: append([]byte(nil), f.errData...),
+				})
+			}
+			if err := sc.Err(); err != nil {
+				t.Fatalf("scanner error: %v", err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("frames = %d, want %d (%q)", len(got), len(tc.want), got)
+			}
+			for i := range got {
+				if string(got[i].data) != string(tc.want[i].data) || string(got[i].errData) != string(tc.want[i].errData) {
+					t.Errorf("frame %d = {data:%q err:%q}, want {data:%q err:%q}",
+						i, got[i].data, got[i].errData, tc.want[i].data, tc.want[i].errData)
+				}
+			}
+		})
+	}
+}
+
+// TestStreamErrorSnippetRuneBoundary verifies the diagnostic snippet never
+// splits a multibyte rune at the truncation point.
+func TestStreamErrorSnippetRuneBoundary(t *testing.T) {
+	payload := strings.Repeat("я", streamErrorSnippetLimit) // 2 bytes per rune
+	got := streamErrorSnippet([]byte(payload))
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("snippet must be truncated with ellipsis")
+	}
+	if !utf8.ValidString(strings.TrimSuffix(got, "...")) {
+		t.Errorf("snippet split a multibyte rune")
 	}
 }
 
