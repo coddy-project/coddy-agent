@@ -31,6 +31,9 @@ type Options struct {
 	Yes            bool
 	Stdout         io.Writer
 	HTTPClient     *http.Client
+
+	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
+	windowsInstaller windowsUpdateInstaller
 }
 
 // Run checks GitHub releases and optionally installs a newer binary.
@@ -102,9 +105,35 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	_, _ = fmt.Fprintf(out, "Downloading %s ...\n", asset.Name)
-	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL)
+	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL, newDownloadProgress(out, asset.Name))
 	if err != nil {
 		return err
+	}
+	if opts.GOOS == "windows" {
+		body, err := executableFromArchive(data, asset.Name)
+		if err != nil {
+			return err
+		}
+		staged, err := stageExecutable(dest, body)
+		if err != nil {
+			return err
+		}
+		req := windowsUpdateRequest{
+			ParentPID:  os.Getpid(),
+			Restart:    true,
+			StagedPath: staged,
+			TargetPath: dest,
+		}
+		installer := opts.windowsInstaller
+		if installer == nil {
+			installer = scheduleWindowsUpdate
+		}
+		if err := installer(req); err != nil {
+			_ = os.Remove(staged)
+			return err
+		}
+		_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits and restart it.\n", latest)
+		return nil
 	}
 	if err := installFromArchive(data, asset.Name, dest); err != nil {
 		return err

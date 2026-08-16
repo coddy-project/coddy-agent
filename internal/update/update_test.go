@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -10,9 +11,77 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestInstallFromArchive_zip(t *testing.T) {
+	t.Parallel()
+	payload := mustZip(t, "nested/coddy.exe", []byte("Windows Coddy"))
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "coddy.exe")
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installFromArchive(payload, "coddy_0.9.3_windows_amd64.zip", dest); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "Windows Coddy" {
+		t.Fatalf("unexpected content: %q", b)
+	}
+}
+
+func TestDownloadURL_resumesAfterInterruptedResponse(t *testing.T) {
+	t.Parallel()
+	payload := []byte(strings.Repeat("Coddy", 32<<10))
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+			_, _ = w.Write(payload[:len(payload)/2])
+			return
+		}
+		wantRange := "bytes=" + strconv.Itoa(len(payload)/2) + "-"
+		if got := r.Header.Get("Range"); got != wantRange {
+			t.Errorf("Range = %q, want %q", got, wantRange)
+			http.Error(w, "bad range", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)-len(payload)/2))
+		w.Header().Set("Content-Range", "bytes "+strconv.Itoa(len(payload)/2)+"-"+strconv.Itoa(len(payload)-1)+"/"+strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(payload[len(payload)/2:])
+	}))
+	defer srv.Close()
+
+	reporter := &recordingDownloadReporter{}
+	got, err := downloadURL(context.Background(), srv.Client(), srv.URL, reporter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("downloaded bytes differ: got %d, want %d", len(got), len(payload))
+	}
+	if reporter.retries != 1 {
+		t.Fatalf("retries = %d, want 1", reporter.retries)
+	}
+}
+
+type recordingDownloadReporter struct {
+	retries int
+}
+
+func (*recordingDownloadReporter) Complete(int64)        {}
+func (*recordingDownloadReporter) Progress(int64, int64) {}
+func (r *recordingDownloadReporter) Retry(int, int, error) {
+	r.retries++
+}
 
 func TestInstallFromArchive_tarGz(t *testing.T) {
 	t.Parallel()
@@ -148,6 +217,23 @@ func mustTarGz(t *testing.T, name string, body []byte) []byte {
 		t.Fatal(err)
 	}
 	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func mustZip(t *testing.T, name string, body []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(body); err != nil {
 		t.Fatal(err)
 	}
 	if err := zw.Close(); err != nil {
