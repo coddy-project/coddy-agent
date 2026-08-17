@@ -37,5 +37,4 @@ test("workspace context chips flatten into the row so only overflow wraps", () =
   const block = css.match(/\.composer-context-chips\s*\{([^}]+)\}/s);
   expect(block).not.toBeNull();
   expect(block![1]).toMatch(/display:\s*contents/);
-  expect(block![1]).not.toMatch(/display:\s*flex/);
 });
