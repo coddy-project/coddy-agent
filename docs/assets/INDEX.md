@@ -21,19 +21,32 @@ Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
 - `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
 - `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
 
-## Full HD tour (README, July 2026)
+## Full HD tour (README, re-captured August 2026)
 
-Captured at **1920×1080** via Playwright MCP against the embedded SPA (`make build TAGS="http ui scheduler memory"` + `coddy http` on a disposable `--home`). Mobile shots at **390×844**. Theme is the default **Dark** (cookie `coddy_ui_theme=dark`; switch via Settings → Appearance). Provider `api_key` is left empty in the demo config and supplied via `RPA_API_KEY` so no secret is rendered. Re-captured **2026-07-21** (0.9.40 + context-compaction branch): the composer now shows the environment chip (**Local**) plus workspace / branch / worktree chips; the settings sidebar includes **Context compaction**; demo scheduler jobs use `cwd: /workspace/demo-api` so no host paths leak into shots.
+Captured at **1920×1080** through Playwright against the embedded SPA (`make build TAGS="http ui scheduler memory cli"` + `coddy http` on a disposable `CODDY_HOME`), mobile at **390×844**, default **Dark** theme, browser locale **en-US** so no shot lands in another language. Re-captured **2026-08-17** on **0.9.71**: the composer carries the attach button and the improve-prompt wand, chips wrap individually on narrow viewports, Appearance holds the language picker, and the scheduler job editor uses the shared markdown line editor.
+
+The disposable home lives at a presentable path (`/home/pasha/demo/coddy-home` at capture time) because the Skills tab prints the resolved `skills.dirs`. **Never capture the LLM provider detail pane**: it renders `api_key` values in full. The provider master list (names only) is safe, which is why the `providers` tab is not part of this set.
 
 - `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
-- `screenshot-fullhd-chat.png` - active session transcript with agent tool/thinking/memory rows (`#/s/...`)
-- `screenshot-fullhd-history.png` - History drawer on a session (`#/s/...?history=1`)
-- `screenshot-fullhd-scheduler.png` - scheduler list plus job editor (`#/scheduler/jobs/nightly-docs`)
-- `screenshot-fullhd-scheduler-job.png` - job settings editor dialog only (element shot of `scheduler-editor-panel`)
-- `screenshot-fullhd-settings.png` - settings drawer, tabbed nav, LLM providers tab (`#/settings/providers`)
-- `screenshot-fullhd-settings-skills.png` - settings Skills tab (dirs + installed skills)
-- `screenshot-fullhd-settings-appearance.png` - settings Appearance tab (7 theme swatches)
+- `screenshot-fullhd-chat.png` - session transcript with an expanded `edit` tool call showing a real diff
+- `screenshot-fullhd-history.png` - History drawer over the start screen
+- `screenshot-fullhd-scheduler.png` - scheduler drawer, three jobs, one paused
+- `screenshot-fullhd-scheduler-job.png` - drawer plus the job editor (cron hint, mode/model, markdown body)
+- `screenshot-fullhd-settings.png` - settings sheet, tabbed nav, **ReAct agent** tab
+- `screenshot-fullhd-settings-skills.png` - settings Skills tab (dirs, remote sources, installed skills)
+- `screenshot-fullhd-settings-appearance.png` - settings Appearance tab (7 theme swatches plus language picker)
+- `screenshot-fullhd-settings-mcp.png` - settings MCP tab: a connected global server and a project-local one awaiting workspace approval
+- `screenshot-fullhd-tasks.png` - background tasks panel docked in a session, one task running
+- `screenshot-fullhd-branches.png` - `‹ 2/2 ›` branch navigator under an edited user message
 - `screenshot-mobile-start.png`, `screenshot-mobile-chat.png` - 390×844 top-bar shell
+
+## Console TUI (README and coddy.dev, August 2026)
+
+Captured **2026-08-17** from a real **Konsole** window on an isolated Xvfb `:99` (staged by `demo-videos/rig/stage_konsole.sh`, driven with XTEST), 1920 px wide and cropped to the used rows because the TUI renders inline from the top. Deterministic pyte-rendered counterparts live in `cli-tui/`; pi originals in `pi-tui-reference/`. See `docs/cli.md` (**Captures**).
+
+- `screenshot-console-start.png` - the `coddy` launch line plus header, `[Context]`, `[Skills]`, editor, footer
+- `screenshot-console-models.png` - `ctrl+l` model selector
+- `screenshot-console-chat.png` - finished turn: `read` tool box, thinking block, markdown answer, footer counters
 
 ## Tool approval previews (July 2026)
 

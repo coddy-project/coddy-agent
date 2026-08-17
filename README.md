@@ -33,12 +33,22 @@
 | ![Scheduler job editor](docs/assets/screenshot-fullhd-scheduler-job.png) | ![Settings](docs/assets/screenshot-fullhd-settings.png) |
 | **Settings — Skills** | **Settings — Appearance** |
 | ![Settings Skills](docs/assets/screenshot-fullhd-settings-skills.png) | ![Settings Appearance](docs/assets/screenshot-fullhd-settings-appearance.png) |
+| **Settings - MCP servers** (project trust gate) | **Background tasks** |
+| ![Settings MCP](docs/assets/screenshot-fullhd-settings-mcp.png) | ![Background tasks](docs/assets/screenshot-fullhd-tasks.png) |
 
-Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy http` + Vite dev). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy http`). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+
+**Console TUI** (`-tags cli`) - bare **`coddy`** in a terminal, here in Konsole:
+
+![Console startup](docs/assets/screenshot-console-start.png)
+
+![Console turn with a tool call](docs/assets/screenshot-console-chat.png)
+
+More console states and the capture sets: [`docs/cli.md`](docs/cli.md).
 
 </details>
 
-Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The same agent core is reachable from an IDE over **ACP**, a browser or any OpenAI client over **HTTP**, **Telegram** through the messenger gateway, and cron through the **scheduler**. The **`grep`** and **`glob`** filesystem tools use system ripgrep when available and fall back to built-in Go implementations when it is not. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
+Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratch`, `distroless`, read-only workspaces) without a full OS shell. The same agent core is reachable from a terminal through the **console TUI**, an IDE over **ACP**, a browser or any OpenAI client over **HTTP**, **Telegram** through the messenger gateway, and cron through the **scheduler**. The **`grep`** and **`glob`** filesystem tools use system ripgrep when available and fall back to built-in Go implementations when it is not. The harness layer (ACP RPC, sessions, prompts, providers) stays the same if you tighten the toolset or drive it from automation instead of an IDE. The design also targets **container fleets** - many Coddy instances in Docker (orchestrator-defined limits, read-only rootfs, mounted workspace) with **full control of each container**, similar in spirit to agent OS / swarm-style agents, not a single shared chat pool.
 
 ## Contents
 
@@ -68,6 +78,9 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 ## Features
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
+- **Four surfaces, one agent core** - **`coddy acp`** for editors, **`coddy http`** for the REST gateway and embedded web UI, bare **`coddy`** for the interactive console (**`-tags cli`**), and **`coddy gateway`** for messengers; all four share **`$CODDY_HOME`** sessions - see [Console](docs/cli.md), [HTTP API](docs/http-api.md)
+- **Remote control** - point the console or ACP at a running server with **`--remote <name|host:port|url>`** (plus **`--remote-token`** / **`CODDY_REMOTE_TOKEN`**), and switch the web UI between local and remote from the composer environment chip - see [Remote control](docs/remote-control.md)
+- **Self-configuration** - the agent edits its own YAML through staged uci-like commands (**`config_get`** / **`config_set`** / **`config_changes`** / **`config_commit`** / **`config_revert`** / **`config_rollback`**): nothing touches the file until a commit you approve, which then validates, snapshots, and hot-reloads skills, rules, tools, and MCP servers - see [Configuration reference](docs/config-reference.md)
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
 - **Two operating modes** - `agent` (full tool access) and `plan` (planning + text files only)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
@@ -337,7 +350,7 @@ When the plan is ready, switch to **agent** mode yourself for full tools and imp
 
 Best for: architecture planning, writing specs, design documents, code review.
 
-Use your editor session mode selector (or **`session/set_config_option`**).
+Switch modes from the composer selector in the web UI, **`/mode`** (or **`--mode agent|plan`**) in the console, or your editor's session mode selector over ACP (**`session/set_config_option`**).
 
 ## Rules
 
@@ -519,9 +532,12 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
+- [Install](docs/install.md) - installer script options, Windows paths, manual placement
 - [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
 - [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
+- [Console TUI](docs/cli.md) - bare **`coddy`** in a terminal (**`-tags cli`**): layout, keys, flags, print mode, captures
+- [Remote control](docs/remote-control.md) - driving a remote **`coddy http`** server from the console, ACP, or the web UI
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
@@ -534,6 +550,9 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Codex hooks](docs/codex-hooks.md) - how `.cursor/rules/*.mdc` reach a Codex CLI session working on this repo
 - [OpenCode hooks](docs/opencode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to OpenCode sessions working on this repo
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
+- [Custom tools](docs/custom-tools.md) - adding a tool to the registry, schema, and permission wiring
+- [Scheduler](docs/scheduler.md) - cron job files, UTC firing rules, run sessions, and the **`coddy_scheduler_*`** tools
+- [ZCode hooks](docs/zcode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to ZCode sessions working on this repo
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and program-wide permission grants
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters

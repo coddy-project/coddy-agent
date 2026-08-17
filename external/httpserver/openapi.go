@@ -759,6 +759,117 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/branches": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Fork the session at one user message",
+					"description": "Creates a sibling conversation that receives every message **before** the user message at **userMessageIndex** (0-based over **`user`** rows), so an edited version of that message can be resent without overwriting the original branch. " +
+						"Workspace turn diffs recorded **after** the branch point are reversed in the session cwd first, so the files match the state the branch starts from; **fileRollbackNote** reports which turns were reversed or why none were. " +
+						"Both branches are recorded in **branches.json** inside the source session bundle and are listed by **GET** on this path.",
+					"operationId": "coddyBranchCreate",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Source session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"userMessageIndex"},
+									"properties": map[string]interface{}{
+										"userMessageIndex": map[string]interface{}{
+											"type": "integer", "minimum": 0,
+											"description": "0-based index of the user message to branch at.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Branch created",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":           map[string]string{"type": "string"},
+											"newSessionId":     map[string]string{"type": "string"},
+											"branchIndex":      map[string]string{"type": "integer"},
+											"totalBranches":    map[string]string{"type": "integer"},
+											"fileRollbackNote": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"get": map[string]interface{}{
+					"summary": "List branch points visible from a session",
+					"description": "Reads **branches.json** from the session bundle. Each entry carries **userMessageIndex**, **currentIndex**, **total**, the sibling **sessions** (**sessionId**, **branchIndex**, **preview**, **lastUpdatedAt**), and **own** - **`true`** for a branch point this session introduced, **`false`** for the sibling view inherited from its parent. " +
+						"The bundled UI renders each entry as a **`‹ n/m ›`** navigator under that user message.",
+					"operationId": "coddyBranchList",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Branch points",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"branchPoints": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"userMessageIndex": map[string]string{"type": "integer"},
+														"currentIndex":     map[string]string{"type": "integer"},
+														"total":            map[string]string{"type": "integer"},
+														"own":              map[string]string{"type": "boolean"},
+														"sessions": map[string]interface{}{
+															"type": "array",
+															"items": map[string]interface{}{
+																"type": "object",
+																"properties": map[string]interface{}{
+																	"sessionId":     map[string]string{"type": "string"},
+																	"branchIndex":   map[string]string{"type": "integer"},
+																	"preview":       map[string]string{"type": "string"},
+																	"lastUpdatedAt": map[string]string{"type": "integer"},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/workspace": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Switch the session workspace folder, git branch, or worktree",
