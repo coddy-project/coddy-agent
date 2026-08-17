@@ -337,6 +337,7 @@ Editing a user message forks the conversation instead of replacing the old answe
 - Buttons are **22×22px** ghost tiles - transparent fill, hairline **`--text` 14%** border, **55%** muted glyph - that tint on hover. The label is **12px**, **50%** muted, **`min-width: 28px`** and centered so switching branches never shifts the row.
 - Arrows are **disabled** (**`opacity: 0.3`**), not hidden, at the first and last branch. Accessible names are **Previous branch** / **Next branch**; the label announces **Branch n of m**.
 - Exactly **one** navigator per branch point, even after a reconcile that re-injects the list (**`deduplicateBranchNavs`**).
+- A branch point whose other threads were deleted renders **no** navigator: the server stops reporting a fork with fewer than two surviving sessions, so the row disappears instead of showing **`1/1`**.
 - The pencil that creates a branch is the user bubble's own **`.msg-user-edit`** control (**Edit message**): a **26×26px** borderless icon parked **outside** the bubble's left edge (**`left: -32px`**, vertically centered), **`opacity: 0`** until the message stack is hovered or the button takes focus. It never occupies bubble width.
 
 Functional contract, endpoints, and the leaf-resolution rule: **`docs/ui.md`** (**Message editing and conversation branches**).
