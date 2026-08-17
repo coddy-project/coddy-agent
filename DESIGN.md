@@ -328,6 +328,19 @@ Ordering rules:
 - `tool_call` blocks appear where tool events arrive.
 - Assistant text is **segmented**: text that resumes after a `tool_call` or `thinking` row opens a **new** `assistant_message` bubble, so prose interleaves with tools/thinking in the order the model emitted them (preamble → tool → follow-up → tool → …). During streaming this is enforced by **`consumeComposerSse.ts`**: new `tool_call` / `thinking` rows are appended at the **end** (not spliced above the reply) and mark the segment dirty; the next text delta drains the pending tool queue, then opens a fresh assistant segment (**`currentAssistantId`**), with **`lastAssistantId`** returned for the finalize/`syncAssistantFromServer` fill. This matches the chronological ordering **`loadMessages`** reconstructs from **`GET /coddy/sessions/{id}/messages`** on completion (which mints one assistant bubble per server message via **`stableAssistantItemId`**). The **live** stream and the **reloaded** transcript therefore show the **same** interleaving — there are not two different behaviors.
 
+### Branch navigator (edited messages)
+
+Editing a user message forks the conversation instead of replacing the old answer, so the transcript needs a way to say "this point has more than one continuation".
+
+- The control is a transcript block type, **`branch_nav`**, rendered by **`BranchNavigator.tsx`** **under** the user bubble it belongs to: **`‹`** button, an **`n/m`** label, **`›`** button (**`.branch-nav`**, **`.branch-nav-btn`**, **`.branch-nav-label`**).
+- It is **not** a bubble and carries no frosted panel: **`align-self: flex-end`** puts a **4px**-gap row on the user side of the column with **8px** below it, so it reads as transcript metadata rather than content.
+- Buttons are **22×22px** ghost tiles - transparent fill, hairline **`--text` 14%** border, **55%** muted glyph - that tint on hover. The label is **12px**, **50%** muted, **`min-width: 28px`** and centered so switching branches never shifts the row.
+- Arrows are **disabled** (**`opacity: 0.3`**), not hidden, at the first and last branch. Accessible names are **Previous branch** / **Next branch**; the label announces **Branch n of m**.
+- Exactly **one** navigator per branch point, even after a reconcile that re-injects the list (**`deduplicateBranchNavs`**).
+- The pencil that creates a branch is the user bubble's own **`.msg-user-edit`** control (**Edit message**): a **26×26px** borderless icon parked **outside** the bubble's left edge (**`left: -32px`**, vertically centered), **`opacity: 0`** until the message stack is hovered or the button takes focus. It never occupies bubble width.
+
+Functional contract, endpoints, and the leaf-resolution rule: **`docs/ui.md`** (**Message editing and conversation branches**).
+
 ### Composer pill
 
 Muted **Auto** pill tracks future modality toggles; UI copy stays English everywhere.

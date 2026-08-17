@@ -6,14 +6,13 @@ Short map for automation-friendly contributors.
 
 | Area | Responsibility |
 |------|------------------|
-| `cmd/coddy` | CLI entry (`acp`, `http`, `sessions`, `skills`, `mcp`, `codex login`, `rules list`, `update`). |
+| `cmd/coddy` | CLI entry (bare `coddy` console, `cli`, `acp`, `http`, `gateway`, `sessions`, `skills`, `plugin`, `mcp`, `codex login`, `rules list`, `update`). |
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
 | `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
-| `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
 | `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
-| `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge,Swagger statics,`/coddy` REST,ServeMux wiring). |
+| `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge, Swagger statics, `/coddy` REST, ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
 | `external/cli` | Interactive console TUI (**`-tags cli`**): bare **`coddy`** on a terminal, pi-style rendering in **`external/cli/tui`**. Guide: **`docs/cli.md`**. |

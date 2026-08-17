@@ -347,7 +347,27 @@ Automated checks:
 - **external/ui/src/ui/messages/MessageList.test.tsx**
 
 
+## Message editing and conversation branches
+
+Editing a sent message does not overwrite the answer it produced - it forks the conversation, so both versions stay readable. Screenshot: `docs/assets/screenshot-fullhd-branches.png`.
+
+- Every user bubble carries a pencil button (**`.msg-user-edit`**, **`data-testid="user-message-edit"`**, accessible name **`Edit message`**). It loads that message back into the composer draft (attachment chips are recovered from the persisted session-assets annotation) and records the 0-based **user** message index being edited.
+- Sending that draft calls **`POST /coddy/sessions/{id}/branches`** with **`{"userMessageIndex"}`**, then switches to the returned **`newSessionId`** and sends the text there. The new bundle holds every message **before** the branch point, and the server reverses the workspace turn diffs recorded after it, so files match the state the branch starts from. A failed create surfaces as a UI-log error row and leaves the draft in place.
+- The transcript renders a **`branch_nav`** item under the branch point: **`‹ n/m ›`** (**`data-testid="branch-nav"`**, **`branch-nav-prev`** / **`branch-nav-label`** / **`branch-nav-next`**), with the arrows disabled at the ends. **`injectBranchNavItems`** places one per branch point and **`deduplicateBranchNavs`** keeps only the last per index.
+- Branch points come from **`GET /coddy/sessions/{id}/branches`** (persisted as **`branches.json`** in the source bundle) and cover both the session's own children and the sibling view inherited from its parent (**`own`**).
+- Opening a session by id walks the branch tree with **`resolveLatestLeaf`** - greedily following the most recently updated sibling at each branch point - so a link to the root lands on the branch you last worked in. A session chosen explicitly through the navigator is exempt and opens as picked.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/BranchNavigator.test.tsx** (labels, disabled ends, switch callback)
+- **external/ui/src/ui/chat/branchInject.test.ts** (placement, deduplication)
+- **external/ui/src/ui/chat/resolveLatestLeaf.test.ts** (leaf walk, sibling views)
+- **external/ui/src/ui/messages/UserMessage.test.tsx** (edit control visibility)
+- **internal/session/branches_test.go** (fork slicing, `branches.json` bookkeeping)
+
 ## Background tasks panel
+
+Screenshot: `docs/assets/screenshot-fullhd-tasks.png`.
 
 The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
 
@@ -454,7 +474,9 @@ File API
 ## MCP servers (Settings tab)
 
 Functional checklist for the Settings -> MCP servers tab (`MCPSection.tsx`,
-section kind `mcp`; visual contract in `DESIGN.md`):
+section kind `mcp`; visual contract in `DESIGN.md`). Screenshot:
+`docs/assets/screenshot-fullhd-settings-mcp.png` (a connected global server plus
+a project-local one awaiting workspace approval):
 
 - `GET /coddy/mcp` backs the list: merged `config.yaml` + global `~/.coddy/mcp.json`
   + project `./.coddy/mcp.json` servers, each with `source` (`global` / `local`
@@ -520,8 +542,12 @@ Store the provided design reference images under `docs/assets/`.
 
 When describing a specific element, link to the relevant image file.
 
-- Full HD UI tour (README): `docs/assets/screenshot-fullhd-start.png`, `screenshot-fullhd-chat.png`, `screenshot-fullhd-history.png`, `screenshot-fullhd-scheduler.png`, `screenshot-fullhd-scheduler-job.png`, `screenshot-fullhd-settings.png`, `screenshot-fullhd-settings-skills.png`, `screenshot-fullhd-settings-appearance.png`
+- Full HD UI tour (README): `docs/assets/screenshot-fullhd-start.png`, `screenshot-fullhd-chat.png`, `screenshot-fullhd-history.png`, `screenshot-fullhd-scheduler.png`, `screenshot-fullhd-scheduler-job.png`, `screenshot-fullhd-settings.png`, `screenshot-fullhd-settings-skills.png`, `screenshot-fullhd-settings-appearance.png`, `screenshot-fullhd-settings-mcp.png`
+- Feature surfaces: `docs/assets/screenshot-fullhd-tasks.png` (background tasks panel), `screenshot-fullhd-branches.png` (branch navigator)
 - Mobile UI tour (README): `docs/assets/screenshot-mobile-start.png`, `screenshot-mobile-chat.png`
+- Console TUI (`-tags cli`, real Konsole window): `docs/assets/screenshot-console-start.png`, `screenshot-console-models.png`, `screenshot-console-chat.png` - see `docs/cli.md`
+
+The UI tour is captured against `coddy http` with the embedded SPA, desktop at **1920×1080** and mobile at **390×844**, dark theme, browser locale **en-US**. Settings screenshots skip the LLM provider **detail** pane on purpose: it renders API keys in full.
 - Home layout: `docs/assets/ref-home-1.png`, `ref-home-2.png`, `ref-home-3.png`
 - Home scroll state: `docs/assets/ref-home-scroll.png`
 - Composer state: `docs/assets/ref-home-composer.png`

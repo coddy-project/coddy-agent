@@ -155,6 +155,28 @@ exactly like the ACP `serverRef` path. Project-local MCP servers still go
 through the workspace trust gate; a server pending approval stays disconnected
 and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
+## Captures
+
+Two capture sets exist, and they answer different questions.
+
+`docs/assets/screenshot-console-*.png` are photographs of the running console
+in a real **Konsole** window (1920 px wide, cropped to the used rows): the
+launch line and header with `[Context]` / `[Skills]`
+(`screenshot-console-start.png`), the `ctrl+l` model selector
+(`screenshot-console-models.png`), and a finished turn with a tool box, a
+thinking block, and the footer counters (`screenshot-console-chat.png`). Use
+these in README and on the site: they show what a user actually sees in a
+terminal emulator.
+
+`docs/assets/cli-tui/` is the deterministic set produced by
+`examples/cli/capture.py`, which drives the shared e2e driver and renders each
+state from the pyte buffer as `.txt`, styled `.html`, and `.png`. Those are
+regression references for colors and cell layout, not marketing images;
+regenerate them when the transcript chrome changes.
+
+`docs/assets/pi-tui-reference/` holds captures of the pi original for
+comparison, as described under **Visual model**.
+
 ## Testing
 
 - Unit + BDD: `go test -tags=cli ./...`; the happy-path spec is
