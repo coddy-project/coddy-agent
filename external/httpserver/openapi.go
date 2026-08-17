@@ -758,6 +758,39 @@ func openAPISpec() map[string]interface{} {
 						"404": errorResponseRef(),
 					},
 				},
+				"delete": map[string]interface{}{
+					"summary": "Delete a persisted session",
+					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
+						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
+						"Deleting an id with no bundle on disk still answers **200**.",
+					"operationId": "coddySessionDelete",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Session deleted",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"id":     map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
 			},
 			"/coddy/sessions/{id}/branches": map[string]interface{}{
 				"post": map[string]interface{}{
@@ -816,6 +849,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List branch points visible from a session",
 					"description": "Reads **branches.json** from the session bundle. Each entry carries **userMessageIndex**, **currentIndex**, **total**, the sibling **sessions** (**sessionId**, **branchIndex**, **preview**, **lastUpdatedAt**), and **own** - **`true`** for a branch point this session introduced, **`false`** for the sibling view inherited from its parent. " +
+						"Sessions whose bundle no longer exists are skipped and **currentIndex** is derived from the surviving list, so a stale branch file heals itself on read; a branch point with fewer than two surviving threads is not reported. " +
 						"The bundled UI renders each entry as a **`‹ n/m ›`** navigator under that user message.",
 					"operationId": "coddyBranchList",
 					"parameters": []interface{}{

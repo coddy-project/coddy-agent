@@ -37,6 +37,7 @@ export async function resolveLatestLeaf(
   maxHops = 10,
 ): Promise<string> {
   let current = startId;
+  let previous = "";
   const visited = new Set<string>();
 
   for (let hop = 0; hop < maxHops; hop++) {
@@ -47,10 +48,18 @@ export async function resolveLatestLeaf(
     try {
       data = await fetchBranches(current);
     } catch {
-      break;
+      data = null;
     }
 
-    if (!data?.branchPoints?.length) break;
+    if (!data) {
+      // The session we hopped to cannot be read (deleted bundle still listed in a
+      // stale branch file). Step back rather than handing out a dead id.
+      if (previous) current = previous;
+      break;
+    }
+    previous = current;
+
+    if (!data.branchPoints?.length) break;
 
     // Among all sessions in all branch points, pick the one with the highest
     // lastUpdatedAt that we haven't visited yet.

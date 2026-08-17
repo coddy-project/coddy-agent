@@ -283,6 +283,88 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	}, nil
 }
 
+// PruneBranchRefs retracts sessionID from the branch metadata of the session it
+// forked from, so no branch point keeps advertising a bundle that is about to be
+// deleted. A branch point left with fewer than two sessions no longer describes a
+// fork and is dropped entirely.
+//
+// Call it before removing the session directory: the parent id is read from the
+// session's own branch file. Sessions that never branched are a no-op, and missing
+// metadata is not an error.
+func (m *Manager) PruneBranchRefs(sessionID string) error {
+	if m.store == nil || m.store.Root == "" {
+		return nil
+	}
+	bf, err := ReadBranchFile(m.store.SessionPath(sessionID))
+	if err != nil {
+		return err
+	}
+	if bf.Origin == nil {
+		return nil
+	}
+	parentDir := m.store.SessionPath(bf.Origin.ParentSessionID)
+	parentBF, err := ReadBranchFile(parentDir)
+	if err != nil {
+		return err
+	}
+	if !dropBranchRef(parentBF, sessionID) {
+		return nil
+	}
+	return WriteBranchFile(parentDir, parentBF)
+}
+
+// dropBranchRef removes every reference to sessionID from bf and collapses branch
+// points that no longer hold at least two sessions. It reports whether bf changed.
+func dropBranchRef(bf *BranchFile, sessionID string) bool {
+	changed := false
+	kept := make([]BranchPoint, 0, len(bf.BranchPoints))
+	for _, bp := range bf.BranchPoints {
+		refs := make([]BranchSessionRef, 0, len(bp.Sessions))
+		for _, ref := range bp.Sessions {
+			if ref.SessionID != sessionID {
+				refs = append(refs, ref)
+			}
+		}
+		// One thread left is no fork at all, so the branch point goes with it.
+		if len(refs) < 2 {
+			changed = changed || len(bp.Sessions) > 0
+			continue
+		}
+		changed = changed || len(refs) != len(bp.Sessions)
+		bp.Sessions = refs
+		kept = append(kept, bp)
+	}
+	if !changed {
+		return false
+	}
+	bf.BranchPoints = kept
+	return true
+}
+
+// liveRefs drops references to sessions whose bundle is gone (deleted while a
+// branch file still listed them) and stamps mtimes on the survivors.
+func (m *Manager) liveRefs(refs []BranchSessionRef) []BranchSessionRef {
+	out := make([]BranchSessionRef, 0, len(refs))
+	for _, ref := range refs {
+		if !m.store.HasPersistedSnapshot(ref.SessionID) {
+			continue
+		}
+		out = append(out, ref)
+	}
+	stampLastUpdated(out, m.store)
+	return out
+}
+
+// refPosition returns the index of sessionID within refs, or -1.
+func refPosition(refs []BranchSessionRef, sessionID string) int {
+	for i := range refs {
+		if refs[i].SessionID == sessionID {
+			return i
+		}
+	}
+	return -1
+}
+
 // BranchPointView is the read-only view of a branch point returned to the UI.
 type BranchPointView struct {
 	UserMessageIndex int                `json:"userMessageIndex"`
@@ -298,8 +380,12 @@ type BranchPointView struct {
 // Returns views for:
 //   - The session's position among siblings (from parent's branch file, if this is a branch).
 //   - Any branch points the session itself introduced (its own children).
+//
+// Sessions whose bundle no longer exists are skipped, so a branch file written
+// before the deleting caller learned to prune it (see PruneBranchRefs) never
+// sends a client after a session that is gone.
 func (m *Manager) LoadBranchPointViews(sessionID string) ([]BranchPointView, error) {
-	if m.store == nil {
+	if m.store == nil || m.store.Root == "" {
 		return nil, nil
 	}
 	dir := m.store.SessionPath(sessionID)
@@ -321,12 +407,19 @@ func (m *Manager) LoadBranchPointViews(sessionID string) ([]BranchPointView, err
 			if bp.UserMessageIndex != bf.Origin.UserMessageIndex {
 				continue
 			}
-			sessions := make([]BranchSessionRef, len(bp.Sessions))
-			copy(sessions, bp.Sessions)
-			stampLastUpdated(sessions, m.store)
+			sessions := m.liveRefs(bp.Sessions)
+			if len(sessions) < 2 {
+				continue
+			}
+			// Positions shift when a sibling is deleted, so the navigator index is
+			// derived from the surviving list rather than from the stored origin.
+			cur := refPosition(sessions, sessionID)
+			if cur < 0 {
+				continue
+			}
 			out = append(out, BranchPointView{
 				UserMessageIndex: bp.UserMessageIndex,
-				CurrentIndex:     bf.Origin.MyBranchIndex,
+				CurrentIndex:     cur,
 				Total:            len(sessions),
 				Sessions:         sessions,
 				Own:              false,
@@ -335,17 +428,18 @@ func (m *Manager) LoadBranchPointViews(sessionID string) ([]BranchPointView, err
 	}
 
 	// Also include any branch points this session introduced (whether root or branch).
-	// currentIndex=0 because this session is always index 0 in its own branch points.
+	// This session sits at index 0 of its own branch points unless a deletion moved it.
 	for _, bp := range bf.BranchPoints {
-		if len(bp.Sessions) < 2 {
+		sessions := m.liveRefs(bp.Sessions)
+		if len(sessions) < 2 {
 			continue
 		}
-		sessions := make([]BranchSessionRef, len(bp.Sessions))
-		copy(sessions, bp.Sessions)
-		stampLastUpdated(sessions, m.store)
+		// A session always lists itself in its own branch point; fall back to the
+		// head of the list if a hand-edited file says otherwise.
+		cur := max(refPosition(sessions, sessionID), 0)
 		out = append(out, BranchPointView{
 			UserMessageIndex: bp.UserMessageIndex,
-			CurrentIndex:     0,
+			CurrentIndex:     cur,
 			Total:            len(sessions),
 			Sessions:         sessions,
 			Own:              true,

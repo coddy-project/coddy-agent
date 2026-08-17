@@ -244,6 +244,201 @@ func TestThreeLevelBranching(t *testing.T) {
 	}
 }
 
+// TestPruneBranchRefsDropsDeletedSibling verifies that retracting one branch of a
+// three-way fork leaves the survivors listed, with navigator positions renumbered.
+func TestPruneBranchRefsDropsDeletedSibling(t *testing.T) {
+	mgr, fs := newTestManager(t)
+
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, userMsgs("hello", "world"))
+
+	r1, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create B1: %v", err)
+	}
+	r2, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create B2: %v", err)
+	}
+
+	if err := mgr.PruneBranchRefs(r1.NewSessionID); err != nil {
+		t.Fatalf("PruneBranchRefs(B1): %v", err)
+	}
+	if err := os.RemoveAll(fs.SessionPath(r1.NewSessionID)); err != nil {
+		t.Fatalf("remove B1: %v", err)
+	}
+
+	bf, err := ReadBranchFile(rootDir)
+	if err != nil {
+		t.Fatalf("read root branches: %v", err)
+	}
+	if len(bf.BranchPoints) != 1 {
+		t.Fatalf("root: want 1 branch point, got %d", len(bf.BranchPoints))
+	}
+	for _, ref := range bf.BranchPoints[0].Sessions {
+		if ref.SessionID == r1.NewSessionID {
+			t.Errorf("root still references deleted branch %q", r1.NewSessionID)
+		}
+	}
+
+	// B2 keeps its navigator entry, now as the second of two threads.
+	views, err := mgr.LoadBranchPointViews(r2.NewSessionID)
+	if err != nil {
+		t.Fatalf("LoadBranchPointViews(B2): %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("B2: want 1 view, got %d", len(views))
+	}
+	if views[0].Total != 2 {
+		t.Errorf("B2 view: want total=2, got %d", views[0].Total)
+	}
+	if views[0].CurrentIndex != 1 {
+		t.Errorf("B2 view: want currentIndex=1, got %d", views[0].CurrentIndex)
+	}
+	if got := views[0].Sessions[views[0].CurrentIndex].SessionID; got != r2.NewSessionID {
+		t.Errorf("B2 view: currentIndex points at %q, want %q", got, r2.NewSessionID)
+	}
+}
+
+// TestPruneBranchRefsCollapsesLastBranch verifies that deleting the only branch of a
+// session removes the branch point entirely instead of leaving a one-sided fork.
+func TestPruneBranchRefsCollapsesLastBranch(t *testing.T) {
+	mgr, fs := newTestManager(t)
+
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, userMsgs("hello", "world"))
+
+	res, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+
+	if err := mgr.PruneBranchRefs(res.NewSessionID); err != nil {
+		t.Fatalf("PruneBranchRefs: %v", err)
+	}
+	if err := os.RemoveAll(fs.SessionPath(res.NewSessionID)); err != nil {
+		t.Fatalf("remove branch: %v", err)
+	}
+
+	bf, err := ReadBranchFile(rootDir)
+	if err != nil {
+		t.Fatalf("read root branches: %v", err)
+	}
+	if len(bf.BranchPoints) != 0 {
+		t.Errorf("root: want no branch points, got %+v", bf.BranchPoints)
+	}
+	views, err := mgr.LoadBranchPointViews(rootID)
+	if err != nil {
+		t.Fatalf("LoadBranchPointViews(root): %v", err)
+	}
+	if len(views) != 0 {
+		t.Errorf("root: want no views, got %+v", views)
+	}
+}
+
+// TestPruneBranchRefsWithoutOrigin verifies that pruning a session that never
+// branched touches nothing and reports no error.
+func TestPruneBranchRefsWithoutOrigin(t *testing.T) {
+	mgr, fs := newTestManager(t)
+
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, userMsgs("hello"))
+
+	if err := mgr.PruneBranchRefs(rootID); err != nil {
+		t.Fatalf("PruneBranchRefs(root): %v", err)
+	}
+	if err := mgr.PruneBranchRefs("never-existed"); err != nil {
+		t.Fatalf("PruneBranchRefs(missing): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, branchesFile)); !os.IsNotExist(err) {
+		t.Errorf("prune created %s for a session that never branched (err=%v)", branchesFile, err)
+	}
+}
+
+// TestLoadBranchPointViewsSkipsMissingSessions verifies that a branch file left
+// pointing at a deleted bundle (written before pruning existed) self-heals on read.
+func TestLoadBranchPointViewsSkipsMissingSessions(t *testing.T) {
+	mgr, fs := newTestManager(t)
+
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, userMsgs("hello", "world"))
+
+	r1, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create B1: %v", err)
+	}
+	r2, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create B2: %v", err)
+	}
+
+	// Delete the bundle behind the branch without touching root's branch file.
+	if err := os.RemoveAll(fs.SessionPath(r1.NewSessionID)); err != nil {
+		t.Fatalf("remove B1: %v", err)
+	}
+
+	views, err := mgr.LoadBranchPointViews(rootID)
+	if err != nil {
+		t.Fatalf("LoadBranchPointViews(root): %v", err)
+	}
+	if len(views) != 1 {
+		t.Fatalf("root: want 1 view, got %d", len(views))
+	}
+	if views[0].Total != 2 {
+		t.Errorf("root view: want total=2, got %d", views[0].Total)
+	}
+	for _, ref := range views[0].Sessions {
+		if ref.SessionID == r1.NewSessionID {
+			t.Errorf("root view still offers deleted session %q", r1.NewSessionID)
+		}
+	}
+
+	// The surviving sibling sees the same collapsed fork from the other side.
+	viewsB2, err := mgr.LoadBranchPointViews(r2.NewSessionID)
+	if err != nil {
+		t.Fatalf("LoadBranchPointViews(B2): %v", err)
+	}
+	if len(viewsB2) != 1 {
+		t.Fatalf("B2: want 1 view, got %d", len(viewsB2))
+	}
+	if viewsB2[0].Total != 2 || viewsB2[0].CurrentIndex != 1 {
+		t.Errorf("B2 view: want currentIndex=1 total=2, got %d/%d",
+			viewsB2[0].CurrentIndex, viewsB2[0].Total)
+	}
+}
+
+// TestLoadBranchPointViewsDropsSoleSurvivor verifies that a two-session fork whose
+// branch bundle is gone stops advertising a navigator on the session that remains.
+// This is the shape of the reported bug: total stayed 2 with one dead id.
+func TestLoadBranchPointViewsDropsSoleSurvivor(t *testing.T) {
+	mgr, fs := newTestManager(t)
+
+	rootID := "root"
+	rootDir, _ := fs.EnsureLayout(rootID)
+	writeMsgs(t, rootDir, userMsgs("hello", "world"))
+
+	res, err := mgr.CreateBranchSession(CreateBranchParams{SourceSessionID: rootID, UserMessageIndex: 0})
+	if err != nil {
+		t.Fatalf("create branch: %v", err)
+	}
+	// Delete the bundle behind the branch without touching root's branch file.
+	if err := os.RemoveAll(fs.SessionPath(res.NewSessionID)); err != nil {
+		t.Fatalf("remove branch: %v", err)
+	}
+
+	views, err := mgr.LoadBranchPointViews(rootID)
+	if err != nil {
+		t.Fatalf("LoadBranchPointViews(root): %v", err)
+	}
+	if len(views) != 0 {
+		t.Errorf("root: want no views once the only branch is gone, got %+v", views)
+	}
+}
+
 func findByIdx(views []BranchPointView, idx int) *BranchPointView {
 	for i := range views {
 		if views[i].UserMessageIndex == idx {

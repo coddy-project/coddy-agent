@@ -1092,6 +1092,12 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	// task logs inside it) go away.
 	bgtask.Default().StopSession(id)
 	s.mgr.ForgetLiveSession(id)
+	// Retract the session from the branch file of whatever it forked from, so the
+	// branch navigator stops offering a thread that no longer exists. Read-side
+	// filtering covers the failure case, so a prune error must not block delete.
+	if err := s.mgr.PruneBranchRefs(id); err != nil {
+		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
+	}
 	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
 		if !os.IsNotExist(err) {
 			s.log.Error("coddy session delete", "error", err)
