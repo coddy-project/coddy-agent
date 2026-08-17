@@ -181,6 +181,22 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 			t.Fatalf("paths missing key %s", must)
 		}
 	}
+	// A registered route with no operation in the spec is the same drift as a
+	// missing path: generated clients never learn the endpoint exists.
+	for path, ops := range map[string][]string{
+		"/coddy/sessions/{id}":          {"patch", "delete"},
+		"/coddy/sessions/{id}/branches": {"get", "post"},
+	} {
+		entry, ok := paths[path].(map[string]interface{})
+		if !ok {
+			t.Fatalf("paths missing key %s", path)
+		}
+		for _, op := range ops {
+			if _, ok := entry[op]; !ok {
+				t.Errorf("%s: spec has no %s operation", path, op)
+			}
+		}
+	}
 }
 
 type fakeProvider struct {
