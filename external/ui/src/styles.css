@@ -5635,49 +5635,6 @@ textarea#composer {
   flex-shrink: 0;
 }
 
-.settings-lead-pane .settings-theme-block {
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-}
-
-.settings-theme-block {
-  display: grid;
-  gap: 8px;
-}
-
-.settings-theme-segment {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
-}
-
-.settings-theme-option {
-  border: 0;
-  border-radius: 999px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
-  background: transparent;
-}
-
-.settings-theme-option.is-active {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
-}
-
-.settings-theme-option:hover:not(.is-active) {
-  color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
-  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
-}
-
 .settings-lead {
   margin: 0 0 8px;
   color: var(--muted);
