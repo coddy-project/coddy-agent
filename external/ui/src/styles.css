@@ -3536,9 +3536,6 @@ textarea#composer {
   gap: 6px;
   padding: 10px 12px 0;
 }
-.composer-context-row > .composer-context-chips {
-  padding: 0;
-}
 
 @media (max-width: 520px) {
   .composer-context-row {
@@ -3741,12 +3738,15 @@ textarea#composer {
   padding: 7px 9px;
 }
 
+/* display:contents dissolves this wrapper so the folder/branch/worktree chips
+   become direct flex items of .composer-context-row alongside the environment
+   chip. Without it the chips form a nested flex box that wraps as one unit, so
+   a long branch pushed the whole group onto its own lines (env alone on line 1,
+   folder+branch on line 2, worktree on line 3). Flattened, only the chips that
+   overflow wrap, and worktree stays beside the branch until the branch is long
+   enough to push it. Gap and alignment come from .composer-context-row. */
 .composer-context-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 0;
+  display: contents;
 }
 
 .workspace-chip {

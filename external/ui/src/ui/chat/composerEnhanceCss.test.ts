@@ -26,3 +26,16 @@ test("prompt enhancement control is pinned to the mobile context row's top-right
     /@media\s*\(max-width:\s*520px\)\s*\{\s*\.composer-context-row\s*\{[^}]*position:\s*relative[^}]*padding-right:\s*44px[^}]*\}\s*\.composer-enhance-btn\s*\{[^}]*position:\s*absolute[^}]*top:\s*10px[^}]*right:\s*12px/s,
   );
 });
+
+test("workspace context chips flatten into the row so only overflow wraps", () => {
+  // The folder/branch/worktree chips must dissolve into .composer-context-row
+  // (display:contents) instead of forming a nested flex box. A nested box wraps
+  // the chips as one unit, which stacked the group under the environment chip on
+  // mobile (env alone, then folder+branch, then worktree). Flattened, each chip
+  // wraps on its own so worktree trails the branch until the branch runs long.
+  const css = cssText();
+  const block = css.match(/\.composer-context-chips\s*\{([^}]+)\}/s);
+  expect(block).not.toBeNull();
+  expect(block![1]).toMatch(/display:\s*contents/);
+  expect(block![1]).not.toMatch(/display:\s*flex/);
+});
