@@ -232,7 +232,12 @@ func (s *remoteFeatureState) sendPrompt(text string) error {
 
 type remoteStubProvider struct{}
 
-func (remoteStubProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+func (remoteStubProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
+	for _, message := range messages {
+		if message.Role == llm.RoleSystem && message.Content == enhancePromptInstruction {
+			return &llm.Response{Content: "Refactor the memory endpoint and add tests.", StopReason: "end_turn"}, nil
+		}
+	}
 	return &llm.Response{Content: "stub", StopReason: "end_turn"}, nil
 }
 
@@ -254,6 +259,17 @@ func (s *remoteFeatureState) sendPNGImage() error {
 	}
 	buf, _ := json.Marshal(payload)
 	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/v1/responses", bytes.NewReader(buf))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.do(req)
+}
+
+func (s *remoteFeatureState) enhancePrompt(text string) error {
+	payload := map[string]string{"text": text}
+	buf, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, s.ts.URL+"/coddy/enhance-prompt", bytes.NewReader(buf))
 	if err != nil {
 		return err
 	}
@@ -415,6 +431,16 @@ func (s *remoteFeatureState) configReportsAuthConfigured() error {
 	return nil
 }
 
+func (s *remoteFeatureState) enhancedPromptIs(text string) error {
+	if err := s.succeeds(); err != nil {
+		return err
+	}
+	if got, _ := s.body["text"].(string); got != text {
+		return errStatus("enhanced prompt = "+got+", want "+text, s.status, s.rawBody)
+	}
+	return nil
+}
+
 func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	s := &remoteFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -438,6 +464,7 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I send the prompt "([^"]+)" to the session$`, s.sendPrompt)
 	sc.Step(`^I send a PNG image to the direct model$`, s.sendPNGImage)
 	sc.Step(`^I request the persisted thumbnail$`, s.requestPersistedThumbnail)
+	sc.Step(`^I enhance the draft prompt "([^"]+)"$`, s.enhancePrompt)
 	sc.Step(`^I list sessions$`, s.listSessions)
 	sc.Step(`^I request the server config$`, s.requestConfig)
 
@@ -453,6 +480,7 @@ func initializeRemoteScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session list includes the session$`, s.sessionListIncludesSession)
 	sc.Step(`^the config response hides the auth token$`, s.configHidesToken)
 	sc.Step(`^the config response reports authentication is configured$`, s.configReportsAuthConfigured)
+	sc.Step(`^the enhanced prompt is "([^"]+)"$`, s.enhancedPromptIs)
 }
 
 func TestRemoteAPIFeature(t *testing.T) {

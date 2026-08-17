@@ -252,6 +252,56 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/enhance-prompt": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Improve a draft prompt",
+					"description": "Rewrites a user's draft prompt into a clearer, more specific, and more effective prompt. The draft is treated only as source text to improve, never as a request to answer. " +
+						"The rewrite uses the model selected by the session in **X-Coddy-Session-ID**. Without a usable session, it falls back to **`agent.model`**, then the first configured **`models[]`** row. " +
+						"Unknown or invalid session ids fall back without creating a session. Returns **503** when no model is configured.",
+					"operationId": "coddyEnhancePrompt",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Existing session id, used to select the rewrite model.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"text": map[string]string{"type": "string"},
+									},
+									"required": []string{"text"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Enhanced prompt payload",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "coddy.enhance_prompt"},
+											"text":   map[string]string{"type": "string"},
+										},
+										"required": []string{"object", "text"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"502": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/slash-commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List slash commands from skills (paginated)",

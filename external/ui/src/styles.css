@@ -3321,6 +3321,49 @@ textarea#composer {
   font-variant-numeric: normal;
 }
 
+.composer-enhance-btn {
+  flex: 0 0 24px;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+  background: var(--coddy-surface-muted);
+  border: 1px solid color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.composer-enhance-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 17%, var(--coddy-surface-muted));
+  border-color: color-mix(in srgb, var(--accent) 52%, var(--coddy-blend-base));
+}
+
+.composer-enhance-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.composer-enhance-icon {
+  display: block;
+  transform-origin: center;
+}
+
+.composer-enhance-icon.is-spinning {
+  animation: session-spin 0.8s linear infinite;
+}
+
+.composer-enhance-err {
+  padding: 0 12px 8px;
+  color: rgba(251, 113, 133, 0.95);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* Match textarea glyph metrics only: no extra horizontal padding/border (those widen the mirror vs the field and shift the caret). */
 .composer-skill-chip-inline,
 .composer-at-chip-inline {
@@ -3493,9 +3536,21 @@ textarea#composer {
   gap: 6px;
   padding: 10px 12px 0;
 }
-.composer-context-row > .composer-context-chips {
-  padding: 0;
+
+@media (max-width: 520px) {
+  .composer-context-row {
+    position: relative;
+    padding-right: 44px;
+  }
+
+  .composer-enhance-btn {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    margin-left: 0;
+  }
 }
+
 .workspace-chip-wrap {
   display: inline-flex;
 }
@@ -3683,12 +3738,15 @@ textarea#composer {
   padding: 7px 9px;
 }
 
+/* display:contents dissolves this wrapper so the folder/branch/worktree chips
+   become direct flex items of .composer-context-row alongside the environment
+   chip. Without it the chips form a nested flex box that wraps as one unit, so
+   a long branch pushed the whole group onto its own lines (env alone on line 1,
+   folder+branch on line 2, worktree on line 3). Flattened, only the chips that
+   overflow wrap, and worktree stays beside the branch until the branch is long
+   enough to push it. Gap and alignment come from .composer-context-row. */
 .composer-context-chips {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 0;
+  display: contents;
 }
 
 .workspace-chip {

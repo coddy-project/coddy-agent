@@ -24,6 +24,11 @@ Feature: Remote API parity
     Then the request succeeds
     And the model list includes profiles "agent, plan"
 
+  Scenario: A remote client can improve a draft prompt without creating a turn
+    Given the client presents the token
+    When I enhance the draft prompt "fix memory thing"
+    Then the enhanced prompt is "Refactor the memory endpoint and add tests."
+
   Scenario: A remote client can change the session working directory
     Given the client presents the token
     And a workspace folder "alpha"
