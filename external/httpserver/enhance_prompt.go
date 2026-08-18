@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -93,7 +94,7 @@ func (s *Server) coddyEnhancePromptPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	response, err := provider.Complete(r.Context(), []llm.Message{
-		{Role: llm.RoleSystem, Content: enhancePromptInstruction},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(enhancePromptInstruction)},
 		{Role: llm.RoleUser, Content: "Draft prompt to enhance, not answer:\n\n" + draft},
 	}, nil)
 	if err != nil {

@@ -111,6 +111,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
+	// Applied last so it also covers a user's own prompts.dir template and the
+	// render fallback, and before the context breakdown so the estimate counts
+	// what is actually sent. See internal/prompts/identity.go.
+	full = prompts.WithIdentity(full)
 	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the
 		// LLM-visible window after the last compaction summary.

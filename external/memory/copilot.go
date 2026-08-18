@@ -14,6 +14,7 @@ import (
 	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -143,7 +144,7 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 	toolDefs := memtools.ToolDefinitions(memTools)
 	toolEnv := &tooling.Env{CWD: cwd}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: strings.TrimSpace(beforeTurnSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(beforeTurnSystemPrompt)},
 		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
 	}
 	maxTurns := cfg.Memory.PersistMaxTurns

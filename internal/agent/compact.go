@@ -13,6 +13,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -273,7 +274,7 @@ func buildCompactionRequest(head []llm.Message, instructions string) []llm.Messa
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: compactionSystemPrompt},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }
