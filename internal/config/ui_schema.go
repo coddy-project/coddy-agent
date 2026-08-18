@@ -46,6 +46,15 @@ func boolProp(title, description string) map[string]interface{} {
 	}
 }
 
+// boolPropDefault is boolProp for a flag whose absent value is not false. The
+// settings form reads the default both when seeding a new entry and when drawing
+// a switch for a key the configuration never set.
+func boolPropDefault(title, description string, def bool) map[string]interface{} {
+	out := boolProp(title, description)
+	out["default"] = def
+	return out
+}
+
 func objectSchema(title, description string, props map[string]interface{}, order []string, required []string) map[string]interface{} {
 	out := map[string]interface{}{
 		"type":                 "object",
@@ -219,8 +228,12 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"reasoning_default": strProp("Default reasoning level",
 			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
-		"stream": boolProp("Stream responses",
-			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only."),
+		// The only boolean here that defaults to true when the key is absent, so the
+		// schema has to say so: the form seeds new entries from schema defaults and
+		// renders an unset switch from them.
+		"stream": boolPropDefault("Stream responses",
+			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+			true),
 	}
 	envProps := map[string]interface{}{
 		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),

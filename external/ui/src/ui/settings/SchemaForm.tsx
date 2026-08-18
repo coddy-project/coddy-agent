@@ -274,7 +274,13 @@ function SchemaField(props: {
   }
 
   if (t === "boolean") {
-    const checked = Boolean(value);
+    // A key the configuration never set is not automatically off: the schema says
+    // what its absence means (models[].stream defaults to true), and a switch drawn
+    // from Boolean(undefined) would report the opposite of how the agent behaves.
+    const checked =
+      value === undefined || value === null
+        ? Boolean(schema.default)
+        : Boolean(value);
     return (
       <div className="settings-row">
         <div className="settings-row-inline">

@@ -212,7 +212,7 @@ func TestSenderIdleKeepaliveWritesCommentFrames(t *testing.T) {
 	out := &syncBuffer{}
 	sender := NewSender(&config.Config{}, out, true, "agent-model")
 
-	stop := sender.startIdleKeepalive(context.Background(), 15*time.Millisecond)
+	stop := sender.startIdleKeepalive(15*time.Millisecond)
 	deadline := time.Now().Add(2 * time.Second)
 	for !strings.Contains(out.String(), ": keepalive\n\n") && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
@@ -234,7 +234,7 @@ func TestSenderIdleKeepaliveStaysQuietWhileFramesFlow(t *testing.T) {
 	out := &syncBuffer{}
 	sender := NewSender(&config.Config{}, out, true, "agent-model")
 
-	stop := sender.startIdleKeepalive(context.Background(), 200*time.Millisecond)
+	stop := sender.startIdleKeepalive(200*time.Millisecond)
 	for i := 0; i < 8; i++ {
 		if err := sender.SendSessionUpdate("s", acp.MessageChunkUpdate{
 			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -255,7 +255,7 @@ func TestSenderIdleKeepaliveStaysQuietWhileFramesFlow(t *testing.T) {
 // a silent sender has nothing to keep alive.
 func TestSenderIdleKeepaliveIsSilentWithoutAWriter(t *testing.T) {
 	sender := NewSender(&config.Config{}, nil, false, "agent-model")
-	stop := sender.startIdleKeepalive(context.Background(), time.Millisecond)
+	stop := sender.startIdleKeepalive(time.Millisecond)
 	time.Sleep(10 * time.Millisecond)
 	stop()
 }

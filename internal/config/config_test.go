@@ -998,3 +998,37 @@ func TestCodexRejectsStreamFalse(t *testing.T) {
 		}
 	}
 }
+
+// TestUISchemaModelStreamDefault pins the one boolean in the settings schema whose
+// absence means true. The form seeds a new entry from schema defaults and draws an
+// unset switch from them, so a missing default here would make the UI write and
+// display the opposite of how the agent behaves.
+func TestUISchemaModelStreamDefault(t *testing.T) {
+	schema := config.UISchemaMap()
+	models, ok := schema["properties"].(map[string]interface{})["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models section missing from the UI schema")
+	}
+	items := models["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+
+	stream, ok := props["stream"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models[].stream missing from the UI schema")
+	}
+	if def, ok := stream["default"].(bool); !ok || !def {
+		t.Fatalf("models[].stream default = %v, want true", stream["default"])
+	}
+	// Field order drives the rendered form; a field absent from it is not shown.
+	order, _ := items["x-coddy-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "stream" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("stream missing from the models field order: %v", order)
+	}
+}

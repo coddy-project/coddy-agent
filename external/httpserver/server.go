@@ -395,7 +395,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
 		// A model configured with stream: false emits nothing until its whole answer is
 		// generated, so the stream has to announce it is still alive by itself.
-		stopKeepalive := bridge.StartIdleKeepalive(ctx)
+		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
@@ -763,7 +763,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		// See the /v1/chat/completions path: a blocking model's turn is silent on the
 		// wire until it finishes, and idle proxies drop a stream that says nothing.
-		stopKeepalive := bridge.StartIdleKeepalive(ctx)
+		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
 		stopKeepalive()

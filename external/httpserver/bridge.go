@@ -65,12 +65,18 @@ func (s *Sender) flushLocked() {
 // skips them; what they do is keep the TCP connection and the proxies in front of it
 // from treating a long blocking generation as a dead stream.
 //
+// The returned stop function is the only thing that ends it. It is deliberately not
+// bound to the request context: a streamed turn detaches from its request, so the
+// client that started it can disconnect while the turn keeps publishing to the
+// composer relay - and the watchers reading that relay are exactly who still needs
+// the stream held open.
+//
 // Safe to call on a silent (non-emitting) sender: it then does nothing.
-func (s *Sender) StartIdleKeepalive(ctx context.Context) func() {
-	return s.startIdleKeepalive(ctx, idleKeepaliveInterval)
+func (s *Sender) StartIdleKeepalive() func() {
+	return s.startIdleKeepalive(idleKeepaliveInterval)
 }
 
-func (s *Sender) startIdleKeepalive(ctx context.Context, interval time.Duration) func() {
+func (s *Sender) startIdleKeepalive(interval time.Duration) func() {
 	if !s.emit || s.w == nil || interval <= 0 {
 		return func() {}
 	}
@@ -94,8 +100,6 @@ func (s *Sender) startIdleKeepalive(ctx context.Context, interval time.Duration)
 		for {
 			select {
 			case <-done:
-				return
-			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				s.mu.Lock()
