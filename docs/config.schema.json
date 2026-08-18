@@ -96,6 +96,11 @@
           "reasoning_default": {
             "type": "string",
             "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
+            "default": true
           }
         }
       }

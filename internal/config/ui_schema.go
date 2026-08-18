@@ -219,6 +219,8 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"reasoning_default": strProp("Default reasoning level",
 			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
+		"stream": boolProp("Stream responses",
+			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only."),
 	}
 	envProps := map[string]interface{}{
 		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
@@ -340,7 +342,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "reasoning_levels", "reasoning_default"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct agent", "Defaults for the main agent loop (model id and safety caps).",
