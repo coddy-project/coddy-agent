@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/tidwall/gjson"
 )
 
 func TestWrappedStreamCancelIsCanceled(t *testing.T) {
@@ -34,7 +36,7 @@ func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
 		}},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -352,7 +354,7 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -363,5 +365,277 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	}
 	if !strings.Contains(s, `"hello"`) {
 		t.Errorf("expected text content, got: %s", s)
+	}
+}
+
+// recordingProvider counts which half of the Provider interface a decorator uses
+// and hands back a scripted response.
+type recordingProvider struct {
+	resp        *Response
+	err         error
+	completes   int
+	streams     int
+	completeErr []error
+}
+
+func (p *recordingProvider) Complete(_ context.Context, _ []Message, _ []ToolDefinition) (*Response, error) {
+	p.completes++
+	if len(p.completeErr) > 0 {
+		err := p.completeErr[0]
+		p.completeErr = p.completeErr[1:]
+		if err != nil {
+			return nil, err
+		}
+	}
+	return p.resp, p.err
+}
+
+func (p *recordingProvider) Stream(_ context.Context, _ []Message, _ []ToolDefinition, _ func(StreamChunk)) (*Response, error) {
+	p.streams++
+	return p.resp, p.err
+}
+
+// TestBlockingProviderReplaysCompleteInOrder pins the replay contract: the inner
+// Stream is never touched, and the finished response reaches the caller as one
+// reasoning chunk, one text chunk, and one chunk per tool call, in that order.
+func TestBlockingProviderReplaysCompleteInOrder(t *testing.T) {
+	inner := &recordingProvider{resp: &Response{
+		Content:      "answer",
+		Reasoning:    "thinking",
+		StopReason:   "tool_use",
+		InputTokens:  7,
+		OutputTokens: 3,
+		ToolCalls: []ToolCall{
+			{ID: "a", Name: "read", InputJSON: `{"path":"x"}`},
+			{ID: "b", Name: "glob", InputJSON: `{"pattern":"*"}`},
+		},
+	}}
+	p := newBlockingProvider(inner)
+
+	var chunks []StreamChunk
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) { chunks = append(chunks, c) })
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if inner.completes != 1 || inner.streams != 0 {
+		t.Fatalf("inner calls: %d Complete, %d Stream; want exactly one Complete", inner.completes, inner.streams)
+	}
+	if len(chunks) != 4 {
+		t.Fatalf("chunks = %d, want reasoning + text + two tool calls: %+v", len(chunks), chunks)
+	}
+	if chunks[0].ReasoningDelta != "thinking" || chunks[1].TextDelta != "answer" {
+		t.Fatalf("replay order wrong: %+v", chunks)
+	}
+	if chunks[2].ToolCall == nil || chunks[2].ToolCall.ID != "a" ||
+		chunks[3].ToolCall == nil || chunks[3].ToolCall.ID != "b" {
+		t.Fatalf("tool call chunks wrong: %+v", chunks)
+	}
+	// Stop reason and usage travel in the Response, never as a trailing chunk.
+	for i, c := range chunks {
+		if c.StopReason != "" || c.InputTokens != 0 || c.OutputTokens != 0 {
+			t.Fatalf("chunk %d carries terminal metadata: %+v", i, c)
+		}
+	}
+	if resp.StopReason != "tool_use" || resp.InputTokens != 7 || resp.OutputTokens != 3 {
+		t.Fatalf("response = %+v, want the inner response unchanged", resp)
+	}
+}
+
+// TestBlockingProviderDropsAnswerAfterCancel covers a backend that ignores
+// cancellation: a response that lands after the user pressed Stop must not be
+// replayed, or its tool calls would run for a turn that was already stopped.
+func TestBlockingProviderDropsAnswerAfterCancel(t *testing.T) {
+	inner := &recordingProvider{resp: &Response{Content: "late answer", ToolCalls: []ToolCall{{ID: "a", Name: "run_command"}}}}
+	p := newBlockingProvider(inner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var chunks []StreamChunk
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) { chunks = append(chunks, c) })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if resp != nil {
+		t.Fatalf("resp = %+v, want nothing published for a cancelled turn", resp)
+	}
+	if len(chunks) != 0 {
+		t.Fatalf("chunks = %+v, want none after cancellation", chunks)
+	}
+}
+
+// TestBlockingProviderRetriesEmitOnce checks the wrapping order: the resilient
+// provider sits outside the decorator, so a retried call re-issues a blocking
+// request that has emitted nothing rather than replaying deltas twice.
+func TestBlockingProviderRetriesEmitOnce(t *testing.T) {
+	inner := &recordingProvider{
+		resp:        &Response{Content: "second attempt"},
+		completeErr: []error{errors.New("500 Internal Server Error")},
+	}
+	p := wrapResilient(newBlockingProvider(inner), ResilientOptions{
+		RetryMax: 2, RetryBase: time.Millisecond, RetryMaxDelay: time.Millisecond,
+	})
+
+	var texts []string
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil,
+		func(c StreamChunk) {
+			if c.TextDelta != "" {
+				texts = append(texts, c.TextDelta)
+			}
+		})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	if inner.completes != 2 {
+		t.Fatalf("inner Complete calls = %d, want the failure plus one retry", inner.completes)
+	}
+	if len(texts) != 1 || texts[0] != "second attempt" {
+		t.Fatalf("emitted text = %q, want only the successful attempt", texts)
+	}
+	if resp.Content != "second attempt" {
+		t.Fatalf("resp = %+v", resp)
+	}
+}
+
+// TestNewProviderWrapsOnlyWhenStreamDisabled makes sure the default transport is
+// untouched: without DisableStream the openai provider must still open a stream.
+func TestNewProviderWrapsOnlyWhenStreamDisabled(t *testing.T) {
+	var sawStream []bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		sawStream = append(sawStream, gjson.GetBytes(raw, "stream").Bool())
+		if gjson.GetBytes(raw, "stream").Bool() {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"content\":\"streamed\"}}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"blocking"}}]}`)
+	}))
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		name     string
+		disable  bool
+		wantText string
+	}{
+		{"default streams", false, "streamed"},
+		{"stream false blocks", true, "blocking"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := NewProvider(ProviderInput{Type: "openai", Model: "m", BaseURL: srv.URL, DisableStream: tc.disable})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(StreamChunk) {})
+			if err != nil {
+				t.Fatalf("Stream: %v", err)
+			}
+			if resp.Content != tc.wantText {
+				t.Fatalf("content = %q, want %q", resp.Content, tc.wantText)
+			}
+		})
+	}
+	if len(sawStream) != 2 || !sawStream[0] || sawStream[1] {
+		t.Fatalf("wire stream flags = %v, want [true false]", sawStream)
+	}
+}
+
+// TestOpenAICompleteReadsReasoningContent covers the non-streamed reasoning
+// fields vLLM, SGLang and llama.cpp use, including their precedence.
+func TestOpenAICompleteReadsReasoningContent(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{"reasoning_content", `{"role":"assistant","content":"a","reasoning_content":"deliberating"}`, "deliberating"},
+		{"thinking fallback", `{"role":"assistant","content":"a","thinking":"pondering"}`, "pondering"},
+		{"reasoning_content wins", `{"role":"assistant","content":"a","reasoning_content":"first","thinking":"second"}`, "first"},
+		{"neither", `{"role":"assistant","content":"a"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"choices":[{"index":0,"finish_reason":"stop","message":`+tc.message+`}]}`)
+			}))
+			defer srv.Close()
+
+			p := newOpenAIProvider("m", "", srv.URL, nil, 0, 0, "")
+			resp, err := p.Complete(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil)
+			if err != nil {
+				t.Fatalf("Complete: %v", err)
+			}
+			if resp.Reasoning != tc.want {
+				t.Fatalf("reasoning = %q, want %q", resp.Reasoning, tc.want)
+			}
+		})
+	}
+}
+
+// TestOpenAIBlockingParamsOmitStreamOptions guards the request shape: OpenAI
+// rejects stream_options outright when the request is not a stream.
+func TestOpenAIBlockingParamsOmitStreamOptions(t *testing.T) {
+	p := newOpenAIProvider("gpt-4o", "key", "", nil, 1024, 0.2, "")
+	msgs := []Message{{Role: RoleUser, Content: "hello"}}
+
+	blocking, err := json.Marshal(p.buildParams(msgs, nil, false))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if gjson.GetBytes(blocking, "stream_options").Exists() {
+		t.Fatalf("blocking request carries stream_options: %s", blocking)
+	}
+
+	streamed, err := json.Marshal(p.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !gjson.GetBytes(streamed, "stream_options.include_usage").Bool() {
+		t.Fatalf("streaming request lost include_usage: %s", streamed)
+	}
+}
+
+// TestBlockingProviderStopsReplayOnMidReplayCancel is the loop-guard contract: the
+// consumer cancels from inside onChunk when a channel degenerates, and what comes
+// back must describe only what it saw. Returning the rest would persist an answer
+// nobody read and tool calls nobody executed, then replay those calls to the model
+// with no matching results.
+func TestBlockingProviderStopsReplayOnMidReplayCancel(t *testing.T) {
+	inner := &recordingProvider{resp: &Response{
+		Reasoning:  "round and round and round",
+		Content:    "an answer nobody should see",
+		StopReason: "tool_use",
+		ToolCalls:  []ToolCall{{ID: "a", Name: "run_command", InputJSON: `{"command":"rm -rf /"}`}},
+	}}
+	p := newBlockingProvider(inner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var chunks []StreamChunk
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		chunks = append(chunks, c)
+		if c.ReasoningDelta != "" {
+			cancel() // what the loop guard does when the thinking channel degenerates
+		}
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(chunks) != 1 || chunks[0].ReasoningDelta == "" {
+		t.Fatalf("chunks = %+v, want only the reasoning chunk", chunks)
+	}
+	if resp == nil {
+		t.Fatal("resp = nil, want the delivered part of the response")
+	}
+	if resp.Reasoning != "round and round and round" {
+		t.Fatalf("delivered reasoning = %q, want what was emitted", resp.Reasoning)
+	}
+	if resp.Content != "" || len(resp.ToolCalls) != 0 {
+		t.Fatalf("resp = %+v, want no undelivered content or tool calls", resp)
 	}
 }

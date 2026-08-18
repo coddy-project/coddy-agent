@@ -131,6 +131,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
+| `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
 | `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
@@ -143,7 +144,14 @@ models:
   - model: "openai/gpt-5"
     max_tokens: 8192
     reasoning_default: medium
+  - model: "local/qwen3-30b"
+    max_tokens: 8192
+    stream: false
 ```
+
+**Non-streaming models.** `stream: false` changes one thing: coddy sends a single blocking `POST /chat/completions` instead of asking for SSE, and hands the finished answer to the rest of the runtime in one piece. Everything downstream is unchanged, so the transcript, tool calls, and session bundle look the same; what differs is that nothing appears until the model is done, and the thinking row shows no live duration. Two consequences are worth knowing before turning it on. Pressing **Stop** during a blocking call loses the whole answer, because the server has sent nothing yet, whereas a streamed turn keeps the tokens that already arrived. And a client asking for an SSE stream still gets one - the switch governs the connection to the LLM, not the connection to the client - which is why a streaming HTTP response now carries a keepalive comment every 15 s so proxies do not drop a turn that stays silent for minutes.
+
+The switch is rejected for `type: codex` providers. The Codex Responses backend has no blocking mode, so honoring the key there would mean streaming anyway and only pretending not to.
 
 ## `agent`
 

@@ -156,14 +156,15 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		maxTok = 96
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		AuthPath:    rm.AuthPath,
-		MaxTokens:   maxTok,
-		Temperature: rm.Temperature,
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     maxTok,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
@@ -181,14 +182,15 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	}
 	maxTok := resolveDirectYAMLMaxTokens(rm)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		AuthPath:    rm.AuthPath,
-		MaxTokens:   maxTok,
-		Temperature: rm.Temperature,
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     maxTok,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
 	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
@@ -391,11 +393,16 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		wireBridgeSession(bridge, st)
 		promptOpts := &session.PromptRunOpts{SkipTurnLock: true, DetachFromRequest: req.Stream}
 		beforeSnap := session.TakeWorkspaceSnapshot(st.GetCWD())
+		// A model configured with stream: false emits nothing until its whole answer is
+		// generated, so the stream has to announce it is still alive by itself.
+		stopKeepalive := bridge.StartIdleKeepalive()
+		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    prompt,
 			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts)
+		stopKeepalive()
 		if err != nil {
 			s.log.Error("session prompt", "error", err)
 			// Watchers hear about the failure either way; only the caller's own answer
@@ -754,7 +761,12 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				promptParams.ImageParts[i] = acp.ImagePartRef{DataURL: f.DataURL, Name: f.Name}
 			}
 		}
+		// See the /v1/chat/completions path: a blocking model's turn is silent on the
+		// wire until it finishes, and idle proxies drop a stream that says nothing.
+		stopKeepalive := bridge.StartIdleKeepalive()
+		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, promptParams, bridge, promptOpts)
+		stopKeepalive()
 		if err != nil {
 			s.log.Error("responses prompt", "error", err)
 			_ = bridge.SendError(err.Error())

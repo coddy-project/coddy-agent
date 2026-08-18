@@ -886,3 +886,149 @@ func TestApplyProjectTrustFlag(t *testing.T) {
 		t.Fatal("unknown flag value must be rejected")
 	}
 }
+
+// TestModelStreamToggleYAMLAndDTO covers the tri-state of models[].stream: an
+// omitted key means streaming, an explicit false must survive both the YAML load
+// and the Settings JSON round trip without becoming "unset" or vice versa.
+func TestModelStreamToggleYAMLAndDTO(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/streamed"
+  - model: "local/blocking"
+    stream: false
+  - model: "local/explicit-true"
+    stream: true
+
+agent:
+  model: "local/streamed"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Config: path})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+
+	for _, tc := range []struct {
+		ref        string
+		wantStream bool
+		wantSet    bool
+	}{
+		{"local/streamed", true, false},
+		{"local/blocking", false, true},
+		{"local/explicit-true", true, true},
+	} {
+		entry := cfg.FindModelEntry(tc.ref)
+		if entry == nil {
+			t.Fatalf("model %q missing from config", tc.ref)
+		}
+		if got := entry.EffectiveStream(); got != tc.wantStream {
+			t.Fatalf("%s: EffectiveStream() = %v, want %v", tc.ref, got, tc.wantStream)
+		}
+		if (entry.Stream != nil) != tc.wantSet {
+			t.Fatalf("%s: key set = %v, want %v", tc.ref, entry.Stream != nil, tc.wantSet)
+		}
+		rm, err := cfg.ResolveLLM(tc.ref)
+		if err != nil {
+			t.Fatalf("%s: ResolveLLM: %v", tc.ref, err)
+		}
+		if rm.Stream != tc.wantStream {
+			t.Fatalf("%s: ResolvedLLM.Stream = %v, want %v", tc.ref, rm.Stream, tc.wantStream)
+		}
+	}
+
+	// Opening and saving Settings must not turn an omitted key into an explicit false.
+	dto := config.ConfigToJSONDTO(cfg)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	if strings.Contains(string(raw), `"model":"local/streamed","stream"`) {
+		t.Fatalf("the omitted key was materialized in the DTO: %s", raw)
+	}
+	back, err := config.ParseAndValidateConfigJSON(raw, cfg.Paths)
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	if e := back.FindModelEntry("local/streamed"); e == nil || e.Stream != nil {
+		t.Fatalf("round trip materialized stream on an omitted key: %+v", e)
+	}
+	if e := back.FindModelEntry("local/blocking"); e == nil || e.Stream == nil || *e.Stream {
+		t.Fatalf("round trip lost an explicit stream: false: %+v", e)
+	}
+}
+
+// TestCodexRejectsStreamFalse pins the one unsupported combination: the Codex
+// Responses backend is streaming-only, so it cannot honor one blocking request.
+func TestCodexRejectsStreamFalse(t *testing.T) {
+	blocking := false
+	streaming := true
+
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", Stream: &blocking}},
+		Agent:     config.Agent{Model: "codex/gpt-5.5"},
+	}
+	err := cfg.ValidateModelsProvidersAndAgent()
+	if err == nil {
+		t.Fatal("codex with stream: false must be rejected")
+	}
+	if !strings.Contains(err.Error(), "streaming-only") {
+		t.Fatalf("error %q does not explain why", err)
+	}
+
+	// An omitted key and an explicit true stay valid for codex.
+	for name, entry := range map[string]config.ModelEntry{
+		"omitted":  {Model: "codex/gpt-5.5"},
+		"explicit": {Model: "codex/gpt-5.5", Stream: &streaming},
+	} {
+		cfg.Models = []config.ModelEntry{entry}
+		if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
+			t.Fatalf("%s stream key rejected for codex: %v", name, err)
+		}
+	}
+}
+
+// TestUISchemaModelStreamDefault pins the one boolean in the settings schema whose
+// absence means true. The form seeds a new entry from schema defaults and draws an
+// unset switch from them, so a missing default here would make the UI write and
+// display the opposite of how the agent behaves.
+func TestUISchemaModelStreamDefault(t *testing.T) {
+	schema := config.UISchemaMap()
+	models, ok := schema["properties"].(map[string]interface{})["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models section missing from the UI schema")
+	}
+	items := models["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+
+	stream, ok := props["stream"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models[].stream missing from the UI schema")
+	}
+	if def, ok := stream["default"].(bool); !ok || !def {
+		t.Fatalf("models[].stream default = %v, want true", stream["default"])
+	}
+	// Field order drives the rendered form; a field absent from it is not shown.
+	order, _ := items["x-coddy-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "stream" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("stream missing from the models field order: %v", order)
+	}
+}

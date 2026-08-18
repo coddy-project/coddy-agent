@@ -40,3 +40,40 @@ test("toggling the switch flips the boolean value", () => {
       .getAttribute("aria-checked"),
   ).toBe("true");
 });
+
+// models[].stream is the one boolean whose absence means true. A switch drawn from
+// Boolean(undefined) would tell the operator the model is not streaming while the
+// agent streams it, and seeding a new entry from it would write the opposite of
+// the documented default.
+const defaultTrueSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    stream: { type: "boolean", title: "Stream responses", default: true },
+  },
+} as unknown as JsonSchema;
+
+test("an unset boolean renders from the schema default, not from false", () => {
+  render(
+    <SchemaForm schema={defaultTrueSchema} value={{}} onChange={() => {}} />,
+  );
+  expect(
+    screen
+      .getByRole("switch", { name: /stream responses/i })
+      .getAttribute("aria-checked"),
+  ).toBe("true");
+});
+
+test("an explicit false still renders off against a true default", () => {
+  render(
+    <SchemaForm
+      schema={defaultTrueSchema}
+      value={{ stream: false }}
+      onChange={() => {}}
+    />,
+  );
+  expect(
+    screen
+      .getByRole("switch", { name: /stream responses/i })
+      .getAttribute("aria-checked"),
+  ).toBe("false");
+});

@@ -87,6 +87,13 @@ models:
   #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
   #   multimodal: true
 
+  # Servers and proxies that handle SSE badly can be talked to without streaming:
+  # one blocking request, whole answer at once. Nothing appears until the model is
+  # done, and Stop during the call loses the answer. Not available for codex models.
+  # - model: "local/qwen3-30b"
+  #   max_tokens: 8192
+  #   stream: false
+
 agent:
   model: "openai/gpt-4o"
   max_turns: 30

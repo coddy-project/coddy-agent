@@ -23,6 +23,11 @@ type ModelEntry struct {
 	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
+	// Stream selects the transport used to talk to this model. A nil pointer (key
+	// omitted) means streaming, which is the default for every backend. An explicit
+	// false makes the runtime issue one blocking completion request and deliver the
+	// finished answer in one piece, for servers and proxies that handle SSE badly.
+	Stream *bool `yaml:"stream,omitempty"`
 }
 
 // SplitModelRef parses model into provider name and API model id.
@@ -59,4 +64,13 @@ func (m *ModelEntry) ProviderName() string {
 func (m *ModelEntry) APIModel() string {
 	_, api, _ := SplitModelRef(m.Model)
 	return api
+}
+
+// EffectiveStream reports whether this model is talked to over a stream.
+// Only an explicit stream: false turns streaming off.
+func (m *ModelEntry) EffectiveStream() bool {
+	if m == nil || m.Stream == nil {
+		return true
+	}
+	return *m.Stream
 }

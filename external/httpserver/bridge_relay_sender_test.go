@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -184,4 +185,77 @@ func TestRelaySenderIsNotInteractive(t *testing.T) {
 	}); err == nil {
 		t.Fatal("RequestQuestion must still fail when no interactive client owns the turn")
 	}
+}
+
+// syncBuffer is a writer safe to read while the keepalive goroutine writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestSenderIdleKeepaliveWritesCommentFrames covers the silence a model with
+// stream: false produces: nothing reaches the client until the whole answer is
+// generated, and an idle-timeout proxy would drop the stream in the meantime.
+func TestSenderIdleKeepaliveWritesCommentFrames(t *testing.T) {
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+
+	stop := sender.startIdleKeepalive(15*time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(out.String(), ": keepalive\n\n") && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	stop()
+
+	if !strings.Contains(out.String(), ": keepalive\n\n") {
+		t.Fatalf("idle stream produced no keepalive: %q", out.String())
+	}
+	// A comment frame carries no data, so no client sees it as content.
+	if strings.Contains(out.String(), "data:") {
+		t.Fatalf("keepalive frame must not carry data: %q", out.String())
+	}
+}
+
+// TestSenderIdleKeepaliveStaysQuietWhileFramesFlow checks the keepalive only
+// fills silence: a stream that is producing chunks must not gain extra frames.
+func TestSenderIdleKeepaliveStaysQuietWhileFramesFlow(t *testing.T) {
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+
+	stop := sender.startIdleKeepalive(200*time.Millisecond)
+	for i := 0; i < 8; i++ {
+		if err := sender.SendSessionUpdate("s", acp.MessageChunkUpdate{
+			SessionUpdate: acp.UpdateTypeAgentMessageChunk,
+			Content:       acp.ContentBlock{Type: acp.ContentTypeText, Text: "tok "},
+		}); err != nil {
+			t.Fatalf("SendSessionUpdate: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	stop()
+
+	if strings.Contains(out.String(), ": keepalive") {
+		t.Fatalf("a busy stream got a keepalive: %q", out.String())
+	}
+}
+
+// TestSenderIdleKeepaliveIsSilentWithoutAWriter guards the non-streaming caller:
+// a silent sender has nothing to keep alive.
+func TestSenderIdleKeepaliveIsSilentWithoutAWriter(t *testing.T) {
+	sender := NewSender(&config.Config{}, nil, false, "agent-model")
+	stop := sender.startIdleKeepalive(time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	stop()
 }

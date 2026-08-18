@@ -162,7 +162,7 @@ func newStreamServerError(obj []byte, emitted bool) error {
 
 // Stream implements Provider.Stream over the lenient SSE path.
 func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	params := p.buildParams(messages, tools)
+	params := p.buildParams(messages, tools, true)
 
 	var raw *http.Response
 	err := p.client.Post(ctx, "chat/completions", params, &raw, option.WithJSONSet("stream", true))

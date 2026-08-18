@@ -55,6 +55,12 @@ export type MemoryChunkEvt = {
   delta: string;
 };
 
+/**
+ * Shortest gap between the first reasoning frame and the end of thinking that is
+ * still a measurement rather than one flush of a non-streamed response.
+ */
+export const minMeasurableThinkingMs = 5;
+
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
@@ -344,6 +350,11 @@ export async function consumeComposerSseReader(
         if (!activeThinkingId) return;
         const id = activeThinkingId;
         const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        // A model configured with stream: false delivers its reasoning and its answer
+        // in the same flush, so this clock measures the gap between two frames rather
+        // than how long the model thought. Below the floor there is nothing to report:
+        // the row shows "-" instead of a fabricated millisecond.
+        const measured = dur >= minMeasurableThinkingMs;
         applyStreamItems((prev) =>
           prev.map((it) => {
             if (it.type !== "thinking" || it.id !== id) {
@@ -352,10 +363,10 @@ export async function consumeComposerSseReader(
             const nextIt = {
               ...it,
               status: "completed" as const,
-              durationMs: dur,
+              ...(measured ? { durationMs: dur } : {}),
             };
             const dk = reasoningDurationCacheKey(nextIt.content);
-            if (dk.length > 0) {
+            if (measured && dk.length > 0) {
               reasoningDurationMsByContentRef.current.set(dk, dur);
             }
             return nextIt;

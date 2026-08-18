@@ -146,6 +146,9 @@ type ProviderInput struct {
 	RetryMaxDelay time.Duration
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
+	// DisableStream turns off the streaming transport (models[].stream: false):
+	// Stream then issues one blocking request and replays the finished response.
+	DisableStream bool
 }
 
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
@@ -178,6 +181,11 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
+	}
+	if p.DisableStream {
+		// Inside the resilient wrap: a retry then re-issues a blocking call that has
+		// emitted nothing yet, instead of replaying deltas a caller already consumed.
+		inner = newBlockingProvider(inner)
 	}
 	return applyResilientWrap(inner, p), nil
 }

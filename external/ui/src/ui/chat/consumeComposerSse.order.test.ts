@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   consumeComposerSseReader,
+  minMeasurableThinkingMs,
   type ConsumeComposerSseParams,
 } from "./consumeComposerSse";
 import type { TranscriptItem } from "./types";
@@ -130,4 +131,54 @@ test("streaming interleaves across multiple tool calls", async () => {
     "tool:t2",
     "text:third",
   ]);
+});
+
+// A model configured with stream: false delivers reasoning and answer in the same
+// flush, so the client-side clock measures the gap between two frames, not how long
+// the model thought. The row must report nothing rather than a fabricated duration.
+test("thinking row from a non-streamed response carries no duration", async () => {
+  const sse =
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Deliberating." } }] })}\n\n` +
+    textEvent("Answer after thinking.") +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const thinking = items.find((it) => it.type === "thinking");
+
+  expect(thinking).toBeDefined();
+  expect(thinking && "status" in thinking ? thinking.status : "").toBe(
+    "completed",
+  );
+  expect(
+    thinking && "durationMs" in thinking ? thinking.durationMs : undefined,
+  ).toBeUndefined();
+});
+
+// A genuinely streamed turn still reports how long the thinking took.
+test("thinking row from a streamed response keeps its measured duration", async () => {
+  vi.useFakeTimers();
+  try {
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Deliberating." } }] })}\n\n` +
+      textEvent("Answer after thinking.") +
+      `data: [DONE]\n\n`;
+
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      const v = now;
+      now += 400; // every reading advances, so the gap clears the floor
+      return v;
+    });
+
+    const items = await drive(sse);
+    const thinking = items.find((it) => it.type === "thinking");
+    const dur =
+      thinking && "durationMs" in thinking ? thinking.durationMs : undefined;
+
+    expect(typeof dur).toBe("number");
+    expect(dur as number).toBeGreaterThanOrEqual(minMeasurableThinkingMs);
+  } finally {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  }
 });
