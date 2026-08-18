@@ -39,19 +39,25 @@ func TerminateProcessGroup(cmd *exec.Cmd, grace time.Duration) error {
 
 	kill := exec.Command("taskkill", "/T", "/F", "/PID", pid)
 	if err := kill.Start(); err == nil {
-		done := make(chan struct{})
-		go func() {
-			_ = kill.Wait()
-			close(done)
-		}()
+		done := make(chan error, 1)
+		go func() { done <- kill.Wait() }()
 		if grace <= 0 {
 			grace = 5 * time.Second
 		}
 		select {
-		case <-done:
-			return nil
+		case waitErr := <-done:
+			if waitErr == nil {
+				return nil
+			}
+			// taskkill refused the tree: enumeration failed, the pid vanished
+			// while it walked, or access was denied. Its exit status is the
+			// only report of that, so a non-zero one falls through to killing
+			// the leader rather than being read as success.
 		case <-time.After(grace):
-			_ = kill.Process.Kill()
+			// taskkill is deliberately left running: it walks the tree on its
+			// own and finishes that work even if this process exits first,
+			// which is the only thing that reaches grandchildren. Killing it
+			// here would abandon the tree to save a short-lived helper.
 		}
 	}
 

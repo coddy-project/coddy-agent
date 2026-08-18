@@ -248,6 +248,15 @@ func (t *toolBox) rebuild() {
 	t.AddChild(box)
 }
 
+// droppedAmount renders a byte count the way the block reports it: whole
+// kibibytes once there are any, plain bytes below that, never a rounded "0".
+func droppedAmount(n int64) string {
+	if n < 1024 {
+		return itoa(int(n)) + " bytes"
+	}
+	return itoa(int(n/1024)) + " KiB"
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
@@ -268,6 +277,153 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// shellBox renders one command the operator started with the `!!` prefix: the
+// command line in the bash-mode color, its output, and the exit status. It is
+// deliberately not a tool box - nothing here is persisted, so the full capture
+// lives in memory instead of in `sessions/<id>/tool_calls/`.
+type shellBox struct {
+	tui.Container
+
+	theme    *tui.Theme
+	command  string
+	output   string
+	dropped  int64
+	expanded bool
+	done     bool
+	// stopAsked records that the operator asked for this run to end. It is
+	// pinned on the block, not read off console state when the command
+	// finishes: by then the console may have moved on.
+	stopAsked bool
+	// released records that the console gave up waiting for a command that
+	// would not die, so the block stops advertising a key that no longer acts.
+	released bool
+	exitCode int
+	err      error
+}
+
+func newShellBox(theme *tui.Theme, command string) *shellBox {
+	b := &shellBox{theme: theme, command: tui.SanitizeText(command), exitCode: -1}
+	b.rebuild()
+	return b
+}
+
+// SetOutput replaces the captured output; dropped counts the bytes that fell
+// off the front of the capture because the command printed more than the
+// runner keeps.
+func (b *shellBox) SetOutput(text string, dropped int64) {
+	b.output = tui.SanitizeText(text)
+	b.dropped = dropped
+	b.rebuild()
+}
+
+// Finish closes the block with an exit code; err is set when the command could
+// not be started at all.
+func (b *shellBox) Finish(exitCode int, err error) {
+	b.done, b.exitCode, b.err = true, exitCode, err
+	b.rebuild()
+}
+
+// RequestStop records that the operator asked this command to end, so the
+// finished block can tell a kill it asked for from a signal it did not.
+func (b *shellBox) RequestStop() {
+	b.stopAsked = true
+	b.rebuild()
+}
+
+// Release marks a run the console stopped waiting for. The command may still
+// be alive; if it ever exits, the block completes as usual.
+func (b *shellBox) Release() {
+	b.released = true
+	b.rebuild()
+}
+
+// SetExpanded switches between the output tail and the full capture.
+func (b *shellBox) SetExpanded(expanded bool) {
+	b.expanded = expanded
+	b.rebuild()
+}
+
+func (b *shellBox) bgRole() string {
+	switch {
+	case !b.done:
+		return roleToolPendBg
+	case b.err == nil && !b.stoppedByOperator() && b.exitCode == 0:
+		return roleToolOKBg
+	default:
+		return roleToolErrBg
+	}
+}
+
+// body returns the visible output plus how many leading lines it hides. The
+// collapsed view keeps the tail, because that is where a command's verdict
+// sits (a tool box shows the head: the model reads the whole result anyway).
+func (b *shellBox) body() (text string, hidden int) {
+	trimmed := strings.TrimRight(b.output, "\n")
+	if trimmed == "" {
+		return "", 0
+	}
+	lines := strings.Split(trimmed, "\n")
+	if b.expanded || len(lines) <= collapsedPreviewLines {
+		return trimmed, 0
+	}
+	cut := len(lines) - collapsedPreviewLines
+	return strings.Join(lines[cut:], "\n"), cut
+}
+
+// status is the closing row: progress while the command runs, the failure
+// otherwise. A clean exit says nothing - the green background already does.
+func (b *shellBox) status() (text, role string) {
+	switch {
+	case !b.done && b.released:
+		return "left running (the console stopped waiting for it)", roleWarning
+	case !b.done && b.stopAsked:
+		return "stopping (escape again to leave it)", roleWarning
+	case !b.done:
+		return "running (escape to stop)", roleDim
+	case b.err != nil:
+		return "command failed: " + tui.SanitizeText(b.err.Error()), roleError
+	case b.stoppedByOperator():
+		return "stopped", roleError
+	case b.exitCode < 0:
+		// Killed by a signal nobody here asked for (a command that kills
+		// itself, the OOM killer, an outside kill).
+		return "terminated", roleError
+	case b.exitCode > 0:
+		return "exit " + itoa(b.exitCode), roleError
+	default:
+		return "", roleDim
+	}
+}
+
+// stoppedByOperator reports a run the operator ended. A clean exit still reads
+// as one: the command finished in the window between the key and the kill, and
+// calling that a cancellation would be a lie (unix reports -1 for a signal,
+// Windows usually 1 after taskkill, so the code alone cannot say).
+func (b *shellBox) stoppedByOperator() bool {
+	return b.stopAsked && b.exitCode != 0
+}
+
+func (b *shellBox) rebuild() {
+	b.Clear()
+	b.AddChild(tui.NewSpacer(1))
+	box := tui.NewBox(1, 1, b.theme.BgFn(b.bgRole()))
+	box.AddChild(tui.NewText(b.theme.Bold(b.theme.Fg(roleBashMode, "$ "+b.command)), 0, 0, nil))
+	if b.dropped > 0 {
+		box.AddChild(tui.NewText(b.theme.Fg(roleDim, "... ("+droppedAmount(b.dropped)+" of earlier output dropped)"), 0, 0, nil))
+	}
+	if body, hidden := b.body(); body != "" {
+		box.AddChild(tui.NewSpacer(1))
+		box.AddChild(tui.NewText(b.theme.Fg(roleToolOutput, body), 0, 0, nil))
+		if hidden > 0 {
+			box.AddChild(tui.NewText(b.theme.Fg(roleDim, "... ("+itoa(hidden)+" earlier lines, ctrl+o to expand)"), 0, 0, nil))
+		}
+	}
+	if text, role := b.status(); text != "" {
+		box.AddChild(tui.NewText(b.theme.Fg(role, text), 0, 0, nil))
+	}
+	b.AddChild(box)
 }
 
 // statusLine is one dim status row appended to the transcript (pi showStatus).

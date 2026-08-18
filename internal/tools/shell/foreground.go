@@ -59,13 +59,21 @@ type startedCommand struct {
 // call, and a command that outlives its timeout is precisely the one that must
 // survive it to be adopted.
 func startForeground(command string, env *tooling.Env, commandShell platform.Shell) (*startedCommand, error) {
+	return startForegroundInto(command, env, commandShell, nil)
+}
+
+// startForegroundInto is startForeground with the output sink attached before
+// the child starts. A sink handed over afterwards would leave a window in
+// which output still lands in the unbounded buffer, which is the whole thing a
+// bounded sink exists to prevent.
+func startForegroundInto(command string, env *tooling.Env, commandShell platform.Shell, sink io.Writer) (*startedCommand, error) {
 	executable, commandArgs := commandShell.Command(command)
 	cmd := exec.Command(executable, commandArgs...) // #nosec G204 -- the command is operator-approved shell input, same as the background runner
 	if env != nil {
 		cmd.Dir = env.CWD
 	}
 
-	writer := &switchWriter{}
+	writer := &switchWriter{target: sink}
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 	cmd.WaitDelay = waitPipeDrainDelay

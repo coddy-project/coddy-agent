@@ -106,6 +106,10 @@ func (e *Editor) SetAutocomplete(p AutocompleteProvider, style SelectListTheme, 
 // SetFocused implements Focusable.
 func (e *Editor) SetFocused(focused bool) { e.focused = focused }
 
+// SetBorderColor swaps the border styling function. The console uses it to
+// mark the buffer while it holds a local shell command.
+func (e *Editor) SetBorderColor(fn func(string) string) { e.theme.BorderColor = fn }
+
 // Text returns the current content joined with newlines.
 func (e *Editor) Text() string { return strings.Join(e.lines, "\n") }
 

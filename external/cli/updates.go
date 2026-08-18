@@ -64,6 +64,20 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.openResumePicker(u.res)
 		return
+	case localShellOutput:
+		u.box.SetOutput(u.text, u.dropped)
+		return
+	case localShellDone:
+		u.box.SetOutput(u.text, u.dropped)
+		u.box.Finish(u.exitCode, u.err)
+		// A block from an abandoned transcript still completes, but only the
+		// current run may release the console's shell state.
+		if a.curShell == u.box {
+			a.curShell = nil
+			a.shellCmd = nil
+			a.shellActive, a.shellStopping = false, false
+		}
+		return
 	}
 
 	// Stale updates from abandoned sessions are dropped.
