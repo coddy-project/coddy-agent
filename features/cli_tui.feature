@@ -100,6 +100,21 @@ Feature: Interactive console TUI
     Then the transcript shows a user message block containing "continue me"
     And the transcript shows the assistant text "continued"
 
+  Scenario: A !! command runs locally and stays out of the agent context
+    When the console app starts
+    And the operator runs the local command "echo hidden-from-the-model"
+    Then the transcript shows a local shell block for "echo hidden-from-the-model"
+    And the local shell block shows the output "hidden-from-the-model"
+    When the operator submits the prompt "what did I just run?"
+    And the stub turn streams the text "I have no idea"
+    Then no agent turn ever received "hidden-from-the-model"
+    And the persisted session carries no trace of "hidden-from-the-model"
+
+  Scenario: The editor marks the local shell prefix while it is typed
+    When the console app starts
+    And the operator types "!!git status" without sending it
+    Then the editor borders render in the local shell color
+
   Scenario: A one-shot prompt prints the answer and exits
     When the operator runs a one-shot prompt "automation ping"
     And the stub turn streams the text "automation pong"

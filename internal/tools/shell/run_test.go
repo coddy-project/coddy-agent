@@ -420,3 +420,128 @@ func TestFormatTaskLineDescribesTheTask(t *testing.T) {
 		t.Fatalf("finished line %q must not be overdue", doneLine)
 	}
 }
+
+// The operator path is the console's `!!` prefix: same shell and process
+// handling as run_command, but no permission gate, no session, and no pool.
+
+func TestOperatorCommandReportsOutputAndExitCode(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := printCommand(commandShell.Kind, "operator-ok")
+	if err != nil {
+		t.Skipf("no printing form for this shell: %v", err)
+	}
+
+	cmd, err := StartOperatorCommandForShell(command, t.TempDir(), commandShell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-cmd.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("operator command never finished")
+	}
+	if out := cmd.Output(); !strings.Contains(out, "operator-ok") {
+		t.Fatalf("output %q lost the command output", out)
+	}
+	if code := cmd.ExitCode(); code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+}
+
+func TestOperatorCommandTerminateStopsTheCommand(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	command, err := sleepCommand(commandShell.Kind, 60)
+	if err != nil {
+		t.Skipf("no sleep form for this shell: %v", err)
+	}
+
+	cmd, err := StartOperatorCommandForShell(command, t.TempDir(), commandShell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	cmd.Terminate(time.Second)
+	if took := time.Since(began); took > 20*time.Second {
+		t.Fatalf("terminate took %s; the console would freeze that long", took)
+	}
+	select {
+	case <-cmd.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("terminated command was never reaped")
+	}
+	if code := cmd.ExitCode(); code == 0 {
+		t.Fatal("a killed command must not report a successful exit")
+	}
+}
+
+func TestTailBufferKeepsTheTailAndCountsWhatItDropped(t *testing.T) {
+	tail := &tailBuffer{limit: 8}
+	if _, err := tail.Write([]byte("abcdef")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := tail.Snapshot(); string(got) != "abcdef" {
+		t.Fatalf("snapshot = %q, want the whole write", got)
+	}
+	if _, err := tail.Write([]byte("ghijkl")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := tail.Snapshot(); string(got) != "efghijkl" {
+		t.Fatalf("snapshot = %q, want the last 8 bytes", got)
+	}
+	if got := tail.Dropped(); got != 4 {
+		t.Fatalf("dropped = %d, want 4", got)
+	}
+	if got := cap(tail.buf); got > 64 {
+		t.Fatalf("backing array grew to %d for an 8 byte limit", got)
+	}
+}
+
+func TestTailBufferBoundsASingleOversizedWrite(t *testing.T) {
+	tail := &tailBuffer{limit: 8}
+	if _, err := tail.Write([]byte("0123456789abcdef")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := tail.Snapshot(); string(got) != "89abcdef" {
+		t.Fatalf("snapshot = %q, want the last 8 bytes", got)
+	}
+	if got := cap(tail.buf); got > 64 {
+		t.Fatalf("a 16 byte write allocated %d bytes behind an 8 byte limit", got)
+	}
+	if got := tail.Dropped(); got != 8 {
+		t.Fatalf("dropped = %d, want 8", got)
+	}
+}
+
+// A capture is cut at both ends: the tail buffer drops the start of a rune,
+// and a live poll catches the command mid-write. The trim runs before decoding
+// so Windows never mistakes one broken byte for a code-page buffer - and it
+// must leave a real code-page capture alone.
+func TestTrimPartialUTF8CutsOnlyBrokenEnds(t *testing.T) {
+	cases := []struct {
+		name      string
+		in        []byte
+		truncated bool
+		want      []byte
+	}{
+		{"intact utf-8", []byte("дом"), false, []byte("дом")},
+		{"head cut in half", []byte("\xbe\xd0\xbc"), true, []byte("м")},
+		{"tail mid-write", []byte("до\xd0"), false, []byte("до")},
+		{"both ends", []byte("\xbe\xd0\xbcа\xd0"), true, []byte("ма")},
+		{"ascii", []byte("plain"), false, []byte("plain")},
+		{"empty", []byte(""), false, []byte("")},
+		// CP866 "Привет": invalid UTF-8 that trimming cannot rescue, so it
+		// reaches DecodeOutput whole and is decoded as the code page there.
+		{"code page stays whole", []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}, false, []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}},
+		// CP866 "А" followed by ASCII: dropping the lead byte would make the
+		// rest valid UTF-8, so only a real truncation may touch the head.
+		{"code page char before ascii", []byte{0x80, 'O', 'K'}, false, []byte{0x80, 'O', 'K'}},
+		{"same bytes after a real cut", []byte{0x80, 'O', 'K'}, true, []byte("OK")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := trimPartialUTF8(tc.in, tc.truncated); string(got) != string(tc.want) {
+				t.Fatalf("trimPartialUTF8(%q, %v) = %q, want %q", tc.in, tc.truncated, got, tc.want)
+			}
+		})
+	}
+}
