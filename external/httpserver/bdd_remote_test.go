@@ -234,7 +234,10 @@ type remoteStubProvider struct{}
 
 func (remoteStubProvider) Complete(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition) (*llm.Response, error) {
 	for _, message := range messages {
-		if message.Role == llm.RoleSystem && message.Content == enhancePromptInstruction {
+		// Contains, not equality: every system prompt Coddy sends is prefixed
+		// with its identity line (internal/prompts/identity.go). The instruction
+		// itself must still travel verbatim, which is what this asserts.
+		if message.Role == llm.RoleSystem && strings.Contains(message.Content, enhancePromptInstruction) {
 			return &llm.Response{Content: "Refactor the memory endpoint and add tests.", StopReason: "end_turn"}, nil
 		}
 	}
