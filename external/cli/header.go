@@ -60,6 +60,7 @@ var fullHints = []string{
 	"ctrl+o to expand tools",
 	"ctrl+t to expand thinking",
 	"/ for commands",
+	"!! to run a local command the agent never sees",
 	"enter to send, shift+enter (ctrl+j) for newline",
 	"up/down for prompt history",
 }

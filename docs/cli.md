@@ -48,7 +48,8 @@ Top to bottom:
   runs.
 - **Plan widget**: current todo entries (`✓` done, `◐` active, `○` pending,
   `✗` failed) above the editor.
-- **Editor**: multi-line input between full-width `─` rules; wrap-aware
+- **Editor**: multi-line input between full-width `─` rules (green while the
+  buffer holds a `!!` command); wrap-aware
   cursor movement with sticky column; prompt history (up/down at edges, cap
   100); large pastes collapse into `[paste #N +K lines]` markers; scrolled
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
@@ -73,15 +74,60 @@ applies and submits in one stroke.
 |-----|--------|
 | enter | send |
 | shift+enter / ctrl+j | newline (backslash+enter also splits) |
-| escape | interrupt the running turn (`HandleSessionCancel`) |
+| escape | interrupt the running turn (`HandleSessionCancel`), or stop a `!!` command |
 | ctrl+c | clear editor; twice within 2 s exits |
 | ctrl+d | exit when the editor is empty |
 | ctrl+l | model selector |
 | ctrl+p / ctrl+shift+p | cycle configured models |
 | shift+tab | cycle reasoning level (models with `reasoning_levels`) |
-| ctrl+o | expand header hints + last tool output |
+| ctrl+o | expand header hints + last tool output + last `!!` block |
 | ctrl+t | collapse/expand thinking blocks |
 | up / down | history at the first/last line; cursor movement otherwise |
+
+## Local shell (`!!`)
+
+A submitted line that starts with `!!` is not a prompt. Coddy runs the rest of
+it in the workspace with the shell `run_command` uses, and neither the command
+nor its output is shown to the model, persisted in the session bundle, or
+counted against the context window. This is pi's bash-mode prefix; pi's other
+half, `!`, which feeds the output back to the model, is still deferred.
+
+- the prefix counts at the start of the submitted line only; while the buffer
+  holds a command the editor rules turn green. To send a prompt that really
+  starts with `!!`, escape it once: `\!!careful` reaches the model as
+  `!!careful`;
+- output streams into its own transcript block: the last 10 lines while
+  collapsed, the whole capture on `ctrl+o`, and a closing `exit N` when the
+  command failed. Output is decoded and stripped of control sequences exactly
+  like tool output, and only the last 256 KiB is kept (the block says how much
+  it dropped), so a `tail -f` neither grows the console nor slows it down;
+- there is no permission modal, and `ask` / `accept_edits` / `bypass` do not
+  apply: the operator who typed the command is the principal, not the model.
+  Plan mode restricts the agent's tools, not the terminal in front of you;
+- `escape` kills the running command and the process group it leads, and so
+  does quitting the console, so nothing keeps printing into the terminal coddy
+  just gave back. Work the command deliberately detaches (`cmd &`, `nohup`)
+  outlives it exactly as in your own shell: once the command itself exits the
+  console has nothing left to stop. A second `escape` gives the console back
+  when a kill cannot reap its target at all. There is no timeout and no
+  adoption into the background task pool - that pool is agent-visible on
+  purpose;
+- one at a time: a `!!` line is refused while a turn runs, and while a command
+  runs the console refuses prompts, another `!!`, and every modal (`/new`,
+  `/resume`, `/mode`, `/theme`, `ctrl+l`), each with a status line saying so -
+  none of them queue. A modal would swallow `escape`, which is the only key
+  that stops the command;
+- the command reads from the null device, not from the terminal: an
+  interactive program (`!!python`) sees EOF instead of stealing keystrokes
+  from the editor;
+- `--remote` refuses it. The session workspace lives on the server, so running
+  the command on this machine would silently touch a different tree;
+- `-p/--prompt` does not interpret the prefix: a one-shot prompt goes to the
+  model verbatim.
+
+The block belongs to the running console only. Reopening the session with
+`-c`, `--session-id`, or `/resume` does not replay it, because nothing about a
+`!!` command is written to disk.
 
 Modals replace the editor while open: permission requests (the option list
 comes from the agent's `permission.Options`), the question tool (single or
@@ -151,7 +197,10 @@ model- or tool-supplied escape sequences can never reach the terminal. The
 only control sequences in rendered lines are renderer-generated styling.
 
 Permission mode `ask` renders every request as a modal; `bypass` short-circuits
-exactly like the ACP `serverRef` path. Project-local MCP servers still go
+exactly like the ACP `serverRef` path. The `!!` prefix has no permission gate
+by design (see **Local shell**): it can only be reached from a submitted
+editor buffer, never from model output, so nothing the model writes can start
+a command through it. Project-local MCP servers still go
 through the workspace trust gate; a server pending approval stays disconnected
 and is visible via `coddy mcp list` (approve with `coddy mcp trust <name>`).
 
@@ -189,10 +238,10 @@ comparison, as described under **Visual model**.
 ## Known v1 divergences from pi
 
 Undo/yank-pop and jump-mode in the editor, kitty keyboard protocol
-negotiation, inline images, `!` bash mode (a local exec path would bypass
-`run_command` permissions — deferred until it routes through the session tool
-path), pi's `/settings` surface, and the session picker's scope/sort/rename
-controls. Theme switching rebuilds chrome; already-rendered transcript rows
+negotiation, inline images, pi's `!` bash mode (the half that feeds command
+output back to the model: `!!` ships as described under **Local shell**, while
+`!` needs a model-visible transcript record and stays deferred), pi's
+`/settings` surface, and the session picker's scope/sort/rename controls. Theme switching rebuilds chrome; already-rendered transcript rows
 keep their colors until the next session.
 
 ## Attribution

@@ -74,6 +74,7 @@ type cliTUIState struct {
 	permOutcome  string
 	permOption   string
 	questionAns  [][]string
+	prompts      []string
 	sawCancel    bool
 	activeToolID string
 	toolSeq      int
@@ -108,6 +109,7 @@ func (s *cliTUIState) reset() {
 	s.cfg, s.store, s.app = nil, nil, nil
 	s.permOutcome, s.permOption = "", ""
 	s.questionAns = nil
+	s.prompts = nil
 	s.sawCancel = false
 	s.activeToolID = ""
 	s.toolSeq = 0
@@ -143,6 +145,9 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 			userText += b.Text
 		}
 	}
+	s.mu.Lock()
+	s.prompts = append(s.prompts, userText)
+	s.mu.Unlock()
 	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: userText, CreatedAt: time.Now().UTC().Format(time.RFC3339)})
 	sessionID := st.GetID()
 	assistant := ""
@@ -665,6 +670,98 @@ func (s *cliTUIState) transcriptDoesNotShow(text string) error {
 	return nil
 }
 
+// --- local shell (`!!`) steps ---
+
+func (s *cliTUIState) operatorRunsLocalCommand(command string) error {
+	s.typeText(localShellPrefix + command)
+	s.press("\r")
+	return s.waitScreen("$ "+command, 5*time.Second)
+}
+
+func (s *cliTUIState) transcriptShowsLocalShellBlock(command string) error {
+	return s.waitScreen("$ "+command, 3*time.Second)
+}
+
+// localShellBlockShowsOutput matches a whole row, not a substring of the
+// frame: the block title repeats the command, so `echo hidden` would "find"
+// its own output even with rendering completely broken.
+func (s *cliTUIState) localShellBlockShowsOutput(text string) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range s.app.screen.Snapshot() {
+			if strings.TrimSpace(tui.StripTerminalSequences(line)) == text {
+				return nil
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("no row held the command output %q; last frame:\n%s", text, s.screenText())
+}
+
+// noAgentTurnReceived proves the private half of the feature: no prompt the
+// stub runner ever saw carries the command or its output.
+func (s *cliTUIState) noAgentTurnReceived(text string) error {
+	s.mu.Lock()
+	prompts := append([]string(nil), s.prompts...)
+	s.mu.Unlock()
+	if len(prompts) == 0 {
+		return fmt.Errorf("no agent turn ran, so the assertion proves nothing")
+	}
+	for _, p := range prompts {
+		if strings.Contains(p, text) {
+			return fmt.Errorf("agent prompt %q carried %q", p, text)
+		}
+	}
+	return nil
+}
+
+// persistedSessionCarriesNoTrace checks the live message list and every file
+// of the session bundle: a hidden command must not reach either.
+func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
+	if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
+		for _, msg := range st.GetMessages() {
+			if strings.Contains(msg.Content, text) {
+				return fmt.Errorf("session message %q carried %q", msg.Content, text)
+			}
+		}
+	}
+	dir := s.store.SessionPath(s.app.sessionID)
+	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		body, readErr := os.ReadFile(path) // #nosec G304 -- test-owned temp path
+		if readErr != nil {
+			return readErr
+		}
+		if strings.Contains(string(body), text) {
+			return fmt.Errorf("session file %s carried %q", path, text)
+		}
+		return nil
+	})
+}
+
+func (s *cliTUIState) operatorTypesWithoutSending(text string) error {
+	s.typeText(text)
+	return s.waitScreen(text, 2*time.Second)
+}
+
+// editorBordersUseLocalShellColor asserts the border rule carries the
+// bashMode role, which is what tells the operator enter runs a command.
+func (s *cliTUIState) editorBordersUseLocalShellColor() error {
+	want := s.app.theme.Fg(roleBashMode, "─")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, line := range s.app.screen.Snapshot() {
+			if strings.Contains(line, want) {
+				return nil
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("no editor border used the bashMode color; frame:\n%s", s.screenText())
+}
+
 func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	s := &cliTUIState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -721,6 +818,13 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the console app stops within two seconds$`, s.consoleStopsWithinTwoSeconds)
 	sc.Step(`^the exit hint names the session and the continue command$`, s.exitHintNamesSessionAndContinue)
 	sc.Step(`^the console app starts continuing the latest session$`, s.appStartsContinuingLatest)
+	sc.Step(`^the operator runs the local command "([^"]*)"$`, s.operatorRunsLocalCommand)
+	sc.Step(`^the transcript shows a local shell block for "([^"]*)"$`, s.transcriptShowsLocalShellBlock)
+	sc.Step(`^the local shell block shows the output "([^"]*)"$`, s.localShellBlockShowsOutput)
+	sc.Step(`^no agent turn ever received "([^"]*)"$`, s.noAgentTurnReceived)
+	sc.Step(`^the persisted session carries no trace of "([^"]*)"$`, s.persistedSessionCarriesNoTrace)
+	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
+	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)

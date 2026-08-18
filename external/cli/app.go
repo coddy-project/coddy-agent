@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
 
 // appTerminal is the terminal contract the app needs beyond rendering.
@@ -76,6 +77,14 @@ type App struct {
 	curMemory    *assistantMessage
 	toolBoxes    map[string]*toolBox
 	lastToolID   string
+
+	// Local shell state (the `!!` prefix): the running command, its block, and
+	// the most recent block, which ctrl+o expands.
+	shellActive   bool
+	shellStopping bool
+	shellCmd      *shell.OperatorCommand
+	curShell      *shellBox
+	lastShell     *shellBox
 
 	sessionID string
 	modeID    string
@@ -150,6 +159,7 @@ func (a *App) buildTree() {
 	a.plan = newPlanWidget(a.theme)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
+	a.editor.OnChange = a.onEditorChange
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
 	a.foot = newFooter(a.theme, a.cfg.Paths.CWD)
@@ -335,7 +345,10 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
-// Close releases the loop channels and cancels turn workers (idempotent).
+// Close releases the loop channels and cancels turn workers (idempotent). A
+// running `!!` command dies with the console; its own worker does the killing
+// (see startLocalShell), because Close can be called from another goroutine
+// and the command handle belongs to the UI loop.
 func (a *App) Close() {
 	a.closeOnce.Do(func() {
 		close(a.closed)
@@ -449,6 +462,10 @@ func (a *App) handleGlobalKey(data []byte) bool {
 	case "escape":
 		if a.editor.AutocompleteOpen() {
 			return false // editor closes its own menu
+		}
+		if a.shellActive {
+			a.stopLocalShell()
+			return true
 		}
 		if a.turnActive {
 			a.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: a.sessionID})
@@ -565,6 +582,10 @@ func (a *App) onSubmit(text string) {
 		return
 	}
 	a.editor.AddToHistory(text)
+	if a.dispatchLocalShell(text) {
+		return
+	}
+	text = unescapeLocalShell(text)
 	if a.dispatchSlash(text) {
 		return
 	}
@@ -574,6 +595,10 @@ func (a *App) onSubmit(text string) {
 func (a *App) submitPrompt(text string) {
 	if a.turnActive {
 		a.appendStatus(roleWarning, "A turn is already running (escape to interrupt)")
+		return
+	}
+	if a.shellActive {
+		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
 		return
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
@@ -653,6 +678,9 @@ func (a *App) adoptedModelValues() []string {
 }
 
 func (a *App) openModelSelector() {
+	if a.busyWithLocalShell() {
+		return
+	}
 	ids := a.modelIDs()
 	items := make([]tui.SelectItem, 0, len(ids))
 	current := 0
@@ -737,6 +765,9 @@ func (a *App) toggleExpanded() {
 	a.header.SetExpanded(a.expanded)
 	if tb, ok := a.toolBoxes[a.lastToolID]; ok {
 		tb.SetExpanded(a.expanded)
+	}
+	if a.lastShell != nil {
+		a.lastShell.SetExpanded(a.expanded)
 	}
 }
 
@@ -903,10 +934,25 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 	}
 }
 
+// onEditorChange tints the editor borders while the buffer holds a `!!`
+// command, so it is visible before enter that the text runs locally instead
+// of reaching the model (pi's bash-mode border).
+func (a *App) onEditorChange(string) {
+	// Read the buffer the way submit will deliver it - trimmed, with paste
+	// markers expanded - so the border promises exactly what enter will do:
+	// "  !!rm -rf x" and a collapsed paste starting with !! both run.
+	if _, ok := parseLocalCommand(a.editor.PendingText()); ok {
+		a.editor.SetBorderColor(a.theme.FgFn(roleBashMode))
+		return
+	}
+	a.editor.SetBorderColor(a.theme.FgFn(roleBorderMuted))
+}
+
 func (a *App) resetTranscript() {
 	a.chat.Clear()
 	a.plan.SetEntries(nil)
 	a.toolBoxes = map[string]*toolBox{}
+	a.curShell, a.lastShell = nil, nil
 	a.toolFullCache = map[string]string{}
 	a.toolFullPending = map[string]bool{}
 	a.curAssistant = nil
@@ -921,6 +967,11 @@ func (a *App) resetTranscript() {
 func (a *App) newSession() {
 	if a.switching {
 		a.appendStatus(roleWarning, "A session switch is already in progress")
+		return
+	}
+	if a.shellActive {
+		// The transcript reset would detach the running block and its output.
+		a.appendStatus(roleWarning, "A local command is running (escape to stop it)")
 		return
 	}
 	a.switching = true
