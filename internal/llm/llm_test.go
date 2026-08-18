@@ -597,3 +597,45 @@ func TestOpenAIBlockingParamsOmitStreamOptions(t *testing.T) {
 		t.Fatalf("streaming request lost include_usage: %s", streamed)
 	}
 }
+
+// TestBlockingProviderStopsReplayOnMidReplayCancel is the loop-guard contract: the
+// consumer cancels from inside onChunk when a channel degenerates, and what comes
+// back must describe only what it saw. Returning the rest would persist an answer
+// nobody read and tool calls nobody executed, then replay those calls to the model
+// with no matching results.
+func TestBlockingProviderStopsReplayOnMidReplayCancel(t *testing.T) {
+	inner := &recordingProvider{resp: &Response{
+		Reasoning:  "round and round and round",
+		Content:    "an answer nobody should see",
+		StopReason: "tool_use",
+		ToolCalls:  []ToolCall{{ID: "a", Name: "run_command", InputJSON: `{"command":"rm -rf /"}`}},
+	}}
+	p := newBlockingProvider(inner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var chunks []StreamChunk
+	resp, err := p.Stream(ctx, []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		chunks = append(chunks, c)
+		if c.ReasoningDelta != "" {
+			cancel() // what the loop guard does when the thinking channel degenerates
+		}
+	})
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(chunks) != 1 || chunks[0].ReasoningDelta == "" {
+		t.Fatalf("chunks = %+v, want only the reasoning chunk", chunks)
+	}
+	if resp == nil {
+		t.Fatal("resp = nil, want the delivered part of the response")
+	}
+	if resp.Reasoning != "round and round and round" {
+		t.Fatalf("delivered reasoning = %q, want what was emitted", resp.Reasoning)
+	}
+	if resp.Content != "" || len(resp.ToolCalls) != 0 {
+		t.Fatalf("resp = %+v, want no undelivered content or tool calls", resp)
+	}
+}
