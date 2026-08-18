@@ -3,7 +3,12 @@ import { applyModelsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
-import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import {
+  defaultForSchema,
+  SchemaForm,
+  type FieldOverride,
+  type JsonSchema,
+} from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
@@ -185,6 +190,25 @@ export function SettingsSection(props: {
       key === "models"
         ? (v: unknown[]) => setDoc(applyModelsChange(doc, v))
         : (v: unknown[]) => setKey(key, v);
+    const newItem =
+      key === "models"
+        ? () => {
+            const seed = defaultForSchema(sub.items ?? {});
+            if (
+              seed === null ||
+              typeof seed !== "object" ||
+              Array.isArray(seed)
+            ) {
+              return seed;
+            }
+            // Empty reasoning_levels explicitly disables server-side detection.
+            // A freshly added logical model has no such user choice yet, so omit
+            // the optional override and let the backend resolve the model family.
+            const { reasoning_levels: _reasoningLevels, ...model } =
+              seed as Record<string, unknown>;
+            return model;
+          }
+        : undefined;
     return (
       <SettingsArraySection
         schema={sub}
@@ -192,6 +216,7 @@ export function SettingsSection(props: {
         onChange={onArrayChange}
         labelField={section.labelField}
         fieldOverride={override}
+        newItem={newItem}
         backLabelUsesItemName={!props.isMobileShell}
       />
     );
