@@ -29,6 +29,7 @@ Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by def
 Rendered order matches the markdown files roughly as follows:
 
 ```
+[Identity line — see "Agent identity" below; absent when the template opens with it]
 [Intro + Mode + How to work / How to plan]
 Working directory: {{.CWD}}
 
@@ -63,6 +64,25 @@ Working directory: {{.CWD}}
 The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
+
+### Agent identity
+
+**Every system prompt Coddy sends opens by naming the product.** The sentence lives in **`internal/prompts/identity.go`** as **`prompts.Identity`** (**`"You are Coddy, an AI coding agent."`**), and **`prompts.WithIdentity`** is what puts it there.
+
+Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from another by the wire protocol, so gateways attribute traffic by matching the **opening of the system prompt** against a table of known products (**`"You are Claude Code…"`**, **`"You are Cline…"`**). Coddy used to open with a generic sentence and was therefore invisible in that kind of analytics. Treat **`prompts.Identity`** as a published contract: gateways key on the **`you are coddy`** substring, and rewording it silently drops Coddy out of their reports until they catch up.
+
+Where it is applied:
+
+- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent and plan modes, a user's own **`prompts.dir`** template, and the render fallback;
+- **`buildCompactionRequest`** (`internal/agent/compact.go`) — the summarizer is its own request with its own system prompt;
+- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+
+Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
+
+1. the marker lands within the **first 220 characters**, because that is the prefix a gateway inspects — a long **`{{.CWD}}`** must not push it out;
+2. the line appears **exactly once**. The built-in templates already open with **`You are Coddy, …`**, so **`WithIdentity`** detects the marker and returns them untouched instead of stacking a second identity line on top.
+
+A custom **`prompts.dir`** template does **not** need to name Coddy: the line is prepended for it automatically.
 
 ### Tool Calling via Function Calling API
 
