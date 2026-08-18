@@ -521,26 +521,31 @@ func TestTrimPartialUTF8CutsOnlyBrokenEnds(t *testing.T) {
 		name      string
 		in        []byte
 		truncated bool
+		midWrite  bool
 		want      []byte
 	}{
-		{"intact utf-8", []byte("дом"), false, []byte("дом")},
-		{"head cut in half", []byte("\xbe\xd0\xbc"), true, []byte("м")},
-		{"tail mid-write", []byte("до\xd0"), false, []byte("до")},
-		{"both ends", []byte("\xbe\xd0\xbcа\xd0"), true, []byte("ма")},
-		{"ascii", []byte("plain"), false, []byte("plain")},
-		{"empty", []byte(""), false, []byte("")},
+		{"intact utf-8", []byte("дом"), false, false, []byte("дом")},
+		{"head cut in half", []byte("\xbe\xd0\xbc"), true, false, []byte("м")},
+		{"tail mid-write", []byte("до\xd0"), false, true, []byte("до")},
+		{"both ends", []byte("\xbe\xd0\xbcа\xd0"), true, true, []byte("ма")},
+		{"ascii", []byte("plain"), false, false, []byte("plain")},
+		{"empty", []byte(""), false, false, []byte("")},
+		// A finished command sends nothing more, so a trailing lead byte is a
+		// whole code-page character (CP866 "р"), not half a rune.
+		{"code page byte ends a finished capture", []byte("OK\xe0"), false, false, []byte("OK\xe0")},
+		{"same bytes while still writing", []byte("OK\xe0"), false, true, []byte("OK")},
 		// CP866 "Привет": invalid UTF-8 that trimming cannot rescue, so it
 		// reaches DecodeOutput whole and is decoded as the code page there.
-		{"code page stays whole", []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}, false, []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}},
+		{"code page stays whole", []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}, false, false, []byte{0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2}},
 		// CP866 "А" followed by ASCII: dropping the lead byte would make the
 		// rest valid UTF-8, so only a real truncation may touch the head.
-		{"code page char before ascii", []byte{0x80, 'O', 'K'}, false, []byte{0x80, 'O', 'K'}},
-		{"same bytes after a real cut", []byte{0x80, 'O', 'K'}, true, []byte("OK")},
+		{"code page char before ascii", []byte{0x80, 'O', 'K'}, false, false, []byte{0x80, 'O', 'K'}},
+		{"same bytes after a real cut", []byte{0x80, 'O', 'K'}, true, false, []byte("OK")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := trimPartialUTF8(tc.in, tc.truncated); string(got) != string(tc.want) {
-				t.Fatalf("trimPartialUTF8(%q, %v) = %q, want %q", tc.in, tc.truncated, got, tc.want)
+			if got := trimPartialUTF8(tc.in, tc.truncated, tc.midWrite); string(got) != string(tc.want) {
+				t.Fatalf("trimPartialUTF8(%q, %v, %v) = %q, want %q", tc.in, tc.truncated, tc.midWrite, got, tc.want)
 			}
 		})
 	}

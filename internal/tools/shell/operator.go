@@ -52,20 +52,31 @@ func StartOperatorCommandForShell(command, cwd string, commandShell platform.She
 // runs, and costs the same on every call.
 func (c *OperatorCommand) Output() string {
 	raw, truncated := c.tail.Snapshot()
-	return platform.SanitizeOutput(platform.DecodeOutput(trimPartialUTF8(raw, truncated)))
+	return platform.SanitizeOutput(platform.DecodeOutput(trimPartialUTF8(raw, truncated, c.running())))
 }
 
-// trimPartialUTF8 drops a character the capture cut in half - at the end, where
-// the command is still mid-write, and, when the buffer really was truncated at
-// the front, the rune the tail buffer beheaded there.
+// running reports whether more output can still arrive.
+func (c *OperatorCommand) running() bool {
+	select {
+	case <-c.sc.waited:
+		return false
+	default:
+		return true
+	}
+}
+
+// trimPartialUTF8 drops a character the capture cut in half - at the end, while
+// the command is mid-write, and, when the buffer really was truncated at the
+// front, the rune the tail buffer beheaded there.
 //
 // It must run before decoding, not after: DecodeOutput reads a buffer that is
 // not valid UTF-8 as the Windows console code page, so a single broken byte at
 // either end would turn a whole screen of UTF-8 into mojibake for one poll and
-// back again on the next. Two guards keep a genuine code-page capture intact:
-// the head is only touched when bytes were actually dropped there, and a trim
-// is kept only if it makes the whole buffer valid UTF-8.
-func trimPartialUTF8(b []byte, truncated bool) []byte {
+// back again on the next. Three guards keep a genuine code-page capture intact:
+// the head is only touched when bytes were actually dropped there, the tail
+// only while more bytes can still arrive, and a trim is kept only if it makes
+// the whole buffer valid UTF-8.
+func trimPartialUTF8(b []byte, truncated, midWrite bool) []byte {
 	if utf8.Valid(b) {
 		return b
 	}
@@ -76,7 +87,7 @@ func trimPartialUTF8(b []byte, truncated bool) []byte {
 		}
 	}
 	end := len(b)
-	for i := 1; i <= 4 && end-i >= start; i++ {
+	for i := 1; midWrite && i <= 4 && end-i >= start; i++ {
 		c := b[end-i]
 		if c&0xC0 == 0x80 {
 			continue // inside a sequence, keep walking back to its lead byte

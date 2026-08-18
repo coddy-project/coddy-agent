@@ -6,9 +6,12 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/shell"
 )
 
 // Transcript blocks separate with one leading blank row (pi spacing): a user
@@ -190,6 +193,34 @@ func TestARunningLocalCommandRefusesEverythingElse(t *testing.T) {
 				t.Fatalf("transcript %q does not refuse with %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// Escape must reach the process, not only the console state: the first one
+// kills a real command through the terminate worker.
+func TestEscapeKillsTheRunningCommand(t *testing.T) {
+	commandShell := platform.CurrentShell()
+	if commandShell.Kind != platform.ShellBash && commandShell.Kind != platform.ShellSh {
+		t.Skipf("no portable long-running command for shell %q", commandShell.Kind)
+	}
+	a := newTestApp(t)
+	cmd, err := shell.StartOperatorCommand("sleep 60", a.cfg.Paths.CWD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.shellActive, a.shellCmd = true, cmd
+	a.curShell = newShellBox(a.theme, "sleep 60")
+
+	a.stopLocalShell()
+	select {
+	case <-cmd.Done():
+	case <-time.After(15 * time.Second):
+		cmd.Terminate(time.Second)
+		t.Fatal("escape did not reach the process")
+	}
+	a.JoinWorkers(5 * time.Second)
+	if rows := renderedRows(a.curShell, 60); !rows["stopping (escape again to leave it)"] {
+		t.Fatalf("the block does not show that a stop was asked for:\n%v", rows)
 	}
 }
 

@@ -937,10 +937,11 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 // onEditorChange tints the editor borders while the buffer holds a `!!`
 // command, so it is visible before enter that the text runs locally instead
 // of reaching the model (pi's bash-mode border).
-func (a *App) onEditorChange(text string) {
-	// Trim like the editor does on submit, so the border promises exactly what
-	// enter will do: "  !!rm -rf x" runs as a command and must look like one.
-	if _, ok := parseLocalCommand(strings.TrimSpace(text)); ok {
+func (a *App) onEditorChange(string) {
+	// Read the buffer the way submit will deliver it - trimmed, with paste
+	// markers expanded - so the border promises exactly what enter will do:
+	// "  !!rm -rf x" and a collapsed paste starting with !! both run.
+	if _, ok := parseLocalCommand(a.editor.PendingText()); ok {
 		a.editor.SetBorderColor(a.theme.FgFn(roleBashMode))
 		return
 	}
