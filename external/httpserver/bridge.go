@@ -67,17 +67,29 @@ func (s *Sender) flushLocked() {
 //
 // Safe to call on a silent (non-emitting) sender: it then does nothing.
 func (s *Sender) StartIdleKeepalive(ctx context.Context) func() {
-	if !s.emit || s.w == nil {
+	return s.startIdleKeepalive(ctx, idleKeepaliveInterval)
+}
+
+func (s *Sender) startIdleKeepalive(ctx context.Context, interval time.Duration) func() {
+	if !s.emit || s.w == nil || interval <= 0 {
 		return func() {}
 	}
 	done := make(chan struct{})
+	finished := make(chan struct{})
 	var once sync.Once
-	stop := func() { once.Do(func() { close(done) }) }
+	// stop waits for the goroutine to leave any write in progress: the caller is
+	// about to let the HTTP handler return, and writing to a ResponseWriter after
+	// that is not allowed.
+	stop := func() {
+		once.Do(func() { close(done) })
+		<-finished
+	}
 	s.mu.Lock()
 	s.lastWrite = time.Now()
 	s.mu.Unlock()
 	go func() {
-		ticker := time.NewTicker(idleKeepaliveInterval / 3)
+		defer close(finished)
+		ticker := time.NewTicker(interval / 3)
 		defer ticker.Stop()
 		for {
 			select {
@@ -87,7 +99,7 @@ func (s *Sender) StartIdleKeepalive(ctx context.Context) func() {
 				return
 			case <-ticker.C:
 				s.mu.Lock()
-				if time.Since(s.lastWrite) >= idleKeepaliveInterval {
+				if time.Since(s.lastWrite) >= interval {
 					if _, err := io.WriteString(s.w, ": keepalive\n\n"); err == nil {
 						s.flushLocked()
 					}

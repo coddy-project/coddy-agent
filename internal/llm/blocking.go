@@ -1,6 +1,9 @@
 package llm
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // blockingProvider serves Provider.Stream without opening a stream: the inner
 // provider runs one blocking Complete call and the finished response is replayed
@@ -41,7 +44,9 @@ func (p *blockingProvider) Stream(ctx context.Context, messages []Message, tools
 		return nil, err
 	}
 	if resp == nil {
-		return nil, nil
+		// Every provider returns a response or an error; a nil pair would reach the
+		// ReAct loop as a nil dereference rather than a diagnosable failure.
+		return nil, fmt.Errorf("llm: blocking completion returned no response")
 	}
 	if onChunk != nil {
 		if resp.Reasoning != "" {
