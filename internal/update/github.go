@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const (
@@ -68,20 +69,104 @@ func pickAsset(rel *ghRelease, assetName string) (*releaseAsset, error) {
 	return nil, fmt.Errorf("release %s has no asset %q", rel.TagName, assetName)
 }
 
-func downloadURL(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+func downloadURL(ctx context.Context, client *http.Client, url string, reporter downloadReporter) ([]byte, error) {
+	const (
+		maxAttempts = 3
+		maxBytes    = 256 << 20
+	)
+
+	var (
+		data    []byte
+		lastErr error
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			if reporter != nil {
+				reporter.Retry(attempt, maxAttempts, lastErr)
+			}
+			if err := waitForDownloadRetry(ctx, time.Duration(attempt-1)*200*time.Millisecond); err != nil {
+				return nil, err
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "coddy-agent-update")
+		if len(data) > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", len(data)))
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("download %s", resp.Status)
+		}
+		if len(data) > 0 && resp.StatusCode == http.StatusOK {
+			// The server ignored our Range request. Restart from the complete
+			// response instead of appending a duplicate prefix.
+			data = nil
+		}
+		if resp.ContentLength >= 0 && int64(len(data))+resp.ContentLength > maxBytes {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("download exceeds %d MiB limit", maxBytes>>20)
+		}
+
+		total := int64(-1)
+		if resp.ContentLength >= 0 {
+			total = int64(len(data)) + resp.ContentLength
+		}
+		readErr := appendResponse(&data, resp.Body, maxBytes, total, reporter)
+		closeErr := resp.Body.Close()
+		if readErr == nil && closeErr == nil {
+			if reporter != nil {
+				reporter.Complete(int64(len(data)))
+			}
+			return data, nil
+		}
+		if readErr != nil {
+			lastErr = readErr
+		} else {
+			lastErr = closeErr
+		}
 	}
-	req.Header.Set("User-Agent", "coddy-agent-update")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	return nil, fmt.Errorf("download failed after %d attempts: %w", 3, lastErr)
+}
+
+func appendResponse(data *[]byte, body io.Reader, maxBytes, total int64, reporter downloadReporter) error {
+	buf := make([]byte, 64<<10)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if int64(len(*data)+n) > maxBytes {
+				return fmt.Errorf("download exceeds %d MiB limit", maxBytes>>20)
+			}
+			*data = append(*data, buf[:n]...)
+			if reporter != nil {
+				reporter.Progress(int64(len(*data)), total)
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %s", resp.Status)
+}
+
+func waitForDownloadRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
-	const maxBytes = 256 << 20
-	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
 }
