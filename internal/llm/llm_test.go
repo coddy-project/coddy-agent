@@ -34,7 +34,7 @@ func TestOpenAIMultimodalMessageContentParts(t *testing.T) {
 			{DataURL: "data:image/png;base64,abc123", Name: "test.png"},
 		}},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -352,7 +352,7 @@ func TestOpenAITextOnlyMessageIsString(t *testing.T) {
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 	}
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	raw, err := json.Marshal(params.Messages)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

@@ -85,6 +85,9 @@ type ModelJSON struct {
 	Multimodal       bool     `json:"multimodal,omitempty"`
 	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
 	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
+	// round trip must not turn an omitted key into an explicit false.
+	Stream *bool `json:"stream,omitempty"`
 }
 
 // AgentJSON mirrors Agent for JSON APIs. Pointer fields keep the unset/explicit

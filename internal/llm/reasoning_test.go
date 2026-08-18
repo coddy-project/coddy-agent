@@ -13,7 +13,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
 	p := newOpenAIProvider("gpt-5", "", "", nil, 1024, 0.5, "high")
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	if params.ReasoningEffort != openai.ReasoningEffort("high") {
 		t.Errorf("reasoning_effort = %q, want high", params.ReasoningEffort)
 	}
@@ -30,7 +30,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 
 	// Empty reasoning effort is omitted; non-reasoning models keep max_tokens + temperature.
 	none := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0.5, "")
-	npar := none.buildParams(msgs, nil)
+	npar := none.buildParams(msgs, nil, true)
 	if npar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", npar.ReasoningEffort)
 	}
@@ -53,7 +53,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
 	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
-	qpar := qwen.buildParams(msgs, nil)
+	qpar := qwen.buildParams(msgs, nil, true)
 	if qpar.ReasoningEffort != openai.ReasoningEffort("medium") {
 		t.Errorf("reasoning_effort = %q, want medium", qpar.ReasoningEffort)
 	}
@@ -71,7 +71,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 	// gpt-oss maps to reasoning_effort only; chat_template_kwargs is a Qwen
 	// chat-template switch and must not leak to other model families.
 	oss := newOpenAIProvider("gpt-oss-120b", "", "", nil, 1024, 0.5, "high")
-	obar, err := json.Marshal(oss.buildParams(msgs, nil))
+	obar, err := json.Marshal(oss.buildParams(msgs, nil, true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
 
 	// Qwen without a reasoning level keeps the plain chat path (no effort, no kwargs).
 	plain := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "")
-	ppar := plain.buildParams(msgs, nil)
+	ppar := plain.buildParams(msgs, nil, true)
 	if ppar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", ppar.ReasoningEffort)
 	}

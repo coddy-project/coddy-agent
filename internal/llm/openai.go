@@ -10,6 +10,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/tidwall/gjson"
 )
 
 // openAIProvider implements Provider using the OpenAI API (or compatible).
@@ -42,7 +43,7 @@ func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, m
 }
 
 func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	params := p.buildParams(messages, tools)
+	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("openai complete: %w", err)
@@ -50,7 +51,10 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 	return p.parseCompletion(resp)
 }
 
-func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition) openai.ChatCompletionNewParams {
+// buildParams assembles the chat completion request. streaming selects the
+// stream-only fields: stream_options is rejected outright by OpenAI on a
+// blocking request, so it is set for the streaming path only.
+func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
 	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 	for _, m := range messages {
 		switch m.Role {
@@ -167,10 +171,12 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		params.Tools = oaiTools
 	}
 
-	// Request usage statistics in the streaming response.
-	// Without this the usage chunk is omitted and token counts stay at zero.
-	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-		IncludeUsage: openai.Bool(true),
+	if streaming {
+		// Request usage statistics in the streaming response.
+		// Without this the usage chunk is omitted and token counts stay at zero.
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		}
 	}
 
 	return params
@@ -192,6 +198,7 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 
 	r := &Response{
 		Content:      msg.Content,
+		Reasoning:    openAIMessageReasoning(msg.RawJSON()),
 		StopReason:   mapOpenAIStopReason(string(choice.FinishReason)),
 		InputTokens:  int(resp.Usage.PromptTokens),
 		OutputTokens: int(resp.Usage.CompletionTokens),
@@ -206,6 +213,20 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	}
 
 	return r, nil
+}
+
+// openAIMessageReasoning pulls the thinking text out of a non-streamed assistant
+// message. Neither field is part of the OpenAI schema, so they are read off the
+// raw JSON: reasoning_content is what vLLM, SGLang, and llama.cpp emit, thinking
+// is the older spelling. Precedence matches the streaming path.
+func openAIMessageReasoning(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if r := gjson.Get(raw, "reasoning_content").String(); r != "" {
+		return r
+	}
+	return gjson.Get(raw, "thinking").String()
 }
 
 func mapOpenAIStopReason(reason string) string {

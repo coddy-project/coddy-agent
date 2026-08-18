@@ -39,6 +39,64 @@ type Sender struct {
 	created     int64
 	model       string
 	sessionDir  string
+	// lastWrite stamps the most recent frame so the idle keepalive knows whether the
+	// stream has gone quiet. Guarded by mu, like every other write to w.
+	lastWrite time.Time
+}
+
+// idleKeepaliveInterval is how long a streaming response may stay silent before a
+// comment frame is sent. It has to stay well under the idle timeout of the proxies
+// that sit in front of coddy in practice (nginx proxy_read_timeout defaults to 60s,
+// Cloudflare cuts at ~100s), because a turn on a model configured with stream: false
+// produces no frames at all until the whole completion is generated.
+const idleKeepaliveInterval = 15 * time.Second
+
+// flushLocked flushes the writer and records the moment. Callers hold mu.
+func (s *Sender) flushLocked() {
+	s.lastWrite = time.Now()
+	if s.flusher != nil {
+		s.flusher.Flush()
+	}
+}
+
+// StartIdleKeepalive writes an SSE comment frame whenever the stream has been silent
+// for idleKeepaliveInterval, and returns the function that stops it. Comment frames
+// carry no data, so every SSE parser - the SPA reader, EventSource, OpenAI clients -
+// skips them; what they do is keep the TCP connection and the proxies in front of it
+// from treating a long blocking generation as a dead stream.
+//
+// Safe to call on a silent (non-emitting) sender: it then does nothing.
+func (s *Sender) StartIdleKeepalive(ctx context.Context) func() {
+	if !s.emit || s.w == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	var once sync.Once
+	stop := func() { once.Do(func() { close(done) }) }
+	s.mu.Lock()
+	s.lastWrite = time.Now()
+	s.mu.Unlock()
+	go func() {
+		ticker := time.NewTicker(idleKeepaliveInterval / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.mu.Lock()
+				if time.Since(s.lastWrite) >= idleKeepaliveInterval {
+					if _, err := io.WriteString(s.w, ": keepalive\n\n"); err == nil {
+						s.flushLocked()
+					}
+				}
+				s.mu.Unlock()
+			}
+		}
+	}()
+	return stop
 }
 
 // NewSender creates a bridge for an HTTP response. Pass w=nil when stream is false.
@@ -164,9 +222,7 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
 		return err
 	}
-	if s.flusher != nil {
-		s.flusher.Flush()
-	}
+	s.flushLocked()
 	return nil
 }
 
@@ -180,9 +236,7 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, line); err != nil {
 		return err
 	}
-	if s.flusher != nil {
-		s.flusher.Flush()
-	}
+	s.flushLocked()
 	return nil
 }
 
@@ -287,9 +341,7 @@ func (s *Sender) FinishStream() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := io.WriteString(s.w, "data: [DONE]\n\n")
-	if s.flusher != nil {
-		s.flusher.Flush()
-	}
+	s.flushLocked()
 	return err
 }
 
@@ -302,9 +354,7 @@ func (s *Sender) SendError(msg string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := fmt.Fprintf(s.w, "data: {\"error\":{\"message\":%q}}\n\n", msg)
-	if s.flusher != nil {
-		s.flusher.Flush()
-	}
+	s.flushLocked()
 	return err
 }
 
