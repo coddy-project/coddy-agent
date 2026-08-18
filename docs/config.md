@@ -122,6 +122,10 @@ agent:
 prompts:
   # Empty dir = use embedded defaults. Otherwise a directory containing the files named below.
   #
+  # Whatever you put here, Coddy prepends its identity line ("You are Coddy, ...") unless the
+  # template already opens with it — gateways attribute traffic by the start of the system
+  # prompt. Source: internal/prompts/identity.go, rationale: docs/react-agent.md (Agent identity).
+  #
   # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is config.Prompts in internal/config/prompts.go.
   #   {{.CWD}}      - session working directory
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode

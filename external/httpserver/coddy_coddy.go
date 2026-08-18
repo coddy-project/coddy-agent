@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
@@ -339,10 +340,11 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{
 			Role: llm.RoleSystem,
-			Content: "You generate short descriptions for chat titles and command labels. " +
-				"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
-				"Match the user's language when possible. " +
-				"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase.",
+			Content: prompts.WithIdentity(
+				"You generate short descriptions for chat titles and command labels. " +
+					"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
+					"Match the user's language when possible. " +
+					"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase."),
 		},
 		{Role: llm.RoleUser, Content: raw},
 	}, nil)
