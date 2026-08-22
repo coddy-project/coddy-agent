@@ -124,6 +124,8 @@ func main() {
 		err = runMCP(args[1:])
 	case "codex":
 		err = runCodex(args[1:])
+	case "providers":
+		err = runProviders(args[1:])
 	case "rules":
 		err = runRules(args[1:])
 	case "update":
@@ -163,6 +165,7 @@ func printUsage(w *os.File) {
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
   %[1]s codex login | status | logout [--provider NAME] [--home DIR]
+  %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
@@ -265,6 +268,7 @@ func runACP(args []string) error {
 
 	log.Info("starting ACP server", "version", version.Get())
 	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)

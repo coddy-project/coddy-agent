@@ -45,7 +45,7 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
 
-- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy;
+- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`coddy providers login <name>` / `coddy codex login` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$CODDY_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default;
 - `agent` - ReAct loop model, max turns, loop protection;
 - `prompts` - system prompt template overrides;
