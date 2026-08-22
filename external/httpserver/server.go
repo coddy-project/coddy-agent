@@ -61,8 +61,11 @@ type Server struct {
 	removeTurnObserver func()
 
 	codexAuthIssuer string
-	codexAuthMu     sync.Mutex
-	codexAuthLogins map[string]*codexAuthLoginAttempt
+	// codexAuthMu guards both browser-login attempt maps; the attempts share
+	// one bookkeeping shape and one drain path.
+	codexAuthMu          sync.Mutex
+	codexAuthLogins      map[string]*codexAuthLoginAttempt
+	neuralDeepAuthLogins map[string]*codexAuthLoginAttempt
 
 	permissionResumeWG sync.WaitGroup
 	bgWG               sync.WaitGroup
@@ -75,6 +78,7 @@ func (s *Server) Drain() {
 		s.removeTurnObserver()
 	}
 	s.cancelCodexAuthLogins()
+	s.cancelNeuralDeepAuthLogins()
 	// Background tasks are children of this process; leaving them running would
 	// orphan whole shell trees the operator can no longer see or stop. Close the
 	// pool first so a turn that is still winding down cannot start one more.
@@ -96,6 +100,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
+		neuralDeepAuthLogins: make(map[string]*codexAuthLoginAttempt),
 		events:               newServerEventsHub(),
 	}
 	s.cfgAt.Store(cfg)

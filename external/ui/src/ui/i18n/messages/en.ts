@@ -128,6 +128,24 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Sign In with ChatGPT",
   "codexAuth.enterProviderName": "Enter a provider name before signing in.",
 
+  "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
+  "neuralDeepAuth.error.incompleteResponse":
+    "The hub returned an incomplete sign-in response.",
+  "neuralDeepAuth.fieldLabel": "NeuralDeep account",
+  "neuralDeepAuth.description":
+    "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for Coddy and your tier's models become available. The key is stored on the Coddy server and is never added to config.yaml.",
+  "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
+  "neuralDeepAuth.shadowedByKey":
+    "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "neuralDeepAuth.openSignInPage": "Open sign-in page",
+  "neuralDeepAuth.waiting": "Waiting for confirmation…",
+  "neuralDeepAuth.signingOut": "Signing Out…",
+  "neuralDeepAuth.signOut": "Sign Out",
+  "neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
+  "neuralDeepAuth.signIn": "Sign In with NeuralDeep",
+  "neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+
   "mcp.status.connectedOne": "Connected — {count} tool",
   "mcp.status.connectedMany": "Connected — {count} tools",
   "mcp.status.probeFailed": "Probe failed",
