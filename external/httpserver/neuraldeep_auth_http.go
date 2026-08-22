@@ -39,6 +39,19 @@ func (s *Server) cancelNeuralDeepAuthLogins() {
 	}
 }
 
+// cancelNeuralDeepAuthLoginsFor stops the pending sign-ins of one provider.
+// A new login supersedes the previous one, and a sign-out must not leave a
+// background wait that later re-stores a credential the user just removed.
+func (s *Server) cancelNeuralDeepAuthLoginsFor(provider string) {
+	s.codexAuthMu.Lock()
+	defer s.codexAuthMu.Unlock()
+	for _, attempt := range s.neuralDeepAuthLogins {
+		if attempt.ProviderName == provider && attempt.cancel != nil {
+			attempt.cancel()
+		}
+	}
+}
+
 func (s *Server) registerNeuralDeepAuthRoutes() {
 	s.mux.HandleFunc("GET /coddy/providers/{name}/neuraldeep-auth", s.coddyProviderNeuralDeepAuthGet)
 	s.mux.HandleFunc("DELETE /coddy/providers/{name}/neuraldeep-auth", s.coddyProviderNeuralDeepAuthDelete)
@@ -88,6 +101,9 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 	if !ok {
 		return
 	}
+	// A background device wait finishing after the sign-out would silently
+	// re-store a credential; supersede every pending attempt first.
+	s.cancelNeuralDeepAuthLoginsFor(name)
 	path := config.NeuralDeepAuthPath(s.activeCfg().Paths.Home, name)
 	// Honest logout: ask the hub to revoke the key first, best-effort. A hub
 	// that is unreachable must not keep the user locked in.
@@ -126,6 +142,9 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	}
 	hub := llm.NeuralDeepHub()
 	label := neuralDeepHTTPDeviceLabel()
+	// Two racing sign-ins would finish in arbitrary order and the loser
+	// could overwrite the newer credential; the new attempt supersedes.
+	s.cancelNeuralDeepAuthLoginsFor(name)
 	login, err := llm.StartNeuralDeepDeviceLogin(r.Context(), hub, client, label)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusBadGateway, err.Error())
@@ -166,8 +185,9 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 
 	writeCodexAuthJSON(w, http.StatusOK, codexAuthLoginResponse{
 		LoginID: loginID,
-		// The complete URI carries the pre-filled code, so one click confirms.
-		VerificationURL: login.VerificationURIComplete,
+		// The complete URI (pre-filled code) when the hub provides one,
+		// otherwise the plain portal URI - complete is optional in RFC 8628.
+		VerificationURL: login.VerificationTarget(),
 		UserCode:        login.UserCode,
 		Status:          "pending",
 	})

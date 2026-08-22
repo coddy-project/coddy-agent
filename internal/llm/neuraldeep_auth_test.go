@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"time"
 )
 
@@ -211,7 +213,17 @@ func TestNeuralDeepAuthFileLifecycle(t *testing.T) {
 	}
 }
 
+// shrinkNeuralDeepPolling makes the RFC pacing test-friendly: the production
+// floor guards against busy-looping, the slow_down step follows the RFC.
+func shrinkNeuralDeepPolling(t *testing.T) {
+	t.Helper()
+	prevFloor, prevStep := neuralDeepPollFloor, neuralDeepSlowDownStep
+	neuralDeepPollFloor, neuralDeepSlowDownStep = 5*time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { neuralDeepPollFloor, neuralDeepSlowDownStep = prevFloor, prevStep })
+}
+
 func TestNeuralDeepDeviceSignInPollsUntilApproved(t *testing.T) {
+	shrinkNeuralDeepPolling(t)
 	var polls int
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -268,6 +280,7 @@ func TestNeuralDeepDeviceSignInPollsUntilApproved(t *testing.T) {
 }
 
 func TestNeuralDeepDeviceSignInDenied(t *testing.T) {
+	shrinkNeuralDeepPolling(t)
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/cli/device/start":
@@ -399,5 +412,43 @@ func TestListModelsNeuralDeepFallsBackToAuthFile(t *testing.T) {
 	}
 	if len(models) != 2 || gotAuth != "Bearer sk-file" {
 		t.Fatalf("models=%v auth=%q, want 2 models fetched with the file key", models, gotAuth)
+	}
+}
+
+func TestApplyNeuralDeepLoginSkipsUnsafeModelIDs(t *testing.T) {
+	// Model ids are interpolated into UCI config paths; a hostile hub must
+	// not be able to smuggle selector syntax through the catalog.
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cli/status" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tier": "starter",
+			"models": []map[string]any{
+				{"id": "qwen3.6-35b-a3b", "ctx": 262144},
+				{"id": "evil]x.hack=1", "ctx": 1},
+				{"id": "also/bad", "ctx": 1},
+				{"id": "", "ctx": 1},
+			},
+		})
+	}))
+	defer hub.Close()
+
+	home := t.TempDir()
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfg := &config.Config{}
+	cfg.Paths = config.Paths{Home: home, ConfigPath: cfgPath}
+
+	added, err := ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", hub.URL, "sk-k", hub.Client())
+	if err != nil {
+		t.Fatalf("ApplyNeuralDeepLoginToConfig: %v", err)
+	}
+	joined := strings.Join(added, ",")
+	if !strings.Contains(joined, "model neuraldeep/qwen3.6-35b-a3b") {
+		t.Fatalf("safe model missing from %q", joined)
+	}
+	if strings.Contains(joined, "evil") || strings.Contains(joined, "also/bad") {
+		t.Fatalf("unsafe model ids must be skipped, got %q", joined)
 	}
 }

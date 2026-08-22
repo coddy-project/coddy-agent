@@ -133,7 +133,7 @@ export const messagesEn: Record<string, string> = {
     "The hub returned an incomplete sign-in response.",
   "neuralDeepAuth.fieldLabel": "NeuralDeep account",
   "neuralDeepAuth.description":
-    "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for Coddy and your tier's models become available. The key is stored on the Coddy server and is never added to config.yaml.",
+    "Sign in with your NeuralDeep hub account instead of pasting a key: the hub issues a personal key for Coddy. The key is stored on the Coddy server and is never added to config.yaml. To use your tier's models, add them under Logical models (the model picker fetches the catalog with this login).",
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",

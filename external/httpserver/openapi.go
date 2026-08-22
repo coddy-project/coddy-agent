@@ -1250,7 +1250,7 @@ func openAPISpec() map[string]interface{} {
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
 					"responses": map[string]interface{}{
-						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
 						"400": errorResponseRef(),
 						"409": errorResponseRef(),
 						"502": errorResponseRef(),
@@ -1947,6 +1947,20 @@ func openAPISpec() map[string]interface{} {
 						"error":     map[string]string{"type": "string"},
 					},
 					"required": []string{"status", "connected"},
+				},
+				"NeuralDeepAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id": map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{
+							"type": "string", "format": "uri",
+							"description": "Hub portal page to open: the complete URI with the pre-filled code when the hub provides one, otherwise the plain verification URI (the complete form is optional in RFC 8628).",
+						},
+						"user_code": map[string]string{"type": "string"},
+						"status":    map[string]string{"type": "string", "example": "pending"},
+						"connected": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
 				},
 				"NeuralDeepAuthStatus": map[string]interface{}{
 					"type": "object",

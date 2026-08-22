@@ -194,6 +194,7 @@ test("NeuralDeep provider keeps the manual api_key and offers hub sign in", asyn
 });
 
 test("NeuralDeep Sign In opens the hub and completes device authorization", async () => {
+  let approved = false;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -209,14 +210,20 @@ test("NeuralDeep Sign In opens the hub and completes device authorization", asyn
         };
       }
       if (url.endsWith("/device/login-nd")) {
+        approved = true;
         return {
           ok: true,
           json: async () => ({ status: "completed", connected: true }),
         };
       }
+      // The widget re-reads the stored status after completion so the masked
+      // key is real, not a locally invented placeholder.
       return {
         ok: true,
-        json: async () => ({ connected: false, source: "none" }),
+        json: async () =>
+          approved
+            ? { connected: true, masked: "sk-nd…4321", source: "oauth" }
+            : { connected: false, source: "none" },
       };
     },
   );
@@ -234,7 +241,7 @@ test("NeuralDeep Sign In opens the hub and completes device authorization", asyn
     "noopener,noreferrer",
   );
   expect(
-    await screen.findByText(/Signed in to NeuralDeep/, {}, { timeout: 2000 }),
+    await screen.findByText(/Signed in to NeuralDeep \(sk-nd…4321\)/, {}, { timeout: 2000 }),
   ).toBeInTheDocument();
 });
 

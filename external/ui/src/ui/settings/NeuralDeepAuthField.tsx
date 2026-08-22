@@ -96,11 +96,18 @@ export function NeuralDeepAuthField(props: {
         if (cancelled) return;
         setLogin((current) => ({ ...current, ...next }));
         if (next.status === "completed") {
-          setStatus((current) => ({
-            ...current,
-            connected: true,
-            source: "oauth",
-          }));
+          // Re-read the stored status: the poll response carries no masked
+          // key, and "Signed in ()" with an empty mask reads as a bug.
+          try {
+            const statusResponse = await fetch(endpoint, { method: "GET" });
+            if (statusResponse.ok) {
+              setStatus((await statusResponse.json()) as AuthStatus);
+            } else {
+              setStatus({ connected: true, source: "oauth" });
+            }
+          } catch {
+            setStatus({ connected: true, source: "oauth" });
+          }
           setLoading(false);
           return;
         }

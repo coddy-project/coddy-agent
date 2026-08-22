@@ -126,12 +126,10 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, no
 	var key string
 	if device {
 		key, err = llm.NeuralDeepDeviceSignIn(ctx, hub, client, authPath, neuralDeepDeviceLabel(), func(l llm.NeuralDeepDeviceLogin) {
-			fmt.Printf("Open %s and enter the code %s\n", l.VerificationURI, l.UserCode)
+			fmt.Printf("Open %s and enter the code %s\n", l.VerificationTarget(), l.UserCode)
 			fmt.Println("Only continue in the browser if you started this login yourself.")
 			fmt.Println("Waiting for confirmation...")
-			if l.VerificationURIComplete != "" {
-				_ = openBrowserFn(l.VerificationURIComplete)
-			}
+			_ = openBrowserFn(l.VerificationTarget())
 		})
 	} else {
 		key, err = llm.NeuralDeepSignIn(ctx, hub, client, authPath, func(p llm.NeuralDeepLoginPrompt) {

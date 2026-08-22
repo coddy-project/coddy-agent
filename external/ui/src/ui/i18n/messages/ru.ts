@@ -131,7 +131,7 @@ export const messagesRu: Record<string, string> = {
     "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
   "neuralDeepAuth.description":
-    "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для Coddy, и модели вашего тарифа станут доступны. Ключ хранится на сервере Coddy и не попадает в config.yaml.",
+    "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для Coddy. Ключ хранится на сервере Coddy и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",

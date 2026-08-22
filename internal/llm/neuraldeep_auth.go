@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,14 @@ const (
 	NeuralDeepClientID = "coddy"
 
 	neuralDeepLoginTimeout = 15 * time.Minute
+)
+
+// Poll pacing for the device flow. Variables so tests can shrink the delays;
+// production keeps RFC-friendly values. The floor guards against a hub that
+// answers interval <= 0, which would otherwise busy-loop the poller.
+var (
+	neuralDeepPollFloor    = time.Second
+	neuralDeepSlowDownStep = 5 * time.Second
 )
 
 // NeuralDeepHub returns the hub base URL, honoring the env override.
@@ -124,6 +133,14 @@ func SaveNeuralDeepAuth(path, apiKey, hub, client, keyName string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
+	if runtime.GOOS == "windows" {
+		// Windows rename-over-existing is not reliable across filesystems and
+		// AV interference; the repo convention (scheduler storage) removes
+		// the destination first. Safe here: the mutex serializes writers.
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	return os.Rename(tmpName, path)
 }
 
@@ -194,16 +211,23 @@ func InspectNeuralDeepAuth(path string) (NeuralDeepAuthStatus, error) {
 	}, nil
 }
 
-// maskNeuralDeepKey renders sk-…last4 without revealing the key.
+// maskNeuralDeepKey renders sk-…last4 without revealing the key. Short keys
+// get the fixed mask only: with a 5+4 window an 11-character key would leak
+// most of its entropy.
 func maskNeuralDeepKey(key string) string {
 	key = strings.TrimSpace(key)
-	if len(key) <= 10 {
+	if len(key) < 20 {
 		return "sk-…"
 	}
 	return key[:5] + "…" + key[len(key)-4:]
 }
 
 var neuralDeepSecretRe = regexp.MustCompile(`sk-[A-Za-z0-9_-]+`)
+
+// neuralDeepModelIDRe accepts the catalog ids the hub publishes. The id is
+// interpolated into a UCI config path (`models[model=<name>/<id>]`), so
+// anything outside this safe alphabet is skipped rather than staged.
+var neuralDeepModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // redactNeuralDeepSecrets masks hub keys wherever they may surface: upstream
 // error bodies, callback URLs, log lines. Every error this file returns and
@@ -302,12 +326,20 @@ func NeuralDeepSignIn(ctx context.Context, hub string, hc *http.Client, authPath
 		_, _ = io.WriteString(w, neuralDeepPage("Coddy подключён к NeuralDeep", "Можно вернуться в терминал и закрыть эту вкладку."))
 		deliver(outcome{key: key})
 	})
-	srv := &http.Server{Handler: mux}
+	srv := &http.Server{
+		Handler: mux,
+		// A local process holding a half-open connection must not be able to
+		// wedge the login server or keep it alive past its window.
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
 	go func() { _ = srv.Serve(ln) }()
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
-		_ = srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			_ = srv.Close()
+		}
 	}()
 
 	authURL := fmt.Sprintf("%s/api/cli/auth/start?port=%d&state=%s&client=%s",
@@ -320,7 +352,15 @@ func NeuralDeepSignIn(ctx context.Context, hub string, hc *http.Client, authPath
 	case o := <-resultCh:
 		return o.key, o.err
 	case <-ctx.Done():
-		return "", fmt.Errorf("neuraldeep auth: login not completed: %w", ctx.Err())
+		// The callback may have landed (and stored the key) in the same
+		// instant the deadline fired; a random select choice must not report
+		// a stored login as failed. Drain the result once more.
+		select {
+		case o := <-resultCh:
+			return o.key, o.err
+		default:
+			return "", fmt.Errorf("neuraldeep auth: login not completed: %w", ctx.Err())
+		}
 	}
 }
 
@@ -378,7 +418,20 @@ func StartNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client
 	if login.DeviceCode == "" {
 		return nil, errors.New("neuraldeep auth: device start returned no device_code")
 	}
+	if login.UserCode == "" || (login.VerificationURI == "" && login.VerificationURIComplete == "") {
+		return nil, errors.New("neuraldeep auth: device start returned no user code or verification URI")
+	}
 	return &login, nil
+}
+
+// VerificationTarget is the page the user should open: the complete URI with
+// the pre-filled code when the hub provides one (it is optional in RFC 8628),
+// otherwise the plain verification URI.
+func (l *NeuralDeepDeviceLogin) VerificationTarget() string {
+	if strings.TrimSpace(l.VerificationURIComplete) != "" {
+		return l.VerificationURIComplete
+	}
+	return l.VerificationURI
 }
 
 // PollNeuralDeepDeviceToken polls the token endpoint once. It returns the key
@@ -433,9 +486,10 @@ func PollNeuralDeepDeviceToken(ctx context.Context, hub string, hc *http.Client,
 }
 
 // CompleteNeuralDeepDeviceLogin polls a started device login until the user
-// approves or a terminal state arrives, then persists the key at authPath and
-// returns it. Polling follows the server cadence; slow_down widens the
-// interval per RFC 8628.
+// approves, a terminal state arrives, or the login's expires_in window (capped
+// by the overall login timeout) runs out; then persists the key at authPath
+// and returns it. Polling follows the server cadence with a floor against
+// busy-looping; slow_down widens the interval per RFC 8628.
 func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client, login *NeuralDeepDeviceLogin, authPath, deviceLabel string) (string, error) {
 	if strings.TrimSpace(authPath) == "" {
 		return "", errors.New("neuraldeep auth: credential path is empty")
@@ -444,20 +498,34 @@ func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Cli
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
-	interval := time.Duration(login.Interval) * time.Second
+	deadline := neuralDeepLoginTimeout
+	if login.ExpiresIn > 0 {
+		if d := time.Duration(login.ExpiresIn) * time.Second; d < deadline {
+			deadline = d
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	interval := max(time.Duration(login.Interval)*time.Second, neuralDeepPollFloor)
 	for {
 		key, slowDown, err := PollNeuralDeepDeviceToken(ctx, hub, hc, login.DeviceCode)
 		if err != nil {
 			return "", err
 		}
 		if key != "" {
+			// A sign-out or a newer login attempt may have cancelled this
+			// wait while the poll was in flight; a cancelled attempt must
+			// not resurrect a credential the user just removed.
+			if err := ctx.Err(); err != nil {
+				return "", fmt.Errorf("neuraldeep auth: login cancelled before the key was stored: %w", err)
+			}
 			if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, deviceLabel); err != nil {
 				return "", err
 			}
 			return key, nil
 		}
 		if slowDown {
-			interval += 5 * time.Second
+			interval += neuralDeepSlowDownStep
 		}
 		select {
 		case <-ctx.Done():
@@ -605,7 +673,9 @@ func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name,
 	}
 	for _, m := range st.Models {
 		id := strings.TrimSpace(m.ID)
-		if id == "" {
+		if !neuralDeepModelIDRe.MatchString(id) {
+			// The id feeds a config path; a hub (or a stand-in) must not be
+			// able to smuggle path syntax into the staged commands.
 			continue
 		}
 		ref := name + "/" + id
