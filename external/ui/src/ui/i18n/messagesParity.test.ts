@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
+import { messagesRu } from "./messages/ru";
 
 test("every registered dictionary exposes the default locale keys", () => {
   const defaultKeys = new Set(
@@ -38,4 +39,13 @@ test("every interpolation token used in the default locale exists everywhere", (
       );
     }
   }
+});
+
+test("Russian reasoning actions use the requested explicit labels", () => {
+  expect(messagesRu["settings.reasoning.useAuto"]).toBe(
+    "Использовать автоопределение",
+  );
+  expect(messagesRu["settings.reasoning.fetch"]).toBe(
+    "Получить уровни ризонинга",
+  );
 });
