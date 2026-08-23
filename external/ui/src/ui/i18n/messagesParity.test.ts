@@ -51,8 +51,8 @@ test("Russian reasoning actions use the requested explicit labels", () => {
   );
 });
 
-test("English reasoning fetch action uses title case", () => {
+test("English reasoning fetch action uses sentence case", () => {
   expect(messagesEn["settings.reasoning.fetch"]).toBe(
-    "Fetch Reasoning Levels",
+    "Fetch reasoning levels",
   );
 });

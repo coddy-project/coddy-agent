@@ -104,7 +104,7 @@ export const messagesEn: Record<string, string> = {
   "settings.field.noModels":
     "No models returned. Type the model id manually below.",
   "settings.reasoning.levelsFallback": "Reasoning levels",
-  "settings.reasoning.fetch": "Fetch Reasoning Levels",
+  "settings.reasoning.fetch": "Fetch reasoning levels",
   "settings.reasoning.fetching": "Fetching…",
   "settings.reasoning.useAuto": "Use auto-detected",
   "settings.reasoning.autoDetected":
