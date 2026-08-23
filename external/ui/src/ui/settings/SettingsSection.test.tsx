@@ -209,41 +209,63 @@ const reasoningModelsSchema: JsonSchema = {
             title: "Reasoning levels",
             items: { type: "string" },
           },
+          // stream is the one model key whose absence means true, so it is seeded
+          // from the schema default. Keeping it here pins that the item factory
+          // omits reasoning_levels only, rather than everything it does not know.
+          stream: { type: "boolean", title: "Stream responses", default: true },
         },
-        "x-coddy-property-order": ["model", "reasoning_levels"],
+        "x-coddy-property-order": ["model", "reasoning_levels", "stream"],
       },
     },
   },
 };
 
-test("adding a fetched model leaves reasoning auto-detection enabled", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => ({
+// stubModelsAndLevels answers both fetches the logical-model form makes, routed
+// by URL: the provider model list behind "Fetch models" and the detected
+// reasoning levels behind "Fetch reasoning levels".
+function stubModelsAndLevels(levels: string[]) {
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.startsWith("/coddy/config/reasoning-levels")) {
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          levels,
+          detected: levels.length > 0,
+        }),
+      };
+    }
+    return {
       ok: true,
       json: async () => ({ ok: true, models: [{ id: "qwen3.8-27b" }] }),
-    })),
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function ReasoningModelsHarness() {
+  const [doc, setDoc] = React.useState<Record<string, unknown>>({
+    providers: [{ name: "valera", type: "openai" }],
+    models: [],
+  });
+  return (
+    <>
+      <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
+      <SettingsSection
+        section={modelsSection}
+        schema={reasoningModelsSchema}
+        doc={doc}
+        setDoc={setDoc}
+      />
+    </>
   );
+}
 
-  function ReasoningModelsHarness() {
-    const [doc, setDoc] = React.useState<Record<string, unknown>>({
-      providers: [{ name: "valera", type: "openai" }],
-      models: [],
-    });
-    return (
-      <>
-        <output data-testid="settings-doc">{JSON.stringify(doc)}</output>
-        <SettingsSection
-          section={modelsSection}
-          schema={reasoningModelsSchema}
-          doc={doc}
-          setDoc={setDoc}
-        />
-      </>
-    );
-  }
-
-  render(<ReasoningModelsHarness />);
+// addFetchedModel walks the form the way an operator does: Add, Fetch models,
+// then pick the fetched id out of the combobox.
+async function addFetchedModel() {
   fireEvent.click(screen.getByTestId("settings-master-add"));
   fireEvent.click(screen.getByTestId("model-field-fetch"));
   await waitFor(() =>
@@ -253,11 +275,72 @@ test("adding a fetched model leaves reasoning auto-detection enabled", async () 
   );
   fireEvent.focus(screen.getByTestId("model-field-model"));
   fireEvent.mouseDown(await screen.findByText("valera/qwen3.8-27b"));
+}
 
-  const saved = JSON.parse(
-    screen.getByTestId("settings-doc").textContent || "{}",
+function savedModels(): unknown {
+  return JSON.parse(screen.getByTestId("settings-doc").textContent || "{}")
+    .models;
+}
+
+test("adding a fetched model leaves reasoning auto-detection enabled", async () => {
+  stubModelsAndLevels(["low", "medium", "high"]);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+
+  // reasoning_levels is absent (auto-detect), while stream keeps its schema
+  // default: the item factory omits the one key whose empty value means
+  // something, not every key it was not told about.
+  expect(savedModels()).toEqual([
+    { model: "valera/qwen3.8-27b", stream: true },
+  ]);
+});
+
+test("fetch reasoning levels fills the field for the model being edited", async () => {
+  const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+  await waitFor(() =>
+    expect(savedModels()).toEqual([
+      {
+        model: "valera/qwen3.8-27b",
+        stream: true,
+        reasoning_levels: ["low", "medium", "high"],
+      },
+    ]),
   );
-  expect(saved.models).toEqual([{ model: "valera/qwen3.8-27b" }]);
+
+  // The id typed into the form is what gets resolved, not a saved models[] row.
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/config/reasoning-levels?model=valera%2Fqwen3.8-27b",
+  );
+
+  // And the operator can hand the decision back to the backend.
+  fireEvent.click(screen.getByTestId("reasoning-levels-auto"));
+  expect(savedModels()).toEqual([
+    { model: "valera/qwen3.8-27b", stream: true },
+  ]);
+});
+
+test("a model id with no reasoning family is left without an override", async () => {
+  stubModelsAndLevels([]);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+  await waitFor(() =>
+    expect(screen.getByTestId("reasoning-levels-status").textContent).toContain(
+      "no auto-detected reasoning levels",
+    ),
+  );
+  // An empty list here would hide the composer's reasoning selector for good.
+  expect(savedModels()).toEqual([
+    { model: "valera/qwen3.8-27b", stream: true },
+  ]);
 });
 
 test("renaming the sole model id follows through to agent.model", async () => {

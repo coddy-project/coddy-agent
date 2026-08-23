@@ -22,19 +22,27 @@ var reasoningWithMinimal = []string{ReasoningMinimal, ReasoningLow, ReasoningMed
 var reasoningStandard = []string{ReasoningLow, ReasoningMedium, ReasoningHigh}
 
 // ResolvedReasoningLevels returns the reasoning levels offered for this model.
-// An explicit ReasoningLevels (including an empty slice) overrides auto-detection;
+// An explicit ReasoningLevels (including an empty list) overrides auto-detection;
 // otherwise levels are inferred from the API model id. Returns nil when the model
 // has no reasoning support.
 func (m *ModelEntry) ResolvedReasoningLevels() []string {
 	if m.ReasoningLevels != nil {
-		if len(m.ReasoningLevels) == 0 {
+		if len(*m.ReasoningLevels) == 0 {
 			return nil
 		}
-		out := make([]string, len(m.ReasoningLevels))
-		copy(out, m.ReasoningLevels)
+		out := make([]string, len(*m.ReasoningLevels))
+		copy(out, *m.ReasoningLevels)
 		return out
 	}
 	return detectReasoningLevels(m.APIModel())
+}
+
+// DetectReasoningLevels reports the levels auto-detected from a provider API model
+// id, with no regard for any configured override. It backs the settings UI's
+// "Fetch reasoning levels" button, which offers the detected list for a model id
+// the operator is still typing.
+func DetectReasoningLevels(apiModel string) []string {
+	return detectReasoningLevels(apiModel)
 }
 
 // DefaultReasoningLevel returns ReasoningDefault when it is one of the resolved levels, else "".

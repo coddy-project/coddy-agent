@@ -550,6 +550,35 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/config/reasoning-levels": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Reasoning levels a model id offers (UI)",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The **`model`** provider prefix is looked up in the active config only to apply the Codex remap (**`minimal`** becomes **`none`**); an unsaved provider still gets the un-remapped list. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**.",
+					"operationId": "coddyConfigReasoningLevelsGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "model",
+							"in":          "query",
+							"required":    true,
+							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "valera/qwen3.8-27b",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Resolved levels, or `ok:false` with `error` for a malformed model id",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyReasoningLevelsResponse"},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
@@ -1854,6 +1883,24 @@ func openAPISpec() map[string]interface{} {
 						"ok":    map[string]string{"type": "boolean"},
 						"error": map[string]string{"type": "string"},
 					},
+				},
+				"CoddyReasoningLevelsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
+						"model": map[string]string{"type": "string"},
+						"levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Levels detected for this model id, in the order the composer offers them. Empty for a model without reasoning support.",
+						},
+						"detected": map[string]interface{}{
+							"type":        "boolean",
+							"description": "False when the model id matches no reasoning family, so the UI can say so instead of writing an override.",
+						},
+					},
+					"required": []string{"ok", "levels", "detected"},
 				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",

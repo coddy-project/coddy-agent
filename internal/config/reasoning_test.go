@@ -44,12 +44,12 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 
 func TestResolvedReasoningLevelsExplicitOverride(t *testing.T) {
 	// Explicit list wins over name-based detection.
-	m := config.ModelEntry{Model: "openai/gpt-4o", ReasoningLevels: []string{"low", "high"}}
+	m := config.ModelEntry{Model: "openai/gpt-4o", ReasoningLevels: &[]string{"low", "high"}}
 	if got := m.ResolvedReasoningLevels(); !reflect.DeepEqual(got, []string{"low", "high"}) {
 		t.Errorf("explicit override = %v, want [low high]", got)
 	}
 	// Explicit empty list disables reasoning even for a reasoning-capable model.
-	d := config.ModelEntry{Model: "openai/gpt-5", ReasoningLevels: []string{}}
+	d := config.ModelEntry{Model: "openai/gpt-5", ReasoningLevels: &[]string{}}
 	if got := d.ResolvedReasoningLevels(); len(got) != 0 {
 		t.Errorf("explicit empty list = %v, want disabled (empty)", got)
 	}
@@ -90,7 +90,7 @@ func TestReasoningLevelsForCodexProvider(t *testing.T) {
 		Models: []config.ModelEntry{
 			{Model: "codex/gpt-5.5"},
 			{Model: "openai/gpt-5"},
-			{Model: "codex/gpt-5.4", ReasoningLevels: []string{"minimal", "high"}, ReasoningDefault: "minimal"},
+			{Model: "codex/gpt-5.4", ReasoningLevels: &[]string{"minimal", "high"}, ReasoningDefault: "minimal"},
 		},
 	}
 	cases := []struct {

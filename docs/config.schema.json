@@ -88,7 +88,7 @@
           },
           "reasoning_levels": {
             "type": "array",
-            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; o-series and Claude thinking models -> low,medium,high). An explicit empty list hides the selector.",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
             "items": {
               "type": "string"
             }

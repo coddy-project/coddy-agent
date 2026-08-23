@@ -115,6 +115,17 @@ Session title
 - **New chat** defaults the level from cookie **`coddy_llm_reasoning`**, then the model's **`reasoning_default`**, then **`medium`** (or the first offered level). **Opening a session** restores it from **`GET /coddy/sessions/{id}/messages`** field **`selectedReasoning`**. Switching to a model that does not offer the current level clamps it to a valid one (see **`pickReasoningLevel`** in **`chat/reasoningSelection.ts`**).
 - Changing the level writes the cookie and **`PATCH`** **`selectedReasoning`** on the active session; ReAct turns also send **`metadata.reasoning`** on **`POST /v1/responses`** so a brand-new session applies it on the first turn.
 
+### Settings: reasoning levels for a logical model
+
+Functional checklist for **Settings -> Logical models -> Reasoning levels**
+(**`ReasoningLevelsField.tsx`**, **`useReasoningLevels.ts`**):
+
+- The field owns the three states of **`models[].reasoning_levels`** and names the current one in a status line: **key absent** (auto-detected from the model id), **`[]`** (the composer **Reasoning** selector is hidden for this model), and a **non-empty list** (exactly these levels are offered). The generic array editor cannot express the first state, so a model added through Settings could otherwise never go back to auto-detection.
+- **Fetch reasoning levels** calls **`GET /coddy/config/reasoning-levels?model=<id>`** with the id currently in the form - the entry does not have to be saved yet - and fills the list with what the gateway detects, under the same Codex remap the composer applies (**`minimal`** becomes **`none`**). The button is disabled until a model id is present.
+- A model id with **no** reasoning family leaves the field untouched and says so. Writing **`[]`** there would read as the explicit opt-out and hide the selector, which is the opposite of what the button was asked for. A failed request reports the error inline and also leaves the field alone.
+- **Use auto-detected** appears whenever the key is present and removes it, so the next save omits **`reasoning_levels`** and detection resumes. Removing the last level by hand is the way to reach the **`[]`** opt-out on purpose.
+- The **`[]`** opt-out and the auto-detect default survive a Settings save in both directions: **`ModelEntry.ReasoningLevels`** and **`ModelJSON.ReasoningLevels`** are **`*[]string`**, so an omitted key stays omitted in the written **`config.yaml`** instead of being serialized as **`reasoning_levels: []`**.
+
 ### Per-session workspace (folder / branch / worktree chips)
 
 - A chip row renders at the top of the composer card (**`WorkspaceChips.tsx`**, helpers in **`chat/workspaceContext.ts`**): **folder chip** (workspace basename, full path in tooltip), **branch chip** (current git branch; only when the workspace is a git repository), and a **worktree checkbox**.

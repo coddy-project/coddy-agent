@@ -103,6 +103,21 @@ export const messagesEn: Record<string, string> = {
     "Couldn't fetch models: {error}. Type the model id manually below.",
   "settings.field.noModels":
     "No models returned. Type the model id manually below.",
+  "settings.reasoning.levelsFallback": "Reasoning levels",
+  "settings.reasoning.fetch": "Fetch reasoning levels",
+  "settings.reasoning.fetching": "Fetching…",
+  "settings.reasoning.useAuto": "Use auto-detected",
+  "settings.reasoning.autoDetected":
+    "Auto-detected from the model id. Fetch the levels to review or override them.",
+  "settings.reasoning.overridden":
+    "These exact levels are offered for this model, instead of the auto-detected ones.",
+  "settings.reasoning.hidden":
+    "Empty list: the reasoning selector is hidden for this model. Use 'Use auto-detected' to go back.",
+  "settings.reasoning.noneDetected":
+    "This model id has no auto-detected reasoning levels. Add them by hand if the provider offers any.",
+  "settings.reasoning.fetchError":
+    "Couldn't fetch reasoning levels: {error}. Add them by hand below.",
+
   "settings.field.apiKeyPlaceholder":
     "If empty, reads from {env} at run time, or set a literal key (YAML may use {varToken} at load)",
   "settings.field.apiKeyPlaceholderInvalid":

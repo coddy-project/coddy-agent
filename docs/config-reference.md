@@ -132,7 +132,7 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
 | `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /coddy/config/reasoning-levels`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml

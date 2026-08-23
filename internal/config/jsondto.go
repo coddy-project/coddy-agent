@@ -78,13 +78,16 @@ type ProviderJSON struct {
 // ModelJSON mirrors ModelEntry for JSON APIs.
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string   `json:"model"`
-	MaxTokens        int      `json:"max_tokens"`
-	Temperature      float64  `json:"temperature"`
-	MaxContextTokens int      `json:"max_context_tokens,omitempty"`
-	Multimodal       bool     `json:"multimodal,omitempty"`
-	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	Model            string  `json:"model"`
+	MaxTokens        int     `json:"max_tokens"`
+	Temperature      float64 `json:"temperature"`
+	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
+	Multimodal       bool    `json:"multimodal,omitempty"`
+	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
+	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
+	// slice would collapse both into "absent" on the way out to the settings UI.
+	ReasoningLevels  *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault string    `json:"reasoning_default,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`

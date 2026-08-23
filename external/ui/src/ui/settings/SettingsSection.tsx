@@ -3,6 +3,7 @@ import { applyModelsChange } from "./applyModelsChange";
 import { CodexAuthField } from "./CodexAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
+import { ReasoningLevelsField } from "./ReasoningLevelsField";
 import {
   defaultForSchema,
   SchemaForm,
@@ -167,19 +168,46 @@ export function SettingsSection(props: {
     }
     const override: FieldOverride | undefined =
       key === "models"
-        ? (ctx) =>
-            ctx.path === "model" ? (
-              <ModelField
-                value={
-                  ctx.value === undefined || ctx.value === null
-                    ? ""
-                    : String(ctx.value)
-                }
-                onChange={(v) => ctx.onChange(v)}
-                providers={providerNames}
-                label={ctx.schema.title || t("settings.field.modelIdFallback")}
-              />
-            ) : null
+        ? (ctx) => {
+            if (ctx.path === "model") {
+              return (
+                <ModelField
+                  value={
+                    ctx.value === undefined || ctx.value === null
+                      ? ""
+                      : String(ctx.value)
+                  }
+                  onChange={(v) => ctx.onChange(v)}
+                  providers={providerNames}
+                  label={
+                    ctx.schema.title || t("settings.field.modelIdFallback")
+                  }
+                />
+              );
+            }
+            // The generic array editor cannot express "key absent" (auto-detect)
+            // and cannot tell it apart from an explicit [] that hides the
+            // reasoning selector, so this field owns all three states.
+            if (ctx.path === "reasoning_levels") {
+              return (
+                <ReasoningLevelsField
+                  value={ctx.value}
+                  onChange={(v) => ctx.onChange(v)}
+                  model={
+                    ctx.parentObj?.["model"] === undefined ||
+                    ctx.parentObj?.["model"] === null
+                      ? ""
+                      : String(ctx.parentObj["model"])
+                  }
+                  label={
+                    ctx.schema.title || t("settings.reasoning.levelsFallback")
+                  }
+                  description={ctx.schema.description}
+                />
+              );
+            }
+            return null;
+          }
         : key === "providers"
           ? providerFieldOverride
           : undefined;
