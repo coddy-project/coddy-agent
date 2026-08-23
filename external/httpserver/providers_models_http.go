@@ -13,6 +13,7 @@ import (
 func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("GET /coddy/providers/{name}/models", s.coddyProviderModelsGet)
 	s.registerCodexAuthRoutes()
+	s.registerNeuralDeepAuthRoutes()
 }
 
 // coddyProviderModelsGet fetches the model list advertised by a configured
@@ -50,7 +51,7 @@ func (s *Server) coddyProviderModelsGet(w http.ResponseWriter, r *http.Request) 
 		APIKey:   prov.EffectiveAPIKey(),
 		BaseURL:  prov.APIBase,
 		ProxyURL: prov.Proxy,
-		AuthPath: config.CodexAuthPath(c.Paths.Home, prov.Name),
+		AuthPath: config.ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 	})
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {

@@ -1246,6 +1246,66 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/providers/{name}/neuraldeep-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get NeuralDeep sign-in status",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderNeuralDeepAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Sign out of NeuralDeep",
+					"description": "Best-effort revokes the key on the hub, then deletes the credential stored under `CODDY_HOME/providers/{name}/neuraldeep-auth.json`.",
+					"operationId": "deleteProviderNeuralDeepAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start NeuralDeep device authorization",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"operationId": "startProviderNeuralDeepDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/neuraldeep-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll NeuralDeep device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Key values are never returned.",
+					"operationId": "getProviderNeuralDeepDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/skills/{name}/disable": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Disable a skill",
@@ -1934,6 +1994,37 @@ func openAPISpec() map[string]interface{} {
 						"error":     map[string]string{"type": "string"},
 					},
 					"required": []string{"status", "connected"},
+				},
+				"NeuralDeepAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id": map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{
+							"type": "string", "format": "uri",
+							"description": "Hub portal page to open: the complete URI with the pre-filled code when the hub provides one, otherwise the plain verification URI (the complete form is optional in RFC 8628).",
+						},
+						"user_code": map[string]string{"type": "string"},
+						"status":    map[string]string{"type": "string", "example": "pending"},
+						"connected": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"NeuralDeepAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"masked": map[string]interface{}{
+							"type":        "string",
+							"description": "Display mask of the stored key (`sk-ab…1234`); never the key itself.",
+						},
+						"key_name": map[string]string{"type": "string"},
+						"source": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
+							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
+						},
+					},
+					"required": []string{"connected", "source"},
 				},
 				"ModelList": map[string]interface{}{
 					"type": "object",

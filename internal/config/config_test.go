@@ -1032,3 +1032,31 @@ func TestUISchemaModelStreamDefault(t *testing.T) {
 		t.Fatalf("stream missing from the models field order: %v", order)
 	}
 }
+
+// TestProviderAuthPathByType pins where each provider type keeps its managed
+// credential. Every call site that builds an llm.ProviderInput must resolve the
+// auth file through this one helper: a second hand-rolled path (as the model
+// listing HTTP handler once had) silently splits codex and neuraldeep logins
+// into different files.
+func TestProviderAuthPathByType(t *testing.T) {
+	home := "/tmp/coddy-home"
+	cases := []struct {
+		typ, want string
+	}{
+		{"codex", filepath.Join(home, "providers", "nd", "codex-auth.json")},
+		{"neuraldeep", filepath.Join(home, "providers", "nd", "neuraldeep-auth.json")},
+		{"openai", ""},
+		{"anthropic", ""},
+	}
+	for _, c := range cases {
+		if got := config.ProviderAuthPath(home, "nd", c.typ); got != c.want {
+			t.Fatalf("ProviderAuthPath(%q) = %q, want %q", c.typ, got, c.want)
+		}
+	}
+	if got := config.NeuralDeepAuthPath(home, "bad name!"); got != "" {
+		t.Fatalf("invalid provider name must yield empty path, got %q", got)
+	}
+	if got := config.NeuralDeepAuthPath("", "nd"); got != "" {
+		t.Fatalf("empty home must yield empty path, got %q", got)
+	}
+}
