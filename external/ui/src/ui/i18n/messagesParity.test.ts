@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
+import { messagesEn } from "./messages/en";
 import { messagesRu } from "./messages/ru";
 
 test("every registered dictionary exposes the default locale keys", () => {
@@ -47,5 +48,11 @@ test("Russian reasoning actions use the requested explicit labels", () => {
   );
   expect(messagesRu["settings.reasoning.fetch"]).toBe(
     "Получить уровни ризонинга",
+  );
+});
+
+test("English reasoning fetch action uses title case", () => {
+  expect(messagesEn["settings.reasoning.fetch"]).toBe(
+    "Fetch Reasoning Levels",
   );
 });
