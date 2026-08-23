@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -112,6 +113,24 @@ func downloadURL(ctx context.Context, client *http.Client, url string, reporter 
 			// response instead of appending a duplicate prefix.
 			data = nil
 		}
+		if resp.StatusCode == http.StatusPartialContent {
+			// A 206 that starts somewhere other than where we stopped would
+			// splice a gap or a duplicate into the archive, and nothing later
+			// in this function would notice.
+			offset, err := partialContentOffset(resp)
+			if err != nil {
+				_ = resp.Body.Close()
+				return nil, err
+			}
+			switch {
+			case offset == int64(len(data)):
+			case offset == 0:
+				data = nil
+			default:
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("download resumed at byte %d, expected %d", offset, len(data))
+			}
+		}
 		if resp.ContentLength >= 0 && int64(len(data))+resp.ContentLength > maxBytes {
 			_ = resp.Body.Close()
 			return nil, fmt.Errorf("download exceeds %d MiB limit", maxBytes>>20)
@@ -135,7 +154,29 @@ func downloadURL(ctx context.Context, client *http.Client, url string, reporter 
 			lastErr = closeErr
 		}
 	}
-	return nil, fmt.Errorf("download failed after %d attempts: %w", 3, lastErr)
+	return nil, fmt.Errorf("download failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// partialContentOffset reports the first byte a 206 response carries, so the
+// caller can check it against what it already holds.
+func partialContentOffset(resp *http.Response) (int64, error) {
+	raw := strings.TrimSpace(resp.Header.Get("Content-Range"))
+	if raw == "" {
+		return 0, fmt.Errorf("resumed download has no Content-Range header")
+	}
+	spec, ok := strings.CutPrefix(raw, "bytes ")
+	if !ok {
+		return 0, fmt.Errorf("resumed download has unsupported Content-Range %q", raw)
+	}
+	start, _, ok := strings.Cut(strings.TrimSpace(spec), "-")
+	if !ok {
+		return 0, fmt.Errorf("resumed download has malformed Content-Range %q", raw)
+	}
+	offset, err := strconv.ParseInt(strings.TrimSpace(start), 10, 64)
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("resumed download has malformed Content-Range %q", raw)
+	}
+	return offset, nil
 }
 
 func appendResponse(data *[]byte, body io.Reader, maxBytes, total int64, reporter downloadReporter) error {

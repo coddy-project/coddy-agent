@@ -29,6 +29,7 @@ type Options struct {
 	InstallPath    string // empty = replace os.Executable()
 	CheckOnly      bool
 	Yes            bool
+	NoRestart      bool // Windows only: install the update but do not start Coddy again
 	Stdout         io.Writer
 	HTTPClient     *http.Client
 
@@ -109,6 +110,9 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	if err := verifyAssetChecksum(ctx, client, rel, asset.Name, data, out); err != nil {
+		return err
+	}
 	if opts.GOOS == "windows" {
 		body, err := executableFromArchive(data, asset.Name)
 		if err != nil {
@@ -120,7 +124,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		req := windowsUpdateRequest{
 			ParentPID:  os.Getpid(),
-			Restart:    true,
+			Restart:    !opts.NoRestart,
 			StagedPath: staged,
 			TargetPath: dest,
 		}
@@ -132,7 +136,11 @@ func Run(ctx context.Context, opts Options) error {
 			_ = os.Remove(staged)
 			return err
 		}
-		_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits and restart it.\n", latest)
+		if req.Restart {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits and restart it.\n", latest)
+		} else {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits.\n", latest)
+		}
 		return nil
 	}
 	if err := installFromArchive(data, asset.Name, dest); err != nil {
