@@ -65,6 +65,11 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 		} else {
 			url = base + "/models"
 		}
+		if in.Type == "neuraldeep" {
+			// Same credential order as completions: explicit key wins, the
+			// stored hub login fills in when the key is absent.
+			in.APIKey = neuralDeepEffectiveKey(in.APIKey, in.AuthPath)
+		}
 	default:
 		return nil, &UnsupportedProviderError{Provider: in.Type}
 	}

@@ -126,6 +126,24 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Войти через ChatGPT",
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
+  "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
+  "neuralDeepAuth.error.incompleteResponse":
+    "Хаб вернул неполный ответ входа.",
+  "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
+  "neuralDeepAuth.description":
+    "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для Coddy. Ключ хранится на сервере Coddy и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
+  "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
+  "neuralDeepAuth.shadowedByKey":
+    "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "neuralDeepAuth.openSignInPage": "Открыть страницу входа",
+  "neuralDeepAuth.waiting": "Ожидание подтверждения…",
+  "neuralDeepAuth.signingOut": "Выход…",
+  "neuralDeepAuth.signOut": "Выйти",
+  "neuralDeepAuth.waitingForHub": "Ожидание NeuralDeep…",
+  "neuralDeepAuth.signIn": "Войти через NeuralDeep",
+  "neuralDeepAuth.enterProviderName": "Введите имя провайдера перед входом.",
+
   "mcp.status.connectedOne": "Подключён — {count} инструмент",
   "mcp.status.connectedMany": "Подключён — {count} инструментов",
   "mcp.status.probeFailed": "Не удалось опросить",

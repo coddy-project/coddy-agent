@@ -39,7 +39,12 @@ providers:
   #   type: anthropic
   #   api_key: "${ANTHROPIC_API_KEY}"
 
-  # NeuralDeep (OpenAI-compatible endpoint is fixed to https://api.neuraldeep.ru/v1)
+  # NeuralDeep (OpenAI-compatible endpoint is fixed to https://api.neuraldeep.ru/v1).
+  # Instead of pasting a key, sign in with your hub account: `coddy providers
+  # login neuraldeep` (browser flow; --device for headless) or Sign In with
+  # NeuralDeep in the bundled web UI. The key lands under
+  # $CODDY_HOME/providers/<name>/neuraldeep-auth.json; an explicit api_key,
+  # api_key_command, or NEURALDEEP_API_KEY env var still wins when set.
   # - name: neuraldeep
   #   type: neuraldeep
   #   api_key: "${NEURALDEEP_API_KEY}"
