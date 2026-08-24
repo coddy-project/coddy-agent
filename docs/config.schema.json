@@ -48,6 +48,12 @@
           "proxy": {
             "type": "string",
             "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy)."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
+            "default": 0,
+            "minimum": 0
           }
         }
       }
@@ -129,20 +135,26 @@
         },
         "llm_retry_max": {
           "type": "integer",
-          "description": "Retries after retryable LLM errors such as HTTP 429.",
+          "description": "Retries after retryable LLM errors such as HTTP 429. An explicit 0 disables retries.",
           "default": 3,
           "minimum": 0
         },
         "llm_retry_base_ms": {
           "type": "integer",
-          "description": "Initial backoff between LLM retries, in milliseconds.",
+          "description": "Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, \"Limit resets at\" / \"retry in Ns\" body phrases) overrides the exponential backoff, capped at 60s.",
           "default": 1000,
           "minimum": 0
         },
         "llm_min_interval_ms": {
           "type": "integer",
-          "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
+          "description": "Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers).",
           "default": 0,
+          "minimum": 0
+        },
+        "llm_first_token_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 90000,
           "minimum": 0
         },
         "loop_guard": {

@@ -149,6 +149,45 @@ func (e *streamServerError) Error() string {
 	return "server error: " + e.msg
 }
 
+// streamTruncatedError reports an SSE stream that ended cleanly at the
+// transport level but never carried a terminal marker: no [DONE] and no
+// finish_reason for the OpenAI dialect, no stop_reason-bearing message_delta
+// for the Anthropic one. The response was cut mid-generation by the server
+// or a proxy (issue #86). emitted mirrors streamServerError.emitted: once
+// deltas reached the caller a retry would stream the same text twice, so
+// classification refuses to retry (see isRetryableLLMError).
+type streamTruncatedError struct {
+	emitted bool
+}
+
+func (e *streamTruncatedError) Error() string {
+	// Digit-free on purpose: httpStatusFromError falls back to scanning the
+	// message for status-code substrings.
+	return "stream truncated: connection closed before a terminal marker ([DONE] or finish_reason)"
+}
+
+// IsStreamTruncated reports whether err carries a mid-response stream
+// truncation, so callers (the ReAct loop) can persist the partial answer the
+// same way they do for a user cancellation.
+func IsStreamTruncated(err error) bool {
+	var trunc *streamTruncatedError
+	return errors.As(err, &trunc)
+}
+
+// streamTransportError wraps a transport-level failure that killed an SSE
+// stream mid-read (connection reset, unexpected EOF, http2 stream error).
+// emitted carries the same no-replay contract as streamServerError; the
+// cause stays reachable for errors.Is/As through Unwrap, so cancellation
+// and status classification see through the wrapper.
+type streamTransportError struct {
+	cause   error
+	emitted bool
+}
+
+func (e *streamTransportError) Error() string { return e.cause.Error() }
+
+func (e *streamTransportError) Unwrap() error { return e.cause }
+
 // newStreamServerError parses a server-reported streaming failure. obj is
 // the error object ({"code":400,"message":"...","type":"..."} for llama.cpp)
 // or any other payload the server put in the error frame.
@@ -296,10 +335,39 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	}
 
 	if streamErr == nil {
-		streamErr = scanner.Err()
+		if err := scanner.Err(); err != nil {
+			// A transport failure mid-read (reset, unexpected EOF, http2
+			// stream error) carries no HTTP status; the wrapper keeps the
+			// emitted flag so classification can retry it only while no
+			// delta reached the caller.
+			streamErr = &streamTransportError{cause: err, emitted: emitted}
+		}
+	}
+	if streamErr == nil && !done && stopReason == "" {
+		// The transport closed cleanly but the server never finished the
+		// response: no [DONE] and no finish_reason arrived. Fabricating an
+		// end_turn here would pass half an answer off as a whole one
+		// (issue #86), so the cut surfaces as an error instead. A stream
+		// that carries a finish_reason without the [DONE] marker still
+		// counts as complete: not every compatible server sends it.
+		streamErr = &streamTruncatedError{emitted: emitted}
 	}
 
 	if streamErr != nil {
+		if IsStreamTruncated(streamErr) {
+			// Keep the text the caller already saw, like the cancellation
+			// branch below. Unfinished tool-call builders are dropped
+			// deliberately: their arguments may be cut mid-JSON, and
+			// replaying an invalid call is worse than losing it.
+			if strings.TrimSpace(fullContent) != "" {
+				return &Response{
+					Content:      fullContent,
+					InputTokens:  inputTokens,
+					OutputTokens: outputTokens,
+				}, fmt.Errorf("openai stream: %w", streamErr)
+			}
+			return nil, fmt.Errorf("openai stream: %w", streamErr)
+		}
 		if errors.Is(streamErr, context.Canceled) {
 			toolCalls = finalizeOpenAIToolBuilders()
 			if strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0 {

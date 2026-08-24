@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -167,8 +168,8 @@ logger:
 	if cfg.Agent.MaxTurns != 7 {
 		t.Errorf("agent.max_turns: got %d want 7", cfg.Agent.MaxTurns)
 	}
-	if cfg.Agent.LLMRetryMax != config.AgentDefaultLLMRetryMax {
-		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.LLMRetryMax)
+	if cfg.Agent.EffectiveLLMRetryMax() != config.AgentDefaultLLMRetryMax {
+		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.EffectiveLLMRetryMax())
 	}
 
 	wantPrompts := filepath.Clean("/tmp/coddy-e2e-prompts")
@@ -1030,5 +1031,78 @@ func TestUISchemaModelStreamDefault(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("stream missing from the models field order: %v", order)
+	}
+}
+
+// TestAgentLLMRetryAndTimeoutKnobs pins the unset/explicit-zero distinction
+// for llm_retry_max and llm_first_token_timeout_ms, and the providers[]
+// timeout_ms plumbing into ResolvedLLM.
+func TestAgentLLMRetryAndTimeoutKnobs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+    timeout_ms: 120000
+
+models:
+  - model: "local/gpt-4o"
+
+agent:
+  model: "local/gpt-4o"
+  llm_retry_max: 0
+  llm_first_token_timeout_ms: 0
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != 0 {
+		t.Errorf("explicit llm_retry_max: 0 resolved to %d, want 0 (retries disabled)", got)
+	}
+	if got := cfg.Agent.EffectiveLLMFirstTokenTimeout(); got != 0 {
+		t.Errorf("explicit llm_first_token_timeout_ms: 0 resolved to %v, want 0 (guard disabled)", got)
+	}
+
+	rm, err := cfg.ResolveLLM("local/gpt-4o")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.TimeoutMS != 120000 {
+		t.Errorf("resolved provider timeout_ms = %d, want 120000", rm.TimeoutMS)
+	}
+
+	unset := config.Agent{}
+	if got := unset.EffectiveLLMRetryMax(); got != config.AgentDefaultLLMRetryMax {
+		t.Errorf("unset llm_retry_max resolved to %d, want default %d", got, config.AgentDefaultLLMRetryMax)
+	}
+	if got := unset.EffectiveLLMFirstTokenTimeout(); got != config.AgentDefaultLLMFirstTokenTimeoutMS*time.Millisecond {
+		t.Errorf("unset llm_first_token_timeout_ms resolved to %v, want 90s", got)
+	}
+}
+
+// TestAgentLLMKnobsValidation rejects negative values for the new knobs.
+func TestAgentLLMKnobsValidation(t *testing.T) {
+	neg := -1
+	a := config.Agent{LLMRetryMax: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_retry_max must fail validation")
+	}
+	a = config.Agent{LLMFirstTokenTimeoutMS: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_first_token_timeout_ms must fail validation")
+	}
+	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
+	if err := p.Validate(); err == nil {
+		t.Error("negative providers timeout_ms must fail validation")
 	}
 }

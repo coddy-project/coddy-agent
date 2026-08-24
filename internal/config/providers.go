@@ -41,6 +41,11 @@ type ProviderConfig struct {
 	APIKeyCommand string `yaml:"api_key_command"`
 	// Proxy is an optional HTTP, HTTPS, SOCKS5, or SOCKS5h proxy URL for outbound LLM requests for this provider only.
 	Proxy string `yaml:"proxy"`
+	// TimeoutMS, when positive, bounds each LLM HTTP request to this provider,
+	// including the streamed body read. 0 (the default) sets no client timeout,
+	// so slow prompt processing on large contexts is never cut short; the turn
+	// context stays the only bound.
+	TimeoutMS int `yaml:"timeout_ms"`
 }
 
 // ProviderAPIKeyEnvVarName returns the conventional environment variable name for this provider's
@@ -118,6 +123,9 @@ func (p *ProviderConfig) Validate() error {
 	}
 	if err := validateProviderProxyURL(p.Proxy); err != nil {
 		return fmt.Errorf("providers[%s]: %w", p.Name, err)
+	}
+	if p.TimeoutMS < 0 {
+		return fmt.Errorf("providers[%s]: timeout_ms must be >= 0", p.Name)
 	}
 	return nil
 }

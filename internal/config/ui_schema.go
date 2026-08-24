@@ -209,6 +209,8 @@ func UISchemaMap() map[string]interface{} {
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
+		"timeout_ms": intProp("Request timeout ms",
+			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -347,7 +349,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy"},
+				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -366,11 +368,13 @@ func UISchemaMap() map[string]interface{} {
 				"max_tokens_per_turn": intProp("Max tokens per turn",
 					"Upper bound on total tokens (prompt + completion) the model may use in one agent step."),
 				"llm_retry_max": intProp("LLM retry max",
-					"Retries after retryable LLM errors such as HTTP 429 before failing the turn."),
+					"Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries)."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
-					"Initial backoff between LLM retries in milliseconds."),
+					"Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
-					"Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing)."),
+					"Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing)."),
+				"llm_first_token_timeout_ms": intProp("LLM first token timeout ms",
+					"How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard)."),
 				"loop_guard": boolProp("Loop guard",
 					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
 				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
@@ -382,7 +386,7 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{
 				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
-				"loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
 			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",

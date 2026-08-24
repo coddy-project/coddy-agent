@@ -45,9 +45,9 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
 
-- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy;
+- `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default;
-- `agent` - ReAct loop model, max turns, loop protection;
+- `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), loop protection;
 - `prompts` - system prompt template overrides;
 - `instructions` - project instruction files (AGENTS.md chain);
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;

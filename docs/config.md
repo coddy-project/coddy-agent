@@ -47,6 +47,7 @@ providers:
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
     type: "anthropic"
@@ -110,9 +111,13 @@ agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
-  llm_retry_base_ms: 1000      # initial backoff between LLM retries
-  llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
+  llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
+                               # pause (Retry-After-Ms / Retry-After headers, "Limit resets
+                               # at" / "retry in Ns" body phrases) overrides the backoff,
+                               # capped at 60s
+  llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
+  llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
