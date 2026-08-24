@@ -1,6 +1,9 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // Defaults for the ReAct loop when YAML omits zero values.
 const (
@@ -8,6 +11,10 @@ const (
 	AgentDefaultMaxTokensPerTurn = 200000
 	AgentDefaultLLMRetryMax      = 3
 	AgentDefaultLLMRetryBaseMS   = 1000
+	// AgentDefaultLLMFirstTokenTimeoutMS is how long a streamed LLM call may
+	// stay silent before the turn cancels it (the API hang guard in the ReAct
+	// loop).
+	AgentDefaultLLMFirstTokenTimeoutMS = 90000
 	// AgentDefaultLoopToolRepeatLimit is how many consecutive identical tool calls
 	// (same name, same canonical arguments) the loop guard tolerates.
 	AgentDefaultLoopToolRepeatLimit = 3
@@ -25,12 +32,17 @@ type Agent struct {
 	Model            string `yaml:"model"`
 	MaxTurns         int    `yaml:"max_turns"`
 	MaxTokensPerTurn int    `yaml:"max_tokens_per_turn"`
-	// LLMRetryMax is the number of retries after a retryable LLM error such as HTTP 429 (default 3).
-	LLMRetryMax      int `yaml:"llm_retry_max"`
+	// LLMRetryMax is the number of retries after a retryable LLM error such as HTTP 429.
+	// A nil pointer means the default (3); an explicit 0 disables retries.
+	LLMRetryMax *int `yaml:"llm_retry_max"`
 	// LLMRetryBaseMS is the initial backoff between LLM retries in milliseconds (default 1000).
-	LLMRetryBaseMS   int `yaml:"llm_retry_base_ms"`
+	LLMRetryBaseMS int `yaml:"llm_retry_base_ms"`
 	// LLMMinIntervalMS enforces a minimum gap between consecutive LLM calls in milliseconds (default 0).
 	LLMMinIntervalMS int `yaml:"llm_min_interval_ms"`
+	// LLMFirstTokenTimeoutMS is how long a streamed LLM call may stay silent before
+	// the turn cancels it. A nil pointer means the default (90000); an explicit 0
+	// disables the guard, leaving the turn context as the only bound.
+	LLMFirstTokenTimeoutMS *int `yaml:"llm_first_token_timeout_ms"`
 	// LoopGuard toggles runaway-loop protection: aborting a streamed response that
 	// degenerates into repeating itself, and blocking identical tool calls issued
 	// over and over. A nil pointer means the default (true).
@@ -46,6 +58,24 @@ type Agent struct {
 	// guard stops it with a notice. A nil pointer means the default (2); an explicit 0
 	// stops the turn on the first detected loop.
 	LoopNudgeMax *int `yaml:"loop_nudge_max"`
+}
+
+// EffectiveLLMRetryMax returns llm_retry_max with the default applied.
+// An explicit 0 means retries are disabled.
+func (c *Agent) EffectiveLLMRetryMax() int {
+	if c.LLMRetryMax == nil {
+		return AgentDefaultLLMRetryMax
+	}
+	return *c.LLMRetryMax
+}
+
+// EffectiveLLMFirstTokenTimeout returns llm_first_token_timeout_ms as a
+// duration with the default applied. An explicit 0 disables the guard.
+func (c *Agent) EffectiveLLMFirstTokenTimeout() time.Duration {
+	if c.LLMFirstTokenTimeoutMS == nil {
+		return AgentDefaultLLMFirstTokenTimeoutMS * time.Millisecond
+	}
+	return time.Duration(*c.LLMFirstTokenTimeoutMS) * time.Millisecond
 }
 
 // LoopGuardEnabled reports whether runaway-loop protection is active. Defaults to true when unset.
@@ -85,9 +115,6 @@ func (c *Agent) ApplyDefaults() {
 	if c.MaxTokensPerTurn == 0 {
 		c.MaxTokensPerTurn = AgentDefaultMaxTokensPerTurn
 	}
-	if c.LLMRetryMax == 0 {
-		c.LLMRetryMax = AgentDefaultLLMRetryMax
-	}
 	if c.LLMRetryBaseMS == 0 {
 		c.LLMRetryBaseMS = AgentDefaultLLMRetryBaseMS
 	}
@@ -101,7 +128,7 @@ func (c *Agent) Validate() error {
 	if c.MaxTokensPerTurn < 0 {
 		return fmt.Errorf("agent.max_tokens_per_turn: must be >= 0")
 	}
-	if c.LLMRetryMax < 0 {
+	if c.LLMRetryMax != nil && *c.LLMRetryMax < 0 {
 		return fmt.Errorf("agent.llm_retry_max: must be >= 0")
 	}
 	if c.LLMRetryBaseMS < 0 {
@@ -109,6 +136,9 @@ func (c *Agent) Validate() error {
 	}
 	if c.LLMMinIntervalMS < 0 {
 		return fmt.Errorf("agent.llm_min_interval_ms: must be >= 0")
+	}
+	if c.LLMFirstTokenTimeoutMS != nil && *c.LLMFirstTokenTimeoutMS < 0 {
+		return fmt.Errorf("agent.llm_first_token_timeout_ms: must be >= 0")
 	}
 	if c.LoopToolRepeatLimit != nil && *c.LoopToolRepeatLimit < 0 {
 		return fmt.Errorf("agent.loop_tool_repeat_limit: must be >= 0")

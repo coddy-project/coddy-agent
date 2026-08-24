@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -140,6 +141,9 @@ type ProviderInput struct {
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
 	RetryMax int
+	// RetryDisabled turns retries off entirely (config llm_retry_max: 0). A zero
+	// RetryMax alone still falls back to the default.
+	RetryDisabled bool
 	// RetryBase is the initial backoff between retries (default 1s).
 	RetryBase time.Duration
 	// RetryMaxDelay caps retry backoff (default 60s).
@@ -149,6 +153,10 @@ type ProviderInput struct {
 	// DisableStream turns off the streaming transport (models[].stream: false):
 	// Stream then issues one blocking request and replays the finished response.
 	DisableStream bool
+	// Timeout, when positive, bounds the entire HTTP request including the
+	// streamed body read (providers[].timeout_ms). Zero means no client
+	// timeout; the turn context stays the only bound.
+	Timeout time.Duration
 }
 
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
@@ -181,6 +189,12 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	hc, err := HTTPClientForOptionalProxy(p.ProxyURL)
 	if err != nil {
 		return nil, err
+	}
+	if p.Timeout > 0 {
+		if hc == nil {
+			hc = &http.Client{}
+		}
+		hc.Timeout = p.Timeout
 	}
 	var inner Provider
 	switch p.Type {
