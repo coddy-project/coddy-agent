@@ -68,7 +68,7 @@ func (c *Config) ResolveLLM(modelRef string) (*ResolvedLLM, error) {
 		APIKey:       prov.EffectiveAPIKey(),
 		BaseURL:      prov.APIBase,
 		ProxyURL:     prov.Proxy,
-		AuthPath:     CodexAuthPath(c.Paths.Home, prov.Name),
+		AuthPath:     ProviderAuthPath(c.Paths.Home, prov.Name, prov.Type),
 		MaxTokens:    entry.MaxTokens,
 		Temperature:  entry.Temperature,
 		TimeoutMS:    prov.TimeoutMS,

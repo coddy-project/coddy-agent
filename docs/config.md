@@ -446,7 +446,7 @@ Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic AP
 ### `neuraldeep`
 NeuralDeep API via its OpenAI-compatible endpoint.
 
-Provider needs **`api_key`**. **`api_base`** is not needed and is ignored; Coddy always sends requests to **`https://api.neuraldeep.ru/v1`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/default`** or another NeuralDeep model id, plus **`max_tokens`**, **`temperature`**.
+Credentials come from either a hub sign-in or a plain key. **`coddy providers login neuraldeep`** opens the browser on the NeuralDeep hub (add **`--device`** on headless machines), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and appends the tier's models to the config; the bundled web UI offers **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** (or **`api_key_command`** / **`NEURALDEEP_API_KEY`**) always wins over the stored login. **`api_base`** is not needed and is ignored; Coddy always sends requests to **`https://api.neuraldeep.ru/v1`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.
