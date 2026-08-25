@@ -1,3 +1,4 @@
+import { useT } from "../i18n/I18nProvider";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
 import {
@@ -28,6 +29,7 @@ export function UserMessage(props: {
     previewUrl?: string;
   }[];
 }) {
+  const { t } = useT();
   const display = stripCoddyAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
@@ -44,7 +46,7 @@ export function UserMessage(props: {
   return (
     <div className="msg-user-stack">
       {props.files && props.files.length > 0 ? (
-        <div className="msg-user-files" aria-label="Attached files">
+        <div className="msg-user-files" aria-label={t("messages.attachedFiles")}>
           {props.files.map((f, idx) => {
             const { svg, label } = fileTypeIcon(f.mimeType, f.name);
             const tip = f.sizeBytes != null
@@ -97,8 +99,8 @@ export function UserMessage(props: {
           <button
             type="button"
             className="msg-user-edit"
-            aria-label="Edit message"
-            title="Edit message"
+            aria-label={t("messages.editMessage")}
+            title={t("messages.editMessage")}
             data-testid="user-message-edit"
             onClick={() => props.onEdit!(props.content)}
           >
@@ -109,8 +111,8 @@ export function UserMessage(props: {
       <div className="msg-user-foot">
         <MessageCopyIconButton
           textToCopy={display}
-          tooltip="Copy message"
-          ariaLabel="Copy message"
+          tooltip={t("messages.copyMessage")}
+          ariaLabel={t("messages.copyMessage")}
           dataTestId="user-message-copy"
         />
         {timeHM ? (

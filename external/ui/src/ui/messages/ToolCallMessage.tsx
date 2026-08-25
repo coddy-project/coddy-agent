@@ -15,6 +15,7 @@ import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import { useT } from "../i18n/I18nProvider";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -31,6 +32,7 @@ function QuestionToolTimelineReadout(props: {
   resultText: string;
   status: string;
 }) {
+  const { t } = useT();
   const qs = parseQuestionToolQuestionsFromArgs(props.argsText);
   const terminal = ["completed", "failed", "cancelled"].includes(
     (props.status || "").toLowerCase(),
@@ -43,8 +45,7 @@ function QuestionToolTimelineReadout(props: {
         className="muted"
         style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
       >
-        Answer using the Questions card in this chat. This row only mirrors the
-        tool state.
+        {t("messages.toolQuestionMirrorHint")}
       </p>
     );
   }
@@ -52,7 +53,7 @@ function QuestionToolTimelineReadout(props: {
   return (
     <div
       className="question-prompt-resolved-body"
-      aria-label="Question tool timeline"
+      aria-label={t("messages.toolQuestionTimelineAriaLabel")}
     >
       {qs.map((item, qi) => (
         <div
@@ -67,7 +68,7 @@ function QuestionToolTimelineReadout(props: {
               </div>
             ) : (
               <div className="question-prompt-resolved-a muted">
-                Awaiting answer
+                {t("messages.toolAwaitingAnswer")}
               </div>
             )}
           </div>
@@ -100,12 +101,13 @@ export function ToolCallMessage(props: {
   onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
   onStopBackgroundTask?: ((taskId: string) => void) | undefined;
 }) {
+  const { t } = useT();
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || "tool").trim();
+  const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
   const toolPreview = useMemo(
     () =>
       buildToolCallPreview(
@@ -164,10 +166,13 @@ export function ToolCallMessage(props: {
 
   const displayLabel = useMemo(() => {
     if (isQuestionTool) {
-      return "question";
+      return t("messages.toolQuestionLabel");
     }
-    return pendingLike ? `${rawName || "tool"}...` : rawName || "tool";
-  }, [isQuestionTool, pendingLike, rawName]);
+    const fallback = t("messages.toolDefaultName");
+    return pendingLike
+      ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
+      : rawName || fallback;
+  }, [isQuestionTool, pendingLike, rawName, t]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -315,7 +320,7 @@ export function ToolCallMessage(props: {
             onHide();
           }}
         >
-          Less
+          {t("messages.toolLess")}
         </button>
       );
     } else {
@@ -330,7 +335,7 @@ export function ToolCallMessage(props: {
             void onLoadMore();
           }}
         >
-          {loadingFull ? "Loading…" : "More…"}
+          {loadingFull ? t("messages.toolLoading") : t("messages.toolMore")}
         </button>
       );
     }
@@ -374,7 +379,7 @@ export function ToolCallMessage(props: {
         className="thinking-details coddy-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label="Tool summary">
+        <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{displayLabel}</span>
@@ -415,7 +420,7 @@ export function ToolCallMessage(props: {
             ]
               .filter(Boolean)
               .join(" ")}
-            aria-label="Tool call details"
+            aria-label={t("messages.toolDetailsAriaLabel")}
           >
             {isQuestionTool ? (
               <QuestionToolTimelineReadout
@@ -439,11 +444,11 @@ export function ToolCallMessage(props: {
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                aria-label="Tool result"
+                aria-label={t("messages.toolResultAriaLabel")}
               >
                 <div className="tool-call-result-head">
                   <span className="tool-call-result-dot" aria-hidden />
-                  <span>Result</span>
+                  <span>{t("messages.toolResultSection")}</span>
                 </div>
                 <div
                   className={[
@@ -473,7 +478,7 @@ export function ToolCallMessage(props: {
                       props.onOpenBackgroundTask?.(backgroundTask.id);
                     }}
                   >
-                    Open in Tasks
+                    {t("messages.toolBgTaskOpen")}
                   </button>
                 ) : null}
                 {backgroundTask.running && props.onStopBackgroundTask ? (
@@ -486,7 +491,7 @@ export function ToolCallMessage(props: {
                       props.onStopBackgroundTask?.(backgroundTask.id);
                     }}
                   >
-                    Stop
+                    {t("messages.toolBgTaskStop")}
                   </button>
                 ) : null}
               </div>
