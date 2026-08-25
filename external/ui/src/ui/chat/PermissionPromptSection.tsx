@@ -10,6 +10,7 @@ import type {
   PermissionResolvedState,
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
+import { permissionOptionLabel } from "./permissionOptionLabel";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -95,9 +96,11 @@ export function PermissionPromptSection(props: PermissionPromptSectionProps) {
                     : "permission-prompt-btn permission-prompt-btn--allow"
                 }
                 disabled={submitting}
-                onClick={() => void choose(opt.optionId, opt.name)}
+                onClick={() =>
+                  void choose(opt.optionId, permissionOptionLabel(opt))
+                }
               >
-                {opt.name}
+                {permissionOptionLabel(opt)}
               </button>
             );
           })}
