@@ -1,4 +1,5 @@
 import { useEffect, useRef, type MouseEvent } from "react";
+import { useT } from "../i18n/I18nProvider";
 import { appNavHrefDraft, appNavHrefSession } from "../scheduler/hashRoute";
 import { isClientDraftSessionId } from "./draftSessions";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
@@ -45,6 +46,7 @@ export function SessionsSidebar(props: {
   loadingMore: boolean;
   onLoadMore: () => void;
 }) {
+  const { t } = useT();
   const listRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const isOpen = !!props.open;
@@ -86,16 +88,16 @@ export function SessionsSidebar(props: {
       className={["sessions", "drawer", props.className || ""]
         .filter(Boolean)
         .join(" ")}
-      aria-label="History"
+      aria-label={t("sessions.history")}
       data-testid="sessions"
       data-variant="drawer"
     >
       <div className="sessions-head">
-        <span>History</span>
+        <span>{t("sessions.history")}</span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close history"
+          aria-label={t("sessions.closeHistory")}
           data-testid="sessions-close"
           onClick={props.onClose}
         >
@@ -107,17 +109,17 @@ export function SessionsSidebar(props: {
         <input
           type="search"
           className="sessions-search-input"
-          placeholder="Search by title or first message"
+          placeholder={t("sessions.searchPlaceholder")}
           value={props.searchDraft}
           onChange={(ev) => props.onSearchDraftChange(ev.target.value)}
-          aria-label="Search history by title or first user message"
+          aria-label={t("sessions.searchAriaLabel")}
           data-testid="sessions-search"
         />
         {props.searchDraft.trim() ? (
           <button
             type="button"
             className="sessions-search-clear"
-            aria-label="Clear search"
+            aria-label={t("sessions.clearSearch")}
             data-testid="sessions-search-clear"
             onClick={props.onSearchClear}
           >
@@ -134,7 +136,7 @@ export function SessionsSidebar(props: {
         ) : null}
         {!props.error && props.sessions.length === 0 ? (
           <div className="sessions-empty" data-testid="sessions-empty">
-            No history yet
+            {t("sessions.empty")}
           </div>
         ) : null}
         {props.sessions.map((s) => (
@@ -178,9 +180,9 @@ export function SessionsSidebar(props: {
                 {sessionRowShowsPermissionPending(s, permissionPending) ? (
                   <span
                     className="session-permission-icon"
-                    aria-label="Permission required"
+                    aria-label={t("sessions.permissionRequired")}
                     data-testid={`session-permission-${s.id}`}
-                    title="Permission required"
+                    title={t("sessions.permissionRequired")}
                   >
                     ?
                   </span>
@@ -188,9 +190,9 @@ export function SessionsSidebar(props: {
                 {sessionRowShowsQuestionPending(s, questionPending) ? (
                   <span
                     className="session-question-icon"
-                    aria-label="Question pending"
+                    aria-label={t("sessions.questionPending")}
                     data-testid={`session-question-${s.id}`}
-                    title="Question pending"
+                    title={t("sessions.questionPending")}
                   >
                     ?
                   </span>
@@ -198,20 +200,20 @@ export function SessionsSidebar(props: {
                 {sessionRowShowsUnreadDot(s, props.sessionId) ? (
                   <span
                     className="session-unread-dot"
-                    aria-label="Unread completion"
+                    aria-label={t("sessions.unreadCompletion")}
                     data-testid={`session-unread-${s.id}`}
                   />
                 ) : null}
-                <span className="session-title" title={s.title || "New chat"}>
-                  {s.title || "New chat"}
+                <span className="session-title" title={s.title || t("sessions.newChatFallback")}>
+                  {s.title || t("sessions.newChatFallback")}
                 </span>
               </div>
             </a>
             <button
               className="session-trash"
               type="button"
-              aria-label="Delete conversation"
-              title="Delete"
+              aria-label={t("sessions.deleteConversation")}
+              title={t("sessions.delete")}
               data-testid={`session-delete-${s.id}`}
               onClick={(ev) => {
                 ev.preventDefault();
@@ -233,7 +235,7 @@ export function SessionsSidebar(props: {
             className="sessions-loading-more"
             data-testid="sessions-loading-more"
           >
-            Loading...
+            {t("sessions.loadingMore")}
           </div>
         ) : null}
       </div>

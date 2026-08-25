@@ -1079,7 +1079,7 @@ export function App() {
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
-      return "New chat";
+      return t("chat.newChat");
     }
     if (describePreview?.sessionId === sessionId) {
       const hint = describePreview.title.trim();
@@ -1088,9 +1088,9 @@ export function App() {
       }
     }
     const row = sessions.find((s) => s.id === sessionId);
-    const t = (row?.title || "").trim();
-    return t || "New chat";
-  }, [sessionId, sessions, describePreview]);
+    const rowTitle = (row?.title || "").trim();
+    return rowTitle || t("chat.newChat");
+  }, [sessionId, sessions, describePreview, t]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -1315,8 +1315,7 @@ export function App() {
           setSchedulerHttpLinked(false);
           setSchedulerOpen(false);
           setSchedulerEditor(null);
-          msg =
-            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          msg = t("scheduler.apiNotAvailable");
           const sid = sessionId.trim();
           if (sid) {
             setSessionHashInLocation(sid);
@@ -1333,8 +1332,7 @@ export function App() {
           return;
         }
         if (res.status === 503) {
-          msg =
-            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          msg = t("scheduler.disabled");
           if (!silent) {
             setSchedulerListError(msg);
             setSchedulerJobs([]);
@@ -2582,7 +2580,7 @@ export function App() {
     }
     const newSid = (data.newSessionId || "").trim();
     if (!newSid) {
-      showBranchError("Branch creation returned no session ID");
+      showBranchError(t("app.branchCreationNoSessionId"));
       return;
     }
     pendingBranchSendRef.current = { text, sid: newSid };
@@ -3199,7 +3197,7 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg = "This chat is busy in another client. Try again in a moment.";
+        let msg = t("app.chatBusy");
         try {
           const body = (await res.json()) as {
             error?: { message?: string };
@@ -3260,7 +3258,7 @@ export function App() {
 
       if (!res.ok || !res.body) {
         const msg = !res.body
-          ? "Empty response body"
+          ? t("app.emptyResponseBody")
           : remoteHttpErrorMessage(res.status, getEnv());
         applyStreamItems((prev) => [
           ...prev,
@@ -3991,7 +3989,7 @@ export function App() {
             ) {
               return;
             }
-            void streamResponses("Implement the plan.", {
+            void streamResponses(t("chat.runPlanMessage"), {
               modeOverride: "agent",
               runPlanSlug: slug,
             });
