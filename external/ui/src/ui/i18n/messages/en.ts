@@ -453,6 +453,7 @@ export const messagesEn: Record<string, string> = {
   "prompts.planSaving": "Saving…",
   "prompts.planPreviewEmpty": "Nothing to preview yet.",
   "prompts.planSaveFailed": "save failed ({status})",
+  "prompts.planSaveFailedNoStatus": "save failed",
 
   "scheduler.title": "Scheduler",
   "scheduler.close": "Close scheduler",

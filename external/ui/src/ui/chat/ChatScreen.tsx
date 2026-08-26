@@ -235,7 +235,9 @@ export function ChatScreen(props: {
           <h1 className="hero-title">
             {(() => {
               const verb = t(`chat.heroVerb.${props.heroAccentVerb}`);
-              const marker = " ";
+              // A sentinel that cannot occur in translated copy, so the split finds the
+              // {verb} slot itself rather than the first space of the sentence.
+              const marker = "\u0000";
               const full = t("chat.heroTitle", { verb: marker });
               const i = full.indexOf(marker);
               const before = i >= 0 ? full.slice(0, i) : full;

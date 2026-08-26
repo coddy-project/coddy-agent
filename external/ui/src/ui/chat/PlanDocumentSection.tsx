@@ -158,7 +158,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         }
       } catch (e) {
         setSaveError(
-          e instanceof Error ? e.message : translate("prompts.planSaveFailed", { status: "" }),
+          e instanceof Error ? e.message : translate("prompts.planSaveFailedNoStatus"),
         );
       } finally {
         setSaving(false);

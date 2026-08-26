@@ -457,6 +457,7 @@ export const messagesRu: Record<string, string> = {
   "prompts.planSaving": "Сохранение…",
   "prompts.planPreviewEmpty": "Пока нечего показывать.",
   "prompts.planSaveFailed": "ошибка сохранения ({status})",
+  "prompts.planSaveFailedNoStatus": "ошибка сохранения",
 
   "scheduler.title": "Планировщик",
   "scheduler.close": "Закрыть планировщик",

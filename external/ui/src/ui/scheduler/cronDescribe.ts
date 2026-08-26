@@ -43,7 +43,10 @@ export function describeCronScheduleOrError(spec: string):
       locale: cronLocale(),
     });
     return { ok: true, text };
-  } catch {
-    return { ok: false, error: t("scheduler.cron.invalid") };
+  } catch (e) {
+    // cronstrue names the offending field ("Expression has only 3 parts..."), which is worth
+    // more to the author than a generic sentence, so the translated copy is only a fallback.
+    const msg = e instanceof Error ? e.message.trim() : "";
+    return { ok: false, error: msg || t("scheduler.cron.invalid") };
   }
 }
