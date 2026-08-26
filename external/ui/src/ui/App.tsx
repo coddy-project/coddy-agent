@@ -849,7 +849,7 @@ export function App() {
 
   const sessionsForSidebar = useMemo(
     () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
+    [sessions, clientDraftSessions, t],
   );
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
@@ -1257,7 +1257,7 @@ export function App() {
       setBackgroundTasks(res.data.data || []);
       setBackgroundRunning(res.data.running || 0);
     },
-    [sessionId],
+    [sessionId, t],
   );
 
   const refreshBackgroundTaskOutput = useCallback(
@@ -1350,7 +1350,7 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId],
+    [sessionId, t],
   );
 
   const applyLocationHash = useCallback(() => {
@@ -1851,7 +1851,7 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
-        setSessionsError(`Backend is unavailable (${res.status})`);
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
         return null;
       }
       setSessionsError(null);
@@ -1871,7 +1871,7 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers],
+    [sessionFilterQ, headers, t],
   );
 
   useEffect(() => {

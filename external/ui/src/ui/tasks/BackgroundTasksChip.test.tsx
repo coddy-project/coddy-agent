@@ -3,8 +3,12 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BackgroundTasksChip } from "./BackgroundTasksChip";
 import type { BackgroundTask } from "./types";
+import { setLocale } from "../i18n/i18n";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  setLocale("en");
+});
 
 function task(over: Partial<BackgroundTask> = {}): BackgroundTask {
   return {
@@ -44,12 +48,17 @@ test("running work is counted and singular reads correctly", () => {
       onOpen={() => {}}
     />,
   );
-  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent("2 running tasks");
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "2 running tasks",
+  );
 });
 
 test("with nothing running the opener still reaches the history", () => {
   render(
-    <BackgroundTasksChip tasks={[done("bg_1"), done("bg_2")]} onOpen={() => {}} />,
+    <BackgroundTasksChip
+      tasks={[done("bg_1"), done("bg_2")]}
+      onOpen={() => {}}
+    />,
   );
   const chip = screen.getByTestId("bgtask-chip");
   expect(chip).toHaveTextContent("2 background tasks");
@@ -63,6 +72,19 @@ test("a live chat marks the chip so it reads as active", () => {
   const chip = screen.getByTestId("bgtask-chip");
   expect(chip).toHaveTextContent("1 running task");
   expect(chip.className).toContain("is-running");
+});
+
+test("localizes the task count and accessible label", () => {
+  setLocale("ru");
+  render(<BackgroundTasksChip tasks={[task()]} onOpen={() => {}} />);
+
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняется задач: 1",
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveAttribute(
+    "aria-label",
+    "Открыть фоновые задачи: Выполняется задач: 1",
+  );
 });
 
 test("clicking opens the panel", () => {

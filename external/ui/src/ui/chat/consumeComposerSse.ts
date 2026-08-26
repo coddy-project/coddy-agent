@@ -6,6 +6,7 @@ import {
 } from "./streamError";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { t } from "../i18n/i18n";
 
 export type ContextUsageUpdate = {
   used: number;
@@ -416,7 +417,7 @@ export async function consumeComposerSseReader(
             } catch {
               continue;
             }
-            streamErrorMessage = namedErrorEventMessage(parsed) ?? "Stream ended";
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? t("messages.streamEnded");
             streamErrorCode = openAIStreamErrorCode(parsed);
             streamHalted = true;
             try {
@@ -709,7 +710,7 @@ export async function consumeComposerSseReader(
             } catch {
               continue;
             }
-            streamErrorMessage = namedErrorEventMessage(parsed) ?? "Stream ended";
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? t("messages.streamEnded");
             streamErrorCode = openAIStreamErrorCode(parsed);
             break;
           }

@@ -35,7 +35,9 @@ function RunningCard(props: {
 
   return (
     <div
-      className={["bgtask-card", overdue ? "is-overdue" : ""].filter(Boolean).join(" ")}
+      className={["bgtask-card", overdue ? "is-overdue" : ""]
+        .filter(Boolean)
+        .join(" ")}
       data-testid={`bgtask-card-${task.id}`}
     >
       <div className="bgtask-card-head">
@@ -44,8 +46,14 @@ function RunningCard(props: {
           className="bgtask-card-open"
           onClick={() => props.onOpen(task.id)}
         >
-          <span className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`} aria-hidden="true" />
-          <span className="bgtask-card-label" title={task.command || task.label}>
+          <span
+            className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+            aria-hidden="true"
+          />
+          <span
+            className="bgtask-card-label"
+            title={task.command || task.label}
+          >
             {task.label}
           </span>
         </button>
@@ -60,7 +68,9 @@ function RunningCard(props: {
           <IconStop />
         </button>
       </div>
-      <div className="bgtask-card-meta">{taskTimingLine(task, props.nowMs)}</div>
+      <div className="bgtask-card-meta">
+        {taskTimingLine(task, props.nowMs)}
+      </div>
       {progress !== null ? (
         <div
           className="bgtask-progress"
@@ -90,7 +100,10 @@ function FinishedRow(props: {
   const ended = task.finished_at ? new Date(task.finished_at) : null;
   const clock =
     ended && !Number.isNaN(ended.getTime())
-      ? ended.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+      ? ended.toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
       : "";
 
   return (
@@ -101,7 +114,10 @@ function FinishedRow(props: {
       onClick={() => props.onOpen(task.id)}
       title={task.command || task.label}
     >
-      <span className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`} aria-hidden="true" />
+      <span
+        className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+        aria-hidden="true"
+      />
       <span className="bgtask-finished-label">{task.label}</span>
       <span className="bgtask-finished-meta">
         {typeof task.exit_code === "number" && task.status !== "succeeded"
@@ -157,17 +173,28 @@ function TaskDetail(props: {
 
       <div className="bgtask-detail-summary">
         <div className="bgtask-detail-title-line">
-          <span className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`} aria-hidden="true" />
-          <span className="bgtask-detail-status">{taskStatusLabel(task.status)}</span>
-          <span className="bgtask-detail-timing">{taskTimingLine(task, props.nowMs)}</span>
+          <span
+            className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+            aria-hidden="true"
+          />
+          <span className="bgtask-detail-status">
+            {taskStatusLabel(task.status)}
+          </span>
+          <span className="bgtask-detail-timing">
+            {taskTimingLine(task, props.nowMs)}
+          </span>
         </div>
-        {task.command ? <pre className="bgtask-detail-command">{task.command}</pre> : null}
-        {task.error ? <div className="bgtask-detail-error">{task.error}</div> : null}
+        {task.command ? (
+          <pre className="bgtask-detail-command">{task.command}</pre>
+        ) : null}
+        {task.error ? (
+          <div className="bgtask-detail-error">{task.error}</div>
+        ) : null}
       </div>
 
       <div className="bgtask-detail-output-head">
         <span>{t("tasks.outputHeading")}</span>
-        {t.output_truncated ? (
+        {task.output_truncated ? (
           <span
             className="bgtask-detail-truncated"
             title={t("tasks.truncatedTitle")}
@@ -275,7 +302,10 @@ export function BackgroundTasksPanel(props: {
 
           {running.length > 0 ? (
             <>
-              <div className="bgtask-section-label" data-testid="bgtask-section-running">
+              <div
+                className="bgtask-section-label"
+                data-testid="bgtask-section-running"
+              >
                 {t("tasks.sectionRunning")}
               </div>
               {running.map((t) => (
@@ -317,7 +347,10 @@ export function BackgroundTasksPanel(props: {
               </div>
 
               {finishedOpen ? (
-                <div className="bgtask-finished-list" data-testid="bgtask-finished-list">
+                <div
+                  className="bgtask-finished-list"
+                  data-testid="bgtask-finished-list"
+                >
                   {shown.map((t) => (
                     <FinishedRow
                       key={t.id}

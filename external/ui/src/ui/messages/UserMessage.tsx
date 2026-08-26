@@ -8,10 +8,14 @@ import {
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { fileTypeIcon } from "./fileTypeIcon";
 
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (n < 1024) return t("composer.bytesB", { n });
+  if (n < 1024 * 1024)
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
 export function UserMessage(props: {
@@ -46,12 +50,16 @@ export function UserMessage(props: {
   return (
     <div className="msg-user-stack">
       {props.files && props.files.length > 0 ? (
-        <div className="msg-user-files" aria-label={t("messages.attachedFiles")}>
+        <div
+          className="msg-user-files"
+          aria-label={t("messages.attachedFiles")}
+        >
           {props.files.map((f, idx) => {
             const { svg, label } = fileTypeIcon(f.mimeType, f.name);
-            const tip = f.sizeBytes != null
-              ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes)}`
-              : `${f.name}\n${label}`;
+            const tip =
+              f.sizeBytes != null
+                ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes, t)}`
+                : `${f.name}\n${label}`;
             return (
               <span
                 key={idx}

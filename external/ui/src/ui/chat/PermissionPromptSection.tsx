@@ -11,6 +11,7 @@ import type {
 } from "./permissionTypes";
 import { questionPromptFocusComposer } from "./QuestionPromptSection";
 import { permissionOptionLabel } from "./permissionOptionLabel";
+import { useT } from "../i18n/I18nProvider";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -24,11 +25,12 @@ export type PermissionPromptSectionProps = {
 
 /** Inline permission gate for streaming permission SSE + POST /coddy/sessions/{id}/permission. */
 export function PermissionPromptSection(props: PermissionPromptSectionProps) {
+  const { t } = useT();
   const { payload, resolved, onResolved, toolCall } = props;
   const [submitting, setSubmitting] = useState(false);
   const preview = useMemo(
     () => buildPermissionToolPreview(payload, toolCall),
-    [payload, toolCall],
+    [payload, toolCall, t],
   );
 
   const choose = useCallback(

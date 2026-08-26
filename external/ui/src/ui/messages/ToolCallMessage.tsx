@@ -107,7 +107,11 @@ export function ToolCallMessage(props: {
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || t("messages.toolDefaultName")).trim();
+  const rawName = (
+    props.title ||
+    props.kind ||
+    t("messages.toolDefaultName")
+  ).trim();
   const toolPreview = useMemo(
     () =>
       buildToolCallPreview(
@@ -118,7 +122,7 @@ export function ToolCallMessage(props: {
         },
         props.argsText || "",
       ),
-    [props.argsText, props.kind, props.title],
+    [props.argsText, props.kind, props.title, t],
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
@@ -379,7 +383,10 @@ export function ToolCallMessage(props: {
         className="thinking-details coddy-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label={t("messages.toolSummaryAriaLabel")}>
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.toolSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{displayLabel}</span>

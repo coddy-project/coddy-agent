@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
+import { useT } from "../i18n/I18nProvider";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
@@ -29,6 +30,7 @@ function DiffPreview({
 }: {
   preview: Extract<Preview, { kind: "diff" }>;
 }) {
+  const { t } = useT();
   const headers = useMemo(
     () => new Map(preview.hunkHeaders.map((row) => [row.at, row.text])),
     [preview.hunkHeaders],
@@ -37,7 +39,9 @@ function DiffPreview({
     <div
       className="permission-preview-diff"
       aria-label={
-        preview.toolName === "apply_patch" ? "Patch preview" : "Edit preview"
+        preview.toolName === "apply_patch"
+          ? t("permission.preview.patch")
+          : t("permission.preview.edit")
       }
     >
       {preview.lines.map((line, index) => (
@@ -82,6 +86,7 @@ export function PermissionToolPreview({
   /** Selected transcript previews keep overflow controls without adding copy. */
   overflowControls?: boolean;
 }) {
+  const { t } = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -192,7 +197,9 @@ export function PermissionToolPreview({
                 setExpanded((value) => !value);
               }}
             >
-              {expanded ? "Less" : "More…"}
+              {expanded
+                ? t("permission.preview.less")
+                : t("permission.preview.more")}
             </button>
           ) : null}
         </>

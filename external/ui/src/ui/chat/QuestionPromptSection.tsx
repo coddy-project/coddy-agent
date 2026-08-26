@@ -151,7 +151,7 @@ function formatResolvedSummaryLine(
       .map((s) => String(s).trim())
       .filter((s) => s.length > 0)
       .join(", ");
-    const ansText = joined.length > 0 ? joined : "(no answer)";
+    const ansText = joined.length > 0 ? joined : translate("prompts.noAnswer");
     let stem = q.question.trim().replace(/\s+/g, " ");
     if (stem.length > 112) stem = `${stem.slice(0, 109)}...`;
     const qDisp = stem.endsWith("?") ? stem : `${stem}?`;

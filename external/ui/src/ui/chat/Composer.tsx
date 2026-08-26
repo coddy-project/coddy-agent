@@ -75,10 +75,7 @@ function fmtInt(n: number | undefined): string {
 }
 
 /** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
-function displayLlmId(
-  id: string,
-  fallback: string = "Model",
-): string {
+function displayLlmId(id: string, fallback: string = "Model"): string {
   const m = id || "";
   const i = m.lastIndexOf("/");
   if (i >= 0 && i < m.length - 1) {
@@ -324,7 +321,7 @@ export function Composer(props: {
       setAttachHint(null);
       attachHintTimerRef.current = null;
     }, 4000);
-  }, []);
+  }, [t]);
   useEffect(
     () => () => {
       if (attachHintTimerRef.current !== null) {
@@ -756,7 +753,14 @@ export function Composer(props: {
       setEnhancing(false);
       requestAnimationFrame(() => taRef.current?.focus());
     }
-  }, [enhancing, props.generating, props.value, props.sessionId, props.onChange]);
+  }, [
+    enhancing,
+    props.generating,
+    props.value,
+    props.sessionId,
+    props.onChange,
+    t,
+  ]);
 
   const updateSlashMenu = useCallback(
     (value: string, caret: number) => {
@@ -847,7 +851,9 @@ export function Composer(props: {
           if (gen !== slashFetchGenRef.current) {
             return;
           }
-          setSlashErr(e instanceof Error ? e.message : t("composer.requestFailed"));
+          setSlashErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setSlashItems([]);
           setSlashHasMore(false);
           setSlashNoMatch(null);
@@ -858,7 +864,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchSlashPage, slashNoMatch],
+    [fetchSlashPage, slashNoMatch, t],
   );
 
   const updateAtMenu = useCallback(
@@ -950,7 +956,9 @@ export function Composer(props: {
           if (gen !== atFetchGenRef.current) {
             return;
           }
-          setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
+          setAtErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setAtItems([]);
           setAtHasMore(false);
           setAtNoMatch(null);
@@ -961,7 +969,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchAtPage, atNoMatch, props.sessionId],
+    [fetchAtPage, atNoMatch, props.sessionId, t],
   );
 
   const updatePickerMenus = useCallback(
@@ -1135,7 +1143,9 @@ export function Composer(props: {
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {
-        setSlashErr(e instanceof Error ? e.message : t("composer.requestFailed"));
+        setSlashErr(
+          e instanceof Error ? e.message : t("composer.requestFailed"),
+        );
       } finally {
         setSlashLoading(false);
       }
@@ -1384,7 +1394,9 @@ export function Composer(props: {
         ) : null}
         {commandMatches.length > 0 ? (
           <>
-            <div className="slash-menu-title">{t("composer.commandsTitle")}</div>
+            <div className="slash-menu-title">
+              {t("composer.commandsTitle")}
+            </div>
             <ul className="slash-rows">
               {commandMatches.map((row, idx) => {
                 const gidx = slashItems.length + idx;
@@ -1431,7 +1443,9 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">{t("composer.workspaceFilesTitle")}</div>
+        <div className="slash-menu-title">
+          {t("composer.workspaceFilesTitle")}
+        </div>
         {atPrefix.trim() === "" && atItems.length === 0 ? (
           <div className="slash-muted">{t("composer.typeAfterAt")}</div>
         ) : null}
@@ -1572,7 +1586,8 @@ export function Composer(props: {
           </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
-            <div className="composer-attachments"
+            <div
+              className="composer-attachments"
               aria-label={t("composer.attachedFilesAriaLabel")}
             >
               {(props.editingFiles || []).map((f, idx) => {
@@ -1855,9 +1870,10 @@ export function Composer(props: {
           ) : null}
 
           <div className="composer-bar">
-            <div className="composer-tabs"
-            aria-label={t("composer.composerOptions")}
-          >
+            <div
+              className="composer-tabs"
+              aria-label={t("composer.composerOptions")}
+            >
               {props.llmModelMultimodal ? (
                 <>
                   <input

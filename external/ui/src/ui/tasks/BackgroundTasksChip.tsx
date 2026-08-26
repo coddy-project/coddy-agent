@@ -1,4 +1,5 @@
 import type { BackgroundTask } from "./types";
+import { useT } from "../i18n/I18nProvider";
 
 /**
  * The opener for the background tasks panel, sitting under the last message the
@@ -12,6 +13,7 @@ export function BackgroundTasksChip(props: {
   tasks: BackgroundTask[];
   onOpen: () => void;
 }) {
+  const { t } = useT();
   const running = props.tasks.filter((t) => t.running).length;
   const total = props.tasks.length;
 
@@ -22,8 +24,12 @@ export function BackgroundTasksChip(props: {
 
   const live = running > 0;
   const label = live
-    ? `${running} running task${running === 1 ? "" : "s"}`
-    : `${total} background task${total === 1 ? "" : "s"}`;
+    ? t(running === 1 ? "tasks.chip.runningOne" : "tasks.chip.runningMany", {
+        count: running,
+      })
+    : t(total === 1 ? "tasks.chip.totalOne" : "tasks.chip.totalMany", {
+        count: total,
+      });
 
   return (
     <div className="bgtask-chip-row">
@@ -33,7 +39,7 @@ export function BackgroundTasksChip(props: {
           .filter(Boolean)
           .join(" ")}
         data-testid="bgtask-chip"
-        aria-label={`Open background tasks: ${label}`}
+        aria-label={t("tasks.chip.openAria", { label })}
         onClick={props.onOpen}
       >
         <span
