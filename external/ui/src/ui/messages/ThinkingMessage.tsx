@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 
 function formatDuration(ms: number): string {
@@ -11,7 +11,7 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
-export function ThinkingMessage(props: {
+export const ThinkingMessage = memo(function ThinkingMessage(props: {
   status: "in_progress" | "completed";
   content: string;
   durationMs?: number;
@@ -74,4 +74,4 @@ export function ThinkingMessage(props: {
       </details>
     </div>
   );
-}
+});

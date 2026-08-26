@@ -1708,6 +1708,14 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
+/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
+   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
+   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up. */
+.messages-inner > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
 .chat-scroll-tail {
   flex: none;
   height: var(--chat-composer-reserve, 220px);

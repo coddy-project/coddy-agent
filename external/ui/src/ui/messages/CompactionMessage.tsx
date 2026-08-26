@@ -1,10 +1,14 @@
+import { memo } from "react";
+
 import { Markdown } from "../markdown/Markdown";
 
 // CompactionMessage renders a compaction summary row as a foldout ("what is now
 // in the context") styled like the thinking / tool disclosure, so it reads as a
 // system action rather than a user message. Backed by transcript items of type
 // "compaction" (server messages with compaction_summary=true).
-export function CompactionMessage(props: { summary: string }) {
+export const CompactionMessage = memo(function CompactionMessage(props: {
+  summary: string;
+}) {
   const text = (props.summary || "").trim();
   return (
     <div className="thinking-row">
@@ -26,4 +30,4 @@ export function CompactionMessage(props: { summary: string }) {
       </details>
     </div>
   );
-}
+});

@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { Markdown } from "../markdown/Markdown";
 import {
   formatUtcToLocalFullDetail,
@@ -5,7 +7,7 @@ import {
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
-export function AssistantMessage(props: {
+export const AssistantMessage = memo(function AssistantMessage(props: {
   content: string;
   streaming?: boolean;
   createdAtUtc?: string;
@@ -46,4 +48,4 @@ export function AssistantMessage(props: {
       </div>
     </div>
   );
-}
+});
