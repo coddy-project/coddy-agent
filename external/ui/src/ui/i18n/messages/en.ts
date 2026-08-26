@@ -128,6 +128,13 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Sign In with ChatGPT",
   "codexAuth.enterProviderName": "Enter a provider name before signing in.",
 
+  "neuralDeepApiBase.description":
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list reads the saved config, so save before you fetch.",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
+  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
+  "neuralDeepApiBase.unknown":
+    "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
+
   "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "neuralDeepAuth.error.incompleteResponse":
     "The hub returned an incomplete sign-in response.",
@@ -137,14 +144,16 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
-  "neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "neuralDeepAuth.enterCode":
+    "Enter this one-time code on the NeuralDeep page:",
   "neuralDeepAuth.openSignInPage": "Open sign-in page",
   "neuralDeepAuth.waiting": "Waiting for confirmation…",
   "neuralDeepAuth.signingOut": "Signing Out…",
   "neuralDeepAuth.signOut": "Sign Out",
   "neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
   "neuralDeepAuth.signIn": "Sign In with NeuralDeep",
-  "neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+  "neuralDeepAuth.enterProviderName":
+    "Enter a provider name before signing in.",
 
   "mcp.status.connectedOne": "Connected — {count} tool",
   "mcp.status.connectedMany": "Connected — {count} tools",

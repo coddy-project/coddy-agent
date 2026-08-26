@@ -212,7 +212,7 @@ func (s *neuralDeepBDDState) signInWithBrowserCallback() error {
 	if err != nil {
 		return err
 	}
-	_, err = llm.ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", s.hub.URL, key, s.hub.Client())
+	_, err = llm.ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", s.hub.URL, "", key, s.hub.Client())
 	return err
 }
 
@@ -306,7 +306,7 @@ func (s *neuralDeepBDDState) configGainedProviderAndModels() error {
 
 func (s *neuralDeepBDDState) startServerWithProvider() error {
 	cfg := &config.Config{
-		Paths:     config.Paths{Home: s.home},
+		Paths:     config.Paths{Home: s.home, ConfigPath: filepath.Join(s.home, "config.yaml")},
 		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep"}},
 	}
 	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
@@ -430,6 +430,100 @@ func (s *neuralDeepBDDState) providerReportsDisconnected() error {
 	return nil
 }
 
+// neuralDeepMirrorAPIBase is the international deployment Settings can pick.
+const neuralDeepMirrorAPIBase = "https://api.neuraldeep.tech/v1"
+
+func (s *neuralDeepBDDState) pointProviderAtMirror() error {
+	res, err := http.Get(s.ts.URL + "/coddy/config")
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	err = json.NewDecoder(res.Body).Decode(&doc)
+	_ = res.Body.Close()
+	if err != nil {
+		return err
+	}
+	provs, _ := doc["providers"].([]any)
+	if len(provs) != 1 {
+		return fmt.Errorf("providers = %+v, want exactly one", doc["providers"])
+	}
+	row, _ := provs[0].(map[string]any)
+	if row == nil {
+		return fmt.Errorf("provider row = %+v, want an object", provs[0])
+	}
+	row["api_base"] = neuralDeepMirrorAPIBase
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+
+	// Settings validates before it saves; both have to accept the mirror.
+	val, err := http.Post(s.ts.URL+"/coddy/config/validate", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	var verdict struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	err = json.NewDecoder(val.Body).Decode(&verdict)
+	_ = val.Body.Close()
+	if err != nil {
+		return err
+	}
+	if !verdict.OK {
+		return fmt.Errorf("validate rejected the mirror: %s", verdict.Error)
+	}
+
+	req, err := http.NewRequest(http.MethodPut, s.ts.URL+"/coddy/config", strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	put, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	snippet, _ := io.ReadAll(put.Body)
+	_ = put.Body.Close()
+	if put.StatusCode != http.StatusOK {
+		return fmt.Errorf("save status %d: %s", put.StatusCode, strings.TrimSpace(string(snippet)))
+	}
+	return nil
+}
+
+func (s *neuralDeepBDDState) savedConfigKeepsMirror() error {
+	// On disk, so a restarted server reads the same endpoint.
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: s.home})
+	if err != nil {
+		return err
+	}
+	prov := cfg.FindProvider("neuraldeep")
+	if prov == nil || prov.APIBase != neuralDeepMirrorAPIBase {
+		return fmt.Errorf("config.yaml provider = %+v, want api_base %s", prov, neuralDeepMirrorAPIBase)
+	}
+	// And over REST, so Settings shows the choice again after a reload.
+	res, err := http.Get(s.ts.URL + "/coddy/config")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = res.Body.Close() }()
+	var doc struct {
+		Providers []struct {
+			Name    string `json:"name"`
+			APIBase string `json:"api_base"`
+		} `json:"providers"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+		return err
+	}
+	if len(doc.Providers) != 1 || doc.Providers[0].APIBase != neuralDeepMirrorAPIBase {
+		return fmt.Errorf("GET /coddy/config providers = %+v, want the mirror", doc.Providers)
+	}
+	return nil
+}
+
 func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 	s := &neuralDeepBDDState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -451,6 +545,8 @@ func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the neuraldeep provider reports connected with a masked key$`, s.providerReportsConnectedMasked)
 	sc.Step(`^I sign out of NeuralDeep over REST$`, s.signOutOverREST)
 	sc.Step(`^the neuraldeep provider reports disconnected$`, s.providerReportsDisconnected)
+	sc.Step(`^I point the neuraldeep provider at the international mirror over REST$`, s.pointProviderAtMirror)
+	sc.Step(`^the saved config keeps the neuraldeep provider on the mirror$`, s.savedConfigKeepsMirror)
 }
 
 func TestNeuralDeepAuthE2E(t *testing.T) {

@@ -98,9 +98,75 @@ func TestNewProviderAnthropicHonorsBaseURL(t *testing.T) {
 	}
 }
 
-func TestProviderBaseURLNeuralDeepIsFixed(t *testing.T) {
-	if got := providerBaseURL("neuraldeep", "https://example.invalid/v1"); got != neuralDeepBaseURL {
-		t.Fatalf("providerBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
+func TestProviderBaseURLNeuralDeepPicksAnOfficialEndpoint(t *testing.T) {
+	mirror := "https://api.neuraldeep.tech/v1"
+	cases := []struct {
+		name       string
+		configured string
+		want       string
+	}{
+		{"empty falls back to the default deployment", "", neuralDeepBaseURL},
+		{"the default is honored explicitly", neuralDeepBaseURL, neuralDeepBaseURL},
+		{"the mirror is honored", mirror, mirror},
+		{"a trailing slash is normalized", mirror + "/", mirror},
+		{"case is normalized", "HTTPS://API.NEURALDEEP.TECH/v1", mirror},
+		{"surrounding space is trimmed", "  " + mirror + "  ", mirror},
+		{"an arbitrary host is refused", "https://example.invalid/v1", neuralDeepBaseURL},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := providerBaseURL("neuraldeep", tc.configured); got != tc.want {
+				t.Fatalf("providerBaseURL(neuraldeep, %q) = %q, want %q", tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProviderBaseURLNeuralDeepEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepBaseURL, "https://stand.example/v1/")
+	if got := providerBaseURL("neuraldeep", "https://api.neuraldeep.tech/v1"); got != "https://stand.example/v1" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepHubFollowsTheSelectedEndpoint(t *testing.T) {
+	cases := []struct {
+		apiBase string
+		want    string
+	}{
+		{"", NeuralDeepHubURL},
+		{neuralDeepBaseURL, NeuralDeepHubURL},
+		{"https://api.neuraldeep.tech/v1", "https://hub.neuraldeep.tech"},
+		{"https://api.neuraldeep.tech/v1/", "https://hub.neuraldeep.tech"},
+		// A key minted by a hub is useless on an unknown host, so an
+		// unrecognized api_base signs in against the default deployment,
+		// which is also where its requests end up.
+		{"https://example.invalid/v1", NeuralDeepHubURL},
+	}
+	for _, tc := range cases {
+		if got := NeuralDeepHubFor(tc.apiBase); got != tc.want {
+			t.Errorf("NeuralDeepHubFor(%q) = %q, want %q", tc.apiBase, got, tc.want)
+		}
+	}
+}
+
+func TestNeuralDeepHubEnvOverrideWins(t *testing.T) {
+	t.Setenv(EnvNeuralDeepHubURL, "https://stand.example/")
+	if got := NeuralDeepHubFor("https://api.neuraldeep.tech/v1"); got != "https://stand.example" {
+		t.Fatalf("env override ignored: got %q", got)
+	}
+}
+
+func TestNeuralDeepAPIBasesListsTheAllowlist(t *testing.T) {
+	got := NeuralDeepAPIBases()
+	want := []string{neuralDeepBaseURL, "https://api.neuraldeep.tech/v1"}
+	if len(got) != len(want) {
+		t.Fatalf("NeuralDeepAPIBases() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NeuralDeepAPIBases()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

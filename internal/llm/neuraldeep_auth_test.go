@@ -415,6 +415,88 @@ func TestListModelsNeuralDeepFallsBackToAuthFile(t *testing.T) {
 	}
 }
 
+func TestApplyNeuralDeepLoginRecordsTheMirrorEndpoint(t *testing.T) {
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cli/status" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tier":   "starter",
+			"models": []map[string]any{{"id": "qwen3.6-35b-a3b", "ctx": 262144}},
+		})
+	}))
+	defer hub.Close()
+
+	mirror := "https://api.neuraldeep.tech/v1"
+	for _, tc := range []struct {
+		name       string
+		apiBase    string
+		wantRecord bool
+	}{
+		{"the mirror is recorded on the new row", mirror, true},
+		{"the default deployment stays implicit", "", false},
+		{"an unknown endpoint is not recorded", "https://example.invalid/v1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			cfgPath := filepath.Join(home, "config.yaml")
+			cfg := &config.Config{}
+			cfg.Paths = config.Paths{Home: home, ConfigPath: cfgPath}
+
+			if _, err := ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", hub.URL, tc.apiBase, "sk-k", hub.Client()); err != nil {
+				t.Fatalf("ApplyNeuralDeepLoginToConfig: %v", err)
+			}
+			raw, err := os.ReadFile(cfgPath)
+			if err != nil {
+				t.Fatalf("read config: %v", err)
+			}
+			if got := strings.Contains(string(raw), mirror); got != tc.wantRecord {
+				t.Fatalf("api_base %q recorded = %v, want %v; config:\n%s", tc.apiBase, got, tc.wantRecord, raw)
+			}
+		})
+	}
+}
+
+func TestNeuralDeepAuthNoticesFlagEndpointProblems(t *testing.T) {
+	home := t.TempDir()
+	authPath := config.NeuralDeepAuthPath(home, "neuraldeep")
+	if err := SaveNeuralDeepAuth(authPath, "sk-abcdefgh1234", NeuralDeepHubURL, NeuralDeepClientID, NeuralDeepClientID); err != nil {
+		t.Fatalf("SaveNeuralDeepAuth: %v", err)
+	}
+	cfg := &config.Config{Providers: []config.ProviderConfig{
+		{Name: "neuraldeep", Type: "neuraldeep", APIBase: "https://example.invalid/v1"},
+	}}
+	cfg.Paths = config.Paths{Home: home}
+
+	messages := func() string {
+		var joined string
+		for _, n := range NeuralDeepAuthNotices(cfg) {
+			joined += n.Message + "\n"
+		}
+		return joined
+	}
+
+	if got := messages(); !strings.Contains(got, "is not a NeuralDeep endpoint") {
+		t.Errorf("an unrecognized api_base must be reported, got:\n%s", got)
+	}
+
+	// The stored key came from the default hub, so pointing the row at the
+	// mirror leaves it signed in to the wrong deployment.
+	cfg.Providers[0].APIBase = "https://api.neuraldeep.tech/v1"
+	if got := messages(); !strings.Contains(got, "but requests go to https://api.neuraldeep.tech/v1") {
+		t.Errorf("a hub/endpoint mismatch must be reported, got:\n%s", got)
+	}
+
+	// Hub and endpoint agree: no endpoint complaints at all.
+	cfg.Providers[0].APIBase = ""
+	for _, n := range NeuralDeepAuthNotices(cfg) {
+		if strings.Contains(n.Message, "endpoint") {
+			t.Errorf("unexpected endpoint notice: %s", n.Message)
+		}
+	}
+}
+
 func TestApplyNeuralDeepLoginSkipsUnsafeModelIDs(t *testing.T) {
 	// Model ids are interpolated into UCI config paths; a hostile hub must
 	// not be able to smuggle selector syntax through the catalog.
@@ -440,7 +522,7 @@ func TestApplyNeuralDeepLoginSkipsUnsafeModelIDs(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Paths = config.Paths{Home: home, ConfigPath: cfgPath}
 
-	added, err := ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", hub.URL, "sk-k", hub.Client())
+	added, err := ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", hub.URL, "", "sk-k", hub.Client())
 	if err != nil {
 		t.Fatalf("ApplyNeuralDeepLoginToConfig: %v", err)
 	}

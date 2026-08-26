@@ -111,7 +111,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		st, _ := llm.InspectNeuralDeepAuth(path)
 		hub := st.Hub
 		if hub == "" {
-			hub = llm.NeuralDeepHub()
+			hub = llm.NeuralDeepHubFor(provider.APIBase)
 		}
 		client, _ := llm.HTTPClientForOptionalProxy(provider.Proxy)
 		revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -140,7 +140,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	hub := llm.NeuralDeepHub()
+	hub := llm.NeuralDeepHubFor(provider.APIBase)
 	label := neuralDeepHTTPDeviceLabel()
 	// Two racing sign-ins would finish in arbitrary order and the loser
 	// could overwrite the newer credential; the new attempt supersedes.

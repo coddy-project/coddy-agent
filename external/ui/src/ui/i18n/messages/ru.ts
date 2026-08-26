@@ -126,16 +126,24 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Войти через ChatGPT",
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
+  "neuralDeepApiBase.description":
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, api.neuraldeep.tech - зеркало для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей читается из сохранённого конфига, поэтому сначала сохраните настройки.",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "neuralDeepApiBase.optionTech":
+    "api.neuraldeep.tech — зеркало для остального мира",
+  "neuralDeepApiBase.unknown":
+    "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
+
   "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
-  "neuralDeepAuth.error.incompleteResponse":
-    "Хаб вернул неполный ответ входа.",
+  "neuralDeepAuth.error.incompleteResponse": "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
   "neuralDeepAuth.description":
     "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для Coddy. Ключ хранится на сервере Coddy и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
-  "neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "neuralDeepAuth.enterCode":
+    "Введите этот одноразовый код на странице NeuralDeep:",
   "neuralDeepAuth.openSignInPage": "Открыть страницу входа",
   "neuralDeepAuth.waiting": "Ожидание подтверждения…",
   "neuralDeepAuth.signingOut": "Выход…",

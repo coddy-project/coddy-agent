@@ -60,17 +60,82 @@ var (
 	neuralDeepSlowDownStep = 5 * time.Second
 )
 
-// NeuralDeepHub returns the hub base URL, honoring the env override.
-func NeuralDeepHub() string {
+// neuralDeepEndpoint pairs an API base with the hub that mints keys for it.
+type neuralDeepEndpoint struct{ APIBase, Hub string }
+
+// neuralDeepEndpoints is the allowlist of NeuralDeep deployments, most common
+// first. They are separate installations of the same gateway: api.neuraldeep.ru
+// serves Russia, api.neuraldeep.tech is the mirror for everywhere else. A var,
+// not a const block, so tests can substitute stand hosts (like the poll pacing
+// above). The UI copy of this list lives in external/ui SettingsSection.tsx.
+var neuralDeepEndpoints = []neuralDeepEndpoint{
+	{APIBase: neuralDeepBaseURL, Hub: NeuralDeepHubURL},
+	{APIBase: "https://api.neuraldeep.tech/v1", Hub: "https://hub.neuraldeep.tech"},
+}
+
+// NeuralDeepAPIBases lists the endpoints a neuraldeep provider may point at,
+// default first.
+func NeuralDeepAPIBases() []string {
+	out := make([]string, 0, len(neuralDeepEndpoints))
+	for _, e := range neuralDeepEndpoints {
+		out = append(out, e.APIBase)
+	}
+	return out
+}
+
+// NeuralDeepDefaultAPIBase is the deployment used when api_base is empty or
+// names no NeuralDeep endpoint.
+func NeuralDeepDefaultAPIBase() string { return neuralDeepBaseURL }
+
+// neuralDeepEndpointFor resolves a configured api_base to its deployment,
+// ignoring surrounding space, a trailing slash, and case.
+func neuralDeepEndpointFor(configured string) (neuralDeepEndpoint, bool) {
+	want := strings.TrimRight(strings.TrimSpace(configured), "/")
+	if want == "" {
+		return neuralDeepEndpoint{}, false
+	}
+	for _, e := range neuralDeepEndpoints {
+		if strings.EqualFold(e.APIBase, want) {
+			return e, true
+		}
+	}
+	return neuralDeepEndpoint{}, false
+}
+
+// NormalizeNeuralDeepAPIBase reports the canonical spelling of a configured
+// api_base and whether it names a NeuralDeep deployment at all: a hub-issued
+// key must never leave for an arbitrary host, so anything else is discarded
+// rather than honored.
+func NormalizeNeuralDeepAPIBase(configured string) (string, bool) {
+	e, ok := neuralDeepEndpointFor(configured)
+	return e.APIBase, ok
+}
+
+// NeuralDeepHubFor returns the hub that issues keys for the given api_base:
+// sign-in has to reach the same deployment the requests go to, or the key it
+// mints is rejected. The env override still wins, for stands and tests.
+func NeuralDeepHubFor(apiBase string) string {
 	if v := strings.TrimSpace(os.Getenv(EnvNeuralDeepHubURL)); v != "" {
 		return strings.TrimRight(v, "/")
+	}
+	if e, ok := neuralDeepEndpointFor(apiBase); ok {
+		return e.Hub
 	}
 	return NeuralDeepHubURL
 }
 
-func neuralDeepAPIBase() string {
+// NeuralDeepHub returns the default hub base URL, honoring the env override.
+func NeuralDeepHub() string { return NeuralDeepHubFor("") }
+
+// neuralDeepAPIBase resolves the endpoint requests actually go to: the
+// process-wide env override first (stands and tests), then the allowlisted
+// providers[].api_base, then the default deployment.
+func neuralDeepAPIBase(configured string) string {
 	if v := strings.TrimSpace(os.Getenv(EnvNeuralDeepBaseURL)); v != "" {
 		return strings.TrimRight(v, "/")
+	}
+	if e, ok := neuralDeepEndpointFor(configured); ok {
+		return e.APIBase
 	}
 	return neuralDeepBaseURL
 }
@@ -657,9 +722,11 @@ func neuralDeepHTTPError(op string, resp *http.Response) error {
 // YAML: it appends the provider entry and the tier's chat models (never
 // touching entries the user already has) through the staged-commit machinery
 // (validate, snapshot, atomic write), and sets agent.model only when it is
-// empty. It returns human-readable names of everything it added; an empty
-// slice means the config already covered the login.
-func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name, hub, key string, hc *http.Client) ([]string, error) {
+// empty. apiBase is recorded on a newly created provider row when it names a
+// non-default deployment, so the row and the hub the key came from agree. It
+// returns human-readable names of everything it added; an empty slice means
+// the config already covered the login.
+func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name, hub, apiBase, key string, hc *http.Client) ([]string, error) {
 	st, err := FetchNeuralDeepStatus(ctx, hub, key, hc)
 	if err != nil {
 		return nil, fmt.Errorf("fetch the tier model catalog: %w", err)
@@ -667,7 +734,13 @@ func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name,
 	var cmds []config.UCICommand
 	var added []string
 	if cfg.FindProvider(name) == nil {
-		provJSON, _ := json.Marshal(map[string]string{"name": name, "type": "neuraldeep"})
+		prov := map[string]string{"name": name, "type": "neuraldeep"}
+		// Only a non-default deployment needs recording: a row without api_base
+		// keeps meaning the default endpoint, exactly as it did before.
+		if base, ok := NormalizeNeuralDeepAPIBase(apiBase); ok && base != neuralDeepBaseURL {
+			prov["api_base"] = base
+		}
+		provJSON, _ := json.Marshal(prov)
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(provJSON)})
 		added = append(added, "provider "+name)
 	}
@@ -729,6 +802,22 @@ func NeuralDeepAuthNotices(cfg *config.Config) []NeuralDeepAuthNotice {
 		authPath := config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name)
 		explicit := strings.TrimSpace(prov.EffectiveAPIKey()) != ""
 		st, err := InspectNeuralDeepAuth(authPath)
+		endpoint := neuralDeepAPIBase(prov.APIBase)
+		if base := strings.TrimSpace(prov.APIBase); base != "" {
+			if _, ok := NormalizeNeuralDeepAPIBase(base); !ok {
+				// The silent fallback would otherwise read as a bug: the row
+				// names one endpoint and requests go to another.
+				out = append(out, NeuralDeepAuthNotice{Provider: prov.Name, Warning: true,
+					Message: fmt.Sprintf("api_base %q is not a NeuralDeep endpoint; using %s", base, endpoint)})
+			}
+		}
+		if err == nil && st.Connected && st.Hub != "" {
+			// A key minted by one deployment is not honored by the other.
+			if want := NeuralDeepHubFor(prov.APIBase); !strings.EqualFold(strings.TrimRight(st.Hub, "/"), want) {
+				out = append(out, NeuralDeepAuthNotice{Provider: prov.Name, Warning: true,
+					Message: fmt.Sprintf("signed in via %s but requests go to %s; sign in again for this endpoint if they are rejected", st.Hub, endpoint)})
+			}
+		}
 		switch {
 		case err != nil:
 			out = append(out, NeuralDeepAuthNotice{Provider: prov.Name, Warning: true,

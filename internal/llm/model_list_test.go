@@ -67,6 +67,41 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 }
 
+func TestListModelsNeuralDeepUsesTheSelectedEndpoint(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.8-27b"}]}`))
+	}))
+	defer srv.Close()
+
+	// Stands in for the mirror: api_base is matched against the allowlist, so a
+	// provider can only ever reach a listed deployment.
+	restore := neuralDeepEndpoints
+	neuralDeepEndpoints = []neuralDeepEndpoint{
+		{APIBase: neuralDeepBaseURL, Hub: NeuralDeepHubURL},
+		{APIBase: srv.URL + "/v1", Hub: srv.URL},
+	}
+	t.Cleanup(func() { neuralDeepEndpoints = restore })
+
+	got, err := ListModels(context.Background(), ProviderInput{
+		Type: "neuraldeep", APIKey: "sk-k", BaseURL: srv.URL + "/v1",
+	})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if gotPath != "/v1/models" {
+		t.Errorf("request path = %q, want /v1/models", gotPath)
+	}
+	if gotAuth != "Bearer sk-k" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer sk-k")
+	}
+	if len(got) != 1 || got[0].ID != "qwen3.8-27b" {
+		t.Fatalf("got %+v, want one qwen3.8-27b", got)
+	}
+}
+
 func TestDefaultModelListBaseURLNeuralDeep(t *testing.T) {
 	if got := defaultModelListBaseURL("neuraldeep"); got != neuralDeepBaseURL {
 		t.Fatalf("defaultModelListBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)

@@ -45,6 +45,7 @@ func runProviders(args []string) error {
 	home := fs.String("home", "", "override CODDY_HOME")
 	device := fs.Bool("device", false, "neuraldeep: use the device flow (headless machines, remote browsers)")
 	noConfig := fs.Bool("no-config", false, "neuraldeep: do not add the provider and its models to config.yaml after login")
+	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first)")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
@@ -61,7 +62,7 @@ func runProviders(args []string) error {
 		}
 		return nil
 	case "login":
-		return providersLogin(cfg, name, *device, *noConfig)
+		return providersLogin(cfg, name, *device, *noConfig, *apiBase)
 	case "logout":
 		return providersLogout(cfg, name)
 	default:
@@ -70,7 +71,7 @@ func runProviders(args []string) error {
 }
 
 func providersUsageErr() error {
-	return fmt.Errorf("usage: %s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %s providers list | login <name> [--device] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
 // resolveLoginProvider picks the provider entry for login/logout. A name
@@ -92,7 +93,7 @@ func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConf
 	return nil, fmt.Errorf("provider %q is not in config.yaml; add it first or use the conventional names \"neuraldeep\" / \"codex\"", name)
 }
 
-func providersLogin(cfg *config.Config, name string, device, noConfig bool) error {
+func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiBase string) error {
 	prov, err := resolveLoginProvider(cfg, name)
 	if err != nil {
 		return err
@@ -102,14 +103,41 @@ func providersLogin(cfg *config.Config, name string, device, noConfig bool) erro
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
 		return codexLogin(prov, prov.Name, authPath)
 	case "neuraldeep":
-		return neuralDeepLogin(cfg, prov, device, noConfig)
+		return neuralDeepLogin(cfg, prov, device, noConfig, apiBase)
 	default:
 		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep and codex",
 			prov.Name, prov.Type, config.ProviderAPIKeyEnvVarName(prov.Name))
 	}
 }
 
-func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, noConfig bool) error {
+// resolveNeuralDeepAPIBase settles which NeuralDeep deployment a login talks
+// to: --api-base wins, then the provider row, then the default (reported as an
+// empty string). An unknown flag value is an error rather than a silent
+// fallback - the user would otherwise sign in against the wrong hub and only
+// find out when requests start failing.
+func resolveNeuralDeepAPIBase(flagValue, configured string) (string, error) {
+	if strings.TrimSpace(flagValue) != "" {
+		base, ok := llm.NormalizeNeuralDeepAPIBase(flagValue)
+		if !ok {
+			return "", fmt.Errorf("--api-base %q is not a NeuralDeep endpoint; use one of %s",
+				strings.TrimSpace(flagValue), strings.Join(llm.NeuralDeepAPIBases(), ", "))
+		}
+		return base, nil
+	}
+	if base, ok := llm.NormalizeNeuralDeepAPIBase(configured); ok {
+		return base, nil
+	}
+	return "", nil
+}
+
+func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, noConfig bool, apiBase string) error {
+	// The endpoint decides which hub mints the key, so it has to be settled
+	// before the flow starts: --api-base wins, then the provider row, then the
+	// default deployment. A fresh install outside Russia has no row yet.
+	endpoint, err := resolveNeuralDeepAPIBase(apiBase, prov.APIBase)
+	if err != nil {
+		return err
+	}
 	authPath := config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name)
 	if authPath == "" {
 		return fmt.Errorf("providers: could not resolve the credential path for provider %q", prov.Name)
@@ -122,7 +150,7 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, no
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	hub := llm.NeuralDeepHub()
+	hub := llm.NeuralDeepHubFor(endpoint)
 	var key string
 	if device {
 		key, err = llm.NeuralDeepDeviceSignIn(ctx, hub, client, authPath, neuralDeepDeviceLabel(), func(l llm.NeuralDeepDeviceLogin) {
@@ -155,7 +183,7 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, no
 	if noConfig {
 		return nil
 	}
-	if err := neuralDeepWriteConfig(ctx, cfg, prov.Name, hub, key, client); err != nil {
+	if err := neuralDeepWriteConfig(ctx, cfg, prov.Name, hub, endpoint, key, client); err != nil {
 		// The login itself succeeded; a config write problem must not read as
 		// a failed sign-in.
 		fmt.Fprintf(os.Stderr, "note: could not update config.yaml: %v\n", err)
@@ -164,8 +192,8 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, no
 }
 
 // neuralDeepWriteConfig reports what ApplyNeuralDeepLoginToConfig added.
-func neuralDeepWriteConfig(ctx context.Context, cfg *config.Config, name, hub, key string, client *http.Client) error {
-	added, err := llm.ApplyNeuralDeepLoginToConfig(ctx, cfg, name, hub, key, client)
+func neuralDeepWriteConfig(ctx context.Context, cfg *config.Config, name, hub, apiBase, key string, client *http.Client) error {
+	added, err := llm.ApplyNeuralDeepLoginToConfig(ctx, cfg, name, hub, apiBase, key, client)
 	if err != nil {
 		return err
 	}
@@ -201,7 +229,7 @@ func providersLogout(cfg *config.Config, name string) error {
 			st, _ := llm.InspectNeuralDeepAuth(authPath)
 			hub := st.Hub
 			if hub == "" {
-				hub = llm.NeuralDeepHub()
+				hub = llm.NeuralDeepHubFor(prov.APIBase)
 			}
 			if revokeErr := llm.RevokeNeuralDeepKey(ctx, hub, key, client); revokeErr != nil {
 				fmt.Fprintf(os.Stderr, "note: could not revoke the key on the hub (%v); revoke it in the dashboard: %s/app\n", revokeErr, hub)
@@ -228,9 +256,23 @@ func providersListLines(cfg *config.Config) []string {
 	lines := make([]string, 0, len(cfg.Providers))
 	for i := range cfg.Providers {
 		prov := &cfg.Providers[i]
-		lines = append(lines, "  "+prov.Name+" ("+prov.Type+"): "+providerCredentialSummary(cfg, prov))
+		lines = append(lines, "  "+prov.Name+" ("+prov.Type+"): "+providerCredentialSummary(cfg, prov)+neuralDeepEndpointNote(prov))
 	}
 	return lines
+}
+
+// neuralDeepEndpointNote names the deployment when a row is not on the default
+// one, so `providers list` shows which mirror it talks to. Rows on the default
+// endpoint read exactly as they did before.
+func neuralDeepEndpointNote(prov *config.ProviderConfig) string {
+	if prov.Type != "neuraldeep" {
+		return ""
+	}
+	base, ok := llm.NormalizeNeuralDeepAPIBase(prov.APIBase)
+	if !ok || base == llm.NeuralDeepDefaultAPIBase() {
+		return ""
+	}
+	return " [" + base + "]"
 }
 
 func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) string {
