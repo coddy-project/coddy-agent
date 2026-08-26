@@ -9,6 +9,7 @@ import {
   getLocale,
   onLocaleChange,
   translate,
+  translatePlural,
   type TranslateParams,
 } from "./i18n";
 import { UI_LOCALE_DEFAULT, type UiLocale } from "./locales";
@@ -16,6 +17,8 @@ import { UI_LOCALE_DEFAULT, type UiLocale } from "./locales";
 type I18nContextValue = {
   locale: UiLocale;
   t: (key: string, params?: TranslateParams) => string;
+  /** Count-dependent lookup; the locale picks the CLDR category. See translatePlural. */
+  tp: (key: string, count: number, params?: TranslateParams) => string;
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -32,7 +35,13 @@ export function I18nProvider(props: { children: React.ReactNode }) {
     [locale],
   );
 
-  const value = useMemo(() => ({ locale, t }), [locale, t]);
+  const tp = useCallback(
+    (key: string, count: number, params?: TranslateParams) =>
+      translatePlural(key, count, params),
+    [locale],
+  );
+
+  const value = useMemo(() => ({ locale, t, tp }), [locale, t, tp]);
 
   return (
     <I18nContext.Provider value={value}>{props.children}</I18nContext.Provider>
@@ -47,5 +56,6 @@ export function useT(): I18nContextValue {
   return {
     locale: getLocale(),
     t: translate,
+    tp: translatePlural,
   };
 }

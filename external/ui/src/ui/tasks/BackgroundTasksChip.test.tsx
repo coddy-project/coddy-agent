@@ -79,11 +79,40 @@ test("localizes the task count and accessible label", () => {
   render(<BackgroundTasksChip tasks={[task()]} onOpen={() => {}} />);
 
   expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
-    "Выполняется задач: 1",
+    "Выполняется 1 задача",
   );
   expect(screen.getByTestId("bgtask-chip")).toHaveAttribute(
     "aria-label",
-    "Открыть фоновые задачи: Выполняется задач: 1",
+    "Открыть фоновые задачи: Выполняется 1 задача",
+  );
+});
+
+test("russian task counts decline with the number", () => {
+  setLocale("ru");
+  const { rerender } = render(
+    <BackgroundTasksChip
+      tasks={[task({ id: "bg_1" }), task({ id: "bg_2" })]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняются 2 задачи",
+  );
+
+  rerender(
+    <BackgroundTasksChip
+      tasks={[
+        task({ id: "bg_1" }),
+        task({ id: "bg_2" }),
+        task({ id: "bg_3" }),
+        task({ id: "bg_4" }),
+        task({ id: "bg_5" }),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("bgtask-chip")).toHaveTextContent(
+    "Выполняется 5 задач",
   );
 });
 

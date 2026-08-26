@@ -6,7 +6,7 @@ import {
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
-import { t } from "../i18n/i18n";
+import { t, tp } from "../i18n/i18n";
 
 export type PermissionToolCallContext = {
   title?: string | undefined;
@@ -275,7 +275,7 @@ export function buildToolCallPreview(
       toolName,
       title,
       header: path,
-      meta: [t("permission.meta.chars", { count: content.length })],
+      meta: [tp("permission.meta.chars", content.length)],
       copyText: content,
       kind: "code",
       text: content,
@@ -353,7 +353,7 @@ export function buildToolCallPreview(
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
     if (offset > 0) meta.push(t("permission.meta.fromLine", { line: offset }));
-    if (limit > 0) meta.push(t("permission.meta.lines", { count: limit }));
+    if (limit > 0) meta.push(tp("permission.meta.lines", limit));
     if (boolArg(args, "recursive", false)) {
       meta.push(t("permission.meta.recursive"));
     }

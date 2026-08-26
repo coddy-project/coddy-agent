@@ -13,8 +13,8 @@ export function BackgroundTasksChip(props: {
   tasks: BackgroundTask[];
   onOpen: () => void;
 }) {
-  const { t } = useT();
-  const running = props.tasks.filter((t) => t.running).length;
+  const { t, tp } = useT();
+  const running = props.tasks.filter((task) => task.running).length;
   const total = props.tasks.length;
 
   // Nothing has ever run in this chat, so there is nothing to open.
@@ -24,12 +24,8 @@ export function BackgroundTasksChip(props: {
 
   const live = running > 0;
   const label = live
-    ? t(running === 1 ? "tasks.chip.runningOne" : "tasks.chip.runningMany", {
-        count: running,
-      })
-    : t(total === 1 ? "tasks.chip.totalOne" : "tasks.chip.totalMany", {
-        count: total,
-      });
+    ? tp("tasks.chip.running", running)
+    : tp("tasks.chip.total", total);
 
   return (
     <div className="bgtask-chip-row">
