@@ -29,6 +29,15 @@ Feature: Interactive console TUI
     Then the tool box shows the preview "preview line 1"
     And the tool box shows the expand hint
 
+  Scenario: The status line names what the turn is doing right now
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    Then the status line shows "Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "Reading README.md"
+    When the stub tool call completes without ending the turn
+    Then the status line shows "Waiting for the model"
+
   Scenario: Ask permission mode renders a modal and allow continues the turn
     Given the session permission mode is "ask"
     When the console app starts
