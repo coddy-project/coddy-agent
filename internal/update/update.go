@@ -29,8 +29,12 @@ type Options struct {
 	InstallPath    string // empty = replace os.Executable()
 	CheckOnly      bool
 	Yes            bool
+	NoRestart      bool // Windows only: install the update but do not start Coddy again
 	Stdout         io.Writer
 	HTTPClient     *http.Client
+
+	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
+	windowsInstaller windowsUpdateInstaller
 }
 
 // Run checks GitHub releases and optionally installs a newer binary.
@@ -102,9 +106,42 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	_, _ = fmt.Fprintf(out, "Downloading %s ...\n", asset.Name)
-	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL)
+	data, err := downloadURL(ctx, client, asset.BrowserDownloadURL, newDownloadProgress(out, asset.Name))
 	if err != nil {
 		return err
+	}
+	if err := verifyAssetChecksum(ctx, client, rel, asset.Name, data, out); err != nil {
+		return err
+	}
+	if opts.GOOS == "windows" {
+		body, err := executableFromArchive(data, asset.Name)
+		if err != nil {
+			return err
+		}
+		staged, err := stageExecutable(dest, body)
+		if err != nil {
+			return err
+		}
+		req := windowsUpdateRequest{
+			ParentPID:  os.Getpid(),
+			Restart:    !opts.NoRestart,
+			StagedPath: staged,
+			TargetPath: dest,
+		}
+		installer := opts.windowsInstaller
+		if installer == nil {
+			installer = scheduleWindowsUpdate
+		}
+		if err := installer(req); err != nil {
+			_ = os.Remove(staged)
+			return err
+		}
+		if req.Restart {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits and restart it.\n", latest)
+		} else {
+			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits.\n", latest)
+		}
+		return nil
 	}
 	if err := installFromArchive(data, asset.Name, dest); err != nil {
 		return err

@@ -20,6 +20,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/update"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -67,6 +68,13 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 {
 		a := os.Args[1]
 		if a == "-v" || a == "--version" {
