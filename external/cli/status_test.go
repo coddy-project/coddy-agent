@@ -139,8 +139,8 @@ func TestLiveStatusText(t *testing.T) {
 		t.Errorf("bare verb status = %q", got)
 	}
 
-	// Blocked on the operator: nothing is running, so a climbing counter would be a lie.
-	blocked := newBlockedStatus("Waiting for your approval")
+	// A non-counting status renders without a counter regardless of elapsed time.
+	blocked := liveStatus{verb: "Waiting for your approval"}
 	if got := blocked.statusText(30 * time.Second); got != "Waiting for your approval" {
 		t.Errorf("blocked status = %q, want no counter", got)
 	}
@@ -193,5 +193,51 @@ func TestStatusMessageBeforeAnyStep(t *testing.T) {
 	a := &App{}
 	if got := a.statusMessage(); got != statusWaitingModel {
 		t.Errorf("statusMessage() = %q, want %q", got, statusWaitingModel)
+	}
+}
+
+func TestBlockedQuestionShowsNoCounter(t *testing.T) {
+	// The question tool's verb is the same string as the modal's blocked phrase,
+	// so the modal transition must still strip the counter: nothing is running
+	// while the operator types an answer.
+	a := &App{turnActive: true}
+	a.setStatus(newWorkingStatus(statusVerbForTool("question"), ""))
+	a.blockStatus("Waiting for your answer")
+	if got := a.statusMessage(); strings.Contains(got, "·") {
+		t.Fatalf("counter ticks while blocked on the operator: %q", got)
+	}
+}
+
+func TestBlockedOverlayOutlivesLateToolUpdates(t *testing.T) {
+	a := &App{turnActive: true}
+	a.setStatus(newWorkingStatus("Running", "sleep 6"))
+	a.blockStatus("Waiting for your approval")
+	// The gated call's in_progress update can land after the modal opened
+	// (updatesCh and permCh race in the UI select); the gate must still win.
+	a.setStatus(newWorkingStatus("Running", "sleep 6"))
+	if got := a.statusMessage(); got != "Waiting for your approval" {
+		t.Fatalf("modal status lost to a late tool update: %q", got)
+	}
+
+	a.unblockStatus()
+	got := a.statusMessage()
+	if !strings.HasPrefix(got, "Running sleep 6") {
+		t.Fatalf("gated tool not restored after approval: %q", got)
+	}
+	// The approved tool only starts executing now, so its clock restarts;
+	// counting from before the modal would bill the operator's thinking time.
+	if !strings.Contains(got, "· 0s") {
+		t.Fatalf("step clock did not restart when the gate lifted: %q", got)
+	}
+}
+
+func TestUnblockWithoutGateKeepsTheStepClock(t *testing.T) {
+	// closeModal runs for every modal (model picker, history); without an
+	// active gate it must not touch the running step's counter.
+	first := time.Now().Add(-time.Hour)
+	a := &App{turnActive: true, stepStatus: liveStatus{verb: "Running", target: "x", startedAt: first, counts: true}}
+	a.unblockStatus()
+	if !a.stepStatus.startedAt.Equal(first) {
+		t.Fatal("unblockStatus without a gate restarted the step clock")
 	}
 }

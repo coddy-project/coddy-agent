@@ -62,6 +62,7 @@ type App struct {
 
 	spinner       *tui.Loader
 	stepStatus    liveStatus
+	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
 	switching     bool
@@ -550,10 +551,9 @@ func (a *App) openModal(c tui.Component) {
 }
 
 func (a *App) closeModal() {
-	if a.turnActive && !a.stepStatus.counts {
-		// The gate is answered; whatever was blocked is back in the model's hands.
-		a.setStatus(newWaitingStatus())
-	}
+	// The gate is answered; the status line goes back to the gated step itself
+	// (an approved tool only starts executing now, so its clock restarts too).
+	a.unblockStatus()
 	a.modal = nil
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(a.editor)
@@ -561,7 +561,7 @@ func (a *App) closeModal() {
 }
 
 func (a *App) openPermissionModal(req permRequest) {
-	a.setStatus(newBlockedStatus("Waiting for your approval"))
+	a.blockStatus("Waiting for your approval")
 	m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.PermissionResult) {
 		req.reply <- res
@@ -572,7 +572,7 @@ func (a *App) openPermissionModal(req permRequest) {
 }
 
 func (a *App) openQuestionModal(req questRequest) {
-	a.setStatus(newBlockedStatus("Waiting for your answer"))
+	a.blockStatus("Waiting for your answer")
 	m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.QuestionResult) {
 		req.reply <- res
@@ -611,6 +611,7 @@ func (a *App) submitPrompt(text string) {
 	a.chat.AddChild(newUserMessage(a.theme, text))
 	a.curAssistant = nil
 	a.stepStatus = newWaitingStatus()
+	a.stepBlocked = ""
 	a.startSpinner()
 	a.turnActive = true
 	sessionID := a.sessionID

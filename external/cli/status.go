@@ -55,9 +55,25 @@ func newWorkingStatus(verb, target string) liveStatus {
 	return liveStatus{verb: verb, target: target, startedAt: time.Now(), counts: true}
 }
 
-// newBlockedStatus starts a step that is parked on the operator: no counter.
-func newBlockedStatus(verb string) liveStatus {
-	return liveStatus{verb: verb}
+// blockStatus parks the status line on an operator gate (permission or question
+// modal). The phrase is kept apart from stepStatus instead of replacing it: the
+// gated tool's in_progress update can land after the modal opened (updatesCh and
+// permCh race in the UI select), and an overlay cannot be overwritten by it. It
+// renders without a counter - nothing is running while the operator decides.
+func (a *App) blockStatus(verb string) {
+	a.stepBlocked = verb
+}
+
+// unblockStatus lifts the gate. The underlying step resumes now, so its clock
+// restarts: time spent waiting on the operator is not work and must not count.
+func (a *App) unblockStatus() {
+	if a.stepBlocked == "" {
+		return
+	}
+	a.stepBlocked = ""
+	if a.turnActive {
+		a.stepStatus.startedAt = time.Now()
+	}
 }
 
 // statusVerbForTool is the present-progressive phrase for a backend tool id. Tool ids are
@@ -292,6 +308,9 @@ func (s liveStatus) statusText(elapsed time.Duration) string {
 // statusMessage is the loader's message provider: it runs inside Loader.Render on the UI
 // goroutine, so reading App state here needs no extra synchronization.
 func (a *App) statusMessage() string {
+	if a.stepBlocked != "" {
+		return a.stepBlocked
+	}
 	if a.stepStatus.verb == "" {
 		return statusWaitingModel
 	}
