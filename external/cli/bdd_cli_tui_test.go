@@ -422,6 +422,19 @@ func (s *cliTUIState) stubToolCompletesWithLines(count int) error {
 	return s.waitTurnEnd(2 * time.Second)
 }
 
+// statusLineShows waits for the spinner's status message. The verb and its target are
+// composed only by the status line, so "Reading README.md" cannot come from the tool box.
+func (s *cliTUIState) statusLineShows(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+// stubToolCompletesWithoutEndingTurn finishes the call but leaves the turn running, which
+// is the state where the status line has to fall back to waiting on the model.
+func (s *cliTUIState) stubToolCompletesWithoutEndingTurn() error {
+	s.directives <- stubDirective{kind: "tool_done", preview: "done"}
+	return s.waitScreen("done", 3*time.Second)
+}
+
 func (s *cliTUIState) toolBoxShowsPreview(preview string) error {
 	return s.waitScreen(preview, 2*time.Second)
 }
@@ -461,6 +474,24 @@ func (s *cliTUIState) operatorConfirmsPermissionOption() error {
 		if got != "" {
 			s.directives <- stubDirective{kind: "end"}
 			return s.waitTurnEnd(2 * time.Second)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("permission result never arrived")
+}
+
+// operatorAllowsPermissionKeepingTurn confirms the highlighted option but leaves the
+// turn running, which is the state where the status line has to name the gated tool
+// again rather than claim the model is being waited on.
+func (s *cliTUIState) operatorAllowsPermissionKeepingTurn() error {
+	s.press("\r")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		got := s.permOutcome
+		s.mu.Unlock()
+		if got != "" {
+			return nil
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -786,10 +817,19 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument path "([^"]*)"$`, func(tool, path string) error {
 		return s.stubStartsToolCall(tool, "path", path)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
+		// A run_command box titles itself "$ <command>", not with the tool name,
+		// so readiness is the command string appearing on screen.
+		s.directives <- stubDirective{kind: "tool_start", tool: tool, argsKey: "command", argsVal: command}
+		return s.waitScreen(command, 3*time.Second)
+	})
+	sc.Step(`^the operator allows the pending permission without ending the turn$`, s.operatorAllowsPermissionKeepingTurn)
 	sc.Step(`^the transcript shows a pending tool box titled "([^"]*)"$`, s.transcriptShowsPendingToolBox)
 	sc.Step(`^the stub tool call completes with a preview of (\d+) lines$`, s.stubToolCompletesWithLines)
 	sc.Step(`^the tool box shows the preview "([^"]*)"$`, s.toolBoxShowsPreview)
 	sc.Step(`^the tool box shows the expand hint$`, s.toolBoxShowsExpandHint)
+	sc.Step(`^the stub tool call completes without ending the turn$`, s.stubToolCompletesWithoutEndingTurn)
+	sc.Step(`^the status line shows "([^"]*)"$`, s.statusLineShows)
 	sc.Step(`^the session permission mode is "([^"]*)"$`, s.permissionModeIs)
 	sc.Step(`^the stub turn requests permission for the tool "([^"]*)"$`, s.stubRequestsPermission)
 	sc.Step(`^the screen shows a permission modal with an allow option$`, s.screenShowsPermissionModalWithAllow)
