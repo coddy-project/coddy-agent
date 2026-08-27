@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
@@ -23,7 +29,9 @@ const gitCtx: WorkspaceContext = {
   worktrees: [{ path: "/repos/coddy-agent", branch: "main", main: true }],
 };
 
-function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {}) {
+function renderChips(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {},
+) {
   const props: React.ComponentProps<typeof WorkspaceChips> = {
     context: gitCtx,
     worktreePref: false,
@@ -53,21 +61,27 @@ describe("WorkspaceChips", () => {
 
   it("shows only the folder chip for a non-git workspace", () => {
     renderChips({ context: plainCtx });
-    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain("plain");
+    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain(
+      "plain",
+    );
     expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
     expect(screen.queryByTestId("composer-worktree-chip")).toBeNull();
   });
 
   it("renders the worktree control as a real checkbox", () => {
     renderChips();
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.type).toBe("checkbox");
     expect(box.checked).toBe(false);
   });
 
   it("checks and disables the worktree checkbox when the session lives in a worktree", () => {
     renderChips({ context: { ...gitCtx, is_worktree: true } });
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(box.disabled).toBe(true);
   });
@@ -82,7 +96,9 @@ describe("WorkspaceChips", () => {
     const { props } = renderChips({ worktreePref: true });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     const menu = screen.getByTestId("workspace-branch-menu");
-    const rows = menu.querySelectorAll("[data-testid^='workspace-branch-row-']");
+    const rows = menu.querySelectorAll(
+      "[data-testid^='workspace-branch-row-']",
+    );
     expect(rows.length).toBe(2);
     fireEvent.click(screen.getByTestId("workspace-branch-row-feature/login"));
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
@@ -91,13 +107,16 @@ describe("WorkspaceChips", () => {
   it("locks every control once the conversation started", () => {
     renderChips({ locked: true });
     expect(
-      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement).disabled,
+      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     fireEvent.click(screen.getByTestId("composer-workspace-chip"));
     expect(screen.queryByTestId("workspace-folder-menu")).toBeNull();
@@ -162,7 +181,9 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
     fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
     await waitFor(() =>
-      expect(screen.getByTestId("workspace-modal-open").textContent).toContain("Open"),
+      expect(screen.getByTestId("workspace-modal-open").textContent).toContain(
+        "Open",
+      ),
     );
 
     fireEvent.click(screen.getByTestId("workspace-modal-open"));
@@ -236,7 +257,10 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-C:"));
 
     // The drive level is a place to navigate, not a workspace to open.
-    expect(screen.getByTestId("workspace-modal-open")).toHaveProperty("disabled", true);
+    expect(screen.getByTestId("workspace-modal-open")).toHaveProperty(
+      "disabled",
+      true,
+    );
     expect(screen.queryByTestId("workspace-modal-up")).toBeNull();
 
     fireEvent.click(screen.getByTestId("workspace-modal-row-C:"));
@@ -249,11 +273,72 @@ describe("WorkspaceChips", () => {
     expect(screen.getByTestId("workspace-modal-open").textContent).toBe("Go");
     fireEvent.keyDown(field, { key: "Enter" });
     await waitFor(() =>
-      expect(screen.getByTestId("workspace-modal-open").textContent).toBe("Open"),
+      expect(screen.getByTestId("workspace-modal-open").textContent).toBe(
+        "Open",
+      ),
     );
 
     fireEvent.click(screen.getByTestId("workspace-modal-open"));
     expect(props.onPickFolder).toHaveBeenCalledWith("D:\\work");
+  });
+
+  it("keeps the most recently requested folder when an older listing arrives late", async () => {
+    let resolveRoot: (response: unknown) => void = () => {};
+    const rootResponse = new Promise((resolve) => {
+      resolveRoot = resolve;
+    });
+    const listings: Record<string, unknown> = {
+      "/repos": {
+        path: "/repos",
+        parent: "/",
+        folders: [{ name: "other", path: "/repos/other" }],
+      },
+      "/repos/other": {
+        path: "/repos/other",
+        parent: "/repos",
+        folders: [],
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const u = new URL(String(url), "http://localhost");
+      const p = u.searchParams.get("path") || "";
+      if (p === "/") {
+        return rootResponse;
+      }
+      return Promise.resolve({ ok: true, json: async () => listings[p] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    // The slow parent request starts first. The old listing is still visible,
+    // so a user can navigate into a child before that response comes back.
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+        "value",
+        "/repos/other",
+      ),
+    );
+
+    resolveRoot({
+      ok: true,
+      json: async () => ({
+        path: "/",
+        parent: "/",
+        folders: [{ name: "repos", path: "/repos" }],
+      }),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "/repos/other",
+    );
   });
 
   it("cancels the folder browser modal without picking", async () => {

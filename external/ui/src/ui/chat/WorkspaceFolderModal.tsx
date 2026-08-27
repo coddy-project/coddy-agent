@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { cleanPathInput, type WorkspaceFolderListing } from "./workspaceContext";
+import {
+  cleanPathInput,
+  type WorkspaceFolderListing,
+} from "./workspaceContext";
 
 type Props = {
   open: boolean;
@@ -20,22 +23,31 @@ export function WorkspaceFolderModal(props: Props) {
   const [error, setError] = useState("");
   // What the path field shows; empty on the drive level, which has no path.
   const [draft, setDraft] = useState("");
+  const browseRequest = useRef(0);
 
   const browse = async (path: string) => {
+    const request = ++browseRequest.current;
     try {
       const res = await fetch(
         "/coddy/workspace/folders?path=" + encodeURIComponent(path),
       );
       if (!res.ok) {
-        setError("Cannot list " + path);
+        if (request === browseRequest.current) {
+          setError("Cannot list " + path);
+        }
         return;
       }
       const next = (await res.json()) as WorkspaceFolderListing;
+      if (request !== browseRequest.current) {
+        return;
+      }
       setListing(next);
       setDraft(next.drives ? "" : next.path);
       setError("");
     } catch {
-      setError("Cannot list " + path);
+      if (request === browseRequest.current) {
+        setError("Cannot list " + path);
+      }
     }
   };
 
@@ -125,11 +137,21 @@ export function WorkspaceFolderModal(props: Props) {
             >
               <span className="workspace-chip-icon" aria-hidden="true">
                 {listing?.drives ? (
-                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="12"
+                    height="12"
+                    fill="currentColor"
+                  >
                     <path d="M2 3.25c0-.41.34-.75.75-.75h10.5c.41 0 .75.34.75.75v5.25H1.5V3.25Zm-.5 6.25h13c.28 0 .5.22.5.5v2.75c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75V10c0-.28.22-.5.5-.5Zm10.25 1.25a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" />
                   </svg>
                 ) : (
-                  <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                  <svg
+                    viewBox="0 0 16 16"
+                    width="12"
+                    height="12"
+                    fill="currentColor"
+                  >
                     <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
                   </svg>
                 )}
