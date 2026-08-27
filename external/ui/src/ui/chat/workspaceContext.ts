@@ -24,6 +24,9 @@ export type WorkspaceFolderListing = {
   path: string;
   parent: string;
   folders: WorkspaceFolderRow[];
+  // The drive level (":drives:") lists the machine volumes instead of a real
+  // folder: it is a place to navigate through, not a workspace to open.
+  drives?: boolean;
 };
 
 export function pathBasename(p: string): string {
@@ -32,13 +35,40 @@ export function pathBasename(p: string): string {
   return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
 }
 
+// pathParent is separator-agnostic: the server may run on Windows, where the
+// paths it hands back are backslash-separated. A path with no parent (a drive
+// root, a bare UNC share, the posix root) is returned unchanged rather than
+// collapsed to "/", which would send the picker to a different volume.
 export function pathParent(p: string): string {
-  const trimmed = (p || "").replace(/[/\\]+$/, "");
-  const idx = trimmed.lastIndexOf("/");
-  if (idx <= 0) {
+  const raw = (p || "").trim();
+  const trimmed = raw.replace(/[/\\]+$/, "");
+  const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  if (idx < 0) {
+    return raw;
+  }
+  if (idx === 0) {
     return "/";
   }
-  return trimmed.slice(0, idx);
+  const head = trimmed.slice(0, idx);
+  if (/^[A-Za-z]:$/.test(head)) {
+    // "H:" alone is the drive's current directory, not its root.
+    return head + "\\";
+  }
+  if (/^\\\\[^\\]*$/.test(head)) {
+    // "\\\\server" is a host, not a folder: the share is already the top.
+    return raw;
+  }
+  return head;
+}
+
+// cleanPathInput normalizes a hand-typed or pasted path: Windows Explorer's
+// "Copy as path" wraps the value in double quotes.
+export function cleanPathInput(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
 }
 
 export function folderChipLabel(ctx: WorkspaceContext | null): string {

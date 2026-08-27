@@ -170,6 +170,92 @@ describe("WorkspaceChips", () => {
     expect(screen.queryByTestId("workspace-folder-modal")).toBeNull();
   });
 
+  it("reaches other drives through the drive level and a typed path", async () => {
+    // Windows-shaped server: a drive root has no parent directory, so the
+    // listing points at the ":drives:" volume level instead.
+    const winCtx: WorkspaceContext = {
+      path: "H:\\repos\\app",
+      name: "app",
+      is_git_repo: false,
+      is_worktree: false,
+    };
+    const listings: Record<string, unknown> = {
+      "H:\\repos": {
+        path: "H:\\repos",
+        parent: "H:\\",
+        folders: [{ name: "app", path: "H:\\repos\\app" }],
+      },
+      "H:\\": {
+        path: "H:\\",
+        parent: ":drives:",
+        folders: [{ name: "repos", path: "H:\\repos" }],
+      },
+      ":drives:": {
+        path: ":drives:",
+        parent: ":drives:",
+        drives: true,
+        folders: [
+          { name: "C:", path: "C:\\" },
+          { name: "H:", path: "H:\\" },
+        ],
+      },
+      "C:\\": {
+        path: "C:\\",
+        parent: ":drives:",
+        folders: [{ name: "Users", path: "C:\\Users" }],
+      },
+      "D:\\work": {
+        path: "D:\\work",
+        parent: "D:\\",
+        folders: [],
+      },
+    };
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const u = new URL(String(url), "http://localhost");
+      const p = u.searchParams.get("path") || "";
+      const hit = listings[p];
+      return Promise.resolve({ ok: Boolean(hit), json: async () => hit });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { props } = renderChips({ context: winCtx });
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+
+    // Starts at the parent of the workspace on the same drive, not at "/".
+    await waitFor(() => screen.getByTestId("workspace-modal-row-app"));
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "H:\\repos",
+    );
+
+    // Up to the drive root, then up again into the drive list.
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-repos"));
+    fireEvent.click(screen.getByTestId("workspace-modal-up"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-C:"));
+
+    // The drive level is a place to navigate, not a workspace to open.
+    expect(screen.getByTestId("workspace-modal-open")).toHaveProperty("disabled", true);
+    expect(screen.queryByTestId("workspace-modal-up")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("workspace-modal-row-C:"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-Users"));
+    expect(props.onPickFolder).not.toHaveBeenCalled();
+
+    // A pasted path jumps to a third drive; the button says what it will do.
+    const field = screen.getByTestId("workspace-modal-path");
+    fireEvent.change(field, { target: { value: '"D:\\work"' } });
+    expect(screen.getByTestId("workspace-modal-open").textContent).toBe("Go");
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-open").textContent).toBe("Open"),
+    );
+
+    fireEvent.click(screen.getByTestId("workspace-modal-open"));
+    expect(props.onPickFolder).toHaveBeenCalledWith("D:\\work");
+  });
+
   it("cancels the folder browser modal without picking", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
