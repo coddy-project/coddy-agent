@@ -238,7 +238,8 @@ type MemoryItem = Extract<TranscriptItem, { type: "memory_copilot" }>;
 export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
   let permissionPending = false;
   let questionPending = false;
-  let tool: ToolItem | null = null;
+  let toolRunning: ToolItem | null = null;
+  let toolPending: ToolItem | null = null;
   let thinking: ThinkingItem | null = null;
   let memory: MemoryItem | null = null;
   // When the model went quiet: end of the most recent finished step in this turn.
@@ -266,8 +267,12 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
         }
         break;
       case "tool_call":
-        if (!tool && (it.status === "pending" || it.status === "in_progress")) {
-          tool = it;
+        // The agent announces every call as pending while the response streams,
+        // then executes sequentially: a running call beats any later pending one.
+        if (!toolRunning && it.status === "in_progress") {
+          toolRunning = it;
+        } else if (!toolPending && it.status === "pending") {
+          toolPending = it;
         }
         if (waitingFrom === undefined && typeof it.finishedAtMs === "number") {
           waitingFrom = it.finishedAtMs;
@@ -310,6 +315,7 @@ export function deriveLiveStatus(items: readonly TranscriptItem[]): LiveStatus {
     return { kind: "question", key: "status.awaitingAnswer", target: "" };
   }
 
+  const tool = toolRunning ?? toolPending;
   if (tool) {
     const rawName = (tool.title || tool.kind || "").trim();
     const key = statusKeyForTool(rawName);
