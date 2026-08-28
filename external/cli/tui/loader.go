@@ -22,6 +22,7 @@ type Loader struct {
 	spinnerColorFn func(string) string
 	messageColorFn func(string) string
 	message        string
+	messageFn      func() string
 	startedAt      time.Time
 
 	requestRender func()
@@ -83,6 +84,20 @@ func (l *Loader) SetMessage(message string) {
 	}
 }
 
+// SetMessageFunc installs a provider consulted on every render, so a caller can
+// show a message that keeps changing (an elapsed counter) without a second
+// ticker: the 80 ms tick above already drives renders. The provider runs inside
+// Render, i.e. on the UI goroutine, so it may read UI state directly. Pass nil
+// to go back to the static message.
+func (l *Loader) SetMessageFunc(fn func() string) {
+	l.mu.Lock()
+	l.messageFn = fn
+	l.mu.Unlock()
+	if l.requestRender != nil {
+		l.requestRender()
+	}
+}
+
 // Invalidate is a no-op; frames are computed per render.
 func (l *Loader) Invalidate() {}
 
@@ -91,7 +106,11 @@ func (l *Loader) Invalidate() {}
 func (l *Loader) Render(width int) []string {
 	l.mu.Lock()
 	frame := loaderFrames[int(time.Since(l.startedAt)/loaderInterval)%len(loaderFrames)]
-	text := l.spinnerColorFn(frame) + " " + l.messageColorFn(l.message)
+	message := l.message
+	if l.messageFn != nil {
+		message = l.messageFn()
+	}
+	text := l.spinnerColorFn(frame) + " " + l.messageColorFn(message)
 	l.mu.Unlock()
 	line := NewText(text, 1, 0, nil)
 	return append([]string{""}, line.Render(width)...)

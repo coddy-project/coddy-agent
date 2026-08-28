@@ -317,6 +317,16 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
   - When a structured preview and **Result** are both present, they touch and share the outer corners as one continuous execution card; there is no gap or duplicate border between them.
   - Details reuse the permission card's tool-specific preview without copy or approval actions. **read**, **grep**, **glob**, and **print_tree** receive compact structured argument previews; unknown tools keep a styled monospace fallback. Large **`write`** / **`write_file`** code previews and **`apply_patch`** / **`edit`** diffs use the shared measured viewport: **More…** appears only for real overflow, preserves the card height while enabling internal scrolling, and **Less** clips the body again and returns it to the top. The separate **Result** body is plain text only (rendered like **`<pre>`**, **no** Markdown pipeline). If **`resultPreviewTruncated`** is false / **`resultWasTruncated`** unset, there is no result overflow toggle or fixed-height result viewport. If truncated (19 content lines plus **`...`**), apply the capped result viewport (~20 lines) with **overflow-y** hidden until **More…**; **More…** (**`data-testid="tool-result-more"`**) performs **GET `/coddy/sessions/{id}/tool-calls/{toolCallId}`**, then enables **overflow-y auto** at the same height and becomes **Less** (**`data-testid="tool-result-less"`**); **Less** restores the clipped preview without a second GET while **fullResultText** stays in memory. Both preview and result controls use the shared left-aligned **`tool-overflow-toggle`** tab button.
 
+## Live status next to the typing dots
+
+While a turn runs and no assistant text streams yet, the typing dots carry a live status line (`TypingDotsMessage.tsx`, pure derivation in `chat/liveStatus.ts`, visual contract in `DESIGN.md`):
+
+- Verb + target + elapsed counter for the current step (`Reading external/ui/src/ui/App.tsx · 12s`); only the target ellipsizes when space runs out.
+- Priority: unresolved permission prompt → unresolved question prompt → running tool call (an `in_progress` call beats a later announced `pending` one) → in-progress thinking → memory copilot → waiting on the model.
+- The two prompt states render **no** counter: nothing is running while the operator decides.
+- A plain wait escalates with time: `Waiting for the model` → `The model is taking longer than usual` (15 s, `typing-dots-status--slow`) → `Still no response from the server` (60 s).
+- Derivation scans back to the last `user_message`, so a stale `in_progress` row from a finished turn never drives the label. The console twin of the phrase table lives in `external/cli/status.go`.
+
 ## Tool call card (bundled SPA, current)
 
 Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklist.

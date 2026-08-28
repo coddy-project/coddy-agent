@@ -95,6 +95,42 @@ function numberArg(
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * The one argument that identifies what a call acts on: the path it reads, the command it
+ * runs, the pattern it searches for. Returns "" when the call takes no meaningful target
+ * or its arguments have not streamed in yet. Used by the live status line (liveStatus.ts)
+ * to render "Reading src/app.ts" rather than a bare verb.
+ */
+export function toolCallTargetText(context: PermissionToolCallContext): string {
+  const toolName = (
+    normalizedToolName(context.title) ||
+    normalizedToolName(context.kind) ||
+    ""
+  ).toLowerCase();
+  const args = parseArgsText(context.argsText || "");
+  if (!args) {
+    return "";
+  }
+  switch (toolName) {
+    case "run_command":
+    case "ssh_run_command":
+      return stringArg(args, "command");
+    case "grep":
+    case "glob":
+      return stringArg(args, "pattern");
+    case "websearch":
+      return stringArg(args, "query");
+    case "mv":
+      return stringArg(args, "src");
+    case "question":
+      return "";
+    default:
+      // read / write / edit / apply_patch / mkdir / touch / rm / rmdir / print_tree /
+      // plan_* take a path; webfetch takes a url.
+      return stringArg(args, "path", "filePath", "file_path", "url", "name");
+  }
+}
+
 function questionForTool(
   toolName: string,
   args: Record<string, unknown>,

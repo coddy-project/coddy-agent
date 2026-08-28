@@ -367,6 +367,33 @@ func TestOpenAIStreamTruncatedBeforeFirstDelta(t *testing.T) {
 	}
 }
 
+// TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial ensures a cut stream
+// preserves reasoning that was already sent to the caller, even if no answer
+// text followed it. The ReAct loop needs a non-nil response to persist that
+// visible reasoning next to the truncation error.
+func TestOpenAIStreamTruncatedKeepsReasoningOnlyPartial(t *testing.T) {
+	p, done := streamStubProvider(t,
+		"data: {\"choices\":[{\"finish_reason\":null,\"index\":0,\"delta\":{\"reasoning_content\":\"Thinking through it\"}}],\"id\":\"chatcmpl-tr\",\"model\":\"test-model\",\"object\":\"chat.completion.chunk\"}\n\n")
+	defer done()
+
+	var streamed strings.Builder
+	resp, err := p.Stream(context.Background(), []Message{{Role: RoleUser, Content: "hi"}}, nil, func(c StreamChunk) {
+		streamed.WriteString(c.ReasoningDelta)
+	})
+	if !IsStreamTruncated(err) {
+		t.Fatalf("err = %v, want stream truncation", err)
+	}
+	if isRetryableLLMError(err) {
+		t.Fatal("truncation after emitted reasoning must not be retryable")
+	}
+	if got := streamed.String(); got != "Thinking through it" {
+		t.Fatalf("streamed reasoning = %q, want %q", got, "Thinking through it")
+	}
+	if resp == nil || resp.Content != "" || resp.Reasoning != "Thinking through it" {
+		t.Fatalf("resp = %+v, want reasoning-only partial response", resp)
+	}
+}
+
 // TestOpenAIStreamTruncatedNotRetriedAfterDeltas pins the resilient-wrapper
 // contract for truncations: once deltas reached the caller the request is
 // not replayed (the same text would stream twice) and the partial response

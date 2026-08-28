@@ -4,6 +4,7 @@ import {
   buildPermissionToolPreview,
   buildToolCallPreview,
   permissionPromptToolName,
+  toolCallTargetText,
 } from "./permissionToolPreview";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { setLocale } from "../i18n/i18n";
@@ -214,4 +215,62 @@ test("builds readable transcript previews for read-only Coddy tools", () => {
     kind: "code",
     text: "permission-preview",
   });
+});
+
+test("toolCallTargetText names the one thing each call acts on", () => {
+  expect(
+    toolCallTargetText({ title: "read", argsText: '{"path":"a/b.ts"}' }),
+  ).toBe("a/b.ts");
+  expect(
+    toolCallTargetText({
+      title: "run_command",
+      argsText: '{"command":"go test ./..."}',
+    }),
+  ).toBe("go test ./...");
+  expect(
+    toolCallTargetText({
+      title: "ssh_run_command",
+      argsText: '{"command":"uptime","host":"box"}',
+    }),
+  ).toBe("uptime");
+  expect(
+    toolCallTargetText({ title: "grep", argsText: '{"pattern":"TODO"}' }),
+  ).toBe("TODO");
+  expect(
+    toolCallTargetText({ title: "websearch", argsText: '{"query":"go slog"}' }),
+  ).toBe("go slog");
+  expect(
+    toolCallTargetText({
+      title: "mv",
+      argsText: '{"src":"a.ts","dst":"b.ts"}',
+    }),
+  ).toBe("a.ts");
+  expect(
+    toolCallTargetText({
+      title: "webfetch",
+      argsText: '{"url":"https://x.dev"}',
+    }),
+  ).toBe("https://x.dev");
+});
+
+test("toolCallTargetText stays empty when there is nothing to name", () => {
+  // A question carries its prompt, not a target; a call whose arguments have not
+  // streamed in yet has to render as a bare verb rather than as "undefined".
+  expect(
+    toolCallTargetText({
+      title: "question",
+      argsText: '{"question":"which?"}',
+    }),
+  ).toBe("");
+  expect(toolCallTargetText({ title: "read" })).toBe("");
+  expect(toolCallTargetText({ title: "read", argsText: "not json" })).toBe("");
+});
+
+test("toolCallTargetText accepts the Run: prefix and the Arguments: envelope", () => {
+  expect(
+    toolCallTargetText({
+      title: "Run: run_command",
+      argsText: 'Arguments: {"command":"make lint"}',
+    }),
+  ).toBe("make lint");
 });
