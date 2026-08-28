@@ -108,6 +108,322 @@ export const messagesEn: Record<string, string> = {
   "settings.field.apiKeyPlaceholderInvalid":
     "Provider id must start with a letter. When the id is valid, leave empty to read the NAME_API_KEY variable (NAME is uppercase, hyphens become underscores).",
 
+  // Schema-driven settings fields: labels and descriptions rendered from the
+  // server JSON Schema (internal/config/ui_schema.go), keyed
+  // settings.schema.<section>.<dotted.field.path>.label / .desc and resolved by
+  // settings/schemaI18n.ts. English mirrors the schema text so the default
+  // locale renders exactly what the server sends. System-group children live
+  // under settings.schema.system.<child>.<path>.
+  "settings.schema.providers.desc":
+    "API credentials and transport selection for upstream LLM vendors.",
+  "settings.schema.providers.name.label": "Provider name",
+  "settings.schema.providers.name.desc":
+    "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+  "settings.schema.providers.type.label": "Provider type",
+  "settings.schema.providers.type.desc":
+    "Wire protocol for this provider entry.",
+  "settings.schema.providers.api_base.label": "API base URL",
+  "settings.schema.providers.api_base.desc":
+    "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
+  "settings.schema.providers.api_key.label": "API key",
+  "settings.schema.providers.api_key.desc":
+    "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+  "settings.schema.providers.api_key_command.label": "API key command",
+  "settings.schema.providers.api_key_command.desc":
+    "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable.",
+  "settings.schema.providers.proxy.label": "HTTP or SOCKS proxy",
+  "settings.schema.providers.proxy.desc":
+    "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection.",
+  "settings.schema.providers.timeout_ms.label": "Request timeout ms",
+  "settings.schema.providers.timeout_ms.desc":
+    "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+
+  "settings.schema.models.desc":
+    "Named model entries the agent and UI can select; ids reference provider prefixes.",
+  "settings.schema.models.model.label": "Model id",
+  "settings.schema.models.model.desc":
+    "Logical id in the form provider/api-model-id; must match a provider name prefix.",
+  "settings.schema.models.max_tokens.label": "Max tokens",
+  "settings.schema.models.max_tokens.desc":
+    "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
+  "settings.schema.models.temperature.label": "Temperature",
+  "settings.schema.models.temperature.desc":
+    "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
+  "settings.schema.models.max_context_tokens.label":
+    "Max context tokens (UI hint)",
+  "settings.schema.models.max_context_tokens.desc":
+    "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
+  "settings.schema.models.multimodal.label": "Multimodal",
+  "settings.schema.models.multimodal.desc":
+    "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.",
+  "settings.schema.models.reasoning_levels.label": "Reasoning levels",
+  "settings.schema.models.reasoning_levels.desc":
+    "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+  "settings.schema.models.reasoning_default.label":
+    "Default reasoning level",
+  "settings.schema.models.reasoning_default.desc":
+    "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+  "settings.schema.models.stream.label": "Stream responses",
+  "settings.schema.models.stream.desc":
+    "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+
+  "settings.schema.agent.model.label": "Default model",
+  "settings.schema.agent.model.desc":
+    "Logical model id from the models list used when the client omits a model.",
+  "settings.schema.agent.max_turns.label": "Max turns",
+  "settings.schema.agent.max_turns.desc":
+    "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.",
+  "settings.schema.agent.max_tokens_per_turn.label": "Max tokens per turn",
+  "settings.schema.agent.max_tokens_per_turn.desc":
+    "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
+  "settings.schema.agent.llm_retry_max.label": "LLM retry max",
+  "settings.schema.agent.llm_retry_max.desc":
+    "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).",
+  "settings.schema.agent.llm_retry_base_ms.label": "LLM retry base ms",
+  "settings.schema.agent.llm_retry_base_ms.desc":
+    "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.",
+  "settings.schema.agent.llm_min_interval_ms.label": "LLM min interval ms",
+  "settings.schema.agent.llm_min_interval_ms.desc":
+    "Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing).",
+  "settings.schema.agent.llm_first_token_timeout_ms.label":
+    "LLM first token timeout ms",
+  "settings.schema.agent.llm_first_token_timeout_ms.desc":
+    "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
+  "settings.schema.agent.loop_guard.label": "Loop guard",
+  "settings.schema.agent.loop_guard.desc":
+    "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+  "settings.schema.agent.loop_tool_repeat_limit.label":
+    "Loop tool repeat limit",
+  "settings.schema.agent.loop_tool_repeat_limit.desc":
+    "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+  "settings.schema.agent.loop_stream_repeat_cycles.label":
+    "Loop stream repeat cycles",
+  "settings.schema.agent.loop_stream_repeat_cycles.desc":
+    "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+  "settings.schema.agent.loop_nudge_max.label": "Loop nudge max",
+  "settings.schema.agent.loop_nudge_max.desc":
+    "How many times one turn may be nudged back on track before the loop guard stops it.",
+
+  "settings.schema.tools.permission_mode.label": "Permission mode",
+  "settings.schema.tools.permission_mode.desc":
+    "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
+  "settings.schema.tools.command_allowlist.label": "Command allowlist",
+  "settings.schema.tools.command_allowlist.desc":
+    "If non-empty, only these shell command prefixes may run without extra policy.",
+  "settings.schema.tools.output_limits.label": "Tool output limits",
+  "settings.schema.tools.output_limits.desc":
+    "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
+  "settings.schema.tools.output_limits.read.desc":
+    "Max lines for a read file page or directory listing (default 1000).",
+  "settings.schema.tools.output_limits.grep.desc":
+    "Max path:line:content records from grep (default 200).",
+  "settings.schema.tools.output_limits.glob.desc":
+    "Max paths from glob (default 300).",
+  "settings.schema.tools.output_limits.print_tree.desc":
+    "Max lines of a directory tree (default 400).",
+  "settings.schema.tools.output_limits.run_command.desc":
+    "Max stdout+stderr lines of a shell command (default 500).",
+  "settings.schema.tools.output_limits.ssh_run_command.desc":
+    "Max stdout+stderr lines of a remote SSH command (default 500).",
+  "settings.schema.tools.output_limits.webfetch.desc":
+    "Max lines of fetched page markdown (default 800).",
+  "settings.schema.tools.output_limits.websearch.desc":
+    "Max lines of search results (default 200).",
+  "settings.schema.tools.output_limits.default.desc":
+    "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).",
+  "settings.schema.tools.background.label": "Background tasks",
+  "settings.schema.tools.background.desc":
+    "Commands the agent runs detached in the session task pool instead of blocking a turn.",
+  "settings.schema.tools.background.enabled.label": "Enabled",
+  "settings.schema.tools.background.enabled.desc":
+    "Offer the background option on run_command and the background task tools (default true).",
+  "settings.schema.tools.background.max_concurrent.label":
+    "Max concurrent",
+  "settings.schema.tools.background.max_concurrent.desc":
+    "How many background tasks one session may run at once (default 5).",
+  "settings.schema.tools.background.default_timeout_seconds.label":
+    "Default timeout (s)",
+  "settings.schema.tools.background.default_timeout_seconds.desc":
+    "Hard limit for a task started without a timeout or a duration estimate (default 900).",
+  "settings.schema.tools.background.max_timeout_seconds.label":
+    "Max timeout (s)",
+  "settings.schema.tools.background.max_timeout_seconds.desc":
+    "Ceiling applied to any requested or estimated timeout (default 3600).",
+  "settings.schema.tools.background.output_buffer_bytes.label":
+    "Output buffer (bytes)",
+  "settings.schema.tools.background.output_buffer_bytes.desc":
+    "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+
+  "settings.schema.skills.dirs.label": "Skill directories",
+  "settings.schema.skills.dirs.desc":
+    "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
+  "settings.schema.skills.auto_discovery.desc":
+    "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
+
+  "settings.schema.memory.enabled.label": "Enabled",
+  "settings.schema.memory.enabled.desc":
+    "Turns on the memory copilot for eligible builds.",
+  "settings.schema.memory.model.label": "Memory model",
+  "settings.schema.memory.model.desc":
+    "Logical model override for memory LLM calls; empty uses agent model.",
+  "settings.schema.memory.dir.label": "Memory root",
+  "settings.schema.memory.dir.desc":
+    "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
+  "settings.schema.memory.recall_max_turns.label": "Recall max turns",
+  "settings.schema.memory.recall_max_turns.desc":
+    "Bounds recall-side LLM rounds in the memory loop.",
+  "settings.schema.memory.persist_max_turns.label": "Persist max turns",
+  "settings.schema.memory.persist_max_turns.desc":
+    "Bounds persist-side LLM rounds in the memory loop.",
+  "settings.schema.memory.copilot_max_tokens.label": "Copilot max tokens",
+  "settings.schema.memory.copilot_max_tokens.desc":
+    "Completion token cap for memory copilot calls.",
+  "settings.schema.memory.max_search_hits.label": "Max search hits",
+  "settings.schema.memory.max_search_hits.desc":
+    "Maximum snippets returned by memory search tools.",
+
+  "settings.schema.compaction.enabled.label": "Enabled",
+  "settings.schema.compaction.enabled.desc":
+    "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
+  "settings.schema.compaction.threshold_percent.label":
+    "Auto threshold (%)",
+  "settings.schema.compaction.threshold_percent.desc":
+    "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction.",
+  "settings.schema.compaction.keep_recent_turns.label": "Keep recent turns",
+  "settings.schema.compaction.keep_recent_turns.desc":
+    "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything).",
+  "settings.schema.compaction.model.label": "Summarizer model",
+  "settings.schema.compaction.model.desc":
+    "Optional models[].model for the summarization call; empty uses the session model.",
+  "settings.schema.compaction.result_eviction.label":
+    "Read/grep result eviction",
+  "settings.schema.compaction.result_eviction.desc":
+    "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",
+  "settings.schema.compaction.result_eviction.enabled.label": "Enabled",
+  "settings.schema.compaction.result_eviction.enabled.desc":
+    "Master switch for read/grep result eviction. Defaults to true.",
+  "settings.schema.compaction.result_eviction.keep_recent.label":
+    "Keep recent results",
+  "settings.schema.compaction.result_eviction.keep_recent.desc":
+    "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).",
+  "settings.schema.compaction.result_eviction.min_result_bytes.label":
+    "Min result bytes",
+  "settings.schema.compaction.result_eviction.min_result_bytes.desc":
+    "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
+
+  "settings.schema.system.scheduler.label": "Scheduler",
+  "settings.schema.system.scheduler.enabled.label": "Enabled",
+  "settings.schema.system.scheduler.enabled.desc":
+    "When true, this process may run the scheduler daemon and REST.",
+  "settings.schema.system.scheduler.dir.label": "Jobs directory",
+  "settings.schema.system.scheduler.dir.desc":
+    "Directory of job markdown definitions.",
+  "settings.schema.system.scheduler.max_queue.label": "Max queue",
+  "settings.schema.system.scheduler.max_queue.desc":
+    "Maximum concurrent scheduled agent runs.",
+  "settings.schema.system.scheduler.timeout.label": "Job timeout",
+  "settings.schema.system.scheduler.timeout.desc":
+    "Per-job wall-clock limit, e.g. 30m or 1h30m.",
+  "settings.schema.system.scheduler.retain_sessions.label":
+    "Retain sessions",
+  "settings.schema.system.scheduler.retain_sessions.desc":
+    "How many completed scheduler session folders to keep per job id.",
+  "settings.schema.system.prompts.label": "Prompts",
+  "settings.schema.system.prompts.dir.label": "Prompts directory",
+  "settings.schema.system.prompts.dir.desc":
+    "Optional override directory for prompt markdown files.",
+  "settings.schema.system.prompts.agent_prompt.label": "Agent prompt file",
+  "settings.schema.system.prompts.agent_prompt.desc":
+    "Filename for the main agent system prompt.",
+  "settings.schema.system.prompts.plan_prompt.label": "Plan prompt file",
+  "settings.schema.system.prompts.plan_prompt.desc":
+    "Filename for plan-mode system prompt.",
+  "settings.schema.system.instructions.label": "Instructions",
+  "settings.schema.system.instructions.files.label": "Instruction files",
+  "settings.schema.system.instructions.files.desc":
+    "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].",
+  "settings.schema.system.logger.label": "Logger",
+  "settings.schema.system.logger.level.label": "Level",
+  "settings.schema.system.logger.level.desc":
+    "Minimum severity written to configured outputs.",
+  "settings.schema.system.logger.outputs.label": "Outputs",
+  "settings.schema.system.logger.outputs.desc":
+    "Where log lines are written.",
+  "settings.schema.system.logger.file.label": "Log file path",
+  "settings.schema.system.logger.file.desc":
+    "Destination file when outputs include file.",
+  "settings.schema.system.logger.format.label": "Format",
+  "settings.schema.system.logger.format.desc":
+    "text for human logs; json for structured logs.",
+  "settings.schema.system.logger.rotation.label": "Rotation",
+  "settings.schema.system.logger.rotation.desc":
+    "Size-based rotation when logging to a file.",
+  "settings.schema.system.logger.rotation.max_size_mb.label":
+    "Max file size (MB)",
+  "settings.schema.system.logger.rotation.max_size_mb.desc":
+    "Rotate after the file reaches this size; 0 uses logger defaults.",
+  "settings.schema.system.logger.rotation.max_files.label": "Max files",
+  "settings.schema.system.logger.rotation.max_files.desc":
+    "How many rotated segments to retain; 0 uses logger defaults.",
+  "settings.schema.system.sessions.label": "Sessions",
+  "settings.schema.system.sessions.dir.label": "Sessions directory",
+  "settings.schema.system.sessions.dir.desc":
+    "Override sessions root; empty resolves under CODDY_HOME.",
+  "settings.schema.system.gateways.label": "Messenger gateways",
+  "settings.schema.system.gateways.telegram.label": "Telegram",
+  "settings.schema.system.gateways.telegram.desc":
+    "Telegram bot adapter settings.",
+  "settings.schema.system.gateways.telegram.enabled.label": "Enabled",
+  "settings.schema.system.gateways.telegram.enabled.desc":
+    "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
+  "settings.schema.system.gateways.telegram.token.label": "Bot token",
+  "settings.schema.system.gateways.telegram.token.desc":
+    "BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+  "settings.schema.system.gateways.telegram.rich_messages.label":
+    "Rich messages",
+  "settings.schema.system.gateways.telegram.rich_messages.desc":
+    "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
+  "settings.schema.system.gateways.telegram.proxy.label": "Proxy",
+  "settings.schema.system.gateways.telegram.proxy.desc":
+    "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
+  "settings.schema.system.gateways.telegram.admins.label": "Admins",
+  "settings.schema.system.gateways.telegram.admins.desc":
+    "Telegram user IDs with elevated rights; admins always pass access checks.",
+  "settings.schema.system.gateways.telegram.default_access.label":
+    "Default access",
+  "settings.schema.system.gateways.telegram.default_access.desc":
+    "Fallback access level for chats without an override: all, admins, or group:<name>.",
+  "settings.schema.system.gateways.telegram.default_isolation.label":
+    "Default isolation",
+  "settings.schema.system.gateways.telegram.default_isolation.desc":
+    "Fallback session isolation for group chats.",
+  "settings.schema.system.gateways.telegram.user_groups.label":
+    "User groups",
+  "settings.schema.system.gateways.telegram.user_groups.desc":
+    "Named sets of user IDs referenced by access as group:<name>.",
+  "settings.schema.system.gateways.telegram.user_groups.name.label":
+    "Group name",
+  "settings.schema.system.gateways.telegram.user_groups.name.desc":
+    "Name referenced by access as group:<name>.",
+  "settings.schema.system.gateways.telegram.user_groups.user_ids.label":
+    "User IDs",
+  "settings.schema.system.gateways.telegram.user_groups.user_ids.desc":
+    "Telegram numeric user IDs that belong to this group.",
+  "settings.schema.system.gateways.telegram.chats.label":
+    "Per-chat overrides",
+  "settings.schema.system.gateways.telegram.chats.desc":
+    "Override isolation and access for specific chats.",
+  "settings.schema.system.gateways.telegram.chats.chat_id.label": "Chat ID",
+  "settings.schema.system.gateways.telegram.chats.chat_id.desc":
+    "Telegram chat id; negative for groups and supergroups.",
+  "settings.schema.system.gateways.telegram.chats.isolation.label":
+    "Isolation",
+  "settings.schema.system.gateways.telegram.chats.isolation.desc":
+    "Per-chat session isolation override.",
+  "settings.schema.system.gateways.telegram.chats.access.label": "Access",
+  "settings.schema.system.gateways.telegram.chats.access.desc":
+    "Per-chat access override: all, admins, or group:<name>.",
+
   "settings.combobox.toggleAria": "Toggle options",
 
   "codexAuth.error.signInFailed": "ChatGPT sign in failed.",

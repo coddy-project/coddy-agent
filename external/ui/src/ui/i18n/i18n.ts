@@ -64,6 +64,18 @@ export function setLocale(lang: string): boolean {
   return true;
 }
 
+/**
+ * Whether a key resolves in the current locale (or the default dictionary).
+ * Lets callers fall back to their own text when no translation exists, which
+ * `translate` cannot express (it returns the key itself when missing).
+ */
+export function hasTranslation(key: string): boolean {
+  return (
+    dictFor(currentLocale)[key] !== undefined ||
+    UI_LOCALES[UI_LOCALE_DEFAULT].messages[key] !== undefined
+  );
+}
+
 /** Translate a key for the current locale; falls back to the default then the key. */
 export function translate(key: string, params?: TranslateParams): string {
   const primary = dictFor(currentLocale)[key];
