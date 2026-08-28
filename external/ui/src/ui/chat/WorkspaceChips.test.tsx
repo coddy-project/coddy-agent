@@ -1,9 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
 import { WORKSPACE_RECENTS_KEY, pushWorkspaceRecent } from "./workspaceRecents";
+import { setLocale } from "../i18n/i18n";
 
 const plainCtx: WorkspaceContext = {
   path: "/repos/plain",
@@ -23,7 +30,9 @@ const gitCtx: WorkspaceContext = {
   worktrees: [{ path: "/repos/coddy-agent", branch: "main", main: true }],
 };
 
-function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {}) {
+function renderChips(
+  overrides: Partial<React.ComponentProps<typeof WorkspaceChips>> = {},
+) {
   const props: React.ComponentProps<typeof WorkspaceChips> = {
     context: gitCtx,
     worktreePref: false,
@@ -37,12 +46,14 @@ function renderChips(overrides: Partial<React.ComponentProps<typeof WorkspaceChi
 }
 
 beforeEach(() => {
+  setLocale("en");
   localStorage.removeItem(WORKSPACE_RECENTS_KEY);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setLocale("en");
 });
 
 describe("WorkspaceChips", () => {
@@ -53,21 +64,27 @@ describe("WorkspaceChips", () => {
 
   it("shows only the folder chip for a non-git workspace", () => {
     renderChips({ context: plainCtx });
-    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain("plain");
+    expect(screen.getByTestId("composer-workspace-chip").textContent).toContain(
+      "plain",
+    );
     expect(screen.queryByTestId("composer-branch-chip")).toBeNull();
     expect(screen.queryByTestId("composer-worktree-chip")).toBeNull();
   });
 
   it("renders the worktree control as a real checkbox", () => {
     renderChips();
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.type).toBe("checkbox");
     expect(box.checked).toBe(false);
   });
 
   it("checks and disables the worktree checkbox when the session lives in a worktree", () => {
     renderChips({ context: { ...gitCtx, is_worktree: true } });
-    const box = screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement;
+    const box = screen.getByTestId(
+      "composer-worktree-checkbox",
+    ) as HTMLInputElement;
     expect(box.checked).toBe(true);
     expect(box.disabled).toBe(true);
   });
@@ -82,7 +99,9 @@ describe("WorkspaceChips", () => {
     const { props } = renderChips({ worktreePref: true });
     fireEvent.click(screen.getByTestId("composer-branch-chip"));
     const menu = screen.getByTestId("workspace-branch-menu");
-    const rows = menu.querySelectorAll("[data-testid^='workspace-branch-row-']");
+    const rows = menu.querySelectorAll(
+      "[data-testid^='workspace-branch-row-']",
+    );
     expect(rows.length).toBe(2);
     fireEvent.click(screen.getByTestId("workspace-branch-row-feature/login"));
     expect(props.onPickBranch).toHaveBeenCalledWith("feature/login", true);
@@ -91,13 +110,16 @@ describe("WorkspaceChips", () => {
   it("locks every control once the conversation started", () => {
     renderChips({ locked: true });
     expect(
-      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-workspace-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement).disabled,
+      (screen.getByTestId("composer-branch-chip") as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
     expect(
-      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement).disabled,
+      (screen.getByTestId("composer-worktree-checkbox") as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     fireEvent.click(screen.getByTestId("composer-workspace-chip"));
     expect(screen.queryByTestId("workspace-folder-menu")).toBeNull();
@@ -112,6 +134,25 @@ describe("WorkspaceChips", () => {
     const current = screen.getByTestId("workspace-recent-row-coddy-agent");
     expect(current.className).toContain("is-selected");
     expect(screen.getByTestId("workspace-recent-row-other")).toBeTruthy();
+  });
+
+  it("localizes workspace controls in Russian", () => {
+    setLocale("ru");
+    renderChips({ context: { ...gitCtx, branch: "" } });
+
+    expect(screen.getByTestId("composer-branch-chip")).toHaveTextContent(
+      "отсоединённая",
+    );
+    expect(screen.getByTestId("composer-worktree-chip")).toHaveTextContent(
+      "рабочее дерево",
+    );
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    expect(screen.getByTestId("workspace-folder-menu")).toHaveTextContent(
+      "Недавние",
+    );
+    expect(screen.getByTestId("workspace-open-folder")).toHaveTextContent(
+      "Открыть папку…",
+    );
   });
 
   it("picks a recent folder and remembers it", () => {
@@ -162,7 +203,9 @@ describe("WorkspaceChips", () => {
     await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
     fireEvent.click(screen.getByTestId("workspace-modal-row-other"));
     await waitFor(() =>
-      expect(screen.getByTestId("workspace-modal-open").textContent).toContain("Open"),
+      expect(screen.getByTestId("workspace-modal-open").textContent).toContain(
+        "Open",
+      ),
     );
 
     fireEvent.click(screen.getByTestId("workspace-modal-open"));

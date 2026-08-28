@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/I18nProvider";
 
 export type ContextBreakdown = {
   systemPrompt: number;
@@ -16,16 +17,16 @@ type SegmentKey = keyof Omit<ContextBreakdown, "estimatedTotal">;
 
 const SEGMENTS: {
   key: SegmentKey;
-  label: string;
+  labelKey: string;
   cssVar: string;
 }[] = [
-  { key: "systemPrompt", label: "System prompt", cssVar: "--ctx-seg-system" },
-  { key: "toolDefinitions", label: "Tool definitions", cssVar: "--ctx-seg-tools" },
-  { key: "rules", label: "Rules", cssVar: "--ctx-seg-rules" },
-  { key: "skills", label: "Skills", cssVar: "--ctx-seg-skills" },
-  { key: "mcp", label: "MCP", cssVar: "--ctx-seg-mcp" },
-  { key: "subagents", label: "Subagents", cssVar: "--ctx-seg-subagents" },
-  { key: "conversation", label: "Conversation", cssVar: "--ctx-seg-conversation" },
+  { key: "systemPrompt", labelKey: "chat.contextSegment.systemPrompt", cssVar: "--ctx-seg-system" },
+  { key: "toolDefinitions", labelKey: "chat.contextSegment.toolDefinitions", cssVar: "--ctx-seg-tools" },
+  { key: "rules", labelKey: "chat.contextSegment.rules", cssVar: "--ctx-seg-rules" },
+  { key: "skills", labelKey: "chat.contextSegment.skills", cssVar: "--ctx-seg-skills" },
+  { key: "mcp", labelKey: "chat.contextSegment.mcp", cssVar: "--ctx-seg-mcp" },
+  { key: "subagents", labelKey: "chat.contextSegment.subagents", cssVar: "--ctx-seg-subagents" },
+  { key: "conversation", labelKey: "chat.contextSegment.conversation", cssVar: "--ctx-seg-conversation" },
 ];
 
 function fmtInt(n: number | undefined): string {
@@ -55,6 +56,7 @@ export function ContextBreakdownPopover(props: {
   maxContextTokens: number;
   breakdown?: ContextBreakdown | null;
 }) {
+  const { t } = useT();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [floatRect, setFloatRect] = useState<ContextPopoverFloatRect | null>(
     null,
@@ -150,10 +152,12 @@ export function ContextBreakdownPopover(props: {
   const b = props.breakdown;
   const rows = SEGMENTS.map((s) => ({
     ...s,
+    label: t(s.labelKey),
     tokens: b ? Math.max(0, b[s.key] || 0) : 0,
   })).filter((r) => r.key !== "subagents" || r.tokens > 0);
   const legendRows = SEGMENTS.filter((s) => s.key !== "subagents").map((s) => ({
     ...s,
+    label: t(s.labelKey),
     tokens: b ? Math.max(0, b[s.key] || 0) : 0,
   }));
   const totalFromParts = rows.reduce((sum, r) => sum + r.tokens, 0);
@@ -171,14 +175,14 @@ export function ContextBreakdownPopover(props: {
   const body = (
     <>
       {useSheet ? (
-        <div className="slash-menu-title">Context</div>
+        <div className="slash-menu-title">{t("chat.contextTitle")}</div>
       ) : (
         <div className="context-breakdown-head">
-          <span className="context-breakdown-title">Context</span>
+          <span className="context-breakdown-title">{t("chat.contextTitle")}</span>
           <button
             type="button"
             className="context-breakdown-close"
-            aria-label="Close"
+            aria-label={t("chat.contextClose")}
             data-testid="context-breakdown-close"
             onClick={() => props.onClose()}
           >
@@ -187,19 +191,21 @@ export function ContextBreakdownPopover(props: {
         </div>
       )}
       <div className="context-breakdown-summary">
-        <span>{idle ? "0.0" : fillPct.toFixed(1)}% Used</span>
+        <span>{t("chat.contextPercentUsed", { percent: idle ? "0.0" : fillPct.toFixed(1) })}</span>
         <span className="context-breakdown-summary-sep">·</span>
         <span>
-          ~{fmtInt(used)} / {fmtInt(maxCtx)} Tokens
+          {t("chat.contextTokensSummary", { used: fmtInt(used), max: fmtInt(maxCtx) })}
         </span>
       </div>
       {showEmptyState ? (
-        <p className="context-breakdown-empty">No context usage yet</p>
+        <p className="context-breakdown-empty">{t("chat.contextEmpty")}</p>
       ) : null}
       <div
         className="context-meter-track"
         role="img"
-        aria-label={`Context ${fillPct.toFixed(1)} percent used`}
+        aria-label={t("chat.contextMeterAriaLabel", {
+          percent: fillPct.toFixed(1),
+        })}
         data-testid="context-breakdown-bar"
       >
         <div
@@ -217,7 +223,10 @@ export function ContextBreakdownPopover(props: {
                     flexGrow: r.tokens,
                     background: `var(${r.cssVar})`,
                   }}
-                  title={`${r.label}: ${fmtInt(r.tokens)}`}
+                  title={t("chat.contextSegmentTooltip", {
+                    label: r.label,
+                    count: fmtInt(r.tokens),
+                  })}
                 />
               ))
             : null}
@@ -264,7 +273,7 @@ export function ContextBreakdownPopover(props: {
         .filter(Boolean)
         .join(" ")}
       role="dialog"
-      aria-label="Context"
+      aria-label={t("chat.contextTitle")}
       data-testid="context-breakdown-popover"
       style={menuStyle}
     >
@@ -279,7 +288,7 @@ export function ContextBreakdownPopover(props: {
         <button
           type="button"
           className="slash-sheet-backdrop"
-          aria-label="Close context breakdown"
+          aria-label={t("chat.contextCloseBreakdown")}
           tabIndex={-1}
           data-testid="context-breakdown-backdrop"
           onMouseDown={(e) => {

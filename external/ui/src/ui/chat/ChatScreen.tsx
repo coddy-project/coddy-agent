@@ -7,6 +7,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
@@ -94,6 +95,7 @@ export function ChatScreen(props: {
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
 }) {
+  const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
@@ -231,16 +233,28 @@ export function ChatScreen(props: {
       ) : isEmpty ? (
         <div className="hero" id="hero">
           <h1 className="hero-title">
-            <span className="hero-title-muted">
-              What do you want to{" "}
-              <span
-                className="hero-title-accent"
-                data-testid="hero-title-accent"
-              >
-                {props.heroAccentVerb}
-              </span>
-              ?
-            </span>
+            {(() => {
+              const verb = t(`chat.heroVerb.${props.heroAccentVerb}`);
+              // A sentinel that cannot occur in translated copy, so the split finds the
+              // {verb} slot itself rather than the first space of the sentence.
+              const marker = "\u0000";
+              const full = t("chat.heroTitle", { verb: marker });
+              const i = full.indexOf(marker);
+              const before = i >= 0 ? full.slice(0, i) : full;
+              const after = i >= 0 ? full.slice(i + marker.length) : "";
+              return (
+                <span className="hero-title-muted">
+                  {before}
+                  <span
+                    className="hero-title-accent"
+                    data-testid="hero-title-accent"
+                  >
+                    {verb}
+                  </span>
+                  {after}
+                </span>
+              );
+            })()}
           </h1>
           <div className="hero-composer">
             <Composer

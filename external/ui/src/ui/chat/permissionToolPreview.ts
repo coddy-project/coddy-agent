@@ -6,6 +6,7 @@ import {
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
+import { t, tp } from "../i18n/i18n";
 
 export type PermissionToolCallContext = {
   title?: string | undefined;
@@ -49,7 +50,7 @@ export function permissionPromptToolName(
     normalizedToolName(payload.toolCall.title) ||
     normalizedToolName(context?.kind) ||
     normalizedToolName(payload.toolCall.kind) ||
-    "tool"
+    t("messages.toolDefaultName")
   );
 }
 
@@ -137,28 +138,28 @@ function questionForTool(
   switch (toolName.toLowerCase()) {
     case "run_command":
     case "ssh_run_command":
-      return "Run this command?";
+      return t("permission.question.runCommand");
     case "write":
     case "write_file":
-      return "Write this file?";
+      return t("permission.question.writeFile");
     case "edit":
-      return "Edit this file?";
+      return t("permission.question.editFile");
     case "apply_patch":
-      return "Apply this patch?";
+      return t("permission.question.applyPatch");
     case "mkdir":
-      return "Create this directory?";
+      return t("permission.question.createDirectory");
     case "touch":
-      return "Create or update this file?";
+      return t("permission.question.createOrUpdateFile");
     case "mv":
-      return "Move this path?";
+      return t("permission.question.movePath");
     case "rm":
       return boolArg(args, "recursive", false)
-        ? "Remove this directory tree?"
-        : "Remove this path?";
+        ? t("permission.question.removeDirectoryTree")
+        : t("permission.question.removePath");
     case "rmdir":
-      return "Remove this empty directory?";
+      return t("permission.question.removeEmptyDirectory");
     default:
-      return "Allow this action?";
+      return t("permission.question.allowAction");
   }
 }
 
@@ -237,7 +238,7 @@ export function buildToolCallPreview(
   const toolName =
     normalizedToolName(context.title) ||
     normalizedToolName(context.kind) ||
-    "tool";
+    t("messages.toolDefaultName");
   const normalized = toolName.toLowerCase();
   const args = parseArgsText(context.argsText || "") || {};
   const title = questionForTool(normalized, args);
@@ -248,8 +249,11 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: normalized === "ssh_run_command" ? "SSH shell" : "Shell",
-      meta: ["timeout " + timeout + "s"],
+      header:
+        normalized === "ssh_run_command"
+          ? t("permission.header.sshShell")
+          : t("permission.header.shell"),
+      meta: [t("permission.meta.timeout", { seconds: timeout })],
       copyText: command,
       kind: "code",
       text: command,
@@ -285,7 +289,9 @@ export function buildToolCallPreview(
     const newString = stringArg(args, "newString");
     const lines = editDiffLines(oldString, newString);
     const meta = diffMeta(lines);
-    if (boolArg(args, "replaceAll", false)) meta.push("replace all");
+    if (boolArg(args, "replaceAll", false)) {
+      meta.push(t("permission.meta.replaceAll"));
+    }
     return {
       toolName,
       title,
@@ -305,7 +311,7 @@ export function buildToolCallPreview(
       toolName,
       title,
       header: path,
-      meta: [content.length + " chars"],
+      meta: [tp("permission.meta.chars", content.length)],
       copyText: content,
       kind: "code",
       text: content,
@@ -318,7 +324,7 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: "Move",
+      header: t("permission.header.move"),
       meta: [],
       copyText: (sourcePath + "\n" + destinationPath).trim(),
       kind: "move",
@@ -335,8 +341,8 @@ export function buildToolCallPreview(
       header: path,
       meta: [
         boolArg(args, "parents", true)
-          ? "create parents"
-          : "direct parent only",
+          ? t("permission.meta.createParents")
+          : t("permission.meta.directParentOnly"),
       ],
       copyText: path,
       kind: "path",
@@ -349,8 +355,8 @@ export function buildToolCallPreview(
       header: path,
       meta: [
         boolArg(args, "create_parents", true)
-          ? "create parents"
-          : "existing parents only",
+          ? t("permission.meta.createParents")
+          : t("permission.meta.existingParentsOnly"),
       ],
       copyText: path,
       kind: "path",
@@ -362,7 +368,7 @@ export function buildToolCallPreview(
       toolName,
       title,
       header: path,
-      meta: recursive ? ["recursive"] : [],
+      meta: recursive ? [t("permission.meta.recursive")] : [],
       copyText: path,
       kind: "path",
     };
@@ -372,7 +378,7 @@ export function buildToolCallPreview(
       toolName,
       title,
       header: path,
-      meta: ["empty directory only"],
+      meta: [t("permission.meta.emptyDirectoryOnly")],
       copyText: path,
       kind: "path",
     };
@@ -382,14 +388,18 @@ export function buildToolCallPreview(
     const meta: string[] = [];
     const offset = numberArg(args, "offset", 0);
     const limit = numberArg(args, "limit", 0);
-    if (offset > 0) meta.push("from line " + offset);
-    if (limit > 0) meta.push(limit + " lines");
-    if (boolArg(args, "recursive", false)) meta.push("recursive");
-    if (boolArg(args, "show_hidden", false)) meta.push("hidden files");
+    if (offset > 0) meta.push(t("permission.meta.fromLine", { line: offset }));
+    if (limit > 0) meta.push(tp("permission.meta.lines", limit));
+    if (boolArg(args, "recursive", false)) {
+      meta.push(t("permission.meta.recursive"));
+    }
+    if (boolArg(args, "show_hidden", false)) {
+      meta.push(t("permission.meta.hiddenFiles"));
+    }
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || "Workspace",
+      header: stringArg(args, "path") || t("permission.header.workspace"),
       meta,
       copyText: stringArg(args, "path"),
       kind: "path",
@@ -401,13 +411,17 @@ export function buildToolCallPreview(
     const meta: string[] = [];
     const glob = stringArg(args, "glob");
     if (glob) meta.push(glob);
-    if (boolArg(args, "case_sensitive", false)) meta.push("case sensitive");
+    if (boolArg(args, "case_sensitive", false)) {
+      meta.push(t("permission.meta.caseSensitive"));
+    }
     const maxResults = numberArg(args, "max_results", 0);
-    if (maxResults > 0) meta.push("max " + maxResults);
+    if (maxResults > 0) {
+      meta.push(t("permission.meta.maxResults", { count: maxResults }));
+    }
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || "Workspace",
+      header: stringArg(args, "path") || t("permission.header.workspace"),
       meta,
       copyText: pattern,
       kind: "code",
@@ -420,8 +434,8 @@ export function buildToolCallPreview(
     return {
       toolName,
       title,
-      header: stringArg(args, "path") || "Workspace",
-      meta: depth > 0 ? ["depth " + depth] : [],
+      header: stringArg(args, "path") || t("permission.header.workspace"),
+      meta: depth > 0 ? [t("permission.meta.depth", { depth })] : [],
       copyText: stringArg(args, "path"),
       kind: "path",
     };

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/I18nProvider";
 
 export type ConfirmDialogVariant = "danger" | "primary";
 
@@ -30,12 +31,12 @@ export type ConfirmDialogProps = {
 // aria-modal="true", backdrop + click-outside + Escape to cancel, and a
 // Cancel / action pair. Visual styling lives in styles.css under .confirm-dialog*.
 export function ConfirmDialog(props: ConfirmDialogProps) {
+  const { t } = useT();
   const {
     open,
     title,
     message,
     confirmLabel,
-    cancelLabel = "Cancel",
     variant = "primary",
     ariaLabel,
     onConfirm,
@@ -43,6 +44,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     confirming = false,
     dataTestId,
   } = props;
+  const cancelLabel = props.cancelLabel ?? t("common.cancel");
 
   // Focus Cancel first for destructive actions: an accidental Enter must not
   // confirm a delete. Kept as a ref so we can move focus without re-render loops.
@@ -103,7 +105,9 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       }
       const active = document.activeElement as HTMLElement | null;
       const inside = card.contains(active);
-      if (e.shiftKey ? active === first || !inside : active === last || !inside) {
+      if (
+        e.shiftKey ? active === first || !inside : active === last || !inside
+      ) {
         e.preventDefault();
         e.stopPropagation();
         (e.shiftKey ? last : first).focus();
@@ -151,7 +155,16 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             aria-hidden="true"
           >
             {variant === "danger" ? (
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                width="22"
+                height="22"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <path d="M3 6h18" />
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                 <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
@@ -159,7 +172,16 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
                 <path d="M14 11v6" />
               </svg>
             ) : (
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg
+                viewBox="0 0 24 24"
+                width="22"
+                height="22"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 16v-4" />
                 <path d="M12 8h.01" />

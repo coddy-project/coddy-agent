@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 
 import {
   buildPermissionToolPreview,
@@ -7,6 +7,9 @@ import {
   toolCallTargetText,
 } from "./permissionToolPreview";
 import type { CoddyPermissionPayload } from "./permissionTypes";
+import { setLocale } from "../i18n/i18n";
+
+afterEach(() => setLocale("en"));
 
 function payload(
   toolName: string,
@@ -50,6 +53,19 @@ test("builds a command preview", () => {
     meta: ["timeout 45s"],
     kind: "code",
     text: "npm test",
+  });
+});
+
+test("localizes permission previews", () => {
+  setLocale("ru");
+  const preview = buildPermissionToolPreview(
+    payload("run_command", { command: "npm test", timeout_seconds: 45 }),
+  );
+
+  expect(preview).toMatchObject({
+    title: "Запустить эту команду?",
+    header: "Оболочка",
+    meta: ["тайм-аут 45 с"],
   });
 });
 
