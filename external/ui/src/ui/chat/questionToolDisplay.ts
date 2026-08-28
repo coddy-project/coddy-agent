@@ -1,3 +1,5 @@
+import { t } from "../i18n/i18n";
+
 /**
  * Parses tool args / results for the `question` tool so the SPA can render
  * human-readable copy instead of raw JSON in ToolCallMessage.
@@ -67,7 +69,9 @@ export function questionToolSummaryLabel(args: {
   const answers = parseQuestionToolAnswersFromResult(args.resultText);
 
   if (qs.length === 0) {
-    return args.pendingLike ? "Questions..." : "Questions";
+    return args.pendingLike
+      ? `${t("prompts.questions")}...`
+      : t("prompts.questions");
   }
 
   function shorten(text: string, max: number): string {
@@ -98,9 +102,9 @@ export function questionToolSummaryLabel(args: {
   }
 
   if (qs.length > 1) {
-    return `${qs.length} questions`;
+    return t("prompts.questionsCount", { count: qs.length });
   }
 
-  const t = shorten(qs[0]!.question.replace(/\?$/, "").trim(), 72);
-  return `${t}?`;
+  const question = shorten(qs[0]!.question.replace(/\?$/, "").trim(), 72);
+  return `${question}?`;
 }

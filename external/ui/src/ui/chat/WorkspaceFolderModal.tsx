@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 import { createPortal } from "react-dom";
 import {
   cleanPathInput,
@@ -19,6 +20,7 @@ type Props = {
 // on Windows ".." out of a drive root reaches the drive list served as the
 // ":drives:" pseudo-folder.
 export function WorkspaceFolderModal(props: Props) {
+  const { t } = useT();
   const [listing, setListing] = useState<WorkspaceFolderListing | null>(null);
   const [error, setError] = useState("");
   // What the path field shows; empty on the drive level, which has no path.
@@ -33,7 +35,7 @@ export function WorkspaceFolderModal(props: Props) {
       );
       if (!res.ok) {
         if (request === browseRequest.current) {
-          setError("Cannot list " + path);
+          setError(t("composer.folderModal.cannotList", { path }));
         }
         return;
       }
@@ -46,7 +48,7 @@ export function WorkspaceFolderModal(props: Props) {
       setError("");
     } catch {
       if (request === browseRequest.current) {
-        setError("Cannot list " + path);
+        setError(t("composer.folderModal.cannotList", { path }));
       }
     }
   };
@@ -83,15 +85,15 @@ export function WorkspaceFolderModal(props: Props) {
         className="workspace-modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Open folder"
+        aria-label={t("composer.folderModal.title")}
         data-testid="workspace-folder-modal"
       >
         <div className="workspace-modal-head">
-          <span>Open folder</span>
+          <span>{t("composer.folderModal.title")}</span>
           <button
             type="button"
             className="sessions-close"
-            aria-label="Close folder browser"
+            aria-label={t("composer.folderModal.close")}
             onClick={props.onClose}
           >
             ×
@@ -100,10 +102,14 @@ export function WorkspaceFolderModal(props: Props) {
         <input
           className="workspace-modal-path"
           data-testid="workspace-modal-path"
-          aria-label="Folder path"
+          aria-label={t("composer.folderModal.pathLabel")}
           spellCheck={false}
           autoComplete="off"
-          placeholder={listing?.drives ? "This PC" : "Path"}
+          placeholder={
+            listing?.drives
+              ? t("composer.folderModal.drivesPlaceholder")
+              : t("composer.folderModal.pathPlaceholder")
+          }
           title={listing?.path || props.startPath}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -161,7 +167,9 @@ export function WorkspaceFolderModal(props: Props) {
           ))}
           {listing && listing.folders.length === 0 && !error ? (
             <div className="mode-menu-empty">
-              {listing.drives ? "No drives" : "No subfolders"}
+              {listing.drives
+                ? t("composer.folderModal.noDrives")
+                : t("composer.folderModal.noSubfolders")}
             </div>
           ) : null}
         </div>
@@ -172,7 +180,7 @@ export function WorkspaceFolderModal(props: Props) {
             data-testid="workspace-modal-cancel"
             onClick={props.onClose}
           >
-            Cancel
+            {t("composer.folderModal.cancel")}
           </button>
           <button
             type="button"
@@ -189,7 +197,9 @@ export function WorkspaceFolderModal(props: Props) {
               }
             }}
           >
-            {pendingPath ? "Go" : "Open"}
+            {pendingPath
+              ? t("composer.folderModal.go")
+              : t("composer.folderModal.open")}
           </button>
         </div>
       </div>

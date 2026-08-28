@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useT } from "../i18n/I18nProvider";
 
 type CodeProps = {
   className?: string | undefined;
@@ -56,6 +57,7 @@ function copyTextToClipboard(text: string): Promise<void> {
 }
 
 function CopyButton(props: { text: string }) {
+  const { t } = useT();
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
@@ -73,14 +75,15 @@ function CopyButton(props: { text: string }) {
       type="button"
       className="md-copy"
       onClick={() => void onCopy()}
-      aria-label="Copy code"
+      aria-label={t("messages.copyCode")}
     >
-      {copied ? "Copied" : "Copy"}
+      {copied ? t("messages.copied") : t("messages.copy")}
     </button>
   );
 }
 
 function InlineCode(props: { className?: string; children?: unknown }) {
+  const { t } = useT();
   const text = normalizeText(props.children);
   const [copied, setCopied] = useState(false);
 
@@ -105,7 +108,7 @@ function InlineCode(props: { className?: string; children?: unknown }) {
     [onCopy],
   );
 
-  const title = copied ? "Copied" : "Copy";
+  const title = copied ? t("messages.copied") : t("messages.copy");
   const className = ["md-inline-code", props.className || ""]
     .filter(Boolean)
     .join(" ");
@@ -116,7 +119,7 @@ function InlineCode(props: { className?: string; children?: unknown }) {
       role="button"
       tabIndex={0}
       title={title}
-      aria-label="Copy code"
+      aria-label={t("messages.copyCode")}
       data-testid="md-inline-code"
       onClick={() => void onCopy()}
       onKeyDown={onKeyDown}

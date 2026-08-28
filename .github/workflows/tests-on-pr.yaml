@@ -63,9 +63,10 @@ jobs:
   # Cross-building proves the Windows code compiles, not that it works. These
   # packages own the behaviour that differs by platform - the process group
   # probe, the console shell, the background task pool that starts real
-  # processes through it - and their Windows-only tests have no other place to
-  # run. The scope is deliberately narrow; widen it as the rest of the tree is
-  # shown to hold on Windows.
+  # processes through it, the self-update helper that replaces a running
+  # coddy.exe - and their Windows-only tests have no other place to run. The
+  # scope is deliberately narrow; widen it as the rest of the tree is shown to
+  # hold on Windows.
   test-windows:
     name: Test suite (Windows)
     runs-on: windows-latest
@@ -81,7 +82,7 @@ jobs:
           cache: true
 
       - name: Run platform tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/...
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/...
 
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...

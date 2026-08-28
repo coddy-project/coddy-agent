@@ -1,25 +1,27 @@
 import { Markdown } from "../markdown/Markdown";
+import { useT } from "../i18n/I18nProvider";
 
 // CompactionMessage renders a compaction summary row as a foldout ("what is now
 // in the context") styled like the thinking / tool disclosure, so it reads as a
 // system action rather than a user message. Backed by transcript items of type
 // "compaction" (server messages with compaction_summary=true).
 export function CompactionMessage(props: { summary: string }) {
+  const { t } = useT();
   const text = (props.summary || "").trim();
   return (
     <div className="thinking-row">
       <details className="thinking-details">
         <summary
           className="thinking-summary"
-          aria-label="Context compacted summary"
+          aria-label={t("messages.compactionSummaryAriaLabel")}
         >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
-            <span className="thinking-label">context compacted</span>
+            <span className="thinking-label">{t("messages.compactionLabel")}</span>
           </span>
         </summary>
         {text ? (
-          <div className="thinking-body" aria-label="Compacted context summary">
+          <div className="thinking-body" aria-label={t("messages.compactionBodyAriaLabel")}>
             <Markdown text={text} />
           </div>
         ) : null}

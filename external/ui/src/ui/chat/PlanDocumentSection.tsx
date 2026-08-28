@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { MarkdownLineEditor } from "../markdown/MarkdownLineEditor";
 import { planEditorBody } from "./planContent";
+import { useT } from "../i18n/I18nProvider";
+import { t as translate } from "../i18n/i18n";
 
 type PlanBodyView = "markdown" | "preview";
 
@@ -41,14 +43,15 @@ function PlanPreviewEyeToggle(p: {
   previewOn: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useT();
   return (
     <button
       type="button"
       className={
         p.previewOn ? "plan-document-eye is-on" : "plan-document-eye"
       }
-      title="Toggle preview"
-      aria-label="Toggle preview"
+      title={t("prompts.planTogglePreview")}
+      aria-label={t("prompts.planTogglePreview")}
       aria-pressed={p.previewOn}
       data-test="plan_document_preview_toggle"
       onClick={() => p.onToggle()}
@@ -86,6 +89,7 @@ function PlanDocumentActions(p: {
   onRunPlan: () => void;
   onDiscard: () => void;
 }) {
+  const { t } = useT();
   return (
     <>
       <button
@@ -95,7 +99,7 @@ function PlanDocumentActions(p: {
         disabled={p.discarded}
         onClick={() => p.onDiscard()}
       >
-        Discard
+        {t("prompts.planDiscard")}
       </button>
       <button
         type="button"
@@ -107,13 +111,14 @@ function PlanDocumentActions(p: {
         <span className="plan-document-run-ic" aria-hidden>
           ▶
         </span>
-        Run plan
+        {t("prompts.planRun")}
       </button>
     </>
   );
 }
 
 export function PlanDocumentSection(props: PlanDocumentSectionProps) {
+  const { t } = useT();
   const editorSeed = planEditorBody(props.content, props.body);
   const [draft, setDraft] = useState(editorSeed);
   const [bodyView, setBodyView] = useState<PlanBodyView>("preview");
@@ -149,10 +154,12 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           },
         );
         if (!res.ok) {
-          throw new Error(`save failed (${res.status})`);
+          throw new Error(translate("prompts.planSaveFailed", { status: res.status }));
         }
       } catch (e) {
-        setSaveError(e instanceof Error ? e.message : "save failed");
+        setSaveError(
+          e instanceof Error ? e.message : translate("prompts.planSaveFailedNoStatus"),
+        );
       } finally {
         setSaving(false);
       }
@@ -208,7 +215,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           {props.expanded && (saving || saveError) ? (
             <div className="plan-document-head-status">
               {saving ? (
-                <span className="plan-document-save-hint">Saving…</span>
+                <span className="plan-document-save-hint">{t("prompts.planSaving")}</span>
               ) : null}
               {saveError ? (
                 <span className="plan-document-save-error">{saveError}</span>
@@ -242,7 +249,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                       <Markdown text={draft} />
                     ) : (
                       <p className="plan-document-preview-empty">
-                        Nothing to preview yet.
+                        {t("prompts.planPreviewEmpty")}
                       </p>
                     )}
                   </div>
@@ -255,8 +262,8 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                     spellCheck
                     gutterTestId="plan_editor_gutter"
                     rootTestId="plan_markdown_editor"
-                    aria-label="Plan body (markdown)"
-                    placeholder="Plan steps and notes…"
+                    aria-label={t("prompts.planBodyAriaLabel")}
+                    placeholder={t("prompts.planBodyPlaceholder")}
                     onChange={(v) => {
                       setDraft(v);
                       scheduleSave(v);

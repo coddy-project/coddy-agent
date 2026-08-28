@@ -10,6 +10,7 @@ import React from "react";
 import { WorkspaceChips } from "./WorkspaceChips";
 import type { WorkspaceContext } from "./workspaceContext";
 import { WORKSPACE_RECENTS_KEY, pushWorkspaceRecent } from "./workspaceRecents";
+import { setLocale } from "../i18n/i18n";
 
 const plainCtx: WorkspaceContext = {
   path: "/repos/plain",
@@ -45,12 +46,14 @@ function renderChips(
 }
 
 beforeEach(() => {
+  setLocale("en");
   localStorage.removeItem(WORKSPACE_RECENTS_KEY);
 });
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setLocale("en");
 });
 
 describe("WorkspaceChips", () => {
@@ -131,6 +134,25 @@ describe("WorkspaceChips", () => {
     const current = screen.getByTestId("workspace-recent-row-coddy-agent");
     expect(current.className).toContain("is-selected");
     expect(screen.getByTestId("workspace-recent-row-other")).toBeTruthy();
+  });
+
+  it("localizes workspace controls in Russian", () => {
+    setLocale("ru");
+    renderChips({ context: { ...gitCtx, branch: "" } });
+
+    expect(screen.getByTestId("composer-branch-chip")).toHaveTextContent(
+      "отсоединённая",
+    );
+    expect(screen.getByTestId("composer-worktree-chip")).toHaveTextContent(
+      "рабочее дерево",
+    );
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    expect(screen.getByTestId("workspace-folder-menu")).toHaveTextContent(
+      "Недавние",
+    );
+    expect(screen.getByTestId("workspace-open-folder")).toHaveTextContent(
+      "Открыть папку…",
+    );
   });
 
   it("picks a recent folder and remembers it", () => {

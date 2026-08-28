@@ -29,6 +29,27 @@ Feature: Interactive console TUI
     Then the tool box shows the preview "preview line 1"
     And the tool box shows the expand hint
 
+  Scenario: The status line names what the turn is doing right now
+    When the console app starts
+    And the operator submits the prompt "read the readme"
+    Then the status line shows "Waiting for the model"
+    When the stub turn starts a tool call named "read" with argument path "README.md"
+    Then the status line shows "Reading README.md"
+    When the stub tool call completes without ending the turn
+    Then the status line shows "Waiting for the model"
+
+  Scenario: The status line stays truthful through a permission gate
+    Given the session permission mode is "ask"
+    When the console app starts
+    And the operator submits the prompt "run a gated command"
+    And the stub turn starts a tool call named "run_command" with argument command "sleep 6"
+    And the stub turn requests permission for the tool "run_command"
+    Then the status line shows "Waiting for your approval"
+    When the operator allows the pending permission without ending the turn
+    Then the status line shows "Running sleep 6"
+    When the stub tool call completes without ending the turn
+    Then the status line shows "Waiting for the model"
+
   Scenario: Ask permission mode renders a modal and allow continues the turn
     Given the session permission mode is "ask"
     When the console app starts
