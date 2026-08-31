@@ -40,7 +40,10 @@ import {
   parseCoddyQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
-import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import {
+  useSessionStats,
+  type SessionStats,
+} from "./chat/useSessionStats";
 import {
   preserveTranscriptItemIds,
   stableAssistantItemId,
@@ -169,24 +172,6 @@ import {
 
 const PROFILE_MODES = ["agent", "plan", "ask"] as const;
 
-type SessionStats = {
-  tokenUsageTotal?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  contextBreakdown?: {
-    systemPrompt: number;
-    toolDefinitions: number;
-    rules: number;
-    skills: number;
-    mcp: number;
-    subagents: number;
-    conversation: number;
-    estimatedTotal: number;
-  };
-};
-
 export function App() {
   const { t } = useT();
   const confirm = useConfirm();
@@ -252,76 +237,12 @@ export function App() {
   const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
     () => new Set(),
   );
-  const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
-  const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
-    SessionStats["contextBreakdown"]
-  > | null>(null);
-
-  const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
-      if (!viewing) {
-        return;
-      }
-      if (stats?.tokenUsageTotal) {
-        const t = stats.tokenUsageTotal;
-        tokenBaselineRef.current = {
-          input: t.inputTokens || 0,
-          output: t.outputTokens || 0,
-          total: t.totalTokens || 0,
-        };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
-      }
-      if (stats?.contextBreakdown) {
-        setContextBreakdown(stats.contextBreakdown);
-      }
-    },
-    [],
-  );
-
-  const refreshSessionStats = useCallback(
-    async (sid: string) => {
-      const key = sid.trim();
-      if (!key) {
-        return;
-      }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/coddy/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
-      if (!statsRes.ok) {
-        return;
-      }
-      applySessionStatsPayload(
-        statsRes.data?.stats,
-        viewedSessionIdRef.current.trim() === key,
-      );
-    },
-    [applySessionStatsPayload],
-  );
-
-  const debouncedRefreshSessionStats = useMemo(
-    () =>
-      createDebouncedSessionStatsRefresh((sid) => {
-        void refreshSessionStats(sid);
-      }),
-    [refreshSessionStats],
-  );
-
   const markViewedSessionActivityRead = useCallback((sid: string) => {
     const key = sid.trim();
     if (!key) return;
     if (viewedSessionIdRef.current.trim() !== key) return;
     void markCoddySessionActivityRead(key);
   }, []);
-  const tokenBaselineRef = useRef<{
-    input: number;
-    output: number;
-    total: number;
-  }>({ input: 0, output: 0, total: 0 });
   /**
    * Per-session shadow transcript while that session streams in the
    * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
@@ -423,6 +344,17 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  const {
+    tokenUsage,
+    setTokenUsage,
+    contextBreakdown,
+    setContextBreakdown,
+    tokenBaselineRef,
+    applySessionStatsPayload,
+    refreshSessionStats,
+    debouncedRefreshSessionStats,
+  } = useSessionStats({ sessionId, generating, viewedSessionIdRef });
+
   // Text of the most recent user turn, used to re-run it from the retry button
   // on a failed/system notice (e.g. "model did not respond").
   const lastUserText = useMemo(() => {
@@ -434,18 +366,6 @@ export function App() {
     }
     return "";
   }, [items]);
-
-  useEffect(() => {
-    const sid = sessionId.trim();
-    if (!sid || !generating) {
-      return;
-    }
-    void refreshSessionStats(sid);
-    const timer = window.setInterval(() => {
-      void refreshSessionStats(sid);
-    }, 800);
-    return () => window.clearInterval(timer);
-  }, [sessionId, generating, refreshSessionStats]);
 
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
