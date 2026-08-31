@@ -7,7 +7,8 @@
  *   share one inline flow.
  * - `.slash-row-line` clamps that flow to 2 lines with an ellipsis, so a long
  *   description wraps under the name and anything that does not fit ends in "…".
- * - Composer renders the name and description inside a single `.slash-row-line`.
+ * - The picker menus render the name and description inside a single
+ *   `.slash-row-line` (SlashAtPickerMenus, extracted from Composer).
  */
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -16,7 +17,7 @@ import { expect, test } from "vitest";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 const css = readFileSync(join(dir, "../../styles.css"), "utf8");
-const composer = readFileSync(join(dir, "Composer.tsx"), "utf8");
+const composer = readFileSync(join(dir, "SlashAtPickerMenus.tsx"), "utf8");
 
 test("slash row button is a single block, not a 2-column grid", () => {
   const block = css.match(/\.slash-row-btn\s*\{[^}]*\}/s)?.[0] ?? "";
