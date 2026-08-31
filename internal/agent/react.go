@@ -851,6 +851,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		},
 	})
 
+	// A restricted mode filters tool definitions before the LLM sees them, but a
+	// call replayed from history can still name a hidden tool; refuse it here so
+	// the mode boundary holds at execution time too.
+	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
+		if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
+			_ = session.WriteToolCallResult(sessionDir, tc.ID, refusal)
+			_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
+		}
+		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    tc.ID,
+			Status:        "cancelled",
+			Content: []acp.ToolCallResultItem{
+				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: refusal}},
+			},
+		})
+		return refusal, nil
+	}
+
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission

@@ -695,6 +695,7 @@ export const messagesEn: Record<string, string> = {
   "composer.bytesMB": "{n} MB",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
+  "composer.modeAsk": "Ask",
   "composer.modePlan": "Plan",
   "composer.model": "Model",
   "composer.modelTitle": "YAML backend (metadata.model)",

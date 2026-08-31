@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"fmt"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 )
 
@@ -40,14 +42,53 @@ var planToolNames = []string{
 	"load_skill",
 }
 
+// askToolNames is the fixed allowlist for ask mode: repository reads and web
+// research only. No shell, no plan tools, no config tools, and no MCP tools
+// (react.go never appends MCP definitions in this mode).
+var askToolNames = []string{
+	"read",
+	"keep_result",
+	"glob",
+	"grep",
+	"print_tree",
+	"websearch",
+	"webfetch",
+	"question",
+	// Read-only: lets the assistant pull a catalogued skill's instructions when
+	// skills.auto_discovery is on (the tool is only registered when enabled).
+	"load_skill",
+}
+
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.
 func ToolSetForMode(mode string) ToolSet {
-	if mode == "plan" {
-		out := make(ToolSet, len(planToolNames))
-		copy(out, planToolNames)
-		return out
+	var names []string
+	switch mode {
+	case "plan":
+		names = planToolNames
+	case "ask":
+		names = askToolNames
+	default:
+		return nil
 	}
-	return nil
+	out := make(ToolSet, len(names))
+	copy(out, names)
+	return out
+}
+
+// toolCallRefusedByMode reports whether a tool call must be refused at execution
+// time in the given mode, with the refusal text returned as the tool result.
+// Definition filtering already hides restricted tools from the LLM, but a model
+// can still replay a call from earlier history (recorded in another mode), so
+// ask mode re-checks its allowlist here. MCP tool names (server__tool) are not
+// in the allowlist and are refused the same way.
+func toolCallRefusedByMode(mode, name string) (string, bool) {
+	if mode != "ask" {
+		return "", false
+	}
+	if ToolSetForMode(mode).Allows(name) {
+		return "", false
+	}
+	return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", name), true
 }
 
 // Unrestricted reports whether the set imposes no name filter.

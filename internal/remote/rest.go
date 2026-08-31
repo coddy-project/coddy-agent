@@ -186,7 +186,7 @@ func (h *Handler) ensureModels(ctx context.Context) error {
 	var models []remoteModel
 	for _, row := range res.Data {
 		if row.OwnedBy == "coddy" {
-			continue // "agent"/"plan" profiles, not selectable backends
+			continue // "agent"/"plan"/"ask" profiles, not selectable backends
 		}
 		models = append(models, remoteModel{ID: row.ID, OwnedBy: row.OwnedBy, Multimodal: row.Multimodal})
 	}

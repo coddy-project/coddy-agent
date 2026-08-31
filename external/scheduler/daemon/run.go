@@ -58,6 +58,8 @@ func parseSessionMode(s string) session.Mode {
 		return session.ModeAgent
 	case "plan":
 		return session.ModePlan
+	case "ask":
+		return session.ModeAsk
 	default:
 		return session.ModeAgent
 	}

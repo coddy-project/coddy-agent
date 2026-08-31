@@ -707,6 +707,7 @@ export const messagesRu: Record<string, string> = {
   "composer.bytesMB": "{n} МБ",
   "composer.mode": "Режим",
   "composer.modeAgent": "Агент",
+  "composer.modeAsk": "Ask",
   "composer.modePlan": "План",
   "composer.model": "Модель",
   "composer.modelTitle": "YAML-бэкенд (metadata.model)",

@@ -49,7 +49,7 @@ func Run(args []string, deps CommandDeps) error {
 	fs.StringVar(&promptFlag, "prompt", "", "run one prompt non-interactively, print the answer, and exit")
 	fs.StringVar(&promptFlag, "p", "", "shorthand for --prompt")
 	modelFlag := fs.String("model", "", "select a configured model id (provider/model)")
-	modeFlag := fs.String("mode", "", "start in this mode: agent|plan")
+	modeFlag := fs.String("mode", "", "start in this mode: agent|plan|ask")
 	permMode := fs.String("permission-mode", "", "permission mode: ask|accept_edits|bypass")
 	remoteFlag := fs.String("remote", "", "connect to a remote coddy http server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")

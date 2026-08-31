@@ -48,7 +48,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`coddy providers login <name>` / `coddy codex login` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$CODDY_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default;
 - `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), loop protection;
-- `prompts` - system prompt template overrides;
+- `prompts` - system prompt template overrides (`agent_prompt`, `plan_prompt`, `ask_prompt` files inside `dir`);
 - `instructions` - project instruction files (AGENTS.md chain);
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;
 - `rules` - project rules discovery;

@@ -151,9 +151,10 @@ prompts:
   # already open with it, so gateways can attribute the traffic. See internal/prompts/identity.go
   # and docs/react-agent.md (Agent identity).
   dir: ""
-  # File names inside prompts.dir (defaults: agent.md, plan.md)
+  # File names inside prompts.dir (defaults: agent.md, plan.md, ask.md)
   # agent_prompt: "agent.md"
   # plan_prompt: "plan.md"
+  # ask_prompt: "ask.md"
 
 skills:
   # dirs is the list of directories scanned for skills and rules.

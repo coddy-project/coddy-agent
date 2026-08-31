@@ -275,7 +275,7 @@ type ModelInfo = {
   reasoningDefault?: string;
 };
 
-const PROFILE_MODES = ["agent", "plan"] as const;
+const PROFILE_MODES = ["agent", "plan", "ask"] as const;
 
 type SessionStats = {
   tokenUsageTotal?: {

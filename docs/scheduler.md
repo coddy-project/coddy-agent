@@ -50,7 +50,7 @@ Frontmatter fields:
 - **`schedule`** (string) - five-field crontab, UTC
 - **`cwd`** (string, optional) - empty means the Coddy process cwd; relative paths resolve against process cwd at run time
 - **`model`** (string, optional) - session model override for the run
-- **`mode`** (string, optional) - **`agent`** or **`plan`** (default **`agent`**)
+- **`mode`** (string, optional) - **`agent`**, **`plan`**, or **`ask`** (default **`agent`**)
 - **`paused`** (bool, optional) - when true, the job does not execute
 
 Body - markdown used as the one-shot user instruction for that scheduler run.

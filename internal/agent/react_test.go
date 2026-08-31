@@ -834,6 +834,43 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	}
 }
 
+func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("ask")
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	got := make(map[string]bool)
+	for _, d := range filtered {
+		got[d.Name] = true
+	}
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+		if !got[want] {
+			t.Errorf("ask toolset should include %q", want)
+		}
+	}
+	for _, forbid := range []string{"write", "edit", "apply_patch", "run_command", "background_list", "plan_write", "plan_list", "plan_read", "config_get", "config_set", "coddy_todo_plan_read"} {
+		if got[forbid] {
+			t.Errorf("ask toolset should not include %q", forbid)
+		}
+	}
+}
+
+func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
+	if msg, refused := toolCallRefusedByMode("ask", "write"); !refused || !strings.Contains(msg, "Ask mode") {
+		t.Errorf("ask mode must refuse write at execution time, got refused=%v msg=%q", refused, msg)
+	}
+	if _, refused := toolCallRefusedByMode("ask", "mcp_server__lookup"); !refused {
+		t.Error("ask mode must refuse MCP tool calls at execution time")
+	}
+	if _, refused := toolCallRefusedByMode("ask", "read"); refused {
+		t.Error("ask mode must allow read")
+	}
+	for _, mode := range []string{"agent", "plan"} {
+		if _, refused := toolCallRefusedByMode(mode, "write"); refused {
+			t.Errorf("%s mode must not enforce the execution-time refusal", mode)
+		}
+	}
+}
+
 // --- compact.go: CompactSession ---------------------------------------------
 
 // compactCannedProvider serves Complete (summarization) with a canned summary

@@ -250,7 +250,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	maxCtx := maxContextDefault(s)
-	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",

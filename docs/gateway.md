@@ -348,7 +348,7 @@ When `isolation` is `admin`, the bot additionally ignores everyone who is not in
 |---------|-------------|--------|
 | `/start` | all users | Greeting and quick introduction. |
 | `/help` | all users | Lists all available commands. |
-| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent` and `plan`. |
+| `/mode` | all permitted users | Opens an inline keyboard to switch the session mode between `agent`, `plan`, and `ask`. |
 | `/model` | all permitted users | Opens an inline keyboard to switch the active LLM model (from the configured `models` list). |
 | `/context` | all permitted users | Displays the current session's context window usage broken down by category (conversation, system prompt, tool definitions, rules, skills, MCP). |
 | `/clear` | all permitted users | Starts a new session for the current user/chat context. The old session is removed from memory (persisted history remains on disk). |

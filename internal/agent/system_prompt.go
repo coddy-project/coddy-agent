@@ -98,7 +98,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
-	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
+	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,

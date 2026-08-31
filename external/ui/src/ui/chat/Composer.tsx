@@ -1226,6 +1226,9 @@ export function Composer(props: {
     if (m === "agent") {
       return t("composer.modeAgent");
     }
+    if (m === "ask") {
+      return t("composer.modeAsk");
+    }
     const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
       return m.slice(i + 1);
@@ -1923,7 +1926,7 @@ export function Composer(props: {
               <div className="mode">
                 <button
                   type="button"
-                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : "mode-agent"}`}
+                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : props.mode === "ask" ? "mode-ask" : "mode-agent"}`}
                   aria-label={t("composer.mode")}
                   title={t("composer.mode")}
                   aria-haspopup="menu"

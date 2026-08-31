@@ -85,6 +85,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}{
 		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
 		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: string(session.ModeAsk), ownedBy: ownedByCoddySession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -143,6 +144,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	wantRows := []want{
 		{id: string(session.ModeAgent)},
 		{id: string(session.ModePlan)},
+		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}

@@ -77,8 +77,8 @@ func (f *footer) Render(width int) []string {
 	if f.title != "" {
 		line1 += " • " + tui.SanitizeText(f.title)
 	}
-	if f.modeID == "plan" {
-		line1 += " • plan"
+	if f.modeID == "plan" || f.modeID == "ask" {
+		line1 += " • " + f.modeID
 	}
 
 	left := ""

@@ -31,7 +31,7 @@ func (a *App) dispatchSlash(text string) bool {
 		a.openModelSelector()
 		return true
 	case "mode":
-		if len(fields) > 1 && (fields[1] == "agent" || fields[1] == "plan") {
+		if len(fields) > 1 && (fields[1] == "agent" || fields[1] == "plan" || fields[1] == "ask") {
 			a.applyMode(fields[1])
 			return true
 		}
@@ -73,10 +73,14 @@ func (a *App) openModeSelector() {
 	items := []tui.SelectItem{
 		{Value: "agent", Label: "agent", Description: "Full tool access"},
 		{Value: "plan", Label: "plan", Description: "Read-only planning tools"},
+		{Value: "ask", Label: "ask", Description: "Read-only research and answers"},
 	}
 	sel := newSelectorModal(a.theme, "Select mode", items, 4, a.screen.RequestRender)
-	if a.modeID == "plan" {
-		sel.list.SetSelectedIndex(1)
+	for i, it := range items {
+		if it.Value == a.modeID {
+			sel.list.SetSelectedIndex(i)
+			break
+		}
 	}
 	sel.OnDone = func(item *tui.SelectItem) {
 		a.closeModal()

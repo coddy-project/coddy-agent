@@ -1030,7 +1030,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 	var items []tui.AutocompleteItem
 	items = append(items,
 		tui.AutocompleteItem{Value: "model", Label: "model", Description: "Select model (opens selector UI)"},
-		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent and plan mode"},
+		tui.AutocompleteItem{Value: "mode", Label: "mode", Description: "Switch between agent, plan, and ask mode"},
 		tui.AutocompleteItem{Value: "resume", Label: "resume", Description: "Resume another session"},
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},

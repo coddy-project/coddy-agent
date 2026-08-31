@@ -82,8 +82,8 @@ func TestIdentityConstantCarriesTheMarker(t *testing.T) {
 // The built-in templates carry the name themselves so the common path reads as
 // one sentence instead of a stacked identity line plus a generic opener.
 func TestBuiltInTemplatesIdentifyCoddy(t *testing.T) {
-	for _, mode := range []string{"agent", "plan"} {
-		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
 			CWD:    "/home/user/project",
 			UTCNow: fixtureUTC,
 		})
@@ -102,8 +102,8 @@ func TestBuiltInTemplatesIdentifyCoddy(t *testing.T) {
 // A long working directory eats into the window; the marker must survive it.
 func TestBuiltInTemplatesIdentifyCoddyWithLongCWD(t *testing.T) {
 	long := "/home/user/" + strings.Repeat("nested-directory/", 12) + "project"
-	for _, mode := range []string{"agent", "plan"} {
-		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		rendered, err := prompts.Render(mode, "", defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{
 			CWD:    long,
 			UTCNow: fixtureUTC,
 		})
@@ -118,7 +118,7 @@ func TestBuiltInTemplatesIdentifyCoddyWithLongCWD(t *testing.T) {
 // that stub has no name of its own and depends on WithIdentity.
 func TestFallbackPromptIsIdentifiedByWithIdentity(t *testing.T) {
 	fallback := prompts.RenderWithFallback("agent", "/nonexistent-prompts-dir",
-		defaultAgentTplFile, defaultPlanTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
+		defaultAgentTplFile, defaultPlanTplFile, defaultAskTplFile, prompts.TemplateData{CWD: "/tmp", UTCNow: fixtureUTC})
 
 	assertIdentified(t, prompts.WithIdentity(fallback), "render fallback")
 }

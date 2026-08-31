@@ -181,6 +181,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 | `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). |
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
+| `ask_prompt` | string | no | `ask.md` | Template file name for ask mode, inside `dir`. |
 
 ## `instructions`
 
