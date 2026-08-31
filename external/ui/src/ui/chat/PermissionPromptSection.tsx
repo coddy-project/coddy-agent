@@ -9,7 +9,7 @@ import type {
   CoddyPermissionPayload,
   PermissionResolvedState,
 } from "./permissionTypes";
-import { questionPromptFocusComposer } from "./QuestionPromptSection";
+import { questionPromptFocusComposer } from "./questionPromptFocus";
 import { permissionOptionLabel } from "./permissionOptionLabel";
 import { useT } from "../i18n/I18nProvider";
 
