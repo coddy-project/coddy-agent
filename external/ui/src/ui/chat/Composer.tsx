@@ -11,6 +11,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
+import { useT } from "../i18n/I18nProvider";
 import { EnvironmentChip } from "./EnvironmentChip";
 import type { WorkspaceContext } from "./workspaceContext";
 import {
@@ -50,10 +51,15 @@ import {
 } from "./llmModelMenu";
 import { fileTypeIcon } from "../messages/fileTypeIcon";
 
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (n < 1024) return t("composer.bytesB", { n });
+  if (n < 1024 * 1024) {
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  }
+  return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
 function clamp01(x: number): number {
@@ -69,13 +75,13 @@ function fmtInt(n: number | undefined): string {
 }
 
 /** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
-function displayLlmId(id: string): string {
+function displayLlmId(id: string, fallback: string = "Model"): string {
   const m = id || "";
   const i = m.lastIndexOf("/");
   if (i >= 0 && i < m.length - 1) {
     return m.slice(i + 1);
   }
-  return m || "Model";
+  return m || fallback;
 }
 
 /** File extension for an image MIME type ("image/svg+xml" -> "svg"). */
@@ -158,9 +164,14 @@ function AttachedFileChip({
   disabled: boolean;
   onRemove: () => void;
 }) {
+  const { t } = useT();
   const { svg, label } = fileTypeIcon(file.type, file.name);
   const thumbUrl = useImageObjectUrl(file);
-  const tip = `${file.name}\n${label} · ${fmtBytes(file.size)}`;
+  const tip = t("composer.attachmentTooltip", {
+    fileName: file.name,
+    label,
+    size: fmtBytes(file.size, t),
+  });
   return (
     <span
       className={[
@@ -190,7 +201,7 @@ function AttachedFileChip({
       <button
         type="button"
         className="composer-attachment-chip-remove"
-        aria-label={`Remove ${file.name}`}
+        aria-label={t("composer.removeAttachment", { fileName: file.name })}
         onClick={onRemove}
       >
         ×
@@ -262,6 +273,7 @@ export function Composer(props: {
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
 }) {
+  const { t } = useT();
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -301,7 +313,7 @@ export function Composer(props: {
   const idleSendDisabled =
     props.value.trim() === "" && sendableAttachedFiles.length === 0;
   const showAttachHint = useCallback(() => {
-    setAttachHint("Selected model cannot accept attachments");
+    setAttachHint(t("composer.attachUnsupportedModel"));
     if (attachHintTimerRef.current !== null) {
       window.clearTimeout(attachHintTimerRef.current);
     }
@@ -309,7 +321,7 @@ export function Composer(props: {
       setAttachHint(null);
       attachHintTimerRef.current = null;
     }, 4000);
-  }, []);
+  }, [t]);
   useEffect(
     () => () => {
       if (attachHintTimerRef.current !== null) {
@@ -721,8 +733,8 @@ export function Composer(props: {
       if (!response.ok) {
         setEnhanceErr(
           response.status === 503
-            ? "Couldn't improve the prompt: no model is configured."
-            : "Couldn't improve the prompt. Your draft is unchanged.",
+            ? t("composer.enhanceNoModel")
+            : t("composer.enhanceFailed"),
         );
         preEnhanceRef.current = null;
         return;
@@ -736,12 +748,19 @@ export function Composer(props: {
       }
     } catch {
       preEnhanceRef.current = null;
-      setEnhanceErr("Couldn't improve the prompt. Your draft is unchanged.");
+      setEnhanceErr(t("composer.enhanceFailed"));
     } finally {
       setEnhancing(false);
       requestAnimationFrame(() => taRef.current?.focus());
     }
-  }, [enhancing, props.generating, props.value, props.sessionId, props.onChange]);
+  }, [
+    enhancing,
+    props.generating,
+    props.value,
+    props.sessionId,
+    props.onChange,
+    t,
+  ]);
 
   const updateSlashMenu = useCallback(
     (value: string, caret: number) => {
@@ -832,7 +851,9 @@ export function Composer(props: {
           if (gen !== slashFetchGenRef.current) {
             return;
           }
-          setSlashErr(e instanceof Error ? e.message : "request failed");
+          setSlashErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setSlashItems([]);
           setSlashHasMore(false);
           setSlashNoMatch(null);
@@ -843,7 +864,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchSlashPage, slashNoMatch],
+    [fetchSlashPage, slashNoMatch, t],
   );
 
   const updateAtMenu = useCallback(
@@ -935,7 +956,9 @@ export function Composer(props: {
           if (gen !== atFetchGenRef.current) {
             return;
           }
-          setAtErr(e instanceof Error ? e.message : "request failed");
+          setAtErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setAtItems([]);
           setAtHasMore(false);
           setAtNoMatch(null);
@@ -946,7 +969,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchAtPage, atNoMatch, props.sessionId],
+    [fetchAtPage, atNoMatch, props.sessionId, t],
   );
 
   const updatePickerMenus = useCallback(
@@ -1120,7 +1143,9 @@ export function Composer(props: {
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {
-        setSlashErr(e instanceof Error ? e.message : "request failed");
+        setSlashErr(
+          e instanceof Error ? e.message : t("composer.requestFailed"),
+        );
       } finally {
         setSlashLoading(false);
       }
@@ -1145,7 +1170,7 @@ export function Composer(props: {
         setAtPage(nextPage);
         setAtHasMore(!!body.has_more);
       } catch (e) {
-        setAtErr(e instanceof Error ? e.message : "request failed");
+        setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
       } finally {
         setAtLoading(false);
       }
@@ -1180,7 +1205,7 @@ export function Composer(props: {
           closeMenu();
         }}
       >
-        {displayLlmId(mid)}
+        {displayLlmId(mid, t("composer.model"))}
       </button>
     );
   }
@@ -1191,12 +1216,15 @@ export function Composer(props: {
   const reasoningVal = (props.llmReasoning || "").trim();
   const reasoningLabel = reasoningVal
     ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
-    : "Reasoning";
+    : t("composer.reasoning");
 
   function displayMode(id: string): string {
     const m = id || "agent";
-    if (m === "plan" || m === "agent") {
-      return m.slice(0, 1).toUpperCase() + m.slice(1);
+    if (m === "plan") {
+      return t("composer.modePlan");
+    }
+    if (m === "agent") {
+      return t("composer.modeAgent");
     }
     const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
@@ -1205,7 +1233,9 @@ export function Composer(props: {
     return m;
   }
   const modeLabel = displayMode(props.mode || "agent");
-  const llmLabel = llmVal ? displayLlmId(llmVal) : "Model";
+  const llmLabel = llmVal
+    ? displayLlmId(llmVal, t("composer.model"))
+    : t("composer.model");
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -1247,13 +1277,28 @@ export function Composer(props: {
     }
   }
   const tip = contextIdle
-    ? ["No context usage yet", `Max context ${fmtInt(maxCtx)}`].join("\n")
+    ? [
+        t("composer.contextTipIdle"),
+        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
+      ].join("\n")
     : [
-        `${typeof pct === "number" ? pct.toFixed(1) : "0.0"}% context used`,
+        t("composer.contextTipUsed", {
+          percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
+        }),
         usage
-          ? `Input ${fmtInt(usage.inputTokens)}\nOutput ${fmtInt(usage.outputTokens)}\nTotal ${fmtInt(usage.totalTokens)}`
+          ? [
+              t("composer.contextTipInput", {
+                count: fmtInt(usage.inputTokens),
+              }),
+              t("composer.contextTipOutput", {
+                count: fmtInt(usage.outputTokens),
+              }),
+              t("composer.contextTipTotal", {
+                count: fmtInt(usage.totalTokens),
+              }),
+            ].join("\n")
           : "",
-        `Max context ${fmtInt(maxCtx)}`,
+        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
       ]
         .filter(Boolean)
         .join("\n");
@@ -1293,13 +1338,15 @@ export function Composer(props: {
       >
         {showSkillsSection ? (
           <>
-            <div className="slash-menu-title">Skills</div>
+            <div className="slash-menu-title">{t("composer.skillsTitle")}</div>
             {slashLoading && slashItems.length === 0 ? (
-              <div className="slash-muted">Loading…</div>
+              <div className="slash-muted">{t("composer.loading")}</div>
             ) : null}
             {slashErr ? <div className="slash-err">{slashErr}</div> : null}
             {!slashLoading && slashItems.length === 0 && !slashErr ? (
-              <div className="slash-muted">No matching skills</div>
+              <div className="slash-muted">
+                {t("composer.noMatchingSkills")}
+              </div>
             ) : null}
             <ul className="slash-rows">
               {slashItems.map((row, idx) => (
@@ -1340,14 +1387,16 @@ export function Composer(props: {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => loadMoreSlash()}
               >
-                {slashLoading ? "Loading…" : "More"}
+                {slashLoading ? t("composer.loading") : t("composer.more")}
               </button>
             ) : null}
           </>
         ) : null}
         {commandMatches.length > 0 ? (
           <>
-            <div className="slash-menu-title">Commands</div>
+            <div className="slash-menu-title">
+              {t("composer.commandsTitle")}
+            </div>
             <ul className="slash-rows">
               {commandMatches.map((row, idx) => {
                 const gidx = slashItems.length + idx;
@@ -1394,19 +1443,21 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">Workspace files</div>
+        <div className="slash-menu-title">
+          {t("composer.workspaceFilesTitle")}
+        </div>
         {atPrefix.trim() === "" && atItems.length === 0 ? (
-          <div className="slash-muted">Type after @ to search</div>
+          <div className="slash-muted">{t("composer.typeAfterAt")}</div>
         ) : null}
         {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
-          <div className="slash-muted">Loading…</div>
+          <div className="slash-muted">{t("composer.loading")}</div>
         ) : null}
         {atErr ? <div className="slash-err">{atErr}</div> : null}
         {!atLoading &&
         atItems.length === 0 &&
         !atErr &&
         atPrefix.trim() !== "" ? (
-          <div className="slash-muted">No files</div>
+          <div className="slash-muted">{t("composer.noFiles")}</div>
         ) : null}
         <ul className="slash-rows">
           {atItems.map((row) => (
@@ -1438,7 +1489,7 @@ export function Composer(props: {
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => loadMoreAt()}
           >
-            {atLoading ? "Loading…" : "More"}
+            {atLoading ? t("composer.loading") : t("composer.more")}
           </button>
         ) : null}
       </div>
@@ -1459,7 +1510,7 @@ export function Composer(props: {
           .join(" ")}
       >
         <label className="sr-only" htmlFor="composer">
-          Message
+          {t("composer.messageLabel")}
         </label>
         <div
           className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
@@ -1511,8 +1562,8 @@ export function Composer(props: {
             <button
               type="button"
               className="composer-enhance-btn"
-              aria-label="Improve prompt"
-              title="Improve prompt"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
               data-testid="composer-enhance-btn"
               disabled={enhancing || props.generating || idleSendDisabled}
               onClick={() => void enhancePrompt()}
@@ -1535,7 +1586,10 @@ export function Composer(props: {
           </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
-            <div className="composer-attachments" aria-label="Attached files">
+            <div
+              className="composer-attachments"
+              aria-label={t("composer.attachedFilesAriaLabel")}
+            >
               {(props.editingFiles || []).map((f, idx) => {
                 const { svg } = fileTypeIcon(f.mimeType, f.name);
                 return (
@@ -1619,8 +1673,8 @@ export function Composer(props: {
                 rows={props.isEmpty ? 5 : 2}
                 placeholder={
                   props.isEmpty
-                    ? "Plan, Build, / for skills, @ for files"
-                    : "Add a follow-up"
+                    ? t("composer.placeholderEmpty")
+                    : t("composer.placeholderFollowUp")
                 }
                 autoComplete="off"
                 value={props.value}
@@ -1816,7 +1870,10 @@ export function Composer(props: {
           ) : null}
 
           <div className="composer-bar">
-            <div className="composer-tabs" aria-label="Composer options">
+            <div
+              className="composer-tabs"
+              aria-label={t("composer.composerOptions")}
+            >
               {props.llmModelMultimodal ? (
                 <>
                   <input
@@ -1840,8 +1897,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab composer-attach-btn"
-                    aria-label="Attach file"
-                    title="Attach file"
+                    aria-label={t("composer.attachFile")}
+                    title={t("composer.attachFile")}
                     data-testid="composer-attach-btn"
                     onClick={() => fileInputRef.current?.click()}
                   >
@@ -1867,8 +1924,8 @@ export function Composer(props: {
                 <button
                   type="button"
                   className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : "mode-agent"}`}
-                  aria-label="Mode"
-                  title="Mode"
+                  aria-label={t("composer.mode")}
+                  title={t("composer.mode")}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen === "mode"}
                   onClick={(e) => toggleMenu("mode", e.currentTarget)}
@@ -1882,8 +1939,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab mode-btn mode-llm"
-                    aria-label="Model"
-                    title="YAML backend (metadata.model)"
+                    aria-label={t("composer.model")}
+                    title={t("composer.modelTitle")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "llm"}
                     onClick={(e) => toggleMenu("llm", e.currentTarget)}
@@ -1898,8 +1955,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab mode-btn mode-reasoning"
-                    aria-label="Reasoning level"
-                    title="Reasoning level (metadata.reasoning)"
+                    aria-label={t("composer.reasoningLevel")}
+                    title={t("composer.reasoningLevelTitle")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "reasoning"}
                     onClick={(e) => toggleMenu("reasoning", e.currentTarget)}
@@ -1920,7 +1977,7 @@ export function Composer(props: {
                   .join(" ")}
                 ref={contextHostRef}
                 tabIndex={0}
-                aria-label="Context usage"
+                aria-label={t("composer.contextUsage")}
                 aria-expanded={contextPopoverOpen}
                 data-testid="composer-context-ring-host"
                 onMouseLeave={() => setContextTipSuppressed(false)}
@@ -1963,7 +2020,11 @@ export function Composer(props: {
                     : "composer-send-play composer-run-icon--play",
                 ].join(" ")}
                 id="btn-send"
-                aria-label={props.generating ? "Stop generation" : "Send"}
+                aria-label={
+                  props.generating
+                    ? t("composer.stopGeneration")
+                    : t("composer.send")
+                }
                 disabled={!props.generating && idleSendDisabled}
                 onClick={() => {
                   if (props.generating) {
@@ -2072,8 +2133,8 @@ export function Composer(props: {
                         type="text"
                         className="mode-menu-filter"
                         data-testid="model-menu-filter"
-                        aria-label="Filter models"
-                        placeholder="Filter models…"
+                        aria-label={t("composer.filterModels")}
+                        placeholder={t("composer.filterModelsPlaceholder")}
                         autoFocus
                         value={llmQuery}
                         onChange={(e) => setLlmQuery(e.target.value)}
@@ -2100,7 +2161,9 @@ export function Composer(props: {
                           className="mode-menu-empty"
                           data-testid="model-menu-empty"
                         >
-                          No models match “{llmQuery.trim()}”
+                          {t("composer.noModelsMatch", {
+                            query: llmQuery.trim(),
+                          })}
                         </div>
                       ) : llmGrouped ? (
                         llmGroups.map((g) => (
@@ -2109,7 +2172,7 @@ export function Composer(props: {
                             className="mode-menu-group"
                           >
                             <div className="mode-menu-group-label">
-                              {g.vendor || "Other"}
+                              {g.vendor || t("composer.vendorOther")}
                             </div>
                             {g.models.map((mid) => renderLlmItem(mid))}
                           </div>
@@ -2149,7 +2212,7 @@ export function Composer(props: {
                 <button
                   type="button"
                   className="slash-sheet-backdrop"
-                  aria-label="Close picker"
+                  aria-label={t("composer.closePicker")}
                   tabIndex={-1}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -2167,7 +2230,11 @@ export function Composer(props: {
                     atOpen ? "workspace-files-menu" : "slash-command-menu"
                   }
                   role="listbox"
-                  aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                  aria-label={
+                    atOpen
+                      ? t("composer.workspaceFilesAriaLabel")
+                      : t("composer.slashCommandsAriaLabel")
+                  }
                   style={
                     !props.isEmpty && sheetBottomPx != null
                       ? {
@@ -2187,7 +2254,11 @@ export function Composer(props: {
                   atOpen ? "workspace-files-menu" : "slash-command-menu"
                 }
                 role="listbox"
-                aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                aria-label={
+                  atOpen
+                    ? t("composer.workspaceFilesAriaLabel")
+                    : t("composer.slashCommandsAriaLabel")
+                }
                 style={{
                   left: pickerFloatRect.left,
                   width: pickerFloatRect.width,

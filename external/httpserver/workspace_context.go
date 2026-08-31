@@ -74,10 +74,59 @@ func (s *Server) coddyWorkspaceContextGet(w http.ResponseWriter, r *http.Request
 	_ = json.NewEncoder(w).Encode(workspaceContextPayload(cwd))
 }
 
+// workspaceDrivesPath is the pseudo-path of the volume level that sits above
+// the drive roots ("This PC"). A Windows drive root has no parent directory -
+// filepath.Dir(`C:\`) is `C:\` - so the picker needs a synthetic level to hop
+// between volumes from. A colon is only legal after the drive letter, so the
+// sentinel cannot collide with a real Windows path.
+const workspaceDrivesPath = ":drives:"
+
+// drivesListingPayload renders the volume level: one row per drive root, and
+// no level above it (path == parent, so the picker hides its ".." row).
+func drivesListingPayload(drives []string) map[string]interface{} {
+	folders := make([]map[string]string, 0, len(drives))
+	for _, root := range drives {
+		folders = append(folders, map[string]string{
+			"name": strings.TrimRight(root, `\/`),
+			"path": root,
+		})
+	}
+	return map[string]interface{}{
+		"object":  "coddy.workspace_folders",
+		"path":    workspaceDrivesPath,
+		"parent":  workspaceDrivesPath,
+		"drives":  true,
+		"folders": folders,
+	}
+}
+
+// folderListingPayload renders a real directory. The parent of a filesystem
+// root is promoted to the volume level when the host has drives, which is what
+// lets a Windows session walk up out of `C:\` and into another drive.
+func folderListingPayload(abs string, folders []map[string]string, drives []string) map[string]interface{} {
+	parent := filepath.Dir(abs)
+	if parent == abs && len(drives) > 0 {
+		parent = workspaceDrivesPath
+	}
+	return map[string]interface{}{
+		"object":  "coddy.workspace_folders",
+		"path":    abs,
+		"parent":  parent,
+		"folders": folders,
+	}
+}
+
 // coddyWorkspaceFoldersGet lists subfolders of ?path= (default: session cwd)
 // for the workspace folder picker. Hidden folders and node_modules are skipped.
+// ?path=:drives: lists the machine's drive roots instead.
 func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request) {
 	dir := strings.TrimSpace(r.URL.Query().Get("path"))
+	drives := s.hostDrives()
+	if dir == workspaceDrivesPath && len(drives) > 0 {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(drivesListingPayload(drives))
+		return
+	}
 	if dir == "" {
 		cwd, ok := s.resolveSlashListCWD(w, r)
 		if !ok {
@@ -116,12 +165,16 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 	}
 	sort.Slice(folders, func(i, j int) bool { return folders[i]["name"] < folders[j]["name"] })
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"object":  "coddy.workspace_folders",
-		"path":    abs,
-		"parent":  filepath.Dir(abs),
-		"folders": folders,
-	})
+	_ = json.NewEncoder(w).Encode(folderListingPayload(abs, folders, drives))
+}
+
+// hostDrives lists the machine's drive roots, tolerating a server built
+// without the seam (zero-value Server in older tests).
+func (s *Server) hostDrives() []string {
+	if s.drives == nil {
+		return nil
+	}
+	return s.drives()
 }
 
 // coddySessionWorkspacePost switches the session workspace: {"path": dir}

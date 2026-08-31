@@ -55,14 +55,15 @@ export function openAIStreamErrorMessage(parsed: unknown): string | null {
   }
   if (typeof err === "string") {
     const m = err.trim();
-    return m.length > 0 ? m : "Request failed";
+    return m.length > 0 ? m : t("messages.requestFailed");
   }
   if (typeof err === "object") {
     const msg = (err as { message?: unknown }).message;
     if (typeof msg === "string" && msg.trim() !== "") {
       return msg.trim();
     }
-    return "Request failed";
+    return t("messages.requestFailed");
   }
-  return "Request failed";
+  return t("messages.requestFailed");
 }
+import { t } from "../i18n/i18n";

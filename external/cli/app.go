@@ -61,6 +61,8 @@ type App struct {
 	foot       *footer
 
 	spinner       *tui.Loader
+	stepStatus    liveStatus
+	stepBlocked   string
 	turnActive    bool
 	turnSessionID string
 	switching     bool
@@ -549,6 +551,9 @@ func (a *App) openModal(c tui.Component) {
 }
 
 func (a *App) closeModal() {
+	// The gate is answered; the status line goes back to the gated step itself
+	// (an approved tool only starts executing now, so its clock restarts too).
+	a.unblockStatus()
 	a.modal = nil
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(a.editor)
@@ -556,6 +561,7 @@ func (a *App) closeModal() {
 }
 
 func (a *App) openPermissionModal(req permRequest) {
+	a.blockStatus("Waiting for your approval")
 	m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.PermissionResult) {
 		req.reply <- res
@@ -566,6 +572,7 @@ func (a *App) openPermissionModal(req permRequest) {
 }
 
 func (a *App) openQuestionModal(req questRequest) {
+	a.blockStatus("Waiting for your answer")
 	m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.QuestionResult) {
 		req.reply <- res
@@ -603,6 +610,8 @@ func (a *App) submitPrompt(text string) {
 	}
 	a.chat.AddChild(newUserMessage(a.theme, text))
 	a.curAssistant = nil
+	a.stepStatus = newWaitingStatus()
+	a.stepBlocked = ""
 	a.startSpinner()
 	a.turnActive = true
 	sessionID := a.sessionID
@@ -627,7 +636,10 @@ func (a *App) submitPrompt(text string) {
 
 func (a *App) startSpinner() {
 	if a.spinner == nil {
-		a.spinner = tui.NewLoader(a.screen.RequestRender, a.theme.FgFn(roleAccent), a.theme.FgFn(roleMuted), "Working...")
+		a.spinner = tui.NewLoader(a.screen.RequestRender, a.theme.FgFn(roleAccent), a.theme.FgFn(roleMuted), statusWaitingModel)
+		// Rendered per frame so the elapsed counter ticks off the loader's own 80 ms
+		// tick instead of a second timer.
+		a.spinner.SetMessageFunc(a.statusMessage)
 	}
 	a.status.Clear()
 	a.status.AddChild(a.spinner)

@@ -3,6 +3,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CodeBlockCopyButton } from "../messages/CodeBlockCopyButton";
 import type { ParsedDiffLine } from "../messages/parseDiff";
 import type { PermissionToolPreview as Preview } from "./permissionToolPreview";
+import { useT } from "../i18n/I18nProvider";
 
 function DiffLineRow({ line }: { line: ParsedDiffLine }) {
   const sign = line.kind === "add" ? "+" : line.kind === "del" ? "−" : " ";
@@ -29,6 +30,7 @@ function DiffPreview({
 }: {
   preview: Extract<Preview, { kind: "diff" }>;
 }) {
+  const { t } = useT();
   const headers = useMemo(
     () => new Map(preview.hunkHeaders.map((row) => [row.at, row.text])),
     [preview.hunkHeaders],
@@ -37,7 +39,9 @@ function DiffPreview({
     <div
       className="permission-preview-diff"
       aria-label={
-        preview.toolName === "apply_patch" ? "Patch preview" : "Edit preview"
+        preview.toolName === "apply_patch"
+          ? t("permission.preview.patch")
+          : t("permission.preview.edit")
       }
     >
       {preview.lines.map((line, index) => (
@@ -54,13 +58,20 @@ function DiffPreview({
   );
 }
 
-const todoStatusLabel: Record<string, string> = {
-  pending: "Pending",
-  in_progress: "In progress",
-  completed: "Completed",
-  failed: "Failed",
-  cancelled: "Cancelled",
-};
+function todoStatusLabel(status: string, t: (key: string) => string): string {
+  switch (status) {
+    case "in_progress":
+      return t("todo.status.inProgress");
+    case "completed":
+      return t("todo.status.completed");
+    case "failed":
+      return t("todo.status.failed");
+    case "cancelled":
+      return t("todo.status.cancelled");
+    default:
+      return t("todo.status.pending");
+  }
+}
 
 function todoStatusMark(status: string): string {
   switch (status) {
@@ -80,10 +91,11 @@ function TodoPreview({
 }: {
   preview: Extract<Preview, { kind: "todo" }>;
 }) {
+  const { t } = useT();
   return (
     <ul className="todo-tool-preview-list" aria-label={preview.header}>
       {preview.entries.map((entry, index) => {
-        const status = todoStatusLabel[entry.status] || "Pending";
+        const status = todoStatusLabel(entry.status, t);
         return (
           <li
             key={`${index}-${entry.status}-${entry.content}`}
@@ -95,7 +107,7 @@ function TodoPreview({
             </span>
             <span className="todo-tool-preview-content">{entry.content}</span>
             {entry.status === "in_progress" ? (
-              <span className="todo-tool-preview-status">In progress</span>
+              <span className="todo-tool-preview-status">{status}</span>
             ) : null}
           </li>
         );
@@ -133,6 +145,7 @@ export function PermissionToolPreview({
   /** Selected transcript previews keep overflow controls without adding copy. */
   overflowControls?: boolean;
 }) {
+  const { t } = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -243,7 +256,9 @@ export function PermissionToolPreview({
                 setExpanded((value) => !value);
               }}
             >
-              {expanded ? "Less" : "More…"}
+              {expanded
+                ? t("permission.preview.less")
+                : t("permission.preview.more")}
             </button>
           ) : null}
         </>

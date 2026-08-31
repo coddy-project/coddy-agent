@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
+import { t as translate } from "../i18n/i18n";
 import {
   schedulerCreateJob,
   schedulerDeleteJob,
@@ -41,16 +42,16 @@ const AUTOSAVE_MS = 600;
 function validateJobId(raw: string): string | null {
   const s = raw.trim();
   if (!s) {
-    return "Required";
+    return translate("scheduler.validation.required");
   }
   if (s.length > 64) {
-    return "Too long";
+    return translate("scheduler.validation.tooLong");
   }
   if (/\s/.test(s)) {
-    return "No spaces - use hyphens (example: daily-report)";
+    return translate("scheduler.validation.noSpaces");
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(s)) {
-    return "Only letters, digits, and hyphens (example: daily-report)";
+    return translate("scheduler.validation.invalidJobId");
   }
   return null;
 }
@@ -168,13 +169,13 @@ export function SchedulerJobEditorSheet(props: {
         }
       }
       if (!desc) {
-        errs.description = "Required";
+        errs.description = translate("scheduler.validation.required");
       }
       if (!sch) {
-        errs.schedule = "Required";
+        errs.schedule = translate("scheduler.validation.required");
       }
       if (!bod.trim()) {
-        errs.body = "Required";
+        errs.body = translate("scheduler.validation.required");
       }
       return errs;
     },
@@ -488,20 +489,24 @@ export function SchedulerJobEditorSheet(props: {
       role="dialog"
       aria-modal={false}
       aria-label={
-        props.mode === "create" ? "New scheduler job" : "Edit scheduler job"
+        props.mode === "create"
+          ? t("scheduler.editorNewAriaLabel")
+          : t("scheduler.editorEditAriaLabel")
       }
       data-testid="scheduler-editor-panel"
     >
       <div className="sessions-head">
         <span>
           {props.mode === "create"
-            ? "New job"
-            : `Job ${jobIdField || props.jobId || ""}`}
+            ? t("scheduler.newJob")
+            : t("scheduler.jobTitle", {
+                jobId: jobIdField || props.jobId || "",
+              })}
         </span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close editor"
+          aria-label={t("scheduler.closeEditor")}
           data-testid="scheduler-editor-close"
           onClick={props.onClose}
         >
@@ -520,15 +525,15 @@ export function SchedulerJobEditorSheet(props: {
             </div>
           ) : null}
           {props.mode === "edit" && loading ? (
-            <div className="sessions-empty">Loading…</div>
+            <div className="sessions-empty">{t("scheduler.loading")}</div>
           ) : null}
 
           {!loadErr && (props.mode === "create" || !loading) ? (
             <div className="scheduler-editor-form">
               <label className="scheduler-field">
-                <span className="scheduler-field-label">job_id</span>
+                <span className="scheduler-field-label">{t("scheduler.field.jobId")}</span>
                 <span className="scheduler-field-help">
-                  Filename - letters, digits, hyphens (example: daily-report).
+                  {t("scheduler.field.jobIdHelp")}
                 </span>
                 <input
                   className={[
@@ -547,7 +552,7 @@ export function SchedulerJobEditorSheet(props: {
                 ) : null}
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">description</span>
+                <span className="scheduler-field-label">{t("scheduler.field.description")}</span>
                 <input
                   className={[
                     "scheduler-field-input",
@@ -566,7 +571,7 @@ export function SchedulerJobEditorSheet(props: {
               </label>
               <label className="scheduler-field">
                 <span className="scheduler-field-label">
-                  schedule (UTC, 5 fields)
+                  {t("scheduler.field.schedule")}
                 </span>
                 <input
                   className={[
@@ -579,7 +584,7 @@ export function SchedulerJobEditorSheet(props: {
                   value={schedule}
                   onChange={(ev) => setSchedule(ev.target.value)}
                   spellCheck={false}
-                  placeholder="0 * * * *"
+                  placeholder={t("scheduler.field.schedulePlaceholder")}
                 />
                 {fieldErrs.schedule ? (
                   <div className="scheduler-field-err">
@@ -598,9 +603,9 @@ export function SchedulerJobEditorSheet(props: {
                 {cronHint.ok ? cronHint.text : cronHint.error}
               </div>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">cwd (optional)</span>
+                <span className="scheduler-field-label">{t("scheduler.field.cwd")}</span>
                 <span className="scheduler-field-help">
-                  Defaults to the agent working directory for this instance.
+                  {t("scheduler.field.cwdHelp")}
                 </span>
                 <input
                   className="scheduler-field-input"
@@ -610,18 +615,18 @@ export function SchedulerJobEditorSheet(props: {
                 />
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">mode</span>
+                <span className="scheduler-field-label">{t("scheduler.field.mode")}</span>
                 <select
                   className="scheduler-field-input"
                   value={modeField}
                   onChange={(ev) => setModeField(ev.target.value)}
                 >
-                  <option value="agent">agent</option>
-                  <option value="plan">plan</option>
+                  <option value="agent">{t("scheduler.mode.agent")}</option>
+                  <option value="plan">{t("scheduler.mode.plan")}</option>
                 </select>
               </label>
               <label className="scheduler-field">
-                <span className="scheduler-field-label">model</span>
+                <span className="scheduler-field-label">{t("scheduler.field.model")}</span>
                 {props.availableModels.length > 0 ? (
                   <select
                     className="scheduler-field-input"
@@ -645,7 +650,7 @@ export function SchedulerJobEditorSheet(props: {
                 )}
               </label>
               <div className="scheduler-field scheduler-field-stack">
-                <span className="scheduler-field-label">body (markdown)</span>
+                <span className="scheduler-field-label">{t("scheduler.field.body")}</span>
                 <div
                   className={[
                     "scheduler-body-editor-wrap",
@@ -657,8 +662,8 @@ export function SchedulerJobEditorSheet(props: {
                   <MarkdownLineEditor
                     value={body}
                     onChange={setBody}
-                    aria-label="Job body markdown"
-                    placeholder="Instruction for the scheduled run…"
+                    aria-label={t("scheduler.bodyAriaLabel")}
+                    placeholder={t("scheduler.bodyPlaceholder")}
                   />
                 </div>
                 {fieldErrs.body ? (
@@ -685,8 +690,8 @@ export function SchedulerJobEditorSheet(props: {
             className="scheduler-btn scheduler-btn-icon-only"
             disabled={saving}
             data-testid="scheduler-editor-pause-toggle"
-            title={paused ? "Resume" : "Pause"}
-            aria-label={paused ? "Resume" : "Pause"}
+            title={paused ? t("scheduler.resume") : t("scheduler.pause")}
+            aria-label={paused ? t("scheduler.resume") : t("scheduler.pause")}
             onClick={() => void onPauseToggle()}
           >
             {paused ? <SchedulerIconResume /> : <SchedulerIconPause />}
@@ -698,8 +703,8 @@ export function SchedulerJobEditorSheet(props: {
             className="scheduler-btn scheduler-btn-danger scheduler-btn-icon-only"
             disabled={saving || loading}
             data-testid="scheduler-editor-delete"
-            title="Delete"
-            aria-label="Delete"
+            title={t("scheduler.delete")}
+            aria-label={t("scheduler.delete")}
             onClick={() => void onDelete()}
           >
             <SchedulerIconTrash />

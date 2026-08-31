@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 import type { BackgroundTask } from "./types";
 import {
   estimateProgress,
@@ -27,38 +28,49 @@ function RunningCard(props: {
   onOpen: (taskId: string) => void;
   onStop: (taskId: string) => void;
 }) {
-  const t = props.task;
-  const progress = estimateProgress(t, props.nowMs);
-  const overdue = isOverdue(t, props.nowMs);
+  const { t } = useT();
+  const task = props.task;
+  const progress = estimateProgress(task, props.nowMs);
+  const overdue = isOverdue(task, props.nowMs);
 
   return (
     <div
-      className={["bgtask-card", overdue ? "is-overdue" : ""].filter(Boolean).join(" ")}
-      data-testid={`bgtask-card-${t.id}`}
+      className={["bgtask-card", overdue ? "is-overdue" : ""]
+        .filter(Boolean)
+        .join(" ")}
+      data-testid={`bgtask-card-${task.id}`}
     >
       <div className="bgtask-card-head">
         <button
           type="button"
           className="bgtask-card-open"
-          onClick={() => props.onOpen(t.id)}
+          onClick={() => props.onOpen(task.id)}
         >
-          <span className={`bgtask-dot bgtask-dot--${taskTone(t.status)}`} aria-hidden="true" />
-          <span className="bgtask-card-label" title={t.command || t.label}>
-            {t.label}
+          <span
+            className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+            aria-hidden="true"
+          />
+          <span
+            className="bgtask-card-label"
+            title={task.command || task.label}
+          >
+            {task.label}
           </span>
         </button>
         <button
           type="button"
           className="composer-icon composer-run-icon composer-send-stop composer-run-icon--stop bgtask-stop-icon"
-          aria-label={`Stop ${t.label}`}
-          title="Stop task"
-          data-testid={`bgtask-stop-${t.id}`}
-          onClick={() => props.onStop(t.id)}
+          aria-label={t("tasks.stopAriaLabel", { label: task.label })}
+          title={t("tasks.stopTitle")}
+          data-testid={`bgtask-stop-${task.id}`}
+          onClick={() => props.onStop(task.id)}
         >
           <IconStop />
         </button>
       </div>
-      <div className="bgtask-card-meta">{taskTimingLine(t, props.nowMs)}</div>
+      <div className="bgtask-card-meta">
+        {taskTimingLine(task, props.nowMs)}
+      </div>
       {progress !== null ? (
         <div
           className="bgtask-progress"
@@ -66,7 +78,7 @@ function RunningCard(props: {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
-          aria-label={`Progress toward the estimate for ${t.label}`}
+          aria-label={t("tasks.progressAriaLabel", { label: task.label })}
         >
           <span
             className="bgtask-progress-fill"
@@ -84,27 +96,33 @@ function FinishedRow(props: {
   nowMs: number;
   onOpen: (taskId: string) => void;
 }) {
-  const t = props.task;
-  const ended = t.finished_at ? new Date(t.finished_at) : null;
+  const task = props.task;
+  const ended = task.finished_at ? new Date(task.finished_at) : null;
   const clock =
     ended && !Number.isNaN(ended.getTime())
-      ? ended.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+      ? ended.toLocaleTimeString(undefined, {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
       : "";
 
   return (
     <button
       type="button"
       className="bgtask-finished-row"
-      data-testid={`bgtask-finished-${t.id}`}
-      onClick={() => props.onOpen(t.id)}
-      title={t.command || t.label}
+      data-testid={`bgtask-finished-${task.id}`}
+      onClick={() => props.onOpen(task.id)}
+      title={task.command || task.label}
     >
-      <span className={`bgtask-dot bgtask-dot--${taskTone(t.status)}`} aria-hidden="true" />
-      <span className="bgtask-finished-label">{t.label}</span>
+      <span
+        className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+        aria-hidden="true"
+      />
+      <span className="bgtask-finished-label">{task.label}</span>
       <span className="bgtask-finished-meta">
-        {typeof t.exit_code === "number" && t.status !== "succeeded"
-          ? `${taskStatusLabel(t.status).toLowerCase()} · ${clock}`
-          : `${taskTimingLine(t, props.nowMs).split(" · ")[0]} · ${clock}`}
+        {typeof task.exit_code === "number" && task.status !== "succeeded"
+          ? `${taskStatusLabel(task.status).toLowerCase()} · ${clock}`
+          : `${taskTimingLine(task, props.nowMs).split(" · ")[0]} · ${clock}`}
       </span>
     </button>
   );
@@ -117,7 +135,8 @@ function TaskDetail(props: {
   onBack: () => void;
   onStop: (taskId: string) => void;
 }) {
-  const t = props.task;
+  const { t } = useT();
+  const task = props.task;
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
 
@@ -138,38 +157,49 @@ function TaskDetail(props: {
           data-testid="bgtask-back"
           onClick={props.onBack}
         >
-          ← Back to tasks
+          {t("tasks.backToList")}
         </button>
-        {t.running ? (
+        {task.running ? (
           <button
             type="button"
             className="scheduler-btn bgtask-detail-stop"
             data-testid="bgtask-detail-stop"
-            onClick={() => props.onStop(t.id)}
+            onClick={() => props.onStop(task.id)}
           >
-            Stop
+            {t("tasks.stopTitle")}
           </button>
         ) : null}
       </div>
 
       <div className="bgtask-detail-summary">
         <div className="bgtask-detail-title-line">
-          <span className={`bgtask-dot bgtask-dot--${taskTone(t.status)}`} aria-hidden="true" />
-          <span className="bgtask-detail-status">{taskStatusLabel(t.status)}</span>
-          <span className="bgtask-detail-timing">{taskTimingLine(t, props.nowMs)}</span>
+          <span
+            className={`bgtask-dot bgtask-dot--${taskTone(task.status)}`}
+            aria-hidden="true"
+          />
+          <span className="bgtask-detail-status">
+            {taskStatusLabel(task.status)}
+          </span>
+          <span className="bgtask-detail-timing">
+            {taskTimingLine(task, props.nowMs)}
+          </span>
         </div>
-        {t.command ? <pre className="bgtask-detail-command">{t.command}</pre> : null}
-        {t.error ? <div className="bgtask-detail-error">{t.error}</div> : null}
+        {task.command ? (
+          <pre className="bgtask-detail-command">{task.command}</pre>
+        ) : null}
+        {task.error ? (
+          <div className="bgtask-detail-error">{task.error}</div>
+        ) : null}
       </div>
 
       <div className="bgtask-detail-output-head">
-        <span>Output</span>
-        {t.output_truncated ? (
+        <span>{t("tasks.outputHeading")}</span>
+        {task.output_truncated ? (
           <span
             className="bgtask-detail-truncated"
-            title="Earlier output scrolled out of the in-memory window; the full log stays in the session bundle"
+            title={t("tasks.truncatedTitle")}
           >
-            truncated
+            {t("tasks.truncated")}
           </span>
         ) : null}
       </div>
@@ -182,7 +212,7 @@ function TaskDetail(props: {
           setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
         }}
       >
-        {props.output.trim() ? props.output : "(no output yet)"}
+        {props.output.trim() ? props.output : t("tasks.noOutput")}
       </pre>
     </div>
   );
@@ -209,6 +239,7 @@ export function BackgroundTasksPanel(props: {
   onStopTask: (taskId: string) => void;
   onClearFinished: () => void;
 }) {
+  const { t } = useT();
   const [finishedOpen, setFinishedOpen] = useState(false);
 
   if (!props.open) {
@@ -225,15 +256,15 @@ export function BackgroundTasksPanel(props: {
   return (
     <aside
       className="bgtasks-panel"
-      aria-label="Background tasks"
+      aria-label={t("tasks.panelTitle")}
       data-testid="bgtasks-panel"
     >
       <div className="sessions-head bgtasks-panel-head">
-        <span>Background tasks</span>
+        <span>{t("tasks.panelTitle")}</span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close background tasks"
+          aria-label={t("tasks.closePanel")}
           data-testid="bgtasks-panel-close"
           onClick={props.onClose}
         >
@@ -259,21 +290,23 @@ export function BackgroundTasksPanel(props: {
 
           {!props.listError && props.loading && props.tasks.length === 0 ? (
             <div className="sessions-empty" data-testid="bgtasks-list-loading">
-              Loading…
+              {t("tasks.loading")}
             </div>
           ) : null}
 
           {!props.listError && !props.loading && props.tasks.length === 0 ? (
             <div className="sessions-empty" data-testid="bgtasks-list-empty">
-              No background tasks in this chat yet. The agent starts one when a
-              command is slow enough to be worth running detached.
+              {t("tasks.empty")}
             </div>
           ) : null}
 
           {running.length > 0 ? (
             <>
-              <div className="bgtask-section-label" data-testid="bgtask-section-running">
-                Running
+              <div
+                className="bgtask-section-label"
+                data-testid="bgtask-section-running"
+              >
+                {t("tasks.sectionRunning")}
               </div>
               {running.map((t) => (
                 <RunningCard
@@ -301,7 +334,7 @@ export function BackgroundTasksPanel(props: {
                     className={`bgtask-section-chevron ${finishedOpen ? "is-open" : ""}`}
                     aria-hidden="true"
                   />
-                  Finished {finished.length}
+                  {t("tasks.sectionFinished", { count: finished.length })}
                 </button>
                 <button
                   type="button"
@@ -309,12 +342,15 @@ export function BackgroundTasksPanel(props: {
                   data-testid="bgtask-clear-finished"
                   onClick={props.onClearFinished}
                 >
-                  Clear
+                  {t("tasks.clearFinished")}
                 </button>
               </div>
 
               {finishedOpen ? (
-                <div className="bgtask-finished-list" data-testid="bgtask-finished-list">
+                <div
+                  className="bgtask-finished-list"
+                  data-testid="bgtask-finished-list"
+                >
                   {shown.map((t) => (
                     <FinishedRow
                       key={t.id}
@@ -328,8 +364,9 @@ export function BackgroundTasksPanel(props: {
                       className="bgtask-finished-more"
                       data-testid="bgtask-finished-more"
                     >
-                      {finished.length - shown.length} older tasks are kept on disk
-                      and not listed here
+                      {t("tasks.olderOnDisk", {
+                        count: finished.length - shown.length,
+                      })}
                     </div>
                   ) : null}
                 </div>

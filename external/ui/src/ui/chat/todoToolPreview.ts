@@ -1,3 +1,5 @@
+import { t, tp } from "../i18n/i18n";
+
 export type TodoPlanEntry = {
   content: string;
   status: string;
@@ -58,8 +60,7 @@ export function normalizeTodoPlanSnapshot(
 export function isTodoPreviewTool(toolName: string): boolean {
   const name = toolName.trim().toLowerCase();
   return (
-    name === "coddy_todo_item_update" ||
-    name === "coddy_todo_plan_replace"
+    name === "coddy_todo_item_update" || name === "coddy_todo_plan_replace"
   );
 }
 
@@ -83,8 +84,10 @@ export function buildTodoToolPreview(
     }
     return {
       variant: "item",
-      header: "Updated item",
-      meta: [`${index + 1} of ${entries.length}`],
+      header: t("todo.preview.updatedItem"),
+      meta: [
+        t("todo.preview.position", { index: index + 1, total: entries.length }),
+      ],
       entries: [entries[index]!],
     };
   }
@@ -95,8 +98,11 @@ export function buildTodoToolPreview(
     ).length;
     return {
       variant: "plan",
-      header: "Todo plan",
-      meta: [`${completed} completed`, `${entries.length} items`],
+      header: t("todo.preview.plan"),
+      meta: [
+        tp("todo.preview.completed", completed),
+        tp("todo.preview.items", entries.length),
+      ],
       entries,
     };
   }

@@ -1902,6 +1902,11 @@ a.rail-brand {
   align-items: center;
   gap: 5px;
   padding: 10px 14px;
+  /* Blockified as a flex item of the column .msg-assistant-stack; without this its
+     min-content width follows the unbreakable path/command in the status label and
+     pushes the row past .messages-inner. */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .typing-dots-dot {
@@ -1919,6 +1924,68 @@ a.rail-brand {
 
 .typing-dots-dot:nth-child(3) {
   animation-delay: 0.36s;
+}
+
+/* Live status label. It MUST stay after the three .typing-dots-dot spans - the
+   :nth-child rules above carry the bounce stagger. */
+.typing-dots-status {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  margin-left: 3px;
+  font-size: 13px;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 55%, var(--coddy-blend-base));
+  user-select: none;
+}
+
+.typing-dots-status-text {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  /* Lets the flex child shrink below its content size, which is what enables the
+     ellipsis on the target below. */
+  min-width: 0;
+  overflow: hidden;
+}
+
+.typing-dots-status-verb {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Only the target gives ground when space runs out; the verb and timer are flex: none,
+   so the row degrades to "Reading ... - 12s" and never wraps or clips the verb. */
+.typing-dots-status-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+}
+
+/* A drawn-out wait reads as more prominent, not as an error: there is no per-theme
+   warning token, and a slow model is not a failure. */
+.typing-dots-status--slow .typing-dots-status-verb {
+  color: color-mix(in srgb, var(--text) 78%, var(--coddy-blend-base));
+}
+
+.typing-dots-status-time {
+  flex: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.typing-dots-status-time::before {
+  content: "\00b7";
+  margin: 0 5px;
+}
+
+@media (max-width: 480px) {
+  .typing-dots-status {
+    font-size: 12px;
+  }
 }
 
 .msg-assistant-foot {
@@ -3900,15 +3967,28 @@ textarea#composer {
   color: var(--text);
 }
 
+/* Editable path row: type or paste a path (a Windows user needs it to jump to
+   another drive). Shares the .mode-menu-filter token recipe so every theme is
+   covered; no direction: rtl here - it breaks the caret for LTR text. */
 .workspace-modal-path {
-  padding: 0 14px 8px;
-  font-size: 11px;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  width: calc(100% - 28px);
+  box-sizing: border-box;
+  margin: 0 14px 8px;
+  padding: 6px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font-size: 11.5px;
+  outline: none;
+}
+
+.workspace-modal-path::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.workspace-modal-path:focus {
+  border-color: rgba(147, 51, 234, 0.45);
 }
 
 .workspace-modal-list {

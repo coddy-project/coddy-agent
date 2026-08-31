@@ -2,10 +2,10 @@ import type {
   BackgroundTaskListResponse,
   BackgroundTaskResponse,
 } from "./types";
+import { t } from "../i18n/i18n";
 
 export type TasksApiResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; status: number; message: string };
+  { ok: true; data: T } | { ok: false; status: number; message: string };
 
 async function readErrorMessage(res: Response): Promise<string> {
   try {
@@ -47,11 +47,9 @@ async function request(
   }
 }
 
-const OFFLINE = {
-  ok: false as const,
-  status: 0,
-  message: "Coddy is not reachable",
-};
+function offlineResult<T>(): TasksApiResult<T> {
+  return { ok: false, status: 0, message: t("tasks.notReachable") };
+}
 
 function basePath(sessionId: string): string {
   return `/coddy/sessions/${encodeURIComponent(sessionId)}/background-tasks`;
@@ -63,17 +61,20 @@ export async function listBackgroundTasks(
   const res = await request(basePath(sessionId), {
     headers: { "X-Coddy-Session-ID": sessionId },
   });
-  return res ? parseJson<BackgroundTaskListResponse>(res) : OFFLINE;
+  return res ? parseJson<BackgroundTaskListResponse>(res) : offlineResult();
 }
 
 export async function getBackgroundTask(
   sessionId: string,
   taskId: string,
 ): Promise<TasksApiResult<BackgroundTaskResponse>> {
-  const res = await request(`${basePath(sessionId)}/${encodeURIComponent(taskId)}`, {
-    headers: { "X-Coddy-Session-ID": sessionId },
-  });
-  return res ? parseJson<BackgroundTaskResponse>(res) : OFFLINE;
+  const res = await request(
+    `${basePath(sessionId)}/${encodeURIComponent(taskId)}`,
+    {
+      headers: { "X-Coddy-Session-ID": sessionId },
+    },
+  );
+  return res ? parseJson<BackgroundTaskResponse>(res) : offlineResult();
 }
 
 export async function clearFinishedBackgroundTasks(
@@ -83,7 +84,7 @@ export async function clearFinishedBackgroundTasks(
     method: "DELETE",
     headers: { "X-Coddy-Session-ID": sessionId },
   });
-  return res ? parseJson<{ cleared: number }>(res) : OFFLINE;
+  return res ? parseJson<{ cleared: number }>(res) : offlineResult();
 }
 
 export async function stopBackgroundTask(
@@ -94,5 +95,5 @@ export async function stopBackgroundTask(
     `${basePath(sessionId)}/${encodeURIComponent(taskId)}/stop`,
     { method: "POST", headers: { "X-Coddy-Session-ID": sessionId } },
   );
-  return res ? parseJson<BackgroundTaskResponse>(res) : OFFLINE;
+  return res ? parseJson<BackgroundTaskResponse>(res) : offlineResult();
 }
