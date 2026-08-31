@@ -89,16 +89,7 @@ import {
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { useShellLayout } from "./nav/useShellLayout";
-import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
-import {
-  pickDefaultLlmModelForNewChat,
-  pickLlmModelForOpenSession,
-} from "./chat/llmModelSelection";
-import {
-  readReasoningCookie,
-  writeReasoningCookie,
-} from "./chat/reasoningCookie";
-import { pickReasoningLevel } from "./chat/reasoningSelection";
+import { useLlmModelSelection } from "./chat/useLlmModelSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
@@ -174,15 +165,6 @@ import {
   parseRFC3339ms,
   reasoningDurationCacheKey,
 } from "./chat/reasoningTiming";
-
-type ModelInfo = {
-  id: string;
-  ownedBy?: string;
-  maxContextTokens?: number | undefined;
-  multimodal?: boolean;
-  reasoningLevels?: string[];
-  reasoningDefault?: string;
-};
 
 const PROFILE_MODES = ["agent", "plan", "ask"] as const;
 
@@ -467,8 +449,6 @@ export function App() {
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
-  const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const {
     schedulerHttpLinked,
@@ -521,20 +501,6 @@ export function App() {
   const sessionsLoadingMoreRef = useRef(false);
   const { viewportXL, railLabelsWide, toggleRailWidth } = useShellLayout();
   const [mode, setMode] = useState<string>("agent");
-  const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
-  const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
-  const [llmModel, setLlmModel] = useState("");
-  const [llmReasoning, setLlmReasoning] = useState("");
-  /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
-   */
-  const [openSessionSelection, setOpenSessionSelection] = useState<{
-    sid: string;
-    model: string;
-    reasoning: string;
-  } | null>(null);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -750,6 +716,20 @@ export function App() {
     () => (sessionId ? { [HDR]: sessionId } : {}),
     [sessionId],
   );
+
+  const {
+    llmModelIds,
+    llmModel,
+    llmReasoning,
+    maxContextTokens,
+    llmModelMultimodal,
+    llmReasoningLevels,
+    onLlmModelChange,
+    onLlmReasoningChange,
+    setOpenSessionSelection,
+    resetForNewChat: resetLlmSelectionForNewChat,
+    bumpModelsEpoch,
+  } = useLlmModelSelection({ sessionId, headers, viewedSessionIdRef });
 
   const refreshWorkspaceContext = useCallback(async (sid: string) => {
     try {
@@ -1053,91 +1033,6 @@ export function App() {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    void (async () => {
-      const res = await fetchJSON<{
-        default_agent_model?: string;
-        data?: Array<{
-          id?: string;
-          owned_by?: string;
-          max_context_tokens?: number;
-          multimodal?: boolean;
-          reasoning_levels?: string[];
-          reasoning_default?: string;
-        }>;
-      }>("/v1/models");
-      if (!res.ok || !res.data?.data) {
-        return;
-      }
-      const raw = res.data.data
-        .map((d) => ({
-          id: (d.id || "").trim(),
-          ownedBy: (d.owned_by || "").trim(),
-          ...(d.max_context_tokens !== undefined
-            ? { maxContextTokens: d.max_context_tokens }
-            : {}),
-          multimodal: !!d.multimodal,
-          reasoningLevels: Array.isArray(d.reasoning_levels)
-            ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
-            : [],
-          reasoningDefault: (d.reasoning_default || "").trim(),
-        }))
-        .filter((d) => d.id);
-      const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = {
-          id: d.id,
-          ownedBy: d.ownedBy,
-          multimodal: d.multimodal,
-          reasoningLevels: d.reasoningLevels,
-          reasoningDefault: d.reasoningDefault,
-        };
-        if (d.maxContextTokens !== undefined) {
-          m.maxContextTokens = d.maxContextTokens;
-        }
-        return m;
-      });
-      setModelInfos(rows);
-      const backends = raw
-        .filter((r) => r.ownedBy !== "coddy")
-        .map((r) => r.id);
-      setLlmModelIds(backends);
-      const defaultYaml = (res.data.default_agent_model || "").trim();
-      setDefaultAgentYamlModel(defaultYaml);
-      if (!viewedSessionIdRef.current.trim()) {
-        setLlmModel(
-          pickDefaultLlmModelForNewChat({
-            backends,
-            cookie: readLlmModelCookie(),
-            defaultAgentModel: defaultYaml,
-          }),
-        );
-      }
-    })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
-
-  // Apply the opened session's saved model/reasoning once the backends list is
-  // known. Runs whenever either input lands, so the restore is independent of
-  // whether /v1/models or the session messages resolve first after a reload.
-  useEffect(() => {
-    if (!openSessionSelection || llmModelIds.length === 0) {
-      return;
-    }
-    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
-      return;
-    }
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
-      }),
-    );
-    setLlmReasoning(openSessionSelection.reasoning);
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
 
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
@@ -1877,18 +1772,7 @@ export function App() {
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
     evictStaleSessionCaches("");
-    // Drop any stashed session selection so its restore effect cannot reapply
-    // the old session's model over the new chat default.
-    setOpenSessionSelection(null);
-    if (llmModelIds.length > 0) {
-      setLlmModel(
-        pickDefaultLlmModelForNewChat({
-          backends: llmModelIds,
-          cookie: readLlmModelCookie(),
-          defaultAgentModel: defaultAgentYamlModel,
-        }),
-      );
-    }
+    resetLlmSelectionForNewChat();
   }
 
   async function deleteSession(id: string) {
@@ -2914,78 +2798,6 @@ export function App() {
     postAbortBySidRef.current.get(sid)?.abort();
   }
 
-  const maxContextTokens = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
-
-  const llmModelMultimodal = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.multimodal ?? false;
-  }, [modelInfos, llmModel]);
-
-  const llmReasoningLevels = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.reasoningLevels ?? [];
-  }, [modelInfos, llmModel]);
-
-  // Keep the selected reasoning level valid for the current model: keep the user's
-  // pick when the new model still offers it, else fall back (cookie -> model default).
-  useEffect(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
-    setLlmReasoning((prev) =>
-      pickReasoningLevel({
-        levels,
-        cookie: readReasoningCookie(),
-        sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
-      }),
-    );
-  }, [llmModel, modelInfos]);
-
-  const onLlmReasoningChange = useCallback(
-    (level: string) => {
-      const lv = level.trim();
-      if (!lv) {
-        return;
-      }
-      setLlmReasoning(lv);
-      writeReasoningCookie(lv);
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedReasoning: lv }),
-      });
-    },
-    [sessionId, headers],
-  );
-
-  const onLlmModelChange = useCallback(
-    (id: string) => {
-      const mid = id.trim();
-      if (!mid) {
-        return;
-      }
-      setLlmModel(mid);
-      writeLlmModelCookie(mid);
-      const sid = sessionId.trim();
-      if (!sid || !llmModelIds.includes(mid)) {
-        return;
-      }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedModelId: mid }),
-      });
-    },
-    [sessionId, llmModelIds, headers],
-  );
-
   const contextPct = useMemo(
     () => contextUsagePercent(maxContextTokens, contextBreakdown),
     [maxContextTokens, contextBreakdown],
@@ -3266,7 +3078,7 @@ export function App() {
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={bumpModelsEpoch}
               initialSection={settingsSection}
             />
           </div>
