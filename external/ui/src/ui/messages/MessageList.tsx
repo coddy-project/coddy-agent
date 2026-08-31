@@ -312,6 +312,7 @@ export function MessageList(props: {
             {...(it.resultWasTruncated === true
               ? { resultWasTruncated: true }
               : {})}
+            {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}

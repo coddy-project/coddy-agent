@@ -54,8 +54,59 @@ function DiffPreview({
   );
 }
 
+const todoStatusLabel: Record<string, string> = {
+  pending: "Pending",
+  in_progress: "In progress",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+function todoStatusMark(status: string): string {
+  switch (status) {
+    case "completed":
+      return "✓";
+    case "failed":
+      return "×";
+    case "cancelled":
+      return "−";
+    default:
+      return "";
+  }
+}
+
+function TodoPreview({
+  preview,
+}: {
+  preview: Extract<Preview, { kind: "todo" }>;
+}) {
+  return (
+    <ul className="todo-tool-preview-list" aria-label={preview.header}>
+      {preview.entries.map((entry, index) => {
+        const status = todoStatusLabel[entry.status] || "Pending";
+        return (
+          <li
+            key={`${index}-${entry.status}-${entry.content}`}
+            className={`todo-tool-preview-row todo-tool-preview-row--${entry.status}`}
+            aria-label={`${status}: ${entry.content}`}
+          >
+            <span className="todo-tool-preview-mark" aria-hidden="true">
+              {todoStatusMark(entry.status)}
+            </span>
+            <span className="todo-tool-preview-content">{entry.content}</span>
+            {entry.status === "in_progress" ? (
+              <span className="todo-tool-preview-status">In progress</span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function PreviewBody({ preview }: { preview: Preview }) {
   if (preview.kind === "diff") return <DiffPreview preview={preview} />;
+  if (preview.kind === "todo") return <TodoPreview preview={preview} />;
   if (preview.kind === "move") {
     return (
       <div className="permission-preview-move">

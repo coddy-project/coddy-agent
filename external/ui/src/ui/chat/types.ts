@@ -6,6 +6,7 @@ import type {
   CoddyQuestionPayload,
   QuestionResolvedState,
 } from "./questionTypes";
+import type { TodoPlanEntry } from "./todoToolPreview";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -95,6 +96,8 @@ export type TranscriptItem =
       fullResultText?: string;
       /** True when SSE or list preview omitted lines (_meta or resultPreviewTruncated). */
       resultWasTruncated?: boolean;
+      /** Final todo state saved with this call, so historical cards stay stable. */
+      todoPlan?: TodoPlanEntry[];
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;

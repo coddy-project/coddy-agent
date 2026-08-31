@@ -3,6 +3,8 @@ package session
 import (
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
@@ -40,5 +42,31 @@ func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
 	}
 	if !st1.After(st0) && !st1.Equal(st0) {
 		t.Fatalf("FinishedAt should be >= StartedAt: %v %v", st0, st1)
+	}
+}
+
+func TestWriteToolCallPlanSnapshotPersistsFinalTodoState(t *testing.T) {
+	t.Parallel()
+	sd := t.TempDir()
+	entries := []acp.PlanEntry{
+		{Content: "Inspect tool cards", Status: "completed"},
+		{Content: "Render todo preview", Status: "in_progress"},
+	}
+	if err := MarkToolCallFinished(sd, "todo-1", "coddy_todo_item_update", "todo", "completed"); err != nil {
+		t.Fatalf("MarkToolCallFinished: %v", err)
+	}
+	if err := WriteToolCallPlanSnapshot(sd, "todo-1", entries); err != nil {
+		t.Fatalf("WriteToolCallPlanSnapshot: %v", err)
+	}
+
+	meta, err := ReadToolCallMeta(sd, "todo-1")
+	if err != nil {
+		t.Fatalf("ReadToolCallMeta: %v", err)
+	}
+	if meta.Status != "completed" || meta.Name != "coddy_todo_item_update" {
+		t.Fatalf("tool metadata was overwritten: %+v", meta)
+	}
+	if len(meta.PlanSnapshot) != len(entries) || meta.PlanSnapshot[1].Status != "in_progress" {
+		t.Fatalf("PlanSnapshot = %+v, want %+v", meta.PlanSnapshot, entries)
 	}
 }
