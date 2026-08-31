@@ -126,25 +126,19 @@ import {
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "./skills/workspaceAtRecents";
 import {
-  schedulerCancelJob,
-  schedulerListJobs,
-  schedulerRunJob,
-} from "./scheduler/api";
-import {
   parseAppHash,
   setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
   schedulerEditorFromParsedHash,
-  setSchedulerCreateHash,
-  setSchedulerJobHash,
   setSchedulerListHash,
   setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
-import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
-import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import { SchedulerDockCluster } from "./scheduler/SchedulerDockCluster";
+import { useSchedulerDockWidth } from "./scheduler/useSchedulerDockWidth";
+import { useSchedulerJobs } from "./scheduler/useSchedulerJobs";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
 import { useBackgroundTasks } from "./tasks/useBackgroundTasks";
 import {
@@ -152,7 +146,6 @@ import {
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
 } from "./chat/subagentTranscript";
-import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import {
   HDR,
@@ -181,12 +174,6 @@ import {
   parseRFC3339ms,
   reasoningDurationCacheKey,
 } from "./chat/reasoningTiming";
-
-/** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
-const SCHEDULER_JOBS_POLL_MS = 12_000;
-
-type SchedulerEditorState =
-  null | { mode: "create" } | { mode: "edit"; jobId: string };
 
 type ModelInfo = {
   id: string;
@@ -483,27 +470,31 @@ export function App() {
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
   const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
-  const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
-    boolean | null
-  >(null);
-  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const {
+    schedulerHttpLinked,
+    schedulerOpen,
+    setSchedulerOpen,
+    schedulerEditor,
+    setSchedulerEditor,
+    schedulerInfo,
+    filteredSchedulerJobs,
+    schedulerListError,
+    schedulerListLoading,
+    schedulerFilterDraft,
+    setSchedulerFilterDraft,
+    refreshSchedulerJobs,
+    onSchedulerRunJob,
+    onSchedulerCancelJob,
+  } = useSchedulerJobs({ sessionId });
+  const { clusterRef: schedulerDockClusterRef, widthPx: schedDockClusterWidthPx } =
+    useSchedulerDockWidth({
+      open: schedulerOpen,
+      httpLinked: schedulerHttpLinked,
+      editor: schedulerEditor,
+    });
   const [settingsRoute, setSettingsRoute] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
-  const [schedulerEditor, setSchedulerEditor] =
-    useState<SchedulerEditorState>(null);
-  const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
-  const [schedulerInfo, setSchedulerInfo] = useState<SchedulerInfo | null>(
-    null,
-  );
-  const [schedulerListError, setSchedulerListError] = useState<string | null>(
-    null,
-  );
-  const [schedulerListLoading, setSchedulerListLoading] = useState(false);
-  const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
-  const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
-  const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
   const {
     tasksOpen,
     setTasksOpen,
@@ -522,7 +513,6 @@ export function App() {
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
-  const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
   const [sessionsHasMore, setSessionsHasMore] = useState(false);
@@ -869,61 +859,6 @@ export function App() {
     }
   }
 
-  const refreshSchedulerJobs = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const silent = !!opts?.silent;
-      if (!silent) {
-        setSchedulerListLoading(true);
-        setSchedulerListError(null);
-      }
-      const res = await schedulerListJobs(false);
-      if (!silent) {
-        setSchedulerListLoading(false);
-      }
-      if (!res.ok) {
-        let msg = res.message;
-        if (res.status === 404) {
-          setSchedulerHttpLinked(false);
-          setSchedulerOpen(false);
-          setSchedulerEditor(null);
-          msg = t("scheduler.apiNotAvailable");
-          const sid = sessionId.trim();
-          if (sid) {
-            setSessionHashInLocation(sid);
-          } else if (window.location.hash) {
-            history.replaceState(
-              null,
-              "",
-              `${window.location.pathname}${window.location.search}`,
-            );
-          }
-          setSchedulerListError(msg);
-          setSchedulerJobs([]);
-          setSchedulerInfo(null);
-          return;
-        }
-        if (res.status === 503) {
-          msg = t("scheduler.disabled");
-          if (!silent) {
-            setSchedulerListError(msg);
-            setSchedulerJobs([]);
-            setSchedulerInfo(null);
-          }
-          return;
-        }
-        if (!silent) {
-          setSchedulerListError(msg);
-          setSchedulerJobs([]);
-          setSchedulerInfo(null);
-        }
-        return;
-      }
-      setSchedulerInfo(res.data.scheduler);
-      setSchedulerJobs(res.data.jobs || []);
-    },
-    [sessionId, t],
-  );
-
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
     if (p.branch === "session") {
@@ -1099,26 +1034,6 @@ export function App() {
   }, [sessionsOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = await fetch("/coddy/scheduler/jobs");
-        if (cancelled) {
-          return;
-        }
-        setSchedulerHttpLinked(r.status !== 404);
-      } catch {
-        if (!cancelled) {
-          setSchedulerHttpLinked(true);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     applyLocationHash();
   }, [applyLocationHash]);
 
@@ -1138,23 +1053,6 @@ export function App() {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked === false) {
-      return;
-    }
-    void refreshSchedulerJobs();
-  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
-
-  useEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked !== true) {
-      return;
-    }
-    const id = window.setInterval(() => {
-      void refreshSchedulerJobs({ silent: true });
-    }, SCHEDULER_JOBS_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
 
   useEffect(() => {
     void (async () => {
@@ -1245,24 +1143,6 @@ export function App() {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
 
-  useLayoutEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked !== true) {
-      setSchedDockClusterWidthPx(0);
-      return;
-    }
-    const el = schedulerDockClusterRef.current;
-    if (!el) {
-      setSchedDockClusterWidthPx(0);
-      return;
-    }
-    const ro = new ResizeObserver(() => {
-      setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
-    });
-    ro.observe(el);
-    setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
-    return () => ro.disconnect();
-  }, [schedulerOpen, schedulerHttpLinked, schedulerEditor]);
-
   useEffect(() => {
     const t = window.setTimeout(
       () => setSessionFilterQ(sessionFilterDraft.trim()),
@@ -1270,14 +1150,6 @@ export function App() {
     );
     return () => window.clearTimeout(t);
   }, [sessionFilterDraft]);
-
-  useEffect(() => {
-    const t = window.setTimeout(
-      () => setSchedulerFilterQ(schedulerFilterDraft.trim()),
-      200,
-    );
-    return () => window.clearTimeout(t);
-  }, [schedulerFilterDraft]);
 
   useEffect(() => {
     sessionsCursorRef.current = sessionsCursor;
@@ -3119,30 +2991,6 @@ export function App() {
     [maxContextTokens, contextBreakdown],
   );
 
-  const onSchedulerRunJob = useCallback(
-    async (jobId: string) => {
-      const r = await schedulerRunJob(jobId);
-      if (!r.ok) {
-        setSchedulerListError(r.message);
-        return;
-      }
-      void refreshSchedulerJobs({ silent: true });
-    },
-    [refreshSchedulerJobs],
-  );
-
-  const onSchedulerCancelJob = useCallback(
-    async (jobId: string) => {
-      const r = await schedulerCancelJob(jobId);
-      if (!r.ok) {
-        setSchedulerListError(r.message);
-        return;
-      }
-      void refreshSchedulerJobs({ silent: true });
-    },
-    [refreshSchedulerJobs],
-  );
-
   const openSchedulerFromNav = useCallback(() => {
     if (schedulerHttpLinked !== true) {
       return;
@@ -3254,18 +3102,6 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute;
-
-  const filteredSchedulerJobs = useMemo(() => {
-    const q = schedulerFilterQ.trim().toLowerCase();
-    if (!q) {
-      return schedulerJobs;
-    }
-    return schedulerJobs.filter((j) => {
-      const id = (j.job_id || "").toLowerCase();
-      const desc = (j.description || "").toLowerCase();
-      return id.includes(q) || desc.includes(q);
-    });
-  }, [schedulerJobs, schedulerFilterQ]);
 
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
@@ -3406,65 +3242,24 @@ export function App() {
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
 
         {schedulerOpen && schedulerHttpLinked === true ? (
-          <div
-            ref={schedulerDockClusterRef}
-            className={[
-              "scheduler-dock-cluster",
-              schedulerEditor ? "scheduler-dock-cluster-editor-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <SchedulerJobsDrawer
-              open={schedulerOpen}
-              selectedJobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
-              }
-              className="scheduler-dock-drawer"
-              onClose={closeSchedulerDrawer}
-              scheduler={schedulerInfo}
-              jobs={filteredSchedulerJobs}
-              listError={schedulerListError}
-              loading={schedulerListLoading}
-              onAddJob={() => {
-                setSchedulerCreateHash();
-              }}
-              onOpenJob={(jid) => {
-                setSchedulerEditor({ mode: "edit", jobId: jid });
-                setSchedulerJobHash(jid);
-              }}
-              onRunJob={(jid) => void onSchedulerRunJob(jid)}
-              onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
-              searchDraft={schedulerFilterDraft}
-              onSearchDraftChange={setSchedulerFilterDraft}
-              onSearchClear={() => setSchedulerFilterDraft("")}
-            />
-
-            <SchedulerJobEditorSheet
-              open={schedulerHttpLinked === true && !!schedulerEditor}
-              mode={schedulerEditor?.mode === "create" ? "create" : "edit"}
-              jobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
-              }
-              availableModels={llmModelIds}
-              defaultModel={llmModel}
-              currentCwd={currentSessionCwd}
-              onClose={() => {
-                setSchedulerEditor(null);
-                setSchedulerListHash();
-              }}
-              onSaved={(createdId) => {
-                void refreshSchedulerJobs({ silent: true });
-                if (createdId) {
-                  setSchedulerEditor({ mode: "edit", jobId: createdId });
-                }
-              }}
-              onDeleted={() => {
-                setSchedulerEditor(null);
-                void refreshSchedulerJobs({ silent: true });
-              }}
-            />
-          </div>
+          <SchedulerDockCluster
+            clusterRef={schedulerDockClusterRef}
+            editor={schedulerEditor}
+            setEditor={setSchedulerEditor}
+            info={schedulerInfo}
+            jobs={filteredSchedulerJobs}
+            listError={schedulerListError}
+            loading={schedulerListLoading}
+            filterDraft={schedulerFilterDraft}
+            setFilterDraft={setSchedulerFilterDraft}
+            onClose={closeSchedulerDrawer}
+            onRunJob={onSchedulerRunJob}
+            onCancelJob={onSchedulerCancelJob}
+            refreshJobs={refreshSchedulerJobs}
+            availableModels={llmModelIds}
+            defaultModel={llmModel}
+            currentCwd={currentSessionCwd}
+          />
         ) : null}
 
         {settingsRoute ? (
