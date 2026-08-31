@@ -88,7 +88,7 @@ import {
 } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
-import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
+import { useShellLayout } from "./nav/useShellLayout";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
   pickDefaultLlmModelForNewChat,
@@ -532,8 +532,7 @@ export function App() {
   const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
   const sessionsHasMoreRef = useRef(false);
   const sessionsLoadingMoreRef = useRef(false);
-  const [viewportXL, setViewportXL] = useState(false);
-  const [railLabelsWide, setRailLabelsWide] = useState(false);
+  const { viewportXL, railLabelsWide, toggleRailWidth } = useShellLayout();
   const [mode, setMode] = useState<string>("agent");
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
@@ -1370,14 +1369,6 @@ export function App() {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
 
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1920px)");
-    const apply = () => setViewportXL(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
   useLayoutEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked !== true) {
       setSchedDockClusterWidthPx(0);
@@ -1395,14 +1386,6 @@ export function App() {
     setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
     return () => ro.disconnect();
   }, [schedulerOpen, schedulerHttpLinked, schedulerEditor]);
-
-  useEffect(() => {
-    if (!viewportXL) {
-      return;
-    }
-    const c = readNavRailCookie();
-    setRailLabelsWide(c === "wide");
-  }, [viewportXL]);
 
   useEffect(() => {
     const t = window.setTimeout(
@@ -3458,14 +3441,6 @@ export function App() {
     hasMore: sessionsHasMore,
     loadingMore: sessionsLoadingMore,
     onLoadMore: () => void loadSessionsList(false),
-  };
-
-  const toggleRailWidth = () => {
-    setRailLabelsWide((prev) => {
-      const next = !prev;
-      writeNavRailCookie(next ? "wide" : "narrow");
-      return next;
-    });
   };
 
   // Identity-stable handlers for the React.memo message rows: a shell
