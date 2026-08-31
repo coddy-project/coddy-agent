@@ -80,7 +80,7 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
-import type { WorkspaceContext } from "./chat/workspaceContext";
+import { useWorkspace } from "./chat/useWorkspace";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -220,17 +220,13 @@ export function App() {
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
-  // Workspace context chips: folder / git branch / worktree state per session.
-  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
-    null,
-  );
-  const [worktreePref, setWorktreePref] = useState(false);
-  // Pre-session workspace choices, applied right before the first send creates the session.
-  const pendingWorkspaceRef = useRef<{
-    path?: string;
-    branch?: string;
-    worktree?: boolean;
-  } | null>(null);
+  const {
+    workspaceCtx,
+    worktreePref,
+    setWorktreePref,
+    switchWorkspace,
+    applyPendingWorkspace,
+  } = useWorkspace({ sessionId });
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -730,114 +726,6 @@ export function App() {
     resetForNewChat: resetLlmSelectionForNewChat,
     bumpModelsEpoch,
   } = useLlmModelSelection({ sessionId, headers, viewedSessionIdRef });
-
-  const refreshWorkspaceContext = useCallback(async (sid: string) => {
-    try {
-      const res = await fetch("/coddy/workspace/context", {
-        headers: sid ? { [HDR]: sid } : {},
-      });
-      if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
-      }
-    } catch {
-      // ignore: chips keep the previous context
-    }
-  }, []);
-
-  // Load the workspace context whenever the viewed session changes; a fresh
-  // home/draft view also drops stale pre-session workspace choices.
-  useEffect(() => {
-    pendingWorkspaceRef.current = null;
-    void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
-
-  async function switchWorkspace(payload: {
-    path?: string;
-    branch?: string;
-    worktree?: boolean;
-  }) {
-    const sid = sessionId.trim();
-    if (!sid) {
-      // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
-        ...(pendingWorkspaceRef.current || {}),
-        ...payload,
-      };
-      if (payload.path) {
-        try {
-          const res = await fetch(
-            "/coddy/workspace/context?path=" + encodeURIComponent(payload.path),
-          );
-          if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
-          }
-        } catch {
-          // ignore
-        }
-      } else if (payload.branch) {
-        const nextBranch = payload.branch;
-        setWorkspaceCtx((prev) =>
-          prev
-            ? {
-                ...prev,
-                branch: nextBranch,
-                is_worktree: Boolean(payload.worktree),
-              }
-            : prev,
-        );
-      }
-      return;
-    }
-    try {
-      const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(sid)}/workspace`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", [HDR]: sid },
-          body: JSON.stringify(payload),
-        },
-      );
-      if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
-      } else {
-        await refreshWorkspaceContext(sid);
-      }
-    } catch {
-      // network error: keep the current chips
-    }
-  }
-
-  // Applies pre-session workspace choices to the freshly created session id
-  // right before the first send.
-  async function applyPendingWorkspace(sid: string) {
-    const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
-    if (!pending || (!pending.path && !pending.branch)) {
-      return;
-    }
-    const base = { "Content-Type": "application/json", [HDR]: sid };
-    try {
-      if (pending.path) {
-        await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({ path: pending.path }),
-        });
-      }
-      if (pending.branch) {
-        await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({
-            branch: pending.branch,
-            worktree: Boolean(pending.worktree),
-          }),
-        });
-      }
-    } catch {
-      // ignore: the session still starts in the default workspace
-    }
-  }
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
