@@ -146,19 +146,12 @@ import {
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
-import {
-  clearFinishedBackgroundTasks,
-  getBackgroundTask,
-  listBackgroundTasks,
-  stopBackgroundTask,
-} from "./tasks/api";
-import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import { useBackgroundTasks } from "./tasks/useBackgroundTasks";
 import {
   isSubagentSessionId,
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
 } from "./chat/subagentTranscript";
-import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 import {
@@ -511,17 +504,21 @@ export function App() {
   const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
   const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
   const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
-  const [backgroundRunning, setBackgroundRunning] = useState(0);
-  const [backgroundOutput, setBackgroundOutput] = useState("");
-  const [backgroundListError, setBackgroundListError] = useState<string | null>(
-    null,
-  );
-  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
-  /** Ticks once a second so elapsed times advance between polls. */
-  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
+  const {
+    tasksOpen,
+    setTasksOpen,
+    tasksSelectedId,
+    setTasksSelectedId,
+    backgroundTasks,
+    backgroundOutput,
+    backgroundListError,
+    backgroundListLoading,
+    backgroundNowMs,
+    backgroundTasksByToolCallId,
+    refreshBackgroundTasks,
+    stopBackgroundTaskById,
+    clearFinishedTasks,
+  } = useBackgroundTasks({ sessionId });
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
@@ -872,76 +869,6 @@ export function App() {
     }
   }
 
-  const refreshBackgroundTasks = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        setBackgroundTasks([]);
-        setBackgroundRunning(0);
-        return;
-      }
-      const silent = !!opts?.silent;
-      if (!silent) {
-        setBackgroundListLoading(true);
-        setBackgroundListError(null);
-      }
-      const res = await listBackgroundTasks(sid);
-      if (!silent) {
-        setBackgroundListLoading(false);
-      }
-      if (!res.ok) {
-        if (!silent) {
-          setBackgroundListError(res.message);
-          setBackgroundTasks([]);
-          setBackgroundRunning(0);
-        }
-        return;
-      }
-      setBackgroundListError(null);
-      setBackgroundTasks(res.data.data || []);
-      setBackgroundRunning(res.data.running || 0);
-    },
-    [sessionId, t],
-  );
-
-  const refreshBackgroundTaskOutput = useCallback(
-    async (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid || !taskId) {
-        setBackgroundOutput("");
-        return;
-      }
-      const res = await getBackgroundTask(sid, taskId);
-      setBackgroundOutput(res.ok ? res.data.output || "" : "");
-    },
-    [sessionId],
-  );
-
-  const stopBackgroundTaskById = useCallback(
-    async (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid || !taskId) {
-        return;
-      }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok) {
-        setBackgroundOutput(res.data.output || "");
-      }
-      void refreshBackgroundTasks({ silent: true });
-    },
-    [sessionId, refreshBackgroundTasks],
-  );
-
-  const clearFinishedTasks = useCallback(async () => {
-    const sid = sessionId.trim();
-    if (!sid) {
-      return;
-    }
-    await clearFinishedBackgroundTasks(sid);
-    setTasksSelectedId(null);
-    void refreshBackgroundTasks({ silent: true });
-  }, [sessionId, refreshBackgroundTasks]);
-
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
@@ -1211,57 +1138,6 @@ export function App() {
       }
     })();
   }, []);
-
-  // Background tasks outlive the SSE stream of the turn that started them, so
-  // the drawer and the nav badge are kept honest by polling rather than by the
-  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
-  useEffect(() => {
-    if (!sessionId.trim()) {
-      setBackgroundTasks([]);
-      setBackgroundRunning(0);
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTasks({ silent: !tasksOpen });
-  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
-
-  useEffect(() => {
-    if (!sessionId.trim()) {
-      return;
-    }
-    const id = window.setInterval(() => {
-      void refreshBackgroundTasks({ silent: true });
-      if (tasksOpen && tasksSelectedId) {
-        void refreshBackgroundTaskOutput(tasksSelectedId);
-      }
-    }, tasksPollIntervalMs(backgroundRunning));
-    return () => window.clearInterval(id);
-  }, [
-    sessionId,
-    tasksOpen,
-    tasksSelectedId,
-    backgroundRunning,
-    refreshBackgroundTasks,
-    refreshBackgroundTaskOutput,
-  ]);
-
-  useEffect(() => {
-    if (!tasksOpen || !tasksSelectedId) {
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTaskOutput(tasksSelectedId);
-  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
-
-  // Elapsed labels must advance between polls, so the clock ticks on its own
-  // while something is actually running.
-  useEffect(() => {
-    if (backgroundRunning <= 0) {
-      return;
-    }
-    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [backgroundRunning]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -3370,19 +3246,6 @@ export function App() {
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
-
-  /** Background tasks indexed by the tool call that started them, so a
-   *  transcript row can keep ticking after the tool itself returned. */
-  const backgroundTasksByToolCallId = useMemo(() => {
-    const byToolCall = new Map<string, BackgroundTask>();
-    for (const t of backgroundTasks) {
-      const tc = (t.tool_call_id || "").trim();
-      if (tc) {
-        byToolCall.set(tc, t);
-      }
-    }
-    return byToolCall;
-  }, [backgroundTasks]);
 
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
