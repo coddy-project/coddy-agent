@@ -45,7 +45,8 @@ export type PermissionToolPreview =
       kind: "todo";
       variant: "item" | "plan";
       entries: TodoPlanEntry[];
-    });
+    })
+  | (PermissionPreviewBase & { kind: "plan_exit" });
 
 function normalizedToolName(value: string | undefined): string {
   return (value || "").replace(/^run:\s*/i, "").trim();
@@ -268,6 +269,17 @@ export function buildToolCallPreview(
       kind: "todo",
       variant: todoPreview.variant,
       entries: todoPreview.entries,
+    };
+  }
+
+  if (normalized === "plan_exit") {
+    return {
+      toolName,
+      title,
+      header: t("planExit.preview.header"),
+      meta: [],
+      copyText: "",
+      kind: "plan_exit",
     };
   }
 

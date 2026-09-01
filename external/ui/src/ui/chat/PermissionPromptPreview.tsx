@@ -116,9 +116,55 @@ function TodoPreview({
   );
 }
 
-function PreviewBody({ preview }: { preview: Preview }) {
+function PlanExitPreview({ completed }: { completed: boolean }) {
+  const { t } = useT();
+  return (
+    <div
+      className={[
+        "plan-exit-preview",
+        completed && "plan-exit-preview--completed",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      role="status"
+    >
+      <span className="plan-exit-preview-icon" aria-hidden="true">
+        {completed ? "✓" : "→"}
+      </span>
+      <div className="plan-exit-preview-copy">
+        <div className="plan-exit-preview-modes" aria-hidden="true">
+          <span className="plan-exit-preview-mode">
+            {t("planExit.preview.planMode")}
+          </span>
+          <span className="plan-exit-preview-arrow">→</span>
+          <span className="plan-exit-preview-mode plan-exit-preview-mode--agent">
+            {t("planExit.preview.agentMode")}
+          </span>
+        </div>
+        <div className="plan-exit-preview-message">
+          {t(
+            completed
+              ? "planExit.preview.completed"
+              : "planExit.preview.inProgress",
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewBody({
+  preview,
+  completed = false,
+}: {
+  preview: Preview;
+  completed?: boolean;
+}) {
   if (preview.kind === "diff") return <DiffPreview preview={preview} />;
   if (preview.kind === "todo") return <TodoPreview preview={preview} />;
+  if (preview.kind === "plan_exit") {
+    return <PlanExitPreview completed={completed} />;
+  }
   if (preview.kind === "move") {
     return (
       <div className="permission-preview-move">
@@ -138,12 +184,15 @@ export function PermissionToolPreview({
   preview,
   interactive = true,
   overflowControls = false,
+  toolStatus,
 }: {
   preview: Preview;
   /** Permission prompts include copy and overflow controls. */
   interactive?: boolean;
   /** Selected transcript previews keep overflow controls without adding copy. */
   overflowControls?: boolean;
+  /** Transcript rows can distinguish an in-flight transition from a completed one. */
+  toolStatus?: string | undefined;
 }) {
   const { t } = useT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -236,7 +285,10 @@ export function PermissionToolPreview({
               .join(" ")}
             data-testid="permission-preview-viewport"
           >
-            <PreviewBody preview={preview} />
+            <PreviewBody
+              preview={preview}
+              completed={toolStatus?.toLowerCase() === "completed"}
+            />
             {canToggleOverflow && overflows && !expanded ? (
               <span className="permission-preview-fade" aria-hidden />
             ) : null}

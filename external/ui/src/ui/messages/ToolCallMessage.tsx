@@ -357,6 +357,7 @@ export function ToolCallMessage(props: {
     toolPreview.copyText.trim() !== "" ||
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
     (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
+    toolPreview.kind === "plan_exit" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
@@ -370,7 +371,10 @@ export function ToolCallMessage(props: {
   const showResult =
     !isQuestionTool &&
     !isPatchTool &&
-    (toolPreview.kind !== "todo" || status !== "completed") &&
+    !(
+      status === "completed" &&
+      (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
+    ) &&
     !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const hasBody =
@@ -449,6 +453,7 @@ export function ToolCallMessage(props: {
                 preview={toolPreview}
                 interactive={false}
                 overflowControls={isLargePreviewTool}
+                toolStatus={status}
               />
             ) : null}
             {showPatchResult || showResult ? (

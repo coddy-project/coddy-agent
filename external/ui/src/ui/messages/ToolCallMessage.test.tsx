@@ -430,6 +430,26 @@ test("todo update renders the saved plan row and omits a successful boilerplate 
   expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
 });
 
+test("plan exit shows the completed mode transition without its boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-plan-exit"
+      title="plan_exit"
+      status="completed"
+      argsText="{}"
+      resultText="switched session to agent mode"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Plan mode")).toBeInTheDocument();
+  expect(screen.getAllByText("Agent mode")).toHaveLength(2);
+  expect(screen.getByText("Switched to Agent mode")).toBeInTheDocument();
+  expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
 test("completed mkdir uses the rich tool preview without approval actions", () => {
   const { container } = render(
     <ToolCallMessage
