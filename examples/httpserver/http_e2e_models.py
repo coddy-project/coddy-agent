@@ -158,7 +158,7 @@ def main() -> int:
         print("metadata.model mismatch", md, "want", alt, file=sys.stderr)
         return 1
 
-    # Switch metadata.model back to agent default (e.g. 120b after testing 20b).
+    # Switch metadata.model back to agent default (e.g. gpt-oss:120b after testing qwen3.6-35b-a3b).
     if alt != agent_default:
         extra: dict[str, str] = {}
         if sid:

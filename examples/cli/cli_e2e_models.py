@@ -15,13 +15,13 @@ def main() -> int:
         tui.wait_for("coddy v", timeout=30)
         tui.wait_for("qwen3.8-27b", timeout=10)  # footer shows the default
         # Switch by explicit id (validated by the manager against YAML models).
-        tui.type_text("/model rpa/gpt-oss:20b")
+        tui.type_text("/model rpa/qwen3.6-35b-a3b")
         tui.send(CR)
-        tui.wait_for("(rpa) gpt-oss:20b", timeout=20)
+        tui.wait_for("(rpa) qwen3.6-35b-a3b", timeout=20)
         session = tui.single_session_dir() / "session.json"
         data = json.loads(session.read_text())
         blob = json.dumps(data)
-        if "gpt-oss:20b" not in blob:
+        if "qwen3.6-35b-a3b" not in blob:
             raise AssertionError("session.json does not record the switched model")
         return ok("cli_e2e_models")
     finally:
