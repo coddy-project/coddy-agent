@@ -22,3 +22,24 @@ Feature: NeuralDeep hub sign-in feeds the neuraldeep provider
     And the provider model list is fetched with the hub key
     When I sign out of NeuralDeep over REST
     Then the neuraldeep provider reports disconnected
+
+  @http
+  Scenario: The provider is pinned to the international mirror
+    NeuralDeep serves the same API from two deployments: api.neuraldeep.ru for
+    Russia and api.neuraldeep.tech for everywhere else. Settings picks one, and
+    the choice has to survive the save.
+
+    Given a coddy HTTP server with a neuraldeep provider and a stand-in hub
+    When I point the neuraldeep provider at the international mirror over REST
+    Then the saved config keeps the neuraldeep provider on the mirror
+
+  @http
+  Scenario: Signing in from Settings follows the endpoint picked in the form
+    The endpoint picker and the sign-in button share one unsaved form, so the
+    sign-in has to follow the pick rather than the last saved row: a key minted
+    by one deployment is not honored by the other.
+
+    Given a coddy HTTP server with a neuraldeep provider and a stand-in hub for each deployment
+    When I sign in through the REST device flow with the international mirror selected
+    Then the stored login was issued by the mirror hub
+    And the sign-in status names the mirror hub for the mirror endpoint

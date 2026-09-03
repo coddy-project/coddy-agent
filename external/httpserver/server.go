@@ -44,6 +44,10 @@ type Server struct {
 	// drives lists the machine's drive roots for the folder picker's volume
 	// level (Windows only; empty elsewhere). Tests override.
 	drives func() []string
+	// neuralDeepHubFor maps a neuraldeep api_base to the hub that mints keys
+	// for it (llm.NeuralDeepHubFor). Tests substitute stand-in hubs per
+	// deployment.
+	neuralDeepHubFor func(apiBase string) string
 
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
@@ -102,6 +106,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
 		drives:               platform.Drives,
+		neuralDeepHubFor:     llm.NeuralDeepHubFor,
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),

@@ -77,19 +77,56 @@ function Harness(props: { provider?: Record<string, unknown> }) {
   );
 }
 
-test("NeuralDeep provider shows a read-only API base URL pinned to the fixed endpoint", async () => {
+test("NeuralDeep provider picks the API endpoint from the two official ones", async () => {
   render(<Harness />);
   fireEvent.click(screen.getByTestId("settings-master-item-0"));
 
-  const base = screen.getByLabelText("API base URL") as HTMLInputElement;
+  const base = screen.getByLabelText("API base URL") as HTMLSelectElement;
   await waitFor(() => {
     expect(base.value).toBe("https://api.neuraldeep.ru/v1");
   });
-  expect(base.readOnly).toBe(true);
+  expect([...base.options].map((o) => o.value)).toEqual([
+    "https://api.neuraldeep.ru/v1",
+    "https://api.neuraldeep.tech/v1",
+  ]);
+});
 
-  // Editing is rejected: the field stays pinned to the fixed endpoint.
-  fireEvent.change(base, { target: { value: "https://custom.example/v1" } });
-  expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+test("NeuralDeep provider stores the mirror endpoint when it is picked", async () => {
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  fireEvent.change(screen.getByLabelText("API base URL"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  await waitFor(() => {
+    expect(
+      (screen.getByLabelText("API base URL") as HTMLSelectElement).value,
+    ).toBe("https://api.neuraldeep.tech/v1");
+  });
+});
+
+test("NeuralDeep provider flags a stored api_base that is not a NeuralDeep endpoint", async () => {
+  render(
+    <Harness
+      provider={{
+        name: "neuraldeep",
+        type: "neuraldeep",
+        api_base: "https://custom.example/v1",
+        api_key: "",
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+
+  // The select shows the endpoint requests actually use, and the note explains
+  // why the stored value is not it.
+  const base = screen.getByLabelText("API base URL") as HTMLSelectElement;
+  await waitFor(() => {
+    expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+  });
+  expect(document.body.textContent).toContain(
+    "The saved api_base https://custom.example/v1 is not a NeuralDeep endpoint",
+  );
 });
 
 test("Codex provider replaces API credentials with ChatGPT sign in", async () => {
@@ -185,10 +222,13 @@ test("NeuralDeep provider keeps the manual api_key and offers hub sign in", asyn
   expect(
     await screen.findByTestId("neuraldeep-auth-sign-in"),
   ).toHaveTextContent("Sign In with NeuralDeep");
-  const base = screen.getByLabelText("API base URL") as HTMLInputElement;
-  expect(base.readOnly).toBe(true);
+  // The endpoint picker keeps its slot above the sign-in block, and the
+  // status is read for the endpoint it shows (the default when none is stored).
+  const base = screen.getByLabelText("API base URL") as HTMLSelectElement;
+  expect(base.tagName).toBe("SELECT");
   expect(fetchMock).toHaveBeenCalledWith(
-    "/coddy/providers/neuraldeep/neuraldeep-auth",
+    "/coddy/providers/neuraldeep/neuraldeep-auth?api_base=" +
+      encodeURIComponent("https://api.neuraldeep.ru/v1"),
     expect.anything(),
   );
 });
@@ -248,6 +288,153 @@ test("NeuralDeep Sign In opens the hub and completes device authorization", asyn
       { timeout: 2000 },
     ),
   ).toBeInTheDocument();
+});
+
+test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "login-mirror",
+            verification_url:
+              "https://hub.neuraldeep.tech/app/device?code=MRRR-0001",
+            user_code: "MRRR-0001",
+            status: "pending",
+          }),
+        };
+      }
+      if (String(input).includes("/device/")) {
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", connected: false }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.change(await screen.findByTestId("neuraldeep-api-base"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  fireEvent.click(await screen.findByTestId("neuraldeep-auth-sign-in"));
+  expect(await screen.findByText("MRRR-0001")).toBeInTheDocument();
+
+  // The pick has not been saved, so the device start must carry it: the hub
+  // that mints the key is decided by the endpoint, not by the saved row.
+  const start = fetchMock.mock.calls.find(
+    ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+  );
+  expect(start?.[0]).toBe(
+    "/coddy/providers/neuraldeep/neuraldeep-auth/device",
+  );
+  expect(JSON.parse(String((start?.[1] as RequestInit).body))).toEqual({
+    api_base: "https://api.neuraldeep.tech/v1",
+  });
+});
+
+test("NeuralDeep keeps polling a pending login when the endpoint changes", async () => {
+  let polls = 0;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "login-pending",
+            verification_url: "https://hub.neuraldeep.test/app/device?code=PEND-0001",
+            user_code: "PEND-0001",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.includes("/device/login-pending")) {
+        polls += 1;
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", connected: false }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("neuraldeep-auth-sign-in"));
+  expect(await screen.findByText("PEND-0001")).toBeInTheDocument();
+  await waitFor(() => expect(polls).toBeGreaterThan(0), { timeout: 2000 });
+
+  // The endpoint pick changes while the hub wait is still running: the code
+  // stays on screen and the poll goes on, instead of the widget forgetting
+  // the login and sitting in "Waiting for NeuralDeep…" forever.
+  const before = polls;
+  fireEvent.change(screen.getByTestId("neuraldeep-api-base"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  expect(screen.getByText("PEND-0001")).toBeInTheDocument();
+  await waitFor(() => expect(polls).toBeGreaterThan(before), {
+    timeout: 3000,
+  });
+  expect(screen.getByText("PEND-0001")).toBeInTheDocument();
+});
+
+test("NeuralDeep flags a stored login issued by the other deployment's hub", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const forMirror = url.includes(
+      encodeURIComponent("https://api.neuraldeep.tech/v1"),
+    );
+    return {
+      ok: true,
+      json: async () => ({
+        connected: true,
+        masked: "sk-nd…4321",
+        source: "oauth",
+        hub: "https://hub.neuraldeep.ru",
+        endpoint_hub: forMirror
+          ? "https://hub.neuraldeep.tech"
+          : "https://hub.neuraldeep.ru",
+      }),
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  expect(
+    await screen.findByText(/Signed in to NeuralDeep \(sk-nd…4321\)/),
+  ).toBeInTheDocument();
+  // Login and endpoint agree: no complaint.
+  expect(screen.queryByTestId("neuraldeep-auth-hub-mismatch")).toBeNull();
+
+  // Picking the mirror re-reads the status for that endpoint and, since the
+  // stored key came from the default hub, says the login will not be honored.
+  fireEvent.change(screen.getByTestId("neuraldeep-api-base"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  const note = await screen.findByTestId("neuraldeep-auth-hub-mismatch");
+  expect(note).toHaveTextContent("https://hub.neuraldeep.ru");
+  expect(note).toHaveTextContent("https://api.neuraldeep.tech/v1");
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/coddy/providers/neuraldeep/neuraldeep-auth?api_base=" +
+      encodeURIComponent("https://api.neuraldeep.tech/v1"),
+    expect.anything(),
+  );
 });
 
 test("NeuralDeep explicit api_key reports that it shadows the login", async () => {
@@ -621,15 +808,16 @@ test("switching type away from NeuralDeep restores the previously entered API ba
   expect(base.readOnly).toBe(false);
   expect(base.value).toBe("https://custom.example/v1");
 
-  // Switch to neuraldeep: field becomes read-only + pinned to the fixed endpoint,
-  // and the stored value is not overwritten.
+  // Switch to neuraldeep: the field becomes the endpoint picker showing the
+  // endpoint requests use, and the stored value is not overwritten.
   const type = screen.getByLabelText("Provider type") as HTMLInputElement;
   fireEvent.change(type, { target: { value: "neuraldeep" } });
-  base = screen.getByLabelText("API base URL") as HTMLInputElement;
   await waitFor(() => {
-    expect(base.readOnly).toBe(true);
+    expect(screen.getByLabelText("API base URL").tagName).toBe("SELECT");
   });
-  expect(base.value).toBe("https://api.neuraldeep.ru/v1");
+  expect(
+    (screen.getByLabelText("API base URL") as HTMLSelectElement).value,
+  ).toBe("https://api.neuraldeep.ru/v1");
 
   // Switch back to openai: the original value is restored.
   fireEvent.change(type, { target: { value: "openai" } });

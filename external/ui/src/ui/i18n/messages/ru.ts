@@ -136,7 +136,7 @@ export const messagesRu: Record<string, string> = {
     "Сетевой протокол для этой записи провайдера.",
   "settings.schema.providers.api_base.label": "Базовый URL API",
   "settings.schema.providers.api_base.desc":
-    "Необязательное переопределение базового URL API для этого провайдера. Игнорируется для neuraldeep и codex — они используют фиксированные официальные адреса.",
+    "Необязательное переопределение базового URL API для этого провайдера. Для neuraldeep выбирает развёртывание: https://api.neuraldeep.ru/v1 (Россия) или https://api.neuraldeep.tech/v1 (международное зеркало); любое другое значение откатывается к первому. Для codex игнорируется, он использует фиксированный официальный адрес.",
   "settings.schema.providers.api_key.label": "API-ключ",
   "settings.schema.providers.api_key.desc":
     "Можно указать ключ напрямую, сослаться на ${ENV} в YAML (разворачивается при загрузке файла) или оставить пустым — тогда процесс прочитает стандартную переменную NAME_API_KEY, производную от имени провайдера (см. описание поля «Имя провайдера»).",
@@ -459,6 +459,14 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Войти через ChatGPT",
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
+  "neuralDeepApiBase.description":
+    "NeuralDeep держит одно и то же API в двух развёртываниях: api.neuraldeep.ru обслуживает Россию, а api.neuraldeep.tech служит зеркалом для остальных стран. Выбор определяет и хаб, через который идёт вход ниже. Список моделей читается из сохранённого конфига, поэтому сначала сохраните настройки.",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Россия",
+  "neuralDeepApiBase.optionTech":
+    "api.neuraldeep.tech — зеркало для остального мира",
+  "neuralDeepApiBase.unknown":
+    "Сохранённый api_base {value} не является эндпоинтом NeuralDeep, поэтому запросы пойдут на {fallback}. Выберите эндпоинт, чтобы заменить его.",
+
   "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
   "neuralDeepAuth.error.incompleteResponse": "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
@@ -467,6 +475,8 @@ export const messagesRu: Record<string, string> = {
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "neuralDeepAuth.hubMismatch":
+    "Этот вход выдан хабом {hub}, а {endpoint} обслуживает другой хаб, поэтому запросы с этим ключом отклоняются. Войдите заново, чтобы получить ключ для этого эндпоинта.",
   "neuralDeepAuth.enterCode":
     "Введите этот одноразовый код на странице NeuralDeep:",
   "neuralDeepAuth.openSignInPage": "Открыть страницу входа",
