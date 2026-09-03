@@ -39,6 +39,21 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.appendStatus(roleDim, "Operation aborted")
 		}
 		return
+	case configReloaded:
+		// The process configuration changed for every session, so the header
+		// and footer always re-read it; the option set is per session and is
+		// adopted only when the committing turn belongs to the visible one.
+		if u.opts != nil && (msg.sessionID == "" || a.sessionID == "" || msg.sessionID == a.sessionID) {
+			a.configOpts = u.opts
+			for _, opt := range u.opts {
+				if opt.ID == "model" {
+					a.modelID = opt.CurrentValue
+				}
+			}
+		}
+		a.refreshFooterModel()
+		a.populateHeader()
+		return
 	case sessionSwitched:
 		a.switching = false
 		a.adoptSession(u.res.SessionID, u.res.Modes, u.res.ConfigOptions)
