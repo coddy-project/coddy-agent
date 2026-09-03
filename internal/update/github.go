@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -68,20 +70,144 @@ func pickAsset(rel *ghRelease, assetName string) (*releaseAsset, error) {
 	return nil, fmt.Errorf("release %s has no asset %q", rel.TagName, assetName)
 }
 
-func downloadURL(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+func downloadURL(ctx context.Context, client *http.Client, url string, reporter downloadReporter) ([]byte, error) {
+	const (
+		maxAttempts = 3
+		maxBytes    = 256 << 20
+	)
+
+	var (
+		data    []byte
+		lastErr error
+	)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			if reporter != nil {
+				reporter.Retry(attempt, maxAttempts, lastErr)
+			}
+			if err := waitForDownloadRetry(ctx, time.Duration(attempt-1)*200*time.Millisecond); err != nil {
+				return nil, err
+			}
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "coddy-agent-update")
+		if len(data) > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", len(data)))
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("download %s", resp.Status)
+		}
+		if len(data) > 0 && resp.StatusCode == http.StatusOK {
+			// The server ignored our Range request. Restart from the complete
+			// response instead of appending a duplicate prefix.
+			data = nil
+		}
+		if resp.StatusCode == http.StatusPartialContent {
+			// A 206 that starts somewhere other than where we stopped would
+			// splice a gap or a duplicate into the archive, and nothing later
+			// in this function would notice.
+			offset, err := partialContentOffset(resp)
+			if err != nil {
+				_ = resp.Body.Close()
+				return nil, err
+			}
+			switch {
+			case offset == int64(len(data)):
+			case offset == 0:
+				data = nil
+			default:
+				_ = resp.Body.Close()
+				return nil, fmt.Errorf("download resumed at byte %d, expected %d", offset, len(data))
+			}
+		}
+		if resp.ContentLength >= 0 && int64(len(data))+resp.ContentLength > maxBytes {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("download exceeds %d MiB limit", maxBytes>>20)
+		}
+
+		total := int64(-1)
+		if resp.ContentLength >= 0 {
+			total = int64(len(data)) + resp.ContentLength
+		}
+		readErr := appendResponse(&data, resp.Body, maxBytes, total, reporter)
+		closeErr := resp.Body.Close()
+		if readErr == nil && closeErr == nil {
+			if reporter != nil {
+				reporter.Complete(int64(len(data)))
+			}
+			return data, nil
+		}
+		if readErr != nil {
+			lastErr = readErr
+		} else {
+			lastErr = closeErr
+		}
 	}
-	req.Header.Set("User-Agent", "coddy-agent-update")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
+	return nil, fmt.Errorf("download failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// partialContentOffset reports the first byte a 206 response carries, so the
+// caller can check it against what it already holds.
+func partialContentOffset(resp *http.Response) (int64, error) {
+	raw := strings.TrimSpace(resp.Header.Get("Content-Range"))
+	if raw == "" {
+		return 0, fmt.Errorf("resumed download has no Content-Range header")
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %s", resp.Status)
+	spec, ok := strings.CutPrefix(raw, "bytes ")
+	if !ok {
+		return 0, fmt.Errorf("resumed download has unsupported Content-Range %q", raw)
 	}
-	const maxBytes = 256 << 20
-	return io.ReadAll(io.LimitReader(resp.Body, maxBytes))
+	start, _, ok := strings.Cut(strings.TrimSpace(spec), "-")
+	if !ok {
+		return 0, fmt.Errorf("resumed download has malformed Content-Range %q", raw)
+	}
+	offset, err := strconv.ParseInt(strings.TrimSpace(start), 10, 64)
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("resumed download has malformed Content-Range %q", raw)
+	}
+	return offset, nil
+}
+
+func appendResponse(data *[]byte, body io.Reader, maxBytes, total int64, reporter downloadReporter) error {
+	buf := make([]byte, 64<<10)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if int64(len(*data)+n) > maxBytes {
+				return fmt.Errorf("download exceeds %d MiB limit", maxBytes>>20)
+			}
+			*data = append(*data, buf[:n]...)
+			if reporter != nil {
+				reporter.Progress(int64(len(*data)), total)
+			}
+		}
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func waitForDownloadRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

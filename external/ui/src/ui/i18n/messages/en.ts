@@ -123,6 +123,314 @@ export const messagesEn: Record<string, string> = {
   "settings.field.apiKeyPlaceholderInvalid":
     "Provider id must start with a letter. When the id is valid, leave empty to read the NAME_API_KEY variable (NAME is uppercase, hyphens become underscores).",
 
+  // Schema-driven settings fields: labels and descriptions rendered from the
+  // server JSON Schema (internal/config/ui_schema.go), keyed
+  // settings.schema.<section>.<dotted.field.path>.label / .desc and resolved by
+  // settings/schemaI18n.ts. English mirrors the schema text so the default
+  // locale renders exactly what the server sends. System-group children live
+  // under settings.schema.system.<child>.<path>.
+  "settings.schema.providers.desc":
+    "API credentials and transport selection for upstream LLM vendors.",
+  "settings.schema.providers.name.label": "Provider name",
+  "settings.schema.providers.name.desc":
+    "Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).",
+  "settings.schema.providers.type.label": "Provider type",
+  "settings.schema.providers.type.desc":
+    "Wire protocol for this provider entry.",
+  "settings.schema.providers.api_base.label": "API base URL",
+  "settings.schema.providers.api_base.desc":
+    "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
+  "settings.schema.providers.api_key.label": "API key",
+  "settings.schema.providers.api_key.desc":
+    "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
+  "settings.schema.providers.api_key_command.label": "API key command",
+  "settings.schema.providers.api_key_command.desc":
+    "Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable.",
+  "settings.schema.providers.proxy.label": "HTTP or SOCKS proxy",
+  "settings.schema.providers.proxy.desc":
+    "Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection.",
+  "settings.schema.providers.timeout_ms.label": "Request timeout ms",
+  "settings.schema.providers.timeout_ms.desc":
+    "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout.",
+
+  "settings.schema.models.desc":
+    "Named model entries the agent and UI can select; ids reference provider prefixes.",
+  "settings.schema.models.model.label": "Model id",
+  "settings.schema.models.model.desc":
+    "Logical id in the form provider/api-model-id; must match a provider name prefix.",
+  "settings.schema.models.max_tokens.label": "Max tokens",
+  "settings.schema.models.max_tokens.desc":
+    "Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens.",
+  "settings.schema.models.temperature.label": "Temperature",
+  "settings.schema.models.temperature.desc":
+    "Sampling temperature for this logical model (0 = deterministic, higher = more random).",
+  "settings.schema.models.max_context_tokens.label":
+    "Max context tokens (UI hint)",
+  "settings.schema.models.max_context_tokens.desc":
+    "Optional UI hint for composer context bar; 0 means derive from provider metadata when available.",
+  "settings.schema.models.multimodal.label": "Multimodal",
+  "settings.schema.models.multimodal.desc":
+    "When true, the model accepts image or file inputs in addition to text. The UI will offer file attachment for messages sent with this model.",
+  "settings.schema.models.reasoning_levels.label": "Reasoning levels",
+  "settings.schema.models.reasoning_levels.desc":
+    "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
+  "settings.schema.models.reasoning_default.label": "Default reasoning level",
+  "settings.schema.models.reasoning_default.desc":
+    "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
+  "settings.schema.models.stream.label": "Stream responses",
+  "settings.schema.models.stream.desc":
+    "Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+
+  "settings.schema.agent.model.label": "Default model",
+  "settings.schema.agent.model.desc":
+    "Logical model id from the models list used when the client omits a model.",
+  "settings.schema.agent.max_turns.label": "Max turns",
+  "settings.schema.agent.max_turns.desc":
+    "Hard cap on ReAct iterations (LLM calls plus tool rounds) for one user request.",
+  "settings.schema.agent.max_tokens_per_turn.label": "Max tokens per turn",
+  "settings.schema.agent.max_tokens_per_turn.desc":
+    "Upper bound on total tokens (prompt + completion) the model may use in one agent step.",
+  "settings.schema.agent.llm_retry_max.label": "LLM retry max",
+  "settings.schema.agent.llm_retry_max.desc":
+    "Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries).",
+  "settings.schema.agent.llm_retry_base_ms.label": "LLM retry base ms",
+  "settings.schema.agent.llm_retry_base_ms.desc":
+    "Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it.",
+  "settings.schema.agent.llm_min_interval_ms.label": "LLM min interval ms",
+  "settings.schema.agent.llm_min_interval_ms.desc":
+    "Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing).",
+  "settings.schema.agent.llm_first_token_timeout_ms.label":
+    "LLM first token timeout ms",
+  "settings.schema.agent.llm_first_token_timeout_ms.desc":
+    "How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard).",
+  "settings.schema.agent.loop_guard.label": "Loop guard",
+  "settings.schema.agent.loop_guard.desc":
+    "Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+  "settings.schema.agent.loop_tool_repeat_limit.label":
+    "Loop tool repeat limit",
+  "settings.schema.agent.loop_tool_repeat_limit.desc":
+    "Consecutive identical tool calls before the loop guard steps in (0 disables the check).",
+  "settings.schema.agent.loop_stream_repeat_cycles.label":
+    "Loop stream repeat cycles",
+  "settings.schema.agent.loop_stream_repeat_cycles.desc":
+    "Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check).",
+  "settings.schema.agent.loop_nudge_max.label": "Loop nudge max",
+  "settings.schema.agent.loop_nudge_max.desc":
+    "How many times one turn may be nudged back on track before the loop guard stops it.",
+
+  "settings.schema.tools.permission_mode.label": "Permission mode",
+  "settings.schema.tools.permission_mode.desc":
+    'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts.',
+  "settings.schema.tools.command_allowlist.label": "Command allowlist",
+  "settings.schema.tools.command_allowlist.desc":
+    "If non-empty, only these shell command prefixes may run without extra policy.",
+  "settings.schema.tools.output_limits.label": "Tool output limits",
+  "settings.schema.tools.output_limits.desc":
+    "Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
+  "settings.schema.tools.output_limits.read.desc":
+    "Max lines for a read file page or directory listing (default 1000).",
+  "settings.schema.tools.output_limits.grep.desc":
+    "Max path:line:content records from grep (default 200).",
+  "settings.schema.tools.output_limits.glob.desc":
+    "Max paths from glob (default 300).",
+  "settings.schema.tools.output_limits.print_tree.desc":
+    "Max lines of a directory tree (default 400).",
+  "settings.schema.tools.output_limits.run_command.desc":
+    "Max stdout+stderr lines of a shell command (default 500).",
+  "settings.schema.tools.output_limits.ssh_run_command.desc":
+    "Max stdout+stderr lines of a remote SSH command (default 500).",
+  "settings.schema.tools.output_limits.webfetch.desc":
+    "Max lines of fetched page markdown (default 800).",
+  "settings.schema.tools.output_limits.websearch.desc":
+    "Max lines of search results (default 200).",
+  "settings.schema.tools.output_limits.default.desc":
+    "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited).",
+  "settings.schema.tools.background.label": "Background tasks",
+  "settings.schema.tools.background.desc":
+    "Commands the agent runs detached in the session task pool instead of blocking a turn.",
+  "settings.schema.tools.background.enabled.label": "Enabled",
+  "settings.schema.tools.background.enabled.desc":
+    "Offer the background option on run_command and the background task tools (default true).",
+  "settings.schema.tools.background.max_concurrent.label": "Max concurrent",
+  "settings.schema.tools.background.max_concurrent.desc":
+    "How many background tasks one session may run at once (default 5).",
+  "settings.schema.tools.background.default_timeout_seconds.label":
+    "Default timeout (s)",
+  "settings.schema.tools.background.default_timeout_seconds.desc":
+    "Hard limit for a task started without a timeout or a duration estimate (default 900).",
+  "settings.schema.tools.background.max_timeout_seconds.label":
+    "Max timeout (s)",
+  "settings.schema.tools.background.max_timeout_seconds.desc":
+    "Ceiling applied to any requested or estimated timeout (default 3600).",
+  "settings.schema.tools.background.output_buffer_bytes.label":
+    "Output buffer (bytes)",
+  "settings.schema.tools.background.output_buffer_bytes.desc":
+    "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
+
+  "settings.schema.skills.dirs.label": "Skill directories",
+  "settings.schema.skills.dirs.desc":
+    "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
+  "settings.schema.skills.auto_discovery.desc":
+    "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
+
+  "settings.schema.memory.enabled.label": "Enabled",
+  "settings.schema.memory.enabled.desc":
+    "Turns on the memory copilot for eligible builds.",
+  "settings.schema.memory.model.label": "Memory model",
+  "settings.schema.memory.model.desc":
+    "Logical model override for memory LLM calls; empty uses agent model.",
+  "settings.schema.memory.dir.label": "Memory root",
+  "settings.schema.memory.dir.desc":
+    "Filesystem root for memory markdown; empty uses ${CODDY_HOME}/memory.",
+  "settings.schema.memory.recall_max_turns.label": "Recall max turns",
+  "settings.schema.memory.recall_max_turns.desc":
+    "Bounds recall-side LLM rounds in the memory loop.",
+  "settings.schema.memory.persist_max_turns.label": "Persist max turns",
+  "settings.schema.memory.persist_max_turns.desc":
+    "Bounds persist-side LLM rounds in the memory loop.",
+  "settings.schema.memory.copilot_max_tokens.label": "Copilot max tokens",
+  "settings.schema.memory.copilot_max_tokens.desc":
+    "Completion token cap for memory copilot calls.",
+  "settings.schema.memory.max_search_hits.label": "Max search hits",
+  "settings.schema.memory.max_search_hits.desc":
+    "Maximum snippets returned by memory search tools.",
+
+  "settings.schema.compaction.enabled.label": "Enabled",
+  "settings.schema.compaction.enabled.desc":
+    "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
+  "settings.schema.compaction.threshold_percent.label": "Auto threshold (%)",
+  "settings.schema.compaction.threshold_percent.desc":
+    "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction.",
+  "settings.schema.compaction.keep_recent_turns.label": "Keep recent turns",
+  "settings.schema.compaction.keep_recent_turns.desc":
+    "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything).",
+  "settings.schema.compaction.model.label": "Summarizer model",
+  "settings.schema.compaction.model.desc":
+    "Optional models[].model for the summarization call; empty uses the session model.",
+  "settings.schema.compaction.result_eviction.label":
+    "Read/grep result eviction",
+  "settings.schema.compaction.result_eviction.desc":
+    "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",
+  "settings.schema.compaction.result_eviction.enabled.label": "Enabled",
+  "settings.schema.compaction.result_eviction.enabled.desc":
+    "Master switch for read/grep result eviction. Defaults to true.",
+  "settings.schema.compaction.result_eviction.keep_recent.label":
+    "Keep recent results",
+  "settings.schema.compaction.result_eviction.keep_recent.desc":
+    "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none).",
+  "settings.schema.compaction.result_eviction.min_result_bytes.label":
+    "Min result bytes",
+  "settings.schema.compaction.result_eviction.min_result_bytes.desc":
+    "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
+
+  "settings.schema.system.scheduler.label": "Scheduler",
+  "settings.schema.system.scheduler.enabled.label": "Enabled",
+  "settings.schema.system.scheduler.enabled.desc":
+    "When true, this process may run the scheduler daemon and REST.",
+  "settings.schema.system.scheduler.dir.label": "Jobs directory",
+  "settings.schema.system.scheduler.dir.desc":
+    "Directory of job markdown definitions.",
+  "settings.schema.system.scheduler.max_queue.label": "Max queue",
+  "settings.schema.system.scheduler.max_queue.desc":
+    "Maximum concurrent scheduled agent runs.",
+  "settings.schema.system.scheduler.timeout.label": "Job timeout",
+  "settings.schema.system.scheduler.timeout.desc":
+    "Per-job wall-clock limit, e.g. 30m or 1h30m.",
+  "settings.schema.system.scheduler.retain_sessions.label": "Retain sessions",
+  "settings.schema.system.scheduler.retain_sessions.desc":
+    "How many completed scheduler session folders to keep per job id.",
+  "settings.schema.system.prompts.label": "Prompts",
+  "settings.schema.system.prompts.dir.label": "Prompts directory",
+  "settings.schema.system.prompts.dir.desc":
+    "Optional override directory for prompt markdown files.",
+  "settings.schema.system.prompts.agent_prompt.label": "Agent prompt file",
+  "settings.schema.system.prompts.agent_prompt.desc":
+    "Filename for the main agent system prompt.",
+  "settings.schema.system.prompts.plan_prompt.label": "Plan prompt file",
+  "settings.schema.system.prompts.plan_prompt.desc":
+    "Filename for plan-mode system prompt.",
+  "settings.schema.system.instructions.label": "Instructions",
+  "settings.schema.system.instructions.files.label": "Instruction files",
+  "settings.schema.system.instructions.files.desc":
+    'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].',
+  "settings.schema.system.logger.label": "Logger",
+  "settings.schema.system.logger.level.label": "Level",
+  "settings.schema.system.logger.level.desc":
+    "Minimum severity written to configured outputs.",
+  "settings.schema.system.logger.outputs.label": "Outputs",
+  "settings.schema.system.logger.outputs.desc": "Where log lines are written.",
+  "settings.schema.system.logger.file.label": "Log file path",
+  "settings.schema.system.logger.file.desc":
+    "Destination file when outputs include file.",
+  "settings.schema.system.logger.format.label": "Format",
+  "settings.schema.system.logger.format.desc":
+    "text for human logs; json for structured logs.",
+  "settings.schema.system.logger.rotation.label": "Rotation",
+  "settings.schema.system.logger.rotation.desc":
+    "Size-based rotation when logging to a file.",
+  "settings.schema.system.logger.rotation.max_size_mb.label":
+    "Max file size (MB)",
+  "settings.schema.system.logger.rotation.max_size_mb.desc":
+    "Rotate after the file reaches this size; 0 uses logger defaults.",
+  "settings.schema.system.logger.rotation.max_files.label": "Max files",
+  "settings.schema.system.logger.rotation.max_files.desc":
+    "How many rotated segments to retain; 0 uses logger defaults.",
+  "settings.schema.system.sessions.label": "Sessions",
+  "settings.schema.system.sessions.dir.label": "Sessions directory",
+  "settings.schema.system.sessions.dir.desc":
+    "Override sessions root; empty resolves under CODDY_HOME.",
+  "settings.schema.system.gateways.label": "Messenger gateways",
+  "settings.schema.system.gateways.telegram.label": "Telegram",
+  "settings.schema.system.gateways.telegram.desc":
+    "Telegram bot adapter settings.",
+  "settings.schema.system.gateways.telegram.enabled.label": "Enabled",
+  "settings.schema.system.gateways.telegram.enabled.desc":
+    "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
+  "settings.schema.system.gateways.telegram.token.label": "Bot token",
+  "settings.schema.system.gateways.telegram.token.desc":
+    "BotFather token. Optional here — leave empty to read it from the TELEGRAM_BOT_TOKEN environment variable (e.g. via .env). Secret: when set it is stored in config.yaml and shown in full.",
+  "settings.schema.system.gateways.telegram.rich_messages.label":
+    "Rich messages",
+  "settings.schema.system.gateways.telegram.rich_messages.desc":
+    "Use Bot API 10.1 Rich Messages: the agent's native Markdown renders verbatim, tool activity streams as a Thinking placeholder, and executed tools show in a collapsible block. Falls back to legacy formatting if unsupported.",
+  "settings.schema.system.gateways.telegram.proxy.label": "Proxy",
+  "settings.schema.system.gateways.telegram.proxy.desc":
+    "Optional outbound proxy for Telegram API requests. Use http, https, socks5, or socks5h.",
+  "settings.schema.system.gateways.telegram.admins.label": "Admins",
+  "settings.schema.system.gateways.telegram.admins.desc":
+    "Telegram user IDs with elevated rights; admins always pass access checks.",
+  "settings.schema.system.gateways.telegram.default_access.label":
+    "Default access",
+  "settings.schema.system.gateways.telegram.default_access.desc":
+    "Fallback access level for chats without an override: all, admins, or group:<name>.",
+  "settings.schema.system.gateways.telegram.default_isolation.label":
+    "Default isolation",
+  "settings.schema.system.gateways.telegram.default_isolation.desc":
+    "Fallback session isolation for group chats.",
+  "settings.schema.system.gateways.telegram.user_groups.label": "User groups",
+  "settings.schema.system.gateways.telegram.user_groups.desc":
+    "Named sets of user IDs referenced by access as group:<name>.",
+  "settings.schema.system.gateways.telegram.user_groups.name.label":
+    "Group name",
+  "settings.schema.system.gateways.telegram.user_groups.name.desc":
+    "Name referenced by access as group:<name>.",
+  "settings.schema.system.gateways.telegram.user_groups.user_ids.label":
+    "User IDs",
+  "settings.schema.system.gateways.telegram.user_groups.user_ids.desc":
+    "Telegram numeric user IDs that belong to this group.",
+  "settings.schema.system.gateways.telegram.chats.label": "Per-chat overrides",
+  "settings.schema.system.gateways.telegram.chats.desc":
+    "Override isolation and access for specific chats.",
+  "settings.schema.system.gateways.telegram.chats.chat_id.label": "Chat ID",
+  "settings.schema.system.gateways.telegram.chats.chat_id.desc":
+    "Telegram chat id; negative for groups and supergroups.",
+  "settings.schema.system.gateways.telegram.chats.isolation.label": "Isolation",
+  "settings.schema.system.gateways.telegram.chats.isolation.desc":
+    "Per-chat session isolation override.",
+  "settings.schema.system.gateways.telegram.chats.access.label": "Access",
+  "settings.schema.system.gateways.telegram.chats.access.desc":
+    "Per-chat access override: all, admins, or group:<name>.",
+
   "settings.combobox.toggleAria": "Toggle options",
 
   "codexAuth.error.signInFailed": "ChatGPT sign in failed.",
@@ -152,14 +460,16 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
-  "neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "neuralDeepAuth.enterCode":
+    "Enter this one-time code on the NeuralDeep page:",
   "neuralDeepAuth.openSignInPage": "Open sign-in page",
   "neuralDeepAuth.waiting": "Waiting for confirmation…",
   "neuralDeepAuth.signingOut": "Signing Out…",
   "neuralDeepAuth.signOut": "Sign Out",
   "neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
   "neuralDeepAuth.signIn": "Sign In with NeuralDeep",
-  "neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+  "neuralDeepAuth.enterProviderName":
+    "Enter a provider name before signing in.",
 
   "mcp.status.connectedOne": "Connected — {count} tool",
   "mcp.status.connectedMany": "Connected — {count} tools",
@@ -310,4 +620,420 @@ export const messagesEn: Record<string, string> = {
   "skills.update.title": "Download update: {name} v{from} → v{to}",
   "skills.update.aria": "Download update for {name} to version {version}",
   "skills.badge.syncedFrom": "Synced from {source}",
+  "app.chatBusy": "This chat is busy in another client. Try again in a moment.",
+  "app.emptyResponseBody": "Empty response body",
+  "app.branchCreationNoSessionId": "Branch creation returned no session ID",
+
+  "nav.ariaLabel": "Nav",
+  "nav.brandTitle": "Coddy",
+  "nav.brandSub": "agent",
+  "nav.homeAriaLabel": "Coddy agent home",
+  "nav.newChatTooltip": "New Chat",
+  "nav.useWideSidebar": "Use wide sidebar",
+  "nav.useNarrowSidebar": "Use narrow sidebar",
+  "nav.wideSidebarTooltip": "Wide sidebar",
+  "nav.history": "History",
+  "nav.scheduler": "Scheduler",
+  "nav.schedulerAriaLabel": "Scheduler jobs",
+  "nav.settings": "Settings",
+
+  "sessions.history": "History",
+  "sessions.closeHistory": "Close history",
+  "sessions.searchPlaceholder": "Search by title or first message",
+  "sessions.searchAriaLabel": "Search history by title or first user message",
+  "sessions.clearSearch": "Clear search",
+  "sessions.empty": "No history yet",
+  "sessions.permissionRequired": "Permission required",
+  "sessions.questionPending": "Question pending",
+  "sessions.unreadCompletion": "Unread completion",
+  "sessions.newChatFallback": "New chat",
+  "sessions.deleteConversation": "Delete conversation",
+  "sessions.delete": "Delete",
+  "sessions.loadingMore": "Loading...",
+
+  "chat.newChat": "New chat",
+  "chat.chatTitleAriaLabel": "Chat title",
+  "chat.branchPrev": "Previous branch",
+  "chat.branchNext": "Next branch",
+  "chat.branchLabel": "Branch {current} of {total}",
+  "chat.heroTitle": "What do you want to {verb}?",
+  "chat.heroVerb.know": "know",
+  "chat.heroVerb.build": "build",
+  "chat.heroVerb.find": "find",
+  "chat.heroVerb.research": "research",
+  "chat.heroVerb.explore": "explore",
+  "chat.heroVerb.debug": "debug",
+  "chat.heroVerb.ship": "ship",
+  "chat.heroVerb.design": "design",
+  "chat.heroVerb.learn": "learn",
+  "chat.heroVerb.automate": "automate",
+  "chat.heroVerb.refactor": "refactor",
+  "chat.heroVerb.plan": "plan",
+  "chat.runPlanMessage": "Implement the plan.",
+  "chat.contextTitle": "Context",
+  "chat.contextClose": "Close",
+  "chat.contextCloseBreakdown": "Close context breakdown",
+  "chat.contextEmpty": "No context usage yet",
+  "chat.contextPercentUsed": "{percent}% Used",
+  "chat.contextTokensSummary": "~{used} / {max} Tokens",
+  "chat.contextMeterAriaLabel": "Context {percent} percent used",
+  "chat.contextSegmentTooltip": "{label}: {count}",
+  "chat.contextSegment.systemPrompt": "System prompt",
+  "chat.contextSegment.toolDefinitions": "Tool definitions",
+  "chat.contextSegment.rules": "Rules",
+  "chat.contextSegment.skills": "Skills",
+  "chat.contextSegment.mcp": "MCP",
+  "chat.contextSegment.subagents": "Subagents",
+  "chat.contextSegment.conversation": "Conversation",
+
+  "composer.messageLabel": "Message",
+  "composer.placeholderEmpty": "Plan, Build, / for skills, @ for files",
+  "composer.placeholderFollowUp": "Add a follow-up",
+  "composer.send": "Send",
+  "composer.stopGeneration": "Stop generation",
+  "composer.enhance": "Improve prompt",
+  "composer.enhanceNoModel":
+    "Couldn't improve the prompt: no model is configured.",
+  "composer.enhanceFailed":
+    "Couldn't improve the prompt. Your draft is unchanged.",
+  "composer.attachFile": "Attach file",
+  "composer.attachUnsupportedModel": "Selected model cannot accept attachments",
+  "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
+  "composer.removeAttachment": "Remove {fileName}",
+  "composer.attachedFilesAriaLabel": "Attached files",
+  "composer.bytesB": "{n} B",
+  "composer.bytesKB": "{n} KB",
+  "composer.bytesMB": "{n} MB",
+  "composer.mode": "Mode",
+  "composer.modeAgent": "Agent",
+  "composer.modePlan": "Plan",
+  "composer.model": "Model",
+  "composer.modelTitle": "YAML backend (metadata.model)",
+  "composer.reasoning": "Reasoning",
+  "composer.reasoningLevel": "Reasoning level",
+  "composer.reasoningLevelTitle": "Reasoning level (metadata.reasoning)",
+  "composer.contextUsage": "Context usage",
+  "composer.contextTipIdle": "No context usage yet",
+  "composer.contextTipUsed": "{percent}% context used",
+  "composer.contextTipInput": "Input {count}",
+  "composer.contextTipOutput": "Output {count}",
+  "composer.contextTipTotal": "Total {count}",
+  "composer.contextTipMaxContext": "Max context {count}",
+  "composer.composerOptions": "Composer options",
+  "composer.skillsTitle": "Skills",
+  "composer.loading": "Loading…",
+  "composer.more": "More",
+  "composer.noMatchingSkills": "No matching skills",
+  "composer.commandsTitle": "Commands",
+  "composer.typeAfterAt": "Type after @ to search",
+  "composer.noFiles": "No files",
+  "composer.filterModels": "Filter models",
+  "composer.filterModelsPlaceholder": "Filter models…",
+  "composer.noModelsMatch": "No models match “{query}”",
+  "composer.vendorOther": "Other",
+  "composer.closePicker": "Close picker",
+  "composer.slashCommandsAriaLabel": "Slash commands",
+  "composer.workspaceFilesTitle": "Workspace files",
+  "composer.workspaceFilesAriaLabel": "Workspace files",
+  "composer.requestFailed": "request failed",
+  "composer.env.ariaLabel": "Environment",
+  "composer.env.title": "Environment (local or remote coddy http)",
+  "composer.env.local": "Local",
+  "composer.env.localThisOrigin": "Local (this origin)",
+  "composer.env.groupEnvironment": "Environment",
+  "composer.env.groupRemote": "Remote",
+  "composer.env.addFormTitle": "Add a remote",
+  "composer.env.addRemote": "+ Add remote…",
+  "composer.env.namePlaceholder": "name",
+  "composer.env.tokenPlaceholder": "bearer token (empty if none)",
+  "composer.env.connect": "Connect",
+  "composer.env.cancel": "Cancel",
+  "composer.folderModal.title": "Open folder",
+  "composer.folderModal.close": "Close folder browser",
+  "composer.folderModal.pathLabel": "Folder path",
+  "composer.folderModal.pathPlaceholder": "Path",
+  "composer.folderModal.drivesPlaceholder": "This PC",
+  "composer.folderModal.noSubfolders": "No subfolders",
+  "composer.folderModal.noDrives": "No drives",
+  "composer.folderModal.cannotList": "Cannot list {path}",
+  "composer.folderModal.cancel": "Cancel",
+  "composer.folderModal.open": "Open",
+  "composer.folderModal.go": "Go",
+
+  "env.banner.unreachable":
+    "Remote {name} is unreachable or unauthorized — check that it is running, that {cors} allows this origin, and that the token is correct.",
+  "env.banner.switchLocal": "Switch to Local",
+
+  "prompts.questions": "Questions",
+  "prompts.questionsCount": "{count} questions",
+  "prompts.noAnswer": "(no answer)",
+  "prompts.answered": "Answered",
+  "prompts.skipped": "Skipped",
+  "prompts.skip": "Skip",
+  "prompts.continue": "Continue",
+  "prompts.optionsAriaLabel": "Options {index}",
+  "prompts.otherPlaceholder": "Other…",
+  "prompts.otherAriaLabel": "Other, type your answer",
+  "prompts.allow": "Allow",
+  "prompts.allowAlways": "Allow always",
+  "prompts.allowAlwaysProgram": "Always allow {program}",
+  "prompts.reject": "Reject",
+  "prompts.planRun": "Run plan",
+  "prompts.planDiscard": "Discard",
+  "prompts.planTogglePreview": "Toggle preview",
+  "prompts.planBodyAriaLabel": "Plan body (markdown)",
+  "prompts.planBodyPlaceholder": "Plan steps and notes…",
+  "prompts.planSaving": "Saving…",
+  "prompts.planPreviewEmpty": "Nothing to preview yet.",
+  "prompts.planSaveFailed": "save failed ({status})",
+  "prompts.planSaveFailedNoStatus": "save failed",
+
+  "scheduler.title": "Scheduler",
+  "scheduler.close": "Close scheduler",
+  "scheduler.searchPlaceholder": "Search by description or job id",
+  "scheduler.searchAriaLabel": "Search scheduler jobs by description or job id",
+  "scheduler.clearSearch": "Clear scheduler search",
+  "scheduler.empty": "No jobs yet",
+  "scheduler.loading": "Loading…",
+  "scheduler.noDescription": "—",
+  "scheduler.paused": "paused",
+  "scheduler.addJob": "Add job",
+  "scheduler.runJobNow": "Run job now",
+  "scheduler.stopJob": "Stop job",
+  "scheduler.newJob": "New job",
+  "scheduler.jobTitle": "Job {jobId}",
+  "scheduler.editorNewAriaLabel": "New scheduler job",
+  "scheduler.editorEditAriaLabel": "Edit scheduler job",
+  "scheduler.closeEditor": "Close editor",
+  "scheduler.field.jobId": "job_id",
+  "scheduler.field.jobIdHelp":
+    "Filename - letters, digits, hyphens (example: daily-report).",
+  "scheduler.field.description": "description",
+  "scheduler.field.schedule": "schedule (UTC, 5 fields)",
+  "scheduler.field.schedulePlaceholder": "0 * * * *",
+  "scheduler.field.cwd": "cwd (optional)",
+  "scheduler.field.cwdHelp":
+    "Defaults to the agent working directory for this instance.",
+  "scheduler.field.mode": "mode",
+  "scheduler.mode.agent": "agent",
+  "scheduler.mode.plan": "plan",
+  "scheduler.field.model": "model",
+  "scheduler.field.body": "body (markdown)",
+  "scheduler.bodyAriaLabel": "Job body markdown",
+  "scheduler.bodyPlaceholder": "Instruction for the scheduled run…",
+  "scheduler.pause": "Pause",
+  "scheduler.resume": "Resume",
+  "scheduler.delete": "Delete",
+  "scheduler.apiNotAvailable":
+    "Scheduler API is not available in this build (rebuild with http,scheduler).",
+  "scheduler.disabled":
+    "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).",
+  "scheduler.validation.required": "Required",
+  "scheduler.validation.tooLong": "Too long",
+  "scheduler.validation.noSpaces":
+    "No spaces - use hyphens (example: daily-report)",
+  "scheduler.validation.invalidJobId":
+    "Only letters, digits, and hyphens (example: daily-report)",
+
+  "tasks.panelTitle": "Background tasks",
+  "tasks.closePanel": "Close background tasks",
+  "tasks.loading": "Loading…",
+  "tasks.empty":
+    "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
+  "tasks.sectionRunning": "Running",
+  "tasks.sectionFinished": "Finished {count}",
+  "tasks.clearFinished": "Clear",
+  "tasks.backToList": "← Back to tasks",
+  "tasks.stopTitle": "Stop task",
+  "tasks.stopAriaLabel": "Stop {label}",
+  "tasks.outputHeading": "Output",
+  "tasks.truncated": "truncated",
+  "tasks.truncatedTitle":
+    "Earlier output scrolled out of the in-memory window; the full log stays in the session bundle",
+  "tasks.noOutput": "(no output yet)",
+  "tasks.olderOnDisk":
+    "{count} older tasks are kept on disk and not listed here",
+  "tasks.progressAriaLabel": "Progress toward the estimate for {label}",
+  "tasks.estimate": "est. {value}",
+  "tasks.exitCode": "exit {code}",
+  "tasks.overdue": "overdue",
+  "tasks.status.queued": "Queued",
+  "tasks.status.running": "Running",
+  "tasks.status.succeeded": "Succeeded",
+  "tasks.status.failed": "Failed",
+  "tasks.status.timedOut": "Timed out",
+  "tasks.status.stopped": "Stopped",
+  "tasks.status.orphaned": "Orphaned",
+
+  "messages.preparingResponse": "Preparing response",
+  "messages.copyCode": "Copy code",
+  "messages.copy": "Copy",
+  "messages.copied": "Copied",
+  "messages.copyMessage": "Copy message",
+  "messages.copyErrorMessage": "Copy error message",
+  "messages.editMessage": "Edit message",
+  "messages.attachedFiles": "Attached files",
+  "messages.systemLabel": "System",
+  "messages.refresh": "Refresh",
+  "messages.retryLastMessage": "Retry the last message",
+  "messages.thinkingInProgress": "thinking...",
+  "messages.thinkingCompleted": "thinking",
+  "messages.thinkingSummaryAriaLabel": "Thinking summary",
+  "messages.thinkingContentAriaLabel": "Thinking content",
+  "messages.compactionLabel": "context compacted",
+  "messages.compactionSummaryAriaLabel": "Context compacted summary",
+  "messages.compactionBodyAriaLabel": "Compacted context summary",
+  "messages.memoryInProgress": "memory...",
+  "messages.memoryCompleted": "memory",
+  "messages.memoryInProgressAriaLabel": "Memory in progress",
+  "messages.memorySummaryAriaLabel": "Memory copilot summary",
+  "messages.memoryContentAriaLabel": "Memory copilot content",
+  "messages.memoryMarkedSaved": "Marked saved ({title}).",
+  "messages.memoryMarkedSavedDefaultTitle": "note",
+  "messages.memoryEmpty": "No relevant notes matched this turn.",
+  "messages.toolDefaultName": "tool",
+  "messages.toolQuestionLabel": "question",
+  "messages.toolPendingSuffix": "...",
+  "messages.toolSummaryAriaLabel": "Tool summary",
+  "messages.toolDetailsAriaLabel": "Tool call details",
+  "messages.toolResultAriaLabel": "Tool result",
+  "messages.toolResultSection": "Result",
+  "messages.toolLoading": "Loading…",
+  "messages.toolMore": "More…",
+  "todo.preview.updatedItem": "Updated item",
+  "todo.preview.plan": "Todo plan",
+  "todo.preview.position": "{index} of {total}",
+  "todo.preview.completed.one": "{count} completed",
+  "todo.preview.completed.other": "{count} completed",
+  "todo.preview.items.one": "{count} item",
+  "todo.preview.items.other": "{count} items",
+  "todo.status.pending": "Pending",
+  "todo.status.inProgress": "In progress",
+  "todo.status.completed": "Completed",
+  "todo.status.failed": "Failed",
+  "todo.status.cancelled": "Cancelled",
+  "planExit.preview.header": "Agent mode",
+  "planExit.preview.planMode": "Plan mode",
+  "planExit.preview.agentMode": "Agent mode",
+  "planExit.preview.inProgress": "Switching to Agent mode…",
+  "planExit.preview.completed": "Switched to Agent mode",
+  "messages.toolLess": "Less",
+  "messages.toolQuestionTimelineAriaLabel": "Question tool timeline",
+  "messages.toolAwaitingAnswer": "Awaiting answer",
+  "messages.toolQuestionMirrorHint":
+    "Answer using the Questions card in this chat. This row only mirrors the tool state.",
+  "messages.toolBgTaskOpen": "Open in Tasks",
+  "messages.toolBgTaskStop": "Stop",
+  "messages.fileType.image": "Image",
+  "messages.fileType.video": "Video",
+  "messages.fileType.audio": "Audio",
+  "messages.fileType.pdf": "PDF",
+  "messages.fileType.text": "Text",
+  "messages.fileType.archive": "Archive",
+  "messages.fileType.file": "File",
+  "messages.requestFailed": "Request failed",
+  "messages.streamEnded": "Stream ended",
+
+  "app.backendUnavailable": "Backend is unavailable ({status})",
+
+  "sessions.draftPrefix": "Draft: {title}",
+  "sessions.draftEmpty": "Draft: New chat",
+
+  "workspace.detached": "detached",
+  "workspace.worktree": "worktree",
+  "workspace.worktreeActiveTitle": "This session works in a dedicated worktree",
+  "workspace.worktreeInactiveTitle":
+    "Open branch switches in a dedicated worktree",
+  "workspace.recent": "Recent",
+  "workspace.openFolder": "Open folder…",
+  "workspace.noBranches": "No branches",
+
+  "permission.preview.patch": "Patch preview",
+  "permission.preview.edit": "Edit preview",
+  "permission.preview.more": "More…",
+  "permission.preview.less": "Less",
+  "permission.question.runCommand": "Run this command?",
+  "permission.question.writeFile": "Write this file?",
+  "permission.question.editFile": "Edit this file?",
+  "permission.question.applyPatch": "Apply this patch?",
+  "permission.question.createDirectory": "Create this directory?",
+  "permission.question.createOrUpdateFile": "Create or update this file?",
+  "permission.question.movePath": "Move this path?",
+  "permission.question.removeDirectoryTree": "Remove this directory tree?",
+  "permission.question.removePath": "Remove this path?",
+  "permission.question.removeEmptyDirectory": "Remove this empty directory?",
+  "permission.question.allowAction": "Allow this action?",
+  "permission.header.shell": "Shell",
+  "permission.header.sshShell": "SSH shell",
+  "permission.header.move": "Move",
+  "permission.header.workspace": "Workspace",
+  "permission.meta.timeout": "timeout {seconds}s",
+  "permission.meta.replaceAll": "replace all",
+  "permission.meta.chars.one": "{count} char",
+  "permission.meta.chars.other": "{count} chars",
+  "permission.meta.createParents": "create parents",
+  "permission.meta.directParentOnly": "direct parent only",
+  "permission.meta.existingParentsOnly": "existing parents only",
+  "permission.meta.recursive": "recursive",
+  "permission.meta.emptyDirectoryOnly": "empty directory only",
+  "permission.meta.fromLine": "from line {line}",
+  "permission.meta.lines.one": "{count} line",
+  "permission.meta.lines.other": "{count} lines",
+  "permission.meta.hiddenFiles": "hidden files",
+  "permission.meta.caseSensitive": "case sensitive",
+  "permission.meta.maxResults": "max {count}",
+  "permission.meta.depth": "depth {depth}",
+
+  "scheduler.cron.required": "Enter a cron expression (5 fields, UTC).",
+  "scheduler.cron.invalid": "Invalid cron expression",
+
+  "tasks.notReachable": "Coddy is not reachable",
+  "tasks.chip.running.one": "{count} running task",
+  "tasks.chip.running.other": "{count} running tasks",
+  "tasks.chip.total.one": "{count} background task",
+  "tasks.chip.total.other": "{count} background tasks",
+  "tasks.chip.openAria": "Open background tasks: {label}",
+
+  "env.error.remoteUnreachable":
+    "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
+  "env.error.localNetwork":
+    "Network error sending the message — check that the server is running.",
+  "env.error.remoteUnauthorized":
+    "Unauthorized on remote {host} — check the bearer token for this environment.",
+  "env.error.localUnauthorized": "Unauthorized ({status}).",
+  "env.error.remoteRequestFailed":
+    "Request to remote {host} failed ({status}).",
+  "env.error.requestFailed": "Request failed ({status}).",
+
+  "status.read": "Reading",
+  "status.list": "Listing",
+  "status.search": "Searching",
+  "status.edit": "Editing",
+  "status.write": "Writing",
+  "status.run": "Running",
+  "status.runRemote": "Running over SSH",
+  "status.createDir": "Creating directory",
+  "status.touch": "Creating file",
+  "status.move": "Moving",
+  "status.delete": "Deleting",
+  "status.webSearch": "Searching the web",
+  "status.webFetch": "Fetching",
+  "status.plan": "Updating the plan",
+  "status.planRead": "Reading the plan",
+  "status.skill": "Loading a skill",
+  "status.schedule": "Updating the schedule",
+  "status.config": "Updating the configuration",
+  "status.backgroundWait": "Waiting for a background task",
+  "status.backgroundList": "Checking background tasks",
+  "status.backgroundOutput": "Reading background output",
+  "status.backgroundStop": "Stopping a background task",
+  "status.backgroundReap": "Cleaning up background tasks",
+  "status.tool": "Running a tool",
+  "status.thinking": "Thinking…",
+  "status.memory": "Working with memory",
+  "status.awaitingPermission": "Waiting for your approval",
+  "status.awaitingAnswer": "Waiting for your answer",
+  "status.waitingModel": "Waiting for the model",
+  "status.waitingSlow": "The model is taking longer than usual",
+  "status.waitingStuck": "Still no response from the server",
 };

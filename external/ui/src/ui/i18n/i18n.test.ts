@@ -5,8 +5,10 @@ import {
   getLocale,
   initLocale,
   onLocaleChange,
+  pluralCategories,
   themeLabel,
   t,
+  translatePlural,
 } from "./i18n";
 
 afterEach(() => {
@@ -66,6 +68,41 @@ test("onLocaleChange fires when the locale actually changes", () => {
   off();
   setLocale("ru"); // unsubscribed: no further calls
   expect(calls).toBe(2);
+});
+
+test("pluralCategories reports the CLDR categories each locale can produce", () => {
+  expect([...pluralCategories("en")].sort()).toEqual(["one", "other"]);
+  expect([...pluralCategories("ru")].sort()).toEqual([
+    "few",
+    "many",
+    "one",
+    "other",
+  ]);
+});
+
+test("translatePlural picks the category for the active locale", () => {
+  setLocale("en");
+  expect(translatePlural("permission.meta.lines", 1)).toBe("1 line");
+  expect(translatePlural("permission.meta.lines", 2)).toBe("2 lines");
+  expect(translatePlural("permission.meta.lines", 40)).toBe("40 lines");
+});
+
+test("translatePlural declines russian counts by CLDR category, not by count === 1", () => {
+  setLocale("ru");
+  // one / few / many, including the 11-14 exception and the 21 wrap-around.
+  expect(translatePlural("permission.meta.lines", 1)).toBe("1 строка");
+  expect(translatePlural("permission.meta.lines", 3)).toBe("3 строки");
+  expect(translatePlural("permission.meta.lines", 5)).toBe("5 строк");
+  expect(translatePlural("permission.meta.lines", 11)).toBe("11 строк");
+  expect(translatePlural("permission.meta.lines", 21)).toBe("21 строка");
+  expect(translatePlural("tasks.chip.total", 2)).toBe("2 фоновые задачи");
+});
+
+test("translatePlural falls back to english, then to the key", () => {
+  setLocale("ru");
+  expect(translatePlural("definitely.not.a.family", 3)).toBe(
+    "definitely.not.a.family",
+  );
 });
 
 test("themeLabel resolves every known theme id", () => {

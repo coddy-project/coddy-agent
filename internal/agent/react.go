@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -339,17 +340,19 @@ func (a *Agent) runReActLoop(
 
 		sessionID := a.state.GetID()
 
-		// Cancel the stream if no tokens arrive within 90 s (API hang guard). A model
+		// Cancel the stream if no tokens arrive within the configured window
+		// (agent.llm_first_token_timeout_ms, default 90 s; the API hang guard). A model
 		// configured with stream: false produces nothing until the whole completion is
 		// ready, so the guard would cut every slow blocking answer: it is not armed for
-		// that transport, and the turn context remains the bound. firstTokenTimedOut
+		// that transport, and the turn context remains the bound. An explicit 0 disables
+		// the guard for streaming too. firstTokenTimedOut
 		// records that this timer, and not the user or the loop guard, did the
 		// cancelling, which the error paths below cannot otherwise tell apart.
-		const firstTokenTimeout = 90 * time.Second
+		firstTokenTimeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout()
 		streamCtx, streamCancel := context.WithCancel(ctx)
 		var firstTokenTimedOut atomic.Bool
 		var firstTokenTimer *time.Timer
-		if transport.streaming {
+		if transport.streaming && firstTokenTimeout > 0 {
 			firstTokenTimer = time.AfterFunc(firstTokenTimeout, func() {
 				firstTokenTimedOut.Store(true)
 				streamCancel()
@@ -487,7 +490,10 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
-			if errors.Is(streamErr, context.Canceled) && response != nil {
+			// A mid-generation truncation keeps its partial answer like a user
+			// stop: the user already watched the text stream in, so it must
+			// survive in the transcript next to the honest error below.
+			if (errors.Is(streamErr, context.Canceled) || llm.IsStreamTruncated(streamErr)) && response != nil {
 				reasonTrim := strings.TrimSpace(reasoningBuf.String())
 				hasText := strings.TrimSpace(response.Content) != ""
 				hasTools := len(response.ToolCalls) > 0
@@ -966,6 +972,8 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		status = "failed"
 	}
 
+	todoPlanSnapshot := todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
 		if execErr != nil {
@@ -973,6 +981,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
+		if len(todoPlanSnapshot) > 0 {
+			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
+		}
 	}
 
 	payload := result
@@ -988,6 +999,17 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
+	if len(todoPlanSnapshot) > 0 {
+		if previewMeta == nil {
+			previewMeta = map[string]interface{}{}
+		}
+		coddyMeta, _ := previewMeta["coddy"].(map[string]interface{})
+		if coddyMeta == nil {
+			coddyMeta = map[string]interface{}{}
+			previewMeta["coddy"] = coddyMeta
+		}
+		coddyMeta["todoPlan"] = todoPlanSnapshot
+	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -998,6 +1020,22 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	})
 
 	return result, execErr
+}
+
+func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {
+	if execErr != nil || state == nil {
+		return nil
+	}
+	switch toolName {
+	case todo.ToolNameItemUpdate, todo.ToolNamePlanReplace:
+		entries := state.GetPlan()
+		if len(entries) == 0 {
+			return nil
+		}
+		return append([]acp.PlanEntry(nil), entries...)
+	default:
+		return nil
+	}
 }
 
 // mcpToolDefinitions converts the tools of connected MCP clients into LLM
@@ -1192,7 +1230,8 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		MaxTokens:     rm.MaxTokens,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, a.cfg.Agent.LLMRetryMax, a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

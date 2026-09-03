@@ -22,6 +22,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -40,6 +41,9 @@ type Server struct {
 	agentProviderFactory func(llm.ProviderInput) (llm.Provider, error)
 	// makeLLMFromYAML builds an LLM backend for a configured models[].model selector (direct completion). Tests override.
 	makeLLMFromYAML func(*config.Config, string) (llm.Provider, error)
+	// drives lists the machine's drive roots for the folder picker's volume
+	// level (Windows only; empty elsewhere). Tests override.
+	drives func() []string
 
 	// extraAuthTokens are bearer tokens supplied out-of-band (--auth-token / CODDY_HTTP_TOKEN).
 	// They are never written to config.yaml and survive PUT /coddy/config hot reloads.
@@ -97,6 +101,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 		providerFactory:      defaultProviderFromAgentModel,
 		agentProviderFactory: llm.NewProvider,
 		makeLLMFromYAML:      defaultMakeLLMFromYAML,
+		drives:               platform.Drives,
 		slashCache:           make(map[string]slashListCacheEntry),
 		codexAuthIssuer:      llm.CodexIssuerURL,
 		codexAuthLogins:      make(map[string]*codexAuthLoginAttempt),
@@ -170,7 +175,8 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		MaxTokens:     maxTok,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, error) {
@@ -196,7 +202,8 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 		MaxTokens:     maxTok,
 		Temperature:   rm.Temperature,
 		DisableStream: !rm.Stream,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 func (s *Server) redirectDocsTrailingSlash(w http.ResponseWriter, r *http.Request) {

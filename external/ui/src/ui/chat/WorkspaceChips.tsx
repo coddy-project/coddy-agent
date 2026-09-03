@@ -20,6 +20,7 @@ import {
   snapshotShellStack,
   subscribeShellStack,
 } from "../shellBreakpoint";
+import { useT } from "../i18n/I18nProvider";
 
 type Props = {
   context: WorkspaceContext | null;
@@ -39,6 +40,7 @@ type MenuKind = "folder" | "branch" | null;
 // a folder chip (recent folders + "Open folder…" browser), a branch chip
 // (branch list inside git repos), and a worktree checkbox.
 export function WorkspaceChips(props: Props) {
+  const { t } = useT();
   const [menuOpen, setMenuOpen] = useState<MenuKind>(null);
   const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
   const [recents, setRecents] = useState<WorkspaceRecent[]>([]);
@@ -126,7 +128,7 @@ export function WorkspaceChips(props: Props) {
           type="button"
           className="workspace-chip"
           data-testid="composer-branch-chip"
-          title={ctx.branch || "detached"}
+          title={ctx.branch || t("workspace.detached")}
           aria-haspopup="menu"
           disabled={locked}
           onClick={(e) => toggleMenu("branch", e.currentTarget)}
@@ -136,7 +138,9 @@ export function WorkspaceChips(props: Props) {
               <path d="M5 3.25a1.75 1.75 0 1 1-2.5-1.58V3.25a3.25 3.25 0 0 0 3.25 3.25h3.5c.97 0 1.75.78 1.75 1.75v.42a1.75 1.75 0 1 1-1.5 0V8.25a.25.25 0 0 0-.25-.25h-3.5A4.73 4.73 0 0 1 3.5 7.1v3.23a1.75 1.75 0 1 1-1.5 0V4.83A1.75 1.75 0 0 1 5 3.25Z" />
             </svg>
           </span>
-          <span className="workspace-chip-label">{ctx.branch || "detached"}</span>
+          <span className="workspace-chip-label">
+            {ctx.branch || t("workspace.detached")}
+          </span>
         </button>
       ) : null}
 
@@ -146,8 +150,8 @@ export function WorkspaceChips(props: Props) {
           data-testid="composer-worktree-chip"
           title={
             ctx.is_worktree
-              ? "This session works in a dedicated worktree"
-              : "Open branch switches in a dedicated worktree"
+              ? t("workspace.worktreeActiveTitle")
+              : t("workspace.worktreeInactiveTitle")
           }
         >
           <input
@@ -158,7 +162,9 @@ export function WorkspaceChips(props: Props) {
             disabled={locked || ctx.is_worktree}
             onChange={() => props.onWorktreeToggle()}
           />
-          <span className="workspace-chip-label">worktree</span>
+          <span className="workspace-chip-label">
+            {t("workspace.worktree")}
+          </span>
         </label>
       ) : null}
 
@@ -187,7 +193,9 @@ export function WorkspaceChips(props: Props) {
               >
                 {menuOpen === "folder" ? (
                   <>
-                    <div className="mode-menu-group-label">Recent</div>
+                    <div className="mode-menu-group-label">
+                      {t("workspace.recent")}
+                    </div>
                     <div className="mode-menu-scroll">
                       {recentRows.map((r) => (
                         <button
@@ -205,9 +213,14 @@ export function WorkspaceChips(props: Props) {
                             }
                           }}
                         >
-                          <span className="workspace-recent-name">{r.name}</span>
+                          <span className="workspace-recent-name">
+                            {r.name}
+                          </span>
                           {r.path === ctx.path ? (
-                            <span className="workspace-recent-check" aria-hidden="true">
+                            <span
+                              className="workspace-recent-check"
+                              aria-hidden="true"
+                            >
                               ✓
                             </span>
                           ) : null}
@@ -225,7 +238,7 @@ export function WorkspaceChips(props: Props) {
                         setFolderModalOpen(true);
                       }}
                     >
-                      Open folder…
+                      {t("workspace.openFolder")}
                     </button>
                   </>
                 ) : null}
@@ -250,7 +263,9 @@ export function WorkspaceChips(props: Props) {
                       </button>
                     ))}
                     {(ctx.branches || []).length === 0 ? (
-                      <div className="mode-menu-empty">No branches</div>
+                      <div className="mode-menu-empty">
+                        {t("workspace.noBranches")}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

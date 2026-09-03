@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
+import { useT } from "../i18n/I18nProvider";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -49,6 +50,7 @@ export function MemoryCopilotMessage(props: {
   persistTitle?: string;
   recallReadPaths?: string[];
 }) {
+  const { t } = useT();
   const memSt = props.memoryStatus;
   const legacyBusy =
     props.recallStatus === "in_progress" ||
@@ -68,7 +70,9 @@ export function MemoryCopilotMessage(props: {
   /** Wait for first streamed text token (tools may run with no visible prose yet). */
   const awaitingFirstText = busy && streamingBody.length === 0;
 
-  const label = busy ? "memory..." : "memory";
+  const label = busy
+    ? t("messages.memoryInProgress")
+    : t("messages.memoryCompleted");
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -157,7 +161,7 @@ export function MemoryCopilotMessage(props: {
       <div className="thinking-row" data-testid="memory-copilot-row">
         <div
           className="thinking-summary coddy-memory-copilot-flat-banner"
-          aria-label="Memory in progress"
+          aria-label={t("messages.memoryInProgressAriaLabel")}
           aria-busy="true"
         >
           <SummaryHeader
@@ -180,7 +184,7 @@ export function MemoryCopilotMessage(props: {
       >
         <summary
           className="thinking-summary"
-          aria-label="Memory copilot summary"
+          aria-label={t("messages.memorySummaryAriaLabel")}
         >
           <SummaryHeader
             label={label}
@@ -190,7 +194,7 @@ export function MemoryCopilotMessage(props: {
         </summary>
         <div
           className="thinking-body coddy-memory-copilot-body"
-          aria-label="Memory copilot content"
+          aria-label={t("messages.memoryContentAriaLabel")}
         >
           {displayTrim ? (
             <div className="coddy-memory-phase coddy-memory-recall">
@@ -220,12 +224,16 @@ export function MemoryCopilotMessage(props: {
           ) : null}
           {!hasStructuredSave && props.persistSaved ? (
             <p className="coddy-memory-saved">
-              Marked saved ({(props.persistTitle || "").trim() || "note"}).
+              {t("messages.memoryMarkedSaved", {
+                title:
+                  (props.persistTitle || "").trim() ||
+                  t("messages.memoryMarkedSavedDefaultTitle"),
+              })}
             </p>
           ) : null}
           {emptyCompleted ? (
             <p className="coddy-memory-empty">
-              No relevant notes matched this turn.
+              {t("messages.memoryEmpty")}
             </p>
           ) : null}
         </div>

@@ -12,6 +12,8 @@ import type {
   QuestionResolvedState,
 } from "./questionTypes";
 import { letterForOptionIndex } from "./questionTypes";
+import { useT } from "../i18n/I18nProvider";
+import { t as translate } from "../i18n/i18n";
 
 const HDR = "X-Coddy-Session-ID";
 
@@ -139,7 +141,7 @@ function formatResolvedSummaryLine(
   answersMatrix: string[][],
 ): string {
   if (!questions.length || skipped) {
-    return "Skipped";
+    return translate("prompts.skipped");
   }
   const parts: string[] = [];
   for (let qi = 0; qi < questions.length; qi++) {
@@ -149,13 +151,13 @@ function formatResolvedSummaryLine(
       .map((s) => String(s).trim())
       .filter((s) => s.length > 0)
       .join(", ");
-    const ansText = joined.length > 0 ? joined : "(no answer)";
+    const ansText = joined.length > 0 ? joined : translate("prompts.noAnswer");
     let stem = q.question.trim().replace(/\s+/g, " ");
     if (stem.length > 112) stem = `${stem.slice(0, 109)}...`;
     const qDisp = stem.endsWith("?") ? stem : `${stem}?`;
     parts.push(`${qDisp} ${ansText}`);
   }
-  return parts.length > 0 ? parts.join(" · ") : "Answered";
+  return parts.length > 0 ? parts.join(" · ") : translate("prompts.answered");
 }
 
 function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
@@ -175,6 +177,7 @@ export type QuestionPromptSectionProps = {
 
 /** Inline gated questions for streaming question SSE followed by POST /coddy/sessions/{id}/question. */
 export function QuestionPromptSection(props: QuestionPromptSectionProps) {
+  const { t } = useT();
   const { itemId, payload, resolved, onResolved } = props;
   const qs = payload.questions;
   const n = qs.length;
@@ -272,7 +275,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   }, [resolved, submit, submitting]);
 
   if (resolved) {
-    const sum = resolved.summaryLine.trim() || "Answered";
+    const sum = resolved.summaryLine.trim() || t("prompts.answered");
     return (
       <section
         className="question-prompt-frame"
@@ -282,13 +285,13 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
           <summary className="question-prompt-head question-prompt-head--stack">
             <div className="question-prompt-head-left">
               <span className="question-prompt-icon" aria-hidden />
-              <span className="question-prompt-title">Questions</span>
+              <span className="question-prompt-title">{t("prompts.questions")}</span>
             </div>
             <span className="question-prompt-summary-line">{sum}</span>
           </summary>
           <div className="question-prompt-body question-prompt-resolved-body">
             {resolved.skipped ? (
-              <p className="question-prompt-skipped-note">Skipped</p>
+              <p className="question-prompt-skipped-note">{t("prompts.skipped")}</p>
             ) : null}
             {qs.map((q, qi) => {
               const parts = (resolved.answers[qi] ?? [])
@@ -323,7 +326,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
         <div className="question-prompt-head">
           <div className="question-prompt-head-left">
             <span className="question-prompt-icon" aria-hidden />
-            <h3 className="question-prompt-title">Questions</h3>
+            <h3 className="question-prompt-title">{t("prompts.questions")}</h3>
           </div>
         </div>
 
@@ -342,7 +345,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                   <p className="question-prompt-qtext">{q.question}</p>
                 </div>
 
-                <ul className="question-prompt-rows" aria-label={`Options ${qi + 1}`}>
+                <ul className="question-prompt-rows" aria-label={t("prompts.optionsAriaLabel", { index: qi + 1 })}>
                   {q.options.map((op, oi) => {
                     const bubble = letters[oi];
                     if (!bubble) return null;
@@ -479,8 +482,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                           autoComplete="off"
                           spellCheck={false}
                           disabled={submitting}
-                          placeholder="Other…"
-                          aria-label="Other, type your answer"
+                          placeholder={t("prompts.otherPlaceholder")}
+                          aria-label={t("prompts.otherAriaLabel")}
                           data-testid={`question-other-${qi}`}
                           onFocus={() => {
                             setSingleSel((prev) => {
@@ -546,8 +549,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
                           autoComplete="off"
                           spellCheck={false}
                           disabled={submitting}
-                          placeholder="Other…"
-                          aria-label="Other, type your answer"
+                          placeholder={t("prompts.otherPlaceholder")}
+                          aria-label={t("prompts.otherAriaLabel")}
                           data-testid={`question-other-multi-${qi}`}
                           onFocus={() => {
                             setMultiSel((prev) => {
@@ -589,7 +592,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             data-testid="question-skip"
             onClick={() => void submit(true)}
           >
-            Skip<span className="question-prompt-kbd">Esc</span>
+            {t("prompts.skip")}
+            <span className="question-prompt-kbd">Esc</span>
           </button>
           <button
             type="button"
@@ -598,7 +602,8 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
             data-testid="question-submit"
             onClick={() => void submit(false)}
           >
-            Continue<span className="question-prompt-continue-ic" aria-hidden>↵</span>
+            {t("prompts.continue")}
+            <span className="question-prompt-continue-ic" aria-hidden>↵</span>
           </button>
         </div>
       </div>

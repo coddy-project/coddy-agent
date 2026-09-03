@@ -2,6 +2,7 @@ import type { SchedulerInfo, SchedulerJob } from "./types";
 import { SchedulerIconPlus } from "./schedulerToolbarIcons";
 import { appNavHrefSchedulerJob } from "./hashRoute";
 import { sameTabInAppNavClick } from "../nav/sameTabInAppNav";
+import { useT } from "../i18n/I18nProvider";
 
 /** Renders next fire as YYYY-MM-DD HH:MM (UTC) for list rows (scheduler uses UTC five-field cron). */
 function formatNextRunUtc(iso: string | undefined): string {
@@ -47,6 +48,7 @@ export function SchedulerJobsDrawer(props: {
   onSearchDraftChange: (v: string) => void;
   onSearchClear: () => void;
 }) {
+  const { t } = useT();
   if (!props.open) {
     return null;
   }
@@ -56,16 +58,16 @@ export function SchedulerJobsDrawer(props: {
       className={["sessions", "scheduler-jobs", "drawer", props.className || ""]
         .filter(Boolean)
         .join(" ")}
-      aria-label="Scheduler jobs"
+      aria-label={t("nav.schedulerAriaLabel")}
       data-testid="scheduler-drawer"
       data-variant="drawer"
     >
       <div className="sessions-head">
-        <span>Scheduler</span>
+        <span>{t("scheduler.title")}</span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close scheduler"
+          aria-label={t("scheduler.close")}
           data-testid="scheduler-drawer-close"
           onClick={props.onClose}
         >
@@ -77,17 +79,17 @@ export function SchedulerJobsDrawer(props: {
         <input
           type="search"
           className="sessions-search-input"
-          placeholder="Search by description or job id"
+          placeholder={t("scheduler.searchPlaceholder")}
           value={props.searchDraft}
           onChange={(ev) => props.onSearchDraftChange(ev.target.value)}
-          aria-label="Search scheduler jobs by description or job id"
+          aria-label={t("scheduler.searchAriaLabel")}
           data-testid="scheduler-search"
         />
         {props.searchDraft.trim() ? (
           <button
             type="button"
             className="sessions-search-clear"
-            aria-label="Clear scheduler search"
+            aria-label={t("scheduler.clearSearch")}
             data-testid="scheduler-search-clear"
             onClick={props.onSearchClear}
           >
@@ -104,12 +106,12 @@ export function SchedulerJobsDrawer(props: {
         ) : null}
         {!props.listError && !props.loading && props.jobs.length === 0 ? (
           <div className="sessions-empty" data-testid="scheduler-list-empty">
-            No jobs yet
+            {t("scheduler.empty")}
           </div>
         ) : null}
         {props.loading && props.jobs.length === 0 && !props.listError ? (
           <div className="sessions-empty" data-testid="scheduler-list-loading">
-            Loading…
+            {t("scheduler.loading")}
           </div>
         ) : null}
         {props.jobs.map((j) => {
@@ -140,7 +142,7 @@ export function SchedulerJobsDrawer(props: {
                     {j.job_id}
                   </div>
                   {j.paused ? (
-                    <span className="scheduler-job-paused">paused</span>
+                    <span className="scheduler-job-paused">{t("scheduler.paused")}</span>
                   ) : (
                     <span
                       className="scheduler-job-row-next"
@@ -162,7 +164,7 @@ export function SchedulerJobsDrawer(props: {
                       : undefined
                   }
                 >
-                  {(j.description || "").trim() || "—"}
+                  {(j.description || "").trim() || t("scheduler.noDescription")}
                 </div>
               </div>
             </a>
@@ -171,7 +173,7 @@ export function SchedulerJobsDrawer(props: {
                 <button
                   type="button"
                   className="composer-icon composer-run-icon composer-send-stop scheduler-job-run-icon composer-run-icon--stop"
-                  aria-label="Stop job"
+                  aria-label={t("scheduler.stopJob")}
                   data-testid={`scheduler-stop-${j.job_id}`}
                   onClick={(ev) => {
                     ev.stopPropagation();
@@ -186,7 +188,7 @@ export function SchedulerJobsDrawer(props: {
                 <button
                   type="button"
                   className="composer-icon composer-run-icon composer-send-play scheduler-job-run-icon composer-run-icon--play"
-                  aria-label="Run job now"
+                  aria-label={t("scheduler.runJobNow")}
                   disabled={j.paused}
                   data-testid={`scheduler-run-${j.job_id}`}
                   onClick={(ev) => {
@@ -212,8 +214,8 @@ export function SchedulerJobsDrawer(props: {
           type="button"
           className="scheduler-btn scheduler-btn-primary scheduler-btn-icon-only"
           data-testid="scheduler-add-job"
-          title="Add job"
-          aria-label="Add job"
+          title={t("scheduler.addJob")}
+          aria-label={t("scheduler.addJob")}
           onClick={props.onAddJob}
         >
           <SchedulerIconPlus />

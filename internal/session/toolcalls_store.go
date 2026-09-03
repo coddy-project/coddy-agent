@@ -7,18 +7,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 const toolCallMetaVersion = 1
 
 type ToolCallMeta struct {
-	Version    int    `json:"version"`
-	ToolCallID string `json:"toolCallId"`
-	Name       string `json:"name,omitempty"`
-	Kind       string `json:"kind,omitempty"`
-	Status     string `json:"status,omitempty"`
-	StartedAt  string `json:"startedAt,omitempty"`
-	FinishedAt string `json:"finishedAt,omitempty"`
+	Version      int             `json:"version"`
+	ToolCallID   string          `json:"toolCallId"`
+	Name         string          `json:"name,omitempty"`
+	Kind         string          `json:"kind,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	StartedAt    string          `json:"startedAt,omitempty"`
+	FinishedAt   string          `json:"finishedAt,omitempty"`
+	PlanSnapshot []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
 func toolCallDir(sessionDir, toolCallID string) (string, error) {
@@ -75,6 +78,17 @@ func WriteToolCallMeta(sessionDir, toolCallID string, meta ToolCallMeta) error {
 		meta.ToolCallID = strings.TrimSpace(toolCallID)
 	}
 	return writeJSONAtomic(filepath.Join(dir, "meta.json"), meta)
+}
+
+// WriteToolCallPlanSnapshot stores the final todo state that a mutating tool call produced.
+// It lets historical tool cards render their original rows after later plan mutations.
+func WriteToolCallPlanSnapshot(sessionDir, toolCallID string, entries []acp.PlanEntry) error {
+	meta, err := ReadToolCallMeta(sessionDir, toolCallID)
+	if err != nil {
+		return err
+	}
+	meta.PlanSnapshot = append([]acp.PlanEntry(nil), entries...)
+	return WriteToolCallMeta(sessionDir, toolCallID, *meta)
 }
 
 func ReadToolCallMeta(sessionDir, toolCallID string) (*ToolCallMeta, error) {

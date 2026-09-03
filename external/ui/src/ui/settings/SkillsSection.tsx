@@ -7,6 +7,7 @@ import {
 } from "./SchemaForm";
 import { Switch } from "./Switch";
 import { filterInstallableMatches } from "./installableMatches";
+import { schemaFieldDesc } from "./schemaI18n";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -496,11 +497,15 @@ export function SkillsSection(props: {
 
   const autoDiscoveryOn = value.auto_discovery !== false;
   const autoDiscoveryDesc =
-    (
-      schema.properties?.["auto_discovery"] as
-        | { description?: string }
-        | undefined
-    )?.description ?? translate("skills.autoDiscovery.fallbackDesc");
+    schemaFieldDesc(
+      "skills",
+      "auto_discovery",
+      (
+        schema.properties?.["auto_discovery"] as
+          | { description?: string }
+          | undefined
+      )?.description,
+    ) ?? translate("skills.autoDiscovery.fallbackDesc");
 
   return (
     <div className="settings-skills-section">
@@ -527,6 +532,7 @@ export function SkillsSection(props: {
         value={value}
         onChange={onChange}
         fieldOverride={fieldOverride}
+        i18nDomain="skills"
       />
 
       <fieldset className="settings-fieldset skills-installed-box">

@@ -74,6 +74,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `coddy providers login <name>` (`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
+| `timeout_ms` | int | no | `0` | — | Bound on each LLM HTTP request to this provider, including the streamed body read. `0` sets no client timeout, so slow prompt processing on large contexts is never cut short; the turn context stays the only bound. A client timeout is not retried. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -162,9 +163,10 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `model` | string | required when `models` is non-empty | — | Default `models[].model` id until the client overrides per session. |
 | `max_turns` | int | no | `30` | Max LLM calls per prompt turn. |
 | `max_tokens_per_turn` | int | no | `200000` | Max tokens across all calls in one turn. |
-| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
-| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
-| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). An explicit `0` disables retries. |
+| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
+| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
+| `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
 | `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
 | `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
 | `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |

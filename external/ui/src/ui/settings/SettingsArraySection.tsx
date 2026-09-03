@@ -6,6 +6,7 @@ import {
   type FieldOverride,
   type JsonSchema,
 } from "./SchemaForm";
+import { schemaFieldDesc } from "./schemaI18n";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -48,8 +49,11 @@ export function SettingsArraySection(props: {
   /** When true (desktop), the item form's back button shows the item's name
    * (provider / model) instead of the generic "Back to list". */
   backLabelUsesItemName?: boolean | undefined;
+  /** Settings section id ("providers", "models") selecting the dictionary domain. */
+  i18nDomain?: string | undefined;
 }) {
-  const { schema, value, onChange, labelField, fieldOverride } = props;
+  const { schema, value, onChange, labelField, fieldOverride, i18nDomain } =
+    props;
   const { t } = useT();
   const [view, setView] = useState<View>({ mode: "list" });
   const itemSchema = schema.items;
@@ -90,6 +94,7 @@ export function SettingsArraySection(props: {
           schema={itemSchema}
           value={item}
           fieldOverride={fieldOverride}
+          i18nDomain={i18nDomain}
           onChange={(nv) => {
             const next = [...arr];
             next[index] = nv;
@@ -100,10 +105,11 @@ export function SettingsArraySection(props: {
     );
   }
 
+  const masterDesc = schemaFieldDesc(i18nDomain, "", schema.description);
   return (
     <div className="settings-master">
-      {schema.description ? (
-        <p className="settings-field-desc">{schema.description}</p>
+      {masterDesc ? (
+        <p className="settings-field-desc">{masterDesc}</p>
       ) : null}
       {arr.length === 0 ? (
         <p className="settings-muted">{t("settings.array.empty")}</p>

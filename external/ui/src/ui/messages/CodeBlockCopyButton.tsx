@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 
 async function copyTextToClipboard(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
@@ -9,6 +10,7 @@ export function CodeBlockCopyButton(props: {
   textToCopy: string;
   dataTestId?: string;
 }) {
+  const { t } = useT();
   const [copied, setCopied] = useState(false);
 
   const onCopy = useCallback(async () => {
@@ -48,9 +50,9 @@ export function CodeBlockCopyButton(props: {
       data-testid={props.dataTestId}
       disabled={disabled}
       onClick={() => void onCopy()}
-      aria-label="Copy code"
+      aria-label={t("messages.copyCode")}
     >
-      {copied ? "Copied" : "Copy"}
+      {copied ? t("messages.copied") : t("messages.copy")}
     </button>
   );
 }

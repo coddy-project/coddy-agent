@@ -1,3 +1,4 @@
+import { t } from "../i18n/i18n";
 import type { BackgroundTask, BackgroundTaskStatus } from "./types";
 
 /**
@@ -30,19 +31,19 @@ export function taskTone(status: BackgroundTaskStatus): TaskTone {
 export function taskStatusLabel(status: BackgroundTaskStatus): string {
   switch (status) {
     case "queued":
-      return "Queued";
+      return t("tasks.status.queued");
     case "running":
-      return "Running";
+      return t("tasks.status.running");
     case "succeeded":
-      return "Succeeded";
+      return t("tasks.status.succeeded");
     case "failed":
-      return "Failed";
+      return t("tasks.status.failed");
     case "timed_out":
-      return "Timed out";
+      return t("tasks.status.timedOut");
     case "stopped":
-      return "Stopped";
+      return t("tasks.status.stopped");
     case "orphaned":
-      return "Orphaned";
+      return t("tasks.status.orphaned");
     default:
       return status;
   }
@@ -104,13 +105,13 @@ export function estimateProgress(
 export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   const parts = [formatDuration(displayElapsedSeconds(task, nowMs))];
   if (task.expected_seconds && task.expected_seconds > 0) {
-    parts.push(`est. ${formatDuration(task.expected_seconds)}`);
+    parts.push(t("tasks.estimate", { value: formatDuration(task.expected_seconds) }));
   }
   if (!task.running && typeof task.exit_code === "number") {
-    parts.push(`exit ${task.exit_code}`);
+    parts.push(t("tasks.exitCode", { code: task.exit_code }));
   }
   if (isOverdue(task, nowMs)) {
-    parts.push("overdue");
+    parts.push(t("tasks.overdue"));
   }
   return parts.join(" · ");
 }
