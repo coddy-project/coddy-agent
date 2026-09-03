@@ -49,7 +49,10 @@ export function ReasoningLevelsField(props: {
 
   const options = KNOWN_LEVELS.map((v) => ({ value: v }));
 
-  const setLevels = (next: string[]) => {
+  // A manual edit is the operator's newest intent: it abandons any fetch still
+  // in flight so a late answer cannot replace what they just typed or removed.
+  const editLevels = (next: string[]) => {
+    reset();
     onChange(next);
   };
 
@@ -91,7 +94,7 @@ export function ReasoningLevelsField(props: {
               // [] would read as the explicit opt-out, so leave the field alone
               // and let the status line explain.
               if (next && next.length > 0) {
-                setLevels(next);
+                onChange(next);
               }
             });
           }}
@@ -130,7 +133,7 @@ export function ReasoningLevelsField(props: {
                   onChange={(v) => {
                     const next = [...explicit];
                     next[i] = v;
-                    setLevels(next);
+                    editLevels(next);
                   }}
                   options={options}
                   ariaLabel={`${label} ${i + 1}`}
@@ -143,7 +146,7 @@ export function ReasoningLevelsField(props: {
                 aria-label={t("settings.array.removeAria")}
                 title={t("settings.array.removeTitle")}
                 data-testid={`reasoning-levels-remove-${i}`}
-                onClick={() => setLevels(explicit.filter((_, j) => j !== i))}
+                onClick={() => editLevels(explicit.filter((_, j) => j !== i))}
               >
                 <IconTrash />
               </button>
@@ -156,7 +159,7 @@ export function ReasoningLevelsField(props: {
         type="button"
         className="settings-btn"
         data-testid="reasoning-levels-add"
-        onClick={() => setLevels([...(explicit ?? []), ""])}
+        onClick={() => editLevels([...(explicit ?? []), ""])}
       >
         {t("settings.array.add")}
       </button>

@@ -286,3 +286,47 @@ test("the provider type chosen in the form travels with the request", async () =
     "/coddy/config/reasoning-levels?model=valera%2Fqwen3.8-27b&provider_type=codex",
   );
 });
+
+test("a level edited by hand while a fetch is pending is not overwritten by the answer", async () => {
+  const settle = deferredFetch({
+    ok: true,
+    levels: ["low", "medium", "high"],
+    detected: true,
+  });
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+  // The operator does not wait for the answer and starts a list by hand.
+  fireEvent.click(screen.getByTestId("reasoning-levels-add"));
+  expect(savedModel()["reasoning_levels"]).toEqual([""]);
+
+  settle();
+  await new Promise((r) => setTimeout(r, 0));
+
+  // The manual edit is the newer intent; the late answer must not replace it.
+  expect(savedModel()["reasoning_levels"]).toEqual([""]);
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toContain(
+    "These exact levels",
+  );
+});
+
+test("removing the last level while a fetch is pending keeps the opt-out", async () => {
+  const settle = deferredFetch({
+    ok: true,
+    levels: ["low", "medium", "high"],
+    detected: true,
+  });
+
+  render(<Harness initial={["low"]} />);
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+  fireEvent.click(screen.getByTestId("reasoning-levels-remove-0"));
+  expect(savedModel()["reasoning_levels"]).toEqual([]);
+
+  settle();
+  await new Promise((r) => setTimeout(r, 0));
+
+  expect(savedModel()["reasoning_levels"]).toEqual([]);
+  expect(screen.getByTestId("reasoning-levels-status").textContent).toContain(
+    "selector is hidden",
+  );
+});
