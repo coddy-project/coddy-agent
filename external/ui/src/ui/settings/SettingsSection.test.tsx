@@ -495,6 +495,59 @@ test("a fetch that answers after the model row was removed does not bring it bac
   expect(savedModels()).toEqual([]);
 });
 
+test("a fetch that answers after a sibling field changed keeps that change", async () => {
+  let settle: () => void = () => {};
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.startsWith("/coddy/config/reasoning-levels")) {
+      await new Promise<void>((r) => {
+        settle = r;
+      });
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          levels: ["low", "medium", "high"],
+          detected: true,
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ ok: true, models: [{ id: "qwen3.8-27b" }] }),
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+
+  // While the request is in flight the operator turns streaming off.
+  fireEvent.click(screen.getByRole("switch", { name: /Stream responses/ }));
+  expect(savedModels()).toEqual([
+    { model: "valera/qwen3.8-27b", stream: false },
+  ]);
+
+  settle();
+  await waitFor(() =>
+    expect(
+      (savedModels() as Array<Record<string, unknown>>)[0]?.[
+        "reasoning_levels"
+      ],
+    ).toEqual(["low", "medium", "high"]),
+  );
+  // The answer must land on the entry as it is now, not on the snapshot the
+  // form held when Fetch was pressed - that snapshot still has stream: true.
+  expect(savedModels()).toEqual([
+    {
+      model: "valera/qwen3.8-27b",
+      stream: false,
+      reasoning_levels: ["low", "medium", "high"],
+    },
+  ]);
+});
+
 test("a model id with no reasoning family is left without an override", async () => {
   stubModelsAndLevels([]);
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Combobox } from "./Combobox";
 import { IconTrash } from "./SchemaForm";
 import { useReasoningLevels } from "./useReasoningLevels";
@@ -47,6 +47,16 @@ export function ReasoningLevelsField(props: {
     reset();
   }, [modelId, reset]);
 
+  // The form hands this field a fresh onChange on every render, closed over the
+  // model entry as it was at that render. A fetch resolves later, so it must
+  // write through the newest callback, or the answer would carry a sibling
+  // field (stream, max_tokens, ...) back to the value it had when Fetch was
+  // pressed.
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  });
+
   const options = KNOWN_LEVELS.map((v) => ({ value: v }));
 
   // A manual edit is the operator's newest intent: it abandons any fetch still
@@ -94,7 +104,7 @@ export function ReasoningLevelsField(props: {
               // [] would read as the explicit opt-out, so leave the field alone
               // and let the status line explain.
               if (next && next.length > 0) {
-                onChange(next);
+                onChangeRef.current(next);
               }
             });
           }}
