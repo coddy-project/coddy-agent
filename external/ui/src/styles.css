@@ -1730,6 +1730,19 @@ a.rail-brand {
 .messages-inner > .msg-system-stack {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
+  /* Paint containment clips at the padding edge. Focus rings on controls at
+     the row edge (2px outline + 2px offset on the copy buttons, the
+     edge-to-edge <summary> ring) need room inside the box: pad the row and
+     pull it back with a matching negative margin so nothing moves. */
+  padding: 4px;
+  margin: -4px;
+  /* Rows size as border-box, so widen by the padding to keep the content
+     width (and therefore line wrapping) exactly as without containment. */
+  width: calc(100% + 8px);
+}
+
+.messages-inner > .thinking-row {
+  max-width: calc(720px + 8px);
 }
 
 .chat-scroll-tail {

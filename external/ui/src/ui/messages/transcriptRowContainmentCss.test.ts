@@ -43,6 +43,18 @@ test("off-screen row containment opts in per row type", () => {
   expect(blocks[0]!.body).toMatch(/contain-intrinsic-size:\s*auto\s+\d+px/);
 });
 
+test("contained rows keep room for focus rings without moving content", () => {
+  // Paint containment clips at the padding edge, so edge controls need
+  // padding for their focus rings; the negative margin and the widened
+  // border-box keep content position and line wrapping unchanged.
+  const block = containmentBlocks(cssText()).find((b) =>
+    b.selector.includes(".messages-inner"),
+  );
+  expect(block?.body).toMatch(/padding:\s*4px/);
+  expect(block?.body).toMatch(/margin:\s*-4px/);
+  expect(block?.body).toMatch(/width:\s*calc\(100% \+ 8px\)/);
+});
+
 test("rows that paint outside their own box are never contained", () => {
   // Paint containment clips the user-row hover edit button (left: -32px) and
   // the permission / question / plan card shadows, so the rule must not match

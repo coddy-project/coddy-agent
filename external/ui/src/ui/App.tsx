@@ -2043,7 +2043,6 @@ export function App() {
       setItems([]);
       return null;
     }
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2060,15 +2059,19 @@ export function App() {
     }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
+    // Re-read the viewed session after the await: the viewer may have moved
+    // on while the request was in flight, and a stale response must neither
+    // clear the new session's rows nor merge them into this session's shadow.
+    const viewingNow = viewedSessionIdRef.current.trim();
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid) {
+        if (viewingNow === sid) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid) {
+    if (viewingNow === sid) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
@@ -2346,7 +2349,7 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingTrim === sid
+        : viewingNow === sid
           ? itemsRef.current
           : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
@@ -2370,7 +2373,7 @@ export function App() {
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
-        viewingSid: viewingTrim,
+        viewingSid: viewingNow,
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
@@ -3065,6 +3068,9 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // The session is no longer pinned; bound the cache now rather than
+      // only after the reconciliation below succeeds.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
       const viewing = viewedSessionIdRef.current.trim();
       void loadMessages(key, { skipSetItems: viewing !== key });

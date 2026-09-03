@@ -90,8 +90,9 @@ export class ShadowTranscriptCache<T> {
 
   /**
    * Moves the entry stored under `from` to `to` (a draft session id becoming
-   * the server-issued one), keeping its LRU position. A missing source leaves
-   * the cache untouched.
+   * the server-issued one) and marks it most recently used, since the rename
+   * happens on the session that is streaming right now. A missing source
+   * leaves the cache untouched.
    */
   rename(from: string, to: string): void {
     const src = from.trim();
