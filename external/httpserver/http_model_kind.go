@@ -14,8 +14,8 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 	if cfg == nil {
 		return false
 	}
-	switch sel {
-	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeAsk):
+	switch {
+	case session.IsValidMode(sel):
 		return true
 	default:
 		_, _, err := config.SplitModelRef(sel)
@@ -26,12 +26,8 @@ func httpModelListed(cfg *config.Config, sel string) bool {
 	}
 }
 
-// httpModelIsCoddyProfile reports whether sel is agent, plan, or ask (no provider/rest form).
+// httpModelIsCoddyProfile reports whether sel names a session mode (agent, plan,
+// ask) rather than a provider/model backend selector.
 func httpModelIsCoddyProfile(sel string) bool {
-	switch sel {
-	case string(session.ModeAgent), string(session.ModePlan), string(session.ModeAsk):
-		return true
-	default:
-		return false
-	}
+	return session.IsValidMode(sel)
 }

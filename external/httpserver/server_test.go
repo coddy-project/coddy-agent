@@ -3127,3 +3127,35 @@ mcp_servers:
 		t.Errorf("list does not report the new policy: %s", b)
 	}
 }
+
+// The ask pseudo-model runs the session as an ask turn, the same way agent and
+// plan select their profile.
+func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
+	var seenMode string
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		seenMode = st.GetMode()
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ask reply"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json",
+		strings.NewReader(`{"model":"ask","input":"hi","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	if seenMode != string(session.ModeAsk) {
+		t.Fatalf("runner saw mode %q, want ask", seenMode)
+	}
+	if !strings.Contains(string(body), `"model":"ask"`) {
+		t.Fatalf("response does not echo the ask profile: %s", body)
+	}
+}

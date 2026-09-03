@@ -856,18 +856,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// call replayed from history can still name a hidden tool; refuse it here so
 	// the mode boundary holds at execution time too.
 	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
-		if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
-			_ = session.WriteToolCallResult(sessionDir, tc.ID, refusal)
-			_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
-		}
-		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-			SessionUpdate: acp.UpdateTypeToolCallUpdate,
-			ToolCallID:    tc.ID,
-			Status:        "cancelled",
-			Content: []acp.ToolCallResultItem{
-				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: refusal}},
-			},
-		})
+		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
 		return refusal, nil
 	}
 
@@ -990,8 +979,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if execErr != nil {
 		status = "failed"
 	}
+	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
+	return result, execErr
+}
 
-	todoPlanSnapshot := todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+// finishToolCall persists the outcome of one tool call and publishes the final
+// tool_call_update: the normal completed/failed path and the mode refusal
+// (status cancelled, result carrying the refusal text) share it so the
+// transcript, the tool_calls store, and the preview stay consistent.
+func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
+	var todoPlanSnapshot []acp.PlanEntry
+	if status == "completed" {
+		todoPlanSnapshot = todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+	}
 
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
@@ -1037,8 +1037,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		Content:       content,
 		Meta:          previewMeta,
 	})
-
-	return result, execErr
 }
 
 func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {

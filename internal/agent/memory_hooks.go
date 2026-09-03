@@ -83,6 +83,8 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText string) {
 	)
 
 	opts := &memory.RunBeforeTurnOptions{
+		// Ask mode must not change stored memory either; recall still runs.
+		ReadOnly: a.state.GetMode() == string(session.ModeAsk),
 		OnPhaseStart: func() {
 			a.sendMemoryPhase(rowID, "memory", "started", turn, 0, nil, nil)
 		},

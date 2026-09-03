@@ -338,6 +338,9 @@ export const messagesRu: Record<string, string> = {
     "Файл промпта планирования",
   "settings.schema.system.prompts.plan_prompt.desc":
     "Имя файла системного промпта режима планирования.",
+  "settings.schema.system.prompts.ask_prompt.label": "Файл промпта вопросов",
+  "settings.schema.system.prompts.ask_prompt.desc":
+    "Имя файла системного промпта режима вопросов.",
   "settings.schema.system.instructions.label": "Инструкции",
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":

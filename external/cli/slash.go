@@ -10,6 +10,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // dispatchSlash intercepts client-side slash commands. Returns true when the
@@ -31,7 +32,7 @@ func (a *App) dispatchSlash(text string) bool {
 		a.openModelSelector()
 		return true
 	case "mode":
-		if len(fields) > 1 && (fields[1] == "agent" || fields[1] == "plan" || fields[1] == "ask") {
+		if len(fields) > 1 && session.IsValidMode(fields[1]) {
 			a.applyMode(fields[1])
 			return true
 		}

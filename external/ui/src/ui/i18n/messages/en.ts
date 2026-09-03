@@ -334,6 +334,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.prompts.plan_prompt.label": "Plan prompt file",
   "settings.schema.system.prompts.plan_prompt.desc":
     "Filename for plan-mode system prompt.",
+  "settings.schema.system.prompts.ask_prompt.label": "Ask prompt file",
+  "settings.schema.system.prompts.ask_prompt.desc":
+    "Filename for ask-mode system prompt.",
   "settings.schema.system.instructions.label": "Instructions",
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":

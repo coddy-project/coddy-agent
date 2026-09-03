@@ -230,7 +230,8 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 ### `ask` mode
 - Read-only research surface enforced by **`internal/agent.ToolSetForMode("ask")`**
 - **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`** — no shell, no plan or todo tools, no config tools, and no MCP tools
-- Unlike **plan**, the allowlist is also enforced at execution time: a tool call outside the set (for example replayed from history) is refused with a read-only notice instead of being executed
+- Unlike **plan**, the allowlist is also enforced at execution time: a tool call outside the set (for example replayed from history) is refused with a read-only notice instead of being executed; approving such a pending call with **allow always** records no grant either
+- A **`@plans/<slug>.plan.md`** mention or **`runPlanSlug`** metadata never starts a plan run in ask mode (the mention is inlined as reading material, the metadata shortcut is refused), and the memory copilot runs recall-only (no memory writes)
 - Suitable for: questions about the codebase, code review and diagnosis, and web research without any mutation surface
 
 Mode switching:

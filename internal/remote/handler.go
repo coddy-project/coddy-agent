@@ -294,7 +294,7 @@ func (h *Handler) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 // HandleSessionSetMode switches the agent/plan profile used for the next
 // prompt. The mode lives client-side: the HTTP surface selects it per turn.
 func (h *Handler) HandleSessionSetMode(_ context.Context, params acp.SessionSetModeParams) error {
-	if params.ModeID != "agent" && params.ModeID != "plan" && params.ModeID != "ask" {
+	if !session.IsValidMode(params.ModeID) {
 		return fmt.Errorf("unknown mode: %s", params.ModeID)
 	}
 	st := h.session(params.SessionID)

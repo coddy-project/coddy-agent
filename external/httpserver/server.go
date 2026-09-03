@@ -694,7 +694,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.Attachments) > 0 && !httpModelIsCoddyProfile(model) {
-		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, or ask model"}}`, http.StatusBadRequest)
 		return
 	}
 	inlineFiles := body.InlineFiles

@@ -222,6 +222,14 @@ type PickerFloatRect = {
   maxH: number;
 };
 
+// Outline treatment per session mode (styles.css .composer-tab.mode-*); anything
+// unknown falls back to the agent look.
+const MODE_TAB_CLASS: Record<string, string> = {
+  agent: "mode-agent",
+  plan: "mode-plan",
+  ask: "mode-ask",
+};
+
 export function Composer(props: {
   value: string;
   isEmpty: boolean;
@@ -1926,7 +1934,7 @@ export function Composer(props: {
               <div className="mode">
                 <button
                   type="button"
-                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : props.mode === "ask" ? "mode-ask" : "mode-agent"}`}
+                  className={`composer-tab mode-btn ${MODE_TAB_CLASS[props.mode || "agent"] ?? "mode-agent"}`}
                   aria-label={t("composer.mode")}
                   title={t("composer.mode")}
                   aria-haspopup="menu"

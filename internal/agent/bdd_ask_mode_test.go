@@ -25,6 +25,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
+// bddAskReadOnlyTools is spelled out rather than derived from ToolSetForMode so
+// the spec still catches a mutating tool slipping into the allowlist itself.
+var bddAskReadOnlyTools = map[string]bool{
+	"read": true, "keep_result": true, "glob": true, "grep": true, "print_tree": true,
+	"websearch": true, "webfetch": true, "question": true, "load_skill": true,
+}
+
 const (
 	bddAskAnswer     = "The repository runs a ReAct loop; nothing was changed."
 	bddAskHiddenCall = "call_hidden"
@@ -188,7 +195,6 @@ func (s *askModeFeatureState) everyOfferedToolIsReadOnly() error {
 	if len(s.provider.offered) == 0 {
 		return fmt.Errorf("the model was never called")
 	}
-	allowed := ToolSetForMode("ask")
 	defs := s.provider.offered[0]
 	if len(defs) == 0 {
 		return fmt.Errorf("ask mode offered no tools at all; expected the read-only set")
@@ -196,8 +202,8 @@ func (s *askModeFeatureState) everyOfferedToolIsReadOnly() error {
 	names := make(map[string]bool, len(defs))
 	for _, d := range defs {
 		names[d.Name] = true
-		if !allowed.Allows(d.Name) {
-			return fmt.Errorf("tool %q offered in ask mode is outside the read-only allowlist", d.Name)
+		if !bddAskReadOnlyTools[d.Name] {
+			return fmt.Errorf("tool %q offered in ask mode is not a read-only tool", d.Name)
 		}
 	}
 	for _, want := range []string{"read", "glob", "grep", "print_tree"} {

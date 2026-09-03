@@ -1521,3 +1521,66 @@ func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
 		}
 	}
 }
+
+// A pending agent-mode call approved after the session switched to ask must be
+// refused, and an "allow always" answer must not leave a grant behind for the
+// call that never ran.
+func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_ask",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAsk,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run it"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_ask_hidden",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
+		Outcome:  "allow",
+		OptionID: "allow_always",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason %q", stop)
+	}
+	var toolMsg *llm.Message
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_ask_hidden" {
+			mm := m
+			toolMsg = &mm
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("missing tool result for the refused call")
+	}
+	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
+		t.Fatalf("the approved call executed in ask mode: %q", toolMsg.Content)
+	}
+	if !strings.Contains(toolMsg.Content, "not available in Ask mode") {
+		t.Fatalf("tool result is not the ask-mode refusal: %q", toolMsg.Content)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
+	}
+}

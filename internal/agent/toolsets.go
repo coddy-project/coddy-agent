@@ -75,6 +75,9 @@ func ToolSetForMode(mode string) ToolSet {
 	return out
 }
 
+// askToolSet is the ask allowlist as a ToolSet, built once for the per-call check.
+var askToolSet = ToolSet(askToolNames)
+
 // toolCallRefusedByMode reports whether a tool call must be refused at execution
 // time in the given mode, with the refusal text returned as the tool result.
 // Definition filtering already hides restricted tools from the LLM, but a model
@@ -85,7 +88,7 @@ func toolCallRefusedByMode(mode, name string) (string, bool) {
 	if mode != "ask" {
 		return "", false
 	}
-	if ToolSetForMode(mode).Allows(name) {
+	if askToolSet.Allows(name) {
 		return "", false
 	}
 	return fmt.Sprintf("error: tool %q is not available in Ask mode because it is not read-only", name), true
