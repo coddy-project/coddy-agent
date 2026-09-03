@@ -101,6 +101,21 @@ export const messagesRu: Record<string, string> = {
     "Не удалось получить модели: {error}. Введите идентификатор модели вручную ниже.",
   "settings.field.noModels":
     "Модели не возвращены. Введите идентификатор модели вручную ниже.",
+  "settings.reasoning.levelsFallback": "Уровни рассуждений",
+  "settings.reasoning.fetch": "Получить уровни ризонинга",
+  "settings.reasoning.fetching": "Получение уровней ризонинга…",
+  "settings.reasoning.useAuto": "Использовать автоопределение",
+  "settings.reasoning.autoDetected":
+    "Определяются автоматически по идентификатору модели. Нажмите «Получить уровни ризонинга», чтобы посмотреть или переопределить их.",
+  "settings.reasoning.overridden":
+    "Для этой модели предлагаются именно эти уровни вместо автоопределённых.",
+  "settings.reasoning.hidden":
+    "Пустой список: селектор рассуждений скрыт для этой модели. Нажмите «Использовать автоопределение», чтобы вернуть как было.",
+  "settings.reasoning.noneDetected":
+    "Для этого идентификатора уровни не определяются. Добавьте вручную, если провайдер их поддерживает.",
+  "settings.reasoning.fetchError":
+    "Не удалось получить уровни ризонинга: {error}. Добавьте их вручную ниже.",
+
   "settings.field.apiKeyPlaceholder":
     "Если пусто, читается из {env} во время выполнения, либо укажите ключ явно (в YAML можно использовать {varToken} при загрузке)",
   "settings.field.apiKeyPlaceholderInvalid":

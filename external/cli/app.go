@@ -753,10 +753,13 @@ func (a *App) cycleModel(dir int) {
 
 func (a *App) cycleReasoning() {
 	entry := a.cfg.FindModelEntry(a.modelID)
-	if entry == nil || len(entry.ReasoningLevels) == 0 {
+	// Cycle the levels the model actually offers, not just a configured override:
+	// ReasoningLevelsFor is the same resolved, provider-aware list the composer and
+	// GET /v1/models expose, so shift+tab works for auto-detected reasoning models too.
+	levels := a.cfg.ReasoningLevelsFor(entry)
+	if entry == nil || len(levels) == 0 {
 		return
 	}
-	levels := entry.ReasoningLevels
 	cur := -1
 	for i, l := range levels {
 		if l == a.reasoning {

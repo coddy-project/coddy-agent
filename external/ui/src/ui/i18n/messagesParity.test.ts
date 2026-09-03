@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { pluralCategories } from "./i18n";
 import { UI_LOCALES, UI_LOCALE_DEFAULT, UI_LOCALE_IDS } from "./locales";
+import { messagesEn } from "./messages/en";
+import { messagesRu } from "./messages/ru";
 
 const CLDR_CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
 
@@ -87,4 +89,19 @@ test("every interpolation token used in the default locale exists everywhere", (
       );
     }
   }
+});
+
+test("Russian reasoning actions use the requested explicit labels", () => {
+  expect(messagesRu["settings.reasoning.useAuto"]).toBe(
+    "Использовать автоопределение",
+  );
+  expect(messagesRu["settings.reasoning.fetch"]).toBe(
+    "Получить уровни ризонинга",
+  );
+});
+
+test("English reasoning fetch action uses sentence case", () => {
+  expect(messagesEn["settings.reasoning.fetch"]).toBe(
+    "Fetch reasoning levels",
+  );
 });

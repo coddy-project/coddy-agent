@@ -4,7 +4,13 @@ import { CodexAuthField } from "./CodexAuthField";
 import { NeuralDeepAuthField } from "./NeuralDeepAuthField";
 import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
-import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
+import { ReasoningLevelsField } from "./ReasoningLevelsField";
+import {
+  defaultForSchema,
+  SchemaForm,
+  type FieldOverride,
+  type JsonSchema,
+} from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
 import {
   schemaFieldDesc,
@@ -189,6 +195,21 @@ export function SettingsSection(props: {
   const props_ = schema.properties ?? {};
 
   const providerNames = stringList(doc.providers, "name");
+  // The provider row the model id points at, as it stands in the (unsaved)
+  // form: its type decides the Codex reasoning remap server-side, so it must
+  // come from the document being edited rather than from the config on disk.
+  const providerTypeFor = (modelId: string): string | undefined => {
+    const slash = modelId.indexOf("/");
+    if (slash <= 0) {
+      return undefined;
+    }
+    const name = modelId.slice(0, slash);
+    const row = asArray(doc["providers"]).find(
+      (p) => asObject(p)["name"] === name,
+    );
+    const type = row === undefined ? "" : String(asObject(row)["type"] ?? "");
+    return type.trim() || undefined;
+  };
   const modelIds = stringList(doc.models, "model");
 
   const setKey = (key: string, value: unknown) =>
@@ -236,22 +257,57 @@ export function SettingsSection(props: {
     }
     const override: FieldOverride | undefined =
       key === "models"
-        ? (ctx) =>
-            ctx.path === "model" ? (
-              <ModelField
-                value={
-                  ctx.value === undefined || ctx.value === null
-                    ? ""
-                    : String(ctx.value)
-                }
-                onChange={(v) => ctx.onChange(v)}
-                providers={providerNames}
-                label={
-                  schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
-                  t("settings.field.modelIdFallback")
-                }
-              />
-            ) : null
+        ? (ctx) => {
+            if (ctx.path === "model") {
+              return (
+                <ModelField
+                  value={
+                    ctx.value === undefined || ctx.value === null
+                      ? ""
+                      : String(ctx.value)
+                  }
+                  onChange={(v) => ctx.onChange(v)}
+                  providers={providerNames}
+                  label={
+                    schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                    t("settings.field.modelIdFallback")
+                  }
+                />
+              );
+            }
+            // The generic array editor cannot express "key absent" (auto-detect)
+            // and cannot tell it apart from an explicit [] that hides the
+            // reasoning selector, so this field owns all three states.
+            if (ctx.path === "reasoning_levels") {
+              const modelId =
+                ctx.parentObj?.["model"] === undefined ||
+                ctx.parentObj?.["model"] === null
+                  ? ""
+                  : String(ctx.parentObj["model"]);
+              return (
+                <ReasoningLevelsField
+                  value={ctx.value}
+                  onChange={(v) => ctx.onChange(v)}
+                  model={modelId}
+                  providerType={providerTypeFor(modelId)}
+                  label={
+                    schemaFieldLabel(
+                      key,
+                      "reasoning_levels",
+                      ctx.schema.title,
+                      "reasoning_levels",
+                    ) || t("settings.reasoning.levelsFallback")
+                  }
+                  description={schemaFieldDesc(
+                    key,
+                    "reasoning_levels",
+                    ctx.schema.description,
+                  )}
+                />
+              );
+            }
+            return null;
+          }
         : key === "providers"
           ? providerFieldOverride
           : undefined;
@@ -262,6 +318,25 @@ export function SettingsSection(props: {
       key === "models"
         ? (v: unknown[]) => setDoc(applyModelsChange(doc, v))
         : (v: unknown[]) => setKey(key, v);
+    const newItem =
+      key === "models"
+        ? () => {
+            const seed = defaultForSchema(sub.items ?? {});
+            if (
+              seed === null ||
+              typeof seed !== "object" ||
+              Array.isArray(seed)
+            ) {
+              return seed;
+            }
+            // Empty reasoning_levels explicitly disables server-side detection.
+            // A freshly added logical model has no such user choice yet, so omit
+            // the optional override and let the backend resolve the model family.
+            const { reasoning_levels: _reasoningLevels, ...model } =
+              seed as Record<string, unknown>;
+            return model;
+          }
+        : undefined;
     return (
       <SettingsArraySection
         schema={sub}
@@ -269,6 +344,7 @@ export function SettingsSection(props: {
         onChange={onArrayChange}
         labelField={section.labelField}
         fieldOverride={override}
+        newItem={newItem}
         backLabelUsesItemName={!props.isMobileShell}
         i18nDomain={section.id}
       />

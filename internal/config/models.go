@@ -17,9 +17,13 @@ type ModelEntry struct {
 	// When true the UI may offer file attachment for messages sent with this model.
 	Multimodal bool `yaml:"multimodal"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
-	// When nil the levels are auto-detected from the API model id (see ResolvedReasoningLevels).
-	// An explicit empty list disables the reasoning selector even for a reasoning-capable model.
-	ReasoningLevels []string `yaml:"reasoning_levels"`
+	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
+	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning
+	// selector even for a reasoning-capable model. The pointer keeps those two apart
+	// through a settings round trip: a plain slice with "omitempty" would erase the
+	// explicit opt-out, and one without would write "reasoning_levels: []" for every
+	// auto-detected model and silently turn detection off on the next load.
+	ReasoningLevels *[]string `yaml:"reasoning_levels,omitempty"`
 	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
