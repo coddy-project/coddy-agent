@@ -224,6 +224,17 @@ tools:
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
 
+# Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
+# from markdown definitions; each run is a background task with its own child session. See docs/subagents.md.
+# subagents:
+#   enabled: true
+#   dirs: ["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   max_concurrent: 4             # subagent runs in flight across the whole process
+#   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
+#   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
+#   max_turns: 0                  # 0 follows agent.max_turns
+
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"

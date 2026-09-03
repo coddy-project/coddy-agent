@@ -76,6 +76,15 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			CopilotMaxTokens: 4096,
 			MaxSearchHits:    8,
 		},
+		Subagents: SubagentsJSON{
+			Enabled:               boolPtr(true),
+			Dirs:                  DefaultSubagentDirs(),
+			ProjectTrust:          SubagentsProjectTrustAsk,
+			MaxConcurrent:         SubagentsDefaultMaxConcurrent,
+			MaxDepth:              intPtr(SubagentsDefaultMaxDepth),
+			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
+			MaxTurns:              0,
+		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
 			Dir:            "${CODDY_HOME}/scheduler",

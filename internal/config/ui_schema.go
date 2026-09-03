@@ -436,6 +436,33 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"permission_mode", "command_allowlist", "output_limits", "background"},
 			nil),
+		"subagents": objectSchema("Subagents",
+			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+				},
+				"dirs": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition directories",
+					"description": "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project definitions",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (coddy agents trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
+				},
+				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
+				"max_depth":               intProp("Max depth", "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere."),
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout."),
+				"max_turns":               intProp("Max turns", "ReAct rounds a child may take; 0 follows agent.max_turns."),
+			},
+			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
+			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
 			"title":       "MCP servers",
@@ -580,7 +607,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
+		"providers", "models", "agent", "tools", "subagents", "mcp_servers", "skills", "memory", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
 	}
 

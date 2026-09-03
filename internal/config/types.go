@@ -15,6 +15,7 @@ type Config struct {
 	MCPServers   []MCPServerConfig `yaml:"mcp_servers"`
 	MCP          MCP               `yaml:"mcp"`
 	Tools        Tools             `yaml:"tools"`
+	Subagents    Subagents         `yaml:"subagents"`
 	Logger       Logger            `yaml:"logger"`
 	Sessions     Sessions          `yaml:"sessions"`
 	Compaction   Compaction        `yaml:"compaction"`

@@ -49,11 +49,21 @@ type Kind string
 const (
 	// KindCommand is a shell command handed to the host interpreter.
 	KindCommand Kind = "command"
-	// KindAgent is reserved for spawning a nested agent. The pool already
-	// carries it end to end so that work lands as a Runner implementation
-	// rather than as a second scheduling mechanism.
+	// KindAgent is a nested agent run: a child session driven by its own
+	// ReAct loop. It is started through Pool.Launch by the agent runtime; the
+	// pool schedules, times out, stops and persists it like a command.
 	KindAgent Kind = "agent"
 )
+
+// AgentInfo identifies the subagent a KindAgent task runs. It is set on the
+// Spec before the task is admitted, so every snapshot the pool publishes or
+// persists carries the child session id from the first one.
+type AgentInfo struct {
+	// Name is the subagent definition name.
+	Name string `json:"name"`
+	// SessionID is the child session that holds the run's transcript.
+	SessionID string `json:"session_id,omitempty"`
+}
 
 // Spec describes work handed to the pool.
 type Spec struct {
@@ -84,6 +94,8 @@ type Spec struct {
 	// an elapsed time short by however long it ran in the foreground, and its
 	// overdue and silence hints are wrong by the same amount.
 	StartedAt time.Time
+	// Agent identifies the subagent for KindAgent tasks; nil for commands.
+	Agent *AgentInfo
 }
 
 // Snapshot is an immutable view of a task, safe to hand to callers and to
@@ -106,6 +118,10 @@ type Snapshot struct {
 	OutputBytes     int64      `json:"output_bytes"`
 	OutputTruncated bool       `json:"output_truncated"`
 	NotifyOnFinish  bool       `json:"notify_on_finish,omitempty"`
+
+	// Agent identifies the subagent behind a KindAgent task, including the
+	// child session that holds its transcript. Nil for commands.
+	Agent *AgentInfo `json:"agent,omitempty"`
 
 	// PID leads the process group the task runs in. It is persisted so a fresh
 	// coddy can tell a record whose processes died with the previous run from
@@ -167,6 +183,9 @@ func deriveLabel(spec Spec) string {
 	}
 	command := strings.TrimSpace(spec.Command)
 	if command == "" {
+		if spec.Kind == KindAgent && spec.Agent != nil && strings.TrimSpace(spec.Agent.Name) != "" {
+			return "agent " + strings.TrimSpace(spec.Agent.Name)
+		}
 		return string(spec.Kind)
 	}
 	if idx := strings.IndexAny(command, "\r\n"); idx >= 0 {
