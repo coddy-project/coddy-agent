@@ -21,7 +21,7 @@ def main() -> int:
         tui.wait_for("coddy_slash_demo", timeout=20)  # header [Skills] section
         tui.type_text("/coddy_slash_demo run the demo")
         tui.send(CR)
-        tui.wait_for("Working...", timeout=30)
+        tui.wait_busy(timeout=30)
         tui.wait_idle(timeout=240)
         if DEMO_TOKEN not in tui.assistant_text():
             raise AssertionError("demo skill token missing from the assistant reply")

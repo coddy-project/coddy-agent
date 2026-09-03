@@ -51,6 +51,12 @@ CTRL_L = "\x0c"
 CTRL_O = "\x0f"
 CTRL_T = "\x14"
 
+# Frames of the console loader (external/cli/tui/loader.go). While a turn runs the
+# status line starts with one of them; when the turn ends the row is cleared. The
+# label next to the frame is the live status phrase and changes per step, so the
+# frame is the only stable chrome to key "busy" on.
+BUSY_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
 
 def coddy_bin() -> str:
     env = os.environ.get("CODDY_BIN")
@@ -208,13 +214,47 @@ class CoddyTUI:
         self.dump(f"wait_gone({needle!r}) timed out")
         raise AssertionError(f"screen still shows {needle!r}")
 
+    def is_busy(self) -> bool:
+        """True while the status line shows the loader frame (a turn is running)."""
+        for line in self.screen.display:
+            stripped = line.lstrip()
+            if len(stripped) >= 2 and stripped[0] in BUSY_FRAMES and stripped[1] == " ":
+                return True
+        return False
+
+    def wait_busy(self, timeout: float = 30.0) -> None:
+        """Wait until the loader appears, i.e. the console accepted the prompt."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.pump(0.2)
+            if self.is_busy():
+                return
+            if not self.child.isalive():
+                self.dump("child exited while waiting for the loader")
+                raise AssertionError("coddy exited before starting the turn")
+        self.dump("wait_busy() timed out")
+        raise AssertionError("the loader never appeared")
+
     def wait_idle(self, timeout: float = 240.0) -> None:
-        """Wait until the working spinner label disappears."""
-        self.pump(1.0)
-        self.wait_gone("Working...", timeout=timeout)
-        if not self.child.isalive():
-            self.dump("child exited while waiting for idle")
-            raise AssertionError("coddy exited during the turn")
+        """Wait until the turn ends: the loader frame leaves the status line.
+
+        A prompt that was just sent may not have started its turn yet, so the loader
+        is given a moment to appear first; a turn that finished before the first
+        poll simply reads as idle.
+        """
+        start = time.time()
+        while time.time() - start < 5.0 and not self.is_busy():
+            self.pump(0.2)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.pump(0.3)
+            if not self.is_busy():
+                if not self.child.isalive():
+                    self.dump("child exited while waiting for idle")
+                    raise AssertionError("coddy exited during the turn")
+                return
+        self.dump("wait_idle() timed out")
+        raise AssertionError("the turn never finished")
 
     def send(self, data: str) -> None:
         self.child.send(data.encode())
