@@ -5745,12 +5745,6 @@ textarea#composer {
   color: var(--muted);
 }
 
-.settings-field-desc-below-checkbox {
-  margin-top: 4px;
-  margin-bottom: 0;
-  padding-left: 28px;
-}
-
 .settings-btn {
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
@@ -5914,10 +5908,39 @@ textarea#composer {
   gap: 4px;
 }
 
-.settings-row-inline {
-  flex-direction: row;
+/* Boolean setting (SwitchField): shared Switch + label + optional description
+   on one two-column grid. The first column is the switch's own width, the
+   first-row cells centre on each other, and the description takes the label
+   column, so its left edge follows the label whatever the switch measures.
+   Contract: DESIGN.md, "Boolean switch fields". Never lay a switch and its
+   label out inline, and never indent the description with padding. */
+.settings-switch-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: center;
-  gap: 8px;
+}
+
+/* A real <label for>: clicking the text toggles the switch. */
+.settings-switch-field-label {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.settings-switch-field:has(.skill-switch:disabled) > .settings-switch-field-label {
+  cursor: default;
+}
+
+/* Child selector on purpose: it beats the shared .settings-field-desc margin
+   by specificity, not by source order. */
+.settings-switch-field > .settings-switch-field-desc {
+  grid-column: 2;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-label {

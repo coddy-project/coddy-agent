@@ -77,3 +77,35 @@ test("an explicit false still renders off against a true default", () => {
       .getAttribute("aria-checked"),
   ).toBe("false");
 });
+
+// Layout: the boolean renderer delegates to the shared SwitchField, so the
+// description sits in the label column of one grid instead of a separately
+// indented paragraph. Regression for the models[].multimodal / stream rows,
+// where the label hung below the switch and the description started under it.
+const describedSchema: JsonSchema = {
+  type: "object",
+  properties: {
+    multimodal: {
+      type: "boolean",
+      title: "Multimodal",
+      description: "When true, the model accepts image or file inputs.",
+    },
+  },
+} as unknown as JsonSchema;
+
+test("boolean field renders through SwitchField with the description in the label column", () => {
+  const { container } = render(
+    <SchemaForm schema={describedSchema} value={{}} onChange={() => {}} />,
+  );
+  const field = container.querySelector(".settings-switch-field");
+  expect(field).not.toBeNull();
+  const sw = screen.getByRole("switch", { name: /multimodal/i });
+  expect(sw.parentElement).toBe(field);
+  const desc = field!.querySelector(".settings-switch-field-desc");
+  expect(desc?.textContent).toBe(
+    "When true, the model accepts image or file inputs.",
+  );
+  expect(
+    container.querySelector(".settings-field-desc-below-checkbox"),
+  ).toBeNull();
+});

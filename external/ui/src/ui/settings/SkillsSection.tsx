@@ -6,6 +6,7 @@ import {
   type FieldOverride,
 } from "./SchemaForm";
 import { Switch } from "./Switch";
+import { SwitchField } from "./SwitchField";
 import { filterInstallableMatches } from "./installableMatches";
 import { schemaFieldDesc } from "./schemaI18n";
 import { useT } from "../i18n/I18nProvider";
@@ -511,20 +512,18 @@ export function SkillsSection(props: {
     <div className="settings-skills-section">
       <fieldset className="settings-fieldset">
         <legend>{t("skills.autoDiscovery.legend")}</legend>
-        <div className="settings-row settings-row-inline">
-          <Switch
-            checked={autoDiscoveryOn}
-            onChange={(next) => onChange({ ...value, auto_discovery: next })}
-            ariaLabel={t("skills.autoDiscovery.aria")}
-            dataTestId="skills-auto-discovery-toggle"
-          />
-          <span>
-            {autoDiscoveryOn
+        <SwitchField
+          checked={autoDiscoveryOn}
+          onChange={(next) => onChange({ ...value, auto_discovery: next })}
+          label={
+            autoDiscoveryOn
               ? t("skills.state.enabled")
-              : t("skills.state.disabled")}
-          </span>
-        </div>
-        <p className="settings-field-desc">{autoDiscoveryDesc}</p>
+              : t("skills.state.disabled")
+          }
+          description={autoDiscoveryDesc}
+          ariaLabel={t("skills.autoDiscovery.aria")}
+          dataTestId="skills-auto-discovery-toggle"
+        />
       </fieldset>
 
       <SchemaForm
