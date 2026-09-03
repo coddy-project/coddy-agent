@@ -112,9 +112,11 @@ func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiB
 
 // resolveNeuralDeepAPIBase settles which NeuralDeep deployment a login talks
 // to: --api-base wins, then the provider row, then the default (reported as an
-// empty string). An unknown flag value is an error rather than a silent
-// fallback - the user would otherwise sign in against the wrong hub and only
-// find out when requests start failing.
+// empty string when the row is silent). An unknown flag value is an error
+// rather than a silent fallback - the user would otherwise sign in against the
+// wrong hub and only find out when requests start failing. A row that names
+// no NeuralDeep endpoint resolves to the default explicitly, so the login
+// records it and repairs the row instead of leaving the unusable value behind.
 func resolveNeuralDeepAPIBase(flagValue, configured string) (string, error) {
 	if strings.TrimSpace(flagValue) != "" {
 		base, ok := llm.NormalizeNeuralDeepAPIBase(flagValue)
@@ -126,6 +128,9 @@ func resolveNeuralDeepAPIBase(flagValue, configured string) (string, error) {
 	}
 	if base, ok := llm.NormalizeNeuralDeepAPIBase(configured); ok {
 		return base, nil
+	}
+	if strings.TrimSpace(configured) != "" {
+		return llm.NeuralDeepDefaultAPIBase(), nil
 	}
 	return "", nil
 }

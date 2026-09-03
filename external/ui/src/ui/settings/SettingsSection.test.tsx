@@ -341,6 +341,58 @@ test("NeuralDeep Sign In carries the endpoint picked in the form", async () => {
   });
 });
 
+test("NeuralDeep keeps polling a pending login when the endpoint changes", async () => {
+  let polls = 0;
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({
+            login_id: "login-pending",
+            verification_url: "https://hub.neuraldeep.test/app/device?code=PEND-0001",
+            user_code: "PEND-0001",
+            status: "pending",
+          }),
+        };
+      }
+      if (url.includes("/device/login-pending")) {
+        polls += 1;
+        return {
+          ok: true,
+          json: async () => ({ status: "pending", connected: false }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ connected: false, source: "none" }),
+      };
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  vi.spyOn(window, "open").mockImplementation(() => null);
+
+  render(<Harness />);
+  fireEvent.click(screen.getByTestId("settings-master-item-0"));
+  fireEvent.click(await screen.findByTestId("neuraldeep-auth-sign-in"));
+  expect(await screen.findByText("PEND-0001")).toBeInTheDocument();
+  await waitFor(() => expect(polls).toBeGreaterThan(0), { timeout: 2000 });
+
+  // The endpoint pick changes while the hub wait is still running: the code
+  // stays on screen and the poll goes on, instead of the widget forgetting
+  // the login and sitting in "Waiting for NeuralDeep…" forever.
+  const before = polls;
+  fireEvent.change(screen.getByTestId("neuraldeep-api-base"), {
+    target: { value: "https://api.neuraldeep.tech/v1" },
+  });
+  expect(screen.getByText("PEND-0001")).toBeInTheDocument();
+  await waitFor(() => expect(polls).toBeGreaterThan(before), {
+    timeout: 3000,
+  });
+  expect(screen.getByText("PEND-0001")).toBeInTheDocument();
+});
+
 test("NeuralDeep flags a stored login issued by the other deployment's hub", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);

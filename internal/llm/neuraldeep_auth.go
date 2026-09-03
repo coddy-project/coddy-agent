@@ -563,6 +563,30 @@ func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Cli
 	if hub == "" {
 		hub = NeuralDeepHub()
 	}
+	return CompleteNeuralDeepDeviceLoginWith(ctx, hub, hc, login, func(ctx context.Context, key string) error {
+		// A sign-out or a newer login attempt may have cancelled this wait
+		// while the poll was in flight; a cancelled attempt must not
+		// resurrect a credential the user just removed.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("neuraldeep auth: login cancelled before the key was stored: %w", err)
+		}
+		return SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, deviceLabel)
+	})
+}
+
+// CompleteNeuralDeepDeviceLoginWith is CompleteNeuralDeepDeviceLogin with the
+// persistence step supplied by the caller: persist receives the minted key
+// once and decides whether and where it is stored. A server that can be
+// signed out while the wait runs uses it to check for cancellation and write
+// the credential under one lock, so a sign-out cannot slip in between.
+func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, hc *http.Client, login *NeuralDeepDeviceLogin, persist func(ctx context.Context, key string) error) (string, error) {
+	if persist == nil {
+		return "", errors.New("neuraldeep auth: no persistence step")
+	}
+	hub = strings.TrimRight(strings.TrimSpace(hub), "/")
+	if hub == "" {
+		hub = NeuralDeepHub()
+	}
 	deadline := neuralDeepLoginTimeout
 	if login.ExpiresIn > 0 {
 		if d := time.Duration(login.ExpiresIn) * time.Second; d < deadline {
@@ -578,13 +602,7 @@ func CompleteNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Cli
 			return "", err
 		}
 		if key != "" {
-			// A sign-out or a newer login attempt may have cancelled this
-			// wait while the poll was in flight; a cancelled attempt must
-			// not resurrect a credential the user just removed.
-			if err := ctx.Err(); err != nil {
-				return "", fmt.Errorf("neuraldeep auth: login cancelled before the key was stored: %w", err)
-			}
-			if err := SaveNeuralDeepAuth(authPath, key, hub, NeuralDeepClientID, deviceLabel); err != nil {
+			if err := persist(ctx, key); err != nil {
 				return "", err
 			}
 			return key, nil

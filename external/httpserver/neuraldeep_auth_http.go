@@ -114,10 +114,12 @@ func (s *Server) coddyProviderNeuralDeepAuthGet(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	// ?api_base= is the endpoint picked in the form. An unrecognized value
-	// resolves like requests do, to the default deployment, so the answer
-	// describes what would really happen rather than failing the status read.
-	resp, err := s.neuralDeepAuthStatus(name, provider, r.URL.Query().Get("api_base"))
+	// ?api_base= is the endpoint picked in the form. A value that names no
+	// NeuralDeep endpoint counts as omitted: the answer then describes the
+	// saved row (which itself falls back to the default deployment, like
+	// requests do) rather than failing the status read.
+	apiBase, _ := llm.NormalizeNeuralDeepAPIBase(r.URL.Query().Get("api_base"))
+	resp, err := s.neuralDeepAuthStatus(name, provider, apiBase)
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -176,45 +178,66 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	}
 	hub := s.neuralDeepHubFor(apiBase)
 	label := neuralDeepHTTPDeviceLabel()
-	// Two racing sign-ins would finish in arbitrary order and the loser
-	// could overwrite the newer credential; the new attempt supersedes.
-	s.cancelNeuralDeepAuthLoginsFor(name)
-	login, err := llm.StartNeuralDeepDeviceLogin(r.Context(), hub, client, label)
-	if err != nil {
-		writeCoddyConfigErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
 	loginID := newCodexAuthLoginID()
 	// The wait outlives this request but not the server: Drain cancels it.
 	waitCtx, cancel := context.WithCancel(context.Background())
 	attempt := &codexAuthLoginAttempt{ProviderName: name, Status: "pending", CreatedAt: time.Now(), cancel: cancel}
+	// Two racing sign-ins would finish in arbitrary order and the loser
+	// could overwrite the newer credential; the new attempt supersedes. It is
+	// registered before the hub is contacted, so a start still in flight is
+	// already visible to a concurrent start or sign-out and gets cancelled
+	// with everything else instead of slipping through the gap.
 	s.codexAuthMu.Lock()
 	for id, old := range s.neuralDeepAuthLogins {
-		if time.Since(old.CreatedAt) > 20*time.Minute {
+		if old.ProviderName == name || time.Since(old.CreatedAt) > 20*time.Minute {
 			if old.cancel != nil {
 				old.cancel()
 			}
+		}
+		if time.Since(old.CreatedAt) > 20*time.Minute {
 			delete(s.neuralDeepAuthLogins, id)
 		}
 	}
 	s.neuralDeepAuthLogins[loginID] = attempt
 	s.codexAuthMu.Unlock()
 
+	// The hub call answers this request, so it follows the request context,
+	// but a supersede or sign-out in the meantime aborts it as well.
+	startCtx, stopStart := context.WithCancel(r.Context())
+	defer stopStart()
+	stopOnCancel := context.AfterFunc(waitCtx, stopStart)
+	defer stopOnCancel()
+	login, err := llm.StartNeuralDeepDeviceLogin(startCtx, hub, client, label)
+	if err != nil {
+		cancel()
+		s.codexAuthMu.Lock()
+		delete(s.neuralDeepAuthLogins, loginID)
+		s.codexAuthMu.Unlock()
+		if waitCtx.Err() != nil {
+			writeCoddyConfigErr(w, http.StatusConflict, "NeuralDeep sign-in superseded before the hub answered")
+			return
+		}
+		writeCoddyConfigErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
 	authPath := config.NeuralDeepAuthPath(s.activeCfg().Paths.Home, name)
 	s.bgWG.Add(1)
 	go func() {
 		defer s.bgWG.Done()
 		defer cancel()
-		_, err := llm.CompleteNeuralDeepDeviceLogin(waitCtx, hub, client, login, authPath, label)
-		s.codexAuthMu.Lock()
-		defer s.codexAuthMu.Unlock()
-		if err != nil {
-			attempt.Status = "failed"
-			attempt.Error = err.Error()
+		_, err := llm.CompleteNeuralDeepDeviceLoginWith(waitCtx, hub, client, login, func(ctx context.Context, key string) error {
+			return s.persistNeuralDeepLogin(ctx, attempt, authPath, key, hub, label)
+		})
+		if err == nil {
 			return
 		}
-		attempt.Status = "completed"
-		attempt.Connected = true
+		s.codexAuthMu.Lock()
+		defer s.codexAuthMu.Unlock()
+		if attempt.Status == "pending" {
+			attempt.Status = "failed"
+			attempt.Error = err.Error()
+		}
 	}()
 
 	writeCodexAuthJSON(w, http.StatusOK, codexAuthLoginResponse{
@@ -272,6 +295,25 @@ func (s *Server) resolveNeuralDeepAuthProvider(w http.ResponseWriter, rawName st
 		return name, *saved, true
 	}
 	return name, probe, true
+}
+
+// persistNeuralDeepLogin stores the key a device login minted and marks the
+// attempt completed, both under the attempt lock: a sign-out or a newer login
+// cancels attempts under the same lock, so the cancellation check here cannot
+// be overtaken by a removal that has already happened, and a cancelled
+// attempt never resurrects a credential the user just removed.
+func (s *Server) persistNeuralDeepLogin(ctx context.Context, attempt *codexAuthLoginAttempt, authPath, key, hub, label string) error {
+	s.codexAuthMu.Lock()
+	defer s.codexAuthMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("neuraldeep auth: login cancelled before the key was stored: %w", err)
+	}
+	if err := llm.SaveNeuralDeepAuth(authPath, key, hub, llm.NeuralDeepClientID, label); err != nil {
+		return err
+	}
+	attempt.Status = "completed"
+	attempt.Connected = true
+	return nil
 }
 
 // neuralDeepDeviceStartEndpoint settles which deployment a device sign-in is

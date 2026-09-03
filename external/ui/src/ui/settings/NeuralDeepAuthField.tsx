@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import { translate } from "../i18n/i18n";
 
@@ -63,10 +63,18 @@ export function NeuralDeepAuthField(props: {
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // A pending login is tied to the provider it was started for, not to the
+  // endpoint currently picked: switching the endpoint mid-flow keeps polling
+  // (the key is minted by the hub the flow started with, and the status read
+  // afterwards flags a mismatch), while a different provider name discards it.
+  const lastProviderRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setLogin(null);
-    setError("");
+    if (lastProviderRef.current !== providerName) {
+      lastProviderRef.current = providerName;
+      setLogin(null);
+      setError("");
+    }
     if (!providerName) {
       setStatus({ connected: false });
       return;

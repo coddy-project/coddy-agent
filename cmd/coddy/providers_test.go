@@ -180,6 +180,44 @@ func TestProvidersLoginAPIBaseSelectsTheDeployment(t *testing.T) {
 	}
 }
 
+func TestProvidersLoginRepairsAnUnrecognizedAPIBase(t *testing.T) {
+	hub, _ := fakeHub(t, "sk-repair-key")
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+	home := t.TempDir()
+	// A row whose api_base names no NeuralDeep endpoint: requests already fall
+	// back to the default deployment, so a plain login (no --api-base) signs
+	// in there and must leave the row saying so instead of keeping the value
+	// the startup notice complains about.
+	yaml := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n    api_base: https://custom.example/v1\n"
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	prevOpen := openBrowserFn
+	openBrowserFn = func(url string) error {
+		go browseFollowingLink(t, url)
+		return nil
+	}
+	defer func() { openBrowserFn = prevOpen }()
+
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home}); err != nil {
+		t.Fatalf("providers login: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	prov := cfg.FindProvider("neuraldeep")
+	if prov == nil || prov.APIBase != "" {
+		t.Fatalf("row must be repaired to the default deployment, got %+v", prov)
+	}
+	for _, n := range llm.NeuralDeepAuthNotices(cfg) {
+		if strings.Contains(n.Message, "not a NeuralDeep endpoint") {
+			t.Fatalf("the endpoint notice must be gone after the repair, got %q", n.Message)
+		}
+	}
+}
+
 func TestProvidersLoginNoConfigSkipsYAML(t *testing.T) {
 	hub, _ := fakeHub(t, "sk-noconf")
 	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)

@@ -399,8 +399,240 @@ func TestNeuralDeepAuthDeviceHonorsSelectedEndpoint(t *testing.T) {
 	if doc := status(""); doc["hub"] != "https://hub.neuraldeep.ru" || doc["endpoint_hub"] != "https://hub.neuraldeep.ru" {
 		t.Fatalf("status for the saved row = %+v", doc)
 	}
-	// An unrecognized query value behaves like requests do: the default.
-	if doc := status("?api_base=https%3A%2F%2Fexample.invalid%2Fv1"); doc["endpoint_hub"] != "https://hub.neuraldeep.ru" {
-		t.Fatalf("status for an unknown endpoint = %+v", doc)
+	// An unrecognized query value counts as omitted: the saved row decides.
+	srv.activeCfg().Providers[0].APIBase = "https://api.neuraldeep.tech/v1"
+	if doc := status("?api_base=https%3A%2F%2Fexample.invalid%2Fv1"); doc["endpoint_hub"] != "https://hub.neuraldeep.tech" {
+		t.Fatalf("status for an unknown endpoint must describe the saved row, got %+v", doc)
+	}
+}
+
+// blockingStartHub is a stand-in hub whose first device/start call blocks
+// until release is closed; later calls answer at once. Token polls return
+// key immediately, so a surviving attempt completes.
+func blockingStartHub(t *testing.T, key string) (hub *httptest.Server, started <-chan struct{}, release chan struct{}) {
+	t.Helper()
+	startedCh := make(chan struct{})
+	release = make(chan struct{})
+	var startCalls atomic.Int32
+	hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/cli/device/start":
+			if startCalls.Add(1) == 1 {
+				close(startedCh)
+				select {
+				case <-release:
+				case <-r.Context().Done():
+					return
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-block", "user_code": "BLCK-0001",
+				"verification_uri": "http://hub/app/device", "interval": 0, "expires_in": 900,
+			})
+		case "/api/cli/device/token":
+			_, _ = fmt.Fprint(w, `{"access_token":"`+key+`","token_type":"bearer","label":"coddy @ host"}`)
+		case "/api/cli/revoke":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(hub.Close)
+	return hub, startedCh, release
+}
+
+func startDeviceLogin(t *testing.T, ts *httptest.Server) (int, string) {
+	t.Helper()
+	res, err := http.Post(ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth/device", "application/json", nil)
+	if err != nil {
+		t.Errorf("device start: %v", err)
+		return 0, ""
+	}
+	defer func() { _ = res.Body.Close() }()
+	var body struct {
+		LoginID string `json:"login_id"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	return res.StatusCode, body.LoginID
+}
+
+func waitDeviceLogin(t *testing.T, ts *httptest.Server, loginID string) string {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		res, err := http.Get(ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth/device/" + loginID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st struct {
+			Status string `json:"status"`
+			Error  string `json:"error"`
+		}
+		_ = json.NewDecoder(res.Body).Decode(&st)
+		_ = res.Body.Close()
+		if st.Status == "completed" || st.Status == "failed" {
+			return st.Status + " " + st.Error
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("login %s did not settle, last %+v", loginID, st)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestNeuralDeepAuthDeviceStartSupersededWhileContactingHub: a second start
+// for the same provider must supersede the first even while the first is
+// still waiting for the hub to answer, otherwise the loser completes later
+// and overwrites the newer credential.
+func TestNeuralDeepAuthDeviceStartSupersededWhileContactingHub(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	hub, started, release := blockingStartHub(t, "sk-survivor")
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+
+	srv := newNeuralDeepTestServer(t, home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	firstDone := make(chan struct{})
+	var firstStatus int
+	go func() {
+		defer close(firstDone)
+		firstStatus, _ = startDeviceLogin(t, ts)
+	}()
+	<-started
+
+	// The second start lands while the first is blocked inside the hub call.
+	status, loginID := startDeviceLogin(t, ts)
+	if status != http.StatusOK || loginID == "" {
+		t.Fatalf("second start: status %d login %q", status, loginID)
+	}
+	// The hub is released only now, so the first start can only have
+	// returned because it was cancelled, not because the hub answered.
+	// (Released before ts.Close either way: a request still parked in the
+	// hub would otherwise keep the test server from shutting down.)
+	superseded := false
+	select {
+	case <-firstDone:
+		superseded = true
+	case <-time.After(3 * time.Second):
+	}
+	close(release)
+	if !superseded {
+		t.Fatal("the superseded start did not return while the hub was blocked")
+	}
+	if firstStatus != http.StatusConflict {
+		t.Fatalf("superseded start status = %d, want 409", firstStatus)
+	}
+	if got := waitDeviceLogin(t, ts, loginID); !strings.HasPrefix(got, "completed") {
+		t.Fatalf("surviving login = %q, want completed", got)
+	}
+	key, err := llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(home, "neuraldeep"))
+	if err != nil || key != "sk-survivor" {
+		t.Fatalf("stored key = %q (%v), want the survivor's", key, err)
+	}
+	srv.codexAuthMu.Lock()
+	pending := 0
+	for _, a := range srv.neuralDeepAuthLogins {
+		if a.Status == "pending" {
+			pending++
+		}
+	}
+	srv.codexAuthMu.Unlock()
+	if pending != 0 {
+		t.Fatalf("%d attempt(s) still pending after the supersede", pending)
+	}
+}
+
+// TestNeuralDeepAuthSignOutDuringHubStart: a sign-out that lands while a
+// start is still contacting the hub must cancel that start too; otherwise it
+// registers afterwards, completes, and re-stores a credential the user just
+// removed.
+func TestNeuralDeepAuthSignOutDuringHubStart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	hub, started, release := blockingStartHub(t, "sk-resurrected")
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+
+	srv := newNeuralDeepTestServer(t, home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	firstDone := make(chan struct{})
+	var firstStatus int
+	go func() {
+		defer close(firstDone)
+		firstStatus, _ = startDeviceLogin(t, ts)
+	}()
+	<-started
+
+	req, err := http.NewRequest(http.MethodDelete, ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("sign-out status = %d", res.StatusCode)
+	}
+	close(release)
+	select {
+	case <-firstDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the cancelled start did not return")
+	}
+	if firstStatus != http.StatusConflict {
+		t.Fatalf("cancelled start status = %d, want 409", firstStatus)
+	}
+	// Give a wrongly surviving wait every chance to store the key.
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(config.NeuralDeepAuthPath(home, "neuraldeep")); !os.IsNotExist(err) {
+		t.Fatalf("credential must not reappear after sign-out (stat err %v)", err)
+	}
+	srv.codexAuthMu.Lock()
+	n := len(srv.neuralDeepAuthLogins)
+	srv.codexAuthMu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d attempt(s) registered after a cancelled start", n)
+	}
+}
+
+// TestNeuralDeepPersistSkipsCancelledAttempt pins the last window: the key
+// has been minted, the wait was cancelled meanwhile, and the credential must
+// not be written.
+func TestNeuralDeepPersistSkipsCancelledAttempt(t *testing.T) {
+	home := t.TempDir()
+	srv := newNeuralDeepTestServer(t, home)
+	defer srv.Drain()
+	authPath := config.NeuralDeepAuthPath(home, "neuraldeep")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	attempt := &codexAuthLoginAttempt{ProviderName: "neuraldeep", Status: "pending", CreatedAt: time.Now(), cancel: cancel}
+	cancel()
+	if err := srv.persistNeuralDeepLogin(ctx, attempt, authPath, "sk-late", "https://hub.neuraldeep.ru", "coddy"); err == nil {
+		t.Fatal("a cancelled attempt must not persist its key")
+	}
+	if _, err := os.Stat(authPath); !os.IsNotExist(err) {
+		t.Fatalf("credential written for a cancelled attempt (stat err %v)", err)
+	}
+	if attempt.Status != "pending" || attempt.Connected {
+		t.Fatalf("attempt = %+v, want untouched", attempt)
+	}
+
+	live := &codexAuthLoginAttempt{ProviderName: "neuraldeep", Status: "pending", CreatedAt: time.Now()}
+	if err := srv.persistNeuralDeepLogin(context.Background(), live, authPath, "sk-live", "https://hub.neuraldeep.tech", "coddy"); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	st, err := llm.InspectNeuralDeepAuth(authPath)
+	if err != nil || !st.Connected || st.Hub != "https://hub.neuraldeep.tech" {
+		t.Fatalf("stored status = %+v (%v), want connected via the mirror hub", st, err)
+	}
+	if live.Status != "completed" || !live.Connected {
+		t.Fatalf("attempt = %+v, want completed", live)
 	}
 }
