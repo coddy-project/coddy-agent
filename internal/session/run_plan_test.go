@@ -146,3 +146,40 @@ func TestAskModeNeverRunsPlans(t *testing.T) {
 		t.Fatalf("plan mention was not inlined as reading material: %+v", prompts[0])
 	}
 }
+
+// RunPlan is the shared execution entry point (prompt shortcuts, HTTP route),
+// so it fails closed on its own when the session is in ask mode.
+func TestRunPlanRefusesAskModeSession(t *testing.T) {
+	cfg := testConfig()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	runs := 0
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), t.TempDir(), store)
+	ctx := context.Background()
+	res, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mgr.SessionByID(res.SessionID)
+	state.SetMode(string(session.ModeAsk))
+	dir, err := store.EnsureLayout(res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := plans.Write(dir, "run-me", plans.DefaultContent("run-me", "Run me")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.RunPlan(ctx, res.SessionID, "run-me", nil); err == nil || !strings.Contains(err.Error(), "ask mode") {
+		t.Fatalf("RunPlan in ask mode: err = %v, want the ask refusal", err)
+	}
+	if runs != 0 {
+		t.Fatalf("the plan ran %d time(s) in ask mode", runs)
+	}
+	if got := state.GetMode(); got != string(session.ModeAsk) {
+		t.Fatalf("mode switched to %q", got)
+	}
+}

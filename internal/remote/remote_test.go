@@ -544,3 +544,20 @@ func TestRemoteErrorTruncatesLongOpaqueBodies(t *testing.T) {
 		t.Fatalf("err = %v (len %d)", err, len(fmt.Sprint(err)))
 	}
 }
+
+// A 409 is not always the turn lock: the ask-mode refusal of a plan run uses
+// the same status with an actionable message that must reach the operator.
+func TestPromptPassesThroughAskModeRefusalOn409(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`))
+	}))
+	defer srv.Close()
+	_, err := promptOnce(t, srv, &collectSender{})
+	if err == nil || !strings.Contains(err.Error(), "ask mode") {
+		t.Fatalf("409 refusal was not passed through: %v", err)
+	}
+	if strings.Contains(err.Error(), "busy") {
+		t.Fatalf("409 refusal was mistaken for the turn lock: %v", err)
+	}
+}

@@ -24,7 +24,7 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
 
 Rendered order matches the markdown files roughly as follows:
 
