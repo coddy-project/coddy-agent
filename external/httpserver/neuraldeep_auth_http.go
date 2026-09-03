@@ -208,12 +208,17 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 	stopOnCancel := context.AfterFunc(waitCtx, stopStart)
 	defer stopOnCancel()
 	login, err := llm.StartNeuralDeepDeviceLogin(startCtx, hub, client, label)
-	if err != nil {
+	// Read before cancel(): afterwards waitCtx is always done and a plain
+	// hub failure would masquerade as a supersede.
+	superseded := waitCtx.Err() != nil
+	if err != nil || superseded {
 		cancel()
 		s.codexAuthMu.Lock()
 		delete(s.neuralDeepAuthLogins, loginID)
 		s.codexAuthMu.Unlock()
-		if waitCtx.Err() != nil {
+		if superseded {
+			// Cancelled while the hub was answering, or right after it did:
+			// a newer start or a sign-out owns the provider now.
 			writeCoddyConfigErr(w, http.StatusConflict, "NeuralDeep sign-in superseded before the hub answered")
 			return
 		}

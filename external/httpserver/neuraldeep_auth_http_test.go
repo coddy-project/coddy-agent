@@ -602,6 +602,34 @@ func TestNeuralDeepAuthSignOutDuringHubStart(t *testing.T) {
 	}
 }
 
+// TestNeuralDeepAuthDeviceStartHubFailureIs502: a hub that cannot start the
+// flow is a gateway problem, not a supersede; the attempt must not linger.
+func TestNeuralDeepAuthDeviceStartHubFailureIs502(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "hub down", http.StatusInternalServerError)
+	}))
+	defer hub.Close()
+	t.Setenv(llm.EnvNeuralDeepHubURL, hub.URL)
+
+	srv := newNeuralDeepTestServer(t, home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	status, loginID := startDeviceLogin(t, ts)
+	if status != http.StatusBadGateway || loginID != "" {
+		t.Fatalf("hub failure: status %d login %q, want 502 and no login id", status, loginID)
+	}
+	srv.codexAuthMu.Lock()
+	n := len(srv.neuralDeepAuthLogins)
+	srv.codexAuthMu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d attempt(s) left registered after a failed start", n)
+	}
+}
+
 // TestNeuralDeepPersistSkipsCancelledAttempt pins the last window: the key
 // has been minted, the wait was cancelled meanwhile, and the credential must
 // not be written.
