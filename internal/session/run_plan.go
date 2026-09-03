@@ -22,6 +22,9 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
+	if state.IsSubagentRun() {
+		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	}
 	// A plan run is a turn. Marking it here covers the HTTP route that calls RunPlan
 	// directly; when a prompt delegates to RunPlan its session is already marked, and the
 	// registry counts turns, so the nested mark changes nothing for that path.

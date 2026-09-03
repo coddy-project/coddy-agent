@@ -357,6 +357,7 @@ func (m *Manager) buildFreshState(ctx context.Context, id, cwd, sessionDir strin
 			continue
 		}
 		state.AddSessionMCPClient(client)
+		state.RememberSessionMCPDeclaration(cfgSrv)
 	}
 
 	return state, nil
@@ -408,6 +409,16 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
+	if snap.Meta.IsSubagentRun(params.SessionID) {
+		// A restored child is a read-only transcript; the meta keeps the guard
+		// and the parent link, the role and tool set are not needed any more.
+		st.SetSubagentMeta(SubagentMeta{
+			Name:            snap.Meta.SubagentName,
+			ParentSessionID: snap.Meta.ParentSessionID,
+			TaskID:          snap.Meta.SubagentTaskID,
+			Depth:           snap.Meta.SubagentDepth,
+		})
+	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
@@ -436,6 +447,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 			continue
 		}
 		st.AddSessionMCPClient(client)
+		st.RememberSessionMCPDeclaration(cfgSrv)
 	}
 
 	m.mu.Lock()
@@ -579,6 +591,11 @@ type PromptRunOpts struct {
 	// POST sets this because its readers may come and go; a non-streaming caller keeps
 	// request-scoped cancellation, since hanging up is the only way it can stop a turn.
 	DetachFromRequest bool
+
+	// subagentTurn marks the one prompt a child session may run: its own task
+	// turn, started by the subagent runtime. Every other prompt against a child
+	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
+	subagentTurn bool
 }
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
@@ -603,6 +620,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	state := m.getSession(params.SessionID)
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+	}
+	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
+		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
 	// Before the lock, not after: a turn queued behind another one is already active as

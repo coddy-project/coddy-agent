@@ -91,7 +91,7 @@ func PromptBlock(entries []CatalogEntry) string {
 // WriteListing prints the operator-facing table used by `coddy agents list`.
 func WriteListing(w io.Writer, entries []CatalogEntry) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tSCOPE\tTRUST\tFLAGS\tDESCRIPTION\tPATH")
+	_, _ = fmt.Fprintln(tw, "NAME\tSCOPE\tTRUST\tFLAGS\tDESCRIPTION\tPATH")
 	for _, e := range entries {
 		var flags []string
 		if e.Hidden {
@@ -107,8 +107,8 @@ func WriteListing(w io.Writer, entries []CatalogEntry) {
 		if e.Builtin {
 			path = "(embedded)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Scope, e.Trust, strings.Join(flags, ","), e.Description, path)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, e.Scope, e.Trust, strings.Join(flags, ","), e.Description, path)
 	}
 	_ = tw.Flush()
-	fmt.Fprintf(w, "(total %d)\n", len(entries))
+	_, _ = fmt.Fprintf(w, "(total %d)\n", len(entries))
 }
