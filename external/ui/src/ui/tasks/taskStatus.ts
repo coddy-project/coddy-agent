@@ -167,3 +167,25 @@ export function groupTasks(tasks: BackgroundTask[]): {
     finished: ordered.filter((t) => !t.running),
   };
 }
+
+/** A subagent run in the pool, as opposed to a shell command. */
+export function isAgentTask(task: BackgroundTask): boolean {
+  return task.kind === "agent";
+}
+
+/** Definition name of an agent task; empty for commands. */
+export function agentTaskName(task: BackgroundTask): string {
+  return isAgentTask(task) ? (task.agent?.name || "").trim() : "";
+}
+
+/**
+ * Child session an agent task can be opened on, or null when there is nothing
+ * to open: a command task, or an agent row whose child session is not known.
+ */
+export function agentTranscriptSessionId(task: BackgroundTask): string | null {
+  if (!isAgentTask(task)) {
+    return null;
+  }
+  const sid = (task.agent?.session_id || "").trim();
+  return sid ? sid : null;
+}

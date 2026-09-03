@@ -10,7 +10,8 @@ Short map for automation-friendly contributors.
 | `internal/agent` | ReAct orchestration, MCP/tool wiring. |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
 | `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
-| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
+| `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**) and for subagent runs started by **`spawn_agent`** (**`Pool.Launch`**, kind **`agent`**, **`Agent {name, session_id}`** on the row). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |
+| `internal/subagents` | Subagent definitions (markdown + YAML frontmatter from **`subagents.dirs`**, built-ins **`general`** and **`explore`**), canonical **scopes**, the **trust receipts** for project-scope files (**`trust.go`**; policy **`subagents.project_trust`**, receipts in **`<home>/subagents-trust.json`**), the process-wide **`Limiter`**, and the catalog (**`coddy agents list`**, **`GET /coddy/subagents`**, the prompt block). The runtime that spawns a child is **`internal/agent/subagent.go`**; child sessions (**`sub_`** ids) are owned by **`internal/session`**. Guide: **`docs/subagents.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog. |
 | `external/httpserver` | **`coddy http`** when built with **`tags=http`** (SSE bridge, Swagger statics, `/coddy` REST, ServeMux wiring). |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
@@ -78,6 +79,7 @@ Codex code review reads this section and applies it to changed files. Keep entri
 ### Project-local configuration
 
 - Do not read, merge, or execute project-local configuration (`.coddy/mcp.json`, MCP server definitions, hook scripts) without routing it through `TrustGate` in `internal/mcp`. Opening an untrusted checkout must not by itself grant code execution. Safe path: gate the read on the workspace trust decision and persist the approval through `TrustStore`.
+- The same holds for project-scope subagent definitions (`.coddy/agents`, `.claude/agents` under the workspace): they load and spawn only as `subagents.project_trust` allows, a receipt in `subagents.TrustStore` is bound to the file digest, and a definition must never widen what the parent could do - `permission_mode`, `tools` and `disallowed_tools` only narrow, and the mandatory exclusions stay. Safe path: resolve the definition once, decide trust on that value with `subagents.Decide`, and derive the child's tool set with `subagents.EffectiveTools`.
 
 ### Embedded UI
 

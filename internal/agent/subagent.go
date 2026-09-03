@@ -537,14 +537,16 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 	}
 
 	if !background {
-		select {
-		case <-handle.done:
-		case <-ctx.Done():
-			// The parent turn was cancelled: the derived child context is
-			// already cancelled, wait for it to settle so the report is final.
-			<-handle.done
+		// Wait for the task, not merely for the run: the handle closes when
+		// the child's goroutine is done, but the pool records the terminal
+		// status on its supervisor goroutine right after, and the envelope
+		// carries that verdict. A cancelled parent turn already cancelled the
+		// derived child context, so the task settles on its own; waiting on a
+		// non-cancellable context only keeps the verdict final.
+		final, err := pool.Wait(context.WithoutCancel(ctx), parentID, snap.ID, 0)
+		if err != nil {
+			final, _ = pool.Get(parentID, snap.ID)
 		}
-		final, _ := pool.Get(parentID, snap.ID)
 		return formatForegroundResult(run, final), nil
 	}
 
@@ -664,7 +666,7 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 	if runErr != nil {
 		fmt.Fprintf(&b, "The run ended with an error: %v\n", runErr)
 	}
-	if snap.Status.Finished() && snap.Status != bgtask.StatusSucceeded {
+	if snap.Status != "" && snap.Status.Finished() && snap.Status != bgtask.StatusSucceeded {
 		fmt.Fprintf(&b, "The subagent did not succeed (status %s); treat its report accordingly.\n", snap.Status)
 	}
 	b.WriteString("The user did not see this report: restate what matters in your own reply. ")

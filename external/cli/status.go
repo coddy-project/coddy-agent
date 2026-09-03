@@ -140,6 +140,8 @@ func statusVerbForTool(toolName string) string {
 		return "Fetching"
 	case "load_skill":
 		return "Loading a skill"
+	case "spawn_agent":
+		return "Running subagent"
 	case "plan_write", "plan_exit":
 		return "Updating the plan"
 	case "plan_read", "plan_list":
@@ -174,6 +176,9 @@ func statusTargetFromArgs(toolName, argsJSON string) string {
 		return stringArg(args, "pattern")
 	case "websearch":
 		return stringArg(args, "query")
+	case "spawn_agent":
+		// The definition name is what the operator recognises; the prompt would fill the row.
+		return stringArg(args, "agent")
 	case "mv":
 		return stringArg(args, "src")
 	case "question":

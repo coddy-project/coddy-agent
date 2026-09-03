@@ -68,6 +68,7 @@ func openAPISpec() map[string]interface{} {
 						"Optional **`metadata`** on agent/plan only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
 						"Every **agent**/**plan** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
@@ -119,6 +120,7 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
+						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
@@ -195,12 +197,18 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
-						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
+						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
+						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include scheduler-run session directories in the list.",
+					}, map[string]interface{}{
+						"name":        "include_subagents",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -690,7 +698,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/background-tasks": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Background tasks of a session",
-					"description": "Lists commands the agent started with **run_command** **`background: true`**. Each row carries **id**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /coddy/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -770,6 +778,76 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/subagents": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Subagent definitions visible from a workspace",
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${CODDY_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.coddy/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
+					"operationId": "listSubagents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.subagent_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/subagents/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project subagent definition for a workspace",
+					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
+						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/subagents/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project subagent approval",
+					"description": "Removes the receipt of the named definition for the workspace (optional body **`{\"cwd\": ...}`**, default: the server's default cwd). Withdrawing an approval that was never on file, or naming a built-in or user-scope definition, changes nothing and still answers with the current entry. **404** when no definition of that name is visible from the workspace; **400** for a malformed body or a relative **cwd**.",
+					"operationId": "untrustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
@@ -806,6 +884,7 @@ func openAPISpec() map[string]interface{} {
 				"delete": map[string]interface{}{
 					"summary": "Delete a persisted session",
 					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
+						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
 						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
 						"Deleting an id with no bundle on disk still answers **200**.",
 					"operationId": "coddySessionDelete",
@@ -1005,7 +1084,8 @@ func openAPISpec() map[string]interface{} {
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
-						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
+						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -1065,7 +1145,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** never holds a prompt of its own (its requests are relayed to the parent chat) and answers **409**. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1097,6 +1177,7 @@ func openAPISpec() map[string]interface{} {
 						"204": map[string]interface{}{"description": "Permission choice accepted"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -1765,7 +1846,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1816,6 +1897,25 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"SubagentCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"name":           map[string]string{"type": "string"},
+						"description":    map[string]string{"type": "string"},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"builtin", "user", "project"}},
+						"path":           map[string]string{"type": "string", "description": "Definition file; absent for built-ins."},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes; absent for built-ins."},
+						"model":          map[string]string{"type": "string", "description": "models[].model id from the frontmatter, when set."},
+						"mode":           map[string]string{"type": "string", "description": "agent or plan from the frontmatter, when set."},
+						"builtin":        map[string]string{"type": "boolean"},
+						"hidden":         map[string]string{"type": "boolean", "description": "Kept out of the model-facing catalog; still spawnable by name."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -2529,4 +2629,50 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="openapi.json"`)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// subagentNameParam is the {name} path parameter of the subagent trust routes.
+func subagentNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Subagent definition name as listed by **GET /coddy/subagents**.",
+	}
+}
+
+// subagentTrustRequestBody is the optional body of the trust routes: the
+// workspace the receipt is written for.
+func subagentTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": false,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+					},
+				},
+			},
+		},
+	}
+}
+
+// subagentEntryResponse describes a 200 carrying one refreshed catalog entry.
+func subagentEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.subagent"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
 }

@@ -153,6 +153,11 @@ import {
   stopBackgroundTask,
 } from "./tasks/api";
 import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import {
+  isSubagentSessionId,
+  parseSubagentTranscriptMeta,
+  type SubagentTranscriptMeta,
+} from "./chat/subagentTranscript";
 import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
@@ -921,6 +926,9 @@ export function App() {
   const [backgroundListLoading, setBackgroundListLoading] = useState(false);
   /** Ticks once a second so elapsed times advance between polls. */
   const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
+  /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  const [subagentTranscript, setSubagentTranscript] =
+    useState<SubagentTranscriptMeta | null>(null);
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
@@ -1120,8 +1128,18 @@ export function App() {
     }
     const row = sessions.find((s) => s.id === sessionId);
     const rowTitle = (row?.title || "").trim();
-    return rowTitle || t("chat.newChat");
-  }, [sessionId, sessions, describePreview, t]);
+    if (rowTitle) {
+      return rowTitle;
+    }
+    // A child session has no History row to name it, so name it by its role.
+    if (subagentTranscript) {
+      const name = subagentTranscript.name.trim();
+      return name
+        ? t("chat.subagentTitle", { name })
+        : t("chat.subagentTitleUnnamed");
+    }
+    return t("chat.newChat");
+  }, [sessionId, sessions, describePreview, t, subagentTranscript]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -2049,6 +2067,12 @@ export function App() {
       selectedModelId?: string;
       selectedReasoning?: string;
       memoryTurns?: MemoryTurnApi[];
+      subagent?: {
+        parentSessionId?: string;
+        name?: string;
+        taskId?: string;
+      } | null;
+      readOnly?: boolean;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -2080,6 +2104,8 @@ export function App() {
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
       });
+      // A child session locks the composer; an ordinary one carries no marker.
+      setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
     }
     type UILogRow = {
       id: string;
@@ -2639,6 +2665,7 @@ export function App() {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setSubagentTranscript(null);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -2722,7 +2749,10 @@ export function App() {
       if (lifecycle.signal.aborted) {
         return;
       }
-      const exists = !!list?.some((s) => s.id === sessionId);
+      // Child sessions are hidden from History, so a `sub_*` id is fetched on
+      // its own: the messages endpoint serves it and marks it read-only.
+      const listed = !!list?.some((s) => s.id === sessionId);
+      const exists = listed || isSubagentSessionId(sessionId);
       if (exists) {
         const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
@@ -2753,6 +2783,16 @@ export function App() {
           const loaded = await loadMessages(undefined, { freshLoad: noShadow });
           if (lifecycle.signal.aborted) {
             return;
+          }
+          if (
+            loaded === null &&
+            !listed &&
+            viewedSessionIdRef.current.trim() === sessionId
+          ) {
+            // A `sub_*` id the server no longer serves: nothing to keep a
+            // skeleton up for, so it lands on the empty state like any
+            // unknown id.
+            setSessionLoading(false);
           }
           if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
@@ -3714,6 +3754,16 @@ export function App() {
     }
   }, [sessionId]);
 
+  /** Opens a session in this tab: the child transcript behind an agent task,
+   *  or the parent chat from a read-only notice. Same path as a History pick,
+   *  so the panel closes and the hash becomes `#/s/<id>`. */
+  const openSessionInPlace = (targetId: string) => {
+    const id = targetId.trim();
+    if (id) {
+      pickSession(id);
+    }
+  };
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -4010,6 +4060,7 @@ export function App() {
             onClearFinished={() => {
               void clearFinishedTasks();
             }}
+            onOpenSession={openSessionInPlace}
           />
         ) : null}
 
@@ -4022,6 +4073,8 @@ export function App() {
           backgroundNowMs={backgroundNowMs}
           onOpenBackgroundTask={openBackgroundTask}
           onStopBackgroundTask={handleStopBackgroundTask}
+          subagentTranscript={subagentTranscript}
+          onOpenSession={openSessionInPlace}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
@@ -4063,7 +4116,7 @@ export function App() {
           onModeChange={setMode}
           onDraftChange={setDraft}
           generating={generating}
-          {...(!generating && lastUserText.trim()
+          {...(!generating && lastUserText.trim() && !subagentTranscript
             ? { onRetryLast: handleRetryLast }
             : {})}
           onContextRingOpen={() => {
@@ -4085,6 +4138,9 @@ export function App() {
             );
           }}
           onPlanDocumentRun={(slug) => {
+            if (subagentTranscript) {
+              return;
+            }
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())
@@ -4118,11 +4174,15 @@ export function App() {
               ),
             );
           }}
-          onEdit={handleEditUserMessage}
+          {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
           onSend={(text: string, files?: File[]) => {
+            // A subagent transcript is read-only: the server answers 409.
+            if (subagentTranscript) {
+              return;
+            }
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())

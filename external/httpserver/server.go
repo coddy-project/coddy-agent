@@ -363,6 +363,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-Coddy-Session-ID", sessionID)
 	}
+	// A subagent's child session is a read-only transcript for every caller;
+	// even a direct completion would append to it.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsCoddyProfile(model) {
 		st.SetMode(model)
@@ -428,7 +433,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			_ = bridge.FinishStream()
 			if !req.Stream {
 				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
+				if errors.Is(err, session.ErrSessionTurnBusy) || isSubagentReadOnly(err) {
 					code = http.StatusConflict
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)
@@ -683,6 +688,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	if createdNew {
 		w.Header().Set("X-Coddy-Session-ID", sid)
 	}
+	// See handleChatCompletions: a child session is read-only for every caller.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 
 	if httpModelIsCoddyProfile(model) {
 		st.SetMode(model)
@@ -790,7 +799,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			_ = bridge.FinishStream()
 			if !body.Stream {
 				code := http.StatusInternalServerError
-				if errors.Is(err, session.ErrSessionTurnBusy) {
+				if errors.Is(err, session.ErrSessionTurnBusy) || isSubagentReadOnly(err) {
 					code = http.StatusConflict
 				}
 				http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), code)

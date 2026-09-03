@@ -55,6 +55,7 @@ function renderPanel(over: Partial<Props> = {}) {
     onBackToList: () => {},
     onStopTask: () => {},
     onClearFinished: () => {},
+    onOpenSession: () => {},
     ...over,
   };
   return render(<BackgroundTasksPanel {...props} />);
@@ -125,6 +126,7 @@ test("Clear is offered only when there is history to clear", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={onClearFinished}
+      onOpenSession={() => {}}
     />,
   );
   fireEvent.click(screen.getByTestId("bgtask-clear-finished"));
@@ -149,6 +151,7 @@ test("the progress bar appears only when the model gave an estimate", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={() => {}}
+      onOpenSession={() => {}}
     />,
   );
   expect(screen.getByRole("progressbar")).toHaveAttribute(
@@ -201,10 +204,94 @@ test("empty and error states replace the sections", () => {
       onBackToList={() => {}}
       onStopTask={() => {}}
       onClearFinished={() => {}}
+      onOpenSession={() => {}}
     />,
   );
   expect(screen.getByTestId("bgtasks-list-error")).toHaveTextContent(
     "HTTP 500",
   );
   expect(screen.queryByTestId("bgtasks-list-empty")).toBeNull();
+});
+
+/** A subagent run: no command, the label the pool writes, the child session. */
+function agentTask(over: Partial<BackgroundTask> = {}): BackgroundTask {
+  return {
+    id: "bg_7",
+    session_id: "s1",
+    kind: "agent",
+    label: "agent explore: survey the repo",
+    agent: { name: "explore", session_id: "sub_0a1b2c" },
+    status: "running",
+    started_at: new Date(START_MS).toISOString(),
+    timeout_seconds: 1800,
+    output_bytes: 0,
+    output_truncated: false,
+    elapsed_seconds: 0,
+    overdue: false,
+    running: true,
+    ...over,
+  };
+}
+
+test("agent tasks carry an agent badge in both sections", () => {
+  renderPanel({
+    tasks: [
+      agentTask(),
+      task(),
+      done("bg_2"),
+      agentTask({
+        id: "bg_8",
+        running: false,
+        status: "succeeded",
+        finished_at: new Date(START_MS + 30_000).toISOString(),
+        elapsed_seconds: 30,
+      }),
+    ],
+  });
+
+  expect(screen.getByTestId("bgtask-agent-badge-bg_7")).toHaveTextContent(
+    "agent",
+  );
+  expect(screen.queryByTestId("bgtask-agent-badge-bg_1")).toBeNull();
+
+  fireEvent.click(screen.getByTestId("bgtask-finished-toggle"));
+  expect(screen.getByTestId("bgtask-agent-badge-bg_8")).toBeInTheDocument();
+  expect(screen.queryByTestId("bgtask-agent-badge-bg_2")).toBeNull();
+});
+
+test("an agent task's detail names the subagent and opens its transcript", () => {
+  const onOpenSession = vi.fn();
+  const { container } = renderPanel({
+    selectedTaskId: "bg_7",
+    tasks: [agentTask()],
+    selectedOutput: "→ read\n=== subagent report ===\nstatus: succeeded",
+    onOpenSession,
+  });
+
+  expect(screen.getByTestId("bgtask-detail-agent-name")).toHaveTextContent(
+    "explore",
+  );
+  // The role name stands where a shell command would.
+  expect(container.querySelector(".bgtask-detail-command")).toBeNull();
+  // The output pane is the child's live log, report block included.
+  expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
+    "=== subagent report ===",
+  );
+
+  fireEvent.click(screen.getByTestId("bgtask-open-transcript"));
+  expect(onOpenSession).toHaveBeenCalledWith("sub_0a1b2c");
+});
+
+test("Open transcript stays disabled until the child session is known", () => {
+  const onOpenSession = vi.fn();
+  renderPanel({
+    selectedTaskId: "bg_7",
+    tasks: [agentTask({ agent: { name: "explore" } })],
+    onOpenSession,
+  });
+
+  const button = screen.getByTestId("bgtask-open-transcript");
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(onOpenSession).not.toHaveBeenCalled();
 });

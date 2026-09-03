@@ -66,6 +66,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.memory.label": "Long-term memory",
   "settings.section.system.label": "System",
   "settings.section.compaction.label": "Context compaction",
+  "settings.section.subagents.label": "Subagents",
   "settings.section.appearance.desc": "Theme & color mode",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
@@ -76,6 +77,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.memory.desc": "Long-term memory options",
   "settings.section.system.desc": "Scheduler, logs, prompts",
   "settings.section.compaction.desc": "Conversation history compaction",
+  "settings.section.subagents.desc": "Delegation pool & trust",
 
   "settings.nav.aria.scrollLeft": "Scroll sections left",
   "settings.nav.aria.scrollRight": "Scroll sections right",
@@ -665,6 +667,13 @@ export const messagesEn: Record<string, string> = {
   "chat.branchPrev": "Previous branch",
   "chat.branchNext": "Next branch",
   "chat.branchLabel": "Branch {current} of {total}",
+  "chat.subagentReadOnly.notice":
+    "Read-only transcript of subagent {name}. Prompts go to the parent chat.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Read-only subagent transcript. Prompts go to the parent chat.",
+  "chat.subagentReadOnly.openParent": "Open parent chat",
+  "chat.subagentTitle": "Subagent {name}",
+  "chat.subagentTitleUnnamed": "Subagent transcript",
   "chat.heroTitle": "What do you want to {verb}?",
   "chat.heroVerb.know": "know",
   "chat.heroVerb.build": "build",
@@ -873,6 +882,10 @@ export const messagesEn: Record<string, string> = {
   "tasks.status.timedOut": "Timed out",
   "tasks.status.stopped": "Stopped",
   "tasks.status.orphaned": "Orphaned",
+  "tasks.badge.agent": "agent",
+  "tasks.agentHeading": "Subagent",
+  "tasks.openTranscript": "Open transcript",
+  "tasks.openTranscriptUnavailable": "The child session is not known yet",
 
   "messages.preparingResponse": "Preparing response",
   "messages.copyCode": "Copy code",
@@ -1021,6 +1034,7 @@ export const messagesEn: Record<string, string> = {
   "status.write": "Writing",
   "status.run": "Running",
   "status.runRemote": "Running over SSH",
+  "status.spawnAgent": "Running subagent",
   "status.createDir": "Creating directory",
   "status.touch": "Creating file",
   "status.move": "Moving",

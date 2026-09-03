@@ -255,6 +255,12 @@ test("toolCallTargetText names the one thing each call acts on", () => {
     }),
   ).toBe("uptime");
   expect(
+    toolCallTargetText({
+      title: "spawn_agent",
+      argsText: '{"agent":"reviewer","prompt":"review the diff"}',
+    }),
+  ).toBe("reviewer");
+  expect(
     toolCallTargetText({ title: "grep", argsText: '{"pattern":"TODO"}' }),
   ).toBe("TODO");
   expect(

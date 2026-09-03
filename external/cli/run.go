@@ -166,11 +166,15 @@ func Run(args []string, deps CommandDeps) error {
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
+		// The manager owns child sessions; it exists by the time it invokes
+		// the runner, so the closure captures the variable before assignment.
+		var mgr *session.Manager
 		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 			loop := agent.NewAgent(cfg, st, snd, log)
+			loop.SetSubagentRuntime(mgr)
 			return loop.Run(rctx, prompt)
 		}
-		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
 		return PrintPrompt(ctx, mgr, popts)
 	}
@@ -225,12 +229,14 @@ func Run(args []string, deps CommandDeps) error {
 // and slash-catalog updates reach the console.
 func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	var app *App
+	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		loop := agent.NewAgent(cfg, st, snd, log)
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	lateSender := &lateBoundSender{}
-	mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	return app

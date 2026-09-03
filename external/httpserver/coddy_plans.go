@@ -195,6 +195,10 @@ func (s *Server) coddyDesignPlanPatch(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
+	// Running a plan is a turn; a child session's transcript is read-only.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 	result, err := s.mgr.RunPlan(r.Context(), id, slug, planRunNoopSender{})
 	if err != nil {
 		s.coddyPlanHTTPError(w, err)
@@ -264,6 +268,8 @@ func (s *Server) coddyPlanHTTPError(w http.ResponseWriter, err error) {
 		http.Error(w, `{"error":{"message":"invalid plan slug"}}`, http.StatusBadRequest)
 	case errors.Is(err, session.ErrSessionTurnBusy):
 		http.Error(w, `{"error":{"message":"session busy"}}`, http.StatusConflict)
+	case isSubagentReadOnly(err):
+		writeSubagentsError(w, http.StatusConflict, err.Error())
 	default:
 		s.log.Error("design plan", "error", err)
 		http.Error(w, `{"error":{"message":"request failed"}}`, http.StatusInternalServerError)

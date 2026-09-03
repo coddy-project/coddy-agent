@@ -140,6 +140,9 @@ func Run(args []string, deps CommandDeps) error {
 			}
 			return warnings, err
 		})
+		// The manager owns child sessions; without this hook spawn_agent
+		// answers that subagents are not available in this session.
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)

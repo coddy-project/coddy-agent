@@ -1,6 +1,6 @@
 # Plan: subagents (user-defined child agents on the background task pool)
 
-Status: draft v5 for cross-review, branch `claude/subagents-pool-config-d0d8da`.
+Status: approved by Codex cross-review (plan iteration 6, 2026-09-03) on branch `claude/subagents-pool-config-d0d8da`; implementation in progress.
 Reference for the shipped behavior will be `docs/subagents.md`; this file stays
 as the design record. Review deltas are marked inline as `[rev]` (iteration 1),
 `[rev2]` (iteration 2), `[rev3]` (iteration 3) and `[rev4]` (iteration 4).

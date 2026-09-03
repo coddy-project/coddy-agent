@@ -63,6 +63,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.memory.label": "Долговременная память",
   "settings.section.system.label": "Система",
   "settings.section.compaction.label": "Сжатие контекста",
+  "settings.section.subagents.label": "Субагенты",
   "settings.section.appearance.desc": "Тема и цветовой режим",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
@@ -73,6 +74,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.memory.desc": "Параметры долговременной памяти",
   "settings.section.system.desc": "Планировщик, логи, промпты",
   "settings.section.compaction.desc": "Сжатие истории диалога",
+  "settings.section.subagents.desc": "Пул делегирования и доверие",
 
   "settings.nav.aria.scrollLeft": "Прокрутить разделы влево",
   "settings.nav.aria.scrollRight": "Прокрутить разделы вправо",
@@ -680,6 +682,13 @@ export const messagesRu: Record<string, string> = {
   "chat.branchPrev": "Предыдущая ветка",
   "chat.branchNext": "Следующая ветка",
   "chat.branchLabel": "Ветка {current} из {total}",
+  "chat.subagentReadOnly.notice":
+    "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Транскрипт субагента доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.openParent": "Открыть родительский чат",
+  "chat.subagentTitle": "Субагент {name}",
+  "chat.subagentTitleUnnamed": "Транскрипт субагента",
   "chat.heroTitle": "Что вы хотите {verb}?",
   "chat.heroVerb.know": "узнать",
   "chat.heroVerb.build": "создать",
@@ -885,6 +894,10 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.timedOut": "Таймаут",
   "tasks.status.stopped": "Остановлена",
   "tasks.status.orphaned": "Осиротела",
+  "tasks.badge.agent": "агент",
+  "tasks.agentHeading": "Субагент",
+  "tasks.openTranscript": "Открыть транскрипт",
+  "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
 
   "messages.preparingResponse": "Готовлю ответ",
   "messages.copyCode": "Копировать код",
@@ -1048,6 +1061,7 @@ export const messagesRu: Record<string, string> = {
   "status.write": "Пишу",
   "status.run": "Выполняю",
   "status.runRemote": "Выполняю по SSH",
+  "status.spawnAgent": "Запускаю субагента",
   "status.createDir": "Создаю каталог",
   "status.touch": "Создаю файл",
   "status.move": "Перемещаю",

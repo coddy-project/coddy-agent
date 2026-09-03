@@ -173,32 +173,39 @@ tools:
     output_buffer_bytes: 262144
 ```
 
-Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all.
+Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
-## Extension point: nested agents
+## Subagent runs
 
-The pool deliberately knows nothing about shells. What a task *is* comes from a `Runner`:
+The pool deliberately knows nothing about shells. What a task *is* comes from whoever starts it: the `CommandRunner` for a shell command, or a launch callback for work the pool cannot describe as a command:
 
 ```go
-type Runner interface {
-	Start(spec Spec, out io.Writer) (Handle, error)
-}
-
 type Handle interface {
 	Wait() (exitCode int, err error)
 	Stop(grace time.Duration) error
 	PID() int
 	ProcessStartedAt() time.Time
 }
+
+type LaunchFunc func(taskID string, out io.Writer) (Handle, error)
 ```
 
-`PID` is 0 and `ProcessStartedAt` is the zero time for work that is not an OS process — which is the shape a nested-agent runner has, and the reason a survivor probe never mistakes one for a pid it may kill.
+A **subagent run** (`docs/subagents.md`) is a task of kind `agent`, started through `Pool.Launch(spec, launch)`. `Launch` shares the single scheduling path with `Start` and `Adopt`: admission (the per-session limit, drain) happens first, so `ErrPoolFull` or `ErrDraining` guarantees the callback never ran and nothing was created; then the pool assigns and registers the task id and only then calls back with that id and the task's output sink, so the child session is created knowing which task it belongs to. The callback returns a `Handle` whose `Stop` cancels the child's context and whose `Wait` blocks until the run settled. `PID` is 0 and `ProcessStartedAt` is the zero time, which is why the survivor probe never mistakes such a task for a pid it may kill.
 
-`CommandRunner` is the only implementation today, and `Spec.Kind` already carries a reserved `KindAgent` value that flows end to end through the snapshot, the persistence format, the HTTP surface, and the drawer. Spawning a nested agent as a background task is therefore a second `Runner` plus a tool that builds the `Spec` — not a second scheduling mechanism, a second status surface, or a second drawer. That work is intentionally **out of scope** for this change and belongs in its own PR.
+What that changes on the surface:
+
+- `Spec.Agent` and `Snapshot.Agent` carry the agent identity, serialised as `"agent": {"name": "…", "session_id": "sub_…"}` on the task row, in `GET .../background-tasks` and in the persisted `meta.json`. The child session id is generated before the pool is involved, so the first snapshot ever published already carries it. Without an explicit label the row reads `agent <name>`; the runtime sets `agent <name>: <description>`.
+- The output log is the child's progress: one `[assistant]` line per line of assistant text, `→ tool` on start, `✓` / `✗ tool` on finish, and a closing block starting with `=== subagent report ===` that carries the outcome, the turn count, the duration and the child's final message. `background_output` and `background_wait` return it like any other log.
+- **Stop cancels the child.** `background_stop`, the panel's Stop control, `POST .../stop`, session delete and server drain all go through the handle, which cancels the child's turn; the pool waits for the run to settle before it reports `stopped`.
+- The Tasks panel shows an `agent` badge with the agent name, and its detail pane offers **Open transcript**, which routes to the child session (`#/s/<child id>`), a read-only transcript that stays out of History.
+- The run is a task of the **parent** session, so it counts against the parent's `max_concurrent` like a background command. Work the child starts itself (a backgrounded `run_command`, a grandchild) is registered under the **child's** session id and persisted in the child's bundle; it is stopped and awaited before the child is retired. The number of child LLM loops the whole process may run at once is a separate, process-wide cap, `subagents.max_concurrent`.
+
+Everything else in this document applies unchanged: timeouts (the run arrives with an explicit `TimeoutSeconds` resolved by the runtime and is capped by `max_timeout_seconds` like any other task), persistence, drain, orphan marking after a restart, and the HTTP surface.
 
 ## Tests
 
 - Happy paths are Gherkin specs run by godog: `features/background_tasks.feature` (pool behaviour through the tools, `internal/tools/shell/bdd_background_test.go`), `features/background_reap.feature` (leftovers from an earlier run, `internal/tools/shell/bdd_background_reap_test.go`, which abandons a real second pool over the same bundle rather than stubbing the restart), `features/background_tasks_http.feature` (REST surface, `external/httpserver/bdd_background_test.go`), `features/background_permissions.feature` (the program-wide grant, `internal/permission/bdd_background_permissions_test.go`), and `features/foreground_timeout_adoption.feature` (handover of a foreground command that outlives its timeout, `internal/tools/shell/bdd_foreground_timeout_test.go`).
 - Edge cases live in ordinary unit tests: timeout resolution, the concurrency cap, output-window truncation, orphan marking, id uniqueness across restarts (`internal/bgtask`), grant refusal for metacharacters (`internal/permission`), and the UI helpers (`external/ui/src/ui/tasks/`).
 - The liveness probe has its own tests in `internal/platform`: `procgroup_test.go` for what both platforms owe (a running process is found, an exited one is not, probing is repeatable), and `procgroup_windows_test.go` for what only Windows can get wrong — reporting a killed process alive because its handle is still open, accepting a creation time the record does not describe, and killing a pid on such a record. Reading a bundle written before `process_started_at` existed is pinned in `internal/bgtask` (`TestLoadPersistedLeavesALegacyRecordWithoutAProcessIdentity`).
+- Subagent runs on the pool are specified in `features/subagents.feature` (`internal/agent/bdd_subagents_test.go`) and `features/subagents_http.feature` (`external/httpserver/bdd_subagents_test.go`); `Pool.Launch` ordering and `Snapshot.Agent` persistence are unit tests in `internal/bgtask`. See `docs/subagents.md`.
 - End-to-end against a real model: `examples/httpserver/http_e2e_background.py`, `examples/httpserver/http_e2e_background_reap.py` (kills its own coddy mid-task and makes a fresh one clean up after it), and `examples/acp/acp_e2e_background.py`.

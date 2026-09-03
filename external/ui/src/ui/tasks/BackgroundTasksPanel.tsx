@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/I18nProvider";
 import type { BackgroundTask } from "./types";
 import {
+  agentTaskName,
+  agentTranscriptSessionId,
   estimateProgress,
   groupTasks,
+  isAgentTask,
   isOverdue,
   taskStatusLabel,
   taskTimingLine,
@@ -17,6 +20,23 @@ function IconStop() {
   return (
     <span className="composer-send-glyph" aria-hidden="true">
       <span className="composer-stop-square" />
+    </span>
+  );
+}
+
+/**
+ * Marks a subagent run. The label already reads `agent <name>: <description>`,
+ * so the badge is the at-a-glance cue that this row is a child agent, not a
+ * shell command, and that its detail pane opens a transcript.
+ */
+function AgentBadge(props: { taskId: string }) {
+  const { t } = useT();
+  return (
+    <span
+      className="bgtask-kind-badge"
+      data-testid={`bgtask-agent-badge-${props.taskId}`}
+    >
+      {t("tasks.badge.agent")}
     </span>
   );
 }
@@ -56,6 +76,7 @@ function RunningCard(props: {
           >
             {task.label}
           </span>
+          {isAgentTask(task) ? <AgentBadge taskId={task.id} /> : null}
         </button>
         <button
           type="button"
@@ -119,6 +140,7 @@ function FinishedRow(props: {
         aria-hidden="true"
       />
       <span className="bgtask-finished-label">{task.label}</span>
+      {isAgentTask(task) ? <AgentBadge taskId={task.id} /> : null}
       <span className="bgtask-finished-meta">
         {typeof task.exit_code === "number" && task.status !== "succeeded"
           ? `${taskStatusLabel(task.status).toLowerCase()} · ${clock}`
@@ -134,11 +156,13 @@ function TaskDetail(props: {
   nowMs: number;
   onBack: () => void;
   onStop: (taskId: string) => void;
+  onOpenSession: (sessionId: string) => void;
 }) {
   const { t } = useT();
   const task = props.task;
   const preRef = useRef<HTMLPreElement | null>(null);
   const [follow, setFollow] = useState(true);
+  const agentSid = agentTranscriptSessionId(task);
 
   useEffect(() => {
     const el = preRef.current;
@@ -184,7 +208,40 @@ function TaskDetail(props: {
             {taskTimingLine(task, props.nowMs)}
           </span>
         </div>
-        {task.command ? (
+        {isAgentTask(task) ? (
+          <div
+            className="bgtask-detail-agent"
+            data-testid="bgtask-detail-agent"
+          >
+            <span className="bgtask-detail-agent-label">
+              {t("tasks.agentHeading")}
+            </span>
+            <span
+              className="bgtask-detail-agent-name"
+              data-testid="bgtask-detail-agent-name"
+            >
+              {agentTaskName(task) || task.label}
+            </span>
+            <button
+              type="button"
+              className="scheduler-btn bgtask-open-transcript"
+              data-testid="bgtask-open-transcript"
+              disabled={agentSid === null}
+              title={
+                agentSid === null
+                  ? t("tasks.openTranscriptUnavailable")
+                  : undefined
+              }
+              onClick={() => {
+                if (agentSid !== null) {
+                  props.onOpenSession(agentSid);
+                }
+              }}
+            >
+              {t("tasks.openTranscript")}
+            </button>
+          </div>
+        ) : task.command ? (
           <pre className="bgtask-detail-command">{task.command}</pre>
         ) : null}
         {task.error ? (
@@ -238,6 +295,8 @@ export function BackgroundTasksPanel(props: {
   onBackToList: () => void;
   onStopTask: (taskId: string) => void;
   onClearFinished: () => void;
+  /** Routes to another session: the child transcript behind an agent task. */
+  onOpenSession: (sessionId: string) => void;
 }) {
   const { t } = useT();
   const [finishedOpen, setFinishedOpen] = useState(false);
@@ -279,6 +338,7 @@ export function BackgroundTasksPanel(props: {
           nowMs={props.nowMs}
           onBack={props.onBackToList}
           onStop={props.onStopTask}
+          onOpenSession={props.onOpenSession}
         />
       ) : (
         <div className="bgtask-list">

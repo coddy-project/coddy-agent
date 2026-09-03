@@ -413,21 +413,35 @@ Screenshot: `docs/assets/screenshot-fullhd-tasks.png`.
 The panel is docked **inside the session**, to the right of the transcript (`.bgtasks-panel`), not a shell drawer: a task belongs to the chat that started it. Routes are `#/s/<sessionId>/tasks` and `#/s/<sessionId>/tasks/<task_id>`, so a reload restores the chat and the panel together; closing writes `#/s/<sessionId>` back. Backed by `/coddy/sessions/{id}/background-tasks*` (see `docs/background-tasks.md`).
 
 - It **polls** rather than listening on SSE, because a background task outlives the turn that started it: every 2.5s while anything runs, every 15s otherwise. A poll against an unreachable server yields a normal error result, never an unhandled rejection.
-- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`.
-- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk. **Clear** drops the finished history for the session.
+- **Running** is a section of cards (status dot, command, elapsed against the estimate, Stop). A progress bar appears only while running **and** when the model supplied `expected_seconds`. A subagent run (`kind: "agent"`, started by `spawn_agent`) is the same card with an `agent` badge after its `agent <name>: <description>` label.
+- **Finished N** is a counter; expanding it lists one line per task, capped at 40 rendered rows with a note naming what stays on disk; agent rows keep the badge. **Clear** drops the finished history for the session.
 - Ordering is purely by start time, newest first, in both sections.
 - The **opener** is a chip at the end of the transcript (under the last message, above the composer), not a nav rail entry: `N running tasks` while work is in flight, `N background tasks` otherwise, and nothing at all in a chat that never ran one.
 - On `max-width: 1199px` the panel takes the screen and finished rows grow to a 40px touch target.
 - A transcript `run_command` row that started a task keeps a live chip in its **collapsed** summary and gains **Open in Tasks** / **Stop** when expanded, driven by the same poll.
+- The **detail pane** of an agent task shows the subagent name instead of a command and an **Open transcript** button (disabled until the row carries `agent.session_id`) that opens the child session at `#/s/<child id>` the way a History pick does; the output pane keeps the child's live progress log, which ends with the `=== subagent report ===` block.
 
 Automated checks:
 
-- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping)
-- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, empty and error states)
+- **external/ui/src/ui/tasks/taskStatus.test.ts** (timing, progress, overdue, poll cadence, start-time ordering, grouping, agent task helpers)
+- **external/ui/src/ui/tasks/BackgroundTasksPanel.test.tsx** (sections, finished counter, Clear, detail pane, agent badge and Open transcript, empty and error states)
 - **external/ui/src/ui/tasks/api.test.ts** (paths, headers, offline degradation)
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
-- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion)
+- **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+
+### Subagent transcripts
+
+A child session (`sub_<hex>`) is read-only: `GET /coddy/sessions/{id}/messages` returns `subagent {parentSessionId, name, taskId}` and `readOnly: true`, and every prompt against it is refused with 409. The SPA reads those two fields (absent on an ordinary session), renders the transcript with the usual message renderer, and replaces the composer with a notice (`SubagentReadOnlyNotice`): "Read-only transcript of subagent `<name>`. Prompts go to the parent chat." with an **Open parent chat** link to `#/s/<parentSessionId>`. Retry, message editing and **Run plan** are withheld for such a session, and the chat header reads "Subagent `<name>`" because a child has no History row to name it. Child sessions are hidden from History; the shell still fetches a `sub_*` id opened from the Tasks panel or by URL.
+
+Automated checks:
+
+- **external/ui/src/ui/chat/subagentTranscript.test.ts** (marker parsing, bare `readOnly`, `sub_*` id detection)
+- **external/ui/src/ui/chat/SubagentReadOnlyNotice.test.tsx** (copy with and without a name, parent link href, same-tab open vs modifier click)
+- **external/ui/src/ui/chat/ChatScreen.test.tsx** (notice replaces the composer in the docked and the hero layout)
+- **external/ui/src/ui/chat/subagentReadOnlyCss.test.ts** (notice and link use theme tokens)
+- **external/ui/src/ui/i18n/messagesParity.test.ts** (new keys exist in every dictionary)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `subagents` config tab)
 
 ## Live token usage
 

@@ -13,7 +13,7 @@ alwaysApply: true
 1. **`internal/version`**, **`internal/logger`**, small shared helpers - minimal inward imports.
 2. **`internal/config`** - configuration structs and loading.
 3. **`internal/session`**, **`internal/llm`**, **`internal/prompts`**, **`internal/bgtask`** - runtime state, model access, and the background task pool (**`internal/bgtask`** imports only **`internal/platform`**; nothing below it may import back).
-4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`** - capabilities and policies.
+4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`**, **`internal/subagents`** - capabilities and policies (**`internal/subagents`** produces immutable definitions and pure trust / tool-set decisions; **`internal/agent`** applies them).
 5. **`internal/agent`** - ReAct-style loop assembling the above.
 6. **`internal/acp`** - ACP protocol server on top of the agent and session manager.
 7. **`cmd/coddy`** - CLI entrypoints and wiring.
@@ -28,7 +28,7 @@ Do not introduce import cycles. If a new package would cycle, split interfaces o
 
 ## Optional module tools (`external/*/tools`)
 
-Optional domains that ship their own LLM-callable tools (not the main **`internal/tools`** registry) use **`internal/tooling.Tool`**: **`Definition`** (**`llm.ToolDefinition`**) plus **`Execute func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error)`** in the **same file**, same pattern as **`external/scheduler/tools/job_get.go`**.
+Optional domains that ship their own LLM-callable tools (not the main **`internal/tools`** registry) use **`internal/tooling.Tool`**: **`Definition`** (**`llm.ToolDefinition`**) plus **`Execute func(ctx context.Context, argsJSON string, env *tooling.Env) (string, error)`** in the same file, same pattern as **`external/scheduler/tools/job_get.go`**.
 
 - **One constructor per file** - e.g. **`jobGetTool(cfg *config.Config) *tooling.Tool`**, **`memorySearchTool(store *memstorage.Store, mem *config.MemoryConfig) *tooling.Tool`**. **`InputSchema`** uses **`map[string]interface{}`** with **`[]interface{}`** for **`required`** and enums (match existing scheduler and memory files).
 - **`register.go`** - aggregates constructors (scheduler **`RegisterTools`** into the session registry; memory **`PersistTools`**, **`RecallTools`**, **`ToolDefinitions`**, **`Exec`** for the memory copilot loop in **`external/memory`**).

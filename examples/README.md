@@ -14,6 +14,7 @@ pty (see the CLI section below):
 | **`e2e_todo`** | **`httpserver/http_e2e_todo.py`** | **`acp/acp_e2e_todo.py`** |
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** | **`acp/acp_e2e_memory.py`** |
 | **`e2e_background`** | **`httpserver/http_e2e_background.py`** (task list, live output, stop, 404) | **`acp/acp_e2e_background.py`** (persisted `background/<id>/meta.json` plus `output.log`) |
+| **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog) | **`acp/acp_e2e_subagents.py`** (`coddy agents trust`, persisted `agent` task plus `sub_*` child bundle with the parent link) |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
 | **`e2e_compact`** | **`httpserver/http_e2e_compact.py`** (`/compact` prompt + REST endpoint) | **`acp/acp_e2e_compact.py`** (also auto threshold via tiny-window config) |
 | **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
@@ -35,6 +36,7 @@ pty (see the CLI section below):
 | **`cli/`** | Console TUI harnesses and **`test_cli.sh`** (pty-driven, Linux-only). |
 | **`shared/`** | **`scheduler_e2e_common.py`**, **`plan_e2e_common.py`** for paired e2e harnesses. |
 | **`skills_fixture/`** | Bundled skill for slash-command HTTP demo (copied into **`$CODDY_HOME/skills_fixture`** by **`test_httpserver.sh`**). |
+| **`agents_fixture/`** | Project-scope subagent definition **`.coddy/agents/marker-reporter.md`** (read-only, reports the `MARKER:` line of a named file); each **`e2e_subagents`** script copies it into its work dir and approves it before the spawn. |
 
 ## HTTP gateway
 
@@ -47,7 +49,7 @@ From the repository root:
 
 Optional port: **`./examples/test_httpserver.sh 19900`**.
 
-**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_web`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_background`**, **`http_e2e_toolcalls_persist`**, **`http_e2e_compact`**, **`http_e2e_scheduler_agent`**, **`http_e2e_plan_files`** (plan mode **`plan_write`** to **`plans/e2e-plan.plan.md`**, then **`metadata.runPlanSlug`**), **`http_e2e_config`** (staged uci-like config edit, Russian confirm-commit, rollback from the snapshot; the server config ends the script unchanged). All steps run every time and need a working models backend where the LLM is called.
+**`test_httpserver.sh`** order: **`http_smoke_gateway`**, **`http_e2e_scheduler_api`** (REST CRUD plus on-disk **`$CODDY_HOME/scheduler/*.md`**), **`http_e2e_models`**, **`http_e2e_web`**, **`http_e2e_todo`**, **`http_e2e_memory`**, **`http_e2e_skills_slash`**, **`http_e2e_background`**, **`http_e2e_subagents`** (`POST /coddy/subagents/marker-reporter/trust`, `spawn_agent` run as an `agent` task with its `sub_*` child session, read-only child transcript, `include_subagents`, catalog), **`http_e2e_toolcalls_persist`**, **`http_e2e_compact`**, **`http_e2e_scheduler_agent`**, **`http_e2e_plan_files`** (plan mode **`plan_write`** to **`plans/e2e-plan.plan.md`**, then **`metadata.runPlanSlug`**), **`http_e2e_config`** (staged uci-like config edit, Russian confirm-commit, rollback from the snapshot; the server config ends the script unchanged). All steps run every time and need a working models backend where the LLM is called.
 
 Docker-only smoke:
 
@@ -62,7 +64,7 @@ Docker-only smoke:
 ./examples/test_acp.sh
 ```
 
-Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_rules`**, **`acp_e2e_config`** (staged config edit into a temp config copy, Russian confirm-commit, rollback), **`acp_e2e_memory`**, **`acp_e2e_background`**, **`acp_e2e_toolcalls_persist`**, **`acp_e2e_compact`**, **`acp_e2e_scheduler_agent`**, **`acp_e2e_plan_files`** (plan file on disk plus run via **`_meta.coddy.dev/runPlanSlug`**).
+Order: **`acp_smoke_gateway`**, **`acp_e2e_models`**, **`acp_e2e_web`**, **`acp_e2e_todo`**, **`acp_e2e_skills_slash`**, **`acp_e2e_rules`**, **`acp_e2e_config`** (staged config edit into a temp config copy, Russian confirm-commit, rollback), **`acp_e2e_memory`**, **`acp_e2e_background`**, **`acp_e2e_subagents`** (`coddy agents trust` before the spawn, persisted `agent` task plus `sub_*` child bundle linked to the parent), **`acp_e2e_toolcalls_persist`**, **`acp_e2e_compact`**, **`acp_e2e_scheduler_agent`**, **`acp_e2e_plan_files`** (plan file on disk plus run via **`_meta.coddy.dev/runPlanSlug`**).
 
 Environment overrides: **`CODDY_BIN`**, **`CODDY_CONFIG`**, **`SESSION_ROOT`**, **`SESSION_ID`**, **`BASE_URL`**, **`MODEL`**, etc. (see each script docstring).
 
@@ -100,7 +102,8 @@ screen chrome. Knobs: `CLI_E2E_ONLY=<stem>` (one script),
 `CLI_E2E_TIMEOUT` (per-script seconds, default 600).
 
 CLI twins cover: smoke, models, web, todo, skills slash, rules, memory,
-background, toolcalls persist, compact, plan files, scheduler agent, plus
+background, subagents (`coddy agents trust` then a `spawn_agent` run), toolcalls
+persist, compact, plan files, scheduler agent, plus
 console-unique permissions (ask-mode modal) and resume (transcript replay).
 REST-only surfaces (`e2e_scheduler_api`, `e2e_remote`,
 `e2e_background_reap`) have no console equivalent.

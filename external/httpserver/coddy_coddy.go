@@ -148,6 +148,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
+	s.registerSubagentRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
@@ -249,6 +250,12 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	}
 	ok := CompletePermissionAnswer(id, tcid, res)
 	if !ok {
+		// A child session never owns a prompt of its own (its requests are
+		// relayed to the parent chat), and a resume would build an agent on
+		// it; a read-only transcript answers 409 instead of 404.
+		if rejectSubagentTurn(w, s.persistedSessionState(r.Context(), id)) {
+			return
+		}
 		if s.tryResumePendingPermission(r.Context(), id, tcid, res) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -706,7 +713,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
-	rows, err := fs.ListSnapshots("", includeScheduler)
+	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{
+		IncludeSchedulerRuns: includeScheduler,
+		IncludeSubagents:     includeSubagents,
+	})
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
@@ -752,6 +763,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		}
 		if row.CWD != "" {
 			ent["cwd"] = row.CWD
+		}
+		if includeSubagents {
+			if link := subagentRowLink(fs, row.SessionID); link != nil {
+				ent["subagent"] = link
+			}
 		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
@@ -976,6 +992,12 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 		"sessionId": id,
 		"messages":  llmMsgsToCoddyOpenAIForSession(id, st.GetMessages()),
 	}
+	// A child session is a read-only transcript: the SPA drops the composer
+	// and links back to the parent chat and to the task in its drawer.
+	if meta := st.Subagent(); meta != nil {
+		out["readOnly"] = true
+		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
+	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
@@ -1092,22 +1114,22 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if fs == nil {
 		return
 	}
-	// Terminate anything this session left running before its bundle (and the
-	// task logs inside it) go away.
-	bgtask.Default().StopSession(id)
-	s.mgr.ForgetLiveSession(id)
 	// Retract the session from the branch file of whatever it forked from, so the
 	// branch navigator stops offering a thread that no longer exists. Read-side
 	// filtering covers the failure case, so a prune error must not block delete.
+	// It reads the session's own branch file, so it runs before the bundle goes.
 	if err := s.mgr.PruneBranchRefs(id); err != nil {
 		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
 	}
-	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
-		if !os.IsNotExist(err) {
-			s.log.Error("coddy session delete", "error", err)
-			http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
-			return
-		}
+	// The manager removes the whole tree: the tasks representing this session's
+	// subagent runs (and their descendants) are stopped and awaited first, then
+	// every remaining task of every node, then the bundles deepest first, so
+	// nothing writes into a directory that is already gone. An id with no bundle
+	// on disk removes nothing and still answers 200.
+	if err := s.mgr.DeleteSessionTree(id, bgtask.Default()); err != nil {
+		s.log.Error("coddy session delete", "error", err)
+		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_deleted", "id": id})

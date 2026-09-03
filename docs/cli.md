@@ -47,7 +47,8 @@ Top to bottom:
 - **Status**: braille spinner `⠋⠙⠹...` at 80 ms with a live status line naming
   the current step while a turn runs - verb plus target plus elapsed counter
   (`Reading README.md · 12s`, `Running npm test · 3s`, `Thinking… · 2s`,
-  `Responding`). A plain wait escalates with time: `Waiting for the model` →
+  `Responding`; `Running subagent reviewer · 40s` while a `spawn_agent` call
+  is in flight). A plain wait escalates with time: `Waiting for the model` →
   `The model is taking longer than usual` (15 s) → `Still no response from the
   server` (60 s). While a permission or question modal is open the line shows
   `Waiting for your approval` / `Waiting for your answer` with **no** counter
@@ -195,6 +196,40 @@ permission mode is governed by the remote server's configuration:
 error. Reasoning-level cycling is unavailable remotely in v1. Sessions
 persist only on the server; the startup banner shows `remote: <url>` and the
 exit hint prints a reconnect command with `--remote` included.
+
+## Subagent definitions (`coddy agents`)
+
+Three subcommands manage the subagent definitions the agent may delegate to
+(`docs/subagents.md`). They need no build tag, like `coddy mcp` and
+`coddy rules`:
+
+```
+coddy agents list [--cwd DIR]
+coddy agents trust <name> [--cwd DIR]
+coddy agents untrust <name> [--cwd DIR]
+```
+
+`list` prints the workspace and the effective `subagents.project_trust`, then
+the catalog as a table with `NAME`, `SCOPE` (`builtin`, `user`, `project`),
+`TRUST` (`trusted` or `needs_approval`), `FLAGS` (`hidden`, `model=…`,
+`mode=…`), `DESCRIPTION` and `PATH` (`(embedded)` for built-ins), a `(total N)`
+line, and a hint when project definitions await approval. `trust` prints the
+effective declaration first (file, model, mode, permission mode, tool lists,
+digest, receipt path) and then records a receipt for the file as it is on disk
+right now, keyed by the canonical workspace, the name and the file digest, in
+`<home>/subagents-trust.json`; a built-in or user-scope name needs no approval
+and the command says so. `untrust` withdraws a receipt. `--cwd` defaults to the
+process working directory, resolved like `coddy mcp`. Under
+`subagents.project_trust: deny` project files are not listed at all, and under
+`allow` they need no receipt.
+
+In the console a `spawn_agent` call shows as a tool box like any other, and the
+status line reads `Running subagent <name>` with its elapsed counter for as long
+as the child runs. A child's permission request, while its spawning turn is
+still alive, opens the usual modal in the parent chat with the title prefixed
+`[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
+`-c` never picks one, and a prompt sent to one is refused with a message naming
+the parent session.
 
 ## Security
 
