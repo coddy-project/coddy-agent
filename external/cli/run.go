@@ -166,11 +166,11 @@ func Run(args []string, deps CommandDeps) error {
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
+		var mgr *session.Manager
 		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-			loop := agent.NewAgent(cfg, st, snd, log)
-			return loop.Run(rctx, prompt)
+			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
 		}
-		mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+		mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 		lateSender.inner = &printSender{mgr: mgr, cfg: cfg, out: os.Stdout, errOut: os.Stderr}
 		return PrintPrompt(ctx, mgr, popts)
 	}
@@ -222,18 +222,38 @@ func Run(args []string, deps CommandDeps) error {
 
 // buildApp wires the manager triple (store -> manager -> app) with the app's
 // sender registered as the manager's server sender, so replay, mode, config,
-// and slash-catalog updates reach the console.
+// and slash-catalog updates reach the console. The runner only executes
+// inside manager prompt handling, so mgr and app are set by the time it runs.
 func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	var app *App
+	var mgr *session.Manager
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
-		return loop.Run(ctx, prompt)
+		return newTurnAgent(mgr, app, st, snd, log).Run(ctx, prompt)
 	}
 	lateSender := &lateBoundSender{}
-	mgr := session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
+	mgr = session.NewManager(cfg, lateSender, runner, log, cfg.Paths.CWD, store)
 	app = newApp(cfg, mgr, log, term, themeName, plain)
 	lateSender.inner = app.Sender()
 	return app
+}
+
+// newTurnAgent builds the ReAct agent for one local console turn on the
+// manager's live configuration and wires the staged config flow to the
+// manager's runtime reload, as cmd/coddy does for ACP and external/httpserver
+// for HTTP. Without the reloader the agent hides config_set through
+// config_rollback and the model can only read Coddy's configuration. After a
+// successful reload the app (nil in print mode) adopts the new config so its
+// model catalog, footer, and header follow the file.
+func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
+	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		warnings, err := mgr.ReloadConfigForSession(ctx, st)
+		if err == nil && app != nil {
+			app.replaceConfig(mgr.Cfg(), st)
+		}
+		return warnings, err
+	})
+	return loop
 }
 
 // warnInsecureRemote flags a bearer token about to travel over plain http to

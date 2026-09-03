@@ -4,13 +4,14 @@
 Spawns `coddy cli --plain --theme dark` in a pty (pexpect), feeds the output
 through a pyte terminal emulator, and exposes wait/send/assert helpers.
 Assertions favor on-disk session artifacts; screen greps are limited to
-deterministic chrome (headers, spinner label, fixture tokens).
+deterministic chrome (headers, the spinner glyph, fixture tokens).
 
 Linux-only (pty). Requires: pexpect, pyte (examples/cli/requirements.txt).
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import shutil
@@ -51,11 +52,35 @@ CTRL_L = "\x0c"
 CTRL_O = "\x0f"
 CTRL_T = "\x14"
 
-# Frames of the console loader (external/cli/tui/loader.go). While a turn runs the
-# status line starts with one of them; when the turn ends the row is cleared. The
-# label next to the frame is the live status phrase and changes per step, so the
-# frame is the only stable chrome to key "busy" on.
-BUSY_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+# Braille frames of the console spinner (external/cli/tui/loader.go). The
+# status phrase next to it changes with the step ("Waiting for the model",
+# "Reading README.md · 3s"), so the glyph is the only stable "turn running"
+# chrome on screen.
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+TURN_LOCK_NAME = ".coddy-turn.lock"
+
+
+def turn_lock_held(session_dir: Path) -> bool:
+    """True while the console holds the exclusive flock on the session's turn lock.
+
+    The file stays on disk after the turn; only the flock says whether a
+    turn is running (internal/session/manager_turn_lock_unix.go).
+    """
+    try:
+        fd = os.open(session_dir / TURN_LOCK_NAME, os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
 
 
 def coddy_bin() -> str:
@@ -214,47 +239,45 @@ class CoddyTUI:
         self.dump(f"wait_gone({needle!r}) timed out")
         raise AssertionError(f"screen still shows {needle!r}")
 
-    def is_busy(self) -> bool:
-        """True while the status line shows the loader frame (a turn is running)."""
-        for line in self.screen.display:
-            stripped = line.lstrip()
-            if len(stripped) >= 2 and stripped[0] in BUSY_FRAMES and stripped[1] == " ":
-                return True
-        return False
+    def turn_running(self) -> bool:
+        """A turn is running while the spinner is on screen or the turn lock is held."""
+        text = self.text()
+        if any(frame in text for frame in SPINNER_FRAMES):
+            return True
+        return any(turn_lock_held(d) for d in self.session_dirs())
 
-    def wait_busy(self, timeout: float = 30.0) -> None:
-        """Wait until the loader appears, i.e. the console accepted the prompt."""
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            self.pump(0.2)
-            if self.is_busy():
-                return
-            if not self.child.isalive():
-                self.dump("child exited while waiting for the loader")
-                raise AssertionError("coddy exited before starting the turn")
-        self.dump("wait_busy() timed out")
-        raise AssertionError("the loader never appeared")
-
-    def wait_idle(self, timeout: float = 240.0) -> None:
-        """Wait until the turn ends: the loader frame leaves the status line.
-
-        A prompt that was just sent may not have started its turn yet, so the loader
-        is given a moment to appear first; a turn that finished before the first
-        poll simply reads as idle.
-        """
-        start = time.time()
-        while time.time() - start < 5.0 and not self.is_busy():
-            self.pump(0.2)
+    def wait_turn_started(self, timeout: float = 30.0) -> None:
+        """Wait until a submitted prompt (or slash command) is visibly running."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             self.pump(0.3)
-            if not self.is_busy():
-                if not self.child.isalive():
-                    self.dump("child exited while waiting for idle")
-                    raise AssertionError("coddy exited during the turn")
+            if self.turn_running():
                 return
-        self.dump("wait_idle() timed out")
-        raise AssertionError("the turn never finished")
+        self.dump("wait_turn_started timed out")
+        raise AssertionError("the turn never started")
+
+    def wait_idle(self, timeout: float = 240.0) -> None:
+        """Wait until the running turn ends: no spinner on screen and the turn lock released.
+
+        A turn that has not started yet within the grace period counts as
+        finished (a fast failure can end before the first poll).
+        """
+        self.pump(1.0)
+        deadline = time.time() + timeout
+        grace = time.time() + 5.0
+        seen = False
+        while time.time() < deadline:
+            self.pump(0.3)
+            if not self.child.isalive():
+                self.dump("child exited while waiting for idle")
+                raise AssertionError("coddy exited during the turn")
+            if self.turn_running():
+                seen = True
+                continue
+            if seen or time.time() >= grace:
+                return
+        self.dump("wait_idle timed out")
+        raise AssertionError("the turn is still running")
 
     def send(self, data: str) -> None:
         self.child.send(data.encode())

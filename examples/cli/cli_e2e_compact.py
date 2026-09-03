@@ -18,7 +18,7 @@ def main() -> int:
         tui.wait_idle(timeout=240)
         tui.type_text("/compact")
         tui.send(CR)
-        tui.wait_busy(timeout=60)
+        tui.wait_turn_started(timeout=60)
         tui.wait_idle(timeout=300)
         msgs = tui.messages()
         if not any(m.get("compaction_summary") for m in msgs):

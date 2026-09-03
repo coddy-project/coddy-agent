@@ -103,6 +103,21 @@ export const messagesEn: Record<string, string> = {
     "Couldn't fetch models: {error}. Type the model id manually below.",
   "settings.field.noModels":
     "No models returned. Type the model id manually below.",
+  "settings.reasoning.levelsFallback": "Reasoning levels",
+  "settings.reasoning.fetch": "Fetch reasoning levels",
+  "settings.reasoning.fetching": "Fetching…",
+  "settings.reasoning.useAuto": "Use auto-detected",
+  "settings.reasoning.autoDetected":
+    "Auto-detected from the model id. Fetch the levels to review or override them.",
+  "settings.reasoning.overridden":
+    "These exact levels are offered for this model, instead of the auto-detected ones.",
+  "settings.reasoning.hidden":
+    "Empty list: the reasoning selector is hidden for this model. Use 'Use auto-detected' to go back.",
+  "settings.reasoning.noneDetected":
+    "This model id has no auto-detected reasoning levels. Add them by hand if the provider offers any.",
+  "settings.reasoning.fetchError":
+    "Couldn't fetch reasoning levels: {error}. Add them by hand below.",
+
   "settings.field.apiKeyPlaceholder":
     "If empty, reads from {env} at run time, or set a literal key (YAML may use {varToken} at load)",
   "settings.field.apiKeyPlaceholderInvalid":
@@ -124,7 +139,7 @@ export const messagesEn: Record<string, string> = {
     "Wire protocol for this provider entry.",
   "settings.schema.providers.api_base.label": "API base URL",
   "settings.schema.providers.api_base.desc":
-    "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints.",
+    "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint.",
   "settings.schema.providers.api_key.label": "API key",
   "settings.schema.providers.api_key.desc":
     "You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).",
@@ -439,6 +454,13 @@ export const messagesEn: Record<string, string> = {
   "codexAuth.signInWithChatGpt": "Sign In with ChatGPT",
   "codexAuth.enterProviderName": "Enter a provider name before signing in.",
 
+  "neuralDeepApiBase.description":
+    "NeuralDeep runs the same API at two deployments: api.neuraldeep.ru serves Russia, api.neuraldeep.tech is the mirror for everywhere else. The choice also decides which hub the sign-in below talks to. Fetching the model list reads the saved config, so save before you fetch.",
+  "neuralDeepApiBase.optionRu": "api.neuraldeep.ru — Russia",
+  "neuralDeepApiBase.optionTech": "api.neuraldeep.tech — international mirror",
+  "neuralDeepApiBase.unknown":
+    "The saved api_base {value} is not a NeuralDeep endpoint, so requests go to {fallback}. Pick an endpoint to replace it.",
+
   "neuralDeepAuth.error.signInFailed": "NeuralDeep sign in failed.",
   "neuralDeepAuth.error.incompleteResponse":
     "The hub returned an incomplete sign-in response.",
@@ -448,6 +470,8 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "neuralDeepAuth.hubMismatch":
+    "This login was issued by {hub}, but {endpoint} is served by a different hub, so requests with it are rejected. Sign in again to get a key for this endpoint.",
   "neuralDeepAuth.enterCode":
     "Enter this one-time code on the NeuralDeep page:",
   "neuralDeepAuth.openSignInPage": "Open sign-in page",

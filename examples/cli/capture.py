@@ -148,7 +148,7 @@ def main() -> int:
         tui.pump(0.3)
 
         tui.prompt("What is 17*23? Explain briefly, then answer.")
-        tui.wait_busy(timeout=30)
+        tui.wait_turn_started(timeout=30)
         tui.pump(1.0)
         snapshot(tui, outdir, "04-working")
         tui.wait_idle(timeout=240)

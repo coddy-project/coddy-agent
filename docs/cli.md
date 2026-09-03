@@ -78,6 +78,15 @@ Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
 skill (from the ACP available-commands catalog). Enter on a slash suggestion
 applies and submits in one stroke.
 
+Agent self-configuration works as it does over ACP and HTTP: every turn
+offers the staged config tools (`config_get`, `config_set`,
+`config_changes`, `config_commit`, `config_revert`, `config_rollback`; see
+**Agent self-configuration** in `docs/config-reference.md`), and a commit or
+rollback hot-reloads the running console, so the model catalog (`ctrl+l`,
+`ctrl+p`), the footer, and the header's `[Context]`, `[Skills]`, `[Rules]`,
+and `[MCP]` sections follow the new file without a restart. `-p/--prompt`
+offers the same tools; under `--remote` the server owns the reload.
+
 | Key | Action |
 |-----|--------|
 | enter | send |

@@ -203,7 +203,7 @@ func UISchemaMap() map[string]interface{} {
 			"description": "Wire protocol for this provider entry.",
 			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep and codex, which use fixed official endpoints."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable."),

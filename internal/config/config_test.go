@@ -376,6 +376,46 @@ agent:
 	}
 }
 
+func TestLoadNeuralDeepProviderWithMirrorAPIBase(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
+
+	content := `
+providers:
+  - name: neuraldeep
+    type: neuraldeep
+    api_base: "https://api.neuraldeep.tech/v1"
+    api_key: "${NEURALDEEP_API_KEY}"
+
+models:
+  - model: "neuraldeep/default"
+
+agent:
+  model: "neuraldeep/default"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The mirror is a legitimate NeuralDeep deployment, so the row keeps it and
+	// ResolveLLM carries it to the provider constructor.
+	if got := cfg.Providers[0].APIBase; got != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("api_base = %q, want the mirror", got)
+	}
+	rm, err := cfg.ResolveLLM("neuraldeep/default")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.BaseURL != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("resolved base URL = %q, want the mirror", rm.BaseURL)
+	}
+}
+
 func TestLoadNeuralDeepProviderWithoutAPIBase(t *testing.T) {
 	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
 

@@ -25,6 +25,7 @@ var (
 
 func (s *Server) registerConfigRoutes() {
 	s.mux.HandleFunc("GET /coddy/config/schema", s.coddyConfigSchemaGet)
+	s.mux.HandleFunc("GET /coddy/config/reasoning-levels", s.coddyConfigReasoningLevelsGet)
 	s.mux.HandleFunc("GET /coddy/config", s.coddyConfigGet)
 	s.mux.HandleFunc("POST /coddy/config/validate", s.coddyConfigValidatePost)
 	s.mux.HandleFunc("PUT /coddy/config", s.coddyConfigPut)

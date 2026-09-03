@@ -59,7 +59,7 @@ func (s *sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		// Local fallback only: a remote server sends a permission event
 		// precisely because ITS policy wants a human answer, so the local
 		// bypass setting must never auto-approve it.
-		if cfg := s.app.cfg; cfg != nil {
+		if cfg := s.app.config(); cfg != nil {
 			mode = cfg.Tools.ResolvedPermMode()
 		}
 	}

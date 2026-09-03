@@ -556,6 +556,43 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/config/reasoning-levels": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Reasoning levels a model id offers (UI)",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/coddy/config`** routes use.",
+					"operationId": "coddyConfigReasoningLevelsGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "model",
+							"in":          "query",
+							"required":    true,
+							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "valera/qwen3.8-27b",
+						},
+						map[string]interface{}{
+							"name":        "provider_type",
+							"in":          "query",
+							"required":    false,
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "codex",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Resolved levels, or `ok:false` with `error` for a malformed model id",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyReasoningLevelsResponse"},
+								},
+							},
+						},
+						"400": coddyConfigErrorResponse("Missing `model` query parameter"),
+						"500": coddyConfigErrorResponse("Configuration unavailable"),
+					},
+				},
+			},
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
@@ -1147,7 +1184,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1226,9 +1263,16 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
 					"operationId": "getProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "api_base", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Endpoint currently picked in the settings form (`https://api.neuraldeep.ru/v1` or `https://api.neuraldeep.tech/v1`), possibly unsaved. Omitted or unrecognized: the saved row's endpoint, falling back to the default deployment like requests do.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
@@ -1252,9 +1296,17 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/NeuralDeepAuthDeviceStartRequest"},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
 						"400": errorResponseRef(),
@@ -1921,6 +1973,24 @@ func openAPISpec() map[string]interface{} {
 						"error": map[string]string{"type": "string"},
 					},
 				},
+				"CoddyReasoningLevelsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
+						"model": map[string]string{"type": "string"},
+						"levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Levels detected for this model id, in the order the composer offers them. Empty for a model without reasoning support.",
+						},
+						"detected": map[string]interface{}{
+							"type":        "boolean",
+							"description": "False when the model id matches no reasoning family, so the UI can say so instead of writing an override.",
+						},
+					},
+					"required": []string{"ok", "levels", "detected"},
+				},
 				"CodexAuthStatus": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1954,6 +2024,16 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"status", "connected"},
 				},
+				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"api_base": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
+							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
+						},
+					},
+				},
 				"NeuralDeepAuthDeviceStart": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1981,6 +2061,16 @@ func openAPISpec() map[string]interface{} {
 							"type":        "string",
 							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
 							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
+						},
+						"hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub that issued the stored login, as recorded in the credential file. Omitted when there is no stored login.",
+						},
+						"endpoint_hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub a sign-in for the queried endpoint (`api_base`, default: the saved row's) would use. Differs from `hub` when the stored login belongs to the other deployment.",
 						},
 					},
 					"required": []string{"connected", "source"},
@@ -2310,6 +2400,22 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
 	return doc
+}
+
+// coddyConfigErrorResponse documents the flat {"ok":false,"error":...} body that
+// writeCoddyConfigErr emits for the /coddy/config routes, as opposed to the
+// OpenAI-style nested ErrorEnvelope used by the /v1 surface.
+func coddyConfigErrorResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/CoddyConfigValidateResponse",
+				},
+			},
+		},
+	}
 }
 
 func errorResponseRef() map[string]interface{} {

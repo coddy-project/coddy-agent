@@ -122,13 +122,13 @@ func (a *App) switchTheme(name string) {
 	a.header = newHeader(a.theme)
 	a.header.SetExpanded(a.expanded)
 	a.populateHeader()
-	a.foot = newFooter(a.theme, a.cfg.Paths.CWD)
+	a.foot = newFooter(a.theme, a.config().Paths.CWD)
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)
 	a.editor.OnSubmit = a.onSubmit
 	a.editor.OnChange = a.onEditorChange
-	provider := newCompletionProvider(a.cfg.Paths.CWD, a.slashCatalog)
+	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
 	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
 
 	root := a.screen.Root
@@ -155,7 +155,7 @@ func (a *App) openResumeSelector() {
 	}
 	sessionID := a.sessionID
 	go func() {
-		cwd := a.cfg.Paths.CWD
+		cwd := a.config().Paths.CWD
 		res, err := a.mgr.HandleSessionList(context.Background(), acp.SessionListParams{CWD: &cwd})
 		if err != nil {
 			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "resume: " + err.Error()})
@@ -239,7 +239,7 @@ func (a *App) startResumeWorker(old, id string) {
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		cwd := a.cfg.Paths.CWD
+		cwd := a.config().Paths.CWD
 		res, err := a.mgr.HandleSessionLoad(a.workCtx, acp.SessionLoadParams{SessionID: id, CWD: cwd})
 		if err != nil {
 			_ = a.Sender().SendSessionUpdate(id, statusErr{msg: "resume: " + err.Error(), always: true})

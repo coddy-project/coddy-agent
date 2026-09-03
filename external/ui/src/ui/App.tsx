@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import { useStableHandler } from "./components/useStableHandler";
 import {
   contextUsagePercent,
   withContextUsedTokens,
@@ -56,6 +57,7 @@ import {
   revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -749,8 +751,15 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  /** Per-session shadow transcript while that session streams in the background. */
-  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  /**
+   * Per-session shadow transcript while that session streams in the
+   * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
+   * write through `set` records recency, so `evictStaleSessionCaches` sees
+   * every entry.
+   */
+  const streamShadowBySidRef = useRef(
+    new ShadowTranscriptCache<TranscriptItem[]>(),
+  );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
@@ -815,6 +824,26 @@ export function App() {
       }
       return prev;
     });
+  }
+
+  /**
+   * Drops least-recently-used shadow transcripts beyond the cache cap so old
+   * dialogs stop accumulating in memory. The session about to be viewed and
+   * any session with a live composer stream are pinned; evicted sessions are
+   * simply re-fetched via loadMessages on the next visit.
+   */
+  function evictStaleSessionCaches(nextViewedSid: string) {
+    const active = new Set<string>(activeComposerSidRef.current);
+    for (const k of postAbortBySidRef.current.keys()) active.add(k);
+    for (const k of relayAbortBySidRef.current.keys()) active.add(k);
+    for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
+    const victims = streamShadowBySidRef.current.evict({
+      viewedSid: nextViewedSid,
+      activeStreamSids: active,
+    });
+    for (const sid of victims) {
+      relayLastEventIdBySidRef.current.delete(sid);
+    }
   }
 
   const generating = useMemo(() => {
@@ -2014,7 +2043,6 @@ export function App() {
       setItems([]);
       return null;
     }
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
@@ -2031,15 +2059,19 @@ export function App() {
     }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
+    // Re-read the viewed session after the await: the viewer may have moved
+    // on while the request was in flight, and a stale response must neither
+    // clear the new session's rows nor merge them into this session's shadow.
+    const viewingNow = viewedSessionIdRef.current.trim();
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid) {
+        if (viewingNow === sid) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid) {
+    if (viewingNow === sid) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
@@ -2317,7 +2349,7 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingTrim === sid
+        : viewingNow === sid
           ? itemsRef.current
           : undefined;
     const mergedTranscript = mergeTranscriptPreferLocalSuffix(
@@ -2341,7 +2373,7 @@ export function App() {
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
-        viewingSid: viewingTrim,
+        viewingSid: viewingNow,
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
@@ -2364,6 +2396,7 @@ export function App() {
     });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       return applied;
     }
 
@@ -2390,6 +2423,13 @@ export function App() {
     }
 
     streamShadowBySidRef.current.set(sid, withBranches);
+    evictStaleSessionCaches(viewedSessionIdRef.current);
+    // The viewer moved on while this fetch was in flight (the user picked
+    // another session or went home): keep the shadow for the next visit, but
+    // never paint a stale transcript under the current route.
+    if (viewedSessionIdRef.current.trim() !== sid) {
+      return withBranches;
+    }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2442,6 +2482,7 @@ export function App() {
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      evictStaleSessionCaches("");
       return;
     }
     setSessionLoading(true);
@@ -2457,6 +2498,8 @@ export function App() {
     } else {
       setItems([]);
     }
+    streamShadowBySidRef.current.touch(id);
+    evictStaleSessionCaches(id);
   }
 
   function goHome() {
@@ -2480,6 +2523,7 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -3024,6 +3068,9 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // The session is no longer pinned; bound the cache now rather than
+      // only after the reconciliation below succeeds.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
       const viewing = viewedSessionIdRef.current.trim();
       void loadMessages(key, { skipSetItems: viewing !== key });
@@ -3242,10 +3289,11 @@ export function App() {
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
-        const sh = streamShadowBySidRef.current.get(oldKey);
-        streamShadowBySidRef.current.delete(oldKey);
-        if (sh) {
-          streamShadowBySidRef.current.set(postSessionKey, sh);
+        streamShadowBySidRef.current.rename(oldKey, postSessionKey);
+        const relayCursor = relayLastEventIdBySidRef.current.get(oldKey);
+        relayLastEventIdBySidRef.current.delete(oldKey);
+        if (relayCursor !== undefined) {
+          relayLastEventIdBySidRef.current.set(postSessionKey, relayCursor);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
@@ -3481,6 +3529,9 @@ export function App() {
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
+      // A background stream that just finished on a no-longer-recent session
+      // should release its transcript without waiting for the next navigation.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
@@ -3771,6 +3822,53 @@ export function App() {
     });
   };
 
+  // Identity-stable handlers for the React.memo message rows: a shell
+  // re-render (every streamed token) must not invalidate their props.
+  const handleEditUserMessage = useStableHandler(
+    (content: string, userMsgIdx: number) => {
+      const assetNote = extractSessionAssetsXml(content);
+      setDraft(stripCoddyAttachmentsForUserDisplay(content));
+      setEditingUserMsgIdx(userMsgIdx);
+      setEditingAssetNote(assetNote);
+      setEditingFiles(parseSessionAssetFiles(content));
+    },
+  );
+  const handleStopBackgroundTask = useStableHandler((id: string) => {
+    void stopBackgroundTaskById(id);
+  });
+  const handleRetryLast = useStableHandler(
+    () => void streamResponses(lastUserText),
+  );
+  const handleFetchToolCallFull = useStableHandler(
+    async (toolCallId: string) => {
+      if (!sessionId) return;
+      const det = await fetchJSON<{
+        args?: string;
+        result?: string;
+        meta?: {
+          status?: string;
+          kind?: string;
+          name?: string;
+          planSnapshot?: unknown;
+        };
+      }>(
+        `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+        { headers },
+      );
+      if (!det.ok || !det.data) return;
+      const meta = det.data.meta || {};
+      const patch: Record<string, unknown> = { toolCallId };
+      if (meta.name) patch.title = meta.name;
+      if (meta.kind) patch.kind = meta.kind;
+      if (meta.status) patch.status = meta.status;
+      const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+      if (todoPlan !== undefined) patch.todoPlan = todoPlan;
+      if (det.data.args) patch.argsText = det.data.args;
+      if (det.data.result !== undefined) patch.fullResultText = det.data.result;
+      upsertToolCall(patch as any);
+    },
+  );
+
   return (
     <div
       className={[
@@ -3923,9 +4021,7 @@ export function App() {
           backgroundTasksByToolCallId={backgroundTasksByToolCallId}
           backgroundNowMs={backgroundNowMs}
           onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={(id: string) => {
-            void stopBackgroundTaskById(id);
-          }}
+          onStopBackgroundTask={handleStopBackgroundTask}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
@@ -3968,7 +4064,7 @@ export function App() {
           onDraftChange={setDraft}
           generating={generating}
           {...(!generating && lastUserText.trim()
-            ? { onRetryLast: () => void streamResponses(lastUserText) }
+            ? { onRetryLast: handleRetryLast }
             : {})}
           onContextRingOpen={() => {
             const sid = sessionId.trim();
@@ -4022,13 +4118,7 @@ export function App() {
               ),
             );
           }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripCoddyAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
+          onEdit={handleEditUserMessage}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
@@ -4052,34 +4142,7 @@ export function App() {
               void streamResponses(text, files ? { files } : undefined);
             }
           }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: {
-                status?: string;
-                kind?: string;
-                name?: string;
-                planSnapshot?: unknown;
-              };
-            }>(
-              `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
-            if (todoPlan !== undefined) patch.todoPlan = todoPlan;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
+          onFetchToolCallFull={handleFetchToolCallFull}
         />
       </div>
     </div>

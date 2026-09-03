@@ -1715,6 +1715,36 @@ a.rail-brand {
   animation: chat-fade-in 0.22s ease-out both;
 }
 
+/* Long-transcript scroll optimization: off-screen rows skip layout and paint.
+   `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
+   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
+   `content-visibility: auto` also turns on paint containment while the row is
+   visible, which clips anything drawn outside the row box. It is therefore
+   opted in per row type: only rows whose content stays inside their own box
+   (assistant markdown, thinking / tool / compaction / memory foldouts, system
+   notices). User rows keep the hover edit button at `left: -32px`, and the
+   permission, question and plan cards cast shadows past their wrapper, so
+   those rows stay uncontained. */
+.messages-inner > .msg-assistant-stack,
+.messages-inner > .thinking-row,
+.messages-inner > .msg-system-stack {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+  /* Paint containment clips at the padding edge. Focus rings on controls at
+     the row edge (2px outline + 2px offset on the copy buttons, the
+     edge-to-edge <summary> ring) need room inside the box: pad the row and
+     pull it back with a matching negative margin so nothing moves. */
+  padding: 4px;
+  margin: -4px;
+  /* Rows size as border-box, so widen by the padding to keep the content
+     width (and therefore line wrapping) exactly as without containment. */
+  width: calc(100% + 8px);
+}
+
+.messages-inner > .thinking-row {
+  max-width: calc(720px + 8px);
+}
+
 .chat-scroll-tail {
   flex: none;
   height: var(--chat-composer-reserve, 220px);
@@ -5750,12 +5780,6 @@ textarea#composer {
   color: var(--muted);
 }
 
-.settings-field-desc-below-checkbox {
-  margin-top: 4px;
-  margin-bottom: 0;
-  padding-left: 28px;
-}
-
 .settings-btn {
   border: 1px solid var(--coddy-glass-panel-border);
   background: var(--coddy-glass-panel-bg);
@@ -5919,10 +5943,39 @@ textarea#composer {
   gap: 4px;
 }
 
-.settings-row-inline {
-  flex-direction: row;
+/* Boolean setting (SwitchField): shared Switch + label + optional description
+   on one two-column grid. The first column is the switch's own width, the
+   first-row cells centre on each other, and the description takes the label
+   column, so its left edge follows the label whatever the switch measures.
+   Contract: DESIGN.md, "Boolean switch fields". Never lay a switch and its
+   label out inline, and never indent the description with padding. */
+.settings-switch-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  row-gap: 4px;
   align-items: center;
-  gap: 8px;
+}
+
+/* A real <label for>: clicking the text toggles the switch. */
+.settings-switch-field-label {
+  font-size: 0.9rem;
+  line-height: 1.3;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.settings-switch-field:has(.skill-switch:disabled) > .settings-switch-field-label {
+  cursor: default;
+}
+
+/* Child selector on purpose: it beats the shared .settings-field-desc margin
+   by specificity, not by source order. */
+.settings-switch-field > .settings-switch-field-desc {
+  grid-column: 2;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .settings-label {
@@ -6237,6 +6290,21 @@ textarea#composer {
 .model-field-controls .settings-btn {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* Reasoning levels: the action row sits above the level list, so it keeps the
+   model-field control metrics but wraps instead of squeezing its buttons. */
+.reasoning-levels-actions {
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.reasoning-levels-actions .settings-btn {
+  flex: 0 0 auto;
+}
+
+[data-testid="reasoning-levels-field"] .settings-array {
+  margin-top: 8px;
 }
 
 /* Editable combobox (replaces every plain <select> in settings) */

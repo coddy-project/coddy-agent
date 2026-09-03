@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
@@ -35,9 +36,12 @@ type turnDone struct {
 // App is the interactive console application: one UI goroutine over a
 // session manager, rendering ACP updates into a component tree.
 type App struct {
-	cfg *config.Config
-	mgr backend
-	log *slog.Logger
+	// cfgAt is the live process configuration. config_commit and
+	// config_rollback swap it from a turn worker (see replaceConfig) while
+	// the UI goroutine and other workers keep reading it, hence the atomic.
+	cfgAt atomic.Pointer[config.Config]
+	mgr   backend
+	log   *slog.Logger
 
 	// remoteURL is set when mgr talks to a remote coddy http server.
 	remoteURL string
@@ -118,7 +122,6 @@ type App struct {
 // newApp assembles the application over an existing manager and terminal.
 func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal, themeName string, plain bool) *App {
 	a := &App{
-		cfg:             cfg,
 		mgr:             mgr,
 		log:             log,
 		term:            term,
@@ -136,6 +139,7 @@ func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal,
 		closed:          make(chan struct{}),
 		doneCh:          make(chan struct{}),
 	}
+	a.cfgAt.Store(cfg)
 	a.workCtx, a.workStop = context.WithCancel(context.Background())
 	a.applyTheme(themeName)
 	a.buildTree()
@@ -144,6 +148,33 @@ func newApp(cfg *config.Config, mgr backend, log *slog.Logger, term appTerminal,
 
 // Sender returns the acp.UpdateSender facade for the manager and turns.
 func (a *App) Sender() acp.UpdateSender { return &sender{app: a} }
+
+// config returns the live process configuration (never nil after newApp).
+func (a *App) config() *config.Config { return a.cfgAt.Load() }
+
+// replaceConfig adopts a reloaded process configuration. config_commit and
+// config_rollback call it from the turn worker once the manager reloaded,
+// so the pointer swap happens here and the visible refresh (model catalog,
+// footer, header sections) is queued for the UI goroutine. st is the
+// session whose turn committed; its option set carries the new model
+// catalog.
+func (a *App) replaceConfig(next *config.Config, st *session.State) {
+	if a == nil || next == nil {
+		return
+	}
+	a.cfgAt.Store(next)
+	msg := configReloaded{}
+	sessionID := ""
+	if st != nil {
+		sessionID = st.GetID()
+		msg.opts = session.BuildACPConfigOptions(next, st)
+	}
+	_ = a.Sender().SendSessionUpdate(sessionID, msg)
+}
+
+// configReloaded is the internal update completing replaceConfig on the UI
+// goroutine.
+type configReloaded struct{ opts []acp.ConfigOption }
 
 func (a *App) applyTheme(name string) {
 	a.themeName = name
@@ -164,7 +195,7 @@ func (a *App) buildTree() {
 	a.editor.OnChange = a.onEditorChange
 	a.editorWrap = &tui.Container{}
 	a.editorWrap.AddChild(a.editor)
-	a.foot = newFooter(a.theme, a.cfg.Paths.CWD)
+	a.foot = newFooter(a.theme, a.config().Paths.CWD)
 
 	root := a.screen.Root
 	root.AddChild(a.header)
@@ -175,7 +206,7 @@ func (a *App) buildTree() {
 	root.AddChild(a.foot)
 	a.screen.SetFocus(a.editor)
 
-	provider := newCompletionProvider(a.cfg.Paths.CWD, a.slashCatalog)
+	provider := newCompletionProvider(a.config().Paths.CWD, a.slashCatalog)
 	a.editor.SetAutocomplete(provider, selectListTheme(a.theme), tui.SelectListLayout{MinPrimaryColumnWidth: 12, MaxPrimaryColumnWidth: 32}, a.screen.RequestRender)
 }
 
@@ -192,7 +223,7 @@ func (a *App) Start(ctx context.Context, sessionID string, resume bool) error {
 			}
 			a.mgr.SetPreferredSessionID(sessionID)
 		}
-		res, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
+		res, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.config().Paths.CWD})
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
@@ -249,7 +280,7 @@ func (a *App) adoptSession(id string, modes *acp.ModeState, opts []acp.ConfigOpt
 		}
 	}
 	if a.modelID == "" {
-		a.modelID = a.cfg.Agent.Model
+		a.modelID = a.config().Agent.Model
 	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
@@ -259,11 +290,11 @@ func (a *App) refreshFooterModel() {
 	reasoning := a.reasoning
 	if reasoning == "" {
 		if st := a.mgr.SessionByID(a.sessionID); st != nil {
-			reasoning = st.EffectiveReasoning(a.cfg)
+			reasoning = st.EffectiveReasoning(a.config())
 		}
 	}
 	if reasoning == "" {
-		if entry := a.cfg.FindModelEntry(a.modelID); entry != nil {
+		if entry := a.config().FindModelEntry(a.modelID); entry != nil {
 			reasoning = entry.ReasoningDefault
 		}
 	}
@@ -272,7 +303,7 @@ func (a *App) refreshFooterModel() {
 
 func (a *App) populateHeader() {
 	var contextFiles []string
-	contextFiles = append(contextFiles, a.cfg.Instructions.Files...)
+	contextFiles = append(contextFiles, a.config().Instructions.Files...)
 	var skillNames []string
 	rulesCount := 0
 	if st := a.mgr.SessionByID(a.sessionID); st != nil {
@@ -282,7 +313,7 @@ func (a *App) populateHeader() {
 		rulesCount = len(st.GetRulesCatalog())
 	}
 	var mcpNames []string
-	for _, srv := range a.cfg.MCPServers {
+	for _, srv := range a.config().MCPServers {
 		mcpNames = append(mcpNames, srv.Name)
 	}
 	a.header.SetSections(contextFiles, skillNames, rulesCount, mcpNames)
@@ -667,7 +698,7 @@ func (a *App) modelIDs() []string {
 		return values
 	}
 	var ids []string
-	for _, m := range a.cfg.Models {
+	for _, m := range a.config().Models {
 		ids = append(ids, m.Model)
 	}
 	return ids
@@ -752,11 +783,14 @@ func (a *App) cycleModel(dir int) {
 }
 
 func (a *App) cycleReasoning() {
-	entry := a.cfg.FindModelEntry(a.modelID)
-	if entry == nil || len(entry.ReasoningLevels) == 0 {
+	entry := a.config().FindModelEntry(a.modelID)
+	// Cycle the levels the model actually offers, not just a configured override:
+	// ReasoningLevelsFor is the same resolved, provider-aware list the composer and
+	// GET /v1/models expose, so shift+tab works for auto-detected reasoning models too.
+	levels := a.config().ReasoningLevelsFor(entry)
+	if entry == nil || len(levels) == 0 {
 		return
 	}
-	levels := entry.ReasoningLevels
 	cur := -1
 	for i, l := range levels {
 		if l == a.reasoning {
@@ -829,13 +863,13 @@ type toolFullLoaded struct {
 
 // pickSessionBlocking shows the resume picker before the UI loop starts.
 func (a *App) pickSessionBlocking(ctx context.Context) error {
-	cwd := a.cfg.Paths.CWD
+	cwd := a.config().Paths.CWD
 	res, err := a.mgr.HandleSessionList(ctx, acp.SessionListParams{CWD: &cwd})
 	if err != nil {
 		return fmt.Errorf("session list: %w", err)
 	}
 	if len(res.Sessions) == 0 {
-		newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
+		newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.config().Paths.CWD})
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
@@ -872,7 +906,7 @@ func (a *App) pickSessionBlocking(ctx context.Context) error {
 		case item := <-choice:
 			a.closeModal()
 			if item == nil {
-				newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
+				newRes, err := a.mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: a.config().Paths.CWD})
 				if err != nil {
 					return fmt.Errorf("session/new: %w", err)
 				}
@@ -897,7 +931,7 @@ func (a *App) loadSession(ctx context.Context, id string) error {
 	}
 	resCh := make(chan loadResult, 1)
 	go func() {
-		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.cfg.Paths.CWD})
+		res, err := a.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{SessionID: id, CWD: a.config().Paths.CWD})
 		mode := ""
 		var opts []acp.ConfigOption
 		if err == nil && res != nil {
@@ -1006,7 +1040,7 @@ func (a *App) startNewSessionWorker(old string) {
 	a.workers.Add(1)
 	go func() {
 		defer a.workers.Done()
-		res, err := a.mgr.HandleSessionNew(a.workCtx, acp.SessionNewParams{CWD: a.cfg.Paths.CWD})
+		res, err := a.mgr.HandleSessionNew(a.workCtx, acp.SessionNewParams{CWD: a.config().Paths.CWD})
 		if err != nil {
 			_ = a.Sender().SendSessionUpdate(old, statusErr{msg: "new session: " + err.Error(), always: true})
 			return
@@ -1080,7 +1114,7 @@ func (a *App) ExitHint() string {
 // StartContinue reopens the most recent session recorded for this folder
 // (the -c/--continue flag).
 func (a *App) StartContinue(ctx context.Context) error {
-	id, err := latestBackendSessionID(ctx, a.mgr, a.cfg.Paths.CWD)
+	id, err := latestBackendSessionID(ctx, a.mgr, a.config().Paths.CWD)
 	if err != nil {
 		return err
 	}

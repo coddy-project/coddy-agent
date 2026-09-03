@@ -79,13 +79,16 @@ type ProviderJSON struct {
 // ModelJSON mirrors ModelEntry for JSON APIs.
 // Field order and types must match ModelEntry (direct struct conversion is used below).
 type ModelJSON struct {
-	Model            string   `json:"model"`
-	MaxTokens        int      `json:"max_tokens"`
-	Temperature      float64  `json:"temperature"`
-	MaxContextTokens int      `json:"max_context_tokens,omitempty"`
-	Multimodal       bool     `json:"multimodal,omitempty"`
-	ReasoningLevels  []string `json:"reasoning_levels,omitempty"`
-	ReasoningDefault string   `json:"reasoning_default,omitempty"`
+	Model            string  `json:"model"`
+	MaxTokens        int     `json:"max_tokens"`
+	Temperature      float64 `json:"temperature"`
+	MaxContextTokens int     `json:"max_context_tokens,omitempty"`
+	Multimodal       bool    `json:"multimodal,omitempty"`
+	// ReasoningLevels keeps the unset/explicit distinction of ModelEntry.ReasoningLevels:
+	// an omitted key auto-detects, an explicit [] hides the reasoning selector. A plain
+	// slice would collapse both into "absent" on the way out to the settings UI.
+	ReasoningLevels  *[]string `json:"reasoning_levels,omitempty"`
+	ReasoningDefault string    `json:"reasoning_default,omitempty"`
 	// Stream keeps the unset/explicit distinction of ModelEntry.Stream: a settings
 	// round trip must not turn an omitted key into an explicit false.
 	Stream *bool `json:"stream,omitempty"`
@@ -278,7 +281,13 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Providers = append(out.Providers, ProviderJSON(p))
 	}
 	for _, m := range c.Models {
-		out.Models = append(out.Models, ModelJSON(m))
+		mj := ModelJSON(m)
+		// The struct conversion shares pointer fields with the live config; hand
+		// the DTO its own copies so a caller mutating one side cannot leak into
+		// the other, as the other pointer-typed sections already do.
+		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.Stream = cloneBoolPtr(m.Stream)
+		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
 		Model:                  c.Agent.Model,
@@ -412,7 +421,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Providers = append(cfg.Providers, ProviderConfig(p))
 	}
 	for _, m := range j.Models {
-		cfg.Models = append(cfg.Models, ModelEntry(m))
+		me := ModelEntry(m)
+		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.Stream = cloneBoolPtr(m.Stream)
+		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
 		Model:                  j.Agent.Model,
@@ -543,6 +555,17 @@ func cloneBoolPtr(p *bool) *bool {
 	}
 	v := *p
 	return &v
+}
+
+// cloneStringsPtr copies a *[]string, keeping nil (key omitted) and a pointer
+// to an empty list (explicit []) apart.
+func cloneStringsPtr(p *[]string) *[]string {
+	if p == nil {
+		return nil
+	}
+	out := make([]string, len(*p))
+	copy(out, *p)
+	return &out
 }
 
 func cloneIntPtr(p *int) *int {

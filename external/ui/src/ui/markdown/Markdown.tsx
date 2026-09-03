@@ -4,6 +4,7 @@ import rehypeHighlight from "rehype-highlight";
 import {
   createContext,
   isValidElement,
+  memo,
   useCallback,
   useContext,
   useMemo,
@@ -155,7 +156,7 @@ function MarkdownPre(props: PreProps) {
   );
 }
 
-export function Markdown(props: { text: string }) {
+export const Markdown = memo(function Markdown(props: { text: string }) {
   const components = useMemo(
     () => ({
       code: MarkdownCode,
@@ -214,4 +215,4 @@ export function Markdown(props: { text: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

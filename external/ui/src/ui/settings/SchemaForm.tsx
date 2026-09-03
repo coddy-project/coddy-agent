@@ -3,7 +3,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import { Combobox } from "./Combobox";
 import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
 import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
-import { Switch } from "./Switch";
+import { SwitchField } from "./SwitchField";
 import { useT } from "../i18n/I18nProvider";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
@@ -305,21 +305,12 @@ function SchemaField(props: {
         ? Boolean(schema.default)
         : Boolean(value);
     return (
-      <div className="settings-row">
-        <div className="settings-row-inline">
-          <Switch
-            checked={checked}
-            onChange={(next) => onChange(next)}
-            ariaLabel={label}
-          />
-          <span>{label}</span>
-        </div>
-        {desc ? (
-          <p className="settings-field-desc settings-field-desc-below-checkbox">
-            {desc}
-          </p>
-        ) : null}
-      </div>
+      <SwitchField
+        checked={checked}
+        onChange={(next) => onChange(next)}
+        label={label}
+        description={desc || undefined}
+      />
     );
   }
 
