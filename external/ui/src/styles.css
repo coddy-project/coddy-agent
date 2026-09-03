@@ -9,6 +9,7 @@
   --nav: rgba(37, 37, 37, 0.6);
   --sidebar: rgba(30, 30, 30, 0.7);
   --accent: #9333ea;
+  --coddy-todo-completed: #34c759;
   --coddy-skill-chip-bg: rgba(147, 51, 234, 0.14);
   --coddy-skill-chip-bd: rgba(147, 51, 234, 0.52);
   --coddy-skill-chip-text: rgba(237, 220, 255, 0.96);
@@ -94,6 +95,7 @@
   --nav: rgba(255, 255, 255, 0.92);
   --sidebar: #ffffff;
   --accent: #7c3aed;
+  --coddy-todo-completed: #248a3d;
   --coddy-skill-chip-bg: rgba(124, 58, 237, 0.1);
   --coddy-skill-chip-bd: rgba(124, 58, 237, 0.35);
   --coddy-skill-chip-text: rgba(76, 29, 149, 0.96);
@@ -162,6 +164,7 @@
   --nav: rgba(13, 17, 28, 0.72);
   --sidebar: rgba(10, 13, 23, 0.8);
   --accent: #5865f2;
+  --coddy-todo-completed: #3fb950;
   --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
@@ -235,6 +238,7 @@
   --nav: rgba(0, 36, 46, 0.72);
   --sidebar: rgba(0, 28, 36, 0.8);
   --accent: #268bd2;
+  --coddy-todo-completed: #859900;
   --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
@@ -308,6 +312,7 @@
   --nav: rgba(31, 32, 26, 0.72);
   --sidebar: rgba(25, 26, 21, 0.8);
   --accent: #fd971f;
+  --coddy-todo-completed: #a6e22e;
   --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
@@ -381,6 +386,7 @@
   --nav: rgba(36, 41, 52, 0.72);
   --sidebar: rgba(30, 34, 44, 0.8);
   --accent: #88c0d0;
+  --coddy-todo-completed: #a3be8c;
   --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
@@ -454,6 +460,7 @@
   --nav: rgba(21, 19, 32, 0.72);
   --sidebar: rgba(18, 16, 28, 0.8);
   --accent: #c4a7e7;
+  --coddy-todo-completed: #9ccfd8;
   --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
@@ -7232,6 +7239,170 @@ textarea#composer {
   color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
+}
+
+/* Todo tool previews use the active theme's accent for pending work and a
+   theme-specific success token for completion. The marks stay semantic even
+   when a theme's accent is not blue. */
+.todo-tool-preview-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-tool-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  padding: 9px 12px;
+  color: color-mix(in srgb, var(--text) 82%, var(--coddy-blend-base));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.todo-tool-preview-row + .todo-tool-preview-row {
+  border-top: 1px solid color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+}
+
+.todo-tool-preview-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-top: 1px;
+  border: 2px solid color-mix(in srgb, var(--text) 25%, var(--coddy-blend-base));
+  border-radius: 5px;
+  box-sizing: border-box;
+  color: var(--coddy-on-accent-fg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.todo-tool-preview-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.todo-tool-preview-row--pending .todo-tool-preview-mark {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.todo-tool-preview-row--in_progress .todo-tool-preview-mark {
+  border-color: var(--accent);
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 50%,
+    color-mix(in srgb, var(--accent) 10%, transparent) 50%
+  );
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-mark {
+  border-color: var(--coddy-todo-completed);
+  background: var(--coddy-todo-completed);
+}
+
+.todo-tool-preview-row--completed .todo-tool-preview-content {
+  color: color-mix(in srgb, var(--text) 57%, var(--coddy-blend-base));
+}
+
+.todo-tool-preview-row--failed .todo-tool-preview-mark {
+  border-color: var(--diff-del-no);
+  background: color-mix(in srgb, var(--diff-del-no) 14%, transparent);
+  color: var(--diff-del-no);
+}
+
+.todo-tool-preview-row--cancelled .todo-tool-preview-mark {
+  color: color-mix(in srgb, var(--text) 46%, var(--coddy-blend-base));
+}
+
+.todo-tool-preview-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* plan_exit makes a mode transition legible without relying on the raw tool
+   result. Its active state follows the theme accent; the completed state uses
+   the semantic success token shared with completed todo items. */
+.plan-exit-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--coddy-blend-base));
+}
+
+.plan-exit-preview-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.plan-exit-preview--completed .plan-exit-preview-icon {
+  border-color: var(--coddy-todo-completed);
+  background: var(--coddy-todo-completed);
+  color: var(--coddy-on-accent-fg);
+}
+
+.plan-exit-preview-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plan-exit-preview-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.plan-exit-preview-mode {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-exit-preview-arrow {
+  color: color-mix(in srgb, var(--text) 42%, var(--coddy-blend-base));
+}
+
+.plan-exit-preview-mode--agent {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.plan-exit-preview-message {
+  color: color-mix(in srgb, var(--text) 88%, var(--coddy-blend-base));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
 }
 
 .permission-preview-fade {

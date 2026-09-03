@@ -24,6 +24,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
 // SessionState is the interface Agent needs from a session.
@@ -990,6 +991,8 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		status = "failed"
 	}
 
+	todoPlanSnapshot := todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
 		if execErr != nil {
@@ -997,6 +1000,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 		_ = session.WriteToolCallResult(sessionDir, tc.ID, finalText)
 		_ = session.MarkToolCallFinished(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), status)
+		if len(todoPlanSnapshot) > 0 {
+			_ = session.WriteToolCallPlanSnapshot(sessionDir, tc.ID, todoPlanSnapshot)
+		}
 	}
 
 	payload := result
@@ -1012,6 +1018,17 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: display}},
 		}
 	}
+	if len(todoPlanSnapshot) > 0 {
+		if previewMeta == nil {
+			previewMeta = map[string]interface{}{}
+		}
+		coddyMeta, _ := previewMeta["coddy"].(map[string]interface{})
+		if coddyMeta == nil {
+			coddyMeta = map[string]interface{}{}
+			previewMeta["coddy"] = coddyMeta
+		}
+		coddyMeta["todoPlan"] = todoPlanSnapshot
+	}
 
 	_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 		SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -1022,6 +1039,22 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	})
 
 	return result, execErr
+}
+
+func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {
+	if execErr != nil || state == nil {
+		return nil
+	}
+	switch toolName {
+	case todo.ToolNameItemUpdate, todo.ToolNamePlanReplace:
+		entries := state.GetPlan()
+		if len(entries) == 0 {
+			return nil
+		}
+		return append([]acp.PlanEntry(nil), entries...)
+	default:
+		return nil
+	}
 }
 
 // mcpToolDefinitions converts the tools of connected MCP clients into LLM

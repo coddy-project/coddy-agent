@@ -15,6 +15,7 @@ import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
 import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
 import type { BackgroundTask } from "../tasks/types";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { useT } from "../i18n/I18nProvider";
 
 function formatDuration(ms: number): string {
@@ -87,6 +88,8 @@ export function ToolCallMessage(props: {
   resultText?: string | undefined;
   fullResultText?: string | undefined;
   resultWasTruncated?: boolean | undefined;
+  /** Final todo state saved with this call, used by structured todo previews. */
+  todoPlan?: TodoPlanEntry[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
@@ -119,10 +122,11 @@ export function ToolCallMessage(props: {
           title: props.title,
           kind: props.kind,
           argsText: props.argsText,
+          todoPlan: props.todoPlan,
         },
         props.argsText || "",
       ),
-    [props.argsText, props.kind, props.title, t],
+    [props.argsText, props.kind, props.title, props.todoPlan, t],
   );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
@@ -352,6 +356,8 @@ export function ToolCallMessage(props: {
     toolPreview.meta.length > 0 ||
     toolPreview.copyText.trim() !== "" ||
     (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
+    toolPreview.kind === "plan_exit" ||
     (toolPreview.kind === "move" &&
       (toolPreview.sourcePath.trim() !== "" ||
         toolPreview.destinationPath.trim() !== ""));
@@ -363,7 +369,13 @@ export function ToolCallMessage(props: {
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
   const showResult =
-    !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
+    !isQuestionTool &&
+    !isPatchTool &&
+    !(
+      status === "completed" &&
+      (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
+    ) &&
+    !!(resultBody && resultBody.length > 0);
   const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
   const hasBody =
     isQuestionTool ||
@@ -441,6 +453,7 @@ export function ToolCallMessage(props: {
                 preview={toolPreview}
                 interactive={false}
                 overflowControls={isLargePreviewTool}
+                toolStatus={status}
               />
             ) : null}
             {showPatchResult || showResult ? (

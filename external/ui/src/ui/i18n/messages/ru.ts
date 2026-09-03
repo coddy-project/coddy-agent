@@ -267,8 +267,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.dir.label": "Корень памяти",
   "settings.schema.memory.dir.desc":
     "Файловый корень markdown-файлов памяти; пусто — ${CODDY_HOME}/memory.",
-  "settings.schema.memory.recall_max_turns.label":
-    "Максимум раундов выборки",
+  "settings.schema.memory.recall_max_turns.label": "Максимум раундов выборки",
   "settings.schema.memory.recall_max_turns.desc":
     "Предел раундов LLM на стороне выборки в цикле памяти.",
   "settings.schema.memory.persist_max_turns.label":
@@ -279,16 +278,14 @@ export const messagesRu: Record<string, string> = {
     "Максимум токенов копилота",
   "settings.schema.memory.copilot_max_tokens.desc":
     "Предел токенов завершения для вызовов копилота памяти.",
-  "settings.schema.memory.max_search_hits.label":
-    "Максимум результатов поиска",
+  "settings.schema.memory.max_search_hits.label": "Максимум результатов поиска",
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
 
   "settings.schema.compaction.enabled.label": "Включено",
   "settings.schema.compaction.enabled.desc":
     "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
-  "settings.schema.compaction.threshold_percent.label":
-    "Порог авто-сжатия (%)",
+  "settings.schema.compaction.threshold_percent.label": "Порог авто-сжатия (%)",
   "settings.schema.compaction.threshold_percent.desc":
     "Авто-сжатие, когда оценка контекста достигает этой доли от max_context_tokens модели (1..100, по умолчанию 80). Модели без max_context_tokens пропускают авто-сжатие.",
   "settings.schema.compaction.keep_recent_turns.label":
@@ -327,8 +324,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.scheduler.timeout.label": "Таймаут задания",
   "settings.schema.system.scheduler.timeout.desc":
     "Предельное время выполнения задания, например 30m или 1h30m.",
-  "settings.schema.system.scheduler.retain_sessions.label":
-    "Хранить сессий",
+  "settings.schema.system.scheduler.retain_sessions.label": "Хранить сессий",
   "settings.schema.system.scheduler.retain_sessions.desc":
     "Сколько папок завершённых сессий планировщика хранить на каждый идентификатор задания.",
   "settings.schema.system.prompts.label": "Промпты",
@@ -345,7 +341,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.instructions.label": "Инструкции",
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":
-    "Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию [\"AGENTS.md\"].",
+    'Имена файлов относительно рабочего каталога сессии, читаемые как инструкции. По умолчанию ["AGENTS.md"].',
   "settings.schema.system.logger.label": "Логирование",
   "settings.schema.system.logger.level.label": "Уровень",
   "settings.schema.system.logger.level.desc":
@@ -390,8 +386,7 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.gateways.telegram.proxy.label": "Прокси",
   "settings.schema.system.gateways.telegram.proxy.desc":
     "Необязательный исходящий прокси для запросов к Telegram API. http, https, socks5 или socks5h.",
-  "settings.schema.system.gateways.telegram.admins.label":
-    "Администраторы",
+  "settings.schema.system.gateways.telegram.admins.label": "Администраторы",
   "settings.schema.system.gateways.telegram.admins.desc":
     "Идентификаторы пользователей Telegram с расширенными правами; администраторы всегда проходят проверку доступа.",
   "settings.schema.system.gateways.telegram.default_access.label":
@@ -422,8 +417,7 @@ export const messagesRu: Record<string, string> = {
     "Идентификатор чата",
   "settings.schema.system.gateways.telegram.chats.chat_id.desc":
     "Идентификатор чата Telegram; отрицательный для групп и супергрупп.",
-  "settings.schema.system.gateways.telegram.chats.isolation.label":
-    "Изоляция",
+  "settings.schema.system.gateways.telegram.chats.isolation.label": "Изоляция",
   "settings.schema.system.gateways.telegram.chats.isolation.desc":
     "Переопределение изоляции сессий для конкретного чата.",
   "settings.schema.system.gateways.telegram.chats.access.label": "Доступ",
@@ -451,15 +445,15 @@ export const messagesRu: Record<string, string> = {
   "codexAuth.enterProviderName": "Введите имя провайдера перед входом.",
 
   "neuralDeepAuth.error.signInFailed": "Не удалось войти в NeuralDeep.",
-  "neuralDeepAuth.error.incompleteResponse":
-    "Хаб вернул неполный ответ входа.",
+  "neuralDeepAuth.error.incompleteResponse": "Хаб вернул неполный ответ входа.",
   "neuralDeepAuth.fieldLabel": "Аккаунт NeuralDeep",
   "neuralDeepAuth.description":
     "Войдите под учёткой хаба NeuralDeep вместо ручной вставки ключа: хаб выдаст персональный ключ для Coddy. Ключ хранится на сервере Coddy и не попадает в config.yaml. Модели тарифа добавьте в разделе Логические модели - пикер моделей подтянет каталог с этим входом.",
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
-  "neuralDeepAuth.enterCode": "Введите этот одноразовый код на странице NeuralDeep:",
+  "neuralDeepAuth.enterCode":
+    "Введите этот одноразовый код на странице NeuralDeep:",
   "neuralDeepAuth.openSignInPage": "Открыть страницу входа",
   "neuralDeepAuth.waiting": "Ожидание подтверждения…",
   "neuralDeepAuth.signingOut": "Выход…",
@@ -623,7 +617,8 @@ export const messagesRu: Record<string, string> = {
   "skills.update.title": "Скачать обновление: {name} v{from} → v{to}",
   "skills.update.aria": "Скачать обновление для {name} до версии {version}",
   "skills.badge.syncedFrom": "Синхронизировано из {source}",
-  "app.chatBusy": "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
+  "app.chatBusy":
+    "Этот чат занят в другом клиенте. Попробуйте снова через момент.",
   "app.emptyResponseBody": "Пустое тело ответа",
   "app.branchCreationNoSessionId": "Создание ветки не вернуло ID сессии",
 
@@ -643,7 +638,8 @@ export const messagesRu: Record<string, string> = {
   "sessions.history": "История",
   "sessions.closeHistory": "Закрыть историю",
   "sessions.searchPlaceholder": "Поиск по заголовку или первому сообщению",
-  "sessions.searchAriaLabel": "Поиск в истории по заголовку или первому сообщению",
+  "sessions.searchAriaLabel":
+    "Поиск в истории по заголовку или первому сообщению",
   "sessions.clearSearch": "Очистить поиск",
   "sessions.empty": "История пуста",
   "sessions.permissionRequired": "Требуется разрешение",
@@ -762,7 +758,8 @@ export const messagesRu: Record<string, string> = {
   "composer.folderModal.open": "Открыть",
   "composer.folderModal.go": "Перейти",
 
-  "env.banner.unreachable": "Удалённое окружение {name} недоступно или не авторизовано — проверьте, что оно запущено, что {cors} разрешает этот origin и что токен верный.",
+  "env.banner.unreachable":
+    "Удалённое окружение {name} недоступно или не авторизовано — проверьте, что оно запущено, что {cors} разрешает этот origin и что токен верный.",
   "env.banner.switchLocal": "Переключиться на локальное",
 
   "prompts.questions": "Вопросы",
@@ -807,12 +804,14 @@ export const messagesRu: Record<string, string> = {
   "scheduler.editorEditAriaLabel": "Редактирование задачи",
   "scheduler.closeEditor": "Закрыть редактор",
   "scheduler.field.jobId": "job_id",
-  "scheduler.field.jobIdHelp": "Имя файла — буквы, цифры, дефисы (пример: daily-report).",
+  "scheduler.field.jobIdHelp":
+    "Имя файла — буквы, цифры, дефисы (пример: daily-report).",
   "scheduler.field.description": "description",
   "scheduler.field.schedule": "schedule (UTC, 5 полей)",
   "scheduler.field.schedulePlaceholder": "0 * * * *",
   "scheduler.field.cwd": "cwd (необязательно)",
-  "scheduler.field.cwdHelp": "По умолчанию — рабочая директория агента для этого экземпляра.",
+  "scheduler.field.cwdHelp":
+    "По умолчанию — рабочая директория агента для этого экземпляра.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.plan": "plan",
@@ -823,17 +822,22 @@ export const messagesRu: Record<string, string> = {
   "scheduler.pause": "Пауза",
   "scheduler.resume": "Возобновить",
   "scheduler.delete": "Удалить",
-  "scheduler.apiNotAvailable": "API планировщика недоступен в этой сборке (пересоберите с http,scheduler).",
-  "scheduler.disabled": "Планировщик отключён (включите scheduler.enabled или передайте -scheduler-enabled).",
+  "scheduler.apiNotAvailable":
+    "API планировщика недоступен в этой сборке (пересоберите с http,scheduler).",
+  "scheduler.disabled":
+    "Планировщик отключён (включите scheduler.enabled или передайте -scheduler-enabled).",
   "scheduler.validation.required": "Обязательное поле",
   "scheduler.validation.tooLong": "Слишком длинное",
-  "scheduler.validation.noSpaces": "Без пробелов — используйте дефисы (пример: daily-report)",
-  "scheduler.validation.invalidJobId": "Только буквы, цифры и дефисы (пример: daily-report)",
+  "scheduler.validation.noSpaces":
+    "Без пробелов — используйте дефисы (пример: daily-report)",
+  "scheduler.validation.invalidJobId":
+    "Только буквы, цифры и дефисы (пример: daily-report)",
 
   "tasks.panelTitle": "Фоновые задачи",
   "tasks.closePanel": "Закрыть фоновые задачи",
   "tasks.loading": "Загрузка…",
-  "tasks.empty": "В этом чате ещё нет фоновых задач. Агент запускает их, когда команда достаточно долгая, чтобы выполнять её отдельно.",
+  "tasks.empty":
+    "В этом чате ещё нет фоновых задач. Агент запускает их, когда команда достаточно долгая, чтобы выполнять её отдельно.",
   "tasks.sectionRunning": "Выполняются",
   "tasks.sectionFinished": "Завершённых: {count}",
   "tasks.clearFinished": "Очистить",
@@ -842,7 +846,8 @@ export const messagesRu: Record<string, string> = {
   "tasks.stopAriaLabel": "Остановить {label}",
   "tasks.outputHeading": "Вывод",
   "tasks.truncated": "усечён",
-  "tasks.truncatedTitle": "Ранний вывод вытеснен из буфера в памяти; полный лог остаётся в бандле сессии",
+  "tasks.truncatedTitle":
+    "Ранний вывод вытеснен из буфера в памяти; полный лог остаётся в бандле сессии",
   "tasks.noOutput": "(вывода пока нет)",
   "tasks.olderOnDisk": "Ещё задач на диске: {count} — они не показаны в списке",
   "tasks.progressAriaLabel": "Прогресс относительно оценки для {label}",
@@ -892,10 +897,32 @@ export const messagesRu: Record<string, string> = {
   "messages.toolResultSection": "Результат",
   "messages.toolLoading": "Загрузка…",
   "messages.toolMore": "Ещё…",
+  "todo.preview.updatedItem": "Обновлённый пункт",
+  "todo.preview.plan": "План задач",
+  "todo.preview.position": "{index} из {total}",
+  "todo.preview.completed.one": "Выполнено: {count}",
+  "todo.preview.completed.few": "Выполнено: {count}",
+  "todo.preview.completed.many": "Выполнено: {count}",
+  "todo.preview.completed.other": "Выполнено: {count}",
+  "todo.preview.items.one": "{count} пункт",
+  "todo.preview.items.few": "{count} пункта",
+  "todo.preview.items.many": "{count} пунктов",
+  "todo.preview.items.other": "{count} пункта",
+  "todo.status.pending": "Ожидает",
+  "todo.status.inProgress": "Выполняется",
+  "todo.status.completed": "Выполнено",
+  "todo.status.failed": "Ошибка",
+  "todo.status.cancelled": "Отменено",
+  "planExit.preview.header": "Агентский режим",
+  "planExit.preview.planMode": "Режим планирования",
+  "planExit.preview.agentMode": "Агентский режим",
+  "planExit.preview.inProgress": "Переход в агентский режим…",
+  "planExit.preview.completed": "Переход в агентский режим выполнен",
   "messages.toolLess": "Свернуть",
   "messages.toolQuestionTimelineAriaLabel": "Хронология инструмента вопроса",
   "messages.toolAwaitingAnswer": "Ожидается ответ",
-  "messages.toolQuestionMirrorHint": "Ответьте через карточку «Вопросы» в этом чате. Эта строка только отражает состояние инструмента.",
+  "messages.toolQuestionMirrorHint":
+    "Ответьте через карточку «Вопросы» в этом чате. Эта строка только отражает состояние инструмента.",
   "messages.toolBgTaskOpen": "Открыть в задачах",
   "messages.toolBgTaskStop": "Остановить",
   "messages.fileType.image": "Изображение",
@@ -915,8 +942,10 @@ export const messagesRu: Record<string, string> = {
 
   "workspace.detached": "отсоединённая",
   "workspace.worktree": "рабочее дерево",
-  "workspace.worktreeActiveTitle": "Эта сессия работает в отдельном рабочем дереве",
-  "workspace.worktreeInactiveTitle": "Переход на другую ветку откроется в отдельном рабочем дереве",
+  "workspace.worktreeActiveTitle":
+    "Эта сессия работает в отдельном рабочем дереве",
+  "workspace.worktreeInactiveTitle":
+    "Переход на другую ветку откроется в отдельном рабочем дереве",
   "workspace.recent": "Недавние",
   "workspace.openFolder": "Открыть папку…",
   "workspace.noBranches": "Веток нет",
@@ -947,8 +976,10 @@ export const messagesRu: Record<string, string> = {
   "permission.meta.chars.many": "{count} символов",
   "permission.meta.chars.other": "{count} символа",
   "permission.meta.createParents": "создать родительские папки",
-  "permission.meta.directParentOnly": "только непосредственный родительский каталог",
-  "permission.meta.existingParentsOnly": "только существующие родительские папки",
+  "permission.meta.directParentOnly":
+    "только непосредственный родительский каталог",
+  "permission.meta.existingParentsOnly":
+    "только существующие родительские папки",
   "permission.meta.recursive": "рекурсивно",
   "permission.meta.emptyDirectoryOnly": "только пустая папка",
   "permission.meta.fromLine": "со строки {line}",
@@ -975,11 +1006,15 @@ export const messagesRu: Record<string, string> = {
   "tasks.chip.total.other": "{count} фоновой задачи",
   "tasks.chip.openAria": "Открыть фоновые задачи: {label}",
 
-  "env.error.remoteUnreachable": "Не удаётся подключиться к удалённому {host} — возможно, он выключен, URL неверный или ответ заблокирован CORS (включите httpserver.cors на удалённом сервере).",
-  "env.error.localNetwork": "Ошибка сети при отправке сообщения — проверьте, что сервер запущен.",
-  "env.error.remoteUnauthorized": "Нет авторизации на удалённом {host} — проверьте bearer-токен для этого окружения.",
+  "env.error.remoteUnreachable":
+    "Не удаётся подключиться к удалённому {host} — возможно, он выключен, URL неверный или ответ заблокирован CORS (включите httpserver.cors на удалённом сервере).",
+  "env.error.localNetwork":
+    "Ошибка сети при отправке сообщения — проверьте, что сервер запущен.",
+  "env.error.remoteUnauthorized":
+    "Нет авторизации на удалённом {host} — проверьте bearer-токен для этого окружения.",
   "env.error.localUnauthorized": "Нет авторизации ({status}).",
-  "env.error.remoteRequestFailed": "Запрос к удалённому {host} не выполнен ({status}).",
+  "env.error.remoteRequestFailed":
+    "Запрос к удалённому {host} не выполнен ({status}).",
   "env.error.requestFailed": "Запрос не выполнен ({status}).",
 
   "status.read": "Читаю",

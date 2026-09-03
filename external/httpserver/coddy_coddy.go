@@ -367,16 +367,17 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 }
 
 type coddyToolCallRow struct {
-	ToolCallID             string `json:"toolCallId"`
-	Name                   string `json:"name,omitempty"`
-	Kind                   string `json:"kind,omitempty"`
-	Status                 string `json:"status,omitempty"`
-	StartedAt              string `json:"startedAt,omitempty"`
-	FinishedAt             string `json:"finishedAt,omitempty"`
-	ArgsPreview            string `json:"argsPreview,omitempty"`
-	ResultPreview          string `json:"resultPreview,omitempty"`
-	ResultPreviewTruncated bool   `json:"resultPreviewTruncated,omitempty"`
-	ResultTotalLines       int    `json:"resultTotalLines,omitempty"`
+	ToolCallID             string          `json:"toolCallId"`
+	Name                   string          `json:"name,omitempty"`
+	Kind                   string          `json:"kind,omitempty"`
+	Status                 string          `json:"status,omitempty"`
+	StartedAt              string          `json:"startedAt,omitempty"`
+	FinishedAt             string          `json:"finishedAt,omitempty"`
+	ArgsPreview            string          `json:"argsPreview,omitempty"`
+	ResultPreview          string          `json:"resultPreview,omitempty"`
+	ResultPreviewTruncated bool            `json:"resultPreviewTruncated,omitempty"`
+	ResultTotalLines       int             `json:"resultTotalLines,omitempty"`
+	PlanSnapshot           []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
 func previewText(s string, max int) string {
@@ -538,6 +539,7 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				}
 				ordered[i].row.StartedAt = meta.StartedAt
 				ordered[i].row.FinishedAt = meta.FinishedAt
+				ordered[i].row.PlanSnapshot = append([]acp.PlanEntry(nil), meta.PlanSnapshot...)
 			}
 			if args, err := session.ReadToolCallArgs(sd, id); err == nil {
 				ordered[i].row.ArgsPreview = previewText(args, 200)

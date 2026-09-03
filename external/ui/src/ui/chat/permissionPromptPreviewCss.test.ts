@@ -65,3 +65,14 @@ test("overflow toggles are left-aligned and taller on mobile", () => {
   expect(resultFooter?.[0]).toMatch(/margin-top:\s*-8px/);
   expect(mobile?.[0]).toMatch(/min-height:\s*36px/);
 });
+
+test("plan exit uses themed progress and semantic completion colors", () => {
+  const css = cssText();
+  const preview = css.match(/\.plan-exit-preview\s*\{[^}]*\}/s);
+  const completed = css.match(
+    /\.plan-exit-preview--completed\s+\.plan-exit-preview-icon\s*\{[^}]*\}/s,
+  );
+
+  expect(preview?.[0]).toMatch(/var\(--accent\)/);
+  expect(completed?.[0]).toMatch(/var\(--coddy-todo-completed\)/);
+});
