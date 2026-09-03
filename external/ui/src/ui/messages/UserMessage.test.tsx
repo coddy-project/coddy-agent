@@ -70,11 +70,11 @@ test("edit button is visible when onEdit is provided", () => {
   expect(screen.getByTestId("user-message-edit")).toBeInTheDocument();
 });
 
-test("edit button calls onEdit with message content", () => {
+test("edit button calls onEdit with message content and index", () => {
   const onEdit = vi.fn();
-  render(<UserMessage content="edit me" onEdit={onEdit} />);
+  render(<UserMessage content="edit me" onEdit={onEdit} userMsgIndex={2} />);
   screen.getByTestId("user-message-edit").click();
-  expect(onEdit).toHaveBeenCalledWith("edit me");
+  expect(onEdit).toHaveBeenCalledWith("edit me", 2);
 });
 
 test("persisted hydrated attachments render as compact @ paths", () => {

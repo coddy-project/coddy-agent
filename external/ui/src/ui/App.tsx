@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
+import { useStableHandler } from "./components/useStableHandler";
 import {
   contextUsagePercent,
   withContextUsedTokens,
@@ -56,6 +57,11 @@ import {
   revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import {
+  SHADOW_TRANSCRIPT_CACHE_CAP,
+  sidsToEvict,
+  touchLruSid,
+} from "./chat/sessionTranscriptCache";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -751,6 +757,8 @@ export function App() {
   }>({ input: 0, output: 0, total: 0 });
   /** Per-session shadow transcript while that session streams in the background. */
   const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  /** LRU order of shadow-cached sids (most-recent-last); drives eviction. */
+  const shadowLruRef = useRef<string[]>([]);
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
@@ -805,6 +813,7 @@ export function App() {
       return;
     }
     streamShadowBySidRef.current.set(key, next);
+    touchLruSid(shadowLruRef.current, key);
     if (viewing === key) {
       itemsRef.current = next;
     }
@@ -815,6 +824,35 @@ export function App() {
       }
       return prev;
     });
+  }
+
+  /**
+   * Drops least-recently-used shadow transcripts beyond the cache cap so old
+   * dialogs stop accumulating in memory. The session about to be viewed and
+   * any session with a live composer stream are pinned; evicted sessions are
+   * simply re-fetched via loadMessages on the next visit.
+   */
+  function evictStaleSessionCaches(nextViewedSid: string) {
+    // Self-heal the LRU order: keep only sids that still have a shadow entry.
+    shadowLruRef.current = shadowLruRef.current.filter((sid) =>
+      streamShadowBySidRef.current.has(sid),
+    );
+    const active = new Set<string>(activeComposerSidRef.current);
+    for (const k of postAbortBySidRef.current.keys()) active.add(k);
+    for (const k of relayAbortBySidRef.current.keys()) active.add(k);
+    for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
+    const victims = sidsToEvict({
+      cachedSids: shadowLruRef.current,
+      viewedSid: nextViewedSid.trim(),
+      activeStreamSids: active,
+      cap: SHADOW_TRANSCRIPT_CACHE_CAP,
+    });
+    for (const sid of victims) {
+      streamShadowBySidRef.current.delete(sid);
+      relayLastEventIdBySidRef.current.delete(sid);
+      const at = shadowLruRef.current.indexOf(sid);
+      if (at !== -1) shadowLruRef.current.splice(at, 1);
+    }
   }
 
   const generating = useMemo(() => {
@@ -2364,6 +2402,7 @@ export function App() {
     });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
+      touchLruSid(shadowLruRef.current, sid);
       return applied;
     }
 
@@ -2390,6 +2429,7 @@ export function App() {
     }
 
     streamShadowBySidRef.current.set(sid, withBranches);
+    touchLruSid(shadowLruRef.current, sid);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2442,6 +2482,7 @@ export function App() {
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      evictStaleSessionCaches("");
       return;
     }
     setSessionLoading(true);
@@ -2457,6 +2498,8 @@ export function App() {
     } else {
       setItems([]);
     }
+    touchLruSid(shadowLruRef.current, id);
+    evictStaleSessionCaches(id);
   }
 
   function goHome() {
@@ -2480,6 +2523,7 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -3246,6 +3290,7 @@ export function App() {
         streamShadowBySidRef.current.delete(oldKey);
         if (sh) {
           streamShadowBySidRef.current.set(postSessionKey, sh);
+          touchLruSid(shadowLruRef.current, postSessionKey);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
@@ -3481,6 +3526,9 @@ export function App() {
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
+      // A background stream that just finished on a no-longer-recent session
+      // should release its transcript without waiting for the next navigation.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
@@ -3771,6 +3819,53 @@ export function App() {
     });
   };
 
+  // Identity-stable handlers for the React.memo message rows: a shell
+  // re-render (every streamed token) must not invalidate their props.
+  const handleEditUserMessage = useStableHandler(
+    (content: string, userMsgIdx: number) => {
+      const assetNote = extractSessionAssetsXml(content);
+      setDraft(stripCoddyAttachmentsForUserDisplay(content));
+      setEditingUserMsgIdx(userMsgIdx);
+      setEditingAssetNote(assetNote);
+      setEditingFiles(parseSessionAssetFiles(content));
+    },
+  );
+  const handleStopBackgroundTask = useStableHandler((id: string) => {
+    void stopBackgroundTaskById(id);
+  });
+  const handleRetryLast = useStableHandler(
+    () => void streamResponses(lastUserText),
+  );
+  const handleFetchToolCallFull = useStableHandler(
+    async (toolCallId: string) => {
+      if (!sessionId) return;
+      const det = await fetchJSON<{
+        args?: string;
+        result?: string;
+        meta?: {
+          status?: string;
+          kind?: string;
+          name?: string;
+          planSnapshot?: unknown;
+        };
+      }>(
+        `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+        { headers },
+      );
+      if (!det.ok || !det.data) return;
+      const meta = det.data.meta || {};
+      const patch: Record<string, unknown> = { toolCallId };
+      if (meta.name) patch.title = meta.name;
+      if (meta.kind) patch.kind = meta.kind;
+      if (meta.status) patch.status = meta.status;
+      const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+      if (todoPlan !== undefined) patch.todoPlan = todoPlan;
+      if (det.data.args) patch.argsText = det.data.args;
+      if (det.data.result !== undefined) patch.fullResultText = det.data.result;
+      upsertToolCall(patch as any);
+    },
+  );
+
   return (
     <div
       className={[
@@ -3923,9 +4018,7 @@ export function App() {
           backgroundTasksByToolCallId={backgroundTasksByToolCallId}
           backgroundNowMs={backgroundNowMs}
           onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={(id: string) => {
-            void stopBackgroundTaskById(id);
-          }}
+          onStopBackgroundTask={handleStopBackgroundTask}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
@@ -3968,7 +4061,7 @@ export function App() {
           onDraftChange={setDraft}
           generating={generating}
           {...(!generating && lastUserText.trim()
-            ? { onRetryLast: () => void streamResponses(lastUserText) }
+            ? { onRetryLast: handleRetryLast }
             : {})}
           onContextRingOpen={() => {
             const sid = sessionId.trim();
@@ -4022,13 +4115,7 @@ export function App() {
               ),
             );
           }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripCoddyAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
+          onEdit={handleEditUserMessage}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
@@ -4052,34 +4139,7 @@ export function App() {
               void streamResponses(text, files ? { files } : undefined);
             }
           }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: {
-                status?: string;
-                kind?: string;
-                name?: string;
-                planSnapshot?: unknown;
-              };
-            }>(
-              `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
-            if (todoPlan !== undefined) patch.todoPlan = todoPlan;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
+          onFetchToolCallFull={handleFetchToolCallFull}
         />
       </div>
     </div>

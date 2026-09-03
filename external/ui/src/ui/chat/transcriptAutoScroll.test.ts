@@ -44,6 +44,34 @@ test("new transcript row affects auto scroll", () => {
   expect(transcriptItemsAffectAutoScroll(prev, next)).toBe(true);
 });
 
+test("same array reference does not affect auto scroll", () => {
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "hello" },
+  ];
+  expect(transcriptItemsAffectAutoScroll(items, items)).toBe(false);
+});
+
+test("new array with same item references does not affect auto scroll", () => {
+  const prev: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "hello" },
+  ];
+  expect(transcriptItemsAffectAutoScroll(prev, [...prev])).toBe(false);
+});
+
+test("single mutated item among stable references affects auto scroll", () => {
+  const prev: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "hi" },
+    { id: "a1", type: "assistant_message", content: "hel", streaming: true },
+  ];
+  const next: TranscriptItem[] = [
+    prev[0]!,
+    { id: "a1", type: "assistant_message", content: "hello", streaming: true },
+  ];
+  expect(transcriptItemsAffectAutoScroll(prev, next)).toBe(true);
+});
+
 test("assistant streaming update affects auto scroll", () => {
   const prev: TranscriptItem[] = [
     { id: "a1", type: "assistant_message", content: "hel", streaming: true },
