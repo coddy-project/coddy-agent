@@ -159,13 +159,17 @@ type ProviderInput struct {
 	Timeout time.Duration
 }
 
+// neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
+// holds the full allowlist a provider may select from.
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		// Pinned to the official endpoint; CODDY_NEURALDEEP_BASE_URL lets
-		// tests and stands redirect the process as a whole (config cannot).
-		return neuralDeepAPIBase()
+		// Pinned to the official deployments: api_base picks between them and
+		// anything else falls back to the default, so a hub-issued key cannot
+		// be aimed at an arbitrary host. CODDY_NEURALDEEP_BASE_URL still
+		// redirects the process as a whole for tests and stands.
+		return neuralDeepAPIBase(configured)
 	}
 	return strings.TrimSpace(configured)
 }

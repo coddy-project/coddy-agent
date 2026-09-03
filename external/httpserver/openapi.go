@@ -1147,7 +1147,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**; codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1226,9 +1226,16 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get NeuralDeep sign-in status",
-					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
 					"operationId": "getProviderNeuralDeepAuth",
-					"parameters":  []interface{}{codexProviderNameParameter()},
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "api_base", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Endpoint currently picked in the settings form (`https://api.neuraldeep.ru/v1` or `https://api.neuraldeep.tech/v1`), possibly unsaved. Omitted or unrecognized: the saved row's endpoint, falling back to the default deployment like requests do.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
 						"400": errorResponseRef(),
@@ -1252,9 +1259,17 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Start NeuralDeep device authorization",
-					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
 					"operationId": "startProviderNeuralDeepDeviceAuth",
 					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/NeuralDeepAuthDeviceStartRequest"},
+							},
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
 						"400": errorResponseRef(),
@@ -1954,6 +1969,16 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"status", "connected"},
 				},
+				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"api_base": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
+							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
+						},
+					},
+				},
 				"NeuralDeepAuthDeviceStart": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1981,6 +2006,16 @@ func openAPISpec() map[string]interface{} {
 							"type":        "string",
 							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
 							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
+						},
+						"hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub that issued the stored login, as recorded in the credential file. Omitted when there is no stored login.",
+						},
+						"endpoint_hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub a sign-in for the queried endpoint (`api_base`, default: the saved row's) would use. Differs from `hub` when the stored login belongs to the other deployment.",
 						},
 					},
 					"required": []string{"connected", "source"},
