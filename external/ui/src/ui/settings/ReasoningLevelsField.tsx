@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Combobox } from "./Combobox";
 import { IconTrash } from "./SchemaForm";
 import { useReasoningLevels } from "./useReasoningLevels";
@@ -25,10 +26,13 @@ export function ReasoningLevelsField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   model: string;
+  /** Wire type of the provider the model id currently points at, as shown in
+   * the (possibly unsaved) form; decides the Codex remap server-side. */
+  providerType?: string | undefined;
   label: string;
   description?: string | undefined;
 }) {
-  const { value, onChange, model, label } = props;
+  const { value, onChange, model, providerType, label } = props;
   const { t } = useT();
   const { loading, detected, error, fetched, fetchLevels, reset } =
     useReasoningLevels();
@@ -37,26 +41,34 @@ export function ReasoningLevelsField(props: {
   const explicit = Array.isArray(value) ? value.map((v) => `${v}`) : null;
   const modelId = model.trim();
 
+  // Whatever the last fetch said was about the previous id, and an answer still
+  // in flight for it must not land on the new one.
+  useEffect(() => {
+    reset();
+  }, [modelId, reset]);
+
   const options = KNOWN_LEVELS.map((v) => ({ value: v }));
 
   const setLevels = (next: string[]) => {
     onChange(next);
   };
 
+  // The list the operator is looking at always wins over fetch feedback: a
+  // fetch that filled the list has made itself visible, and one that failed or
+  // found nothing only matters while the key is still absent.
   const status = () => {
+    if (explicit !== null) {
+      return explicit.length === 0
+        ? t("settings.reasoning.hidden")
+        : t("settings.reasoning.overridden");
+    }
     if (fetched && error) {
       return t("settings.reasoning.fetchError", { error });
     }
-    if (fetched && !error && !detected) {
+    if (fetched && !detected) {
       return t("settings.reasoning.noneDetected");
     }
-    if (explicit === null) {
-      return t("settings.reasoning.autoDetected");
-    }
-    if (explicit.length === 0) {
-      return t("settings.reasoning.hidden");
-    }
-    return t("settings.reasoning.overridden");
+    return t("settings.reasoning.autoDetected");
   };
 
   return (
@@ -73,11 +85,12 @@ export function ReasoningLevelsField(props: {
           data-testid="reasoning-levels-fetch"
           disabled={!modelId || loading}
           onClick={() => {
-            void fetchLevels(modelId).then((next) => {
-              // An empty answer means the id has no reasoning family. Writing []
-              // would read as the explicit opt-out, so leave the field alone and
-              // let the status line explain.
-              if (next.length > 0) {
+            void fetchLevels(modelId, providerType).then((next) => {
+              // null: the answer arrived too late (id retyped, field gone) and
+              // was dropped. Empty: the id has no reasoning family, and writing
+              // [] would read as the explicit opt-out, so leave the field alone
+              // and let the status line explain.
+              if (next && next.length > 0) {
                 setLevels(next);
               }
             });

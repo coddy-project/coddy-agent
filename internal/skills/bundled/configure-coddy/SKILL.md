@@ -32,6 +32,7 @@ Configuration edits never apply immediately. The flow is always:
 | `add_list skills.dirs=/home/dev/.agents/skills` | Append to a list |
 | `del_list skills.dirs=/home/dev/.agents/skills` | Remove a matching list entry |
 | `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `delete models[model=valera/qwen3.8-27b].reasoning_levels` | Drop an optional key so its default applies again (here: reasoning levels go back to auto-detection) |
 
 Paths are dotted: `agent.max_turns` walks mappings, `skills.dirs.0` indexes a list, `mcp_servers[name=context7].command` selects a named list entry. Unknown schema paths and values that make the config invalid are rejected at staging time, before anything is written.
 
@@ -46,7 +47,7 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
 
 - `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound. `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`coddy providers login <name>` / `coddy codex login` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$CODDY_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login;
-- `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default;
+- `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default. `reasoning_levels` has three states: key absent auto-detects the levels from the model id (the default), an explicit `[]` hides the reasoning selector, and a non-empty list offers exactly those levels; `delete models.N.reasoning_levels` returns an entry to auto-detection, `set models.N.reasoning_levels=[]` opts out;
 - `agent` - ReAct loop model, max turns, LLM retry and pacing (`llm_retry_max` with `0` disabling retries, `llm_retry_base_ms`, `llm_min_interval_ms`, `llm_first_token_timeout_ms`), loop protection;
 - `prompts` - system prompt template overrides;
 - `instructions` - project instruction files (AGENTS.md chain);

@@ -280,7 +280,13 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.Providers = append(out.Providers, ProviderJSON(p))
 	}
 	for _, m := range c.Models {
-		out.Models = append(out.Models, ModelJSON(m))
+		mj := ModelJSON(m)
+		// The struct conversion shares pointer fields with the live config; hand
+		// the DTO its own copies so a caller mutating one side cannot leak into
+		// the other, as the other pointer-typed sections already do.
+		mj.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		mj.Stream = cloneBoolPtr(m.Stream)
+		out.Models = append(out.Models, mj)
 	}
 	out.Agent = AgentJSON{
 		Model:                  c.Agent.Model,
@@ -414,7 +420,10 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.Providers = append(cfg.Providers, ProviderConfig(p))
 	}
 	for _, m := range j.Models {
-		cfg.Models = append(cfg.Models, ModelEntry(m))
+		me := ModelEntry(m)
+		me.ReasoningLevels = cloneStringsPtr(m.ReasoningLevels)
+		me.Stream = cloneBoolPtr(m.Stream)
+		cfg.Models = append(cfg.Models, me)
 	}
 	cfg.Agent = Agent{
 		Model:                  j.Agent.Model,
@@ -545,6 +554,17 @@ func cloneBoolPtr(p *bool) *bool {
 	}
 	v := *p
 	return &v
+}
+
+// cloneStringsPtr copies a *[]string, keeping nil (key omitted) and a pointer
+// to an empty list (explicit []) apart.
+func cloneStringsPtr(p *[]string) *[]string {
+	if p == nil {
+		return nil
+	}
+	out := make([]string, len(*p))
+	copy(out, *p)
+	return &out
 }
 
 func cloneIntPtr(p *int) *int {

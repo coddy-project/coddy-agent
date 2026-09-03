@@ -146,6 +146,21 @@ export function SettingsSection(props: {
   const props_ = schema.properties ?? {};
 
   const providerNames = stringList(doc.providers, "name");
+  // The provider row the model id points at, as it stands in the (unsaved)
+  // form: its type decides the Codex reasoning remap server-side, so it must
+  // come from the document being edited rather than from the config on disk.
+  const providerTypeFor = (modelId: string): string | undefined => {
+    const slash = modelId.indexOf("/");
+    if (slash <= 0) {
+      return undefined;
+    }
+    const name = modelId.slice(0, slash);
+    const row = asArray(doc["providers"]).find(
+      (p) => asObject(p)["name"] === name,
+    );
+    const type = row === undefined ? "" : String(asObject(row)["type"] ?? "");
+    return type.trim() || undefined;
+  };
   const modelIds = stringList(doc.models, "model");
 
   const setKey = (key: string, value: unknown) =>
@@ -215,16 +230,17 @@ export function SettingsSection(props: {
             // and cannot tell it apart from an explicit [] that hides the
             // reasoning selector, so this field owns all three states.
             if (ctx.path === "reasoning_levels") {
+              const modelId =
+                ctx.parentObj?.["model"] === undefined ||
+                ctx.parentObj?.["model"] === null
+                  ? ""
+                  : String(ctx.parentObj["model"]);
               return (
                 <ReasoningLevelsField
                   value={ctx.value}
                   onChange={(v) => ctx.onChange(v)}
-                  model={
-                    ctx.parentObj?.["model"] === undefined ||
-                    ctx.parentObj?.["model"] === null
-                      ? ""
-                      : String(ctx.parentObj["model"])
-                  }
+                  model={modelId}
+                  providerType={providerTypeFor(modelId)}
                   label={
                     schemaFieldLabel(
                       key,

@@ -79,7 +79,7 @@ models:
   # - model: "openai/gpt-5"
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
-  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
+  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
 
   # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
   #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens

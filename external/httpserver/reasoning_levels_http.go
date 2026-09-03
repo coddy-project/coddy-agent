@@ -14,9 +14,12 @@ import (
 // would offer with no reasoning_levels override configured, so the settings form
 // can fill the field instead of asking the operator to remember the tiers. The
 // model id arrives as a query parameter because the entry being edited is not
-// saved yet; only its provider prefix is looked up in the active config, and only
-// to apply the Codex remap (that backend serves gpt-5* ids but calls the lowest
-// tier "none", not "minimal").
+// saved yet. The only provider-dependent step is the Codex remap (that backend
+// serves gpt-5* ids but calls the lowest tier "none", not "minimal"): the form
+// sends the provider type it currently shows as provider_type, which wins over
+// the saved config so an unsaved or just-retyped provider row resolves the way
+// it will after Save; without the hint the prefix is looked up in the active
+// config.
 //
 // A model id that resolves to no levels is not an error: it is the honest answer
 // for a non-reasoning model, reported as {"ok":true,"levels":[],"detected":false}
@@ -51,9 +54,15 @@ func (s *Server) coddyConfigReasoningLevelsGet(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// A nil ReasoningLevels makes ReasoningLevelsFor report pure detection, under
-	// the same provider-aware remap the composer and GET /v1/models use.
-	levels := c.ReasoningLevelsFor(&config.ModelEntry{Model: model})
+	// A nil ReasoningLevels makes the resolver report pure detection, under the
+	// same provider-aware remap the composer and GET /v1/models use.
+	entry := &config.ModelEntry{Model: model}
+	var levels []string
+	if providerType := strings.TrimSpace(r.URL.Query().Get("provider_type")); providerType != "" {
+		levels = config.ReasoningLevelsForProviderType(entry, providerType)
+	} else {
+		levels = c.ReasoningLevelsFor(entry)
+	}
 	if levels == nil {
 		levels = []string{}
 	}

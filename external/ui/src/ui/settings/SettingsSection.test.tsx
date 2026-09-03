@@ -203,7 +203,8 @@ test("NeuralDeep Sign In opens the hub and completes device authorization", asyn
           ok: true,
           json: async () => ({
             login_id: "login-nd",
-            verification_url: "https://hub.neuraldeep.test/app/device?code=BCDF-2345",
+            verification_url:
+              "https://hub.neuraldeep.test/app/device?code=BCDF-2345",
             user_code: "BCDF-2345",
             status: "pending",
           }),
@@ -241,7 +242,11 @@ test("NeuralDeep Sign In opens the hub and completes device authorization", asyn
     "noopener,noreferrer",
   );
   expect(
-    await screen.findByText(/Signed in to NeuralDeep \(sk-nd…4321\)/, {}, { timeout: 2000 }),
+    await screen.findByText(
+      /Signed in to NeuralDeep \(sk-nd…4321\)/,
+      {},
+      { timeout: 2000 },
+    ),
   ).toBeInTheDocument();
 });
 
@@ -419,9 +424,10 @@ test("fetch reasoning levels fills the field for the model being edited", async 
     ]),
   );
 
-  // The id typed into the form is what gets resolved, not a saved models[] row.
+  // The id typed into the form is what gets resolved, not a saved models[] row,
+  // together with the type of the provider row it points at.
   expect(fetchMock).toHaveBeenCalledWith(
-    "/coddy/config/reasoning-levels?model=valera%2Fqwen3.8-27b",
+    "/coddy/config/reasoning-levels?model=valera%2Fqwen3.8-27b&provider_type=openai",
   );
 
   // And the operator can hand the decision back to the backend.
@@ -429,6 +435,64 @@ test("fetch reasoning levels fills the field for the model being edited", async 
   expect(savedModels()).toEqual([
     { model: "valera/qwen3.8-27b", stream: true },
   ]);
+});
+
+test("fetch reasoning levels sends the type of the provider row in the form", async () => {
+  const fetchMock = stubModelsAndLevels(["low", "medium", "high"]);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+
+  // valera is an openai provider in the (unsaved) settings document, and that
+  // is what decides the Codex remap server-side, not the config on disk.
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/coddy/config/reasoning-levels?model=valera%2Fqwen3.8-27b&provider_type=openai",
+    ),
+  );
+});
+
+test("a fetch that answers after the model row was removed does not bring it back", async () => {
+  let settle: () => void = () => {};
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = String(input);
+    if (url.startsWith("/coddy/config/reasoning-levels")) {
+      await new Promise<void>((r) => {
+        settle = r;
+      });
+      return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          levels: ["low", "medium", "high"],
+          detected: true,
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ ok: true, models: [{ id: "qwen3.8-27b" }] }),
+    };
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<ReasoningModelsHarness />);
+  await addFetchedModel();
+  fireEvent.click(screen.getByTestId("reasoning-levels-fetch"));
+
+  // Back to the list, delete the row while the request is still in flight.
+  fireEvent.click(screen.getByTestId("settings-detail-back"));
+  fireEvent.click(
+    screen.getByRole("button", { name: /Remove valera\/qwen3\.8-27b/ }),
+  );
+  expect(savedModels()).toEqual([]);
+
+  settle();
+  await new Promise((r) => setTimeout(r, 0));
+  // The stale answer must not re-create the deleted entry through the
+  // captured array callback.
+  expect(savedModels()).toEqual([]);
 });
 
 test("a model id with no reasoning family is left without an override", async () => {

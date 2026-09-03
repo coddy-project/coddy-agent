@@ -70,10 +70,20 @@ agent:
 }
 
 func (w *reasoningLevelsWorld) fetchLevels(model string) error {
+	return w.fetchLevelsForProviderType(model, "")
+}
+
+// fetchLevelsForProviderType is the request the form sends while the provider
+// row is still unsaved: the type picked in the form travels as provider_type.
+func (w *reasoningLevelsWorld) fetchLevelsForProviderType(model, providerType string) error {
 	if w.ts == nil {
 		return fmt.Errorf("gateway not started")
 	}
-	res, err := http.Get(w.ts.URL + "/coddy/config/reasoning-levels?model=" + url.QueryEscape(model))
+	q := "?model=" + url.QueryEscape(model)
+	if providerType != "" {
+		q += "&provider_type=" + url.QueryEscape(providerType)
+	}
+	res, err := http.Get(w.ts.URL + "/coddy/config/reasoning-levels" + q)
 	if err != nil {
 		return err
 	}
@@ -131,6 +141,7 @@ func TestReasoningLevelsFetchFeature(t *testing.T) {
 					return w.startGateway(t, providerType, providerName)
 				})
 			sc.Step(`^the settings form fetches the reasoning levels for "([^"]*)"$`, w.fetchLevels)
+			sc.Step(`^the settings form fetches the reasoning levels for "([^"]*)" of an? "([^"]*)" provider$`, w.fetchLevelsForProviderType)
 			sc.Step(`^the gateway answers with the levels "([^"]*)"$`, w.wantLevels)
 			sc.Step(`^the gateway answers with no levels$`, w.wantNoLevels)
 			sc.Step(`^the answer reports the levels as detected$`, func() error { return w.wantDetected(true) })

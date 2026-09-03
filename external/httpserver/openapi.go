@@ -559,7 +559,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/config/reasoning-levels": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Reasoning levels a model id offers (UI)",
-					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The **`model`** provider prefix is looked up in the active config only to apply the Codex remap (**`minimal`** becomes **`none`**); an unsaved provider still gets the un-remapped list. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**.",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/coddy/config`** routes use.",
 					"operationId": "coddyConfigReasoningLevelsGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -569,6 +569,14 @@ func openAPISpec() map[string]interface{} {
 							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
 							"schema":      map[string]interface{}{"type": "string"},
 							"example":     "valera/qwen3.8-27b",
+						},
+						map[string]interface{}{
+							"name":        "provider_type",
+							"in":          "query",
+							"required":    false,
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "codex",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -580,8 +588,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
-						"400": errorResponseRef(),
-						"500": errorResponseRef(),
+						"400": coddyConfigErrorResponse("Missing `model` query parameter"),
+						"500": coddyConfigErrorResponse("Configuration unavailable"),
 					},
 				},
 			},
@@ -2357,6 +2365,22 @@ func openAPISpec() map[string]interface{} {
 	mergeOpenAPISchedulerDoc(&doc)
 	mergeOpenAPIMemoryDoc(&doc)
 	return doc
+}
+
+// coddyConfigErrorResponse documents the flat {"ok":false,"error":...} body that
+// writeCoddyConfigErr emits for the /coddy/config routes, as opposed to the
+// OpenAI-style nested ErrorEnvelope used by the /v1 surface.
+func coddyConfigErrorResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/CoddyConfigValidateResponse",
+				},
+			},
+		},
+	}
 }
 
 func errorResponseRef() map[string]interface{} {
