@@ -248,3 +248,13 @@ subagents:
 ## Out of scope
 
 Follow-ups, deliberately not part of this change: resuming or messaging a running child, worktree isolation for a child, definition-level hooks and MCP servers, `SubagentStart` / `SubagentStop` hooks, a Settings tab for editing and approving definitions (the CLI and the HTTP routes cover approval, the `configure-coddy` skill covers widening the policy), queueing instead of refusing when the pool is full, and a live SSE relay for a child (the transcript is read from the live state or the bundle instead). The design record with the alternatives considered is `docs/plans/subagents.md`.
+
+## Screenshots
+
+Captured from the bundled SPA against a stub model (`docs/assets/subagents/`):
+
+- `tasks-panel-agent-running-dark.png`, `tasks-panel-agent-running-light.png`: the Tasks panel with a running subagent card and its `AGENT` badge.
+- `tasks-detail-agent-running-dark.png`: the detail pane of a running subagent with the live log and **Open transcript**.
+- `tasks-detail-agent-finished-dark.png`, `tasks-detail-agent-finished-light.png`, `tasks-detail-agent-narrow-dark.png`: the finished run with its report block, wide and narrow.
+- `tasks-panel-agent-finished-light.png`: the finished row under **Finished N**.
+- `child-transcript-readonly-dark.png`, `child-transcript-readonly-light.png`: the child session opened from the panel, with the read-only notice in place of the composer.
