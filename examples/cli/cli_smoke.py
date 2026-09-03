@@ -14,7 +14,7 @@ def main() -> int:
         tui.wait_for("coddy v", timeout=30)
         tui.wait_for("escape interrupt", timeout=10)
         tui.prompt("Reply with exactly: CLI_SMOKE_OK")
-        tui.wait_for("Working...", timeout=30)
+        tui.wait_turn_started(timeout=30)
         tui.wait_idle(timeout=240)
         tui.wait_session_file("messages.json", timeout=30)
         msgs = tui.messages()
