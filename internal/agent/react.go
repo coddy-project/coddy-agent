@@ -132,7 +132,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	a.runMemoryBeforeTurn(ctx, userText)
+	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)

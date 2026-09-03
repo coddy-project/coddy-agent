@@ -308,7 +308,7 @@ After **`plan_write`**, Coddy publishes:
 }
 ```
 
-Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
+Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan. In **ask** mode the hook is refused with an error and a `@plans/<slug>.plan.md` mention is only inlined as reading material: switch the mode first, then run.
 
 2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
 

@@ -369,6 +369,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 			return
 		}
+		if runPlanRefusedInAskMode(model, req.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
+			return
+		}
 	} else if completionMetadataForbidden(req.Metadata) {
 		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
@@ -687,6 +691,10 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, body.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(body.Metadata) {

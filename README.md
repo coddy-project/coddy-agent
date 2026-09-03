@@ -82,7 +82,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Remote control** - point the console or ACP at a running server with **`--remote <name|host:port|url>`** (plus **`--remote-token`** / **`CODDY_REMOTE_TOKEN`**), and switch the web UI between local and remote from the composer environment chip - see [Remote control](docs/remote-control.md)
 - **Self-configuration** - the agent edits its own YAML through staged uci-like commands (**`config_get`** / **`config_set`** / **`config_changes`** / **`config_commit`** / **`config_revert`** / **`config_rollback`**): nothing touches the file until a commit you approve, which then validates, snapshots, and hot-reloads skills, rules, tools, and MCP servers - see [Configuration reference](docs/config-reference.md)
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
-- **Three operating modes** - `agent` (full tool access), `plan` (planning + text files only), and `ask` (read-only research: repository reads and web search, nothing mutates)
+- **Three operating modes** - `agent` (full tool access), `plan` (planning + text files only), and `ask` (read-only research: the model can only read the repository and search the web)
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **Background tasks** - `run_command` can run detached (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, a **Tasks** drawer in the UI shows what is still running with a status ticker, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a batch of similar calls asks once - see [Background tasks](docs/background-tasks.md)
@@ -350,7 +350,13 @@ When the plan is ready, switch to **agent** mode yourself for full tools and imp
 
 Best for: architecture planning, writing specs, design documents, code review.
 
-Switch modes from the composer selector in the web UI, **`/mode`** (or **`--mode agent|plan`**) in the console, or your editor's session mode selector over ACP (**`session/set_config_option`**).
+### Ask Mode
+
+Read-only research mode. The model gets **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, and **`load_skill`**: no shell, no file writes, no plan or todo tools, no config tools, no MCP tools. Unlike plan mode the allowlist is also enforced when a call executes, so a tool call replayed from earlier history is refused instead of run; a **`@plans/...`** mention is read, never run; the memory copilot recalls but never saves. Deterministic operator commands typed as the prompt (**`/compact`**, **`/plugin`**) are outside this boundary.
+
+Best for: questions about the codebase, code review and diagnosis, web research.
+
+Switch modes from the composer selector in the web UI, **`/mode`** (or **`--mode agent|plan|ask`**) in the console, or your editor's session mode selector over ACP (**`session/set_config_option`**).
 
 ## Rules
 

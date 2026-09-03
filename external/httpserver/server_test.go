@@ -3159,3 +3159,45 @@ func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
 		t.Fatalf("response does not echo the ask profile: %s", body)
 	}
 }
+
+// Pairing the read-only ask profile with runPlanSlug is refused before the
+// turn lock, the relay, or SSE headers, so streaming and non-streaming callers
+// both get a plain 409 instead of a 500 (or a committed 200) from the manager.
+func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
+	runs := 0
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name, path, payload string
+	}{
+		{"responses non-stream", "/v1/responses", `{"model":"ask","input":"go","stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+		{"responses stream", "/v1/responses", `{"model":"ask","input":"go","stream":true,"metadata":{"runPlanSlug":"demo"}}`},
+		{"chat completions", "/v1/chat/completions", `{"model":"ask","messages":[{"role":"user","content":"go"}],"stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+	}
+	for _, tc := range cases {
+		res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409: %s", tc.name, res.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "ask mode") {
+			t.Fatalf("%s: error does not explain the refusal: %s", tc.name, body)
+		}
+		if ct := res.Header.Get("Content-Type"); strings.Contains(ct, "text/event-stream") {
+			t.Fatalf("%s: refusal was streamed as SSE", tc.name)
+		}
+	}
+	if runs != 0 {
+		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
+	}
+}

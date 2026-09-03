@@ -2089,7 +2089,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -2140,7 +2140,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
