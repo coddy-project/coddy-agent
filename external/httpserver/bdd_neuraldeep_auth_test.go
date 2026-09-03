@@ -32,12 +32,15 @@ import (
 // (browser-callback start page, device flow, whoami/status/revoke) plus a
 // stand-in OpenAI-compatible API that records the Authorization header.
 type neuralDeepBDDState struct {
-	home    string
-	hub     *httptest.Server
-	api     *httptest.Server
-	server  *Server
-	ts      *httptest.Server
-	loginID string
+	home string
+	hub  *httptest.Server
+	// hubMirror stands in for the international deployment's hub; it mints a
+	// different key so a login can be traced back to the hub that issued it.
+	hubMirror *httptest.Server
+	api       *httptest.Server
+	server    *Server
+	ts        *httptest.Server
+	loginID   string
 
 	mu       sync.Mutex
 	apiAuths []string
@@ -49,55 +52,16 @@ type neuralDeepBDDState struct {
 
 const neuralDeepBDDKey = "sk-bdd-tier-key"
 
+// neuralDeepBDDMirrorKey is what the mirror hub mints; distinct from the
+// default hub's key so the Then-steps can tell the two deployments apart.
+const neuralDeepBDDMirrorKey = "sk-bdd-mirror-key"
+
 func (s *neuralDeepBDDState) reset() error {
 	s.home, _ = os.MkdirTemp("", "coddy-nd-bdd-*")
 	s.apiAuths = nil
 	s.loginID = ""
 
-	s.hub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/cli/auth/start":
-			q := r.URL.Query()
-			cb := fmt.Sprintf("http://127.0.0.1:%s/cb?state=%s&key=%s",
-				q.Get("port"), url.QueryEscape(q.Get("state")), url.QueryEscape(neuralDeepBDDKey))
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			// Production answers with an HTML page whose script (and fallback
-			// link) navigate to the loopback callback; the test browser follows
-			// the link exactly like a user agent executing location.replace.
-			_, _ = fmt.Fprintf(w, `<!doctype html><body><h2>ok</h2><a href="%s">continue</a><script>location.replace(%q)</script></body>`, cb, cb)
-		case "/api/cli/device/start":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"device_code": "dev-bdd", "user_code": "BDDX-CODE",
-				"verification_uri":          s.hubURL() + "/app/device",
-				"verification_uri_complete": s.hubURL() + "/app/device?code=BDDX-CODE",
-				"interval":                  0, "expires_in": 900,
-			})
-		case "/api/cli/device/token":
-			_, _ = fmt.Fprint(w, `{"access_token":"`+neuralDeepBDDKey+`","token_type":"bearer","label":"coddy @ bdd"}`)
-		case "/api/cli/whoami":
-			if r.Header.Get("Authorization") != "Bearer "+neuralDeepBDDKey {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"email": "bdd@example.com", "name": "bdd", "tier": "starter"})
-		case "/api/cli/status":
-			if r.Header.Get("Authorization") != "Bearer "+neuralDeepBDDKey {
-				w.WriteHeader(http.StatusUnauthorized)
-				return
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"tier": "starter",
-				"models": []map[string]any{
-					{"id": "qwen3.6-35b-a3b", "mode": "chat", "ctx": 262144},
-					{"id": "gpt-oss-120b", "mode": "chat", "ctx": 131072},
-				},
-			})
-		case "/api/cli/revoke":
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
-		default:
-			http.NotFound(w, r)
-		}
-	}))
+	s.hub = standInHub(neuralDeepBDDKey)
 
 	s.api = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {
@@ -125,6 +89,57 @@ func (s *neuralDeepBDDState) reset() error {
 	return os.Setenv(llm.EnvNeuralDeepBaseURL, s.api.URL)
 }
 
+// standInHub serves the hub endpoints the sign-in flows touch (browser
+// callback start page, device flow, whoami/status/revoke) and mints key.
+func standInHub(key string) *httptest.Server {
+	var self *httptest.Server
+	self = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/cli/auth/start":
+			q := r.URL.Query()
+			cb := fmt.Sprintf("http://127.0.0.1:%s/cb?state=%s&key=%s",
+				q.Get("port"), url.QueryEscape(q.Get("state")), url.QueryEscape(key))
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			// Production answers with an HTML page whose script (and fallback
+			// link) navigate to the loopback callback; the test browser follows
+			// the link exactly like a user agent executing location.replace.
+			_, _ = fmt.Fprintf(w, `<!doctype html><body><h2>ok</h2><a href="%s">continue</a><script>location.replace(%q)</script></body>`, cb, cb)
+		case "/api/cli/device/start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-bdd", "user_code": "BDDX-CODE",
+				"verification_uri":          self.URL + "/app/device",
+				"verification_uri_complete": self.URL + "/app/device?code=BDDX-CODE",
+				"interval":                  0, "expires_in": 900,
+			})
+		case "/api/cli/device/token":
+			_, _ = fmt.Fprint(w, `{"access_token":"`+key+`","token_type":"bearer","label":"coddy @ bdd"}`)
+		case "/api/cli/whoami":
+			if r.Header.Get("Authorization") != "Bearer "+key {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"email": "bdd@example.com", "name": "bdd", "tier": "starter"})
+		case "/api/cli/status":
+			if r.Header.Get("Authorization") != "Bearer "+key {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"tier": "starter",
+				"models": []map[string]any{
+					{"id": "qwen3.6-35b-a3b", "mode": "chat", "ctx": 262144},
+					{"id": "gpt-oss-120b", "mode": "chat", "ctx": 131072},
+				},
+			})
+		case "/api/cli/revoke":
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return self
+}
+
 func (s *neuralDeepBDDState) hubURL() string {
 	if s.hub == nil {
 		return ""
@@ -144,6 +159,10 @@ func (s *neuralDeepBDDState) close() {
 	if s.hub != nil {
 		s.hub.Close()
 		s.hub = nil
+	}
+	if s.hubMirror != nil {
+		s.hubMirror.Close()
+		s.hubMirror = nil
 	}
 	if s.api != nil {
 		s.api.Close()
@@ -323,7 +342,17 @@ func (s *neuralDeepBDDState) startServerWithProvider() error {
 }
 
 func (s *neuralDeepBDDState) signInThroughRESTDeviceFlow() error {
-	res, err := http.Post(s.ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth/device", "application/json", nil)
+	return s.signInThroughRESTDeviceFlowWith("")
+}
+
+// signInThroughRESTDeviceFlowWith runs the SPA's device sign-in; body is the
+// optional JSON the settings form sends (the endpoint picked, before save).
+func (s *neuralDeepBDDState) signInThroughRESTDeviceFlowWith(body string) error {
+	var payload io.Reader
+	if body != "" {
+		payload = strings.NewReader(body)
+	}
+	res, err := http.Post(s.ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth/device", "application/json", payload)
 	if err != nil {
 		return err
 	}
@@ -524,6 +553,87 @@ func (s *neuralDeepBDDState) savedConfigKeepsMirror() error {
 	return nil
 }
 
+// startServerWithHubPerDeployment brings up the server of the @http scenarios
+// plus a second stand-in hub for the mirror, and routes hub resolution by
+// endpoint the way production does (api.neuraldeep.tech -> hub.neuraldeep.tech).
+func (s *neuralDeepBDDState) startServerWithHubPerDeployment() error {
+	if err := s.startServerWithProvider(); err != nil {
+		return err
+	}
+	s.hubMirror = standInHub(neuralDeepBDDMirrorKey)
+	s.server.neuralDeepHubFor = func(apiBase string) string {
+		if base, ok := llm.NormalizeNeuralDeepAPIBase(apiBase); ok && base == neuralDeepMirrorAPIBase {
+			return s.hubMirror.URL
+		}
+		return s.hub.URL
+	}
+	return nil
+}
+
+func (s *neuralDeepBDDState) signInWithMirrorSelected() error {
+	// The saved row still points at the default deployment; only the form
+	// carries the pick, exactly like Settings before Save.
+	return s.signInThroughRESTDeviceFlowWith(`{"api_base":"` + neuralDeepMirrorAPIBase + `"}`)
+}
+
+func (s *neuralDeepBDDState) storedLoginIssuedByMirrorHub() error {
+	st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(s.home, "neuraldeep"))
+	if err != nil {
+		return err
+	}
+	if !st.Connected {
+		return fmt.Errorf("stored login = %+v, want connected", st)
+	}
+	if st.Hub != s.hubMirror.URL {
+		return fmt.Errorf("stored login hub = %q, want the mirror hub %q", st.Hub, s.hubMirror.URL)
+	}
+	key, err := llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(s.home, "neuraldeep"))
+	if err != nil {
+		return err
+	}
+	if key != neuralDeepBDDMirrorKey {
+		return fmt.Errorf("stored key = %q, want the one the mirror hub mints", key)
+	}
+	return nil
+}
+
+func (s *neuralDeepBDDState) statusNamesMirrorHubForMirrorEndpoint() error {
+	// The SPA reads the status for the endpoint currently picked in the form,
+	// so it can warn when the stored login came from the other deployment.
+	fetch := func(apiBase string) (map[string]any, error) {
+		u := s.ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth"
+		if apiBase != "" {
+			u += "?api_base=" + url.QueryEscape(apiBase)
+		}
+		res, err := http.Get(u)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("status %d for %s", res.StatusCode, u)
+		}
+		var doc map[string]any
+		return doc, json.NewDecoder(res.Body).Decode(&doc)
+	}
+	forMirror, err := fetch(neuralDeepMirrorAPIBase)
+	if err != nil {
+		return err
+	}
+	if forMirror["hub"] != s.hubMirror.URL || forMirror["endpoint_hub"] != s.hubMirror.URL {
+		return fmt.Errorf("status for the mirror = %+v, want hub and endpoint_hub %q", forMirror, s.hubMirror.URL)
+	}
+	forDefault, err := fetch("")
+	if err != nil {
+		return err
+	}
+	// Same stored login, but the default endpoint would need the other hub.
+	if forDefault["hub"] != s.hubMirror.URL || forDefault["endpoint_hub"] != s.hub.URL {
+		return fmt.Errorf("status for the default = %+v, want hub %q and endpoint_hub %q", forDefault, s.hubMirror.URL, s.hub.URL)
+	}
+	return nil
+}
+
 func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 	s := &neuralDeepBDDState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -547,6 +657,10 @@ func initializeNeuralDeepScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the neuraldeep provider reports disconnected$`, s.providerReportsDisconnected)
 	sc.Step(`^I point the neuraldeep provider at the international mirror over REST$`, s.pointProviderAtMirror)
 	sc.Step(`^the saved config keeps the neuraldeep provider on the mirror$`, s.savedConfigKeepsMirror)
+	sc.Step(`^a coddy HTTP server with a neuraldeep provider and a stand-in hub for each deployment$`, s.startServerWithHubPerDeployment)
+	sc.Step(`^I sign in through the REST device flow with the international mirror selected$`, s.signInWithMirrorSelected)
+	sc.Step(`^the stored login was issued by the mirror hub$`, s.storedLoginIssuedByMirrorHub)
+	sc.Step(`^the sign-in status names the mirror hub for the mirror endpoint$`, s.statusNamesMirrorHubForMirrorEndpoint)
 }
 
 func TestNeuralDeepAuthE2E(t *testing.T) {

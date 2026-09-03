@@ -4,6 +4,9 @@ package httpserver
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -26,7 +29,22 @@ type neuralDeepAuthStatusResponse struct {
 	// "oauth", "api_key", "api_key_command", "env", or "none". The SPA warns
 	// when an explicit key shadows a stored login.
 	Source string `json:"source"`
+	// Hub is where the stored login was issued (recorded in the credential
+	// file); EndpointHub is the hub a sign-in for the queried api_base would
+	// use. The SPA warns when they differ, since a key minted by one
+	// deployment is not honored by the other.
+	Hub         string `json:"hub,omitempty"`
+	EndpointHub string `json:"endpoint_hub,omitempty"`
 }
+
+// neuralDeepDeviceStartRequest is the optional body of the device start: the
+// endpoint picked in the settings form, which may not be saved yet.
+type neuralDeepDeviceStartRequest struct {
+	APIBase string `json:"api_base"`
+}
+
+// neuralDeepDeviceStartBodyLimit bounds the optional JSON body.
+const neuralDeepDeviceStartBodyLimit = 4 << 10
 
 // cancelNeuralDeepAuthLogins stops every sign-in still waiting for approval.
 func (s *Server) cancelNeuralDeepAuthLogins() {
@@ -59,16 +77,24 @@ func (s *Server) registerNeuralDeepAuthRoutes() {
 	s.mux.HandleFunc("GET /coddy/providers/{name}/neuraldeep-auth/device/{loginID}", s.coddyProviderNeuralDeepAuthDeviceGet)
 }
 
-func (s *Server) neuralDeepAuthStatus(name string, provider config.ProviderConfig) (neuralDeepAuthStatusResponse, error) {
+// neuralDeepAuthStatus reports the stored login for provider; apiBase is the
+// endpoint the caller is interested in (the settings form's current pick),
+// falling back to the saved row so EndpointHub always names a hub.
+func (s *Server) neuralDeepAuthStatus(name string, provider config.ProviderConfig, apiBase string) (neuralDeepAuthStatusResponse, error) {
 	st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(s.activeCfg().Paths.Home, name))
 	if err != nil {
 		return neuralDeepAuthStatusResponse{}, err
 	}
+	if strings.TrimSpace(apiBase) == "" {
+		apiBase = provider.APIBase
+	}
 	resp := neuralDeepAuthStatusResponse{
-		Connected: st.Connected,
-		Masked:    st.Masked,
-		KeyName:   st.KeyName,
-		Source:    "none",
+		Connected:   st.Connected,
+		Masked:      st.Masked,
+		KeyName:     st.KeyName,
+		Source:      "none",
+		Hub:         st.Hub,
+		EndpointHub: s.neuralDeepHubFor(apiBase),
 	}
 	switch {
 	case strings.TrimSpace(provider.APIKey) != "":
@@ -88,7 +114,10 @@ func (s *Server) coddyProviderNeuralDeepAuthGet(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	resp, err := s.neuralDeepAuthStatus(name, provider)
+	// ?api_base= is the endpoint picked in the form. An unrecognized value
+	// resolves like requests do, to the default deployment, so the answer
+	// describes what would really happen rather than failing the status read.
+	resp, err := s.neuralDeepAuthStatus(name, provider, r.URL.Query().Get("api_base"))
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -111,7 +140,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		st, _ := llm.InspectNeuralDeepAuth(path)
 		hub := st.Hub
 		if hub == "" {
-			hub = llm.NeuralDeepHubFor(provider.APIBase)
+			hub = s.neuralDeepHubFor(provider.APIBase)
 		}
 		client, _ := llm.HTTPClientForOptionalProxy(provider.Proxy)
 		revokeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -122,7 +151,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "could not remove NeuralDeep credentials")
 		return
 	}
-	resp, err := s.neuralDeepAuthStatus(name, provider)
+	resp, err := s.neuralDeepAuthStatus(name, provider, "")
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -140,7 +169,12 @@ func (s *Server) coddyProviderNeuralDeepAuthDevicePost(w http.ResponseWriter, r 
 		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	hub := llm.NeuralDeepHubFor(provider.APIBase)
+	apiBase, err := neuralDeepDeviceStartEndpoint(r, provider)
+	if err != nil {
+		writeCoddyConfigErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	hub := s.neuralDeepHubFor(apiBase)
 	label := neuralDeepHTTPDeviceLabel()
 	// Two racing sign-ins would finish in arbitrary order and the loser
 	// could overwrite the newer credential; the new attempt supersedes.
@@ -238,6 +272,34 @@ func (s *Server) resolveNeuralDeepAuthProvider(w http.ResponseWriter, rawName st
 		return name, *saved, true
 	}
 	return name, probe, true
+}
+
+// neuralDeepDeviceStartEndpoint settles which deployment a device sign-in is
+// for: the api_base in the optional JSON body (the settings form's current
+// pick, possibly unsaved), else the saved row. A body value outside the
+// allowlist is refused up front - the hub it would resolve to is the default
+// one, and a key minted there is useless on the endpoint the user picked.
+func neuralDeepDeviceStartEndpoint(r *http.Request, provider config.ProviderConfig) (string, error) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, neuralDeepDeviceStartBodyLimit))
+	if err != nil {
+		return "", fmt.Errorf("read request body: %w", err)
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return provider.APIBase, nil
+	}
+	var body neuralDeepDeviceStartRequest
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return "", fmt.Errorf("invalid JSON body: %w", err)
+	}
+	if strings.TrimSpace(body.APIBase) == "" {
+		return provider.APIBase, nil
+	}
+	base, ok := llm.NormalizeNeuralDeepAPIBase(body.APIBase)
+	if !ok {
+		return "", fmt.Errorf("api_base %q is not a NeuralDeep endpoint; use one of %s",
+			strings.TrimSpace(body.APIBase), strings.Join(llm.NeuralDeepAPIBases(), ", "))
+	}
+	return base, nil
 }
 
 func neuralDeepHTTPDeviceLabel() string {

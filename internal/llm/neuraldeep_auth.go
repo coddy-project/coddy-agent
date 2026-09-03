@@ -722,10 +722,12 @@ func neuralDeepHTTPError(op string, resp *http.Response) error {
 // YAML: it appends the provider entry and the tier's chat models (never
 // touching entries the user already has) through the staged-commit machinery
 // (validate, snapshot, atomic write), and sets agent.model only when it is
-// empty. apiBase is recorded on a newly created provider row when it names a
-// non-default deployment, so the row and the hub the key came from agree. It
-// returns human-readable names of everything it added; an empty slice means
-// the config already covered the login.
+// empty. apiBase is the deployment the login was made against: it is recorded
+// on a newly created provider row when it names a non-default deployment, and
+// an existing row pointing elsewhere is moved to it, so the row and the hub
+// the key came from agree (a key minted by one deployment is not honored by
+// the other). It returns human-readable names of everything it changed; an
+// empty slice means the config already covered the login.
 func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name, hub, apiBase, key string, hc *http.Client) ([]string, error) {
 	st, err := FetchNeuralDeepStatus(ctx, hub, key, hc)
 	if err != nil {
@@ -733,16 +735,34 @@ func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name,
 	}
 	var cmds []config.UCICommand
 	var added []string
-	if cfg.FindProvider(name) == nil {
+	loginBase, loginBaseKnown := NormalizeNeuralDeepAPIBase(apiBase)
+	if existing := cfg.FindProvider(name); existing == nil {
 		prov := map[string]string{"name": name, "type": "neuraldeep"}
 		// Only a non-default deployment needs recording: a row without api_base
 		// keeps meaning the default endpoint, exactly as it did before.
-		if base, ok := NormalizeNeuralDeepAPIBase(apiBase); ok && base != neuralDeepBaseURL {
-			prov["api_base"] = base
+		if loginBaseKnown && loginBase != neuralDeepBaseURL {
+			prov["api_base"] = loginBase
 		}
 		provJSON, _ := json.Marshal(prov)
 		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(provJSON)})
 		added = append(added, "provider "+name)
+	} else if loginBaseKnown {
+		// An empty row already means the default; an unrecognized value means
+		// nothing usable and is replaced like any other mismatch.
+		current, ok := NormalizeNeuralDeepAPIBase(existing.APIBase)
+		if !ok && strings.TrimSpace(existing.APIBase) == "" {
+			current = neuralDeepBaseURL
+		}
+		if current != loginBase {
+			path := fmt.Sprintf("providers[name=%s].api_base", name)
+			if loginBase == neuralDeepBaseURL {
+				cmds = append(cmds, config.UCICommand{Op: config.UCIOpDelete, Path: path})
+				added = append(added, "provider "+name+" api_base -> default ("+loginBase+")")
+			} else {
+				cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: path, Value: loginBase})
+				added = append(added, "provider "+name+" api_base -> "+loginBase)
+			}
+		}
 	}
 	for _, m := range st.Models {
 		id := strings.TrimSpace(m.ID)

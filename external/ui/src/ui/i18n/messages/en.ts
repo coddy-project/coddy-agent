@@ -452,6 +452,8 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
+  "neuralDeepAuth.hubMismatch":
+    "This login was issued by {hub}, but {endpoint} is served by a different hub, so requests with it are rejected. Sign in again to get a key for this endpoint.",
   "neuralDeepAuth.enterCode":
     "Enter this one-time code on the NeuralDeep page:",
   "neuralDeepAuth.openSignInPage": "Open sign-in page",

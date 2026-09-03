@@ -161,6 +161,23 @@ func TestProvidersLoginAPIBaseSelectsTheDeployment(t *testing.T) {
 	if note := neuralDeepEndpointNote(prov); !strings.Contains(note, mirror) {
 		t.Fatalf("providers list must name the mirror, got %q", note)
 	}
+
+	// Signing in again for the other deployment moves the existing row with
+	// it: the new key would otherwise be sent to the hub that never issued it.
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", "https://api.neuraldeep.ru/v1"}); err != nil {
+		t.Fatalf("providers login --api-base (default): %v", err)
+	}
+	cfg, err = config.LoadFromCLI(config.CLIPaths{Home: home})
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	prov = cfg.FindProvider("neuraldeep")
+	if prov == nil || prov.APIBase != "" {
+		t.Fatalf("row must be back on the default deployment, got %+v", prov)
+	}
+	if note := neuralDeepEndpointNote(prov); note != "" {
+		t.Fatalf("providers list must not name the default deployment, got %q", note)
+	}
 }
 
 func TestProvidersLoginNoConfigSkipsYAML(t *testing.T) {

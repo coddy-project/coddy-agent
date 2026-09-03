@@ -6,10 +6,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -275,5 +278,129 @@ func TestNeuralDeepAuthEdges(t *testing.T) {
 	_ = stRes.Body.Close()
 	if !st.Connected || st.Source != "api_key" {
 		t.Fatalf("shadowed status = %+v, want connected with source api_key", st)
+	}
+}
+
+// TestNeuralDeepAuthDeviceHonorsSelectedEndpoint covers the edges of the
+// endpoint carried by the settings form: the device start takes the pick
+// from its body (unknown values are refused before any hub is contacted),
+// and the status endpoint reports which hub a sign-in for a given endpoint
+// would use next to the hub the stored login came from.
+func TestNeuralDeepAuthDeviceHonorsSelectedEndpoint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("NEURALDEEP_API_KEY", "")
+	t.Setenv(llm.EnvNeuralDeepHubURL, "")
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/cli/device/start":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"device_code": "dev-sel", "user_code": "SELX-0001",
+				"verification_uri": "http://hub/app/device", "interval": 0, "expires_in": 900,
+			})
+		case "/api/cli/device/token":
+			// Never completes: the wait is drained with the server.
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = fmt.Fprint(w, `{"error":"authorization_pending"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer hub.Close()
+
+	srv := newNeuralDeepTestServer(t, home)
+	var mu sync.Mutex
+	var asked []string
+	srv.neuralDeepHubFor = func(apiBase string) string {
+		mu.Lock()
+		asked = append(asked, apiBase)
+		mu.Unlock()
+		return hub.URL
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	defer srv.Drain()
+
+	post := func(body string) (*http.Response, string) {
+		t.Helper()
+		var payload io.Reader
+		if body != "" {
+			payload = strings.NewReader(body)
+		}
+		res, err := http.Post(ts.URL+"/coddy/providers/neuraldeep/neuraldeep-auth/device", "application/json", payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		return res, string(raw)
+	}
+
+	// An endpoint outside the allowlist is refused before any hub is asked:
+	// minting a key for the wrong deployment would only surface later.
+	res, body := post(`{"api_base":"https://example.invalid/v1"}`)
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(body, "not a NeuralDeep endpoint") {
+		t.Fatalf("unknown api_base: status %d body %s, want 400 naming the endpoint", res.StatusCode, body)
+	}
+	res, body = post(`{"api_base": 42`)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("malformed body: status %d body %s, want 400", res.StatusCode, body)
+	}
+	mu.Lock()
+	if len(asked) != 0 {
+		t.Fatalf("a refused start must not resolve a hub, asked %v", asked)
+	}
+	mu.Unlock()
+
+	// The pick is normalized on the way to the hub resolver; an empty body
+	// falls back to the saved row (which has no api_base here).
+	if res, body = post(`{"api_base":"https://api.neuraldeep.tech/v1/"}`); res.StatusCode != http.StatusOK {
+		t.Fatalf("mirror start: status %d body %s", res.StatusCode, body)
+	}
+	if res, body = post(""); res.StatusCode != http.StatusOK {
+		t.Fatalf("plain start: status %d body %s", res.StatusCode, body)
+	}
+	mu.Lock()
+	got := append([]string(nil), asked...)
+	mu.Unlock()
+	if len(got) != 2 || got[0] != "https://api.neuraldeep.tech/v1" || got[1] != "" {
+		t.Fatalf("hub resolved for %v, want [mirror, \"\"]", got)
+	}
+
+	// Status: hub is where the stored login came from, endpoint_hub is what a
+	// sign-in for the queried endpoint would use (the saved row when absent).
+	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(home, "neuraldeep"), "sk-from-ru", "https://hub.neuraldeep.ru", "coddy", "coddy"); err != nil {
+		t.Fatal(err)
+	}
+	srv.neuralDeepHubFor = func(apiBase string) string {
+		if base, ok := llm.NormalizeNeuralDeepAPIBase(apiBase); ok && base == "https://api.neuraldeep.tech/v1" {
+			return "https://hub.neuraldeep.tech"
+		}
+		return "https://hub.neuraldeep.ru"
+	}
+	status := func(query string) map[string]any {
+		t.Helper()
+		res, err := http.Get(ts.URL + "/coddy/providers/neuraldeep/neuraldeep-auth" + query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = res.Body.Close() }()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("status%s = %d", query, res.StatusCode)
+		}
+		var doc map[string]any
+		if err := json.NewDecoder(res.Body).Decode(&doc); err != nil {
+			t.Fatal(err)
+		}
+		return doc
+	}
+	if doc := status("?api_base=https%3A%2F%2Fapi.neuraldeep.tech%2Fv1"); doc["hub"] != "https://hub.neuraldeep.ru" || doc["endpoint_hub"] != "https://hub.neuraldeep.tech" {
+		t.Fatalf("status for the mirror = %+v", doc)
+	}
+	if doc := status(""); doc["hub"] != "https://hub.neuraldeep.ru" || doc["endpoint_hub"] != "https://hub.neuraldeep.ru" {
+		t.Fatalf("status for the saved row = %+v", doc)
+	}
+	// An unrecognized query value behaves like requests do: the default.
+	if doc := status("?api_base=https%3A%2F%2Fexample.invalid%2Fv1"); doc["endpoint_hub"] != "https://hub.neuraldeep.ru" {
+		t.Fatalf("status for an unknown endpoint = %+v", doc)
 	}
 }

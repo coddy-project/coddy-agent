@@ -133,12 +133,17 @@ function neuralDeepAPIBaseOverride(ctx: FieldOverrideContext) {
   const hasExplicitKey =
     String(ctx.parentObj?.api_key ?? "").trim() !== "" ||
     String(ctx.parentObj?.api_key_command ?? "").trim() !== "";
+  // The endpoint requests really use for this row: the picked one, or the
+  // default when the stored value names no NeuralDeep deployment.
+  const apiBase =
+    matchNeuralDeepAPIBase(ctx.value) || NEURALDEEP_DEFAULT_API_BASE;
   return (
     <>
       <NeuralDeepAPIBaseField ctx={ctx} />
       <NeuralDeepAuthField
         providerName={providerName}
         hasExplicitKey={hasExplicitKey}
+        apiBase={apiBase}
       />
     </>
   );

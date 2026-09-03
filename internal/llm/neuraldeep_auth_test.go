@@ -534,3 +534,74 @@ func TestApplyNeuralDeepLoginSkipsUnsafeModelIDs(t *testing.T) {
 		t.Fatalf("unsafe model ids must be skipped, got %q", joined)
 	}
 }
+
+// TestApplyNeuralDeepLoginMovesAnExistingRowToTheLoginEndpoint: a login made
+// with --api-base against a row that names another deployment leaves the row
+// on the login's endpoint, otherwise the freshly minted key would be sent to
+// the hub that never issued it.
+func TestApplyNeuralDeepLoginMovesAnExistingRowToTheLoginEndpoint(t *testing.T) {
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cli/status" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tier":   "starter",
+			"models": []map[string]any{{"id": "qwen3.6-35b-a3b", "ctx": 262144}},
+		})
+	}))
+	defer hub.Close()
+
+	mirror := "https://api.neuraldeep.tech/v1"
+	for _, tc := range []struct {
+		name     string
+		rowBase  string
+		apiBase  string
+		wantBase string
+		wantNote bool
+	}{
+		{"default row moves to the mirror", "", mirror, mirror, true},
+		{"mirror row moves back to the default", mirror, neuralDeepBaseURL, "", true},
+		{"a row already on the login endpoint is untouched", mirror, mirror, mirror, false},
+		{"no endpoint given leaves the row alone", mirror, "", mirror, false},
+		{"an unrecognized row value is replaced by the login endpoint", "https://example.invalid/v1", mirror, mirror, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			cfgPath := filepath.Join(home, "config.yaml")
+			yaml := "providers:\n  - name: neuraldeep\n    type: neuraldeep\n"
+			if tc.rowBase != "" {
+				yaml += "    api_base: " + tc.rowBase + "\n"
+			}
+			if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+
+			added, err := ApplyNeuralDeepLoginToConfig(context.Background(), cfg, "neuraldeep", hub.URL, tc.apiBase, "sk-k", hub.Client())
+			if err != nil {
+				t.Fatalf("ApplyNeuralDeepLoginToConfig: %v", err)
+			}
+			var noted bool
+			for _, a := range added {
+				if strings.Contains(a, "api_base") {
+					noted = true
+				}
+			}
+			if noted != tc.wantNote {
+				t.Fatalf("api_base change reported = %v, want %v; added %v", noted, tc.wantNote, added)
+			}
+			reloaded, err := config.LoadFromCLI(config.CLIPaths{Home: home})
+			if err != nil {
+				t.Fatalf("reload config: %v", err)
+			}
+			prov := reloaded.FindProvider("neuraldeep")
+			if prov == nil || prov.APIBase != tc.wantBase {
+				t.Fatalf("row after login = %+v, want api_base %q", prov, tc.wantBase)
+			}
+		})
+	}
+}

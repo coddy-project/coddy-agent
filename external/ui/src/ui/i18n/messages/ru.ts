@@ -460,6 +460,8 @@ export const messagesRu: Record<string, string> = {
   "neuralDeepAuth.connected": "Выполнен вход в NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "Задан явный API-ключ, поэтому запросы используют его, а не этот вход. Очистите поле api_key, чтобы использовать вход.",
+  "neuralDeepAuth.hubMismatch":
+    "Этот вход выдан хабом {hub}, а {endpoint} обслуживает другой хаб, поэтому запросы с этим ключом отклоняются. Войдите заново, чтобы получить ключ для этого эндпоинта.",
   "neuralDeepAuth.enterCode":
     "Введите этот одноразовый код на странице NeuralDeep:",
   "neuralDeepAuth.openSignInPage": "Открыть страницу входа",

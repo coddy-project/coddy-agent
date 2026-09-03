@@ -8,6 +8,10 @@ type AuthStatus = {
   key_name?: string;
   /** Credential requests actually use: oauth | api_key | api_key_command | env | none. */
   source?: string;
+  /** Hub that issued the stored login (recorded in the credential file). */
+  hub?: string;
+  /** Hub a sign-in for the endpoint queried with ?api_base= would use. */
+  endpoint_hub?: string;
 };
 
 type DeviceLogin = {
@@ -41,9 +45,20 @@ async function responseError(response: Response): Promise<string> {
 export function NeuralDeepAuthField(props: {
   providerName: string;
   hasExplicitKey: boolean;
+  /**
+   * Endpoint currently picked in the form (canonical api_base). It may not be
+   * saved yet, so it travels with every call: the device start carries it in
+   * the body (the endpoint decides which hub mints the key) and the status
+   * read asks for it, so a login issued by the other deployment is flagged.
+   */
+  apiBase: string;
 }) {
   const providerName = props.providerName.trim();
+  const apiBase = props.apiBase.trim();
   const endpoint = `/coddy/providers/${encodeURIComponent(providerName)}/neuraldeep-auth`;
+  const statusEndpoint = apiBase
+    ? `${endpoint}?api_base=${encodeURIComponent(apiBase)}`
+    : endpoint;
   const [status, setStatus] = useState<AuthStatus>({ connected: false });
   const [login, setLogin] = useState<DeviceLogin | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,7 +74,7 @@ export function NeuralDeepAuthField(props: {
     const controller = new AbortController();
     void (async () => {
       try {
-        const response = await fetch(endpoint, {
+        const response = await fetch(statusEndpoint, {
           method: "GET",
           signal: controller.signal,
         });
@@ -74,7 +89,7 @@ export function NeuralDeepAuthField(props: {
       }
     })();
     return () => controller.abort();
-  }, [endpoint, providerName]);
+  }, [statusEndpoint, providerName]);
 
   useEffect(() => {
     const loginID = login?.login_id;
@@ -99,7 +114,9 @@ export function NeuralDeepAuthField(props: {
           // Re-read the stored status: the poll response carries no masked
           // key, and "Signed in ()" with an empty mask reads as a bug.
           try {
-            const statusResponse = await fetch(endpoint, { method: "GET" });
+            const statusResponse = await fetch(statusEndpoint, {
+              method: "GET",
+            });
             if (statusResponse.ok) {
               setStatus((await statusResponse.json()) as AuthStatus);
             } else {
@@ -129,7 +146,7 @@ export function NeuralDeepAuthField(props: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [endpoint, login?.login_id, login?.status]);
+  }, [endpoint, statusEndpoint, login?.login_id, login?.status]);
 
   const signIn = async () => {
     if (!providerName) return;
@@ -137,7 +154,16 @@ export function NeuralDeepAuthField(props: {
     setError("");
     setLogin(null);
     try {
-      const response = await fetch(`${endpoint}/device`, { method: "POST" });
+      const response = await fetch(
+        `${endpoint}/device`,
+        apiBase
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ api_base: apiBase }),
+            }
+          : { method: "POST" },
+      );
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
@@ -173,6 +199,15 @@ export function NeuralDeepAuthField(props: {
   const { t } = useT();
   const shadowed =
     status.connected && (props.hasExplicitKey || (status.source && status.source !== "oauth" && status.source !== "none"));
+  // A key minted by one deployment is not honored by the other; say so while
+  // the login is the credential in use, instead of letting requests fail.
+  const hubMismatch =
+    status.connected &&
+    !shadowed &&
+    !!status.hub &&
+    !!status.endpoint_hub &&
+    status.hub.replace(/\/+$/, "").toLowerCase() !==
+      status.endpoint_hub.replace(/\/+$/, "").toLowerCase();
 
   return (
     <div className="settings-row" data-testid="neuraldeep-auth-field">
@@ -186,6 +221,17 @@ export function NeuralDeepAuthField(props: {
       {shadowed ? (
         <p className="settings-field-desc" data-testid="neuraldeep-auth-shadowed">
           {t("neuralDeepAuth.shadowedByKey")}
+        </p>
+      ) : null}
+      {hubMismatch ? (
+        <p
+          className="settings-field-desc"
+          data-testid="neuraldeep-auth-hub-mismatch"
+        >
+          {t("neuralDeepAuth.hubMismatch", {
+            hub: status.hub || "",
+            endpoint: apiBase,
+          })}
         </p>
       ) : null}
       {login?.user_code && login.verification_url ? (
