@@ -159,8 +159,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.models.reasoning_levels.label": "Reasoning levels",
   "settings.schema.models.reasoning_levels.desc":
     "Optional override of the reasoning levels offered for this model (e.g. low, medium, high). Leave empty to auto-detect from the model id; an explicit empty list hides the reasoning selector.",
-  "settings.schema.models.reasoning_default.label":
-    "Default reasoning level",
+  "settings.schema.models.reasoning_default.label": "Default reasoning level",
   "settings.schema.models.reasoning_default.desc":
     "Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise.",
   "settings.schema.models.stream.label": "Stream responses",
@@ -206,7 +205,7 @@ export const messagesEn: Record<string, string> = {
 
   "settings.schema.tools.permission_mode.label": "Permission mode",
   "settings.schema.tools.permission_mode.desc":
-    "Controls when the agent asks for user approval before running tools. \"ask\": approve commands and writes. \"accept_edits\": auto-approve writes, approve commands. \"bypass\": skip all prompts.",
+    'Controls when the agent asks for user approval before running tools. "ask": approve commands and writes. "accept_edits": auto-approve writes, approve commands. "bypass": skip all prompts.',
   "settings.schema.tools.command_allowlist.label": "Command allowlist",
   "settings.schema.tools.command_allowlist.desc":
     "If non-empty, only these shell command prefixes may run without extra policy.",
@@ -237,8 +236,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.background.enabled.label": "Enabled",
   "settings.schema.tools.background.enabled.desc":
     "Offer the background option on run_command and the background task tools (default true).",
-  "settings.schema.tools.background.max_concurrent.label":
-    "Max concurrent",
+  "settings.schema.tools.background.max_concurrent.label": "Max concurrent",
   "settings.schema.tools.background.max_concurrent.desc":
     "How many background tasks one session may run at once (default 5).",
   "settings.schema.tools.background.default_timeout_seconds.label":
@@ -285,8 +283,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.compaction.enabled.label": "Enabled",
   "settings.schema.compaction.enabled.desc":
     "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
-  "settings.schema.compaction.threshold_percent.label":
-    "Auto threshold (%)",
+  "settings.schema.compaction.threshold_percent.label": "Auto threshold (%)",
   "settings.schema.compaction.threshold_percent.desc":
     "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction.",
   "settings.schema.compaction.keep_recent_turns.label": "Keep recent turns",
@@ -324,8 +321,7 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.scheduler.timeout.label": "Job timeout",
   "settings.schema.system.scheduler.timeout.desc":
     "Per-job wall-clock limit, e.g. 30m or 1h30m.",
-  "settings.schema.system.scheduler.retain_sessions.label":
-    "Retain sessions",
+  "settings.schema.system.scheduler.retain_sessions.label": "Retain sessions",
   "settings.schema.system.scheduler.retain_sessions.desc":
     "How many completed scheduler session folders to keep per job id.",
   "settings.schema.system.prompts.label": "Prompts",
@@ -341,14 +337,13 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.instructions.label": "Instructions",
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
-    "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].",
+    'Filenames relative to session CWD to read as instructions. Defaults to ["AGENTS.md"].',
   "settings.schema.system.logger.label": "Logger",
   "settings.schema.system.logger.level.label": "Level",
   "settings.schema.system.logger.level.desc":
     "Minimum severity written to configured outputs.",
   "settings.schema.system.logger.outputs.label": "Outputs",
-  "settings.schema.system.logger.outputs.desc":
-    "Where log lines are written.",
+  "settings.schema.system.logger.outputs.desc": "Where log lines are written.",
   "settings.schema.system.logger.file.label": "Log file path",
   "settings.schema.system.logger.file.desc":
     "Destination file when outputs include file.",
@@ -397,8 +392,7 @@ export const messagesEn: Record<string, string> = {
     "Default isolation",
   "settings.schema.system.gateways.telegram.default_isolation.desc":
     "Fallback session isolation for group chats.",
-  "settings.schema.system.gateways.telegram.user_groups.label":
-    "User groups",
+  "settings.schema.system.gateways.telegram.user_groups.label": "User groups",
   "settings.schema.system.gateways.telegram.user_groups.desc":
     "Named sets of user IDs referenced by access as group:<name>.",
   "settings.schema.system.gateways.telegram.user_groups.name.label":
@@ -409,15 +403,13 @@ export const messagesEn: Record<string, string> = {
     "User IDs",
   "settings.schema.system.gateways.telegram.user_groups.user_ids.desc":
     "Telegram numeric user IDs that belong to this group.",
-  "settings.schema.system.gateways.telegram.chats.label":
-    "Per-chat overrides",
+  "settings.schema.system.gateways.telegram.chats.label": "Per-chat overrides",
   "settings.schema.system.gateways.telegram.chats.desc":
     "Override isolation and access for specific chats.",
   "settings.schema.system.gateways.telegram.chats.chat_id.label": "Chat ID",
   "settings.schema.system.gateways.telegram.chats.chat_id.desc":
     "Telegram chat id; negative for groups and supergroups.",
-  "settings.schema.system.gateways.telegram.chats.isolation.label":
-    "Isolation",
+  "settings.schema.system.gateways.telegram.chats.isolation.label": "Isolation",
   "settings.schema.system.gateways.telegram.chats.isolation.desc":
     "Per-chat session isolation override.",
   "settings.schema.system.gateways.telegram.chats.access.label": "Access",
@@ -453,14 +445,16 @@ export const messagesEn: Record<string, string> = {
   "neuralDeepAuth.connected": "Signed in to NeuralDeep ({masked}).",
   "neuralDeepAuth.shadowedByKey":
     "An explicit API key is configured, so requests use it instead of this login. Clear the api_key field to use the login.",
-  "neuralDeepAuth.enterCode": "Enter this one-time code on the NeuralDeep page:",
+  "neuralDeepAuth.enterCode":
+    "Enter this one-time code on the NeuralDeep page:",
   "neuralDeepAuth.openSignInPage": "Open sign-in page",
   "neuralDeepAuth.waiting": "Waiting for confirmation…",
   "neuralDeepAuth.signingOut": "Signing Out…",
   "neuralDeepAuth.signOut": "Sign Out",
   "neuralDeepAuth.waitingForHub": "Waiting for NeuralDeep…",
   "neuralDeepAuth.signIn": "Sign In with NeuralDeep",
-  "neuralDeepAuth.enterProviderName": "Enter a provider name before signing in.",
+  "neuralDeepAuth.enterProviderName":
+    "Enter a provider name before signing in.",
 
   "mcp.status.connectedOne": "Connected — {count} tool",
   "mcp.status.connectedMany": "Connected — {count} tools",
@@ -683,8 +677,10 @@ export const messagesEn: Record<string, string> = {
   "composer.send": "Send",
   "composer.stopGeneration": "Stop generation",
   "composer.enhance": "Improve prompt",
-  "composer.enhanceNoModel": "Couldn't improve the prompt: no model is configured.",
-  "composer.enhanceFailed": "Couldn't improve the prompt. Your draft is unchanged.",
+  "composer.enhanceNoModel":
+    "Couldn't improve the prompt: no model is configured.",
+  "composer.enhanceFailed":
+    "Couldn't improve the prompt. Your draft is unchanged.",
   "composer.attachFile": "Attach file",
   "composer.attachUnsupportedModel": "Selected model cannot accept attachments",
   "composer.attachmentTooltip": "{fileName}\\n{label} · {size}",
@@ -749,7 +745,8 @@ export const messagesEn: Record<string, string> = {
   "composer.folderModal.open": "Open",
   "composer.folderModal.go": "Go",
 
-  "env.banner.unreachable": "Remote {name} is unreachable or unauthorized — check that it is running, that {cors} allows this origin, and that the token is correct.",
+  "env.banner.unreachable":
+    "Remote {name} is unreachable or unauthorized — check that it is running, that {cors} allows this origin, and that the token is correct.",
   "env.banner.switchLocal": "Switch to Local",
 
   "prompts.questions": "Questions",
@@ -794,12 +791,14 @@ export const messagesEn: Record<string, string> = {
   "scheduler.editorEditAriaLabel": "Edit scheduler job",
   "scheduler.closeEditor": "Close editor",
   "scheduler.field.jobId": "job_id",
-  "scheduler.field.jobIdHelp": "Filename - letters, digits, hyphens (example: daily-report).",
+  "scheduler.field.jobIdHelp":
+    "Filename - letters, digits, hyphens (example: daily-report).",
   "scheduler.field.description": "description",
   "scheduler.field.schedule": "schedule (UTC, 5 fields)",
   "scheduler.field.schedulePlaceholder": "0 * * * *",
   "scheduler.field.cwd": "cwd (optional)",
-  "scheduler.field.cwdHelp": "Defaults to the agent working directory for this instance.",
+  "scheduler.field.cwdHelp":
+    "Defaults to the agent working directory for this instance.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
   "scheduler.mode.plan": "plan",
@@ -810,17 +809,22 @@ export const messagesEn: Record<string, string> = {
   "scheduler.pause": "Pause",
   "scheduler.resume": "Resume",
   "scheduler.delete": "Delete",
-  "scheduler.apiNotAvailable": "Scheduler API is not available in this build (rebuild with http,scheduler).",
-  "scheduler.disabled": "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).",
+  "scheduler.apiNotAvailable":
+    "Scheduler API is not available in this build (rebuild with http,scheduler).",
+  "scheduler.disabled":
+    "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).",
   "scheduler.validation.required": "Required",
   "scheduler.validation.tooLong": "Too long",
-  "scheduler.validation.noSpaces": "No spaces - use hyphens (example: daily-report)",
-  "scheduler.validation.invalidJobId": "Only letters, digits, and hyphens (example: daily-report)",
+  "scheduler.validation.noSpaces":
+    "No spaces - use hyphens (example: daily-report)",
+  "scheduler.validation.invalidJobId":
+    "Only letters, digits, and hyphens (example: daily-report)",
 
   "tasks.panelTitle": "Background tasks",
   "tasks.closePanel": "Close background tasks",
   "tasks.loading": "Loading…",
-  "tasks.empty": "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
+  "tasks.empty":
+    "No background tasks in this chat yet. The agent starts one when a command is slow enough to be worth running detached.",
   "tasks.sectionRunning": "Running",
   "tasks.sectionFinished": "Finished {count}",
   "tasks.clearFinished": "Clear",
@@ -829,9 +833,11 @@ export const messagesEn: Record<string, string> = {
   "tasks.stopAriaLabel": "Stop {label}",
   "tasks.outputHeading": "Output",
   "tasks.truncated": "truncated",
-  "tasks.truncatedTitle": "Earlier output scrolled out of the in-memory window; the full log stays in the session bundle",
+  "tasks.truncatedTitle":
+    "Earlier output scrolled out of the in-memory window; the full log stays in the session bundle",
   "tasks.noOutput": "(no output yet)",
-  "tasks.olderOnDisk": "{count} older tasks are kept on disk and not listed here",
+  "tasks.olderOnDisk":
+    "{count} older tasks are kept on disk and not listed here",
   "tasks.progressAriaLabel": "Progress toward the estimate for {label}",
   "tasks.estimate": "est. {value}",
   "tasks.exitCode": "exit {code}",
@@ -879,10 +885,28 @@ export const messagesEn: Record<string, string> = {
   "messages.toolResultSection": "Result",
   "messages.toolLoading": "Loading…",
   "messages.toolMore": "More…",
+  "todo.preview.updatedItem": "Updated item",
+  "todo.preview.plan": "Todo plan",
+  "todo.preview.position": "{index} of {total}",
+  "todo.preview.completed.one": "{count} completed",
+  "todo.preview.completed.other": "{count} completed",
+  "todo.preview.items.one": "{count} item",
+  "todo.preview.items.other": "{count} items",
+  "todo.status.pending": "Pending",
+  "todo.status.inProgress": "In progress",
+  "todo.status.completed": "Completed",
+  "todo.status.failed": "Failed",
+  "todo.status.cancelled": "Cancelled",
+  "planExit.preview.header": "Agent mode",
+  "planExit.preview.planMode": "Plan mode",
+  "planExit.preview.agentMode": "Agent mode",
+  "planExit.preview.inProgress": "Switching to Agent mode…",
+  "planExit.preview.completed": "Switched to Agent mode",
   "messages.toolLess": "Less",
   "messages.toolQuestionTimelineAriaLabel": "Question tool timeline",
   "messages.toolAwaitingAnswer": "Awaiting answer",
-  "messages.toolQuestionMirrorHint": "Answer using the Questions card in this chat. This row only mirrors the tool state.",
+  "messages.toolQuestionMirrorHint":
+    "Answer using the Questions card in this chat. This row only mirrors the tool state.",
   "messages.toolBgTaskOpen": "Open in Tasks",
   "messages.toolBgTaskStop": "Stop",
   "messages.fileType.image": "Image",
@@ -903,7 +927,8 @@ export const messagesEn: Record<string, string> = {
   "workspace.detached": "detached",
   "workspace.worktree": "worktree",
   "workspace.worktreeActiveTitle": "This session works in a dedicated worktree",
-  "workspace.worktreeInactiveTitle": "Open branch switches in a dedicated worktree",
+  "workspace.worktreeInactiveTitle":
+    "Open branch switches in a dedicated worktree",
   "workspace.recent": "Recent",
   "workspace.openFolder": "Open folder…",
   "workspace.noBranches": "No branches",
@@ -954,11 +979,15 @@ export const messagesEn: Record<string, string> = {
   "tasks.chip.total.other": "{count} background tasks",
   "tasks.chip.openAria": "Open background tasks: {label}",
 
-  "env.error.remoteUnreachable": "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
-  "env.error.localNetwork": "Network error sending the message — check that the server is running.",
-  "env.error.remoteUnauthorized": "Unauthorized on remote {host} — check the bearer token for this environment.",
+  "env.error.remoteUnreachable":
+    "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
+  "env.error.localNetwork":
+    "Network error sending the message — check that the server is running.",
+  "env.error.remoteUnauthorized":
+    "Unauthorized on remote {host} — check the bearer token for this environment.",
   "env.error.localUnauthorized": "Unauthorized ({status}).",
-  "env.error.remoteRequestFailed": "Request to remote {host} failed ({status}).",
+  "env.error.remoteRequestFailed":
+    "Request to remote {host} failed ({status}).",
   "env.error.requestFailed": "Request failed ({status}).",
 
   "status.read": "Reading",

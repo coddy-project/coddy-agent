@@ -3,6 +3,10 @@ import {
   parseDiffPatch,
   type ParsedDiffLine,
 } from "../messages/parseDiff";
+import {
+  buildTodoToolPreview,
+  type TodoPlanEntry,
+} from "./todoToolPreview";
 import { permissionPromptDetail } from "./permissionPromptDisplay";
 import type { CoddyPermissionPayload } from "./permissionTypes";
 import { permissionBodyText } from "./permissionTypes";
@@ -12,6 +16,8 @@ export type PermissionToolCallContext = {
   title?: string | undefined;
   kind?: string | undefined;
   argsText?: string | undefined;
+  /** Final todo state captured when this tool call completed. */
+  todoPlan?: TodoPlanEntry[] | undefined;
 };
 
 type PermissionPreviewBase = {
@@ -34,7 +40,13 @@ export type PermissionToolPreview =
       kind: "diff";
       lines: ParsedDiffLine[];
       hunkHeaders: Array<{ at: number; text: string }>;
-    });
+    })
+  | (PermissionPreviewBase & {
+      kind: "todo";
+      variant: "item" | "plan";
+      entries: TodoPlanEntry[];
+    })
+  | (PermissionPreviewBase & { kind: "plan_exit" });
 
 function normalizedToolName(value: string | undefined): string {
   return (value || "").replace(/^run:\s*/i, "").trim();
@@ -242,6 +254,34 @@ export function buildToolCallPreview(
   const normalized = toolName.toLowerCase();
   const args = parseArgsText(context.argsText || "") || {};
   const title = questionForTool(normalized, args);
+  const todoPreview = buildTodoToolPreview({
+    toolName,
+    argsText: context.argsText,
+    planSnapshot: context.todoPlan,
+  });
+  if (todoPreview) {
+    return {
+      toolName,
+      title,
+      header: todoPreview.header,
+      meta: todoPreview.meta,
+      copyText: "",
+      kind: "todo",
+      variant: todoPreview.variant,
+      entries: todoPreview.entries,
+    };
+  }
+
+  if (normalized === "plan_exit") {
+    return {
+      toolName,
+      title,
+      header: t("planExit.preview.header"),
+      meta: [],
+      copyText: "",
+      kind: "plan_exit",
+    };
+  }
 
   if (normalized === "run_command" || normalized === "ssh_run_command") {
     const command = stringArg(args, "command") || fallback;

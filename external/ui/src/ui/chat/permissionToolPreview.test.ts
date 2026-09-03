@@ -217,6 +217,27 @@ test("builds readable transcript previews for read-only Coddy tools", () => {
   });
 });
 
+test("builds a distinct preview for the plan-to-agent transition", () => {
+  expect(
+    buildToolCallPreview({ title: "plan_exit", argsText: "{}" }),
+  ).toMatchObject({
+    toolName: "plan_exit",
+    header: "Agent mode",
+    meta: [],
+    copyText: "",
+    kind: "plan_exit",
+  });
+});
+
+test("localizes the plan-to-agent transition preview", () => {
+  setLocale("ru");
+
+  expect(buildToolCallPreview({ title: "plan_exit" })).toMatchObject({
+    header: "Агентский режим",
+    kind: "plan_exit",
+  });
+});
+
 test("toolCallTargetText names the one thing each call acts on", () => {
   expect(
     toolCallTargetText({ title: "read", argsText: '{"path":"a/b.ts"}' }),
