@@ -104,6 +104,25 @@ test("streaming interleaves text and tool calls in arrival order", async () => {
   expect(shape).toEqual(["text:Reading files. ", "tool:tc1", "text:All good."]);
 });
 
+test("completed todo calls keep the plan snapshot sent with their status update", async () => {
+  const todoPlan = [
+    { content: "Inspect existing cards", status: "completed" },
+    { content: "Render the preview", status: "in_progress" },
+  ];
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "todo-1", title: "coddy_todo_item_update", kind: "todo", status: "pending" })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "todo-1", status: "completed", content: [{ content: { text: "updated item 1" } }], _meta: { coddy: { todoPlan } } })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const call = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call" && item.toolCallId === "todo-1",
+  );
+
+  expect(call?.todoPlan).toEqual(todoPlan);
+});
+
 // Two tool calls with text before, between, and after must all interleave.
 test("streaming interleaves across multiple tool calls", async () => {
   const tool = (id: string) =>

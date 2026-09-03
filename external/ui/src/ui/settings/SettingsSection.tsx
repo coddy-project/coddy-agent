@@ -6,6 +6,10 @@ import { ModelField } from "./ModelField";
 import { ModelPicker } from "./ModelPicker";
 import { SchemaForm, type FieldOverride, type JsonSchema } from "./SchemaForm";
 import { MCPSection } from "./MCPSection";
+import {
+  schemaFieldDesc,
+  schemaFieldLabel,
+} from "./schemaI18n";
 import { SettingsArraySection } from "./SettingsArraySection";
 import { SkillsSection } from "./SkillsSection";
 import type { SectionDescriptor } from "./settingsSections";
@@ -66,7 +70,9 @@ function stringList(v: unknown, key: string): string[] {
 function NeuralDeepAPIBaseField(props: { ctx: FieldOverrideContext }) {
   const { schema, value, onChange } = props.ctx;
   const { t } = useT();
-  const label = schema.title || t("settings.field.apiBaseFallback");
+  const label =
+    schemaFieldLabel("providers", "api_base", schema.title, "api_base") ||
+    t("settings.field.apiBaseFallback");
   const stored = String(value ?? "").trim();
   const matched = matchNeuralDeepAPIBase(value);
 
@@ -235,7 +241,10 @@ export function SettingsSection(props: {
                 }
                 onChange={(v) => ctx.onChange(v)}
                 providers={providerNames}
-                label={ctx.schema.title || t("settings.field.modelIdFallback")}
+                label={
+                  schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                  t("settings.field.modelIdFallback")
+                }
               />
             ) : null
         : key === "providers"
@@ -256,6 +265,7 @@ export function SettingsSection(props: {
         labelField={section.labelField}
         fieldOverride={override}
         backLabelUsesItemName={!props.isMobileShell}
+        i18nDomain={section.id}
       />
     );
   }
@@ -271,11 +281,14 @@ export function SettingsSection(props: {
           }
           return (
             <div key={ck} className="settings-group-block">
-              <p className="appearance-section-label">{sub.title || ck}</p>
+              <p className="appearance-section-label">
+                {schemaFieldLabel("system", ck, sub.title, ck)}
+              </p>
               <SchemaForm
                 schema={sub}
                 value={asObject(doc[ck])}
                 onChange={(v) => setKey(ck, v)}
+                i18nDomain={`system.${ck}`}
               />
             </div>
           );
@@ -306,9 +319,10 @@ export function SettingsSection(props: {
               onChange={(v) => ctx.onChange(v)}
               models={modelIds}
               label={
-                ctx.schema.title || t("settings.field.defaultModelFallback")
+                schemaFieldLabel(key, "model", ctx.schema.title, "model") ||
+                t("settings.field.defaultModelFallback")
               }
-              description={ctx.schema.description}
+              description={schemaFieldDesc(key, "model", ctx.schema.description)}
             />
           ) : null
       : undefined;
@@ -318,6 +332,7 @@ export function SettingsSection(props: {
       value={asObject(doc[key])}
       onChange={(v) => setKey(key, v)}
       fieldOverride={override}
+      i18nDomain={section.id}
     />
   );
 }

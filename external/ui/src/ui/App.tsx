@@ -67,6 +67,7 @@ import {
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
 import { pickRicherToolArgs } from "./chat/toolCallArgs";
+import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   mergeStoredQuestionPromptsIntoTranscript,
@@ -209,6 +210,7 @@ type ToolCallListRow = {
   argsPreview?: string;
   resultPreview?: string;
   resultPreviewTruncated?: boolean;
+  planSnapshot?: unknown;
 };
 
 function readMessageCreatedAtUTC(
@@ -849,7 +851,7 @@ export function App() {
 
   const sessionsForSidebar = useMemo(
     () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
+    [sessions, clientDraftSessions, t],
   );
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
@@ -1079,7 +1081,7 @@ export function App() {
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
-      return "New chat";
+      return t("chat.newChat");
     }
     if (describePreview?.sessionId === sessionId) {
       const hint = describePreview.title.trim();
@@ -1088,9 +1090,9 @@ export function App() {
       }
     }
     const row = sessions.find((s) => s.id === sessionId);
-    const t = (row?.title || "").trim();
-    return t || "New chat";
-  }, [sessionId, sessions, describePreview]);
+    const rowTitle = (row?.title || "").trim();
+    return rowTitle || t("chat.newChat");
+  }, [sessionId, sessions, describePreview, t]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -1257,7 +1259,7 @@ export function App() {
       setBackgroundTasks(res.data.data || []);
       setBackgroundRunning(res.data.running || 0);
     },
-    [sessionId],
+    [sessionId, t],
   );
 
   const refreshBackgroundTaskOutput = useCallback(
@@ -1315,8 +1317,7 @@ export function App() {
           setSchedulerHttpLinked(false);
           setSchedulerOpen(false);
           setSchedulerEditor(null);
-          msg =
-            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          msg = t("scheduler.apiNotAvailable");
           const sid = sessionId.trim();
           if (sid) {
             setSessionHashInLocation(sid);
@@ -1333,8 +1334,7 @@ export function App() {
           return;
         }
         if (res.status === 503) {
-          msg =
-            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          msg = t("scheduler.disabled");
           if (!silent) {
             setSchedulerListError(msg);
             setSchedulerJobs([]);
@@ -1352,7 +1352,7 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId],
+    [sessionId, t],
   );
 
   const applyLocationHash = useCallback(() => {
@@ -1853,7 +1853,7 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
-        setSessionsError(`Backend is unavailable (${res.status})`);
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
         return null;
       }
       setSessionsError(null);
@@ -1873,7 +1873,7 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers],
+    [sessionFilterQ, headers, t],
   );
 
   useEffect(() => {
@@ -2299,6 +2299,8 @@ export function App() {
         if (row.resultPreview) merged.resultText = row.resultPreview;
         if (row.resultPreviewTruncated === true)
           merged.resultWasTruncated = true;
+        const todoPlan = normalizeTodoPlanSnapshot(row.planSnapshot);
+        if (todoPlan !== undefined) merged.todoPlan = todoPlan;
         const st = parseRFC3339ms(row.startedAt);
         const fin = parseRFC3339ms(row.finishedAt);
         if (st != null && fin != null && fin >= st) {
@@ -2582,7 +2584,7 @@ export function App() {
     }
     const newSid = (data.newSessionId || "").trim();
     if (!newSid) {
-      showBranchError("Branch creation returned no session ID");
+      showBranchError(t("app.branchCreationNoSessionId"));
       return;
     }
     pendingBranchSendRef.current = { text, sid: newSid };
@@ -2774,6 +2776,7 @@ export function App() {
           it.resultWasTruncated = update.resultWasTruncated;
         if (update.fullResultText !== undefined)
           it.fullResultText = update.fullResultText;
+        if (update.todoPlan !== undefined) it.todoPlan = update.todoPlan;
         if (update.startedAtMs !== undefined)
           it.startedAtMs = update.startedAtMs;
         if (update.finishedAtMs !== undefined)
@@ -2811,6 +2814,7 @@ export function App() {
         merged.resultWasTruncated = update.resultWasTruncated;
       if (update.fullResultText !== undefined)
         merged.fullResultText = update.fullResultText;
+      if (update.todoPlan !== undefined) merged.todoPlan = update.todoPlan;
       next[idx] = merged;
       return next;
     });
@@ -3199,7 +3203,7 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg = "This chat is busy in another client. Try again in a moment.";
+        let msg = t("app.chatBusy");
         try {
           const body = (await res.json()) as {
             error?: { message?: string };
@@ -3260,7 +3264,7 @@ export function App() {
 
       if (!res.ok || !res.body) {
         const msg = !res.body
-          ? "Empty response body"
+          ? t("app.emptyResponseBody")
           : remoteHttpErrorMessage(res.status, getEnv());
         applyStreamItems((prev) => [
           ...prev,
@@ -3991,7 +3995,7 @@ export function App() {
             ) {
               return;
             }
-            void streamResponses("Implement the plan.", {
+            void streamResponses(t("chat.runPlanMessage"), {
               modeOverride: "agent",
               runPlanSlug: slug,
             });
@@ -4053,7 +4057,12 @@ export function App() {
             const det = await fetchJSON<{
               args?: string;
               result?: string;
-              meta?: { status?: string; kind?: string; name?: string };
+              meta?: {
+                status?: string;
+                kind?: string;
+                name?: string;
+                planSnapshot?: unknown;
+              };
             }>(
               `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
               { headers },
@@ -4064,6 +4073,8 @@ export function App() {
             if (meta.name) patch.title = meta.name;
             if (meta.kind) patch.kind = meta.kind;
             if (meta.status) patch.status = meta.status;
+            const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+            if (todoPlan !== undefined) patch.todoPlan = todoPlan;
             if (det.data.args) patch.argsText = det.data.args;
             if (det.data.result !== undefined)
               patch.fullResultText = det.data.result;

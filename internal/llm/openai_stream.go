@@ -211,6 +211,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 	defer func() { _ = raw.Body.Close() }()
 
 	var fullContent string
+	var reasoningBuf strings.Builder
 	var toolCalls []ToolCall
 	var stopReason string
 	var inputTokens, outputTokens int
@@ -309,6 +310,7 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 				r = gjson.Get(raw, "thinking").String()
 			}
 			if r != "" {
+				reasoningBuf.WriteString(r)
 				emit(StreamChunk{ReasoningDelta: r})
 			}
 		}
@@ -355,13 +357,14 @@ func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools [
 
 	if streamErr != nil {
 		if IsStreamTruncated(streamErr) {
-			// Keep the text the caller already saw, like the cancellation
-			// branch below. Unfinished tool-call builders are dropped
+			// Keep the user-visible output the caller already saw, like the
+			// cancellation branch below. Unfinished tool-call builders are dropped
 			// deliberately: their arguments may be cut mid-JSON, and
 			// replaying an invalid call is worse than losing it.
-			if strings.TrimSpace(fullContent) != "" {
+			if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(reasoningBuf.String()) != "" {
 				return &Response{
 					Content:      fullContent,
+					Reasoning:    reasoningBuf.String(),
 					InputTokens:  inputTokens,
 					OutputTokens: outputTokens,
 				}, fmt.Errorf("openai stream: %w", streamErr)

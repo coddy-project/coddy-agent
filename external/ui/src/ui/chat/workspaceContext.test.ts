@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   branchChipVisible,
+  cleanPathInput,
   folderChipLabel,
   isWorktreeBadgeActive,
+  pathParent,
   sortedBranches,
   worktreeForBranch,
   type WorkspaceContext,
@@ -59,5 +61,34 @@ describe("workspaceContext helpers", () => {
     expect(isWorktreeBadgeActive(gitCtx, false)).toBe(false);
     expect(isWorktreeBadgeActive(gitCtx, true)).toBe(true);
     expect(isWorktreeBadgeActive({ ...gitCtx, is_worktree: true }, false)).toBe(true);
+  });
+
+  it("walks up posix paths", () => {
+    expect(pathParent("/repos/coddy-agent")).toBe("/repos");
+    expect(pathParent("/repos/coddy-agent/")).toBe("/repos");
+    expect(pathParent("/repos")).toBe("/");
+    expect(pathParent("/")).toBe("/");
+    expect(pathParent("")).toBe("");
+  });
+
+  it("walks up windows paths without changing drive", () => {
+    expect(pathParent("H:\\PycharmProjects\\work")).toBe("H:\\PycharmProjects");
+    // The parent of a first-level folder is the drive root, not "H:" (which
+    // means the drive's current directory) and not "/" (another volume).
+    expect(pathParent("H:\\PycharmProjects")).toBe("H:\\");
+    expect(pathParent("H:\\")).toBe("H:\\");
+    expect(pathParent("C:/repos/app")).toBe("C:/repos");
+  });
+
+  it("stops at the top of a UNC share", () => {
+    expect(pathParent("\\\\server\\share\\dir")).toBe("\\\\server\\share");
+    expect(pathParent("\\\\server\\share")).toBe("\\\\server\\share");
+  });
+
+  it("cleans typed and pasted paths", () => {
+    expect(cleanPathInput('  D:\\work  ')).toBe("D:\\work");
+    expect(cleanPathInput('"D:\\work with spaces"')).toBe("D:\\work with spaces");
+    expect(cleanPathInput('"')).toBe('"');
+    expect(cleanPathInput("")).toBe("");
   });
 });

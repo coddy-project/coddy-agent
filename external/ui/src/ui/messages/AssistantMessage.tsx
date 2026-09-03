@@ -1,4 +1,5 @@
 import { Markdown } from "../markdown/Markdown";
+import { useT } from "../i18n/I18nProvider";
 import {
   formatUtcToLocalFullDetail,
   formatUtcToLocalHM,
@@ -10,6 +11,7 @@ export function AssistantMessage(props: {
   streaming?: boolean;
   createdAtUtc?: string;
 }) {
+  const { t } = useT();
   const showFoot =
     !props.streaming &&
     (props.content.trim() !== "" || Boolean(props.createdAtUtc));
@@ -28,8 +30,8 @@ export function AssistantMessage(props: {
           <div className="msg-assistant-foot">
             <MessageCopyIconButton
               textToCopy={props.content}
-              tooltip="Copy message"
-              ariaLabel="Copy message"
+              tooltip={t("messages.copyMessage")}
+              ariaLabel={t("messages.copyMessage")}
               dataTestId="assistant-message-copy"
             />
             {timeHM ? (

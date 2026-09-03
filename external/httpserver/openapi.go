@@ -486,7 +486,9 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-Coddy-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
+						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "coddyWorkspaceFoldersGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -497,7 +499,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute folder to list.",
+							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -511,6 +513,10 @@ func openAPISpec() map[string]interface{} {
 											"object": map[string]interface{}{"type": "string", "example": "coddy.workspace_folders"},
 											"path":   map[string]interface{}{"type": "string"},
 											"parent": map[string]interface{}{"type": "string"},
+											"drives": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and **`true`** only on the **`:drives:`** level, whose rows are drive roots rather than folders.",
+											},
 											"folders": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{
@@ -525,10 +531,10 @@ func openAPISpec() map[string]interface{} {
 									},
 								},
 							},
-							"400": errorResponseRef(),
-							"404": errorResponseRef(),
-							"500": errorResponseRef(),
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},

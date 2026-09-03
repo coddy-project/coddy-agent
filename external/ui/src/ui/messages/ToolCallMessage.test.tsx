@@ -403,6 +403,53 @@ test("summary matches thinking-row pattern: chevron, tool name, duration", () =>
   expect(container.querySelector(".thinking-dur")?.textContent).toBe("125ms");
 });
 
+test("todo update renders the saved plan row and omits a successful boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-todo-update"
+      title="coddy_todo_item_update"
+      kind="todo"
+      status="completed"
+      argsText={JSON.stringify({ index: 1, status: "completed" })}
+      todoPlan={[
+        { content: "Inspect existing cards", status: "pending" },
+        { content: "Render structured preview", status: "completed" },
+        { content: "Add interaction tests", status: "pending" },
+      ]}
+      resultText="updated item 1"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Updated item")).toBeInTheDocument();
+  expect(screen.getByText("2 of 3")).toBeInTheDocument();
+  expect(screen.getByText("Render structured preview")).toBeInTheDocument();
+  expect(screen.queryByText("Inspect existing cards")).toBeNull();
+  expect(container.querySelector(".todo-tool-preview-row--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
+test("plan exit shows the completed mode transition without its boilerplate result", () => {
+  const { container } = render(
+    <ToolCallMessage
+      toolCallId="tc-plan-exit"
+      title="plan_exit"
+      status="completed"
+      argsText="{}"
+      resultText="switched session to agent mode"
+    />,
+  );
+
+  openToolDetails();
+
+  expect(screen.getByText("Plan mode")).toBeInTheDocument();
+  expect(screen.getAllByText("Agent mode")).toHaveLength(2);
+  expect(screen.getByText("Switched to Agent mode")).toBeInTheDocument();
+  expect(container.querySelector(".plan-exit-preview--completed")).not.toBeNull();
+  expect(container.querySelector("[aria-label='Tool result']")).toBeNull();
+});
+
 test("completed mkdir uses the rich tool preview without approval actions", () => {
   const { container } = render(
     <ToolCallMessage

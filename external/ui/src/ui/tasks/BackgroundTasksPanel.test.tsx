@@ -151,7 +151,10 @@ test("the progress bar appears only when the model gave an estimate", () => {
       onClearFinished={() => {}}
     />,
   );
-  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25");
+  expect(screen.getByRole("progressbar")).toHaveAttribute(
+    "aria-valuenow",
+    "25",
+  );
 });
 
 test("selecting a task shows its command and captured output", () => {
@@ -169,6 +172,15 @@ test("a task with no output yet says so", () => {
   expect(screen.getByTestId("bgtask-output")).toHaveTextContent(
     "(no output yet)",
   );
+});
+
+test("marks truncated output in the task detail", () => {
+  renderPanel({
+    selectedTaskId: "bg_1",
+    tasks: [task({ output_truncated: true })],
+  });
+
+  expect(screen.getByText("truncated")).toBeInTheDocument();
 });
 
 test("empty and error states replace the sections", () => {
@@ -191,6 +203,8 @@ test("empty and error states replace the sections", () => {
       onClearFinished={() => {}}
     />,
   );
-  expect(screen.getByTestId("bgtasks-list-error")).toHaveTextContent("HTTP 500");
+  expect(screen.getByTestId("bgtasks-list-error")).toHaveTextContent(
+    "HTTP 500",
+  );
   expect(screen.queryByTestId("bgtasks-list-empty")).toBeNull();
 });

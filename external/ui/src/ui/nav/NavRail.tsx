@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { useT } from "../i18n/I18nProvider";
 import {
   appNavHrefHistory,
   appNavHrefHome,
@@ -129,6 +130,7 @@ export function NavRail(props: {
   railLabelsWide: boolean;
   onToggleRailLabels: () => void;
 }) {
+  const { t } = useT();
   const railRef = useRef<HTMLElement | null>(null);
   useLayoutEffect(() => {
     const el = railRef.current;
@@ -164,7 +166,7 @@ export function NavRail(props: {
     <aside
       ref={railRef}
       className={`rail-column ${pillWide ? "rail-column-wide" : ""}`}
-      aria-label="Nav"
+      aria-label={t("nav.ariaLabel")}
     >
       <div className={`rail-pill ${pillWide ? "is-wide" : ""}`}>
         {props.canWidenRail ? (
@@ -174,21 +176,22 @@ export function NavRail(props: {
                 type="button"
                 className="rail-toggle-width"
                 onClick={props.onToggleRailLabels}
-                aria-label="Use narrow sidebar"
+                aria-label={t("nav.useNarrowSidebar")}
               >
                 <IconSidebarCollapse className="rail-toggle-svg" />
               </button>
               <a
                 href={appNavHrefHome()}
                 className="rail-brand rail-brand-header"
-                aria-label="Coddy agent home"
+                aria-label={t("nav.homeAriaLabel")}
                 data-testid="nav-home"
                 onClick={(ev) =>
                   sameTabInAppNavClick(ev, props.onNewChat)
                 }
               >
                 <span className="rail-brand-text-header-single">
-                  Coddy <span className="rail-brand-header-agent">agent</span>
+                  {t("nav.brandTitle")}{" "}
+                  <span className="rail-brand-header-agent">{t("nav.brandSub")}</span>
                 </span>
               </a>
             </div>
@@ -199,31 +202,31 @@ export function NavRail(props: {
                   type="button"
                   className="rail-toggle-width"
                   onClick={props.onToggleRailLabels}
-                  aria-label="Use wide sidebar"
+                  aria-label={t("nav.useWideSidebar")}
                 >
                   <IconSidebarExpand className="rail-toggle-svg" />
                 </button>
                 <span className="rail-tip" role="tooltip">
-                  Wide sidebar
+                  {t("nav.wideSidebarTooltip")}
                 </span>
               </div>
               <div className="rail-tip-host rail-brand-tip-host">
                 <a
                   href={appNavHrefHome()}
                   className="rail-brand"
-                  aria-label="Coddy agent home"
+                  aria-label={t("nav.homeAriaLabel")}
                   data-testid="nav-home"
                   onClick={(ev) =>
                     sameTabInAppNavClick(ev, props.onNewChat)
                   }
                 >
                   <span className="rail-brand-text">
-                    <span className="rail-brand-title">Coddy</span>
-                    <span className="rail-brand-sub">agent</span>
+                    <span className="rail-brand-title">{t("nav.brandTitle")}</span>
+                    <span className="rail-brand-sub">{t("nav.brandSub")}</span>
                   </span>
                 </a>
                 <span className="rail-tip" role="tooltip">
-                  New Chat
+                  {t("nav.newChatTooltip")}
                 </span>
               </div>
             </>
@@ -233,19 +236,19 @@ export function NavRail(props: {
             <a
               href={appNavHrefHome()}
               className="rail-brand"
-              aria-label="Coddy agent home"
+              aria-label={t("nav.homeAriaLabel")}
               data-testid="nav-home"
               onClick={(ev) =>
                 sameTabInAppNavClick(ev, props.onNewChat)
               }
             >
               <span className="rail-brand-text">
-                <span className="rail-brand-title">Coddy</span>
-                <span className="rail-brand-sub">agent</span>
+                <span className="rail-brand-title">{t("nav.brandTitle")}</span>
+                <span className="rail-brand-sub">{t("nav.brandSub")}</span>
               </span>
             </a>
             <span className="rail-tip" role="tooltip">
-              New Chat
+              {t("nav.newChatTooltip")}
             </span>
           </div>
         )}
@@ -255,7 +258,7 @@ export function NavRail(props: {
             <a
               href={appNavHrefHistory()}
               className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
-              aria-label="History"
+              aria-label={t("nav.history")}
               aria-pressed={props.historyOpen}
               data-testid="nav-history"
               onClick={(ev) =>
@@ -264,12 +267,12 @@ export function NavRail(props: {
             >
               <IconBook className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (
-                <span className="rail-nav-label">History</span>
+                <span className="rail-nav-label">{t("nav.history")}</span>
               ) : null}
             </a>
             {!pillWide && !props.historyOpen ? (
               <span className="rail-tip" role="tooltip">
-                History
+                {t("nav.history")}
               </span>
             ) : null}
           </div>
@@ -279,7 +282,7 @@ export function NavRail(props: {
               <a
                 href={appNavHrefScheduler()}
                 className={`${navBtnCls} ${props.schedulerOpen ? "is-active" : ""}`}
-                aria-label="Scheduler jobs"
+                aria-label={t("nav.schedulerAriaLabel")}
                 aria-pressed={props.schedulerOpen}
                 data-testid="nav-scheduler"
                 onClick={(ev) =>
@@ -288,12 +291,12 @@ export function NavRail(props: {
               >
                 <IconScheduler className="rail-svg rail-nav-hit-svg" />
                 {pillWide ? (
-                  <span className="rail-nav-label">Scheduler</span>
+                  <span className="rail-nav-label">{t("nav.scheduler")}</span>
                 ) : null}
               </a>
               {!pillWide && !props.schedulerOpen ? (
                 <span className="rail-tip" role="tooltip">
-                  Scheduler
+                  {t("nav.scheduler")}
                 </span>
               ) : null}
             </div>
@@ -305,7 +308,7 @@ export function NavRail(props: {
             <a
               href={appNavHrefSettings()}
               className={`${navBtnCls} ${props.settingsOpen ? "is-active" : ""}`}
-              aria-label="Settings"
+              aria-label={t("nav.settings")}
               aria-pressed={props.settingsOpen}
               data-testid="nav-settings"
               onClick={(ev) =>
@@ -314,12 +317,12 @@ export function NavRail(props: {
             >
               <IconSettings className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (
-                <span className="rail-nav-label">Settings</span>
+                <span className="rail-nav-label">{t("nav.settings")}</span>
               ) : null}
             </a>
             {!pillWide && !props.settingsOpen ? (
               <span className="rail-tip" role="tooltip">
-                Settings
+                {t("nav.settings")}
               </span>
             ) : null}
           </div>
