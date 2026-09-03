@@ -1,5 +1,6 @@
 import {
   type ReactElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -79,7 +80,7 @@ function QuestionToolTimelineReadout(props: {
   );
 }
 
-export function ToolCallMessage(props: {
+export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
   kind?: string | undefined;
@@ -524,4 +525,4 @@ export function ToolCallMessage(props: {
       </details>
     </div>
   );
-}
+});

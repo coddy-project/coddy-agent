@@ -1,8 +1,11 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
+import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
+
+vi.mock("../skills/stripCoddyAttachments", { spy: true });
 
 afterEach(() => cleanup());
 
@@ -186,6 +189,29 @@ test("no retry button when onRetryLast is not provided", () => {
   ];
   render(<MessageList items={items} />);
   expect(screen.queryByTestId("system-message-retry")).toBeNull();
+});
+
+test("untouched memoized rows skip re-render when another item streams", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "a1", type: "assistant_message", content: "strea", streaming: true },
+  ];
+  const { rerender } = render(<MessageList items={items} onEdit={onEdit} />);
+  const userRenders = vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls
+    .length;
+  expect(userRenders).toBeGreaterThan(0);
+
+  // Streaming delta: only the assistant item gets a new object reference.
+  const next: TranscriptItem[] = [
+    items[0]!,
+    { id: "a1", type: "assistant_message", content: "streaming", streaming: true },
+  ];
+  rerender(<MessageList items={next} onEdit={onEdit} />);
+  expect(
+    vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls.length,
+  ).toBe(userRenders);
+  expect(screen.getByText("streaming")).toBeInTheDocument();
 });
 
 test("compaction summary renders as a foldout, not a user bubble", () => {

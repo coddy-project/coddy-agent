@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 import {
@@ -6,7 +8,7 @@ import {
 } from "./formatMessageTime";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 
-export function AssistantMessage(props: {
+export const AssistantMessage = memo(function AssistantMessage(props: {
   content: string;
   streaming?: boolean;
   createdAtUtc?: string;
@@ -48,4 +50,4 @@ export function AssistantMessage(props: {
       </div>
     </div>
   );
-}
+});

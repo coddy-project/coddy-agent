@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import {
   formatUtcToLocalFullDetail,
   formatUtcToLocalHM,
@@ -6,7 +8,7 @@ import { useT } from "../i18n/I18nProvider";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { MessageRetryIconButton } from "./MessageRetryIconButton";
 
-export function SystemNoticeMessage(props: {
+export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
   level: "error";
   message: string;
   createdAtUtc?: string;
@@ -54,4 +56,4 @@ export function SystemNoticeMessage(props: {
       </div>
     </div>
   );
-}
+});

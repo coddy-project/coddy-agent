@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 
@@ -5,7 +7,9 @@ import { useT } from "../i18n/I18nProvider";
 // in the context") styled like the thinking / tool disclosure, so it reads as a
 // system action rather than a user message. Backed by transcript items of type
 // "compaction" (server messages with compaction_summary=true).
-export function CompactionMessage(props: { summary: string }) {
+export const CompactionMessage = memo(function CompactionMessage(props: {
+  summary: string;
+}) {
   const { t } = useT();
   const text = (props.summary || "").trim();
   return (
@@ -28,4 +32,4 @@ export function CompactionMessage(props: { summary: string }) {
       </details>
     </div>
   );
-}
+});

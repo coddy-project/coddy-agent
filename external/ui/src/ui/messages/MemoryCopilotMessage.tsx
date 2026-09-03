@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
 import { useT } from "../i18n/I18nProvider";
 
@@ -31,7 +31,7 @@ function SummaryHeader(props: {
 }
 
 /** One before-main-agent memory pass. `memoryText` is the streamed context for the main agent; legacy rows use recallText / persistText. */
-export function MemoryCopilotMessage(props: {
+export const MemoryCopilotMessage = memo(function MemoryCopilotMessage(props: {
   mainThinkingInProgress?: boolean;
   memoryStatus?: "idle" | "in_progress" | "completed";
   memoryText?: string;
@@ -240,4 +240,4 @@ export function MemoryCopilotMessage(props: {
       </details>
     </div>
   );
-}
+});

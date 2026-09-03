@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import { useT } from "../i18n/I18nProvider";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
@@ -18,13 +20,15 @@ function fmtBytes(
   return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
-export function UserMessage(props: {
+export const UserMessage = memo(function UserMessage(props: {
   content: string;
   createdAtUtc?: string;
   /** Known skill names — renders `/name` tokens as chip spans when the name is in the set. */
   knownSkillNames?: Set<string>;
   /** Called when the user clicks the Edit button. */
-  onEdit?: (content: string) => void;
+  onEdit?: (content: string, userMsgIndex: number) => void;
+  /** Index of this message among user messages; passed back to onEdit. */
+  userMsgIndex?: number;
   /** Files attached to this message. `previewUrl` is a client-only blob URL (until reload). */
   files?: {
     name: string;
@@ -110,7 +114,7 @@ export function UserMessage(props: {
             aria-label={t("messages.editMessage")}
             title={t("messages.editMessage")}
             data-testid="user-message-edit"
-            onClick={() => props.onEdit!(props.content)}
+            onClick={() => props.onEdit!(props.content, props.userMsgIndex ?? 0)}
           >
             ✎
           </button>
@@ -135,4 +139,4 @@ export function UserMessage(props: {
       </div>
     </div>
   );
-}
+});
