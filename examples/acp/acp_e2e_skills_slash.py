@@ -3,7 +3,8 @@
 
 Mirrors ``examples/httpserver/http_e2e_skills_slash.py`` over stdio JSON-RPC:
 
-1. After ``session/new``, an ``available_commands_update`` lists the fixture command ``coddy_slash_demo``.
+1. After ``session/new``, an ``available_commands_update`` lists the fixture command ``coddy_slash_demo``
+   (the notification follows the ``session/new`` response, so the script reads past it).
 2. A ``session/prompt`` starting with ``/coddy_slash_demo`` yields assistant text containing ``DEMO_SKILL_TOKEN:z7k9-demo-slash``.
 3. A control turn must not repeat that token.
 
@@ -126,6 +127,37 @@ def collect_assistant_text(backlog: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
+def wait_for_session_update(
+    proc: subprocess.Popen[str],
+    session_update: str,
+    max_lines: int = 64,
+) -> list[dict[str, Any]]:
+    """Read notifications until a ``session/update`` of the given kind arrives.
+
+    Coddy writes ``available_commands_update`` only after the ``session/new`` (or
+    ``session/load``) response is on the wire, so the catalog is never part of that
+    call's backlog (see ``docs/acp-protocol.md``). Returns every line read, the
+    matching notification last, so callers can fold it into the earlier backlog.
+    """
+    assert proc.stdout is not None
+    seen: list[dict[str, Any]] = []
+    for _ in range(max_lines):
+        line = proc.stdout.readline()
+        if not line:
+            raise RuntimeError("unexpected EOF from coddy stdout")
+        line = line.strip()
+        if not line:
+            continue
+        msg = json.loads(line)
+        seen.append(msg)
+        if msg.get("method") != "session/update":
+            continue
+        u = msg.get("params", {}).get("update") or {}
+        if u.get("sessionUpdate") == session_update:
+            return seen
+    raise RuntimeError(f"no {session_update} notification within {max_lines} lines after the response")
+
+
 def slash_command_names(backlog: list[dict[str, Any]]) -> set[str]:
     out: set[str] = set()
     for m in backlog:
@@ -230,6 +262,7 @@ def main() -> int:
             print("missing sessionId", jd(r1), file=sys.stderr)
             return 1
 
+        bl1 += wait_for_session_update(proc, "available_commands_update")
         names = slash_command_names(bl1)
         if FIXTURE_SLASH_NAME not in names:
             print(
