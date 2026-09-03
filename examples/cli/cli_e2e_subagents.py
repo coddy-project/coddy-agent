@@ -80,6 +80,30 @@ def wait_agent_task(parent: Path, timeout: float = 60.0) -> dict:
     raise AssertionError("no finished task of kind agent under the parent session")
 
 
+def wait_parent_reply(parent: Path, timeout: float = 240.0) -> str:
+    """Poll the parent bundle until the turn that spawned the child has answered.
+
+    The child's task finishes before the parent's final model call, and the
+    console driver's idle detection keys on a status label, so the transcript
+    is the only honest signal that the parent turn is over: its last message
+    must be an assistant reply with text, after the spawn_agent tool result.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        path = parent / "messages.json"
+        if path.exists():
+            try:
+                msgs = json.loads(path.read_text()).get("messages", [])
+            except json.JSONDecodeError:
+                msgs = []
+            if msgs and msgs[-1].get("role") == "assistant" and (msgs[-1].get("content") or "").strip():
+                seen_tool = any(m.get("role") == "tool" for m in msgs)
+                if seen_tool:
+                    return str(msgs[-1].get("content") or "")
+        time.sleep(0.5)
+    raise AssertionError("the parent turn never produced its final assistant reply")
+
+
 def main() -> int:
     # The definition and the receipt must exist before the spawn, and the
     # receipt is keyed by the temp home, so both are prepared before the
@@ -121,8 +145,9 @@ def main() -> int:
             raise AssertionError(f"child session.json lacks the parent link: {meta}")
         if MARKER not in messages_text(child):
             raise AssertionError("child messages.json does not contain the marker")
-        if MARKER not in messages_text(parent, role="assistant"):
-            raise AssertionError("parent assistant reply does not repeat the marker")
+        reply = wait_parent_reply(parent)
+        if MARKER not in reply:
+            raise AssertionError(f"parent assistant reply does not repeat the marker: {reply!r}")
         return ok("cli_e2e_subagents")
     finally:
         tui.close()

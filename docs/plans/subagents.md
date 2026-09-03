@@ -1,6 +1,6 @@
 # Plan: subagents (user-defined child agents on the background task pool)
 
-Status: approved by Codex cross-review (plan iteration 6, 2026-09-03) on branch `claude/subagents-pool-config-d0d8da`; implementation in progress.
+Status: approved by Codex cross-review (plan iteration 6, 2026-09-03) on branch `claude/subagents-pool-config-d0d8da`; implemented, see section 9 for the deviations the implementation recorded.
 Reference for the shipped behavior will be `docs/subagents.md`; this file stays
 as the design record. Review deltas are marked inline as `[rev]` (iteration 1),
 `[rev2]` (iteration 2), `[rev3]` (iteration 3) and `[rev4]` (iteration 4).
@@ -674,3 +674,30 @@ in layer-sized steps on this branch:
 4. Lifecycle and cleanup (3.3 step 2, 3.5).
 5. Permission forwarding lifetime (3.3 step 7).
 6. Smaller ambiguities (3.1, 3.2, 3.3 step 9).
+
+## 9. Implementation notes (deviations from the text above)
+
+Recorded while implementing; the code and `docs/subagents.md` describe the
+shipped behaviour.
+
+- The task label falls back to the first prompt line capped at 48 runes when
+  the call gives no `description`, rather than the pool's 60-character
+  `deriveLabel`; the pool still applies its own cap on top.
+- An unknown `model` in a definition is logged through the agent logger, not
+  written into the task log.
+- Catalog rows carry no separate `source` field: `scope`, `path` and `builtin`
+  identify the origin.
+- The ACP live e2e (`examples/acp/acp_e2e_subagents.py`) does not pass a stdio
+  MCP server; the fixture definition is read-only and could not admit one. MCP
+  inheritance is covered by the godog scenario with the re-exec helper.
+- A foreground child cancelled through the parent context ends with pool
+  status `failed` (exit 1, no termination claim on the task); the report block
+  says `outcome: cancelled`.
+- The "unknown subagent" refusal lists every loaded definition except hidden
+  ones, so an unapproved project definition is still named (its refusal comes
+  with the approval hint when spawned).
+- `notify_on_finish` is forced off for every task a child starts, commands
+  included (`internal/tools/shell/background.go`), exactly as 3.3 step 6 asks.
+- The foreground envelope reads the pool's terminal verdict through
+  `Pool.Wait` before returning, because the pool records the status on its
+  supervisor goroutine after the handle closes.
