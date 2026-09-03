@@ -67,6 +67,14 @@ type Agent struct {
 	environment     platform.Environment
 	providerFactory func(llm.ProviderInput) (llm.Provider, error)
 	configReloader  func(context.Context) ([]string, error)
+
+	// subagentRuntime owns child sessions; nil when this surface cannot spawn.
+	subagentRuntime SubagentRuntime
+	// subagent is set when this session is itself a child run (see subagent.go).
+	subagent *session.SubagentMeta
+	// currentToolCallID is the tool call being executed, so a spawn can link
+	// its task to the transcript row.
+	currentToolCallID string
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -75,7 +83,7 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		log = slog.Default()
 	}
 	environment := platform.CurrentEnvironment()
-	return &Agent{
+	a := &Agent{
 		cfg:             cfg,
 		state:           state,
 		server:          server,
@@ -84,6 +92,10 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 		environment:     environment,
 		providerFactory: llm.NewProvider,
 	}
+	if st := sessionStatePtr(state); st != nil {
+		a.subagent = st.Subagent()
+	}
+	return a
 }
 
 // SetProviderFactory replaces the LLM provider factory used by subsequent turns.
@@ -168,6 +180,12 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	if maxTurns <= 0 {
 		maxTurns = 30
 	}
+	if a.subagent != nil {
+		maxTurns = a.cfg.Subagents.EffectiveMaxTurns(a.cfg.Agent.MaxTurns)
+		if a.subagent.MaxTurns > 0 {
+			maxTurns = a.subagent.MaxTurns
+		}
+	}
 
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 
@@ -226,6 +244,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
+	a.applySubagentEnv(toolEnv)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
@@ -824,7 +843,28 @@ func loopAbortError(c loopAbortChannel) error {
 // executeToolCall runs a single tool call and reports updates to the client.
 func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools.Env, mode, sessionID string, skipPermission bool) (string, error) {
 	env.ToolCallID = strings.TrimSpace(tc.ID)
-	defer func() { env.ToolCallID = "" }()
+	a.currentToolCallID = env.ToolCallID
+	defer func() {
+		env.ToolCallID = ""
+		a.currentToolCallID = ""
+	}()
+
+	// A child may only call what its effective tool set admits: the
+	// advertised definitions are filtered the same way, so this catches a
+	// hallucinated or replayed call, MCP tools included, before anything runs
+	// or asks for permission.
+	if a.subagent != nil && !a.subagentAllows(tc.Name) {
+		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
+		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+			SessionUpdate: acp.UpdateTypeToolCallUpdate,
+			ToolCallID:    tc.ID,
+			Status:        "failed",
+			Content: []acp.ToolCallResultItem{
+				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: reason}},
+			},
+		})
+		return "", fmt.Errorf("%s", reason)
+	}
 
 	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
 	// front so it holds regardless of the outcome below (permission denial,
@@ -1087,6 +1127,20 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 	defs := FilterToolDefinitions(available, toolSet)
 	if toolSet.Unrestricted() || mode == "plan" {
 		defs = append(defs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
+	}
+	if a.subagent != nil {
+		defs = FilterToolDefinitions(defs, ToolSet(a.subagent.Tools))
+	} else if !a.canSpawn() {
+		// spawn_agent is registered whenever the feature is on; a surface with no
+		// runtime (a scheduled run) or a session at the depth limit must not
+		// advertise it.
+		filtered := make([]llm.ToolDefinition, 0, len(defs))
+		for _, d := range defs {
+			if d.Name != tools.ToolSpawnAgent {
+				filtered = append(filtered, d)
+			}
+		}
+		defs = filtered
 	}
 	return defs
 }

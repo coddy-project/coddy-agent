@@ -9,6 +9,8 @@
 //	{{.Skills}}   - active skills markdown (slash catalog and bodies), built by the agent
 //	{{.Memory}}   - session agent memory notes (may be empty)
 //	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
+//	{{.Subagents}} - catalog of subagents the session may spawn (may be empty)
+//	{{.SubagentRole}} - role block when this session is itself a subagent run (may be empty)
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
 //
 // Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections should be omitted when empty.
@@ -58,6 +60,12 @@ type TemplateData struct {
 
 	// Instructions is the concatenated content of project instruction files (AGENTS.md etc.), may be empty.
 	Instructions string
+
+	// Subagents is the catalog block a parent that may spawn subagents reads (may be empty).
+	Subagents string
+
+	// SubagentRole is the role block of a child agent run (may be empty).
+	SubagentRole string
 
 	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
 	UTCNow string

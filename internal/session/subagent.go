@@ -61,6 +61,8 @@ type SubagentSpec struct {
 	Tools []string
 	// Depth is the child's nesting level.
 	Depth int
+	// MaxTurns caps the child's ReAct rounds; 0 uses the configured default.
+	MaxTurns int
 	// ConnectMCP dials configured MCP servers (through the trust gate) and the
 	// client-supplied declarations below. Off when the child's tool set cannot
 	// contain MCP tools, so a read-only explorer never starts a process.
@@ -133,6 +135,7 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		ParentSessionID: parentID,
 		TaskID:          strings.TrimSpace(spec.TaskID),
 		Depth:           spec.Depth,
+		MaxTurns:        spec.MaxTurns,
 		Role:            spec.Role,
 		Tools:           spec.Tools,
 	})

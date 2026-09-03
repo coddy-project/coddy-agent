@@ -108,6 +108,8 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		PlanContext:    planCtx,
 		DiscardedPlans: discardedPlans,
 		Instructions:   instructionsMD,
+		Subagents:      a.subagentCatalogBlock(),
+		SubagentRole:   a.subagentRoleBlock(),
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())

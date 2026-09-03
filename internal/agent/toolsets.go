@@ -38,6 +38,9 @@ var planToolNames = []string{
 	// Read-only: lets the planner pull a catalogued skill's instructions when
 	// skills.auto_discovery is on (the tool is only registered when enabled).
 	"load_skill",
+	// A planner fans out investigation the same way Claude Code's Explore
+	// subagent does; the child of a plan-mode parent is forced into plan mode.
+	"spawn_agent",
 }
 
 // ToolSetForMode returns the tool allowlist for the session mode. Agent mode is unrestricted.

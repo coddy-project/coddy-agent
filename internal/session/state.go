@@ -285,6 +285,8 @@ type SubagentMeta struct {
 	TaskID string
 	// Depth is the nesting level: 1 for a child of an ordinary session.
 	Depth int
+	// MaxTurns caps the child's ReAct rounds; 0 uses the configured default.
+	MaxTurns int
 	// Role is the definition body the child's system prompt carries. Not
 	// persisted: a restored child is a read-only transcript.
 	Role string

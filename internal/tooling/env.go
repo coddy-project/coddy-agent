@@ -92,6 +92,15 @@ type Env struct {
 	// the same user turn.
 	ConfigReloaded bool
 
+	// SpawnAgent runs a subagent for the spawn_agent tool. Wired by the agent
+	// runtime; nil when subagents are unavailable (scheduled runs, disabled).
+	SpawnAgent func(ctx context.Context, req SpawnRequest) (string, error)
+
+	// SubagentDepth is how deep this session sits in a spawn tree: 0 for an
+	// ordinary session, 1 for its children. The runtime uses it to refuse
+	// spawns past subagents.max_depth.
+	SubagentDepth int
+
 	// OutputLineLimits caps how many lines each tool result or error may
 	// contribute to the LLM context, keyed by tool name; the empty-string key
 	// carries the default applied to unlisted (and MCP) tools. A positive value
@@ -139,4 +148,22 @@ func (e *Env) CommandAllowed(command string) bool {
 		}
 	}
 	return false
+}
+
+// SpawnRequest is what the spawn_agent tool asks the runtime to run.
+type SpawnRequest struct {
+	// Agent is the definition name.
+	Agent string
+	// Prompt is the child's task, self-contained.
+	Prompt string
+	// Description is a short label (3 to 5 words) for the task row and the
+	// child session title.
+	Description string
+	// Background detaches the run and returns the task id at once.
+	Background bool
+	// ExpectedSeconds, TimeoutSeconds and NotifyOnFinish carry the same
+	// meaning as for a background run_command.
+	ExpectedSeconds int
+	TimeoutSeconds  int
+	NotifyOnFinish  bool
 }
