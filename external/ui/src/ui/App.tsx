@@ -57,11 +57,7 @@ import {
   revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
-import {
-  SHADOW_TRANSCRIPT_CACHE_CAP,
-  sidsToEvict,
-  touchLruSid,
-} from "./chat/sessionTranscriptCache";
+import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -755,10 +751,15 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  /** Per-session shadow transcript while that session streams in the background. */
-  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
-  /** LRU order of shadow-cached sids (most-recent-last); drives eviction. */
-  const shadowLruRef = useRef<string[]>([]);
+  /**
+   * Per-session shadow transcript while that session streams in the
+   * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
+   * write through `set` records recency, so `evictStaleSessionCaches` sees
+   * every entry.
+   */
+  const streamShadowBySidRef = useRef(
+    new ShadowTranscriptCache<TranscriptItem[]>(),
+  );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
@@ -813,7 +814,6 @@ export function App() {
       return;
     }
     streamShadowBySidRef.current.set(key, next);
-    touchLruSid(shadowLruRef.current, key);
     if (viewing === key) {
       itemsRef.current = next;
     }
@@ -833,25 +833,16 @@ export function App() {
    * simply re-fetched via loadMessages on the next visit.
    */
   function evictStaleSessionCaches(nextViewedSid: string) {
-    // Self-heal the LRU order: keep only sids that still have a shadow entry.
-    shadowLruRef.current = shadowLruRef.current.filter((sid) =>
-      streamShadowBySidRef.current.has(sid),
-    );
     const active = new Set<string>(activeComposerSidRef.current);
     for (const k of postAbortBySidRef.current.keys()) active.add(k);
     for (const k of relayAbortBySidRef.current.keys()) active.add(k);
     for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
-    const victims = sidsToEvict({
-      cachedSids: shadowLruRef.current,
-      viewedSid: nextViewedSid.trim(),
+    const victims = streamShadowBySidRef.current.evict({
+      viewedSid: nextViewedSid,
       activeStreamSids: active,
-      cap: SHADOW_TRANSCRIPT_CACHE_CAP,
     });
     for (const sid of victims) {
-      streamShadowBySidRef.current.delete(sid);
       relayLastEventIdBySidRef.current.delete(sid);
-      const at = shadowLruRef.current.indexOf(sid);
-      if (at !== -1) shadowLruRef.current.splice(at, 1);
     }
   }
 
@@ -2402,7 +2393,7 @@ export function App() {
     });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
-      touchLruSid(shadowLruRef.current, sid);
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       return applied;
     }
 
@@ -2429,7 +2420,13 @@ export function App() {
     }
 
     streamShadowBySidRef.current.set(sid, withBranches);
-    touchLruSid(shadowLruRef.current, sid);
+    evictStaleSessionCaches(viewedSessionIdRef.current);
+    // The viewer moved on while this fetch was in flight (the user picked
+    // another session or went home): keep the shadow for the next visit, but
+    // never paint a stale transcript under the current route.
+    if (viewedSessionIdRef.current.trim() !== sid) {
+      return withBranches;
+    }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2498,7 +2495,7 @@ export function App() {
     } else {
       setItems([]);
     }
-    touchLruSid(shadowLruRef.current, id);
+    streamShadowBySidRef.current.touch(id);
     evictStaleSessionCaches(id);
   }
 
@@ -3286,11 +3283,11 @@ export function App() {
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
-        const sh = streamShadowBySidRef.current.get(oldKey);
-        streamShadowBySidRef.current.delete(oldKey);
-        if (sh) {
-          streamShadowBySidRef.current.set(postSessionKey, sh);
-          touchLruSid(shadowLruRef.current, postSessionKey);
+        streamShadowBySidRef.current.rename(oldKey, postSessionKey);
+        const relayCursor = relayLastEventIdBySidRef.current.get(oldKey);
+        relayLastEventIdBySidRef.current.delete(oldKey);
+        if (relayCursor !== undefined) {
+          relayLastEventIdBySidRef.current.set(postSessionKey, relayCursor);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);

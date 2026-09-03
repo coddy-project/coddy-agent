@@ -1717,8 +1717,17 @@ a.rail-brand {
 
 /* Long-transcript scroll optimization: off-screen rows skip layout and paint.
    `contain-intrinsic-size: auto <fallback>` reuses the last rendered height, so
-   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up. */
-.messages-inner > * {
+   scrollHeight and stick-to-bottom anchoring stay stable while scrolling up.
+   `content-visibility: auto` also turns on paint containment while the row is
+   visible, which clips anything drawn outside the row box. It is therefore
+   opted in per row type: only rows whose content stays inside their own box
+   (assistant markdown, thinking / tool / compaction / memory foldouts, system
+   notices). User rows keep the hover edit button at `left: -32px`, and the
+   permission, question and plan cards cast shadows past their wrapper, so
+   those rows stay uncontained. */
+.messages-inner > .msg-assistant-stack,
+.messages-inner > .thinking-row,
+.messages-inner > .msg-system-stack {
   content-visibility: auto;
   contain-intrinsic-size: auto 120px;
 }
