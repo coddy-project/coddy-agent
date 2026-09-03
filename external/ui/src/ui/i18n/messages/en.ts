@@ -802,6 +802,7 @@ export const messagesEn: Record<string, string> = {
     "Defaults to the agent working directory for this instance.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
+  "scheduler.mode.ask": "ask",
   "scheduler.mode.plan": "plan",
   "scheduler.field.model": "model",
   "scheduler.field.body": "body (markdown)",
