@@ -1,5 +1,7 @@
 package acp
 
+import "encoding/json"
+
 // Protocol version supported by this agent.
 const ProtocolVersion = 1
 
@@ -471,6 +473,53 @@ type PermissionOption struct {
 type PermissionResult struct {
 	Outcome  string `json:"outcome"`
 	OptionID string `json:"optionId"`
+}
+
+// UnmarshalJSON accepts both response shapes seen from ACP clients.
+//
+// The protocol nests the outcome in its own object, which is what Zed sends:
+//
+//	{"outcome": {"outcome": "selected", "optionId": "allow"}}
+//	{"outcome": {"outcome": "cancelled"}}
+//
+// Coddy's own surfaces (console, web UI, remote client) and some editor
+// extensions send the flat form instead:
+//
+//	{"outcome": "selected", "optionId": "allow"}
+//
+// Decoding the nested form into a plain string used to fail, and the caller
+// read that failure as a cancellation - every approval from a spec-compliant
+// client turned into "permission denied by user".
+func (p *PermissionResult) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Outcome  json.RawMessage `json:"outcome"`
+		OptionID string          `json:"optionId"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	p.Outcome = ""
+	p.OptionID = wire.OptionID
+	if len(wire.Outcome) == 0 {
+		return nil
+	}
+	var flat string
+	if err := json.Unmarshal(wire.Outcome, &flat); err == nil {
+		p.Outcome = flat
+		return nil
+	}
+	var nested struct {
+		Outcome  string `json:"outcome"`
+		OptionID string `json:"optionId"`
+	}
+	if err := json.Unmarshal(wire.Outcome, &nested); err != nil {
+		return err
+	}
+	p.Outcome = nested.Outcome
+	if nested.OptionID != "" {
+		p.OptionID = nested.OptionID
+	}
+	return nil
 }
 
 // ---- ACP session/request_question ----

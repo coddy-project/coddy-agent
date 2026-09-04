@@ -982,7 +982,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
 
-		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
+		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,

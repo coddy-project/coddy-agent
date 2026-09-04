@@ -592,17 +592,19 @@ These requests are sent only when `permission_mode` is `ask` (commands and write
 }
 ```
 
-**Response:**
+**Response:** the protocol nests the outcome in its own object, which is what editors such as Zed send:
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 10,
   "result": {
-    "outcome": "allow",
-    "optionId": "allow"
+    "outcome": { "outcome": "selected", "optionId": "allow" }
   }
 }
 ```
+
+A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. Coddy also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
 
 ## Question Requests (Agent -> Client, expects response)
 
