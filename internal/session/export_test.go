@@ -11,6 +11,18 @@ func (m *Manager) SetSubagentPublishHookForTest(fn func(*State)) {
 	m.testHooks.afterSubagentPublish = fn
 }
 
+// SetTurnEntryHookForTest runs fn at the start of turn admission, after the
+// caller resolved its state and before anything is registered.
+func (m *Manager) SetTurnEntryHookForTest(fn func(sessionID string)) {
+	m.testHooks.beforeTurnAdmission = fn
+}
+
+// MarkDeletingForTest raises or lowers the deletion mark of ids directly.
+func (m *Manager) MarkDeletingForTest(ids []string, on bool) { m.markDeleting(ids, on) }
+
+// IsDeletingForTest reports whether the deletion mark of id is raised.
+func (m *Manager) IsDeletingForTest(id string) bool { return m.isDeleting(id) }
+
 // SetTurnAdmissionHookForTest runs fn after a turn installed its cancel
 // function and before it rechecks the deleting mark.
 func (m *Manager) SetTurnAdmissionHookForTest(fn func(sessionID string)) {

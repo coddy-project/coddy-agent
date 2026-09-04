@@ -745,7 +745,12 @@ shipped behaviour.
 - Turn admission is one path (`beginTurn` / `BeginTurn`): prompts, direct
   plan runs and the HTTP permission resume all register, lock, install the
   cancel and decide against deletion the same way.
-- `DeleteSessionTree` rescans the tree after marking until it is stable, the
+- `DeleteSessionTree` rescans the tree after marking until it is stable (and
+  refuses with `ErrTreeUnstable` instead of proceeding if it never is), the
   tree scan includes live children not yet persisted, and a child creation
   refuses when its parent is not live or is being deleted, both at publish
-  time and again before the first save.
+  time and again before the first save. The deletion mark is a count, so
+  concurrent deletes keep it raised until the last one finishes.
+- Turn admission validates that the caller's state is still the live entry
+  (`ErrSessionGone` otherwise), under the live-map lock, at entry and again
+  after the cancel is installed.

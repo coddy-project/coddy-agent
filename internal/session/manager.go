@@ -60,8 +60,10 @@ type Manager struct {
 	// deleting marks sessions whose bundles are being removed by
 	// DeleteSessionTree, so a turn racing the delete is refused instead of
 	// recreating the bundle through its persist hook.
+	// deleting counts the DeleteSessionTree calls currently covering a
+	// session; the mark holds until the last of them finishes.
 	deletingMu sync.Mutex
-	deleting   map[string]bool
+	deleting   map[string]int
 
 	// testHooks pause the manager at points a test needs to observe; every
 	// field is nil outside tests (see export_test.go).
@@ -69,8 +71,11 @@ type Manager struct {
 		// afterSubagentPublish runs once a child state is in the live map and
 		// before its bundle exists.
 		afterSubagentPublish func(*State)
+		// beforeTurnAdmission runs at the start of beginTurn, after the
+		// caller resolved its state and before anything is registered.
+		beforeTurnAdmission func(sessionID string)
 		// beforeTurnAdmissionRecheck runs after a turn installed its cancel
-		// function and before it rechecks the deleting mark.
+		// function and before it rechecks admission.
 		beforeTurnAdmissionRecheck func(sessionID string)
 		// afterTreeScan runs once DeleteSessionTree took its first snapshot
 		// of the tree and before it marks anything.
@@ -650,8 +655,11 @@ func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
 // the delete sees this turn's cancel or this recheck sees the mark, so no turn
 // runs on past the removal of its bundle.
 func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State, skipLock bool) (context.Context, func(), error) {
-	if m.isDeleting(sessionID) {
-		return nil, nil, fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+	if hook := m.testHooks.beforeTurnAdmission; hook != nil {
+		hook(sessionID)
+	}
+	if err := m.admissible(sessionID, state); err != nil {
+		return nil, nil, err
 	}
 	// Before the lock, not after: a turn queued behind another one is already
 	// active as far as a client watching the session is concerned.
@@ -675,11 +683,30 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
 		hook(sessionID)
 	}
-	if m.isDeleting(sessionID) {
+	if err := m.admissible(sessionID, state); err != nil {
 		finish()
-		return nil, nil, fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+		return nil, nil, err
 	}
 	return turnCtx, finish, nil
+}
+
+// admissible decides, under the live-map lock, whether a turn may run on
+// state: the state must still be the session's live entry (a caller that
+// resolved it before a delete or a forget completed holds a stale one whose
+// persist hook would recreate the bundle) and no deletion may be covering
+// the session.
+func (m *Manager) admissible(sessionID string, state *State) error {
+	m.mu.RLock()
+	live := m.sessions[sessionID] == state
+	deleting := m.isDeleting(sessionID)
+	m.mu.RUnlock()
+	if !live {
+		return fmt.Errorf("%w: %s", ErrSessionGone, sessionID)
+	}
+	if deleting {
+		return fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+	}
+	return nil
 }
 
 // BeginTurn admits a turn that a caller drives itself instead of going through

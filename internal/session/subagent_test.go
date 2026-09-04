@@ -1127,3 +1127,163 @@ func TestCreateSubagentSessionRefusesWhenTheParentIsDeleted(t *testing.T) {
 		t.Fatalf("creation under a gone parent = %v, want a not-live refusal", err)
 	}
 }
+
+// ---- review round 4: stale states, counted marks, deep late generations ----
+
+// A caller that resolved its state, then lost the race to a delete that ran
+// to completion (mark raised and lowered again), holds a stale state: the
+// turn is refused instead of running and recreating the removed bundle.
+func TestTurnAdmissionRefusesAStaleStateAfterADeleteCompleted(t *testing.T) {
+	var runs int32
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		atomic.AddInt32(&runs, 1)
+		st.AddMessage(acpToLLM(prompt))
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	m.SetTurnEntryHookForTest(func(string) {
+		once.Do(func() { close(entered) })
+		<-release
+	})
+	defer m.SetTurnEntryHookForTest(nil)
+
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: parent.ID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "stale"}},
+		})
+		promptDone <- err
+	}()
+	<-entered
+	// Nothing is registered yet, so the delete does not wait: it removes the
+	// session, forgets the live entry and lowers its mark.
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatal(err)
+	}
+	if m.IsDeletingForTest(parent.ID) {
+		t.Fatal("precondition: the mark is lowered once the delete finished")
+	}
+	close(release)
+	err := <-promptDone
+	if !errors.Is(err, session.ErrSessionGone) {
+		t.Fatalf("prompt on a stale state = %v, want ErrSessionGone", err)
+	}
+	if atomic.LoadInt32(&runs) != 0 {
+		t.Fatal("the runner ran on a stale state")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if store.HasPersistedSnapshot(parent.ID) {
+		t.Fatal("the removed bundle came back")
+	}
+	if _, statErr := os.Stat(store.SessionPath(parent.ID)); !os.IsNotExist(statErr) {
+		t.Fatalf("removed bundle reappeared: %v", statErr)
+	}
+}
+
+// BeginTurn refuses a stale state the same way, and a state replaced by a
+// reload of the same id is stale too.
+func TestBeginTurnRefusesAStaleState(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	m.SetTurnEntryHookForTest(func(string) {
+		once.Do(func() { close(entered) })
+		<-release
+	})
+	defer m.SetTurnEntryHookForTest(nil)
+	beginDone := make(chan error, 1)
+	go func() {
+		_, fin, err := m.BeginTurn(context.Background(), parent.ID, nil)
+		if err == nil {
+			fin()
+		}
+		beginDone <- err
+	}()
+	<-entered
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-beginDone; !errors.Is(err, session.ErrSessionGone) {
+		t.Fatalf("BeginTurn on a stale state = %v, want ErrSessionGone", err)
+	}
+}
+
+// The deletion mark counts overlapping deletes: it stays raised until the
+// last one lowers it.
+func TestDeletionMarkIsCountedAcrossOverlappingDeletes(t *testing.T) {
+	m, _, _ := newSubagentTestManager(t)
+	ids := []string{"sess_a"}
+	m.MarkDeletingForTest(ids, true)
+	m.MarkDeletingForTest(ids, true)
+	m.MarkDeletingForTest(ids, false)
+	if !m.IsDeletingForTest("sess_a") {
+		t.Fatal("the mark must survive the first of two overlapping deletes")
+	}
+	m.MarkDeletingForTest(ids, false)
+	if m.IsDeletingForTest("sess_a") {
+		t.Fatal("the mark must be lowered once the last delete finished")
+	}
+	m.MarkDeletingForTest(ids, false)
+	if m.IsDeletingForTest("sess_a") {
+		t.Fatal("lowering a mark that is not raised must stay a no-op")
+	}
+}
+
+// Ten generations of children created after the delete's first snapshot are
+// all found by the rescans and removed with the tree; none is orphaned.
+func TestDeleteSessionTreeRemovesDeepGenerationsCreatedAfterTheFirstScan(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	scanned := make(chan struct{})
+	release := make(chan struct{})
+	m.SetTreeScanHookForTest(func(string) {
+		close(scanned)
+		<-release
+	})
+	defer m.SetTreeScanHookForTest(nil)
+
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	<-scanned
+
+	const generations = 10
+	ids := make([]string, 0, generations)
+	prev := parent.ID
+	for depth := 1; depth <= generations; depth++ {
+		id := session.NewSubagentSessionID()
+		if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+			ID: id, ParentSessionID: prev, Name: "gen", TaskID: "bg_" + id[4:8], CWD: root, Depth: depth,
+		}); err != nil {
+			t.Fatalf("generation %d: %v", depth, err)
+		}
+		ids = append(ids, id)
+		prev = id
+	}
+	for _, id := range ids {
+		if !store.HasPersistedSnapshot(id) {
+			t.Fatalf("precondition: generation %s is persisted", id)
+		}
+	}
+	close(release)
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if store.HasPersistedSnapshot(id) || m.SessionByID(id) != nil {
+			t.Fatalf("generation %s survived the delete", id)
+		}
+	}
+	if store.HasPersistedSnapshot(parent.ID) {
+		t.Fatal("the root must be removed")
+	}
+}

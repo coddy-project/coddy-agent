@@ -55,7 +55,7 @@ func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {
 }
 
 func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	rec := &syncBuffer{} // polled while the question goroutine writes
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.QuestionRequestParams{
@@ -76,7 +76,7 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: question") {
+		if strings.Contains(rec.String(), "event: question") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -93,7 +93,9 @@ func TestRequestQuestionSSECompletesWhenPosted(t *testing.T) {
 }
 
 func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
-	rec := httptest.NewRecorder()
+	// The permission goroutine writes the SSE frame while the test polls for
+	// it, so the output goes through the synchronised buffer.
+	rec := &syncBuffer{}
 	sender := NewSender(&config.Config{}, rec, true, "agent-model")
 	ctx := context.Background()
 	p := acp.PermissionRequestParams{
@@ -125,7 +127,7 @@ func TestRequestPermissionSSECompletesWhenPosted(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), "event: permission") {
+		if strings.Contains(rec.String(), "event: permission") {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
@@ -204,18 +206,18 @@ func TestRequestPermissionHonoursTheStampedEffectiveMode(t *testing.T) {
 
 	// Interactive: the stamped ask goes out as a permission event and waits
 	// for the answer instead of being auto-allowed.
-	rec := httptest.NewRecorder()
-	interactive := NewSender(cfg, rec, true, "agent-model")
+	out := &syncBuffer{}
+	interactive := NewSender(cfg, out, true, "agent-model")
 	done := make(chan *acp.PermissionResult, 1)
 	go func() {
 		r, _ := interactive.RequestPermission(context.Background(), params(config.PermModeAsk))
 		done <- r
 	}()
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && !strings.Contains(rec.Body.String(), "event: permission") {
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
 		time.Sleep(2 * time.Millisecond)
 	}
-	if !strings.Contains(rec.Body.String(), "event: permission") {
+	if !strings.Contains(out.String(), "event: permission") {
 		t.Fatal("a stamped ask under global bypass must be forwarded as a permission event")
 	}
 	if !CompletePermissionAnswer("s1", "c1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {

@@ -36,6 +36,21 @@ var ErrSessionDeleting = errors.New("session is being deleted")
 // the tree is still running after the settle timeout; nothing was removed.
 var ErrTurnNotSettled = errors.New("a turn of the session did not stop in time; nothing was deleted")
 
+// ErrSessionGone is returned to a turn whose session state is no longer the
+// live entry: it was deleted or forgotten between the caller resolving it and
+// the turn being admitted.
+var ErrSessionGone = errors.New("session is no longer live")
+
+// ErrTreeUnstable is returned by DeleteSessionTree when descendants kept
+// appearing across the maximum number of rescans; nothing was removed.
+var ErrTreeUnstable = errors.New("session tree kept growing while it was being marked; nothing was deleted")
+
+// maxTreeRescans bounds DeleteSessionTree's mark-and-rescan loop. Every round
+// marks the nodes found so far and a child under a marked parent is refused,
+// so each round can only add a deeper generation; the bound is far above any
+// depth subagents.max_depth allows in practice.
+const maxTreeRescans = 1024
+
 // IsSubagentSessionID reports whether an id uses the reserved child prefix.
 // The prefix is a second line of defence next to the persisted metadata: an
 // id shaped like a child is treated as one even before its bundle says so.
@@ -264,18 +279,25 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 func (m *Manager) isDeleting(id string) bool {
 	m.deletingMu.Lock()
 	defer m.deletingMu.Unlock()
-	return m.deleting[strings.TrimSpace(id)]
+	return m.deleting[strings.TrimSpace(id)] > 0
 }
 
+// markDeleting raises or lowers the deletion mark of each id. The mark is a
+// count, so concurrent deletes covering the same session keep it raised until
+// the last one finishes.
 func (m *Manager) markDeleting(ids []string, on bool) {
 	m.deletingMu.Lock()
 	defer m.deletingMu.Unlock()
 	if m.deleting == nil {
-		m.deleting = map[string]bool{}
+		m.deleting = map[string]int{}
 	}
 	for _, id := range ids {
 		if on {
-			m.deleting[id] = true
+			m.deleting[id]++
+			continue
+		}
+		if m.deleting[id] > 1 {
+			m.deleting[id]--
 		} else {
 			delete(m.deleting, id)
 		}
@@ -486,7 +508,8 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 		}
 		m.markDeleting(ids, false)
 	}()
-	for round := 0; round < 8; round++ {
+	stable := false
+	for round := 0; round < maxTreeRescans; round++ {
 		again, err := m.SessionTree(rootID)
 		if err != nil {
 			return err
@@ -499,9 +522,13 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 		}
 		nodes = again
 		if fresh == 0 {
+			stable = true
 			break
 		}
 		mark(again)
+	}
+	if !stable {
+		return fmt.Errorf("%w: %s", ErrTreeUnstable, rootID)
 	}
 	if err := m.cancelAndAwaitTurns(nodes); err != nil {
 		return err
