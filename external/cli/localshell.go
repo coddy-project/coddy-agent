@@ -97,7 +97,7 @@ func (a *App) startLocalShell(command string) {
 	a.curShell, a.lastShell = box, box
 	box.SetExpanded(a.expanded)
 
-	cmd, err := shell.StartOperatorCommand(command, a.cfg.Paths.CWD)
+	cmd, err := shell.StartOperatorCommand(command, a.config().Paths.CWD)
 	if err != nil {
 		box.Finish(-1, err)
 		a.curShell = nil

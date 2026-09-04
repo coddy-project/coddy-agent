@@ -8,7 +8,7 @@ alwaysApply: false
 
 - **`internal/acp`** - ACP RPC server, session lifecycle from editors.
 - **`internal/agent`** - tool loop and LLM turns.
-- **`internal/session`** - session manager and mode (`agent` / `plan`).
+- **`internal/session`** - session manager and mode (`agent` / `plan` / `ask`).
 - **`internal/config`** - YAML and flags.
 - **`internal/tools`** - filesystem, shell, todo, MCP merge, etc. Shell also owns the background task family (**`run_command`** **`background: true`** plus **`background_list`** / **`background_output`** / **`background_wait`** / **`background_stop`**), backed by **`internal/bgtask`**. See **`docs/background-tasks.md`**.
 - **`internal/mcp`** - MCP transports (`client.go`, `remote.go`, `connect.go`), the merged server list with scope/origin labels (`manage.go`), and the **workspace trust gate** for project-local `.coddy/mcp.json` (`trust.go`, `gate.go`). That file arrives with the checkout, so its declarations are not started or contacted until the operator approves that exact declaration for that workspace: policy `mcp.project_trust` (`ask` default / `allow` / `deny`), approvals in `<home>/mcp-trust.json` keyed by canonical workspace + declaration digest. **Every connect or probe of a *configured* server must go through `TrustGate.Connect` / `TrustGate.Probe`** (they re-check immediately before the spawn); `mcp.Connect` directly is only for ACP client-supplied servers. Approval surfaces: `coddy mcp list|trust|untrust`, `POST /coddy/mcp/{name}/trust|untrust`, Settings → MCP servers. See `docs/mcp-integration.md`.

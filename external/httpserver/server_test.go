@@ -85,6 +85,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}{
 		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
 		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: string(session.ModeAsk), ownedBy: ownedByCoddySession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -143,6 +144,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	wantRows := []want{
 		{id: string(session.ModeAgent)},
 		{id: string(session.ModePlan)},
+		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}
@@ -3383,5 +3385,79 @@ func TestCoddySubagentsCatalogAndTrustRoutes(t *testing.T) {
 	}
 	if row, _ := body["item"].(map[string]interface{}); row["trusted"] != true {
 		t.Fatalf("untrust built-in item: %v", body["item"])
+	}
+}
+
+// The ask pseudo-model runs the session as an ask turn, the same way agent and
+// plan select their profile.
+func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
+	var seenMode string
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		seenMode = st.GetMode()
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ask reply"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json",
+		strings.NewReader(`{"model":"ask","input":"hi","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	if seenMode != string(session.ModeAsk) {
+		t.Fatalf("runner saw mode %q, want ask", seenMode)
+	}
+	if !strings.Contains(string(body), `"model":"ask"`) {
+		t.Fatalf("response does not echo the ask profile: %s", body)
+	}
+}
+
+// Pairing the read-only ask profile with runPlanSlug is refused before the
+// turn lock, the relay, or SSE headers, so streaming and non-streaming callers
+// both get a plain 409 instead of a 500 (or a committed 200) from the manager.
+func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
+	runs := 0
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name, path, payload string
+	}{
+		{"responses non-stream", "/v1/responses", `{"model":"ask","input":"go","stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+		{"responses stream", "/v1/responses", `{"model":"ask","input":"go","stream":true,"metadata":{"runPlanSlug":"demo"}}`},
+		{"chat completions", "/v1/chat/completions", `{"model":"ask","messages":[{"role":"user","content":"go"}],"stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+	}
+	for _, tc := range cases {
+		res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409: %s", tc.name, res.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "ask mode") {
+			t.Fatalf("%s: error does not explain the refusal: %s", tc.name, body)
+		}
+		if ct := res.Header.Get("Content-Type"); strings.Contains(ct, "text/event-stream") {
+			t.Fatalf("%s: refusal was streamed as SSE", tc.name)
+		}
+	}
+	if runs != 0 {
+		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
 	}
 }

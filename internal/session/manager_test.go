@@ -306,6 +306,45 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	}
 }
 
+func TestManagerSetConfigOptionModeAsk(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID,
+		ConfigID:  "mode",
+		Value:     "ask",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionSetConfigOption: %v", err)
+	}
+	for _, o := range out.ConfigOptions {
+		if o.ID != "mode" {
+			continue
+		}
+		if o.CurrentValue != "ask" {
+			t.Fatalf("expected mode ask, got %q", o.CurrentValue)
+		}
+		found := false
+		for _, v := range o.Options {
+			if v.Value == "ask" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("mode option should advertise ask, got %+v", o.Options)
+		}
+	}
+	if got := m.SessionByID(res.SessionID).GetMode(); got != "ask" {
+		t.Fatalf("session mode = %q, want ask", got)
+	}
+}
+
 func TestManagerSetConfigOptionUnknownValue(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)

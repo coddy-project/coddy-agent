@@ -380,6 +380,9 @@ export const messagesRu: Record<string, string> = {
     "Файл промпта планирования",
   "settings.schema.system.prompts.plan_prompt.desc":
     "Имя файла системного промпта режима планирования.",
+  "settings.schema.system.prompts.ask_prompt.label": "Файл промпта вопросов",
+  "settings.schema.system.prompts.ask_prompt.desc":
+    "Имя файла системного промпта режима вопросов.",
   "settings.schema.system.instructions.label": "Инструкции",
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":
@@ -762,6 +765,7 @@ export const messagesRu: Record<string, string> = {
   "composer.bytesMB": "{n} МБ",
   "composer.mode": "Режим",
   "composer.modeAgent": "Агент",
+  "composer.modeAsk": "Вопрос",
   "composer.modePlan": "План",
   "composer.model": "Модель",
   "composer.modelTitle": "YAML-бэкенд (metadata.model)",
@@ -872,6 +876,7 @@ export const messagesRu: Record<string, string> = {
     "По умолчанию — рабочая директория агента для этого экземпляра.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
+  "scheduler.mode.ask": "ask",
   "scheduler.mode.plan": "plan",
   "scheduler.field.model": "model",
   "scheduler.field.body": "body (markdown)",

@@ -22,7 +22,17 @@ type Mode string
 const (
 	ModeAgent Mode = "agent"
 	ModePlan  Mode = "plan"
+	ModeAsk   Mode = "ask"
 )
+
+// IsValidMode reports whether mode names a known session mode.
+func IsValidMode(mode string) bool {
+	switch Mode(mode) {
+	case ModeAgent, ModePlan, ModeAsk:
+		return true
+	}
+	return false
+}
 
 // State holds the complete state of a session.
 type State struct {

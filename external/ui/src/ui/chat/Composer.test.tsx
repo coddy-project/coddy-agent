@@ -43,6 +43,28 @@ function renderComposerWithLlm(opts: { isEmpty: boolean }) {
   );
 }
 
+test("ask mode renders its own pill class and menu entry", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="ask"
+      modes={["agent", "plan", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const pill = screen.getByRole("button", { name: "Mode" });
+  expect(pill).toHaveClass("mode-ask");
+  expect(pill).toHaveTextContent("Ask");
+
+  fireEvent.click(pill);
+  const menu = screen.getByRole("menu");
+  expect(menu).toHaveTextContent("Ask");
+});
+
 test("mode menu opens down on start screen", () => {
   renderComposer({ isEmpty: true });
 

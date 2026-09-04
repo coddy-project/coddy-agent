@@ -121,7 +121,7 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 
 	if res.StatusCode != http.StatusOK {
 		payload, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
-		if res.StatusCode == http.StatusConflict {
+		if res.StatusCode == http.StatusConflict && sessionBusyPayload(payload) {
 			return nil, fmt.Errorf("remote coddy: the session is busy (another turn is running)")
 		}
 		return nil, h.remoteError(res, payload)
@@ -344,4 +344,16 @@ func planSlug(meta map[string]interface{}) string {
 		return strings.TrimSpace(v)
 	}
 	return ""
+}
+
+// sessionBusyPayload reports whether a 409 body is the turn-lock refusal. The
+// same status also carries actionable refusals, such as a plan run requested
+// in ask mode, whose message must reach the operator unchanged. An opaque 409
+// keeps the historical "busy" reading.
+func sessionBusyPayload(body []byte) bool {
+	var env errorEnvelope
+	if json.Unmarshal(body, &env) != nil || strings.TrimSpace(env.Error.Message) == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(env.Error.Message), "busy")
 }

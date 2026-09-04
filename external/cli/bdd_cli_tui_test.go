@@ -747,8 +747,15 @@ func (s *cliTUIState) noAgentTurnReceived(text string) error {
 }
 
 // persistedSessionCarriesNoTrace checks the live message list and every file
-// of the session bundle: a hidden command must not reach either.
+// of the session bundle: a hidden command must not reach either. The walk
+// starts only once the turn worker has returned: after the runner ends it
+// still rewrites session.json (activity bookkeeping) through a temp file, and
+// a walk that lists that temp file loses it to the rename before the read
+// ("The system cannot find the file specified" on Windows CI).
 func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
+	if err := s.waitWorkersIdle(5 * time.Second); err != nil {
+		return err
+	}
 	if st := s.app.mgr.SessionByID(s.app.sessionID); st != nil {
 		for _, msg := range st.GetMessages() {
 			if strings.Contains(msg.Content, text) {
@@ -770,6 +777,23 @@ func (s *cliTUIState) persistedSessionCarriesNoTrace(text string) error {
 		}
 		return nil
 	})
+}
+
+// waitWorkersIdle blocks until every app worker (the turn, the `!!` poller)
+// has returned, so nothing writes into the session bundle while a step reads
+// it. Unlike App.JoinWorkers it reports a timeout instead of moving on.
+func (s *cliTUIState) waitWorkersIdle(timeout time.Duration) error {
+	done := make(chan struct{})
+	go func() {
+		s.app.workers.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("app workers still busy after %s", timeout)
+	}
 }
 
 func (s *cliTUIState) operatorTypesWithoutSending(text string) error {

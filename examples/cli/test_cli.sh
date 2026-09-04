@@ -69,6 +69,7 @@ ALL_SCRIPTS=(
   cli_e2e_subagents.py
   cli_e2e_compact.py
   cli_e2e_plan_files.py
+  cli_e2e_ask_mode.py
   cli_e2e_memory.py
   cli_e2e_scheduler_agent.py
 )

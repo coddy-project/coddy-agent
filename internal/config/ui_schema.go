@@ -524,8 +524,9 @@ func UISchemaMap() map[string]interface{} {
 				"dir":          strProp("Prompts directory", "Optional override directory for prompt markdown files."),
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
+				"ask_prompt":   strProp("Ask prompt file", "Filename for ask-mode system prompt."),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{

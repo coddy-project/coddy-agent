@@ -150,7 +150,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	a.runMemoryBeforeTurn(ctx, userText)
+	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
 	contextFiles := extractContextFiles(prompt)
@@ -898,6 +898,14 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		},
 	})
 
+	// A restricted mode filters tool definitions before the LLM sees them, but a
+	// call replayed from history can still name a hidden tool; refuse it here so
+	// the mode boundary holds at execution time too.
+	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
+		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
+		return refusal, nil
+	}
+
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
@@ -1017,8 +1025,19 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if execErr != nil {
 		status = "failed"
 	}
+	a.finishToolCall(sessionDir, sessionID, tc, result, execErr, status)
+	return result, execErr
+}
 
-	todoPlanSnapshot := todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+// finishToolCall persists the outcome of one tool call and publishes the final
+// tool_call_update: the normal completed/failed path and the mode refusal
+// (status cancelled, result carrying the refusal text) share it so the
+// transcript, the tool_calls store, and the preview stay consistent.
+func (a *Agent) finishToolCall(sessionDir, sessionID string, tc llm.ToolCall, result string, execErr error, status string) {
+	var todoPlanSnapshot []acp.PlanEntry
+	if status == "completed" {
+		todoPlanSnapshot = todoPlanSnapshotAfterToolCall(tc.Name, a.state, execErr)
+	}
 
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		finalText := result
@@ -1064,8 +1083,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		Content:       content,
 		Meta:          previewMeta,
 	})
-
-	return result, execErr
 }
 
 func todoPlanSnapshotAfterToolCall(toolName string, state SessionState, execErr error) []acp.PlanEntry {

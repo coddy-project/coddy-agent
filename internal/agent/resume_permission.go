@@ -32,7 +32,11 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
-	if st := sessionStatePtr(a.state); st != nil {
+	// A call the current mode refuses (a pending agent-mode write approved
+	// after switching to ask) must not leave an "allow always" grant behind:
+	// the grant would outlive the refusal and apply once the mode changes back.
+	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
 		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
 	}
 	if sd != "" {

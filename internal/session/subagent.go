@@ -148,8 +148,11 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	}
 
 	mode := ModeAgent
-	if strings.EqualFold(strings.TrimSpace(spec.Mode), string(ModePlan)) {
+	switch strings.ToLower(strings.TrimSpace(spec.Mode)) {
+	case string(ModePlan):
 		mode = ModePlan
+	case string(ModeAsk):
+		mode = ModeAsk
 	}
 	state := &State{
 		ID:              id,

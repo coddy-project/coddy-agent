@@ -144,6 +144,7 @@ prompts:
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
+  ask_prompt: "ask.md"         # optional; default ask.md
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
@@ -309,7 +310,7 @@ Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80); f
 
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent`, `plan`, or `ask`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 

@@ -199,6 +199,13 @@ func (s *Server) coddyDesignPlanPatch(w http.ResponseWriter, r *http.Request) {
 	if rejectSubagentTurn(w, st) {
 		return
 	}
+	// RunPlan switches the session to agent mode and runs with the full tool set,
+	// which a read-only ask session must never do implicitly: the client switches
+	// the mode first, then runs. Same rule as the runPlanSlug prompt metadata.
+	if st.GetMode() == string(session.ModeAsk) {
+		http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
+		return
+	}
 	result, err := s.mgr.RunPlan(r.Context(), id, slug, planRunNoopSender{})
 	if err != nil {
 		s.coddyPlanHTTPError(w, err)

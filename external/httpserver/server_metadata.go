@@ -167,6 +167,14 @@ func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string
 }
 
 // sessionPromptMetaFromHTTP maps HTTP metadata extensions to ACP session/prompt _meta.
+// runPlanRefusedInAskMode reports whether the request pairs the read-only ask
+// profile with a runPlanSlug. The session manager refuses that combination
+// too, but only once the turn has started, when a streamed response has
+// already committed 200; the handlers answer 409 up front instead.
+func runPlanRefusedInAskMode(model string, raw json.RawMessage) bool {
+	return model == string(session.ModeAsk) && session.RunPlanSlugFromPromptMeta(sessionPromptMetaFromHTTP(raw)) != ""
+}
+
 func sessionPromptMetaFromHTTP(raw json.RawMessage) map[string]interface{} {
 	if len(raw) == 0 {
 		return nil

@@ -39,6 +39,16 @@ type FieldErrors = Partial<{
 
 const AUTOSAVE_MS = 600;
 
+const JOB_MODES = ["agent", "plan", "ask"] as const;
+type JobMode = (typeof JOB_MODES)[number];
+
+// Frontmatter `mode` values the daemon accepts (external/scheduler/daemon
+// parseSessionMode); anything else falls back to agent the same way it does.
+function normalizeJobMode(raw: string | undefined): JobMode {
+  const v = (raw || "agent").toLowerCase();
+  return (JOB_MODES as readonly string[]).includes(v) ? (v as JobMode) : "agent";
+}
+
 function validateJobId(raw: string): string | null {
   const s = raw.trim();
   if (!s) {
@@ -342,9 +352,7 @@ export function SchedulerJobEditorSheet(props: {
       setSchedule(j.schedule || "");
       setCwd(j.cwd || "");
       setModel(j.model || "");
-      setModeField(
-        (j.mode || "agent").toLowerCase() === "plan" ? "plan" : "agent",
-      );
+      setModeField(normalizeJobMode(j.mode));
       setBody(j.body || "");
       setPaused(!!j.paused);
       lastCommittedRef.current = JSON.stringify({
@@ -354,7 +362,7 @@ export function SchedulerJobEditorSheet(props: {
         body: j.body || "",
         cwd: (j.cwd || "").trim(),
         model: (j.model || "").trim(),
-        mode: (j.mode || "agent").toLowerCase() === "plan" ? "plan" : "agent",
+        mode: normalizeJobMode(j.mode),
         paused: !!j.paused,
       });
     })();
@@ -623,6 +631,7 @@ export function SchedulerJobEditorSheet(props: {
                 >
                   <option value="agent">{t("scheduler.mode.agent")}</option>
                   <option value="plan">{t("scheduler.mode.plan")}</option>
+                  <option value="ask">{t("scheduler.mode.ask")}</option>
                 </select>
               </label>
               <label className="scheduler-field">

@@ -57,3 +57,46 @@ test("body markdown wrap keeps editor spacing hook class for layout CSS", async 
     document.querySelector(".scheduler-editor-scroll-inner"),
   ).not.toBeNull();
 });
+
+test("edit form keeps a job's ask mode instead of collapsing it to agent", async () => {
+  const api = await import("./api");
+  vi.mocked(api.schedulerGetJob).mockResolvedValueOnce({
+    ok: true,
+    data: {
+      job_id: "demo",
+      description: "",
+      schedule: "0 * * * *",
+      body: "hello",
+      cwd: "",
+      model: "",
+      mode: "ask",
+      paused: false,
+      running: false,
+    },
+  } as never);
+  render(
+    <ConfirmProvider>
+      <SchedulerJobEditorSheet
+        open
+        mode="edit"
+        jobId="demo"
+        availableModels={["m"]}
+        defaultModel="m"
+        currentCwd="/tmp"
+        onClose={() => {}}
+        onSaved={() => {}}
+        onDeleted={() => {}}
+      />
+    </ConfirmProvider>,
+  );
+  await waitFor(() => {
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+  });
+  const select = screen.getByLabelText("mode") as HTMLSelectElement;
+  expect(select.value).toBe("ask");
+  expect(Array.from(select.options).map((o) => o.value)).toEqual([
+    "agent",
+    "plan",
+    "ask",
+  ]);
+});

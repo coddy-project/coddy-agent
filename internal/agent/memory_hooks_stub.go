@@ -4,4 +4,4 @@ package agent
 
 import "context"
 
-func (a *Agent) runMemoryBeforeTurn(ctx context.Context, _ string) {}
+func (a *Agent) runMemoryBeforeTurn(context.Context, string, string) {}

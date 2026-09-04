@@ -25,7 +25,7 @@ ReAct loop (internal/agent/react.go)
     │
     ├── FilterToolDefinitions(..., ToolSetForMode(mode))  ← internal/agent/toolsets.go
     │
-    ├── (agent or plan mode) append MCP tool definitions
+    ├── (agent or plan mode, never ask) append MCP tool definitions
     │
     ├── passes tool definitions to LLM via provider.Stream()
     │

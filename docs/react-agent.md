@@ -5,7 +5,7 @@
 Coddy is modeled as **harness plus execution engine**. This document specifies that engine -
 
 - the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
-- default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
+- default **coding-agent** behavior - tool registry, `agent`, `plan`, and `ask` modes, permission gates.
 
 The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
 
@@ -24,7 +24,7 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
 
 Rendered order matches the markdown files roughly as follows:
 
@@ -73,7 +73,7 @@ Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from anot
 
 Where it is applied:
 
-- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent and plan modes, a user's own **`prompts.dir`** template, and the render fallback;
+- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent, plan, and ask modes, a user's own **`prompts.dir`** template, and the render fallback;
 - **`buildCompactionRequest`** (`internal/agent/compact.go`) — the summarizer is its own request with its own system prompt;
 - the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
 

@@ -450,9 +450,12 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 			def.Name, def.Path, def.Name, def.Name)
 	}
 
+	// A read-only parent (plan, ask) forces its own mode on the child; only
+	// an agent-mode parent lets the definition pick. Ask mode never offers
+	// spawn_agent in the first place, so the ask branch is defence in depth.
 	parentMode := a.state.GetMode()
 	childMode := parentMode
-	if def.Mode != "" && parentMode != "plan" {
+	if def.Mode != "" && parentMode != "plan" && parentMode != "ask" {
 		childMode = def.Mode
 	}
 	childPerm := subagents.NarrowPermissionMode(effectivePermMode(a.state, cfg), def.PermissionMode)
