@@ -754,3 +754,14 @@ shipped behaviour.
 - Turn admission validates that the caller's state is still the live entry
   (`ErrSessionGone` otherwise), under the live-map lock, at entry and again
   after the cancel is installed.
+- After the merge with ask mode: the spawn hook is wired with the mode the
+  turn was admitted in (`applySubagentEnv(env, mode)`), so the child's mode
+  and the parent tool set it is intersected with come from that snapshot, not
+  from the live session mode a concurrent `session/set_mode` may have flipped;
+  an ask-mode turn neither offers nor honours `spawn_agent`; a read-only
+  parent (plan, ask) forces its own mode on the child; `ask.md` renders the
+  subagent role block like the other templates; a child's execution-time
+  refusal goes through the shared tool-call bookkeeping so the transcript
+  records it as failed; `session/new` refuses a preferred `sub_` id without a
+  bundle and `session/set_mode` / `session/set_config_option` refuse child
+  sessions; `POST /coddy/sessions/{id}/workspace` answers 409 for a child.

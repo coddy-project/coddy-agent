@@ -285,6 +285,11 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 		if err := ValidateFolderSessionID(preferredConsumed); err != nil {
 			return nil, fmt.Errorf("session/new: %w", err)
 		}
+		// The sub_ prefix marks child sessions; a client may reopen an existing
+		// child bundle (read-only) but never mint an ordinary session under it.
+		if IsSubagentSessionID(preferredConsumed) && (m.store == nil || !m.store.HasPersistedSnapshot(preferredConsumed)) {
+			return nil, fmt.Errorf("session/new: %w: %s", ErrReservedSessionID, preferredConsumed)
+		}
 		id = preferredConsumed
 	} else {
 		id = newSessionID()
@@ -825,6 +830,11 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 	if state == nil {
 		return fmt.Errorf("session not found: %s", params.SessionID)
 	}
+	// A child transcript is read-only: its mode was fixed at spawn time and
+	// nothing may rewrite it afterwards.
+	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+		return fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
+	}
 
 	if !IsValidMode(params.ModeID) {
 		return fmt.Errorf("unknown mode: %s", params.ModeID)
@@ -850,6 +860,11 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 	state := m.getSession(params.SessionID)
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
+	}
+	// A child transcript is read-only: mode, model and permission mode were
+	// fixed at spawn time.
+	if state.IsSubagentRun() || IsSubagentSessionID(params.SessionID) {
+		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 
 	switch params.ConfigID {

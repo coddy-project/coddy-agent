@@ -134,7 +134,7 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		Background:        a.backgroundPool(sessionDir),
 		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
 	}
-	a.applySubagentEnv(env)
+	a.applySubagentEnv(env, mode)
 	if a.configReloader != nil {
 		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
 			warnings, err := a.configReloader(ctx)

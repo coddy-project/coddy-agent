@@ -1287,3 +1287,54 @@ func TestDeleteSessionTreeRemovesDeepGenerationsCreatedAfterTheFirstScan(t *test
 		t.Fatal("the root must be removed")
 	}
 }
+
+// ---- merge review: reserved prefix on session/new, read-only mode setters ----
+
+// A client may not mint an ordinary session under the sub_ prefix through
+// session/new either, and a child's mode, model and permission mode are fixed
+// at spawn time on every surface.
+func TestReservedPrefixOnSessionNewAndReadOnlyChildSettings(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+
+	m.SetPreferredSessionID("sub_00000000000000000000beef")
+	_, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if !errors.Is(err, session.ErrReservedSessionID) {
+		t.Fatalf("session/new with a preferred sub_ id = %v, want ErrReservedSessionID", err)
+	}
+	if m.SessionByID("sub_00000000000000000000beef") != nil {
+		t.Fatal("no session may exist under the reserved prefix")
+	}
+
+	childID := session.NewSubagentSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root, Mode: "plan",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	child := m.SessionByID(childID)
+	if err := m.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: childID, ModeID: "agent"}); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("set_mode on a child = %v, want ErrSubagentReadOnly", err)
+	}
+	if _, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{SessionID: childID, ConfigID: "mode", Value: "agent"}); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("set_config_option mode on a child = %v, want ErrSubagentReadOnly", err)
+	}
+	if got := child.GetMode(); got != "plan" {
+		t.Fatalf("child mode = %q after refused switches, want plan", got)
+	}
+	// The parent still switches modes normally.
+	if err := m.HandleSessionSetMode(context.Background(), acp.SessionSetModeParams{SessionID: parent.ID, ModeID: "ask"}); err != nil {
+		t.Fatalf("set_mode on the parent = %v", err)
+	}
+	// A child may be created in ask mode (a read-only parent forces its own).
+	askChild := session.NewSubagentSessionID()
+	st, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: askChild, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_2", CWD: root, Mode: "ask",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.GetMode() != "ask" {
+		t.Fatalf("ask child mode = %q", st.GetMode())
+	}
+}

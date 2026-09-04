@@ -138,7 +138,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
   **`internal/session`**. See **`docs/subagents.md`**.
 
-**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, **`spawn_agent`**, and the read-only background, config, plan and skill tools listed in that file), then MCP tools from connected servers are appended the same way as in agent mode. A session that is itself a subagent run is filtered once more to the tool set the runtime computed for it, in both modes.
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`**, and the read-only background, config, plan and skill tools listed in that file), then MCP tools from connected servers are appended the same way as in agent mode. **Ask** mode uses a smaller read-only allowlist with no shell, no plan, config or MCP tools and no **`spawn_agent`**. A session that is itself a subagent run is filtered once more to the tool set the runtime computed for it, in agent and plan mode alike.
 
 Agents see:
 
@@ -233,7 +233,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, **`spawn_agent`** (a child of a plan-mode parent stays in plan mode), plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`** (a child of a plan-mode parent stays in plan mode), plus any **MCP** tools from configured servers
 - No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 

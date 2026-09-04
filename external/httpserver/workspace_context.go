@@ -205,6 +205,11 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
+	// A child session inherited its workspace from the parent's turn and is
+	// read-only; nothing may move it, whatever its message count.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
 	// Folder, branch, and worktree are fixed at session start: once the
 	// conversation has messages, the workspace no longer moves under it.
 	if len(st.GetMessages()) > 0 {

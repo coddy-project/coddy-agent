@@ -88,7 +88,8 @@ type SubagentSpec struct {
 	TaskID string
 	// CWD is the working directory, normally the parent's.
 	CWD string
-	// Mode is agent or plan (already narrowed against the parent).
+	// Mode is agent, plan or ask, already narrowed against the parent: a
+	// read-only parent (plan, ask) forces its own mode on the child.
 	Mode string
 	// PermissionMode is the effective permission mode (already narrowed).
 	PermissionMode string

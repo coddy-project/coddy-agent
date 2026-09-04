@@ -265,3 +265,24 @@ func TestRenderWithFallbackNoPanic(t *testing.T) {
 		t.Error("RenderWithFallback should return non-empty string even on error")
 	}
 }
+
+// Every mode template renders the subagent role block when a role is set, so
+// a child never loses its preamble because of the mode it runs in.
+func TestEveryModeTemplateRendersTheSubagentRole(t *testing.T) {
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		out, err := prompts.Render(mode, "", "agent.md", "plan.md", "ask.md", prompts.TemplateData{CWD: "/w", SubagentRole: "You are the unit subagent."})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if !strings.Contains(out, "## Your role as a subagent") || !strings.Contains(out, "You are the unit subagent.") {
+			t.Fatalf("%s template drops the subagent role block:\n%s", mode, out[:min(len(out), 400)])
+		}
+		plain, err := prompts.Render(mode, "", "agent.md", "plan.md", "ask.md", prompts.TemplateData{CWD: "/w"})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if strings.Contains(plain, "Your role as a subagent") {
+			t.Fatalf("%s template renders the role heading without a role", mode)
+		}
+	}
+}

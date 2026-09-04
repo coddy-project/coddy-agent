@@ -243,6 +243,11 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
         "id": "plan",
         "name": "Plan",
         "description": "Plan and design without code execution"
+      },
+      {
+        "id": "ask",
+        "name": "Ask",
+        "description": "Answer questions from the repository without changing anything"
       }
     ]
   }

@@ -912,7 +912,7 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"409": map[string]interface{}{
-							"description": "A cancelled turn of the session tree was still running after the settle timeout; nothing was removed, retry once the turn ends.",
+							"description": "Nothing was removed: either a cancelled turn of the session tree was still running after the settle timeout, or descendants kept appearing while the tree was being marked. Retry once the tree is quiet.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
@@ -1088,7 +1088,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child (sub_…) whose transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1856,6 +1863,66 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Cancellation applied (idempotent when nothing is running)."},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/plans/{slug}": map[string]interface{}{
+				"patch": map[string]interface{}{
+					"summary":     "Run a design plan",
+					"description": "Body **`{\"runPlan\": true}`** runs **RunPlan** synchronously: the session switches to **agent** mode, the plan document is injected and one agent turn runs. Prefer **POST /v1/responses** with **`metadata.runPlanSlug`** for streaming. The run is admitted like any other turn (turn lock, registration, cancellation).",
+					"operationId": "coddyDesignPlanRun",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "slug", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Plan slug (the file name under the session's plans/ directory without the .plan.md suffix).",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"runPlan"},
+									"properties": map[string]interface{}{
+										"runPlan": map[string]interface{}{"type": "boolean", "description": "Must be true; any other patch is rejected."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Plan run finished",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":     map[string]string{"type": "string"},
+											"stopReason": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child (sub_…) whose transcript is read-only, or another turn already holds the session turn lock.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
 					},
 				},
 			},

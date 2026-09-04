@@ -343,11 +343,22 @@ func (a *Agent) canSpawn() bool {
 	return a.subagentDepth() < a.cfg.Subagents.EffectiveMaxDepth()
 }
 
-// applySubagentEnv wires the spawn hook and the depth into a tool env.
-func (a *Agent) applySubagentEnv(env *tools.Env) {
+// canSpawnInMode adds the mode rule to canSpawn: ask mode is read-only and
+// delegates nothing, so spawn_agent is neither offered nor honoured there.
+func (a *Agent) canSpawnInMode(mode string) bool {
+	return mode != "ask" && a.canSpawn()
+}
+
+// applySubagentEnv wires the spawn hook and the depth into a tool env. mode
+// is the mode the turn was admitted in: the hook decides the child's mode and
+// the parent tool set from that snapshot, never from the live session mode,
+// which a concurrent session/set_mode can flip while the turn runs.
+func (a *Agent) applySubagentEnv(env *tools.Env, mode string) {
 	env.SubagentDepth = a.subagentDepth()
-	if a.canSpawn() {
-		env.SpawnAgent = a.spawnSubagent
+	if a.canSpawnInMode(mode) {
+		env.SpawnAgent = func(ctx context.Context, req tooling.SpawnRequest) (string, error) {
+			return a.spawnSubagentInMode(ctx, req, mode)
+		}
 	} else {
 		env.SpawnAgent = nil
 	}
@@ -418,9 +429,18 @@ func (a *Agent) parentToolNames(mode string) []string {
 // spawnSubagent is the Env.SpawnAgent hook. See docs/plans/subagents.md 3.3
 // for the order of decisions; every refusal names the knob that applies.
 func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (string, error) {
+	return a.spawnSubagentInMode(ctx, req, a.state.GetMode())
+}
+
+// spawnSubagentInMode is spawnSubagent for a turn pinned to mode (see
+// applySubagentEnv).
+func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnRequest, mode string) (string, error) {
 	rt := a.subagentRuntime
 	if rt == nil {
 		return "", fmt.Errorf("subagents are not available in this session")
+	}
+	if mode == "ask" {
+		return "", fmt.Errorf("subagents cannot be spawned from an ask-mode turn: ask mode is read-only and delegates nothing")
 	}
 	cfg := a.cfg
 	if !cfg.Subagents.ResolvedEnabled() {
@@ -450,10 +470,11 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 			def.Name, def.Path, def.Name, def.Name)
 	}
 
-	// A read-only parent (plan, ask) forces its own mode on the child; only
-	// an agent-mode parent lets the definition pick. Ask mode never offers
-	// spawn_agent in the first place, so the ask branch is defence in depth.
-	parentMode := a.state.GetMode()
+	// The parent mode is the mode this turn was admitted in, not the live
+	// session mode: a set_mode landing mid-turn must not hand a plan turn an
+	// agent child. A read-only parent (plan, ask) forces its own mode on the
+	// child; only an agent-mode parent lets the definition pick.
+	parentMode := mode
 	childMode := parentMode
 	if def.Mode != "" && parentMode != "plan" && parentMode != "ask" {
 		childMode = def.Mode

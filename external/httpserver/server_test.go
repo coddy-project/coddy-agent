@@ -3207,6 +3207,7 @@ func TestSubagentSessionRoutesAnswerReadOnlyConflict(t *testing.T) {
 		{"direct completion", http.MethodPost, "/v1/chat/completions", `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hello"}]}`, childHeader},
 		{"compact", http.MethodPost, "/coddy/sessions/" + childID + "/compact", `{}`, nil},
 		{"plan run", http.MethodPatch, "/coddy/sessions/" + childID + "/plans/demo", `{"runPlan":true}`, nil},
+		{"workspace", http.MethodPost, "/coddy/sessions/" + childID + "/workspace", `{"path":"/tmp"}`, nil},
 		{"permission", http.MethodPost, "/coddy/sessions/" + childID + "/permission", `{"toolCallId":"tc_1","optionId":"allow"}`, nil},
 	}
 	for _, tc := range cases {

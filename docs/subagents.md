@@ -8,7 +8,7 @@ A subagent run is a **task in the background task pool** (`docs/background-tasks
 
 A session that may spawn gets a `## Subagents` section in its system prompt: what `spawn_agent` does, when delegation pays off (work that would flood the context, or independent pieces that can run in parallel with `background: true`), how to collect detached runs, and a catalog of the definitions it may use. The guidance is explicit that a one-step task is done directly, and that the child starts with an **empty context** - the prompt must carry everything, because the child sees none of the parent's conversation. Only the child's final message comes back, and the user never sees it, so the parent is told to restate what matters in its own reply.
 
-The section is rendered in both `agent` and `plan` mode (a planner fans out investigation the way Claude Code's Explore does; the child of a plan-mode parent is forced into plan mode). It is omitted, and the tool hidden, for a session that cannot spawn: the feature is disabled, the surface has no session manager (a scheduled run), or the session already sits at `subagents.max_depth`.
+The section is rendered in `agent` and `plan` mode (a planner fans out investigation the way Claude Code's Explore does; the child of a plan-mode parent is forced into plan mode) and never in `ask` mode, which is read-only and delegates nothing. It is omitted, and the tool hidden, for a session that cannot spawn: the feature is disabled, the surface has no session manager (a scheduled run), the turn runs in `ask` mode, or the session already sits at `subagents.max_depth`.
 
 ## Definition files
 
@@ -35,7 +35,7 @@ Only `description` is required. `name` defaults to the file stem (or the directo
 | `name` | | Identifier matching `[a-z0-9][a-z0-9_-]*`; what the model passes to `spawn_agent`. |
 | `description` | | One line shown to the parent model so it can pick the agent; cut to 200 characters in the catalog. |
 | `model` | | A `models[].model` id for the child. An unknown id falls back to the parent's model with a warning in the agent log and a note in the task's output log. |
-| `mode` | | `agent` or `plan`. Empty inherits the parent's mode; a plan-mode parent always forces `plan`. |
+| `mode` | | `agent` or `plan`. Empty inherits the parent's mode; a read-only parent (`plan`, and `ask` should a spawn ever originate there) always forces its own mode. The parent's mode is the one its turn started in, not the live session mode, so a mode switch landing mid-turn cannot widen a child. |
 | `tools` | | Allowlist: a YAML list or a comma-separated string (`tools: read, grep`). Entries are exact tool names, a bare `*`, or a `prefix*` pattern, so `context7__*` admits every tool of one MCP server. Empty means everything the parent has. |
 | `disallowed_tools` | `disallowedTools` | Denylist with the same syntax; wins over `tools`. |
 | `permission_mode` | `permissionMode` | `ask`, `accept_edits` or `bypass`. Claude Code spellings are accepted (`default` and `prompt` for `ask`, `acceptEdits` / `accept-edits`, `bypassPermissions` / `bypass-permissions` / `dontask`). It can only **narrow** the parent's effective mode. |
@@ -122,7 +122,7 @@ A Settings surface that lists definitions and records approvals is a follow-up; 
 | `timeout_seconds` | Hard limit for the run. |
 | `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
-The tool is registered when `subagents.enabled` is on and offered in both modes. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
+The tool is registered when `subagents.enabled` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
 
 A **foreground** spawn (the default) blocks the tool call until the child's turn ends and returns the report in an envelope:
 
@@ -153,7 +153,7 @@ Refusals are returned as tool errors that name the knob that applies: an unknown
 
 Everything a child may do is derived from the parent at spawn time and can only shrink.
 
-- **Mode.** A plan-mode parent always produces a plan-mode child. Otherwise the definition's `mode` applies, or the parent's mode when it is empty.
+- **Mode.** A read-only parent (`plan`, `ask`) always produces a child in its own mode. Otherwise the definition's `mode` applies, or the parent's mode when it is empty. The parent mode is the mode the spawning turn was admitted in: a `session/set_mode` that lands while the turn runs changes neither the child's mode nor the parent tool set the child is intersected with.
 - **Permission mode never widens.** The child runs with the stricter of the parent's effective mode and the definition's request, on the scale `ask` < `accept_edits` < `bypass`. A definition asking for `bypass` under an `ask` parent gets `ask`; an empty request inherits.
 - **Tool set intersection.** The child's effective set is computed once at spawn: the parent's own callable set (its mode set, and its own effective set when the parent is itself a child), intersected with the child mode's set, intersected with the definition's allowlist, minus the definition's denylist, minus the mandatory exclusions. MCP tool names are part of the set and matched by exact name or `prefix*`, so a child sees an MCP server only when the parent had it and the definition admits it.
 - **Mandatory exclusions.** `question` (a child cannot ask the user; `RequestQuestion` always refuses), `config_set`, `config_changes`, `config_commit`, `config_revert`, `config_rollback` (a child cannot rewrite the agent's own configuration), `plan_exit` (a child cannot leave plan mode on the operator's behalf), and `spawn_agent` for a child at the depth limit.

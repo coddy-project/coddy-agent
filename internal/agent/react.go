@@ -250,7 +250,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	a.applySubagentEnv(toolEnv)
+	a.applySubagentEnv(toolEnv, mode)
 
 	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
@@ -855,23 +855,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		a.currentToolCallID = ""
 	}()
 
-	// A child may only call what its effective tool set admits: the
-	// advertised definitions are filtered the same way, so this catches a
-	// hallucinated or replayed call, MCP tools included, before anything runs
-	// or asks for permission.
-	if a.subagent != nil && !a.subagentAllows(tc.Name) {
-		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
-		_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
-			SessionUpdate: acp.UpdateTypeToolCallUpdate,
-			ToolCallID:    tc.ID,
-			Status:        "failed",
-			Content: []acp.ToolCallResultItem{
-				{Type: "content", Content: acp.ContentBlock{Type: "text", Text: reason}},
-			},
-		})
-		return "", fmt.Errorf("%s", reason)
-	}
-
 	// Touching a directory pulls its nested AGENTS.md into the prompt. Done up
 	// front so it holds regardless of the outcome below (permission denial,
 	// tool error), and so both callers — the ReAct loop and the resume-after-
@@ -897,6 +880,17 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
 		},
 	})
+
+	// A child may only call what its effective tool set admits: the
+	// advertised definitions are filtered the same way, so this catches a
+	// hallucinated or replayed call, MCP tools included, before anything runs
+	// or asks for permission. The refusal goes through the same bookkeeping
+	// as every other outcome, so the child's transcript records it as failed.
+	if a.subagent != nil && !a.subagentAllows(tc.Name) {
+		reason := fmt.Sprintf("tool %s is not available to this subagent", tc.Name)
+		a.finishToolCall(sessionDir, sessionID, tc, reason, nil, "failed")
+		return "", fmt.Errorf("%s", reason)
+	}
 
 	// A restricted mode filters tool definitions before the LLM sees them, but a
 	// call replayed from history can still name a hidden tool; refuse it here so
@@ -1159,10 +1153,10 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 			return nil
 		}
 		defs = FilterToolDefinitions(defs, ToolSet(a.subagent.Tools))
-	} else if !a.canSpawn() {
+	} else if !a.canSpawnInMode(mode) {
 		// spawn_agent is registered whenever the feature is on; a surface with no
-		// runtime (a scheduled run) or a session at the depth limit must not
-		// advertise it.
+		// runtime (a scheduled run), a session at the depth limit or an ask-mode
+		// turn must not advertise it.
 		filtered := make([]llm.ToolDefinition, 0, len(defs))
 		for _, d := range defs {
 			if d.Name != tools.ToolSpawnAgent {

@@ -690,8 +690,11 @@ func TestSubagentChildRefusesToolOutsideEffectiveSet(t *testing.T) {
 					inProgress++
 				}
 			}
-			if failed != 1 || inProgress != 0 {
-				t.Fatalf("status updates: failed=%d in_progress=%d, want one failed and no in_progress", failed, inProgress)
+			// The refusal goes through the ordinary bookkeeping, so the call is
+			// announced in_progress once and then failed once, like any other
+			// outcome the child transcript records.
+			if failed != 1 || inProgress != 1 {
+				t.Fatalf("status updates: failed=%d in_progress=%d, want one of each", failed, inProgress)
 			}
 		})
 	}
@@ -1708,4 +1711,72 @@ func TestSpawnSubagentTaskLabelIsCappedAndTurnsCountAssistantRounds(t *testing.T
 	if !strings.HasPrefix(task.Label, "agent worker: describe") || strings.Contains(task.Label, "second line") {
 		t.Fatalf("label = %q", task.Label)
 	}
+}
+
+// ---- merge review: the spawn decides from the turn's pinned mode ----
+
+// The turn is pinned to the mode it was admitted in; a set_mode that lands
+// mid-turn must not hand a plan turn an agent child with the write tools, and
+// an ask turn never spawns at all.
+func TestSpawnSubagentUsesThePinnedTurnModeNotTheLiveOne(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("builder", "mode: agent\n")
+	ag := rig.parentAgent()
+
+	// The turn started in plan mode: the env is wired with that snapshot.
+	rig.parent.SetMode("plan")
+	env := &tools.Env{}
+	ag.applySubagentEnv(env, "plan")
+	if env.SpawnAgent == nil {
+		t.Fatal("a plan turn must be able to spawn")
+	}
+	// The session mode flips to agent while the turn is running.
+	rig.parent.SetMode("agent")
+	res, err := env.SpawnAgent(context.Background(), spawnReq("builder"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	envlp := parseSubagentEnvelope(t, res)
+	child := rig.childByDepth(1)
+	if child.GetMode() != "plan" {
+		t.Fatalf("child mode = %q, want plan (the mode the spawning turn was admitted in), envelope %s", child.GetMode(), envlp.Session)
+	}
+	planSet := ToolSetForMode("plan")
+	for _, name := range child.Subagent().Tools {
+		if strings.Contains(name, "__") {
+			continue
+		}
+		if !planSet.Allows(name) {
+			t.Fatalf("child tool %q is outside the plan set the turn was offered: %v", name, child.Subagent().Tools)
+		}
+	}
+	for _, forbidden := range []string{"write", "edit", "apply_patch", "rm"} {
+		for _, name := range child.Subagent().Tools {
+			if name == forbidden {
+				t.Fatalf("a plan turn spawned a child holding %q", forbidden)
+			}
+		}
+	}
+
+	// An ask turn neither offers nor honours the spawn.
+	askEnv := &tools.Env{}
+	ag.applySubagentEnv(askEnv, "ask")
+	if askEnv.SpawnAgent != nil {
+		t.Fatal("an ask turn must not be wired with a spawn hook")
+	}
+	if _, err := ag.spawnSubagentInMode(context.Background(), spawnReq("builder"), "ask"); err == nil || !strings.Contains(err.Error(), "ask-mode turn") {
+		t.Fatalf("spawn from an ask turn = %v, want a refusal", err)
+	}
+	if defs := ag.currentToolDefinitions("ask"); containsToolDef(defs, tools.ToolSpawnAgent) {
+		t.Fatal("spawn_agent advertised to an ask-mode turn")
+	}
+}
+
+func containsToolDef(defs []llm.ToolDefinition, name string) bool {
+	for _, d := range defs {
+		if d.Name == name {
+			return true
+		}
+	}
+	return false
 }
