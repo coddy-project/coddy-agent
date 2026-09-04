@@ -35,6 +35,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   memory: "settings.section.memory.label",
   system: "settings.section.system.label",
   compaction: "settings.section.compaction.label",
+  subagents: "settings.section.subagents.label",
 };
 
 /**
@@ -55,6 +56,7 @@ const SECTION_DESC_KEYS: Record<string, string> = {
   memory: "settings.section.memory.desc",
   system: "settings.section.system.desc",
   compaction: "settings.section.compaction.desc",
+  subagents: "settings.section.subagents.desc",
 };
 
 /** Config keys folded into the single "System" tab (rarely edited). */

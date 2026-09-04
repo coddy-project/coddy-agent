@@ -522,6 +522,61 @@
         }
       }
     },
+    "subagents": {
+      "type": "object",
+      "title": "Subagents",
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt.",
+          "default": true
+        },
+        "dirs": {
+          "type": "array",
+          "description": "Definition directories, lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${CODDY_HOME}/agents",
+            "${CWD}/.claude/agents",
+            "${CWD}/.coddy/agents"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "description": "How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default.",
+          "default": 4
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further; 0 forbids spawning everywhere. Omit for the default.",
+          "default": 1
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one run whose definition and call give no timeout. Capped by tools.background.max_timeout_seconds. 0 uses the default.",
+          "default": 1800
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "ReAct rounds a child may take. 0 follows agent.max_turns.",
+          "default": 0
+        }
+      }
+    },
     "logger": {
       "type": "object",
       "title": "Logging",

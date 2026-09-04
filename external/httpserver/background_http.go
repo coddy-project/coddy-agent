@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,10 +46,24 @@ func (s *Server) attachBackgroundWaker() {
 		}
 		s.bgWG.Add(1)
 		defer s.bgWG.Done()
+		st := s.mgr.SessionByID(sessionID)
+		if st == nil {
+			return fmt.Errorf("background wake: session %s is not live", sessionID)
+		}
+		// Nobody is attached to a woken turn, so it runs like a permission
+		// resume: published to the session's composer relay (a watching SPA
+		// or remote client can follow it) through a non-interactive sender,
+		// which denies gated tools instead of waving them through unless the
+		// server's own permission mode is bypass.
+		rel := s.beginComposerRelay(sessionID)
+		defer s.endComposerRelay(sessionID, rel)
+		bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
+		bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
+		defer func() { _ = bridge.FinishStream() }()
 		_, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}},
-		}, planRunNoopSender{}, nil)
+		}, bridge, nil)
 		return err
 	})
 	waker.Attach(bgtask.Default())

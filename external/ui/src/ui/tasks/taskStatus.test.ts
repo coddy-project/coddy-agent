@@ -3,9 +3,12 @@ import type { BackgroundTask } from "./types";
 import {
   TASKS_POLL_ACTIVE_MS,
   TASKS_POLL_IDLE_MS,
+  agentTaskName,
+  agentTranscriptSessionId,
   displayElapsedSeconds,
   estimateProgress,
   formatDuration,
+  isAgentTask,
   isOverdue,
   groupTasks,
   sortTasksByStart,
@@ -154,6 +157,20 @@ describe("taskTimingLine", () => {
     });
     expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m30s · exit 2");
   });
+
+  test("finished agent task omits the synthetic exit code", () => {
+    const finished = {
+      kind: "agent" as const,
+      label: "agent explore: survey the repo",
+      agent: { name: "explore", session_id: "sub_0a1b2c" },
+      running: false,
+      elapsed_seconds: 90,
+    };
+    const ok = task({ ...finished, status: "succeeded", exit_code: 0 });
+    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m30s");
+    const failed = task({ ...finished, status: "failed", exit_code: 1 });
+    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m30s");
+  });
 });
 
 describe("tasksPollIntervalMs", () => {
@@ -215,5 +232,44 @@ describe("groupTasks", () => {
 
   test("an empty session yields two empty halves", () => {
     expect(groupTasks([])).toEqual({ running: [], finished: [] });
+  });
+});
+
+describe("agent tasks", () => {
+  const agent = task({
+    id: "bg_7",
+    kind: "agent",
+    label: "agent explore: survey the repo",
+    agent: { name: "explore", session_id: "sub_0a1b2c" },
+  });
+
+  test("are told apart by kind, not by label", () => {
+    expect(isAgentTask(agent)).toBe(true);
+    expect(isAgentTask(task({ label: "agent explore: fake" }))).toBe(false);
+  });
+
+  test("expose the definition name only for agent rows", () => {
+    expect(agentTaskName(agent)).toBe("explore");
+    expect(agentTaskName(task({ agent: { name: "x" } }))).toBe("");
+    expect(agentTaskName(task({ kind: "agent" }))).toBe("");
+  });
+
+  test("resolve the child session only when the snapshot carries it", () => {
+    expect(agentTranscriptSessionId(agent)).toBe("sub_0a1b2c");
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore" } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ kind: "agent", agent: { name: "explore", session_id: "  " } }),
+      ),
+    ).toBeNull();
+    expect(
+      agentTranscriptSessionId(
+        task({ agent: { name: "explore", session_id: "sub_0a1b2c" } }),
+      ),
+    ).toBeNull();
   });
 });

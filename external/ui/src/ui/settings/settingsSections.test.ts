@@ -24,6 +24,7 @@ const rootSchema: JsonSchema = {
     "logger",
     "sessions",
     "compaction",
+    "subagents",
     "gateways",
   ],
   properties: {
@@ -56,6 +57,7 @@ const rootSchema: JsonSchema = {
       title: "Context compaction",
       properties: {},
     },
+    subagents: { type: "object", title: "Subagents", properties: {} },
     gateways: { type: "object", title: "Messenger gateways", properties: {} },
   },
 } as unknown as JsonSchema;
@@ -74,6 +76,7 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "memory",
     "system",
     "compaction",
+    "subagents",
   ]);
 });
 
@@ -129,6 +132,17 @@ test("known section labels and descriptions follow the active locale", () => {
   expect(byId.memory.label).toBe("Долговременная память");
   expect(byId.compaction.label).toBe("Сжатие контекста");
   expect(byId.compaction.description).toBe("Сжатие истории диалога");
+  expect(byId.subagents.label).toBe("Субагенты");
+  expect(byId.subagents.description).toBe("Пул делегирования и доверие");
+});
+
+test("the schema-driven subagents tab gets its own label and blurb", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.subagents.kind).toBe("object");
+  expect(byId.subagents.label).toBe("Subagents");
+  expect(byId.subagents.description).toBe("Delegation pool & trust");
 });
 
 test("Appearance tab is present even without a schema", () => {

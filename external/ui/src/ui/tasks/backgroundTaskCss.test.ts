@@ -59,3 +59,10 @@ test("phone layout gives the panel the screen and taller touch targets", () => {
   expect(css.slice(idx)).toContain(".bgtasks-panel");
   expect(ruleBody(".bgtask-back {")).toContain("min-height: 36px");
 });
+
+test("agent rows are told apart with an accent badge derived from theme tokens", () => {
+  const badge = ruleBody(".bgtask-kind-badge {");
+  expect(badge).toContain("var(--accent)");
+  expect(badge).toContain("text-transform: uppercase");
+  expect(ruleBody(".bgtask-detail-agent-name {")).toContain("var(--text)");
+});

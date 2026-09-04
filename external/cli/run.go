@@ -166,6 +166,9 @@ func Run(args []string, deps CommandDeps) error {
 			return PrintPrompt(ctx, h, popts)
 		}
 		lateSender := &lateBoundSender{}
+		// The manager owns child sessions and reloads; it exists by the time
+		// it invokes the runner, so the closure captures the variable before
+		// assignment.
 		var mgr *session.Manager
 		runner := func(rctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 			return newTurnAgent(mgr, nil, st, snd, log).Run(rctx, prompt)
@@ -246,6 +249,9 @@ func buildApp(cfg *config.Config, store *session.FileStore, log *slog.Logger, te
 // model catalog, footer, and header follow the file.
 func newTurnAgent(mgr *session.Manager, app *App, st *session.State, snd acp.UpdateSender, log *slog.Logger) *agent.Agent {
 	loop := agent.NewAgent(mgr.Cfg(), st, snd, log)
+	// The manager owns child sessions, so a turn on this surface can spawn
+	// subagents like every other surface.
+	loop.SetSubagentRuntime(mgr)
 	loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := mgr.ReloadConfigForSession(ctx, st)
 		if err == nil && app != nil {
@@ -339,6 +345,11 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 		restored = true
 		if app.turnActive && app.sessionID != "" {
 			app.mgr.HandleSessionCancel(acp.SessionCancelParams{SessionID: app.sessionID})
+			// A remote cancel is a network request; give it a moment to reach
+			// the server before the process disappears.
+			if w, ok := app.mgr.(interface{ WaitCancels(time.Duration) }); ok {
+				w.WaitCancels(5 * time.Second)
+			}
 		}
 		app.Close()
 		app.JoinWorkers(3 * time.Second)

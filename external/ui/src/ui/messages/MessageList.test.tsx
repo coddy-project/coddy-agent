@@ -1,6 +1,12 @@
 import React from "react";
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
@@ -105,6 +111,59 @@ test("permission preview uses the matching tool call arguments", () => {
   expect(within(approvalDiff).getByText("oldValue();")).toBeTruthy();
   expect(within(approvalDiff).getByText("newValue();")).toBeTruthy();
   expect(screen.queryByText("Update the requested component")).toBeNull();
+});
+
+test("plan document forwards Run plan and Discard to the transcript handlers", () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+  const onRun = vi.fn();
+  const onDiscard = vi.fn();
+
+  render(
+    <MessageList
+      items={items}
+      sessionId="sess_1"
+      onPlanDocumentRun={onRun}
+      onPlanDocumentDiscard={onDiscard}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /run plan/i }));
+  fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+  expect(onRun).toHaveBeenCalledWith("demo-plan");
+  expect(onDiscard).toHaveBeenCalledWith("p1", "demo-plan");
+});
+
+test("plan document on a read-only transcript renders without Run plan and Discard", () => {
+  // A subagent child transcript passes neither handler (like onEdit), so the
+  // card must not show controls that would do nothing.
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+
+  render(<MessageList items={items} sessionId="sub_0a1b2c" />);
+
+  expect(screen.getByText("Demo plan")).toBeInTheDocument();
+  expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
 });
 
 test("renders memory copilot foldout", () => {

@@ -84,6 +84,7 @@ Maintains the state for each conversation session:
 - Working directory
 - Active context (skills + project rules in separate prompt sections)
 - In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
+- Child sessions for subagent runs (**`sub_<hex>`** ids, **`subagent.go`**): **`CreateSubagentSession`**, **`RunSubagentTurn`** and **`RetireSubagentSession`** implement **`agent.SubagentRuntime`**, so a child is created, run for its one turn and retired through the manager, never built inside the agent. Every other prompt path against a child answers **`ErrSubagentReadOnly`** (**409** over HTTP); **`ListSnapshotsWith(ListOptions{IncludeSubagents: true})`** is the only listing that shows children; **`SessionTree`** / **`DeleteSessionTree`** remove a parent together with its descendants, stopping their tasks first. See **`docs/subagents.md`**.
 
 ### ReAct Agent Loop (`internal/agent`)
 
@@ -131,12 +132,17 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
 - **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
   **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
   **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
+- **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
+  (registered when **`subagents.enabled`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
+  trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
+  **`internal/session`**. See **`docs/subagents.md`**.
 
-**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**), then MCP tools from connected servers are appended the same way as in agent mode.
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`**, and the read-only background, config, plan and skill tools listed in that file), then MCP tools from connected servers are appended the same way as in agent mode. **Ask** mode uses a smaller read-only allowlist with no shell, no plan, config or MCP tools and no **`spawn_agent`**. A session that is itself a subagent run is filtered once more to the tool set the runtime computed for it, in agent and plan mode alike.
 
 Agents see:
 
-- **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, etc.) plus MCP tools from connected servers.
+- **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, **`spawn_agent`**, etc.) plus MCP tools from connected servers.
 - **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
 
 `run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
@@ -203,6 +209,10 @@ persistence. Tools from MCP servers are appended to the LLM tool list in
 
 Loads `SKILL.md` from configured `skills.dirs` (see `docs/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
 
+### Subagents (`internal/subagents`)
+
+Loads subagent definitions - markdown files with YAML frontmatter whose body is a child agent's role - from **`subagents.dirs`** (defaults **`${CODDY_HOME}/agents`**, **`${CWD}/.claude/agents`**, **`${CWD}/.coddy/agents`**; later dirs override earlier ones by name, and the two built-ins **`general`** and **`explore`** sit below all of them), decides each file's **scope** on canonical paths (**`project`** inside the workspace, **`user`** elsewhere), holds the **trust receipts** for project-scope files (**`TrustStore`**, **`<home>/subagents-trust.json`**, keyed by canonical workspace, name and file digest; policy **`subagents.project_trust`**), bounds concurrent runs with a process-wide **`Limiter`**, and renders the **catalog** (the prompt block for the parent model, the table for **`coddy agents list`**, the rows for **`GET /coddy/subagents`**). It also owns the pure narrowing rules: permission mode never widens, the child's tool set is an intersection with the parent's, timeouts resolve like the pool's. The package knows nothing about sessions or the loop; **`internal/agent/subagent.go`** applies its decisions, runs the child through the session manager and registers the run in **`internal/bgtask`** with **`Pool.Launch`**. Guide: **`docs/subagents.md`**.
+
 ### Rules engine (`internal/rules`)
 
 Discovers `.mdc` / `.md` rules from `.coddy/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD. Injected into **`{{.Rules}}`** separately from skills; see **`docs/rules.md`**.
@@ -223,7 +233,7 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 
 ### `plan` mode
 - Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
-- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`plan_exit`**, plus any **MCP** tools from configured servers
+- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`** (a child of a plan-mode parent stays in plan mode), plus any **MCP** tools from configured servers
 - No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 

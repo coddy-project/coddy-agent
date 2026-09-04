@@ -56,6 +56,11 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	// Compaction builds an agent on the session; a child transcript is read-only.
+	if rejectSubagentTurn(w, st) {
+		return
+	}
+
 	unlock, err := s.mgr.AcquireComposerTurnLock(id, st)
 	if err != nil {
 		if errors.Is(err, session.ErrSessionTurnBusy) {

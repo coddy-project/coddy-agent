@@ -7,7 +7,13 @@ afterEach(() => cleanup());
 
 function renderPlan(
   overrides?: Partial<Parameters<typeof PlanDocumentSection>[0]>,
+  opts?: { withActions?: boolean },
 ) {
+  // A read-only transcript (subagent child) passes no action handlers at all.
+  const actions =
+    opts?.withActions === false
+      ? {}
+      : { onDiscard: () => {}, onRunPlan: () => {} };
   return render(
     <PlanDocumentSection
       sessionId="sess_test"
@@ -21,8 +27,7 @@ Steps`}
       path="/tmp/sess_test/plans/demo-plan.plan.md"
       expanded
       onExpandedChange={() => {}}
-      onDiscard={() => {}}
-      onRunPlan={() => {}}
+      {...actions}
       {...overrides}
     />,
   );
@@ -60,6 +65,30 @@ test("discarded plan disables run and keeps card visible", () => {
   renderPlan({ discarded: true });
   expect(screen.getByRole("button", { name: /run plan/i })).toBeDisabled();
   expect(screen.getByRole("button", { name: /discard/i })).toBeDisabled();
+});
+
+test("without action handlers (read-only child transcript) the card has no footer and a read-only editor", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    renderPlan(undefined, { withActions: false });
+    expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+    expect(document.querySelector(".plan-document-foot")).toBeNull();
+    expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
+    // The preview still works, and the markdown pane cannot be edited or saved.
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hello");
+    fireEvent.click(screen.getByRole("button", { name: "Toggle preview" }));
+    const editor = screen.getByRole("textbox", { name: /plan body/i });
+    expect(editor).toHaveAttribute("readonly");
+    fireEvent.change(editor, { target: { value: "# Hello\n\nEdited" } });
+    await vi.advanceTimersByTimeAsync(650);
+    expect(fetchMock).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
 });
 
 test("collapsed card shows title and one-line description", () => {

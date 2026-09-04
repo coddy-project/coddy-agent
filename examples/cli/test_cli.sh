@@ -66,6 +66,7 @@ ALL_SCRIPTS=(
   cli_e2e_rules.py
   cli_e2e_config.py
   cli_e2e_background.py
+  cli_e2e_subagents.py
   cli_e2e_compact.py
   cli_e2e_plan_files.py
   cli_e2e_ask_mode.py

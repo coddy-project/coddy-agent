@@ -61,6 +61,11 @@ func NewRegistryForEnvironment(cfg *config.Config, environment platform.Environm
 	r.Register(toolweb.WebSearchTool())
 	r.Register(toolweb.WebFetchTool())
 	r.Register(toolssh.SSHRunCommandTool())
+	// Subagents: offered unless explicitly disabled; the runtime hides the tool
+	// again for a child that reached subagents.max_depth.
+	if cfg == nil || cfg.Subagents.ResolvedEnabled() {
+		r.Register(SpawnAgentTool())
+	}
 	// Model-driven skill auto-discovery: offered unless explicitly disabled.
 	if cfg == nil || cfg.Skills.AutoDiscoveryEnabled() {
 		r.Register(LoadSkillTool())

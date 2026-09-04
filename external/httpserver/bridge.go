@@ -258,7 +258,14 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	// A subagent's request carries the child's own effective mode, which
+	// decides the bypass short-circuit instead of the global setting: a child
+	// narrowed to ask is prompted, or denied when nobody can answer.
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == config.PermModeBypass {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if !s.interactive || s.w == nil {
@@ -284,7 +291,13 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 			toolName = strings.TrimSpace(after)
 		}
 	}
-	if sd != "" {
+	// A stamped request is a subagent's prompt relayed under the parent's
+	// session: it cannot be resumed later (the child's tool call is not in
+	// the parent transcript, and the child is retired with its turn), so it
+	// is answered live or not at all and never becomes the parent's pending
+	// record, which stays reserved for the parent's own gate.
+	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
+	if sd != "" && !relayed {
 		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
 	}
 	ch := registerPermissionWait(sid, tcid, sd)
@@ -297,7 +310,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
-		if sd != "" {
+		if sd != "" && !relayed {
 			_ = session.ClearPendingPermission(sd)
 		}
 		return res, nil

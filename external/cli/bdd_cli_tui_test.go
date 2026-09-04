@@ -841,6 +841,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument path "([^"]*)"$`, func(tool, path string) error {
 		return s.stubStartsToolCall(tool, "path", path)
 	})
+	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument agent "([^"]*)"$`, func(tool, agent string) error {
+		return s.stubStartsToolCall(tool, "agent", agent)
+	})
 	sc.Step(`^the stub turn starts a tool call named "([^"]*)" with argument command "([^"]*)"$`, func(tool, command string) error {
 		// A run_command box titles itself "$ <command>", not with the tool name,
 		// so readiness is the command string appearing on screen.

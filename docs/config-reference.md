@@ -52,6 +52,7 @@ The bundled `/configure-coddy` skill teaches the agent this syntax, the confirm-
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP declarations | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
+| [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
@@ -299,6 +300,22 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 | `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
 | `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
 | `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
+
+## `subagents`
+
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /coddy/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/subagents.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
+| `dirs` | string list | no | `["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]` | Definition directories, lowest priority first; later entries override earlier ones by name. `${CODDY_HOME}` expands at load time, `${CWD}` per session. A directory inside the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. |
+| `project_trust` | string | no | `ask` | Policy for project-scope definitions, which travel with the checkout. `ask` — load them, but refuse to spawn one until the operator approved that exact file for that workspace on the machine running coddy (`coddy agents trust <name>` there, or `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own files; `deny` — never read them. |
+| `max_concurrent` | int | no | `4` | Subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued; the per-session `tools.background.max_concurrent` still applies to the task count. |
+| `max_depth` | int | no | `1` | Nesting: `1` (the value an omitted key gets) lets a session spawn subagents that cannot spawn further; an explicit `0` forbids spawning everywhere, so unlike the other integer keys `0` here is a setting, not the default. |
+| `default_timeout_seconds` | int | no | `1800` | Hard limit for one run whose definition and call give no timeout. Precedence: the call's `timeout_seconds`, the definition's `timeout_seconds`, `expected_seconds × 3` (floored at 60 s), then this default; every value is capped by `tools.background.max_timeout_seconds`. |
+| `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
+
+Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
 
 ## `logger`
 

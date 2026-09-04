@@ -243,7 +243,28 @@ type AdoptFunc func(out io.Writer) (Handle, error)
 // Start accepts a spec and launches it. It returns as soon as the work is
 // running: the caller gets a task id, not a result.
 func (p *Pool) Start(spec Spec) (Snapshot, error) {
-	return p.start(spec, func(out io.Writer) (Handle, error) { return p.runner.Start(spec, out) })
+	return p.start(spec, func(_ string, out io.Writer) (Handle, error) { return p.runner.Start(spec, out) })
+}
+
+// LaunchFunc starts work the pool cannot describe as a shell command - a
+// nested agent run, for instance. It receives the task id the pool assigned
+// and the task's output sink, and returns the handle the pool supervises.
+//
+// The id arrives before anything starts on purpose: whatever the callback
+// creates (a child session, a log) can record the task it belongs to before
+// the work runs, and a fast child cannot outrun its own bookkeeping.
+type LaunchFunc func(taskID string, out io.Writer) (Handle, error)
+
+// Launch admits a spec and starts it through the callback instead of the
+// runner. Admission (the per-session limit, drain) happens first, so an
+// ErrPoolFull or ErrDraining guarantees the callback never ran and the caller
+// created nothing. Unlike Adopt, the spec's timeout and notify choice are
+// honoured verbatim: this is fresh work, not a takeover.
+func (p *Pool) Launch(spec Spec, launch LaunchFunc) (Snapshot, error) {
+	if launch == nil {
+		return Snapshot{}, fmt.Errorf("launch callback is nil")
+	}
+	return p.start(spec, launch)
 }
 
 // Adopt registers work that is already running - a foreground command that
@@ -270,13 +291,13 @@ func (p *Pool) Adopt(spec Spec, adopt AdoptFunc) (Snapshot, error) {
 		p.mu.RUnlock()
 	}
 	spec.NotifyOnFinish = false
-	return p.start(spec, adopt)
+	return p.start(spec, func(_ string, out io.Writer) (Handle, error) { return adopt(out) })
 }
 
 // start is the one scheduling path: Start launches through the runner, Adopt
 // hands over work that is already running, and everything after the launch -
 // admission, persistence, supervision - is identical.
-func (p *Pool) start(spec Spec, launch AdoptFunc) (Snapshot, error) {
+func (p *Pool) start(spec Spec, launch LaunchFunc) (Snapshot, error) {
 	spec.SessionID = strings.TrimSpace(spec.SessionID)
 	if spec.Kind == "" {
 		spec.Kind = KindCommand
@@ -323,6 +344,7 @@ func (p *Pool) start(spec Spec, launch AdoptFunc) (Snapshot, error) {
 			ExpectedSeconds: spec.ExpectedSeconds,
 			TimeoutSeconds:  timeoutSeconds,
 			NotifyOnFinish:  spec.NotifyOnFinish,
+			Agent:           cloneAgentInfo(spec.Agent),
 		},
 	}
 
@@ -340,7 +362,7 @@ func (p *Pool) start(spec Spec, launch AdoptFunc) (Snapshot, error) {
 		}
 	}
 
-	handle, err := launch(t.sink)
+	handle, err := launch(id, t.sink)
 	if err != nil {
 		t.sink.Close()
 		finished := p.now()
@@ -795,6 +817,18 @@ func (p *Pool) notify(snap Snapshot) {
 	for _, fn := range watchers {
 		fn(snap)
 	}
+}
+
+// cloneAgentInfo copies the agent identity so a snapshot never shares a
+// pointer with the caller's spec.
+func cloneAgentInfo(in *AgentInfo) *AgentInfo {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Name = strings.TrimSpace(out.Name)
+	out.SessionID = strings.TrimSpace(out.SessionID)
+	return &out
 }
 
 func taskKey(sessionID, taskID string) string {

@@ -243,6 +243,11 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
         "id": "plan",
         "name": "Plan",
         "description": "Plan and design without code execution"
+      },
+      {
+        "id": "ask",
+        "name": "Ask",
+        "description": "Answer questions from the repository without changing anything"
       }
     ]
   }
@@ -342,6 +347,12 @@ Send a user message, starts the ReAct loop.
 ```
 
 Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cancelled`
+
+### Subagent runs and child sessions (Coddy-specific)
+
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+
+Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
 
 ### `session/cancel`
 

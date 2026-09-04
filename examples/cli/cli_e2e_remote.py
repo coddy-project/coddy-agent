@@ -11,8 +11,10 @@ Boots ``coddy http`` with --auth-token from the same binary, then proves:
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -71,6 +73,23 @@ def run_client(home: Path, work: Path, args: list[str]) -> subprocess.CompletedP
     )
 
 
+SUBAGENT_MARKER = "MARKER: coddy-subagent-e2e-cli-remote"
+
+
+def trust_remote_subagent(base: str, token: str, work: str) -> None:
+    """Approve the project definition where the manager runs: on the server."""
+    req = urllib.request.Request(
+        base + "/coddy/subagents/marker-reporter/trust",
+        data=json.dumps({"cwd": str(work)}).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as res:
+        body = json.loads(res.read() or b"{}")
+    if not (body.get("item") or {}).get("trusted"):
+        raise SystemExit(f"remote trust did not approve the definition: {body}")
+
+
 def main() -> int:
     token = secrets.token_urlsafe(24)
     port = free_port()
@@ -78,6 +97,13 @@ def main() -> int:
 
     server_home, server_work = prepare_home("remote-srv")
     client_home, client_work = prepare_home("remote-cli")
+    # The server workspace carries a project-scope subagent definition: the
+    # manager, the definitions and the trust receipts all live server-side.
+    shutil.copytree(
+        Path(__file__).resolve().parent.parent / "agents_fixture" / ".coddy" / "agents",
+        Path(server_work) / ".coddy" / "agents",
+    )
+    (Path(server_work) / "notes.txt").write_text(SUBAGENT_MARKER + "\n", encoding="utf-8")
 
     env = dict(os.environ)
     env["CODDY_HOME"] = str(server_home)
@@ -155,6 +181,37 @@ def main() -> int:
         if session_dirs(server_home) != after_tui:
             raise SystemExit("continue must reuse the newest remote session, not create one")
         print("[remote] -c -p reused the newest remote session")
+
+        # 5. A subagent spawned on the remote server. The definition is
+        # approved on the SERVER (its home holds the receipt); the one-shot
+        # client only sees the spawn_agent call stream back and the answer.
+        trust_remote_subagent(base, token, server_work)
+        delegated = run_client(
+            client_home,
+            client_work,
+            [
+                "-p",
+                f'You have a subagent named "marker-reporter". Call spawn_agent ONCE with agent "marker-reporter", '
+                f'description "read the marker", background false, and this prompt: '
+                f'Read the file {server_work}/notes.txt and reply with exactly the line that starts with MARKER:. '
+                f"Then reply with one short sentence that repeats the marker line the subagent reported, verbatim. "
+                f"Do not read notes.txt yourself and do not call any other tool.",
+                "--remote",
+                base,
+                "--remote-token",
+                token,
+            ],
+        )
+        if delegated.returncode != 0:
+            raise SystemExit(f"remote subagent run failed rc={delegated.returncode}: {delegated.stderr[-800:]}")
+        if SUBAGENT_MARKER not in delegated.stdout:
+            raise SystemExit(f"remote subagent answer lacks the marker: {delegated.stdout[-400:]!r}")
+        children = [d for d in session_dirs(server_home) if d.startswith("sub_")]
+        if not children:
+            raise SystemExit(f"no child session persisted on the server: {sorted(session_dirs(server_home))}")
+        if session_dirs(client_home):
+            raise SystemExit(f"client home grew sessions during the subagent run: {session_dirs(client_home)}")
+        print(f"[remote] subagent ran on the server ({children[0]}), marker relayed to the client")
         print("cli_e2e_remote: OK")
         return 0
     finally:

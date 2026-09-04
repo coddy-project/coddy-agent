@@ -221,7 +221,13 @@ func (s *Sender) streamDraft(llmText, toolName string) {
 }
 
 // RequestPermission auto-approves in gateway context (no interactive UI).
-func (s *Sender) RequestPermission(_ context.Context, _ acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+// A subagent's request carries the child's own effective mode: a child
+// narrowed below bypass cannot be prompted here, so it is denied rather than
+// waved through on the parent's behalf.
+func (s *Sender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	if stamped := strings.TrimSpace(params.EffectivePermissionMode); stamped != "" && stamped != "bypass" {
+		return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+	}
 	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 }
 

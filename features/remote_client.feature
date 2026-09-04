@@ -58,3 +58,13 @@ Feature: Remote client for the coddy HTTP API
     And the client starts a session
     When the client sends the prompt "long job"
     Then the turn ends with stop reason "max_turns"
+
+  Scenario: A subagent's permission prompt reaches the remote client even when the server bypasses its own
+    Given the remote server runs with permission mode "bypass"
+    And the remote agent relays a subagent permission prompt before replying "child allowed"
+    And the client answers permissions with "allow"
+    And the client starts a session
+    When the client sends the prompt "delegate the reading"
+    Then the client saw a tool call named "spawn_agent"
+    And the client received a permission request titled "[subagent explore] Run: run_command"
+    And the client receives the streamed text "child allowed"

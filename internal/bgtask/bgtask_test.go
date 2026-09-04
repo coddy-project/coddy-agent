@@ -1146,3 +1146,166 @@ func TestSurvivorsRefuseFinishedRecordsBecausePidsGetReused(t *testing.T) {
 		t.Fatal("a finished record must not get an unrelated process killed")
 	}
 }
+
+// TestLaunchHandsTheAssignedIDToTheCallback pins the ordering a nested-agent
+// runner depends on: the pool admits the spec, assigns the task id, and only
+// then calls back, so the callback can record that id in whatever it creates
+// before the work starts.
+func TestLaunchHandsTheAssignedIDToTheCallback(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	var seenID string
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindAgent,
+		Label:     "agent reviewer: check the diff",
+		Agent:     &AgentInfo{Name: "reviewer"},
+	}, func(taskID string, out io.Writer) (Handle, error) {
+		seenID = taskID
+		h.out = out
+		_, _ = io.WriteString(out, "child started\n")
+		return h, nil
+	})
+	if err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	if seenID == "" || seenID != snap.ID {
+		t.Fatalf("callback saw id %q, snapshot has %q", seenID, snap.ID)
+	}
+	if snap.Kind != KindAgent || snap.Agent == nil || snap.Agent.Name != "reviewer" {
+		t.Fatalf("agent identity lost on the snapshot: %+v", snap)
+	}
+	if snap.PID != 0 {
+		t.Fatalf("an agent task must not carry a pid, got %d", snap.PID)
+	}
+
+	h.finish(0)
+	final, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != StatusSucceeded {
+		t.Fatalf("status = %q, want succeeded", final.Status)
+	}
+	text, _, _ := pool.Output("s", snap.ID, 0)
+	if !strings.Contains(text, "child started") {
+		t.Fatalf("callback output missing from the sink: %q", text)
+	}
+}
+
+func TestLaunchRefusalNeverInvokesTheCallback(t *testing.T) {
+	pool := NewWithRunner(Config{MaxConcurrent: 1}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+
+	first := &stubHandle{release: make(chan struct{})}
+	if _, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Label: "one"}, func(string, io.Writer) (Handle, error) {
+		return first, nil
+	}); err != nil {
+		t.Fatalf("first launch: %v", err)
+	}
+
+	called := false
+	_, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Label: "two"}, func(string, io.Writer) (Handle, error) {
+		called = true
+		return &stubHandle{release: make(chan struct{})}, nil
+	})
+	if !errors.Is(err, ErrPoolFull) {
+		t.Fatalf("second launch error = %v, want ErrPoolFull", err)
+	}
+	if called {
+		t.Fatal("a refused launch must not run the callback: the caller still owns nothing")
+	}
+	first.finish(0)
+}
+
+func TestLaunchCallbackFailureIsRecordedAsAFailedTask(t *testing.T) {
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	snap, err := pool.Launch(Spec{SessionID: "s", Kind: KindAgent, Label: "broken"}, func(string, io.Writer) (Handle, error) {
+		return nil, errors.New("child session could not be created")
+	})
+	if err == nil {
+		t.Fatal("expected the callback error to surface")
+	}
+	if snap.Status != StatusFailed || !strings.Contains(snap.Error, "could not be created") {
+		t.Fatalf("snapshot = %+v, want a failed task carrying the error", snap)
+	}
+}
+
+func TestLaunchKeepsNotifyAndTimeoutFromTheSpec(t *testing.T) {
+	// Unlike Adopt, Launch starts fresh work: the caller's timeout and notify
+	// choice are honoured verbatim, the estimate rule applies when unset.
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	t.Cleanup(func() { pool.StopSession("s") })
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID:       "s",
+		Kind:            KindAgent,
+		Label:           "notify",
+		NotifyOnFinish:  true,
+		ExpectedSeconds: 10,
+	}, func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.NotifyOnFinish {
+		t.Fatal("Launch must keep notify_on_finish")
+	}
+	if snap.TimeoutSeconds != minEstimatedTimeoutSeconds {
+		t.Fatalf("timeout = %d, want the estimate floor %d", snap.TimeoutSeconds, minEstimatedTimeoutSeconds)
+	}
+	h.finish(0)
+}
+
+func TestAgentIdentityPersistsWithTheTaskRecord(t *testing.T) {
+	dir := t.TempDir()
+	pool := NewWithRunner(Config{}, &stubRunner{})
+	pool.SetSessionDir("s", dir)
+	h := &stubHandle{release: make(chan struct{})}
+	snap, err := pool.Launch(Spec{
+		SessionID: "s",
+		Kind:      KindAgent,
+		Label:     "agent explore: map the tree",
+		Agent:     &AgentInfo{Name: "explore", SessionID: "sub_abc"},
+	}, func(string, io.Writer) (Handle, error) { return h, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.finish(0)
+	if _, err := pool.Wait(context.Background(), "s", snap.ID, 2*time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(dir, backgroundDirName, snap.ID, metaFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]interface{}
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	agent, _ := record["agent"].(map[string]interface{})
+	if agent["name"] != "explore" || agent["session_id"] != "sub_abc" {
+		t.Fatalf("persisted agent identity = %v", record["agent"])
+	}
+	if record["kind"] != "agent" {
+		t.Fatalf("kind = %v, want agent", record["kind"])
+	}
+
+	// A command record carries no agent object at all.
+	loaded := LoadPersisted(dir)
+	if len(loaded) != 1 || loaded[0].Agent == nil || loaded[0].Agent.SessionID != "sub_abc" {
+		t.Fatalf("LoadPersisted lost the agent identity: %+v", loaded)
+	}
+}
+
+func TestDeriveLabelForAnAgentTask(t *testing.T) {
+	got := deriveLabel(Spec{Kind: KindAgent, Agent: &AgentInfo{Name: "reviewer"}})
+	if got != "agent reviewer" {
+		t.Fatalf("label = %q, want %q", got, "agent reviewer")
+	}
+	if got := deriveLabel(Spec{Kind: KindAgent}); got != "agent" {
+		t.Fatalf("label without a name = %q, want %q", got, "agent")
+	}
+}

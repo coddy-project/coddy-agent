@@ -101,6 +101,17 @@ Under `allow` and `deny` there is nothing left to decide per server, so the per-
 approval control disappears from the UI entirely: `allow` starts every project server anyway
 and `deny` starts none of them. The shield is offered only under `ask`.
 
+Subagent definitions found inside the workspace (`.coddy/agents`, `.claude/agents`) follow the
+same model with a **sibling store**: policy `subagents.project_trust` (`ask` / `allow` / `deny`),
+receipts in `~/.coddy/subagents-trust.json` keyed by the same canonical workspace path plus the
+definition name and a digest of the file, approved with `coddy agents trust <name>` or
+`POST /coddy/subagents/{name}/trust`. The two files are deliberately separate so an MCP approval
+never reads as an agent approval or the reverse. A child agent that may use MCP tools does not
+borrow the parent's connections: configured servers are re-resolved for the child's cwd
+**through this trust gate**, exactly as for a new session, and the parent's ACP client-supplied
+servers are redialed ungated, as the original connect was. A child whose tool set cannot contain
+MCP names (the built-in `explore`) never dials anything. See `docs/subagents.md`.
+
 ## Enable / disable switches
 
 Every config level supports switching off a whole server or individual tools without

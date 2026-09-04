@@ -86,6 +86,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **Rules** - auto-discovers **`.cursor/rules/`**, **`.coddy/rules/`**, **`.claude/rules/`**, **`.codex/rules/`**, and nested **`**/AGENTS.md`** ([agents.md](https://agents.md/)) under the session cwd - see [Rules](docs/rules.md)
 - **Skills** - slash commands and **`SKILL.md`** packs from **`skills.dirs`** (defaults: **`~/.agents/skills`**, **`~/.coddy/skills`**, **`${CWD}/.coddy/skills`**; later dirs override earlier) - see [Skills](docs/skills.md)
 - **Background tasks** - `run_command` can run detached (`background: true` plus the model's own `expected_seconds` estimate); `background_list` / `background_output` / `background_wait` / `background_stop` collect the result later, a **Tasks** drawer in the UI shows what is still running with a status ticker, and the permission dialog can widen a grant to a whole program (`curl`, `git status`) so a batch of similar calls asks once - see [Background tasks](docs/background-tasks.md)
+- **Subagents** - the model delegates a bounded, self-contained task to a child agent with its own context window and session (`spawn_agent`, foreground or detached); definitions are markdown files with YAML frontmatter under **`~/.coddy/agents`** and **`.coddy/agents`** (Claude Code's **`.claude/agents`** load too), two built-ins (**`general`**, **`explore`**) ship embedded, project files need a one-time approval (**`coddy agents trust <name>`**), tools and permission mode can only narrow, and every run is a background task with a read-only child transcript reachable from the **Tasks** drawer - see [Subagents](docs/subagents.md)
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Context compaction** - built-in `/compact [instructions]` command and automatic summarization when the context reaches `compaction.threshold_percent` (default 80%) of the model's `max_context_tokens`; the last `compaction.keep_recent_turns` (default 2) user turns stay verbatim and the full transcript is preserved on disk - see [Configuration](docs/config-reference.md#compaction)
@@ -560,6 +561,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Scheduler](docs/scheduler.md) - cron job files, UTC firing rules, run sessions, and the **`coddy_scheduler_*`** tools
 - [ZCode hooks](docs/zcode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to ZCode sessions working on this repo
 - [Background tasks](docs/background-tasks.md) - detached commands, the task pool, timeouts, and program-wide permission grants
+- [Subagents](docs/subagents.md) - definition files, project trust receipts, the **`spawn_agent`** tool, capability narrowing, child sessions
 - [MCP Integration](docs/mcp-integration.md) - MCP server integration guide
 - [Messenger Gateway](docs/gateway.md) - Telegram bot adapter, session isolation, ACL, and how to write new adapters
 

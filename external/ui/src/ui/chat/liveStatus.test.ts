@@ -318,6 +318,7 @@ describe("statusKeyForTool", () => {
     expect(statusKeyForTool("coddy_memory_search")).toBe("status.memory");
     expect(statusKeyForTool("config_set")).toBe("status.config");
     expect(statusKeyForTool("ssh_run_command")).toBe("status.runRemote");
+    expect(statusKeyForTool("spawn_agent")).toBe("status.spawnAgent");
     expect(statusKeyForTool("APPLY_PATCH")).toBe("status.edit");
     expect(statusKeyForTool("")).toBe("status.tool");
   });

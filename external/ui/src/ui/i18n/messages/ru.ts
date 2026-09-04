@@ -63,6 +63,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.memory.label": "Долговременная память",
   "settings.section.system.label": "Система",
   "settings.section.compaction.label": "Сжатие контекста",
+  "settings.section.subagents.label": "Субагенты",
   "settings.section.appearance.desc": "Тема и цветовой режим",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
@@ -73,6 +74,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.memory.desc": "Параметры долговременной памяти",
   "settings.section.system.desc": "Планировщик, логи, промпты",
   "settings.section.compaction.desc": "Сжатие истории диалога",
+  "settings.section.subagents.desc": "Пул делегирования и доверие",
 
   "settings.nav.aria.scrollLeft": "Прокрутить разделы влево",
   "settings.nav.aria.scrollRight": "Прокрутить разделы вправо",
@@ -266,6 +268,31 @@ export const messagesRu: Record<string, string> = {
     "Буфер вывода (байт)",
   "settings.schema.tools.background.output_buffer_bytes.desc":
     "Какая часть вывода каждой задачи хранится в памяти для тикера; полный лог всё равно попадает в бандл сессии (по умолчанию 262144).",
+
+  "settings.schema.subagents.desc":
+    "Пользовательские дочерние агенты, которым модель может делегировать работу через spawn_agent. Определения хранятся в markdown-файлах с YAML-фронтматтером; каждый запуск выполняется как фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
+  "settings.schema.subagents.enabled.label": "Включено",
+  "settings.schema.subagents.enabled.desc":
+    "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
+  "settings.schema.subagents.dirs.label": "Каталоги определений",
+  "settings.schema.subagents.dirs.desc":
+    "Первыми идут каталоги с самым низким приоритетом; более поздние записи переопределяют ранние по имени. ${CODDY_HOME} и ${CWD} разворачиваются. Каталоги внутри рабочего пространства относятся к проектной области и подчиняются политике доверия.",
+  "settings.schema.subagents.project_trust.label": "Проектные определения",
+  "settings.schema.subagents.project_trust.desc":
+    'Определения, найденные внутри рабочего пространства, приходят вместе с чекаутом. Значение "ask" загружает их, но отказывает в запуске, пока определение не одобрено для этого рабочего пространства на машине, где запущен coddy (там coddy agents trust, либо POST /coddy/subagents/{name}/trust). Значение "allow" считает их вашими собственными файлами. Значение "deny" никогда их не читает.',
+  "settings.schema.subagents.max_concurrent.label": "Максимум одновременно",
+  "settings.schema.subagents.max_concurrent.desc":
+    "Сколько запусков субагентов может одновременно выполняться во всём процессе (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
+  "settings.schema.subagents.max_depth.label": "Максимальная глубина",
+  "settings.schema.subagents.max_depth.desc":
+    "Насколько глубоко может вкладываться порождение субагентов. Значение 1 позволяет сессии запускать субагентов, которые сами не могут порождать дальше (по умолчанию), 0 запрещает порождение везде.",
+  "settings.schema.subagents.default_timeout_seconds.label":
+    "Таймаут по умолчанию (с)",
+  "settings.schema.subagents.default_timeout_seconds.desc":
+    "Жёсткий предел для одного запуска, когда ни определение, ни вызов не задают таймаут (по умолчанию 1800); ограничен сверху максимальным таймаутом фоновых задач.",
+  "settings.schema.subagents.max_turns.label": "Максимум итераций",
+  "settings.schema.subagents.max_turns.desc":
+    "Сколько итераций ReAct может сделать дочерний агент; 0 берёт значение agent.max_turns.",
 
   "settings.schema.skills.dirs.label": "Каталоги навыков",
   "settings.schema.skills.dirs.desc":
@@ -683,6 +710,13 @@ export const messagesRu: Record<string, string> = {
   "chat.branchPrev": "Предыдущая ветка",
   "chat.branchNext": "Следующая ветка",
   "chat.branchLabel": "Ветка {current} из {total}",
+  "chat.subagentReadOnly.notice":
+    "Транскрипт субагента {name} доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.noticeUnnamed":
+    "Транскрипт субагента доступен только для чтения. Запросы отправляются в родительский чат.",
+  "chat.subagentReadOnly.openParent": "Открыть родительский чат",
+  "chat.subagentTitle": "Субагент {name}",
+  "chat.subagentTitleUnnamed": "Транскрипт субагента",
   "chat.heroTitle": "Что вы хотите {verb}?",
   "chat.heroVerb.know": "узнать",
   "chat.heroVerb.build": "создать",
@@ -890,6 +924,10 @@ export const messagesRu: Record<string, string> = {
   "tasks.status.timedOut": "Таймаут",
   "tasks.status.stopped": "Остановлена",
   "tasks.status.orphaned": "Осиротела",
+  "tasks.badge.agent": "агент",
+  "tasks.agentHeading": "Субагент",
+  "tasks.openTranscript": "Открыть транскрипт",
+  "tasks.openTranscriptUnavailable": "Дочерняя сессия ещё не известна",
 
   "messages.preparingResponse": "Готовлю ответ",
   "messages.copyCode": "Копировать код",
@@ -1053,6 +1091,7 @@ export const messagesRu: Record<string, string> = {
   "status.write": "Пишу",
   "status.run": "Выполняю",
   "status.runRemote": "Выполняю по SSH",
+  "status.spawnAgent": "Запускаю субагента",
   "status.createDir": "Создаю каталог",
   "status.touch": "Создаю файл",
   "status.move": "Перемещаю",

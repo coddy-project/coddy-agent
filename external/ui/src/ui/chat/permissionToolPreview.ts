@@ -134,6 +134,8 @@ export function toolCallTargetText(context: PermissionToolCallContext): string {
       return stringArg(args, "query");
     case "mv":
       return stringArg(args, "src");
+    case "spawn_agent":
+      return stringArg(args, "agent");
     case "question":
       return "";
     default:

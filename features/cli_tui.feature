@@ -38,6 +38,12 @@ Feature: Interactive console TUI
     When the stub tool call completes without ending the turn
     Then the status line shows "Waiting for the model"
 
+  Scenario: The status line names the subagent that is running
+    When the console app starts
+    And the operator submits the prompt "delegate the review"
+    And the stub turn starts a tool call named "spawn_agent" with argument agent "reviewer"
+    Then the status line shows "Running subagent reviewer"
+
   Scenario: The status line stays truthful through a permission gate
     Given the session permission mode is "ask"
     When the console app starts
