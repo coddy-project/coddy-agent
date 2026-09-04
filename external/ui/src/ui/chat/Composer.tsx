@@ -24,6 +24,12 @@ import {
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
 import {
+  atRangeDraftAtCaret,
+  highlightedRange,
+  replaceAtRangeSuffix,
+  type AtRangeDraft,
+} from "../skills/draftAtRange";
+import {
   draftExtendsFailedSlashPrefix,
   slashMenuDraftAtCaret,
 } from "../skills/draftSlash";
@@ -394,6 +400,32 @@ export function Composer(props: {
     atIdx: number;
     prefix: string;
   } | null>(null);
+  /**
+   * Line-range picker for `@path:N-M`. The colon closes the file picker on its own,
+   * and this panel takes its place: it previews the file so the typed digits show
+   * what they select, and on desktop the rows are clickable. The composer text
+   * stays the only input - the panel writes the suffix back into it.
+   */
+  const [atRangeDraft, setAtRangeDraft] = useState<AtRangeDraft>({
+    open: false,
+  });
+  const [atRangeFile, setAtRangeFile] = useState<{
+    pathRel: string;
+    lines: string[];
+    totalLines: number;
+    truncated: boolean;
+  } | null>(null);
+  /** Path whose fetch already settled (loaded or failed), so typing digits refetches nothing. */
+  const atRangeLoadedPathRef = useRef<string | null>(null);
+  const atRangeFetchGenRef = useRef(0);
+  /** Row the pointer went down on, while a drag selection is in flight. */
+  const atRangeDragAnchorRef = useRef<number | null>(null);
+  /** Mention the user dismissed with Escape; suppressed until the draft moves on. */
+  const [atRangeSuppressed, setAtRangeSuppressed] = useState<{
+    atIdx: number;
+    path: string;
+  } | null>(null);
+  const atRangeListRef = useRef<HTMLDivElement>(null);
   const [caretPos, setCaretPos] = useState(0);
   /** Stacked-shell viewports (`max-width`) use a bottom sheet so the picker is not clipped off-screen. */
   const [pickerUseSheet, setPickerUseSheet] = useState(() => {
@@ -440,7 +472,14 @@ export function Composer(props: {
     el.focus();
   }, [props.isEmpty, props.sessionId]);
 
-  const pickerOpen = slashOpen || atOpen;
+  // The range panel only counts as open once its file loaded, so a colon typed in
+  // prose ("см. 10:30-11:00") never flashes an empty panel.
+  const atRangeOpen =
+    atRangeDraft.open &&
+    atRangeFile != null &&
+    atRangeFile.pathRel === atRangeDraft.path;
+  const atRangeHighlight = highlightedRange(atRangeDraft);
+  const pickerOpen = slashOpen || atOpen || atRangeOpen;
   const sheetOverlayOpen = pickerOpen || contextPopoverOpen;
 
   const measureSheetBottom = useCallback(() => {
@@ -629,6 +668,15 @@ export function Composer(props: {
     bumpAtFetchGen();
     setAtLoading(false);
     setAtErr(null);
+
+    // Remember the dismissed mention so the next digit does not reopen the panel.
+    if (atRangeDraft.open) {
+      setAtRangeSuppressed({
+        atIdx: atRangeDraft.atIdx,
+        path: atRangeDraft.path,
+      });
+    }
+    closeAtRangePicker();
   }
 
   const fetchSlashPage = useCallback(
@@ -710,6 +758,63 @@ export function Composer(props: {
         items: WorkspaceFileRow[];
         has_more: boolean;
       };
+    },
+    [props.sessionId],
+  );
+
+  /** Clears the range panel; the composer text is left exactly as typed. */
+  const closeAtRangePicker = useCallback(() => {
+    atRangeFetchGenRef.current++;
+    atRangeDragAnchorRef.current = null;
+    atRangeLoadedPathRef.current = null;
+    setAtRangeDraft({ open: false });
+    setAtRangeFile(null);
+  }, []);
+
+  /**
+   * Loads the mentioned file once per path. A path that does not resolve simply
+   * leaves the panel closed - `@user:1-2` in prose must not pop an empty panel -
+   * and is remembered so the next digit does not refetch it.
+   */
+  const loadAtRangeFile = useCallback(
+    async (pathRel: string) => {
+      if (atRangeLoadedPathRef.current === pathRel) {
+        return;
+      }
+      atRangeLoadedPathRef.current = pathRel;
+      const gen = ++atRangeFetchGenRef.current;
+      try {
+        const sp = new URLSearchParams({ path_rel: pathRel });
+        const headers: Record<string, string> = {};
+        const sid = (props.sessionId || "").trim();
+        if (sid) {
+          headers["X-Coddy-Session-ID"] = sid;
+        }
+        const res = await fetch(`/coddy/workspace/file?${sp.toString()}`, {
+          headers,
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const body = (await res.json()) as {
+          lines?: string[];
+          total_lines?: number;
+          truncated?: boolean;
+        };
+        if (gen !== atRangeFetchGenRef.current) {
+          return;
+        }
+        setAtRangeFile({
+          pathRel,
+          lines: body.lines || [],
+          totalLines: body.total_lines ?? (body.lines || []).length,
+          truncated: body.truncated === true,
+        });
+      } catch {
+        if (gen === atRangeFetchGenRef.current) {
+          setAtRangeFile(null);
+        }
+      }
     },
     [props.sessionId],
   );
@@ -987,6 +1092,35 @@ export function Composer(props: {
         deferAtDraftPickerTicksRef.current -= 1;
         deferAtDraft = true;
       }
+      // A ":" after a mention closes the file picker (":" is no MENU_PATH_CHAR);
+      // the range panel takes over from there.
+      const rd = atRangeDraftAtCaret(value, caret);
+      if (rd.open) {
+        setAtRangeDraft(rd);
+        if (
+          atRangeSuppressed == null ||
+          atRangeSuppressed.atIdx !== rd.atIdx ||
+          atRangeSuppressed.path !== rd.path
+        ) {
+          void loadAtRangeFile(rd.path);
+        }
+        bumpSlashFetchGen();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        setSlashNoMatch(null);
+        setSlashLoading(false);
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        return;
+      }
+      if (atRangeDraft.open) {
+        closeAtRangePicker();
+        setAtRangeSuppressed(null);
+      }
+
       const ad = atMenuDraftAtCaret(value, caret);
       if (ad.open && !deferAtDraft) {
         bumpSlashFetchGen();
@@ -1004,7 +1138,14 @@ export function Composer(props: {
       setAtLoading(false);
       updateSlashMenu(value, caret);
     },
-    [updateAtMenu, updateSlashMenu],
+    [
+      updateAtMenu,
+      updateSlashMenu,
+      loadAtRangeFile,
+      closeAtRangePicker,
+      atRangeDraft.open,
+      atRangeSuppressed,
+    ],
   );
 
   const maskComposerText = props.value.length > 0;
@@ -1132,6 +1273,71 @@ export function Composer(props: {
       el.setSelectionRange(pos, pos);
     });
   };
+
+  /**
+   * Writes a line range picked in the panel back into the composer text, then
+   * re-derives the draft so the next drag step measures against the new suffix.
+   */
+  const applyAtRangeSelection = useCallback(
+    (startLine: number, endLine: number) => {
+      if (!atRangeDraft.open) {
+        return;
+      }
+      const next = replaceAtRangeSuffix(
+        props.value,
+        atRangeDraft,
+        startLine,
+        endLine,
+      );
+      props.onChange(next.text);
+      setAtRangeDraft(atRangeDraftAtCaret(next.text, next.caret));
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) {
+          return;
+        }
+        el.focus();
+        el.setSelectionRange(next.caret, next.caret);
+      });
+    },
+    [atRangeDraft, props.value, props.onChange],
+  );
+
+  // A drag may end anywhere, so the anchor is cleared from the window, not the row.
+  useEffect(() => {
+    if (!atRangeOpen) {
+      return;
+    }
+    const onUp = () => {
+      atRangeDragAnchorRef.current = null;
+    };
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [atRangeOpen]);
+
+  const atRangeHighlightStart = atRangeHighlight?.start ?? 0;
+  const atRangeHighlightEnd = atRangeHighlight?.end ?? 0;
+  // Keep the typed range in view: digits can point far outside the shown window.
+  // Start first, then end, so a range that fits shows from its top while a longer
+  // one settles on the edge the user is still typing.
+  useEffect(() => {
+    if (!atRangeOpen || atRangeHighlightStart < 1) {
+      return;
+    }
+    const host = atRangeListRef.current;
+    if (!host) {
+      return;
+    }
+    for (const line of [atRangeHighlightStart, atRangeHighlightEnd]) {
+      const row = host.querySelector(`[data-line="${line}"]`);
+      if (
+        row instanceof HTMLElement &&
+        typeof row.scrollIntoView === "function"
+      ) {
+        row.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [atRangeOpen, atRangeHighlightStart, atRangeHighlightEnd]);
 
   const loadMoreSlash = () => {
     if (!slashOpen || slashLoading || !slashHasMore) {
@@ -1503,9 +1709,119 @@ export function Composer(props: {
             {atLoading ? t("composer.loading") : t("composer.more")}
           </button>
         ) : null}
+        {atItems.length > 0 ? (
+          <div className="slash-muted at-range-menu-hint">
+            {t("composer.atRangeMenuHint")}
+          </div>
+        ) : null}
       </div>
     </>
   );
+
+  const atRangeChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
+        <div className="slash-menu-title">
+          {t("composer.atRangeTitle")}
+          <span className="at-range-title-path">{atRangeFile?.pathRel}</span>
+          {atRangeHighlight ? (
+            <span
+              className="at-range-title-range"
+              data-testid="at-range-current"
+            >
+              {atRangeHighlight.start}-{atRangeHighlight.end}
+            </span>
+          ) : null}
+        </div>
+        <div className="slash-muted at-range-hint">
+          {isMobileShell
+            ? t("composer.atRangeHintMobile")
+            : t("composer.atRangeHint")}
+        </div>
+        <div
+          className="at-range-lines"
+          data-testid="at-range-lines"
+          ref={atRangeListRef}
+        >
+          {(atRangeFile?.lines ?? []).map((line, idx) => {
+            const no = idx + 1;
+            const selected =
+              atRangeHighlight != null &&
+              no >= atRangeHighlight.start &&
+              no <= atRangeHighlight.end;
+            const cls = `at-range-line${selected ? " at-range-line--sel" : ""}`;
+            const body = (
+              <>
+                <span className="at-range-line-no">{no}</span>
+                <span className="at-range-line-code">
+                  {line === "" ? " " : line}
+                </span>
+              </>
+            );
+            // Mobile shells have no mouse to select with: rows are display only
+            // and the range is typed as digits.
+            return isMobileShell ? (
+              <div key={no} className={cls} data-line={no}>
+                {body}
+              </div>
+            ) : (
+              <button
+                key={no}
+                type="button"
+                className={cls}
+                data-line={no}
+                data-testid={`at-range-line-${no}`}
+                aria-pressed={selected}
+                onMouseDown={(e) => {
+                  // Never take focus from the textarea - it holds the draft.
+                  e.preventDefault();
+                  atRangeDragAnchorRef.current = no;
+                  applyAtRangeSelection(no, no);
+                }}
+                onMouseEnter={() => {
+                  const anchor = atRangeDragAnchorRef.current;
+                  if (anchor != null) {
+                    applyAtRangeSelection(anchor, no);
+                  }
+                }}
+              >
+                {body}
+              </button>
+            );
+          })}
+        </div>
+        {atRangeFile?.truncated ? (
+          <div className="slash-muted">
+            {t("composer.atRangeTruncated", {
+              shown: atRangeFile.lines.length,
+              total: atRangeFile.totalLines,
+            })}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const pickerChrome = atRangeOpen
+    ? atRangeChrome
+    : atOpen
+      ? atMenuChrome
+      : slashMenuChrome;
+  const pickerTestId = atRangeOpen
+    ? "at-range-picker"
+    : atOpen
+      ? "workspace-files-menu"
+      : "slash-command-menu";
+  const pickerAriaLabel = atRangeOpen
+    ? t("composer.atRangeAriaLabel")
+    : atOpen
+      ? t("composer.workspaceFilesAriaLabel")
+      : t("composer.slashCommandsAriaLabel");
+  const pickerRole = atRangeOpen ? "group" : "listbox";
 
   return (
     <>
@@ -1763,7 +2079,10 @@ export function Composer(props: {
                     closeContextPopover();
                     return;
                   }
-                  if (ev.key === "Escape" && (slashOpen || atOpen)) {
+                  if (
+                    ev.key === "Escape" &&
+                    (slashOpen || atOpen || atRangeOpen)
+                  ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
                     return;
@@ -2237,15 +2556,9 @@ export function Composer(props: {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  data-testid={
-                    atOpen ? "workspace-files-menu" : "slash-command-menu"
-                  }
-                  role="listbox"
-                  aria-label={
-                    atOpen
-                      ? t("composer.workspaceFilesAriaLabel")
-                      : t("composer.slashCommandsAriaLabel")
-                  }
+                  data-testid={pickerTestId}
+                  role={pickerRole}
+                  aria-label={pickerAriaLabel}
                   style={
                     !props.isEmpty && sheetBottomPx != null
                       ? {
@@ -2255,28 +2568,22 @@ export function Composer(props: {
                       : undefined
                   }
                 >
-                  {atOpen ? atMenuChrome : slashMenuChrome}
+                  {pickerChrome}
                 </div>
               </>
             ) : pickerFloatRect ? (
               <div
                 className="slash-menu slash-menu--portal"
-                data-testid={
-                  atOpen ? "workspace-files-menu" : "slash-command-menu"
-                }
-                role="listbox"
-                aria-label={
-                  atOpen
-                    ? t("composer.workspaceFilesAriaLabel")
-                    : t("composer.slashCommandsAriaLabel")
-                }
+                data-testid={pickerTestId}
+                role={pickerRole}
+                aria-label={pickerAriaLabel}
                 style={{
                   left: pickerFloatRect.left,
                   width: pickerFloatRect.width,
                   bottom: pickerFloatRect.bottom,
                 }}
               >
-                {atOpen ? atMenuChrome : slashMenuChrome}
+                {pickerChrome}
               </div>
             ) : null,
             document.body,

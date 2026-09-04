@@ -3368,6 +3368,90 @@ a.rail-brand {
   cursor: default;
 }
 
+/* Line-range picker: the panel that replaces the @ file picker once a ":" is
+   typed. Rows are one logical line each (no wrapping), so the gutter numbers
+   line up with the code and long lines scroll sideways inside the panel. */
+.at-range-title-path {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.at-range-title-range {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.at-range-hint,
+.at-range-menu-hint {
+  padding-top: 0;
+  padding-bottom: 6px;
+}
+
+.at-range-menu-hint {
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+.at-range-lines {
+  overflow-x: auto;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.at-range-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+}
+
+/* Desktop rows are buttons; mobile shells render plain rows with no pointer
+   affordance, since a range there is typed rather than dragged. */
+button.at-range-line {
+  cursor: pointer;
+}
+
+button.at-range-line:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+}
+
+.at-range-line--sel,
+button.at-range-line--sel:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
+}
+
+.at-range-line-no {
+  flex: 0 0 auto;
+  min-width: 3ch;
+  text-align: right;
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.at-range-line-code {
+  flex: 1 1 auto;
+  white-space: pre;
+}
+
 .md .coddy-skill-chip {
   display: inline-flex;
   align-items: baseline;

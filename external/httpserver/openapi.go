@@ -454,6 +454,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/workspace/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one workspace text file as display lines",
+					"description": "Backs the composer's line-range picker, the panel that opens while typing **`@path:`** so a ranged mention (**`@path:21-31`**) can be pointed at. " +
+						"**`path_rel`** is workspace-relative and never escapes session **cwd**. Legacy encodings are decoded to UTF-8 and files over 512 KiB are refused. " +
+						"A trailing newline adds no empty last line and CRLF files lose the stray **`\\r`**. **`max_lines`** (1 to 5000, default 2000) caps **`lines`**; **`total_lines`** always counts the whole file and **`truncated`** says whether the cap applied. " +
+						"A directory, a binary or otherwise undecodable file, and a traversing path yield **400**; a missing file yields **404**.",
+					"operationId": "coddyWorkspaceFileGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the read root.",
+						},
+						map[string]interface{}{
+							"name": "path_rel", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Workspace-relative file path.",
+						},
+						map[string]interface{}{
+							"name": "max_lines", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 5000, "default": 2000,
+							},
+							"description": "Cap on returned lines.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "File content split into display lines",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceFile",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
@@ -2438,10 +2482,15 @@ func openAPISpec() map[string]interface{} {
 						},
 						"source": map[string]interface{}{
 							"type": "object",
+							"description": "How the attachment body is sourced. **`literal`** supplies it directly; **`start`**/**`end`** are byte offsets into the decoded file; " +
+								"**`startLine`**/**`endLine`** are a 1-based inclusive line range, which is what a ranged mention (**`@path:21-31`**) sends. " +
+								"Byte offsets win over the line range, and a line range also labels the attachment so the model sees **`lines=\"21-31\"`**.",
 							"properties": map[string]interface{}{
-								"literal": map[string]string{"type": "string"},
-								"start":   map[string]string{"type": "integer"},
-								"end":     map[string]string{"type": "integer"},
+								"literal":   map[string]string{"type": "string"},
+								"start":     map[string]string{"type": "integer"},
+								"end":       map[string]string{"type": "integer"},
+								"startLine": map[string]interface{}{"type": "integer", "minimum": 1},
+								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
 					},
@@ -2544,6 +2593,22 @@ func openAPISpec() map[string]interface{} {
 						"page_size": map[string]string{"type": "integer"},
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
+				},
+				"CoddyWorkspaceFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":    map[string]string{"type": "string", "example": "coddy.workspace_file"},
+						"path_rel":  map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string", "example": "text/plain; charset=utf-8"},
+						"lines": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Display lines without their terminators.",
+						},
+						"total_lines": map[string]string{"type": "integer"},
+						"truncated":   map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "path_rel", "lines", "total_lines", "truncated"},
 				},
 				"CoddyWorkspaceContext": map[string]interface{}{
 					"type": "object",

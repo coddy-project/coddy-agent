@@ -1327,3 +1327,279 @@ test("arrow keys move the slash highlight and Enter picks the highlighted row", 
   fireEvent.keyDown(ta, { key: "Enter" });
   await waitFor(() => expect(onChange).toHaveBeenCalledWith("/compact "));
 });
+
+// --- @path:N-M line-range picker ---
+
+function stubShell(mobile: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: mobile,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+}
+
+/** Serves the line-range panel's file read; anything else 404s. */
+function stubWorkspaceFileFetch(lines: string[]) {
+  const fetchMock = vi.fn((input: string) =>
+    Promise.resolve(
+      String(input).startsWith("/coddy/workspace/file?")
+        ? {
+            ok: true,
+            json: async () => ({
+              lines,
+              total_lines: lines.length,
+              truncated: false,
+            }),
+          }
+        : { ok: false, status: 404, json: async () => ({}) },
+    ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function RangeHarness(props: { initial: string; onChange: (v: string) => void }) {
+  const [value, setValue] = useState(props.initial);
+  return (
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={(v) => {
+        setValue(v);
+        props.onChange(v);
+      }}
+      onSend={() => {}}
+    />
+  );
+}
+
+test("a colon after a file mention opens the line-range picker", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["alpha", "beta", "gamma"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  expect(screen.getByTestId("at-range-lines")).toHaveTextContent("alpha");
+  // The file picker is gone: the colon handed the draft over.
+  expect(screen.queryByTestId("workspace-files-menu")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("typed digits highlight the selected lines", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2-3", selectionStart: 10, selectionEnd: 10 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-3");
+  });
+  const rows = screen
+    .getByTestId("at-range-lines")
+    .querySelectorAll(".at-range-line--sel");
+  expect(Array.from(rows).map((r) => r.getAttribute("data-line"))).toEqual([
+    "2",
+    "3",
+  ]);
+  vi.unstubAllGlobals();
+});
+
+// A half-typed range still shows where it starts.
+test("a start without an end highlights one line", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2", selectionStart: 8, selectionEnd: 8 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-2");
+  });
+  vi.unstubAllGlobals();
+});
+
+test("mobile shells render display-only rows with no mouse selection", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  expect(screen.queryByTestId("at-range-line-1")).toBeNull();
+  expect(
+    screen.getByTestId("at-range-lines").querySelectorAll("button"),
+  ).toHaveLength(0);
+  vi.unstubAllGlobals();
+});
+
+test("the picker closes once the mention token ends", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2", selectionStart: 10, selectionEnd: 10 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2 ", selectionStart: 11, selectionEnd: 11 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
+test("prose that never resolves to a file leaves the picker closed", async () => {
+  stubShell(true);
+  // Every read 404s, so nothing should open.
+  stubWorkspaceFileFetch([]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })),
+  );
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@nope.txt:1-2", selectionStart: 13, selectionEnd: 13 },
+  });
+
+  await waitFor(() => {
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+  expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Desktop picker floats next to the field, so it needs a measurable wrapper and a
+ * ResizeObserver; jsdom supplies neither. Returns a restore function.
+ */
+function stubDesktopLayout(): () => void {
+  const realRect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    return {
+      x: 0,
+      y: 100,
+      top: 100,
+      left: 0,
+      right: 400,
+      bottom: 160,
+      width: 400,
+      height: 60,
+      toJSON: () => ({}),
+    } as DOMRect;
+  };
+  const realRO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  return () => {
+    Element.prototype.getBoundingClientRect = realRect;
+    globalThis.ResizeObserver = realRO;
+  };
+}
+
+test("clicking and dragging lines writes the range into the composer", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four", "five"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  // Pressing a row starts the selection at that line.
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-3"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-3");
+  });
+
+  // Dragging over a later row extends it; the anchor stays put.
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-5"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-5");
+  });
+
+  // Once the button is released, hovering no longer changes the range.
+  fireEvent.mouseUp(window);
+  onChange.mockClear();
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-1"));
+  expect(onChange).not.toHaveBeenCalled();
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});
+
+// Dragging upwards still yields a forward range.
+test("a backwards drag normalizes the range", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-4"));
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-2"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:2-4");
+  });
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});

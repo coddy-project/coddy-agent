@@ -305,7 +305,7 @@ Verification use cases
 
 ## Composer **`@`** workspace files
 
-- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`** only) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`ask`** only. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
+- **`textarea#composer`** keeps plain **`input`** including literal **`@path`** text. **`POST /v1/responses`** adds **`attachments`** (**`path`**, plus **`source.startLine`** / **`source.endLine`** for a ranged mention) parsed by **`extractAtFileAttachments`** in **`external/ui/src/ui/skills/draftAt.ts`** for **`agent`** / **`plan`** / **`ask`** only. Server-side **`HydratePromptContentBlocks`** uses **`ExtractAtFilePathsFromText`** (**`internal/session/at_paths_extract.go`**) after filling empty **`resource`** bodies so **`@path`** literals inside **`type: text`** blocks become extra **`resource`** rows when that path is not already hydrated (**matches HTTP **`attachments`** without duplicating**).
 - **`@`** menu uses **`GET /coddy/workspace/files`** with **`dirs=true`** so **`kind`** **`dir`** rows drill down. Choosing a **`dir`** inserts **`@`** + **`path_rel`** (often ending in **`/`**) without hydrating file body. Choosing a **`file`** inserts **`@`** + **`path_rel`** plus a trailing ASCII space where appropriate. **`Composer`** defers two **`updatePickerMenus`** ticks after a row choice so the workspace dropdown does not immediately reopen (trailing space and **`MENU_PATH_CHAR`** still satisfy **`atMenuDraftAtCaret`** until the user edits again).
 - Empty **`@`** prefix (caret right after **`@`**) loads recent rows from **`localStorage`** (**`workspaceAtRecents`**), keyed by **`sessionId`** (or **`__no_session__`** before the first assigned id), with no extra banner line (**`Type after @ to search`** only when the list is empty). Entries come from **`@`** row picks and **`extractAtFileAttachments`** on successful profile sends (**`migrateWorkspaceAtRecents`** merges when the client generates or the server rotates **`X-Coddy-Session-ID`**).
 - Fenced code blocks and Markdown blockquote lines suppress **`@`** menu parity with **`draftSlash`** ( **`inMarkdownFenceBeforeCaret`**, **`blockquoteLine`** ).
@@ -313,6 +313,23 @@ Verification use cases
 - **`@`** search with zero matches keeps the picker open (**`No files`**) instead of collapsing the menu (**`composer-at-chip-inline`** hides for **`atNoMatch`**, same **`atIdx`**, **`prefix`** as the stale filter).
 - Stacked-shell viewports (**`(max-width: 1199px)`**) render workspace and slash pickers as a **`slash-menu--sheet`** with **`slash-sheet-backdrop`** so the panel is usable on phones.
 - Picker subtitle uses **`workspacePickRowSubtitle`** - second column shows **`parent/`** only when **`path_rel`** is nested, root entries omit it (empty string).
+
+### Line ranges (**`@path:N-M`**)
+
+- A mention may narrow a file to a **1-based inclusive** line range: **`@Dockerfile:21-31`**. **`listAtPathSpans`** absorbs the suffix, so the mirror chips the whole token as one **`composer-at-chip-inline`**; the range must end the token (**`:21-31x`** stays prose) and **`1 <= start <= end`**. **`internal/session/at_paths_extract.go`** carries the same grammar for prompts hydrated server-side (**`ExtractAtFileRefsFromText`**), and the two test suites share their literals.
+- Only those lines reach the model. The range rides **`acp.Resource.URI`** as a **`#L<start>-<end>`** fragment (**`lineRangeURI`** / **`sliceLines`** in **`internal/session/promptfiles.go`**) and **`resourceBlockToXMLAttachment`** turns it into **`<coddy_attachment path="..." name="..." lines="21-31">`**. **`stripCoddyAttachmentsForUserDisplay`** collapses such a block back to **`@path:N-M`**; a plain mention never covers a ranged one of the same path, nor the other way round.
+- Typing the **`:`** closes the file picker on its own (**`:`** is no **`MENU_PATH_CHAR`**) and opens the **line-range picker** in its place: **`atRangeDraftAtCaret`** / **`replaceAtRangeSuffix`** / **`highlightedRange`** in **`external/ui/src/ui/skills/draftAtRange.ts`**, panel **`data-testid="at-range-picker"`** rendered through the same portal / **`slash-menu--sheet`** chrome as the **`@`** menu. It previews the file (**`GET /coddy/workspace/file`**, one fetch per path) and highlights **`at-range-line--sel`** as the digits are typed; a start without an end highlights that one line.
+- The composer text stays the only input - there are no number fields. On desktop the rows are buttons: **`mousedown`** anchors the range, dragging over rows extends it, and each step rewrites the suffix through **`replaceAtRangeSuffix`** (**`preventDefault`** keeps focus in the textarea). On **`isMobileShell`** the rows render as plain **`div`**s with no pointer handlers - a phone has no mouse to drag with, so the range is typed.
+- A path that does not resolve leaves the panel closed, so **`@user:1-2`** in prose never opens an empty panel; the settled path is remembered so the next digit refetches nothing. **`Escape`** dismisses the panel and suppresses it for that mention until the draft moves on; **`Enter`** is left alone and still sends.
+
+| Case | Expected | Automated check |
+| --- | --- | --- |
+| AR1 | **`@f.go:21-31`** chips as one token and attaches only those lines | **`draftAt.test.ts`**, **`at_line_range_test.go`**, **`features/at_line_range_mention.feature`** |
+| AR2 | **`:21`**, **`:21-31x`**, **`:31-21`**, **`:0-5`** are not ranges | **`draftAt.test.ts`**, **`at_line_range_test.go`** |
+| AR3 | Colon opens the picker; digits move the highlight | **`Composer.test.tsx`**, **`draftAtRange.test.ts`** |
+| AR4 | Desktop drag writes the range; mobile rows are not buttons | **`Composer.test.tsx`** |
+| AR5 | Unresolvable path keeps the panel closed | **`Composer.test.tsx`** |
+| AR6 | User bubble shows **`@path:N-M`** instead of the attachment body | **`stripCoddyAttachments.test.ts`** |
 
 | Case | Expected | Automated check |
 | --- | --- | --- |

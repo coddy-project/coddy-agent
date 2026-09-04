@@ -1,6 +1,7 @@
 package session
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -70,10 +71,91 @@ func continuationLooksLikeMorePath(afterSpaces string) bool {
 	return strings.ContainsAny(word, "/.")
 }
 
-// ExtractAtFilePathsFromText returns workspace-relative paths from plain @mentions.
-// Mirrors external/ui draftAt.extractAtFileAttachments (file tokens only).
+// AtFileRef is one @path mention, optionally narrowed to a 1-based inclusive line range.
+// StartLine and EndLine are zero when the mention carried no ":N-M" suffix.
+type AtFileRef struct {
+	Path      string
+	StartLine int
+	EndLine   int
+}
+
+// parseAtLineRangeSuffix reads a ":<start>-<end>" suffix at text[k:] and returns
+// the range plus the index past it. The suffix counts only when both numbers are
+// valid (1 <= start <= end) and the token ends there: the next rune must not be a
+// letter, digit, or '-', so ":21-31x" stays prose.
+// Mirrors external/ui draftAt.parseAtLineRangeSuffix.
+func parseAtLineRangeSuffix(text string, k int) (start, end, next int, ok bool) {
+	n := len(text)
+	if k >= n || text[k] != ':' {
+		return 0, 0, k, false
+	}
+	p := k + 1
+	d0 := p
+	for p < n && text[p] >= '0' && text[p] <= '9' {
+		p++
+	}
+	if p == d0 || p >= n || text[p] != '-' {
+		return 0, 0, k, false
+	}
+	first := text[d0:p]
+	p++
+	d1 := p
+	for p < n && text[p] >= '0' && text[p] <= '9' {
+		p++
+	}
+	if p == d1 {
+		return 0, 0, k, false
+	}
+	second := text[d1:p]
+	if p < n {
+		r, _ := utf8.DecodeRuneInString(text[p:])
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' {
+			return 0, 0, k, false
+		}
+	}
+	// Bound the digits so a pathological run cannot overflow the accumulator.
+	if len(first) > 9 || len(second) > 9 {
+		return 0, 0, k, false
+	}
+	s := atoiDigits(first)
+	e := atoiDigits(second)
+	if s < 1 || e < s {
+		return 0, 0, k, false
+	}
+	return s, e, p, true
+}
+
+// atoiDigits converts an all-digit string; callers bound its length first.
+func atoiDigits(s string) int {
+	v := 0
+	for i := 0; i < len(s); i++ {
+		v = v*10 + int(s[i]-'0')
+	}
+	return v
+}
+
+// ExtractAtFilePathsFromText returns workspace-relative paths from plain @mentions,
+// deduplicated by path and without line ranges. Callers that need the ":N-M" suffix
+// use ExtractAtFileRefsFromText.
 func ExtractAtFilePathsFromText(text string) []string {
 	var out []string
+	seen := make(map[string]struct{})
+	for _, ref := range ExtractAtFileRefsFromText(text) {
+		key := filepath.ToSlash(ref.Path)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ref.Path)
+	}
+	return out
+}
+
+// ExtractAtFileRefsFromText returns @path mentions with optional ":N-M" line
+// ranges in document order, deduplicated by path plus range.
+// Mirrors external/ui draftAt.extractAtFileAttachments (file tokens only).
+func ExtractAtFileRefsFromText(text string) []AtFileRef {
+	var out []AtFileRef
 	seen := make(map[string]struct{})
 	n := len(text)
 
@@ -142,18 +224,27 @@ func ExtractAtFilePathsFromText(text string) []string {
 
 		raw := strings.TrimRight(text[j+1:k], " \t")
 		i = k
+		startLine, endLine := 0, 0
+		// Only an unpadded token may carry a range: "@foo :1-5" had its trailing
+		// space trimmed, and the suffix there belongs to the prose, not the path.
+		if raw != "" && raw == text[j+1:k] {
+			if s, e, next, ok := parseAtLineRangeSuffix(text, k); ok {
+				startLine, endLine = s, e
+				i = next
+			}
+		}
 		if raw == "" || strings.Contains(raw, "..") {
 			continue
 		}
 		if strings.HasSuffix(filepath.ToSlash(raw), "/") {
 			continue
 		}
-		key := filepath.ToSlash(raw)
+		key := fmt.Sprintf("%s#L%d-%d", filepath.ToSlash(raw), startLine, endLine)
 		if _, dup := seen[key]; dup {
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, raw)
+		out = append(out, AtFileRef{Path: raw, StartLine: startLine, EndLine: endLine})
 	}
 	return out
 }

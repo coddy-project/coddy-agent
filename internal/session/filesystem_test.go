@@ -478,3 +478,18 @@ func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
 		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
 	}
 }
+
+// A hydrated @mention turn carries the file body as <coddy_attachment> XML; the
+// derived title must show only what the user typed.
+func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
+	st := &State{ID: "sess_title_att", CWD: "/tmp", Mode: ModeAgent}
+	st.AddMessage(llm.Message{
+		Role: llm.RoleUser,
+		Content: "@Dockerfile:21-31 почему медленно?\n\n" +
+			"<coddy_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n" +
+			"<![CDATA[RUN go mod download]]>\n</coddy_attachment>",
+	})
+	if got := deriveSessionTitle(st); got != "@Dockerfile:21-31 почему медленно?" {
+		t.Fatalf("got %q", got)
+	}
+}
