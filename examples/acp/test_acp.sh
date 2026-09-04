@@ -34,5 +34,6 @@ python3 "$ACP_DIR/acp_e2e_scheduler_agent.py"
 python3 "$ACP_DIR/acp_e2e_plan_files.py"
 python3 "$ACP_DIR/acp_e2e_ask_mode.py"
 python3 "$ACP_DIR/acp_remote.py"
+python3 "$ACP_DIR/acp_e2e_remote_subagents.py"
 
 echo "ok acp tests"

@@ -91,6 +91,9 @@ type remoteClientState struct {
 	srv      *Server
 	token    string
 
+	// subagentPermission makes the runner behave like a parent whose child
+	// asks for permission through the relay.
+	subagentPermission bool
 	// runner script for the next turns
 	replyText      string
 	askPermission  bool
@@ -119,6 +122,7 @@ func (s *remoteClientState) reset() error {
 	s.sessRoot = filepath.Join(root, "sessions")
 	s.replyText = ""
 	s.askPermission = false
+	s.subagentPermission = false
 	s.recordToolCall = false
 	s.stopReason = ""
 	s.client = nil
@@ -161,6 +165,47 @@ func (s *remoteClientState) startServer(token string) error {
 		text := strings.TrimSpace(promptBlocksText(prompt))
 		if text != "" {
 			st.AddMessage(llm.Message{Role: llm.RoleUser, Content: text})
+		}
+		if s.subagentPermission {
+			// What the parent's turn emits while a child runs: the spawn_agent
+			// call, then the child's own prompt forwarded by the permission
+			// relay under the parent's session id, stamped with the child's
+			// effective mode (the stamp never travels; the bridge decides).
+			_ = snd.SendSessionUpdate(st.ID, acp.ToolCallUpdate{
+				SessionUpdate: acp.UpdateTypeToolCall,
+				ToolCallID:    "call_spawn",
+				Title:         "spawn_agent",
+				Kind:          "other",
+				Status:        "pending",
+			})
+			_ = snd.SendSessionUpdate(st.ID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    "call_spawn",
+				Status:        "in_progress",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: acp.ContentTypeText, Text: `{"agent":"explore","prompt":"read the marker"}`}},
+				},
+			})
+			res, err := snd.RequestPermission(ctx, acp.PermissionRequestParams{
+				SessionID: st.ID,
+				ToolCall: acp.PermissionToolCall{
+					ToolCallID: "child-perm-1",
+					Title:      "[subagent explore] Run: run_command",
+					Kind:       "run_command",
+					Status:     "pending",
+				},
+				Options: []acp.PermissionOption{
+					{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+					{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+				},
+				EffectivePermissionMode: config.PermModeAsk,
+			})
+			if err != nil {
+				return string(acp.StopReasonCancelled), err
+			}
+			if res == nil || res.OptionID != "allow" {
+				return string(acp.StopReasonCancelled), nil
+			}
 		}
 		if s.askPermission {
 			res, err := snd.RequestPermission(ctx, acp.PermissionRequestParams{
@@ -259,6 +304,50 @@ func (s *remoteClientState) agentAsksPermission(text string) error {
 	s.askPermission = true
 	s.replyText = text
 	return nil
+}
+
+func (s *remoteClientState) agentRelaysSubagentPermission(text string) error {
+	s.subagentPermission = true
+	s.replyText = text
+	return nil
+}
+
+// serverPermissionMode switches the running server's global permission mode
+// the way a config commit would, so the bridge decides from the live value.
+func (s *remoteClientState) serverPermissionMode(mode string) error {
+	if s.mgr == nil || s.srv == nil {
+		return fmt.Errorf("server not started")
+	}
+	cfg := s.mgr.Cfg()
+	cfg.Tools.PermissionMode = mode
+	s.srv.ReplaceConfig(cfg)
+	return nil
+}
+
+func (s *remoteClientState) clientReceivedPermissionTitled(title string) error {
+	if s.sender == nil {
+		return fmt.Errorf("client not connected")
+	}
+	s.sender.mu.Lock()
+	defer s.sender.mu.Unlock()
+	for _, p := range s.sender.permissions {
+		if p.ToolCall.Title == title {
+			return nil
+		}
+	}
+	return fmt.Errorf("no permission request titled %q reached the client (got %d requests)", title, len(s.sender.permissions))
+}
+
+func (s *remoteClientState) clientSawToolCall(name string) error {
+	if s.sender == nil {
+		return fmt.Errorf("client not connected")
+	}
+	for _, u := range s.sender.snapshot() {
+		if tc, ok := u.(acp.ToolCallUpdate); ok && tc.Title == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("no tool call named %q reached the client", name)
 }
 
 func (s *remoteClientState) agentRepliesWithToolCall(text string) error {
@@ -475,6 +564,10 @@ func initializeRemoteClientScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a remote client connected with the token "([^"]*)"$`, s.connectClient)
 	sc.Step(`^the remote agent replies with "([^"]*)"$`, s.agentReplies)
 	sc.Step(`^the remote agent asks permission before replying "([^"]*)"$`, s.agentAsksPermission)
+	sc.Step(`^the remote agent relays a subagent permission prompt before replying "([^"]*)"$`, s.agentRelaysSubagentPermission)
+	sc.Step(`^the remote server runs with permission mode "([^"]*)"$`, s.serverPermissionMode)
+	sc.Step(`^the client received a permission request titled "([^"]*)"$`, s.clientReceivedPermissionTitled)
+	sc.Step(`^the client saw a tool call named "([^"]*)"$`, s.clientSawToolCall)
 	sc.Step(`^the remote agent replies with "([^"]*)" and records a tool call$`, s.agentRepliesWithToolCall)
 	sc.Step(`^the remote agent replies with "([^"]*)" and stops at the turn limit$`, s.agentRepliesAndStopsAtTurnLimit)
 	sc.Step(`^the remote session is switched to plan mode$`, s.remoteSessionSwitchedToPlan)

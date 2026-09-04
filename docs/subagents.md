@@ -221,6 +221,18 @@ agent: explore | task: bg_3 | session: sub_9f1c… | outcome: end_turn | turns: 
 
 `✗ <tool> (failed)` marks a tool call that failed or was refused, including one outside the child's tool set. `outcome` is the child's stop reason (`end_turn`, `cancelled`, `failed`, or another ACP stop reason), `turns` is the number of assistant rounds in the child's transcript (the same count the foreground envelope carries), and an `error:` line precedes the report when the run ended with one.
 
+## Remote mode
+
+Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/cli.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy http` host:
+
+- definitions are read from the **server's** `subagents.dirs` (`${CODDY_HOME}/agents` of the server home and the `.claude/agents` / `.coddy/agents` of the session's cwd on the server);
+- a project definition is approved **on the server**: `coddy agents trust <name> --cwd <workspace>` on that host, or `POST /coddy/subagents/{name}/trust` with the bearer token. The local `coddy agents` subcommands read and write the local home only and know nothing about `--remote`;
+- a child's permission prompts travel the same way as the parent's: the relay forwards them under the parent session, the HTTP bridge emits the `permission` SSE event (even when the server itself runs with `tools.permission_mode: bypass`, because the child's own mode is what decides), the remote console or ACP client shows the prompt with the `[subagent <name>]` prefix and answers it over `POST /coddy/sessions/{parent}/permission`;
+- the `spawn_agent` call and its report stream back like any tool call, so the console status line reads `Running subagent <name>` in remote mode too; the child's transcript stays on the server and is read from the SPA served by the same host (Tasks panel, Open transcript) or from `GET /coddy/sessions/{sub_id}/messages`;
+- `subagents.*` settings are the server's: edit them in the SPA Settings of that host or with the `configure-coddy` skill from the remote session (config tools run on the server).
+
+The executable checks are the scenario "A subagent's permission prompt reaches the remote client even when the server bypasses its own" in `features/remote_client.feature`, the live `examples/acp/acp_e2e_remote_subagents.py` and the subagent step of `examples/cli/cli_e2e_remote.py`.
+
 ## Configuration
 
 All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is in `docs/config-reference.md` (section `subagents`), the web UI edits them under **Settings → Subagents**, and the bundled `configure-coddy` skill can change them through the staged config tools.
@@ -256,7 +268,11 @@ Follow-ups, deliberately not part of this change: resuming or messaging a runnin
 Captured from the bundled SPA against a stub model (`docs/assets/subagents/`):
 
 - `tasks-panel-agent-running-dark.png`, `tasks-panel-agent-running-light.png`: the Tasks panel with a running subagent card and its `AGENT` badge.
-- `tasks-detail-agent-running-dark.png`: the detail pane of a running subagent with the live log and **Open transcript**.
-- `tasks-detail-agent-finished-dark.png`, `tasks-detail-agent-finished-light.png`, `tasks-detail-agent-narrow-dark.png`: the finished run with its report block, wide and narrow.
-- `tasks-panel-agent-finished-light.png`: the finished row under **Finished N**.
+- `tasks-detail-agent-running-dark.png`, `tasks-detail-agent-running-light.png`: the detail pane of a running subagent with the live log and **Open transcript**.
+- `tasks-detail-agent-finished-dark.png`, `tasks-detail-agent-finished-light.png`, `tasks-detail-agent-narrow-dark.png`, `tasks-detail-agent-narrow-light.png`: the finished run with its report block, wide and narrow.
+- `tasks-panel-agent-finished-dark.png`, `tasks-panel-agent-finished-light.png`: the finished row under **Finished N**.
 - `child-transcript-readonly-dark.png`, `child-transcript-readonly-light.png`: the child session opened from the panel, with the read-only notice in place of the composer.
+- `settings-grid-dark.png`: Settings with the **Subagents** entry between Tools and permissions and MCP servers (the section comes from the config schema, `subagents` in `x-coddy-property-order`).
+- `settings-subagents-dark.png`, `settings-subagents-light.png`, `settings-subagents-ru-dark.png`, `settings-subagents-narrow-dark.png`: the schema-driven form for `subagents.*` (enabled, definition directories, project trust policy, max concurrent, max depth, default timeout, max turns), in English and Russian, wide and at 390px.
+
+The finished-run captures show no exit code for an agent task (a child run is a turn, not a process); the wide finished pane is the one to compare against the `bgtask` command detail in `docs/background-tasks.md`.

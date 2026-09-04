@@ -206,6 +206,14 @@ error. Reasoning-level cycling is unavailable remotely in v1. Sessions
 persist only on the server; the startup banner shows `remote: <url>` and the
 exit hint prints a reconnect command with `--remote` included.
 
+Subagents run on the remote host: the definitions, the trust receipts and the
+child sessions are the server's. Approve a project definition there (`coddy
+agents trust` on the server, or `POST /coddy/subagents/{name}/trust`); the
+local `coddy agents` subcommands do not take `--remote`. A child's permission
+prompts reach the remote console like the parent's own, prefixed
+`[subagent <name>]`, and the status line reads `Running subagent <name>` while
+the child runs. See `docs/subagents.md`, Remote mode.
+
 ## Subagent definitions (`coddy agents`)
 
 Three subcommands manage the subagent definitions the agent may delegate to
