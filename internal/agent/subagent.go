@@ -117,9 +117,12 @@ type permissionRelay struct {
 	parentSessionID  string
 	parentSessionDir string
 	agentName        string
-	turnCtx          context.Context
-	childCtx         context.Context
-	arbiter          *permissionArbiter
+	// childPermissionMode is the child's effective mode, stamped on every
+	// forwarded request so a sender never mistakes it for the parent's.
+	childPermissionMode string
+	turnCtx             context.Context
+	childCtx            context.Context
+	arbiter             *permissionArbiter
 }
 
 func deniedPermission() *acp.PermissionResult {
@@ -153,6 +156,7 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	}
 
 	params.SessionID = r.parentSessionID
+	params.EffectivePermissionMode = r.childPermissionMode
 	title := strings.TrimSpace(params.ToolCall.Title)
 	if title == "" {
 		title = "Run a tool"
@@ -514,13 +518,14 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 	handle := &subagentHandle{cancel: cancel, done: make(chan struct{})}
 	arbiter := acquireArbiter(parentID)
 	relay := &permissionRelay{
-		parent:           a.server,
-		parentSessionID:  parentID,
-		parentSessionDir: sd,
-		agentName:        def.Name,
-		turnCtx:          ctx,
-		childCtx:         runCtx,
-		arbiter:          arbiter,
+		parent:              a.server,
+		parentSessionID:     parentID,
+		parentSessionDir:    sd,
+		agentName:           def.Name,
+		childPermissionMode: childPerm,
+		turnCtx:             ctx,
+		childCtx:            runCtx,
+		arbiter:             arbiter,
 	}
 	run := &subagentRun{def: def, childID: childID, prompt: req.Prompt, handle: handle, startedAt: time.Now()}
 

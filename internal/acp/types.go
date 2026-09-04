@@ -441,6 +441,14 @@ type PermissionRequestParams struct {
 	SessionID string             `json:"sessionId"`
 	ToolCall  PermissionToolCall `json:"toolCall"`
 	Options   []PermissionOption `json:"options"`
+
+	// EffectivePermissionMode is the permission mode of the agent that asks,
+	// for in-process senders only (never serialised). A subagent's request is
+	// forwarded under its parent's session id, so a sender that decides
+	// "bypass, auto-allow" from the session would apply the parent's mode to a
+	// child whose definition narrowed it; when this is set, the sender uses it
+	// instead of looking the session up.
+	EffectivePermissionMode string `json:"-"`
 }
 
 // PermissionToolCall describes the tool call needing permission.
@@ -475,19 +483,19 @@ type QuestionOption struct {
 
 // QuestionPrompt is one interactive question with optional header and multiple choice flags.
 type QuestionPrompt struct {
-	Header    string           `json:"header,omitempty"`
-	Question  string           `json:"question"`
-	Options   []QuestionOption `json:"options"`
-	Multiple  bool             `json:"multiple,omitempty"`
-	Custom    bool             `json:"custom,omitempty"`
+	Header   string           `json:"header,omitempty"`
+	Question string           `json:"question"`
+	Options  []QuestionOption `json:"options"`
+	Multiple bool             `json:"multiple,omitempty"`
+	Custom   bool             `json:"custom,omitempty"`
 }
 
 // QuestionRequestParams are the parameters for session/request_question.
 type QuestionRequestParams struct {
-	SessionID   string           `json:"sessionId"`
-	RequestID   string           `json:"requestId"`
-	ToolCallID  string           `json:"toolCallId,omitempty"`
-	Questions   []QuestionPrompt `json:"questions"`
+	SessionID  string           `json:"sessionId"`
+	RequestID  string           `json:"requestId"`
+	ToolCallID string           `json:"toolCallId,omitempty"`
+	Questions  []QuestionPrompt `json:"questions"`
 }
 
 // QuestionResult is the client's response to session/request_question.

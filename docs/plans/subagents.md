@@ -726,3 +726,17 @@ shipped behaviour.
 - An empty effective tool set refuses the spawn.
 - The child inherits the parent's selected model unless the definition names
   a configured one.
+- The child metadata is attached before the state is published to the live
+  map, and an id with the `sub_` prefix is treated as a child by the prompt
+  and plan guards even before its bundle says so.
+- Turn admission and deletion are decided twice on both sides: the turn
+  rechecks the deleting mark after installing its cancel, the delete marks
+  before it cancels. A turn that ignores its cancellation past the settle
+  timeout aborts the deletion (`ErrTurnNotSettled`, HTTP 409) instead of
+  losing its bundle underneath it.
+- A failed or cancelled child creation rolls back the live entry and removes
+  the bundle it created; the initial save is fatal.
+- A forwarded permission request carries the child's effective permission
+  mode (`acp.PermissionRequestParams.EffectivePermissionMode`, never
+  serialised); the console senders decide bypass from it, so a session-level
+  bypass on the parent does not auto-allow a child narrowed to `ask`.

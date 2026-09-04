@@ -62,6 +62,17 @@ type Manager struct {
 	// recreating the bundle through its persist hook.
 	deletingMu sync.Mutex
 	deleting   map[string]bool
+
+	// testHooks pause the manager at points a test needs to observe; every
+	// field is nil outside tests (see export_test.go).
+	testHooks struct {
+		// afterSubagentPublish runs once a child state is in the live map and
+		// before its bundle exists.
+		afterSubagentPublish func(*State)
+		// beforeTurnAdmissionRecheck runs after a turn installed its cancel
+		// function and before it rechecks the deleting mark.
+		beforeTurnAdmissionRecheck func(sessionID string)
+	}
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -633,7 +644,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", params.SessionID)
 	}
-	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
+	if (state.IsSubagentRun() || IsSubagentSessionID(params.SessionID)) && (opts == nil || !opts.subagentTurn) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
 	if m.isDeleting(params.SessionID) {
@@ -664,6 +675,18 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	turnCtx, cancel := context.WithCancel(turnBase)
 	state.SetCancel(cancel)
 	defer cancel()
+
+	// Admission against deletion is decided twice. DeleteSessionTree marks
+	// the session and then cancels the installed turn; this turn installs its
+	// cancel and then rechecks the mark. Whichever order the two interleave
+	// in, either the delete sees this turn's cancel or this recheck sees the
+	// mark, so no turn runs on past the removal of its bundle.
+	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
+		hook(params.SessionID)
+	}
+	if m.isDeleting(params.SessionID) {
+		return nil, fmt.Errorf("%w: %s", ErrSessionDeleting, params.SessionID)
+	}
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sessionDir != "" {

@@ -22,7 +22,7 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
-	if state.IsSubagentRun() {
+	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
 	// A plan run is a turn. Marking it here covers the HTTP route that calls RunPlan

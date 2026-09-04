@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -672,4 +673,234 @@ func TestSubagentTurnTakesThePromptVerbatim(t *testing.T) {
 	if len(got) != 2 || !strings.Contains(got[0], "implement the plan nonexistent-plan") || !strings.Contains(got[1], "@plans/nonexistent-plan.plan.md") {
 		t.Fatalf("runner saw %q, want both prompts verbatim", got)
 	}
+}
+
+// ---- review round 2: publication, admission and rollback ----
+
+// While a child is being created its live entry is already published; every
+// reader that finds it must see a read-only child, never an ordinary session
+// that becomes one later.
+func TestSubagentSessionIsReadOnlyFromTheMomentItIsPublished(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	childID := session.NewSubagentSessionID()
+	published := make(chan struct{})
+	release := make(chan struct{})
+	m.SetSubagentPublishHookForTest(func(*session.State) {
+		close(published)
+		<-release
+	})
+	defer m.SetSubagentPublishHookForTest(nil)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+			ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+		})
+		done <- err
+	}()
+	select {
+	case <-published:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the child was never published")
+	}
+	// Paused between the publish and the bundle: the live entry is the child.
+	if store.HasPersistedSnapshot(childID) {
+		t.Fatal("precondition: the bundle must not exist yet")
+	}
+	st, err := m.EnsureHTTPSession(context.Background(), childID, root)
+	if err != nil || st == nil {
+		t.Fatalf("EnsureHTTPSession during creation = %v, %v", st, err)
+	}
+	if !st.IsSubagentRun() || st.Subagent().ParentSessionID != parent.ID {
+		t.Fatalf("the published state lacks its child metadata: %+v", st.Subagent())
+	}
+	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "sneak in"}}
+	if _, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: childID, Prompt: prompt}); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("prompt during creation = %v, want ErrSubagentReadOnly", err)
+	}
+	if _, err := m.RunPlan(context.Background(), childID, "any", noopSender{}); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("RunPlan during creation = %v, want ErrSubagentReadOnly", err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !store.HasPersistedSnapshot(childID) {
+		t.Fatal("the bundle must exist once creation returned")
+	}
+}
+
+// A prompt that passed the first deleting check before DeleteSessionTree
+// marked the session is still refused: it rechecks after installing its
+// cancel, and the delete cancels whatever it finds installed.
+func TestDeleteSessionTreeRefusesATurnAdmittedBeforeTheMark(t *testing.T) {
+	var runs int32
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		atomic.AddInt32(&runs, 1)
+		st.AddMessage(acpToLLM(prompt))
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	m.SetTurnAdmissionHookForTest(func(string) {
+		close(admitted)
+		<-release
+	})
+	defer m.SetTurnAdmissionHookForTest(nil)
+
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: parent.ID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "late"}},
+		})
+		promptDone <- err
+	}()
+	select {
+	case <-admitted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the turn never reached admission")
+	}
+
+	// The delete starts while the turn is paused between its first check and
+	// its recheck; it marks, cancels and waits for the turn to release.
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("the delete returned %v while the admitted turn was still registered", err)
+	default:
+	}
+	close(release)
+	if err := <-promptDone; !errors.Is(err, session.ErrSessionDeleting) {
+		t.Fatalf("admitted turn = %v, want ErrSessionDeleting", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	if atomic.LoadInt32(&runs) != 0 {
+		t.Fatal("the runner ran for a turn admitted against a deletion")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if store.HasPersistedSnapshot(parent.ID) {
+		t.Fatal("the bundle came back after the refused turn")
+	}
+}
+
+// A runner that ignores its context aborts the delete instead of having its
+// bundle pulled out from under it.
+func TestDeleteSessionTreeAbortsWhenATurnIgnoresCancellation(t *testing.T) {
+	restore := session.SetDeleteSettleTimeoutForTest(200 * time.Millisecond)
+	defer restore()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		st.AddMessage(acpToLLM(prompt))
+		once.Do(func() { close(entered) })
+		<-release // deliberately deaf to ctx
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: parent.ID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "stubborn"}},
+		})
+		promptDone <- err
+	}()
+	<-entered
+
+	err := m.DeleteSessionTree(parent.ID, pool)
+	if !errors.Is(err, session.ErrTurnNotSettled) {
+		t.Fatalf("delete with a deaf runner = %v, want ErrTurnNotSettled", err)
+	}
+	if !store.HasPersistedSnapshot(parent.ID) || m.SessionByID(parent.ID) == nil {
+		t.Fatal("an aborted delete must leave the session and its bundle in place")
+	}
+	// The mark is lifted again: once the turn ends the session is usable and
+	// deletable.
+	close(release)
+	if err := <-promptDone; err != nil {
+		t.Fatalf("the stubborn turn ended with %v", err)
+	}
+	if _, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+		SessionID: parent.ID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "again"}},
+	}); err != nil {
+		t.Fatalf("prompt after an aborted delete = %v", err)
+	}
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatalf("second delete = %v", err)
+	}
+}
+
+// A creation that fails or is cancelled leaves nothing behind: no live entry
+// and no half-written sub_ bundle.
+func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
+	t.Run("cancelled before publish", func(t *testing.T) {
+		m, store, root := newSubagentTestManager(t)
+		parent := newParent(t, m, root)
+		childID := session.NewSubagentSessionID()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := m.CreateSubagentSession(ctx, session.SubagentSpec{
+			ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+		})
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want a cancellation", err)
+		}
+		if m.SessionByID(childID) != nil || store.HasPersistedSnapshot(childID) {
+			t.Fatal("a cancelled creation left a live entry or a bundle")
+		}
+	})
+	t.Run("cancelled after publish", func(t *testing.T) {
+		m, store, root := newSubagentTestManager(t)
+		parent := newParent(t, m, root)
+		childID := session.NewSubagentSessionID()
+		ctx, cancel := context.WithCancel(context.Background())
+		m.SetSubagentPublishHookForTest(func(*session.State) { cancel() })
+		defer m.SetSubagentPublishHookForTest(nil)
+		_, err := m.CreateSubagentSession(ctx, session.SubagentSpec{
+			ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+		})
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want a cancellation", err)
+		}
+		if m.SessionByID(childID) != nil {
+			t.Fatal("the live entry must be rolled back")
+		}
+		if _, statErr := os.Stat(store.SessionPath(childID)); !os.IsNotExist(statErr) {
+			t.Fatalf("the bundle created before the cancellation must be removed: %v", statErr)
+		}
+	})
+	t.Run("layout failure", func(t *testing.T) {
+		m, store, root := newSubagentTestManager(t)
+		parent := newParent(t, m, root)
+		childID := session.NewSubagentSessionID()
+		// A file where the bundle directory should go makes EnsureLayout fail.
+		if err := os.WriteFile(store.SessionPath(childID), []byte("in the way"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+			ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+		})
+		if err == nil || !strings.Contains(err.Error(), "layout") {
+			t.Fatalf("error = %v, want a layout failure", err)
+		}
+		if m.SessionByID(childID) != nil {
+			t.Fatal("the live entry must be rolled back")
+		}
+		// Something that was there before the call is not ours to remove.
+		if _, statErr := os.Stat(store.SessionPath(childID)); statErr != nil {
+			t.Fatalf("a pre-existing path was removed: %v", statErr)
+		}
+	})
 }

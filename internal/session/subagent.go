@@ -32,6 +32,17 @@ var ErrReservedSessionID = errors.New("session id uses the reserved subagent pre
 // is removing the session.
 var ErrSessionDeleting = errors.New("session is being deleted")
 
+// ErrTurnNotSettled is returned by DeleteSessionTree when a cancelled turn of
+// the tree is still running after the settle timeout; nothing was removed.
+var ErrTurnNotSettled = errors.New("a turn of the session did not stop in time; nothing was deleted")
+
+// IsSubagentSessionID reports whether an id uses the reserved child prefix.
+// The prefix is a second line of defence next to the persisted metadata: an
+// id shaped like a child is treated as one even before its bundle says so.
+func IsSubagentSessionID(id string) bool {
+	return strings.HasPrefix(strings.TrimSpace(id), subagentSessionPrefix)
+}
+
 // subagentMCPDialTimeout bounds the MCP handshakes a child performs while it is
 // created. A hung server must not hold the launch, the limiter slot and the
 // parent's foreground wait hostage; a dial that runs out of time is logged and
@@ -133,35 +144,9 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		SelectedModelID: strings.TrimSpace(spec.SelectedModelID),
 		PermissionMode:  strings.TrimSpace(spec.PermissionMode),
 	}
-
-	// Reserve the live entry before the bundle exists on disk. The HTTP read
-	// path serves a live session when it finds one and loads the bundle
-	// otherwise; registering first means a transcript read racing this call
-	// finds the one state the child will run with, never a second state built
-	// from a half-written bundle.
-	m.mu.Lock()
-	if _, occupied := m.sessions[id]; occupied {
-		m.mu.Unlock()
-		return nil, fmt.Errorf("subagent session id already active: %s", id)
-	}
-	m.sessions[id] = state
-	m.mu.Unlock()
-	failed := true
-	defer func() {
-		if failed {
-			m.mu.Lock()
-			if m.sessions[id] == state {
-				delete(m.sessions, id)
-			}
-			m.mu.Unlock()
-		}
-	}()
-
-	sessionDir, err := m.store.EnsureLayout(id)
-	if err != nil {
-		return nil, fmt.Errorf("subagent session layout: %w", err)
-	}
-	state.setSessionDir(sessionDir)
+	// The child metadata is attached before the state is visible anywhere:
+	// every reader that finds the live entry must already see a read-only
+	// child, never an ordinary session that turns into one later.
 	state.SetSubagentMeta(SubagentMeta{
 		Name:            name,
 		ParentSessionID: parentID,
@@ -177,6 +162,54 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	state.ReplaceRulesCatalog(DiscoverRules(active, cwd))
 	state.SetPersistHook(m.makePersist(state))
 
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("subagent session creation cancelled: %w", err)
+	}
+
+	// Reserve the live entry before the bundle exists on disk. The HTTP read
+	// path serves a live session when it finds one and loads the bundle
+	// otherwise; registering first means a transcript read racing this call
+	// finds the one state the child will run with, never a second state built
+	// from a half-written bundle.
+	m.mu.Lock()
+	if _, occupied := m.sessions[id]; occupied {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("subagent session id already active: %s", id)
+	}
+	m.sessions[id] = state
+	m.mu.Unlock()
+	if hook := m.testHooks.afterSubagentPublish; hook != nil {
+		hook(state)
+	}
+
+	// Everything after the publish rolls back on failure: the live entry goes,
+	// and so does a bundle this call created, so no half-built sub_ snapshot
+	// without its metadata survives to be listed or loaded later.
+	sessionPath := m.store.SessionPath(id)
+	_, statErr := os.Stat(sessionPath)
+	createdBundle := os.IsNotExist(statErr)
+	failed := true
+	defer func() {
+		if !failed {
+			return
+		}
+		m.mu.Lock()
+		if m.sessions[id] == state {
+			delete(m.sessions, id)
+		}
+		m.mu.Unlock()
+		state.CloseAll()
+		if createdBundle {
+			_ = os.RemoveAll(sessionPath)
+		}
+	}()
+
+	sessionDir, err := m.store.EnsureLayout(id)
+	if err != nil {
+		return nil, fmt.Errorf("subagent session layout: %w", err)
+	}
+	state.setSessionDir(sessionDir)
+
 	if spec.ConnectMCP {
 		dialCtx, cancel := context.WithTimeout(ctx, subagentMCPDialTimeout)
 		m.connectConfiguredMCPServers(dialCtx, state)
@@ -190,14 +223,15 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 			state.RememberSessionMCPDeclaration(srv)
 		}
 		cancel()
-		if ctx.Err() != nil {
-			state.CloseAll()
-			return nil, fmt.Errorf("subagent session creation cancelled: %w", ctx.Err())
-		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("subagent session creation cancelled: %w", err)
 	}
 
+	// The first save is what makes the bundle a child on disk; without it a
+	// later read would load a generic session, so it is fatal, not a warning.
 	if err := m.store.Save(state); err != nil {
-		m.log.Warn("initial subagent session save", "id", id, "error", err)
+		return nil, fmt.Errorf("initial subagent session save: %w", err)
 	}
 	failed = false
 	m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
@@ -227,13 +261,15 @@ func (m *Manager) markDeleting(ids []string, on bool) {
 }
 
 // deleteSettleTimeout bounds how long DeleteSessionTree waits for a cancelled
-// turn to release before removing bundles anyway.
-const deleteSettleTimeout = 15 * time.Second
+// turn to release. A turn still running afterwards aborts the deletion: a
+// runner that ignores its context is a bug elsewhere, and removing the bundle
+// under it would only turn that bug into a resurrected session.
+var deleteSettleTimeout = 15 * time.Second
 
 // cancelAndAwaitTurns cancels the running turn of every node and waits until
 // none of them is active in this process, so no persist hook fires after the
-// bundle is gone.
-func (m *Manager) cancelAndAwaitTurns(nodes []SessionTreeNode) {
+// bundle is gone. It returns ErrTurnNotSettled when a turn outlives the wait.
+func (m *Manager) cancelAndAwaitTurns(nodes []SessionTreeNode) error {
 	for _, n := range nodes {
 		if st := m.getSession(n.ID); st != nil {
 			st.SetUserCancelledTurn()
@@ -241,20 +277,22 @@ func (m *Manager) cancelAndAwaitTurns(nodes []SessionTreeNode) {
 		}
 	}
 	deadline := time.Now().Add(deleteSettleTimeout)
-	for time.Now().Before(deadline) {
-		busy := false
+	for {
+		busy := ""
 		for _, n := range nodes {
 			if m.SessionTurnActiveInProcess(n.ID) {
-				busy = true
+				busy = n.ID
 				break
 			}
 		}
-		if !busy {
-			return
+		if busy == "" {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%w: %s", ErrTurnNotSettled, busy)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	m.log.Warn("delete session tree: a turn did not settle in time", "root", nodes[0].ID)
 }
 
 // RunSubagentTurn runs the child's one and only prompt turn through the normal
@@ -358,7 +396,8 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 // spawned, in an order that leaves no writer behind:
 //
 //  0. every node is marked as deleting (new turns are refused) and its active
-//     turn, if any, is cancelled and awaited;
+//     turn, if any, is cancelled and awaited; a turn that does not stop within
+//     the settle timeout aborts the deletion with ErrTurnNotSettled;
 //  1. every node's representing task is stopped and awaited, root to leaf
 //     (a child's task lives under its parent session, so this reaches a
 //     running child and a running descendant alike);
@@ -382,7 +421,9 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	// the bundle through its persist hook (atomic writes MkdirAll their target).
 	m.markDeleting(ids, true)
 	defer m.markDeleting(ids, false)
-	m.cancelAndAwaitTurns(nodes)
+	if err := m.cancelAndAwaitTurns(nodes); err != nil {
+		return err
+	}
 	if pool != nil {
 		for _, n := range nodes {
 			if n.SubagentRun && n.ParentSessionID != "" && n.SubagentTaskID != "" {

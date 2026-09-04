@@ -911,6 +911,14 @@ func openAPISpec() map[string]interface{} {
 							},
 						},
 						"400": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "A cancelled turn of the session tree was still running after the settle timeout; nothing was removed, retry once the turn ends.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 						"503": errorResponseRef(),
 					},

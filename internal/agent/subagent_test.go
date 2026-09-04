@@ -167,12 +167,13 @@ func TestPermissionRelayForwardsToParentSession(t *testing.T) {
 	turnCtx, cancelTurn := context.WithCancel(context.Background())
 	defer cancelTurn()
 	relay := &permissionRelay{
-		parent:          parent,
-		parentSessionID: parentID,
-		agentName:       "writer",
-		turnCtx:         turnCtx,
-		childCtx:        turnCtx,
-		arbiter:         acquireArbiter(parentID),
+		parent:              parent,
+		parentSessionID:     parentID,
+		agentName:           "writer",
+		childPermissionMode: config.PermModeAsk,
+		turnCtx:             turnCtx,
+		childCtx:            turnCtx,
+		arbiter:             acquireArbiter(parentID),
 	}
 	defer releaseArbiter(parentID)
 
@@ -198,6 +199,11 @@ func TestPermissionRelayForwardsToParentSession(t *testing.T) {
 	}
 	if got.ToolCall.ToolCallID != "call_1" || got.ToolCall.Status != "pending" {
 		t.Fatalf("forwarded tool call = %+v, want the child's call preserved", got.ToolCall)
+	}
+	// The child's own mode rides along, so a sender that auto-allows under a
+	// bypass session applies the child's narrowed mode, not the parent's.
+	if got.EffectivePermissionMode != config.PermModeAsk {
+		t.Fatalf("forwarded EffectivePermissionMode = %q, want the child's %q", got.EffectivePermissionMode, config.PermModeAsk)
 	}
 	if blank := parent.requests[1].ToolCall.Title; blank != "[subagent writer] Run a tool" {
 		t.Fatalf("blank title rendered as %q", blank)

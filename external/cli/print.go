@@ -66,9 +66,12 @@ func (p *printSender) SendSessionUpdate(_ string, update interface{}) error {
 }
 
 func (p *printSender) RequestPermission(_ context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	mode := ""
-	if st := p.mgr.SessionByID(params.SessionID); st != nil {
-		mode = st.GetPermissionMode()
+	// A subagent's request carries the child's own mode; see sender.go.
+	mode := strings.TrimSpace(params.EffectivePermissionMode)
+	if mode == "" {
+		if st := p.mgr.SessionByID(params.SessionID); st != nil {
+			mode = st.GetPermissionMode()
+		}
 	}
 	if mode == "" && p.cfg != nil && !p.remote {
 		mode = p.cfg.Tools.ResolvedPermMode()

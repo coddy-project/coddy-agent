@@ -1127,6 +1127,12 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	// nothing writes into a directory that is already gone. An id with no bundle
 	// on disk removes nothing and still answers 200.
 	if err := s.mgr.DeleteSessionTree(id, bgtask.Default()); err != nil {
+		if errors.Is(err, session.ErrTurnNotSettled) {
+			// A turn of the tree ignored its cancellation; nothing was
+			// removed, the client may retry once the turn ends.
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
+			return
+		}
 		s.log.Error("coddy session delete", "error", err)
 		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
 		return
