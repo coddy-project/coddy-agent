@@ -85,22 +85,24 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	if st == nil {
 		return
 	}
-	unlock, err := s.mgr.AcquireComposerTurnLock(sessionID, st)
+	// This turn does not go through HandleSessionPromptWithSender, so it is
+	// admitted through the manager's shared path: the turn lock, the
+	// registration a watching client sees, the cancel a deletion uses, and the
+	// refusal while the session is being deleted.
+	turnCtx, finish, err := s.mgr.BeginTurn(ctx, sessionID, nil)
 	if err != nil {
-		if errors.Is(err, session.ErrSessionTurnBusy) {
+		switch {
+		case errors.Is(err, session.ErrSessionTurnBusy):
 			s.log.Warn("permission resume: session busy", "session", sessionID)
-		} else {
-			s.log.Warn("permission resume: lock", "session", sessionID, "error", err)
+		case errors.Is(err, session.ErrSessionDeleting):
+			s.log.Warn("permission resume: session is being deleted", "session", sessionID)
+		default:
+			s.log.Warn("permission resume: admission", "session", sessionID, "error", err)
 		}
 		return
 	}
-	defer unlock()
-
-	// This turn does not go through HandleSessionPromptWithSender, so it registers itself:
-	// otherwise it is invisible to turnActive and publishes no turn events, and a watching
-	// client sees the session go idle the moment it answered the prompt.
-	clearActive := s.mgr.MarkTurnActive(sessionID)
-	defer clearActive()
+	defer finish()
+	ctx = turnCtx
 
 	// A resumed turn is one somebody is watching by definition - they just answered its
 	// permission prompt - so it publishes like any other composer turn. The sender stays

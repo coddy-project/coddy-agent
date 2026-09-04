@@ -17,6 +17,12 @@ func (m *Manager) SetTurnAdmissionHookForTest(fn func(sessionID string)) {
 	m.testHooks.beforeTurnAdmissionRecheck = fn
 }
 
+// SetTreeScanHookForTest runs fn once DeleteSessionTree took its first
+// snapshot of the tree and before it marks anything.
+func (m *Manager) SetTreeScanHookForTest(fn func(rootID string)) {
+	m.testHooks.afterTreeScan = fn
+}
+
 // SetDeleteSettleTimeoutForTest overrides how long DeleteSessionTree waits
 // for a cancelled turn, returning a restore function.
 func SetDeleteSettleTimeoutForTest(d time.Duration) (restore func()) {

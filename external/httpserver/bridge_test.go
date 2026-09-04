@@ -177,3 +177,51 @@ func TestForwardTextChunk_TextUsesContentDelta(t *testing.T) {
 		t.Fatalf("text chunk must not set reasoning_content, got: %s", raw)
 	}
 }
+
+// A subagent's forwarded request carries the child's own effective mode; the
+// bridge decides its bypass short-circuit from that stamp, not from the
+// global setting, and denies a narrowed child when nobody can answer.
+func TestRequestPermissionHonoursTheStampedEffectiveMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	params := func(mode string) acp.PermissionRequestParams {
+		return acp.PermissionRequestParams{
+			SessionID:               "s1",
+			ToolCall:                acp.PermissionToolCall{ToolCallID: "c1", Title: "[subagent writer] Run: run_command", Status: "pending"},
+			EffectivePermissionMode: mode,
+		}
+	}
+	nonInteractive := NewSender(cfg, httptest.NewRecorder(), false, "agent-model")
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
+		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
+	}
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
+		t.Fatalf("stamped bypass = %#v, want allow", got)
+	}
+	if got, _ := nonInteractive.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" || got.Outcome != "cancelled" {
+		t.Fatalf("stamped ask with nobody to answer = %#v, want a denial", got)
+	}
+
+	// Interactive: the stamped ask goes out as a permission event and waits
+	// for the answer instead of being auto-allowed.
+	rec := httptest.NewRecorder()
+	interactive := NewSender(cfg, rec, true, "agent-model")
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := interactive.RequestPermission(context.Background(), params(config.PermModeAsk))
+		done <- r
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(rec.Body.String(), "event: permission") {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !strings.Contains(rec.Body.String(), "event: permission") {
+		t.Fatal("a stamped ask under global bypass must be forwarded as a permission event")
+	}
+	if !CompletePermissionAnswer("s1", "c1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
+		t.Fatal("CompletePermissionAnswer failed")
+	}
+	if got := <-done; got == nil || got.OptionID != "reject" {
+		t.Fatalf("interactive answer = %#v, want the operator's reject", got)
+	}
+}

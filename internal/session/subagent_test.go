@@ -904,3 +904,226 @@ func TestCreateSubagentSessionRollsBackOnFailure(t *testing.T) {
 		}
 	})
 }
+
+// ---- review round 3: shared admission and the tree-scan race ----
+
+// A direct plan run is admitted like a prompt: paused after installing its
+// cancel, a concurrent delete waits for it and it ends refused.
+func TestRunPlanAdmissionRacesDeletion(t *testing.T) {
+	var runs int32
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		atomic.AddInt32(&runs, 1)
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	m.SetTurnAdmissionHookForTest(func(string) {
+		close(admitted)
+		<-release
+	})
+	defer m.SetTurnAdmissionHookForTest(nil)
+
+	planDone := make(chan error, 1)
+	go func() {
+		_, err := m.RunPlan(context.Background(), parent.ID, "any-plan", noopSender{})
+		planDone <- err
+	}()
+	select {
+	case <-admitted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunPlan never reached admission")
+	}
+	if !m.SessionTurnActiveInProcess(parent.ID) {
+		t.Fatal("a plan run must be registered as an active turn before it is admitted")
+	}
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("the delete returned %v while the plan run was still registered", err)
+	default:
+	}
+	close(release)
+	if err := <-planDone; !errors.Is(err, session.ErrSessionDeleting) {
+		t.Fatalf("RunPlan = %v, want ErrSessionDeleting", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	if atomic.LoadInt32(&runs) != 0 || store.HasPersistedSnapshot(parent.ID) {
+		t.Fatalf("runs=%d bundle=%v after a refused plan run", runs, store.HasPersistedSnapshot(parent.ID))
+	}
+}
+
+// BeginTurn is the path a caller-driven turn (the HTTP permission resume)
+// uses: it installs a cancel the delete reaches, and it is refused once the
+// session is marked.
+func TestBeginTurnInstallsCancelAndRefusesDuringDeletion(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+
+	turnCtx, finish, err := m.BeginTurn(context.Background(), parent.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.SessionTurnActiveInProcess(parent.ID) {
+		t.Fatal("BeginTurn must register the turn")
+	}
+	if _, _, err := m.BeginTurn(context.Background(), parent.ID, nil); !errors.Is(err, session.ErrSessionTurnBusy) {
+		t.Fatalf("second BeginTurn = %v, want ErrSessionTurnBusy", err)
+	}
+	parent.Cancel()
+	select {
+	case <-turnCtx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("State.Cancel did not cancel the admitted turn's context")
+	}
+	finish()
+	if m.SessionTurnActiveInProcess(parent.ID) {
+		t.Fatal("finish must unregister the turn")
+	}
+
+	// Paused after installing its cancel, a BeginTurn racing a delete ends
+	// refused, exactly like a prompt.
+	admitted := make(chan struct{})
+	release := make(chan struct{})
+	m.SetTurnAdmissionHookForTest(func(string) {
+		close(admitted)
+		<-release
+	})
+	defer m.SetTurnAdmissionHookForTest(nil)
+	beginDone := make(chan error, 1)
+	go func() {
+		_, fin, err := m.BeginTurn(context.Background(), parent.ID, nil)
+		if err == nil {
+			fin()
+		}
+		beginDone <- err
+	}()
+	<-admitted
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-beginDone; !errors.Is(err, session.ErrSessionDeleting) {
+		t.Fatalf("BeginTurn racing a delete = %v, want ErrSessionDeleting", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	// A child session is never admitted through BeginTurn either.
+	other := newParent(t, m, root)
+	childID := session.NewSubagentSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: other.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.BeginTurn(context.Background(), childID, nil); !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("BeginTurn on a child = %v, want ErrSubagentReadOnly", err)
+	}
+}
+
+// A child created and persisted after the delete's first snapshot is caught
+// by the rescan and removed with the tree.
+func TestDeleteSessionTreeCatchesAChildCreatedAfterTheFirstScan(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	scanned := make(chan struct{})
+	release := make(chan struct{})
+	m.SetTreeScanHookForTest(func(string) {
+		close(scanned)
+		<-release
+	})
+	defer m.SetTreeScanHookForTest(nil)
+
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	<-scanned
+
+	// The delete holds its first, childless snapshot; a detached child is
+	// created and persisted meanwhile, with its task in the pool.
+	childID := session.NewSubagentSessionID()
+	handle := newHoldHandle()
+	task, err := pool.Launch(bgtask.Spec{SessionID: parent.ID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "late", SessionID: childID}},
+		func(string, io.Writer) (bgtask.Handle, error) { return handle, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "late", TaskID: task.ID, CWD: root, Depth: 1,
+	}); err != nil {
+		t.Fatalf("a child created before the mark must still be admitted: %v", err)
+	}
+	if !store.HasPersistedSnapshot(childID) {
+		t.Fatal("precondition: the late child is persisted")
+	}
+	close(release)
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	if store.HasPersistedSnapshot(childID) || m.SessionByID(childID) != nil {
+		t.Fatal("the late child survived the delete as an orphan")
+	}
+	if snap, err := pool.Get(parent.ID, task.ID); err != nil || snap.Status != bgtask.StatusStopped {
+		t.Fatalf("late child's task = %+v, %v, want stopped", snap, err)
+	}
+}
+
+// A child whose creation is paused at publish while its parent is deleted
+// ends refused and leaves no bundle behind, whether the delete finished or is
+// still running when it resumes.
+func TestCreateSubagentSessionRefusesWhenTheParentIsDeleted(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	childID := session.NewSubagentSessionID()
+	published := make(chan struct{})
+	release := make(chan struct{})
+	m.SetSubagentPublishHookForTest(func(*session.State) {
+		close(published)
+		<-release
+	})
+	defer m.SetSubagentPublishHookForTest(nil)
+
+	createDone := make(chan error, 1)
+	go func() {
+		_, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+			ID: childID, ParentSessionID: parent.ID, Name: "paused", TaskID: "bg_1", CWD: root, Depth: 1,
+		})
+		createDone <- err
+	}()
+	<-published
+	// The delete runs to completion while the creation is paused: the live
+	// child is in its tree, so it is forgotten with the parent.
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	err := <-createDone
+	if !errors.Is(err, session.ErrSessionDeleting) {
+		t.Fatalf("creation resumed after the delete = %v, want ErrSessionDeleting", err)
+	}
+	if m.SessionByID(childID) != nil {
+		t.Fatal("the child must not be live")
+	}
+	if _, statErr := os.Stat(store.SessionPath(childID)); !os.IsNotExist(statErr) {
+		t.Fatalf("the child bundle must not exist after the refused creation: %v", statErr)
+	}
+	if _, statErr := os.Stat(store.SessionPath(parent.ID)); !os.IsNotExist(statErr) {
+		t.Fatalf("the parent bundle must stay removed: %v", statErr)
+	}
+
+	// A parent that is not live at all refuses at once.
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: session.NewSubagentSessionID(), ParentSessionID: parent.ID, Name: "orphan", TaskID: "bg_2", CWD: root,
+	}); err == nil || !strings.Contains(err.Error(), "not live") {
+		t.Fatalf("creation under a gone parent = %v, want a not-live refusal", err)
+	}
+}

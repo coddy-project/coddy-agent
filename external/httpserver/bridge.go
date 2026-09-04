@@ -258,7 +258,14 @@ func (s *Sender) writeNamedEventJSON(event string, payload interface{}) error {
 
 // RequestPermission auto-approves when permission_mode is bypass; otherwise emits SSE and waits for POST /coddy/sessions/{id}/permission.
 func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	// A subagent's request carries the child's own effective mode, which
+	// decides the bypass short-circuit instead of the global setting: a child
+	// narrowed to ask is prompted, or denied when nobody can answer.
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == config.PermModeBypass {
+		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if stamped == "" && s.cfg != nil && s.cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
 	}
 	if !s.interactive || s.w == nil {

@@ -738,5 +738,14 @@ shipped behaviour.
   the bundle it created; the initial save is fatal.
 - A forwarded permission request carries the child's effective permission
   mode (`acp.PermissionRequestParams.EffectivePermissionMode`, never
-  serialised); the console senders decide bypass from it, so a session-level
-  bypass on the parent does not auto-allow a child narrowed to `ask`.
+  serialised); every auto-allowing sender (ACP server, HTTP bridge, console,
+  print, Telegram gateway) decides bypass from it, so neither a session-level
+  nor a global bypass on the parent auto-allows a child narrowed to `ask`;
+  senders that cannot prompt deny such a request.
+- Turn admission is one path (`beginTurn` / `BeginTurn`): prompts, direct
+  plan runs and the HTTP permission resume all register, lock, install the
+  cancel and decide against deletion the same way.
+- `DeleteSessionTree` rescans the tree after marking until it is stable, the
+  tree scan includes live children not yet persisted, and a child creation
+  refuses when its parent is not live or is being deleted, both at publish
+  time and again before the first save.

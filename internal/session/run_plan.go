@@ -25,11 +25,23 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
-	// A plan run is a turn. Marking it here covers the HTTP route that calls RunPlan
-	// directly; when a prompt delegates to RunPlan its session is already marked, and the
-	// registry counts turns, so the nested mark changes nothing for that path.
-	clearActive := m.markTurnActive(sessionID)
-	defer clearActive()
+	// A plan run is a turn: the direct route (HTTP plans) is admitted like a
+	// prompt, with the lock, the registration and the cancel. A prompt that
+	// delegates to a plan is already admitted and calls runPlanAdmitted.
+	turnCtx, finish, err := m.beginTurn(ctx, sessionID, state, false)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
+	return m.runPlanAdmitted(turnCtx, sessionID, slug, state, sender)
+}
+
+// runPlanAdmitted is the body of RunPlan for a turn that beginTurn already
+// admitted; ctx is that turn's context.
+func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, state *State, sender acp.UpdateSender) (*acp.SessionPromptResult, error) {
+	if sender == nil {
+		sender = m.server
+	}
 	sd := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sd == "" {
 		return nil, fmt.Errorf("session has no persisted bundle")

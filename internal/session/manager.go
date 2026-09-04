@@ -72,6 +72,9 @@ type Manager struct {
 		// beforeTurnAdmissionRecheck runs after a turn installed its cancel
 		// function and before it rechecks the deleting mark.
 		beforeTurnAdmissionRecheck func(sessionID string)
+		// afterTreeScan runs once DeleteSessionTree took its first snapshot
+		// of the tree and before it marks anything.
+		afterTreeScan func(rootID string)
 	}
 }
 
@@ -635,6 +638,67 @@ func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
 	return WriteCancelRequest(fs.SessionPath(sessionID))
 }
 
+// beginTurn is the one admission path for anything that runs a turn on a
+// session: it registers the turn, takes the turn lock unless the caller holds
+// it, installs the turn's cancel on the state and decides admission against a
+// concurrent deletion. It returns the context the turn runs on and the release
+// that undoes all of it (cancel, unlock, unregister), in that order.
+//
+// Admission against deletion is decided twice. DeleteSessionTree marks the
+// session and then cancels the installed turn; this turn installs its cancel
+// and then rechecks the mark. Whichever order the two interleave in, either
+// the delete sees this turn's cancel or this recheck sees the mark, so no turn
+// runs on past the removal of its bundle.
+func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State, skipLock bool) (context.Context, func(), error) {
+	if m.isDeleting(sessionID) {
+		return nil, nil, fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+	}
+	// Before the lock, not after: a turn queued behind another one is already
+	// active as far as a client watching the session is concerned.
+	clearActive := m.markTurnActive(sessionID)
+	unlock := func() {}
+	if !skipLock {
+		var err error
+		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, state)
+		if err != nil {
+			clearActive()
+			return nil, nil, err
+		}
+	}
+	turnCtx, cancel := context.WithCancel(ctx)
+	state.SetCancel(cancel)
+	finish := func() {
+		cancel()
+		unlock()
+		clearActive()
+	}
+	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
+		hook(sessionID)
+	}
+	if m.isDeleting(sessionID) {
+		finish()
+		return nil, nil, fmt.Errorf("%w: %s", ErrSessionDeleting, sessionID)
+	}
+	return turnCtx, finish, nil
+}
+
+// BeginTurn admits a turn that a caller drives itself instead of going through
+// HandleSessionPromptWithSender (the HTTP permission resume runs the ReAct
+// loop directly). It applies the same rules: child sessions are read-only, a
+// session being deleted refuses, the turn is registered, locked (unless
+// opts.SkipTurnLock) and cancellable through State.Cancel. The caller runs on
+// the returned context and calls finish when the turn is over.
+func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptRunOpts) (context.Context, func(), error) {
+	state := m.getSession(sessionID)
+	if state == nil {
+		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
+		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
+	}
+	return m.beginTurn(ctx, sessionID, state, opts != nil && opts.SkipTurnLock)
+}
+
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
 func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *PromptRunOpts) (*acp.SessionPromptResult, error) {
 	if sender == nil {
@@ -647,46 +711,15 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if (state.IsSubagentRun() || IsSubagentSessionID(params.SessionID)) && (opts == nil || !opts.subagentTurn) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
-	if m.isDeleting(params.SessionID) {
-		return nil, fmt.Errorf("%w: %s", ErrSessionDeleting, params.SessionID)
-	}
-
-	// Before the lock, not after: a turn queued behind another one is already active as
-	// far as a client watching the session is concerned.
-	clearActive := m.markTurnActive(params.SessionID)
-	defer clearActive()
-
-	var unlock func()
-	var err error
-	if opts != nil && opts.SkipTurnLock {
-		unlock = func() {}
-	} else {
-		unlock, err = m.acquireTurnLockWithReloadDrain(params.SessionID, state)
-		if err != nil {
-			return nil, err
-		}
-	}
-	defer unlock()
-
 	turnBase := ctx
 	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
-	turnCtx, cancel := context.WithCancel(turnBase)
-	state.SetCancel(cancel)
-	defer cancel()
-
-	// Admission against deletion is decided twice. DeleteSessionTree marks
-	// the session and then cancels the installed turn; this turn installs its
-	// cancel and then rechecks the mark. Whichever order the two interleave
-	// in, either the delete sees this turn's cancel or this recheck sees the
-	// mark, so no turn runs on past the removal of its bundle.
-	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
-		hook(params.SessionID)
+	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, opts != nil && opts.SkipTurnLock)
+	if err != nil {
+		return nil, err
 	}
-	if m.isDeleting(params.SessionID) {
-		return nil, fmt.Errorf("%w: %s", ErrSessionDeleting, params.SessionID)
-	}
+	defer finish()
 
 	sessionDir := strings.TrimSpace(state.GetPersistedSessionDir())
 	if sessionDir != "" {
@@ -701,7 +734,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	subagentTurn := opts != nil && opts.subagentTurn
 
 	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn {
-		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
+		return m.runPlanAdmitted(turnCtx, params.SessionID, slug, state, sender)
 	}
 
 	if len(params.ImageParts) > 0 {
@@ -729,7 +762,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 			return nil, err
 		}
 		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
-			return m.RunPlan(turnCtx, params.SessionID, mentionSlug, sender)
+			return m.runPlanAdmitted(turnCtx, params.SessionID, mentionSlug, state, sender)
 		}
 	}
 

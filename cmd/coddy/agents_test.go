@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,5 +125,32 @@ func TestAgentsTrustOfBuiltinAndUnknownDefinitions(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should name the visible definitions, missing %q: %v", want, err)
 		}
+	}
+}
+
+// The ACP server sender decides its global-bypass short-circuit from the
+// stamped effective mode of a subagent's request: a child narrowed to ask is
+// forwarded (or denied when no client is attached), never auto-allowed on
+// the parent's behalf.
+func TestServerRefHonoursTheStampedEffectiveMode(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Tools.PermissionMode = config.PermModeBypass
+	var srv *acp.Server // no client attached
+	ref := &serverRef{p: &srv, cfg: cfg}
+	params := func(mode string) acp.PermissionRequestParams {
+		return acp.PermissionRequestParams{
+			SessionID:               "sess_parent",
+			ToolCall:                acp.PermissionToolCall{ToolCallID: "c1", Status: "pending"},
+			EffectivePermissionMode: mode,
+		}
+	}
+	if got, _ := ref.RequestPermission(context.Background(), params("")); got.OptionID != "allow" {
+		t.Fatalf("unstamped request under global bypass = %#v, want allow", got)
+	}
+	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeBypass)); got.OptionID != "allow" {
+		t.Fatalf("stamped bypass = %#v, want allow", got)
+	}
+	if got, _ := ref.RequestPermission(context.Background(), params(config.PermModeAsk)); got.OptionID != "reject" {
+		t.Fatalf("stamped ask without a client = %#v, want a denial", got)
 	}
 }

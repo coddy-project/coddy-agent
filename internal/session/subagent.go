@@ -171,10 +171,21 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	// otherwise; registering first means a transcript read racing this call
 	// finds the one state the child will run with, never a second state built
 	// from a half-written bundle.
+	// The parent must be live and not under deletion at the moment of the
+	// publish, decided under the same lock DeleteSessionTree's rescan reads,
+	// so a child cannot slip in between the delete's snapshot and its removal.
 	m.mu.Lock()
 	if _, occupied := m.sessions[id]; occupied {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("subagent session id already active: %s", id)
+	}
+	if _, live := m.sessions[parentID]; !live {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("subagent parent session is not live: %s", parentID)
+	}
+	if m.isDeleting(parentID) {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
 	}
 	m.sessions[id] = state
 	m.mu.Unlock()
@@ -226,6 +237,17 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("subagent session creation cancelled: %w", err)
+	}
+
+	// A deletion that ran while this call was in flight has dropped the live
+	// entry or marked the parent; the bundle must not be written after that,
+	// or it would outlive the tree it belongs to.
+	m.mu.Lock()
+	stillLive := m.sessions[id] == state
+	parentDeleting := m.isDeleting(parentID)
+	m.mu.Unlock()
+	if !stillLive || parentDeleting {
+		return nil, fmt.Errorf("%w: parent %s", ErrSessionDeleting, parentID)
 	}
 
 	// The first save is what makes the bundle a child on disk; without it a
@@ -344,6 +366,7 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 	// Index every child bundle by its parent once; the tree is small but the
 	// sessions root can hold many bundles.
 	children := map[string][]SessionTreeNode{}
+	indexed := map[string]bool{}
 	entries, err := os.ReadDir(m.store.Root)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -363,7 +386,30 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 			SubagentTaskID:  strings.TrimSpace(snap.Meta.SubagentTaskID),
 			SubagentRun:     true,
 		})
+		indexed[ent.Name()] = true
 	}
+	// A child that is published but not yet persisted exists only in the
+	// live map; the tree must see it too, or a delete racing its creation
+	// would leave it behind.
+	m.mu.RLock()
+	for id, st := range m.sessions {
+		if indexed[id] {
+			continue
+		}
+		meta := st.Subagent()
+		if meta == nil || strings.TrimSpace(meta.ParentSessionID) == "" {
+			continue
+		}
+		parent := strings.TrimSpace(meta.ParentSessionID)
+		children[parent] = append(children[parent], SessionTreeNode{
+			ID:              id,
+			ParentSessionID: parent,
+			SubagentTaskID:  strings.TrimSpace(meta.TaskID),
+			SubagentRun:     true,
+		})
+		indexed[id] = true
+	}
+	m.mu.RUnlock()
 
 	root := SessionTreeNode{ID: rootID}
 	if snap, err := m.store.ReadSnapshot(rootID); err == nil && snap.Meta.IsSubagentRun(rootID) {
@@ -412,15 +458,51 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	if err != nil {
 		return err
 	}
-	ids := make([]string, 0, len(nodes))
-	for _, n := range nodes {
-		ids = append(ids, n.ID)
+	if hook := m.testHooks.afterTreeScan; hook != nil {
+		hook(rootID)
 	}
-	// From here on a new turn against any node is refused, an active one is
-	// cancelled and awaited: a turn that outlived the delete would recreate
-	// the bundle through its persist hook (atomic writes MkdirAll their target).
-	m.markDeleting(ids, true)
-	defer m.markDeleting(ids, false)
+	// From here on a new turn against any node is refused, a new child under
+	// any node is refused, and an active turn is cancelled and awaited: a turn
+	// that outlived the delete would recreate the bundle through its persist
+	// hook (atomic writes MkdirAll their target). The tree is rescanned after
+	// marking until no unmarked node appears, so a child published between
+	// the first snapshot and the mark is caught rather than orphaned.
+	marked := map[string]bool{}
+	mark := func(ns []SessionTreeNode) {
+		ids := make([]string, 0, len(ns))
+		for _, n := range ns {
+			if !marked[n.ID] {
+				marked[n.ID] = true
+				ids = append(ids, n.ID)
+			}
+		}
+		m.markDeleting(ids, true)
+	}
+	mark(nodes)
+	defer func() {
+		ids := make([]string, 0, len(marked))
+		for id := range marked {
+			ids = append(ids, id)
+		}
+		m.markDeleting(ids, false)
+	}()
+	for round := 0; round < 8; round++ {
+		again, err := m.SessionTree(rootID)
+		if err != nil {
+			return err
+		}
+		fresh := 0
+		for _, n := range again {
+			if !marked[n.ID] {
+				fresh++
+			}
+		}
+		nodes = again
+		if fresh == 0 {
+			break
+		}
+		mark(again)
+	}
 	if err := m.cancelAndAwaitTurns(nodes); err != nil {
 		return err
 	}
