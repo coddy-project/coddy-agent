@@ -102,6 +102,20 @@ Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, sc
 
 Configure clients with the **absolute path** to the binary rather than relying on `PATH` — some harnesses spawn the agent via `cmd /c` or `sh -c` without the user `PATH` (on Windows: `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; see [`docs/install.md`](docs/install.md#windows)).
 
+**Zed** — add one entry to `settings.json`, then pick **Coddy** under *External Agents* in the agent panel's new-thread menu:
+
+```json
+"agent_servers": {
+  "Coddy": {
+    "type": "custom",
+    "command": "/home/you/.local/bin/coddy",
+    "args": ["acp"]
+  }
+}
+```
+
+Coddy's own modes (`agent` / `plan` / `ask`), its configured models, and its permission policy appear in Zed's composer, and its skills show up as slash commands.
+
 Protocol details: **`docs/acp-protocol.md`**. Harness examples: **`examples/acp/`**.
 
 ## Quick Start
