@@ -349,6 +349,9 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.prompts.plan_prompt.label": "Plan prompt file",
   "settings.schema.system.prompts.plan_prompt.desc":
     "Filename for plan-mode system prompt.",
+  "settings.schema.system.prompts.ask_prompt.label": "Ask prompt file",
+  "settings.schema.system.prompts.ask_prompt.desc":
+    "Filename for ask-mode system prompt.",
   "settings.schema.system.instructions.label": "Instructions",
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":
@@ -715,6 +718,7 @@ export const messagesEn: Record<string, string> = {
   "composer.bytesMB": "{n} MB",
   "composer.mode": "Mode",
   "composer.modeAgent": "Agent",
+  "composer.modeAsk": "Ask",
   "composer.modePlan": "Plan",
   "composer.model": "Model",
   "composer.modelTitle": "YAML backend (metadata.model)",
@@ -825,6 +829,7 @@ export const messagesEn: Record<string, string> = {
     "Defaults to the agent working directory for this instance.",
   "scheduler.field.mode": "mode",
   "scheduler.mode.agent": "agent",
+  "scheduler.mode.ask": "ask",
   "scheduler.mode.plan": "plan",
   "scheduler.field.model": "model",
   "scheduler.field.body": "body (markdown)",

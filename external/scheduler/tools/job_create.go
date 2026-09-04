@@ -30,7 +30,7 @@ func jobCreateTool(cfg *config.Config) *tooling.Tool {
 					"paused":      map[string]interface{}{"type": "boolean", "description": "When true, job will not run until resumed"},
 					"cwd":         map[string]interface{}{"type": "string"},
 					"model":       map[string]interface{}{"type": "string"},
-					"mode":        map[string]interface{}{"type": "string", "description": "agent or plan"},
+					"mode":        map[string]interface{}{"type": "string", "description": "agent, plan, or ask"},
 					"body":        map[string]interface{}{"type": "string", "description": "Markdown instruction executed as the initial user prompt"},
 				},
 				"required": []interface{}{"job_id", "description", "schedule", "body"},

@@ -911,6 +911,43 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	}
 }
 
+func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("ask")
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	got := make(map[string]bool)
+	for _, d := range filtered {
+		got[d.Name] = true
+	}
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+		if !got[want] {
+			t.Errorf("ask toolset should include %q", want)
+		}
+	}
+	for _, forbid := range []string{"write", "edit", "apply_patch", "run_command", "background_list", "plan_write", "plan_list", "plan_read", "config_get", "config_set", "coddy_todo_plan_read"} {
+		if got[forbid] {
+			t.Errorf("ask toolset should not include %q", forbid)
+		}
+	}
+}
+
+func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
+	if msg, refused := toolCallRefusedByMode("ask", "write"); !refused || !strings.Contains(msg, "Ask mode") {
+		t.Errorf("ask mode must refuse write at execution time, got refused=%v msg=%q", refused, msg)
+	}
+	if _, refused := toolCallRefusedByMode("ask", "mcp_server__lookup"); !refused {
+		t.Error("ask mode must refuse MCP tool calls at execution time")
+	}
+	if _, refused := toolCallRefusedByMode("ask", "read"); refused {
+		t.Error("ask mode must allow read")
+	}
+	for _, mode := range []string{"agent", "plan"} {
+		if _, refused := toolCallRefusedByMode(mode, "write"); refused {
+			t.Errorf("%s mode must not enforce the execution-time refusal", mode)
+		}
+	}
+}
+
 // --- compact.go: CompactSession ---------------------------------------------
 
 // compactCannedProvider serves Complete (summarization) with a canned summary
@@ -1482,5 +1519,68 @@ func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
 		if m.Role == llm.RoleTool && (m.Content == toolLoopNudge || m.Content == toolLoopSkippedResult) {
 			t.Fatal("the loop guard blocked a call with different arguments")
 		}
+	}
+}
+
+// A pending agent-mode call approved after the session switched to ask must be
+// refused, and an "allow always" answer must not leave a grant behind for the
+// call that never ran.
+func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_ask",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAsk,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run it"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_ask_hidden",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
+		Outcome:  "allow",
+		OptionID: "allow_always",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason %q", stop)
+	}
+	var toolMsg *llm.Message
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_ask_hidden" {
+			mm := m
+			toolMsg = &mm
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("missing tool result for the refused call")
+	}
+	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
+		t.Fatalf("the approved call executed in ask mode: %q", toolMsg.Content)
+	}
+	if !strings.Contains(toolMsg.Content, "not available in Ask mode") {
+		t.Fatalf("tool result is not the ask-mode refusal: %q", toolMsg.Content)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
 	}
 }

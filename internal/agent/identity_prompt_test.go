@@ -39,7 +39,7 @@ func identityAgent(t *testing.T, cwd string) *Agent {
 
 func TestBuildSystemPromptIdentifiesCoddyInEveryMode(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
-	for _, mode := range []string{"agent", "plan"} {
+	for _, mode := range []string{"agent", "plan", "ask"} {
 		assertPromptIdentifiesCoddy(t, a.buildSystemPrompt(mode, nil, nil, "", nil), mode+" mode prompt")
 	}
 }
@@ -48,7 +48,7 @@ func TestBuildSystemPromptIdentifiesCoddyInEveryMode(t *testing.T) {
 // own persona must still be attributable, so the identity line is prepended.
 func TestBuildSystemPromptIdentifiesCoddyWithCustomPromptsDir(t *testing.T) {
 	dir := t.TempDir()
-	for _, name := range []string{"agent.md", "plan.md"} {
+	for _, name := range []string{"agent.md", "plan.md", "ask.md"} {
 		body := "You are a terse assistant. Working directory: {{.CWD}}\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -58,7 +58,7 @@ func TestBuildSystemPromptIdentifiesCoddyWithCustomPromptsDir(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
 	a.cfg.Prompts.Dir = dir
 
-	for _, mode := range []string{"agent", "plan"} {
+	for _, mode := range []string{"agent", "plan", "ask"} {
 		prompt := a.buildSystemPrompt(mode, nil, nil, "", nil)
 		assertPromptIdentifiesCoddy(t, prompt, "custom "+mode+" prompt")
 		if !strings.Contains(prompt, "You are a terse assistant.") {
@@ -91,7 +91,7 @@ func TestCompactionRequestIdentifiesCoddy(t *testing.T) {
 // No prompt may carry the line twice — that is pure token waste on every turn.
 func TestIdentityLineAppearsOnce(t *testing.T) {
 	a := identityAgent(t, t.TempDir())
-	for _, mode := range []string{"agent", "plan"} {
+	for _, mode := range []string{"agent", "plan", "ask"} {
 		prompt := strings.ToLower(a.buildSystemPrompt(mode, nil, nil, "", nil))
 		if n := strings.Count(prompt, "you are coddy"); n != 1 {
 			t.Errorf("%s mode prompt names Coddy %d times, want 1", mode, n)

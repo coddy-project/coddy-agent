@@ -71,14 +71,14 @@ Handles:
 - `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
 - `session/prompt` - receive user message, start ReAct loop
 - `session/cancel` - cancel in-progress turn
-- `session/set_mode` - switch between `agent` and `plan` modes (legacy, kept in sync with config options)
+- `session/set_mode` - switch between `agent`, `plan`, and `ask` modes (legacy, kept in sync with config options)
 - `session/set_config_option` - change mode or model for the session (preferred ACP API)
 
 ### Session Manager (`internal/session`)
 
 Maintains the state for each conversation session:
 - Conversation history (messages, tool results)
-- Current operating mode (`agent` / `plan`)
+- Current operating mode (`agent` / `plan` / `ask`)
 - Optional model override per session (when the user selects a model via ACP)
 - Connected MCP server clients
 - Working directory
@@ -89,8 +89,8 @@ Maintains the state for each conversation session:
 
 The core reasoning engine (**`react.go`**):
 
-1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`**.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`** and **`prompts.plan_prompt`** (defaults **`agent.md`** and **`plan.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`** (never in **`ask`** mode). In **`ask`** mode a call that names a filtered-out tool (for example one replayed from history) is also refused at execution time.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls, appends assistant and tool messages.
@@ -196,8 +196,8 @@ Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 `mcp.Probe` backs the `/coddy/mcp` management API (connect, `tools/list`,
 close); `manage.go` resolves which file owns a server for enable/disable
 persistence. Tools from MCP servers are appended to the LLM tool list in
-**`agent`** and **`plan`** modes (see **`internal/agent/react.go`**), filtered
-per turn by the disable switches.
+**`agent`** and **`plan`** modes (never in **`ask`** mode; see
+**`internal/agent/react.go`**), filtered per turn by the disable switches.
 
 ### Skills loader (`internal/skills`)
 
@@ -227,8 +227,15 @@ YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`
 - No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
 - Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
 
+### `ask` mode
+- Read-only research surface enforced by **`internal/agent.ToolSetForMode("ask")`**
+- **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`** — no shell, no plan or todo tools, no config tools, and no MCP tools
+- Unlike **plan**, the allowlist is also enforced at execution time: a tool call outside the set (for example replayed from history) is refused with a read-only notice instead of being executed; approving such a pending call with **allow always** records no grant either
+- A **`@plans/<slug>.plan.md`** mention or **`runPlanSlug`** metadata never starts a plan run in ask mode (the mention is inlined as reading material, the metadata shortcut is refused), and the memory copilot runs recall-only (no memory writes)
+- Suitable for: questions about the codebase, code review and diagnosis, and web research without any mutation surface
+
 Mode switching:
-- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent` or `plan`
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, or `ask`
 - Agent sends `current_mode_update` and `config_option_update` when mode changes
 
 ## Directory Structure

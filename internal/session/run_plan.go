@@ -22,6 +22,13 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	if state == nil {
 		return nil, fmt.Errorf("session not found: %s", sessionID)
 	}
+	// Ask mode is read-only and a plan run switches to agent with the full
+	// tool set, so the entry point itself fails closed: the prompt shortcuts and
+	// the HTTP route refuse earlier with friendlier codes, but no caller can
+	// run a plan out of an ask session by mistake.
+	if state.GetMode() == string(ModeAsk) {
+		return nil, fmt.Errorf("plan %q cannot be run in ask mode: switch to agent mode first", slug)
+	}
 	// A plan run is a turn. Marking it here covers the HTTP route that calls RunPlan
 	// directly; when a prompt delegates to RunPlan its session is already marked, and the
 	// registry counts turns, so the nested mark changes nothing for that path.

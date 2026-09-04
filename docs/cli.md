@@ -160,7 +160,7 @@ folder (errors when none exists; mutually exclusive with `--session-id` and
 `--resume`). `--resume` opens the session picker first and creates nothing
 until you choose (mutually exclusive with `--session-id`; `--model`,
 `--mode`, and `--permission-mode` apply to whichever session the picker
-selects). `--model`, `--mode agent|plan`, and
+selects). `--model`, `--mode agent|plan|ask`, and
 `--permission-mode ask|accept_edits|bypass` apply through the validated
 manager config-option API before the UI starts, in every launch mode
 (interactive, `--continue`, `--resume`, and `--prompt`). `--theme
@@ -196,7 +196,7 @@ Remotely, turns execute on the server in its workspace: the transcript, tool
 boxes, thinking, plan updates, token and context stats stream back over SSE;
 permission and question modals answer through the server's REST endpoints;
 `ctrl+o` fetches full tool output from the server. The model selector lists
-the remote catalog (`GET /v1/models`), `/mode` picks the agent or plan
+the remote catalog (`GET /v1/models`), `/mode` picks the agent, plan, or ask
 profile per turn, and `/resume`, `-c`, and `--session-id` operate on the
 server's session list (the local folder filter does not apply). The
 permission mode is governed by the remote server's configuration:

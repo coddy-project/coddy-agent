@@ -255,7 +255,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	maxCtx := maxContextDefault(s)
-	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan} {
+	for _, mode := range []session.Mode{session.ModeAgent, session.ModePlan, session.ModeAsk} {
 		out.Data = append(out.Data, modelObj{
 			ID:               string(mode),
 			Object:           "model",
@@ -372,6 +372,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
+			return
+		}
+		if runPlanRefusedInAskMode(model, req.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
 			return
 		}
 	} else if completionMetadataForbidden(req.Metadata) {
@@ -694,12 +698,16 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"invalid metadata"}}`, http.StatusBadRequest)
 			return
 		}
+		if runPlanRefusedInAskMode(model, body.Metadata) {
+			http.Error(w, `{"error":{"message":"plan cannot be run in ask mode: switch to agent mode first"}}`, http.StatusConflict)
+			return
+		}
 	} else if completionMetadataForbidden(body.Metadata) {
 		http.Error(w, `{"error":{"message":"metadata.model is not allowed for direct completion"}}`, http.StatusBadRequest)
 		return
 	}
 	if len(body.Attachments) > 0 && !httpModelIsCoddyProfile(model) {
-		http.Error(w, `{"error":{"message":"attachments are only supported for agent or plan model"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"attachments are only supported for agent, plan, or ask model"}}`, http.StatusBadRequest)
 		return
 	}
 	inlineFiles := body.InlineFiles

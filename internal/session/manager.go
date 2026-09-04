@@ -212,6 +212,7 @@ func (m *Manager) sessionResultModes(st *State) *acp.ModeState {
 		AvailableModes: []acp.SessionMode{
 			{ID: "agent", Name: "Agent", Description: "Execute tasks with full tool access"},
 			{ID: "plan", Name: "Plan", Description: "Plan and design without code execution"},
+			{ID: "ask", Name: "Ask", Description: "Answer questions with read-only research tools"},
 		},
 	}
 }
@@ -404,7 +405,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	}
 
 	mode := Mode(snap.Meta.Mode)
-	if mode != ModeAgent && mode != ModePlan {
+	if !IsValidMode(string(mode)) {
 		mode = ModeAgent
 	}
 	st.RestoreMetaWithoutPersist(mode, snap.Meta.SelectedModelID, snap.Meta.SelectedReasoning, snap.Meta.AgentMemory, snap.Meta.PermissionMode)
@@ -636,7 +637,14 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		go m.runCrossProcessCancelPoll(turnCtx, state, sessionDir)
 	}
 
+	// Ask mode is read-only: the run-plan metadata shortcut is refused, and a
+	// plan mention below stays material to read (HydrateSessionPlanMentions
+	// inlines the document) instead of turning into a run request.
+	askMode := state.GetMode() == string(ModeAsk)
 	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
+		if askMode {
+			return nil, fmt.Errorf("plan %q cannot be run in ask mode: switch to agent mode first", slug)
+		}
 		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
 	}
 
@@ -664,7 +672,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		if err != nil {
 			return nil, err
 		}
-		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" {
+		if mentionSlug := ExtractRunPlanSlugFromPromptText(contentBlocksToPlainText(hydrated)); mentionSlug != "" && !askMode {
 			return m.RunPlan(turnCtx, params.SessionID, mentionSlug, sender)
 		}
 	}
@@ -694,7 +702,7 @@ func (m *Manager) HandleSessionSetMode(_ context.Context, params acp.SessionSetM
 		return fmt.Errorf("session not found: %s", params.SessionID)
 	}
 
-	if params.ModeID != string(ModeAgent) && params.ModeID != string(ModePlan) {
+	if !IsValidMode(params.ModeID) {
 		return fmt.Errorf("unknown mode: %s", params.ModeID)
 	}
 
@@ -722,7 +730,7 @@ func (m *Manager) HandleSessionSetConfigOption(_ context.Context, params acp.Ses
 
 	switch params.ConfigID {
 	case "mode":
-		if params.Value != string(ModeAgent) && params.Value != string(ModePlan) {
+		if !IsValidMode(params.Value) {
 			return nil, fmt.Errorf("invalid mode value: %q", params.Value)
 		}
 		state.SetMode(params.Value)

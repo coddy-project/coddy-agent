@@ -100,7 +100,7 @@ func (b *Bot) Start(ctx context.Context) error {
 	if _, err := bot.Request(tgbotapi.NewSetMyCommands(
 		tgbotapi.BotCommand{Command: "start", Description: "Greeting and quick intro"},
 		tgbotapi.BotCommand{Command: "help", Description: "Show available commands"},
-		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan)"},
+		tgbotapi.BotCommand{Command: "mode", Description: "Switch session mode (agent / plan / ask)"},
 		tgbotapi.BotCommand{Command: "model", Description: "Switch LLM model"},
 		tgbotapi.BotCommand{Command: "context", Description: "Show context window usage"},
 		tgbotapi.BotCommand{Command: "clear", Description: "Start a new session (forget context)"},
@@ -215,7 +215,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		reply(bot, chatID, msg.MessageID,
 			"*Available commands:*\n\n"+
 				"/start — greeting and quick intro\n"+
-				"/mode — switch session mode (agent / plan)\n"+
+				"/mode — switch session mode (agent / plan / ask)\n"+
 				"/model — switch LLM model\n"+
 				"/context — show context window usage\n"+
 				"/clear — start a new session (forgets previous context)\n"+

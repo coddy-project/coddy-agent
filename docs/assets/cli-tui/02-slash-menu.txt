@@ -13,7 +13,7 @@
 /
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 → model           Select model (opens selector UI)
-  mode            Switch between agent and plan mode
+  mode            Switch between agent, plan, and ask mode
   resume          Resume another session
   new             Start a new session
   theme           Switch color theme
