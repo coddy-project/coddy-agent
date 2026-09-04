@@ -40,7 +40,10 @@ import {
   parseCoddyQuestionPayload,
   type QuestionResolvedState,
 } from "./chat/questionTypes";
-import { createDebouncedSessionStatsRefresh } from "./chat/sessionStatsPoll";
+import {
+  useSessionStats,
+  type SessionStats,
+} from "./chat/useSessionStats";
 import {
   preserveTranscriptItemIds,
   stableAssistantItemId,
@@ -80,7 +83,7 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
-import type { WorkspaceContext } from "./chat/workspaceContext";
+import { useWorkspace } from "./chat/useWorkspace";
 import {
   injectBranchNavItems,
   deduplicateBranchNavs,
@@ -88,18 +91,10 @@ import {
 } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
-import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
-import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
-import {
-  pickDefaultLlmModelForNewChat,
-  pickLlmModelForOpenSession,
-} from "./chat/llmModelSelection";
-import {
-  readReasoningCookie,
-  writeReasoningCookie,
-} from "./chat/reasoningCookie";
-import { pickReasoningLevel } from "./chat/reasoningSelection";
+import { useShellLayout } from "./nav/useShellLayout";
+import { useLlmModelSelection } from "./chat/useLlmModelSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
+import { useSessionsList } from "./sessions/useSessionsList";
 import { useConfirm } from "./components/useConfirm";
 import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
@@ -126,507 +121,56 @@ import {
   WORKSPACE_AT_RECENTS_NO_SESSION_KEY,
 } from "./skills/workspaceAtRecents";
 import {
-  schedulerCancelJob,
-  schedulerListJobs,
-  schedulerRunJob,
-} from "./scheduler/api";
-import {
   parseAppHash,
   setDraftHashInLocation,
   setHistoryHash,
   setSessionHashInLocation,
   schedulerEditorFromParsedHash,
-  setSchedulerCreateHash,
-  setSchedulerJobHash,
   setSchedulerListHash,
   setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
-import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
-import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import { SchedulerDockCluster } from "./scheduler/SchedulerDockCluster";
+import { useSchedulerDockWidth } from "./scheduler/useSchedulerDockWidth";
+import { useSchedulerJobs } from "./scheduler/useSchedulerJobs";
 import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
-import {
-  clearFinishedBackgroundTasks,
-  getBackgroundTask,
-  listBackgroundTasks,
-  stopBackgroundTask,
-} from "./tasks/api";
-import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import { useBackgroundTasks } from "./tasks/useBackgroundTasks";
 import {
   isSubagentSessionId,
   parseSubagentTranscriptMeta,
   type SubagentTranscriptMeta,
 } from "./chat/subagentTranscript";
-import type { BackgroundTask } from "./tasks/types";
-import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
-
-const HDR = "X-Coddy-Session-ID";
-
-async function markCoddySessionActivityRead(id: string): Promise<void> {
-  const t = id.trim();
-  if (!t) {
-    return;
-  }
-  try {
-    await fetch(`/coddy/sessions/${encodeURIComponent(t)}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        [HDR]: t,
-      },
-      body: JSON.stringify({ markActivityRead: true }),
-    });
-  } catch {
-    // ignore
-  }
-}
-
-/** Poll job list while scheduler UI is open (running, next_run_utc, paused). */
-const SCHEDULER_JOBS_POLL_MS = 12_000;
-
-type SchedulerEditorState =
-  null | { mode: "create" } | { mode: "edit"; jobId: string };
-
-type ToolCallUpdate = {
-  toolCallId: string;
-  title?: string;
-  kind?: string;
-  status?: string;
-};
-
-type ToolCallStatusUpdate = {
-  toolCallId: string;
-  status?: string;
-  content?: Array<{ type: string; content: { type: string; text?: string } }>;
-  _meta?: {
-    coddy?: {
-      toolResultPreview?: { truncated?: boolean; totalLines?: number };
-    };
-  };
-};
-
-type ToolCallListRow = {
-  toolCallId: string;
-  name?: string;
-  kind?: string;
-  status?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  argsPreview?: string;
-  resultPreview?: string;
-  resultPreviewTruncated?: boolean;
-  planSnapshot?: unknown;
-};
-
-function readMessageCreatedAtUTC(
-  m: Record<string, unknown>,
-): string | undefined {
-  const raw = m.created_at ?? m.createdAt;
-  if (typeof raw !== "string") {
-    return undefined;
-  }
-  const s = raw.trim();
-  return s === "" ? undefined : s;
-}
-
-function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
-  const p = u._meta?.coddy?.toolResultPreview;
-  return !!(p && p.truncated === true);
-}
-
-type MemoryPhaseEvt = {
-  memoryRowId: string;
-  phase: string;
-  status: string;
-  userTurnIndex?: number;
-  durationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
-type MemoryChunkEvt = {
-  memoryRowId: string;
-  phase: string;
-  kind: string;
-  delta: string;
-};
-
-type MemoryTurnApi = {
-  userTurnIndex: number;
-  memoryRowId?: string;
-  memoryMode?: string;
-  memoryDurationMs?: number;
-  memoryContextText?: string;
-  recallSkipped?: boolean;
-  recallText?: string;
-  recallReasoningText?: string;
-  recallDurationMs?: number;
-  persistJudgeText?: string;
-  persistDurationMs?: number;
-  persistSaved?: boolean;
-  persistRelativePath?: string;
-  persistTitle?: string;
-  persistSavedBody?: string;
-  recallReadPaths?: string[];
-};
-
-type ModelInfo = {
-  id: string;
-  ownedBy?: string;
-  maxContextTokens?: number | undefined;
-  multimodal?: boolean;
-  reasoningLevels?: string[];
-  reasoningDefault?: string;
-};
+import {
+  HDR,
+  fetchJSON,
+  markCoddySessionActivityRead,
+  newId,
+  randomSessionId,
+} from "./coddyApi";
+import {
+  applyMemoryChunkToItems,
+  applyMemoryPhaseToItems,
+  freezeMemoryWallWhenThinkingAfterRecall,
+  memoryTranscriptFromApi,
+  type MemoryChunkEvt,
+  type MemoryPhaseEvt,
+  type MemoryTurnApi,
+} from "./chat/memoryTranscript";
+import {
+  readMessageCreatedAtUTC,
+  toolSseShowsTruncatedPreview,
+  type ToolCallListRow,
+  type ToolCallStatusUpdate,
+  type ToolCallUpdate,
+} from "./chat/toolCallStream";
+import {
+  parseRFC3339ms,
+  reasoningDurationCacheKey,
+} from "./chat/reasoningTiming";
 
 const PROFILE_MODES = ["agent", "plan", "ask"] as const;
-
-type SessionStats = {
-  tokenUsageTotal?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
-  contextBreakdown?: {
-    systemPrompt: number;
-    toolDefinitions: number;
-    rules: number;
-    skills: number;
-    mcp: number;
-    subagents: number;
-    conversation: number;
-    estimatedTotal: number;
-  };
-};
-
-function randomSessionId(): string {
-  const hex = [...crypto.getRandomValues(new Uint8Array(18))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return `sess_${hex}`;
-}
-
-async function fetchJSON<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<{ ok: boolean; status: number; data?: T }> {
-  const res = await fetch(path, init);
-  const status = res.status;
-  if (!res.ok) {
-    return { ok: false, status };
-  }
-  const data = (await res.json()) as T;
-  return { ok: true, status, data };
-}
-
-function newId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(16).slice(2)}`;
-}
-
-function memoryTranscriptFromApi(
-  row: MemoryTurnApi,
-): Extract<TranscriptItem, { type: "memory_copilot" }> {
-  const rowId = (row.memoryRowId || "").trim() || `mem-${row.userTurnIndex}`;
-  const unifiedCtx = (row.memoryContextText || "").trim();
-  const rt = (row.recallText || "").trim();
-  const rr = (row.recallReasoningText || "").trim();
-  const paths = Array.isArray(row.recallReadPaths)
-    ? row.recallReadPaths.filter(
-        (x) => typeof x === "string" && x.trim() !== "",
-      )
-    : [];
-  const hasRecallTrail = !!(
-    row.recallDurationMs ||
-    rt ||
-    rr ||
-    paths.length > 0
-  );
-  const pt = (row.persistJudgeText || "").trim();
-  const hasPersistTrail = !!(row.persistDurationMs || pt || row.persistSaved);
-  const hasUnified = !!(row.memoryDurationMs || unifiedCtx);
-  const sumMs =
-    typeof row.memoryDurationMs === "number" && row.memoryDurationMs > 0
-      ? row.memoryDurationMs
-      : (row.recallDurationMs ?? 0) + (row.persistDurationMs ?? 0);
-  const legacyCombined = [row.recallText, row.persistJudgeText]
-    .filter((x) => typeof x === "string" && x.trim() !== "")
-    .join("\n\n");
-  const memoryTextOut = unifiedCtx || legacyCombined;
-  return {
-    id: stableMemoryCopilotItemId(rowId, row.userTurnIndex),
-    type: "memory_copilot",
-    memoryRowId: rowId,
-    userTurnIndex: row.userTurnIndex,
-    ...(hasUnified
-      ? { memoryStatus: "completed" as const, memoryText: memoryTextOut }
-      : {}),
-    recallStatus: hasRecallTrail ? "completed" : "idle",
-    persistStatus: hasPersistTrail ? "completed" : "idle",
-    recallText: row.recallText || "",
-    recallReasoning: row.recallReasoningText || "",
-    persistText: row.persistJudgeText || "",
-    persistReasoning: "",
-    ...(typeof row.recallDurationMs === "number"
-      ? { recallDurationMs: row.recallDurationMs }
-      : {}),
-    ...(typeof row.persistDurationMs === "number"
-      ? { persistDurationMs: row.persistDurationMs }
-      : {}),
-    ...(sumMs > 0 ? { memoryWallDurationMs: sumMs } : {}),
-    ...(typeof row.persistSaved === "boolean"
-      ? { persistSaved: row.persistSaved }
-      : {}),
-    ...(row.persistRelativePath
-      ? { persistRelativePath: row.persistRelativePath }
-      : {}),
-    ...(row.persistTitle ? { persistTitle: row.persistTitle } : {}),
-    ...(row.persistSavedBody ? { persistSavedBody: row.persistSavedBody } : {}),
-    ...(paths.length > 0 ? { recallReadPaths: paths } : {}),
-  };
-}
-
-function applyMemoryPhaseToItems(
-  prev: TranscriptItem[],
-  p: MemoryPhaseEvt,
-): TranscriptItem[] {
-  const now = Date.now();
-  let idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === p.memoryRowId,
-  );
-  const next = [...prev];
-  let uidx = -1;
-  for (let i = prev.length - 1; i >= 0; i--) {
-    const it = prev[i];
-    if (it && it.type === "user_message") {
-      uidx = i;
-      break;
-    }
-  }
-  const insertAt = uidx >= 0 ? uidx + 1 : next.length;
-
-  const baseMemory = (): Extract<
-    TranscriptItem,
-    { type: "memory_copilot" }
-  > => ({
-    id: stableMemoryCopilotItemId(
-      p.memoryRowId,
-      typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    ),
-    type: "memory_copilot",
-    memoryRowId: p.memoryRowId,
-    userTurnIndex: typeof p.userTurnIndex === "number" ? p.userTurnIndex : 0,
-    memoryStatus: "idle",
-    memoryText: "",
-    recallStatus: "idle",
-    persistStatus: "idle",
-    recallText: "",
-    recallReasoning: "",
-    persistText: "",
-    persistReasoning: "",
-  });
-
-  if (idx < 0) {
-    next.splice(insertAt, 0, baseMemory());
-    idx = insertAt;
-  }
-
-  const cur = next[idx];
-  if (!cur || cur.type !== "memory_copilot") {
-    return prev;
-  }
-
-  let patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const st = (p.status || "").trim();
-
-  if (p.phase === "memory") {
-    if (st === "started") {
-      patch.memoryStatus = "in_progress";
-      patch.recallStatus = "in_progress";
-      patch.persistStatus = "idle";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.memoryStatus = "completed";
-      patch.recallStatus = "completed";
-      patch.persistStatus = p.persistSaved ? "completed" : "idle";
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-  if (p.phase === "recall") {
-    if (st === "started") {
-      patch.recallStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-    }
-    if (st === "completed") {
-      patch.recallStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.recallDurationMs = p.durationMs;
-      const rp = p.recallReadPaths;
-      if (Array.isArray(rp) && rp.length > 0) {
-        const cleaned = rp.map((x) => String(x).trim()).filter((x) => x !== "");
-        if (cleaned.length > 0) patch.recallReadPaths = cleaned;
-      }
-    }
-  }
-  if (p.phase === "persist") {
-    if (st === "started") {
-      patch.persistStatus = "in_progress";
-      if (patch.memoryWallStartedAtMs == null)
-        patch.memoryWallStartedAtMs = now;
-      const wallStart = patch.memoryWallStartedAtMs;
-      const wallElapsed =
-        typeof wallStart === "number" ? Math.max(0, now - wallStart) : 0;
-      if (
-        typeof patch.memoryWallLiveCapMs === "number" &&
-        Number.isFinite(patch.memoryWallLiveCapMs)
-      ) {
-        patch.memoryWallLiveCapMs = Math.max(
-          patch.memoryWallLiveCapMs,
-          wallElapsed,
-        );
-      } else {
-        patch.memoryWallLiveCapMs = wallElapsed;
-      }
-    }
-    if (st === "completed") {
-      patch.persistStatus = "completed";
-      if (typeof p.durationMs === "number" && p.durationMs > 0)
-        patch.persistDurationMs = p.durationMs;
-      if (typeof p.persistSaved === "boolean") {
-        patch.persistSaved = p.persistSaved;
-      }
-      const pr = (p.persistRelativePath || "").trim();
-      if (pr) patch.persistRelativePath = pr;
-      const tt = (p.persistTitle || "").trim();
-      if (tt) patch.persistTitle = tt;
-      const pb = (p.persistSavedBody || "").trim();
-      if (pb) patch.persistSavedBody = pb;
-      if (typeof patch.memoryWallStartedAtMs === "number") {
-        patch.memoryWallDurationMs = Math.max(
-          0,
-          now - patch.memoryWallStartedAtMs,
-        );
-      }
-    }
-  }
-
-  next[idx] = patch;
-  return next;
-}
-
-function applyMemoryChunkToItems(
-  prev: TranscriptItem[],
-  c: MemoryChunkEvt,
-): TranscriptItem[] {
-  const idx = prev.findIndex(
-    (x) => x.type === "memory_copilot" && x.memoryRowId === c.memoryRowId,
-  );
-  if (idx < 0) return prev;
-  const cur = prev[idx];
-  if (!cur || cur.type !== "memory_copilot") return prev;
-  const next = [...prev];
-  const patch: Extract<TranscriptItem, { type: "memory_copilot" }> = { ...cur };
-  const ph = (c.phase || "").trim();
-  const kd = (c.kind || "").trim();
-  const d = typeof c.delta === "string" ? c.delta : "";
-  if (!d) return prev;
-  if (ph === "memory") {
-    if (kd !== "reasoning") patch.memoryText = (patch.memoryText || "") + d;
-  } else if (ph === "recall") {
-    if (kd !== "reasoning") patch.recallText += d;
-  } else if (ph === "persist") {
-    if (kd !== "reasoning") patch.persistText += d;
-  } else {
-    return prev;
-  }
-  next[idx] = patch;
-  return next;
-}
-
-/** Freeze the memory wall-clock label once main-model reasoning starts while recall/persist are still SSE-busy (events can arrive after reasoning deltas). */
-function freezeMemoryWallWhenThinkingAfterRecall(
-  items: TranscriptItem[],
-  freezeAtMs: number,
-): TranscriptItem[] {
-  let userIdx = -1;
-  for (let i = items.length - 1; i >= 0; i--) {
-    const it = items[i];
-    if (!it) continue;
-    if (it && it.type === "user_message") {
-      userIdx = i;
-      break;
-    }
-  }
-  if (userIdx < 0) return items;
-
-  let memIdx = -1;
-  let thinkingIdx = -1;
-  for (let i = userIdx + 1; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    if (it.type === "user_message") break;
-    if (it.type === "memory_copilot") memIdx = i;
-    if (it.type === "thinking" && it.status === "in_progress") {
-      thinkingIdx = i;
-      break;
-    }
-  }
-  if (memIdx < 0 || thinkingIdx < 0) return items;
-
-  const m = items[memIdx];
-  if (!m || m.type !== "memory_copilot") return items;
-
-  const memBusy =
-    m.memoryStatus === "in_progress" ||
-    m.recallStatus === "in_progress" ||
-    m.persistStatus === "in_progress";
-  if (!memBusy || typeof m.memoryWallLiveCapMs === "number") return items;
-
-  const startMs = m.memoryWallStartedAtMs;
-  if (typeof startMs !== "number") return items;
-
-  const cap = Math.max(0, freezeAtMs - startMs);
-  const next = [...items];
-  next[memIdx] = { ...m, memoryWallLiveCapMs: cap };
-  return next;
-}
-
-function parseRFC3339ms(s: string | undefined): number | null {
-  const t = (s || "").trim();
-  if (!t) return null;
-  const ms = Date.parse(t);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function reasoningDurationCacheKey(text: string): string {
-  return text.trim().replace(/\s+/g, " ");
-}
 
 export function App() {
   const { t } = useT();
@@ -639,10 +183,21 @@ export function App() {
   const [heroHomeGeneration, setHeroHomeGeneration] = useState(() =>
     Math.floor(Math.random() * HERO_ACCENT_VERBS.length),
   );
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [sessionsCursor, setSessionsCursor] = useState<string | null>(null);
-  const sessionsCursorRef = useRef<string | null>(null);
-  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const headers = useMemo(
+    () => (sessionId ? { [HDR]: sessionId } : {}),
+    [sessionId],
+  );
+  const {
+    sessions,
+    setSessions,
+    sessionsError,
+    loadSessionsList,
+    sessionFilterDraft,
+    setSessionFilterDraft,
+    sessionFilterQ,
+    sessionsHasMore,
+    sessionsLoadingMore,
+  } = useSessionsList({ headers });
   const [items, setItems] = useState<TranscriptItem[]>([]);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionFadingOut, setSessionFadingOut] = useState(false);
@@ -662,17 +217,13 @@ export function App() {
   // Sessions explicitly chosen via branch nav — skip resolveLatestLeaf for these.
   const skipLeafResolveRef = useRef<Set<string>>(new Set());
   const [draft, setDraft] = useState("");
-  // Workspace context chips: folder / git branch / worktree state per session.
-  const [workspaceCtx, setWorkspaceCtx] = useState<WorkspaceContext | null>(
-    null,
-  );
-  const [worktreePref, setWorktreePref] = useState(false);
-  // Pre-session workspace choices, applied right before the first send creates the session.
-  const pendingWorkspaceRef = useRef<{
-    path?: string;
-    branch?: string;
-    worktree?: boolean;
-  } | null>(null);
+  const {
+    workspaceCtx,
+    worktreePref,
+    setWorktreePref,
+    switchWorkspace,
+    applyPendingWorkspace,
+  } = useWorkspace({ sessionId });
   const [clientDraftSessions, setClientDraftSessions] = useState<
     ClientDraftSession[]
   >(() => readClientDraftSessions());
@@ -686,76 +237,12 @@ export function App() {
   const [questionPendingSids, setQuestionPendingSids] = useState<Set<string>>(
     () => new Set(),
   );
-  const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
-  const [contextBreakdown, setContextBreakdown] = useState<NonNullable<
-    SessionStats["contextBreakdown"]
-  > | null>(null);
-
-  const applySessionStatsPayload = useCallback(
-    (stats: SessionStats | null | undefined, viewing: boolean) => {
-      if (!viewing) {
-        return;
-      }
-      if (stats?.tokenUsageTotal) {
-        const t = stats.tokenUsageTotal;
-        tokenBaselineRef.current = {
-          input: t.inputTokens || 0,
-          output: t.outputTokens || 0,
-          total: t.totalTokens || 0,
-        };
-        setTokenUsage({
-          inputTokens: tokenBaselineRef.current.input,
-          outputTokens: tokenBaselineRef.current.output,
-          totalTokens: tokenBaselineRef.current.total,
-        });
-      }
-      if (stats?.contextBreakdown) {
-        setContextBreakdown(stats.contextBreakdown);
-      }
-    },
-    [],
-  );
-
-  const refreshSessionStats = useCallback(
-    async (sid: string) => {
-      const key = sid.trim();
-      if (!key) {
-        return;
-      }
-      const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
-        `/coddy/sessions/${encodeURIComponent(key)}/stats`,
-        { headers: { [HDR]: key } },
-      );
-      if (!statsRes.ok) {
-        return;
-      }
-      applySessionStatsPayload(
-        statsRes.data?.stats,
-        viewedSessionIdRef.current.trim() === key,
-      );
-    },
-    [applySessionStatsPayload],
-  );
-
-  const debouncedRefreshSessionStats = useMemo(
-    () =>
-      createDebouncedSessionStatsRefresh((sid) => {
-        void refreshSessionStats(sid);
-      }),
-    [refreshSessionStats],
-  );
-
   const markViewedSessionActivityRead = useCallback((sid: string) => {
     const key = sid.trim();
     if (!key) return;
     if (viewedSessionIdRef.current.trim() !== key) return;
     void markCoddySessionActivityRead(key);
   }, []);
-  const tokenBaselineRef = useRef<{
-    input: number;
-    output: number;
-    total: number;
-  }>({ input: 0, output: 0, total: 0 });
   /**
    * Per-session shadow transcript while that session streams in the
    * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
@@ -857,6 +344,17 @@ export function App() {
     return activeComposerSidRef.current.has(sid);
   }, [sessionId, composerActivityEpoch]);
 
+  const {
+    tokenUsage,
+    setTokenUsage,
+    contextBreakdown,
+    setContextBreakdown,
+    tokenBaselineRef,
+    applySessionStatsPayload,
+    refreshSessionStats,
+    debouncedRefreshSessionStats,
+  } = useSessionStats({ sessionId, generating, viewedSessionIdRef });
+
   // Text of the most recent user turn, used to re-run it from the retry button
   // on a failed/system notice (e.g. "model did not respond").
   const lastUserText = useMemo(() => {
@@ -869,18 +367,6 @@ export function App() {
     return "";
   }, [items]);
 
-  useEffect(() => {
-    const sid = sessionId.trim();
-    if (!sid || !generating) {
-      return;
-    }
-    void refreshSessionStats(sid);
-    const timer = window.setInterval(() => {
-      void refreshSessionStats(sid);
-    }, 800);
-    return () => window.clearInterval(timer);
-  }, [sessionId, generating, refreshSessionStats]);
-
   const sidebarActiveId = sessionId.trim() || activeDraftId.trim();
 
   const sessionsForSidebar = useMemo(
@@ -891,68 +377,52 @@ export function App() {
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
     new Map(),
   );
-  const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-  /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
-  const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
-    boolean | null
-  >(null);
-  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const {
+    schedulerHttpLinked,
+    schedulerOpen,
+    setSchedulerOpen,
+    schedulerEditor,
+    setSchedulerEditor,
+    schedulerInfo,
+    filteredSchedulerJobs,
+    schedulerListError,
+    schedulerListLoading,
+    schedulerFilterDraft,
+    setSchedulerFilterDraft,
+    refreshSchedulerJobs,
+    onSchedulerRunJob,
+    onSchedulerCancelJob,
+  } = useSchedulerJobs({ sessionId });
+  const { clusterRef: schedulerDockClusterRef, widthPx: schedDockClusterWidthPx } =
+    useSchedulerDockWidth({
+      open: schedulerOpen,
+      httpLinked: schedulerHttpLinked,
+      editor: schedulerEditor,
+    });
   const [settingsRoute, setSettingsRoute] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
-  const [schedulerEditor, setSchedulerEditor] =
-    useState<SchedulerEditorState>(null);
-  const [schedulerJobs, setSchedulerJobs] = useState<SchedulerJob[]>([]);
-  const [schedulerInfo, setSchedulerInfo] = useState<SchedulerInfo | null>(
-    null,
-  );
-  const [schedulerListError, setSchedulerListError] = useState<string | null>(
-    null,
-  );
-  const [schedulerListLoading, setSchedulerListLoading] = useState(false);
-  const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
-  const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
-  const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
-  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
-  const [backgroundRunning, setBackgroundRunning] = useState(0);
-  const [backgroundOutput, setBackgroundOutput] = useState("");
-  const [backgroundListError, setBackgroundListError] = useState<string | null>(
-    null,
-  );
-  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
-  /** Ticks once a second so elapsed times advance between polls. */
-  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
+  const {
+    tasksOpen,
+    setTasksOpen,
+    tasksSelectedId,
+    setTasksSelectedId,
+    backgroundTasks,
+    backgroundOutput,
+    backgroundListError,
+    backgroundListLoading,
+    backgroundNowMs,
+    backgroundTasksByToolCallId,
+    refreshBackgroundTasks,
+    stopBackgroundTaskById,
+    clearFinishedTasks,
+  } = useBackgroundTasks({ sessionId });
   /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
   const [subagentTranscript, setSubagentTranscript] =
     useState<SubagentTranscriptMeta | null>(null);
-  const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
-  const [sessionFilterDraft, setSessionFilterDraft] = useState("");
-  const [sessionFilterQ, setSessionFilterQ] = useState("");
-  const [sessionsHasMore, setSessionsHasMore] = useState(false);
-  const [sessionsLoadingMore, setSessionsLoadingMore] = useState(false);
-  const sessionsHasMoreRef = useRef(false);
-  const sessionsLoadingMoreRef = useRef(false);
-  const [viewportXL, setViewportXL] = useState(false);
-  const [railLabelsWide, setRailLabelsWide] = useState(false);
+  const { viewportXL, railLabelsWide, toggleRailWidth } = useShellLayout();
   const [mode, setMode] = useState<string>("agent");
-  const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
-  const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
-  const [llmModel, setLlmModel] = useState("");
-  const [llmReasoning, setLlmReasoning] = useState("");
-  /**
-   * Raw model/reasoning stored on the opened session. Held until the backends
-   * list (`llmModelIds`) is available so the restore survives whichever of
-   * `/v1/models` and `/coddy/sessions/.../messages` resolves first on reload.
-   */
-  const [openSessionSelection, setOpenSessionSelection] = useState<{
-    sid: string;
-    model: string;
-    reasoning: string;
-  } | null>(null);
   const [describePreview, setDescribePreview] = useState<{
     sessionId: string;
     title: string;
@@ -1164,243 +634,20 @@ export function App() {
     );
   }
 
-  const headers = useMemo(
-    () => (sessionId ? { [HDR]: sessionId } : {}),
-    [sessionId],
-  );
 
-  const refreshWorkspaceContext = useCallback(async (sid: string) => {
-    try {
-      const res = await fetch("/coddy/workspace/context", {
-        headers: sid ? { [HDR]: sid } : {},
-      });
-      if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
-      }
-    } catch {
-      // ignore: chips keep the previous context
-    }
-  }, []);
-
-  // Load the workspace context whenever the viewed session changes; a fresh
-  // home/draft view also drops stale pre-session workspace choices.
-  useEffect(() => {
-    pendingWorkspaceRef.current = null;
-    void refreshWorkspaceContext(sessionId);
-  }, [sessionId, refreshWorkspaceContext]);
-
-  async function switchWorkspace(payload: {
-    path?: string;
-    branch?: string;
-    worktree?: boolean;
-  }) {
-    const sid = sessionId.trim();
-    if (!sid) {
-      // No session yet: remember the choice and preview the target context.
-      pendingWorkspaceRef.current = {
-        ...(pendingWorkspaceRef.current || {}),
-        ...payload,
-      };
-      if (payload.path) {
-        try {
-          const res = await fetch(
-            "/coddy/workspace/context?path=" + encodeURIComponent(payload.path),
-          );
-          if (res.ok) {
-            setWorkspaceCtx((await res.json()) as WorkspaceContext);
-          }
-        } catch {
-          // ignore
-        }
-      } else if (payload.branch) {
-        const nextBranch = payload.branch;
-        setWorkspaceCtx((prev) =>
-          prev
-            ? {
-                ...prev,
-                branch: nextBranch,
-                is_worktree: Boolean(payload.worktree),
-              }
-            : prev,
-        );
-      }
-      return;
-    }
-    try {
-      const res = await fetch(
-        `/coddy/sessions/${encodeURIComponent(sid)}/workspace`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", [HDR]: sid },
-          body: JSON.stringify(payload),
-        },
-      );
-      if (res.ok) {
-        setWorkspaceCtx((await res.json()) as WorkspaceContext);
-      } else {
-        await refreshWorkspaceContext(sid);
-      }
-    } catch {
-      // network error: keep the current chips
-    }
-  }
-
-  // Applies pre-session workspace choices to the freshly created session id
-  // right before the first send.
-  async function applyPendingWorkspace(sid: string) {
-    const pending = pendingWorkspaceRef.current;
-    pendingWorkspaceRef.current = null;
-    if (!pending || (!pending.path && !pending.branch)) {
-      return;
-    }
-    const base = { "Content-Type": "application/json", [HDR]: sid };
-    try {
-      if (pending.path) {
-        await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({ path: pending.path }),
-        });
-      }
-      if (pending.branch) {
-        await fetch(`/coddy/sessions/${encodeURIComponent(sid)}/workspace`, {
-          method: "POST",
-          headers: base,
-          body: JSON.stringify({
-            branch: pending.branch,
-            worktree: Boolean(pending.worktree),
-          }),
-        });
-      }
-    } catch {
-      // ignore: the session still starts in the default workspace
-    }
-  }
-
-  const refreshBackgroundTasks = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const sid = sessionId.trim();
-      if (!sid) {
-        setBackgroundTasks([]);
-        setBackgroundRunning(0);
-        return;
-      }
-      const silent = !!opts?.silent;
-      if (!silent) {
-        setBackgroundListLoading(true);
-        setBackgroundListError(null);
-      }
-      const res = await listBackgroundTasks(sid);
-      if (!silent) {
-        setBackgroundListLoading(false);
-      }
-      if (!res.ok) {
-        if (!silent) {
-          setBackgroundListError(res.message);
-          setBackgroundTasks([]);
-          setBackgroundRunning(0);
-        }
-        return;
-      }
-      setBackgroundListError(null);
-      setBackgroundTasks(res.data.data || []);
-      setBackgroundRunning(res.data.running || 0);
-    },
-    [sessionId, t],
-  );
-
-  const refreshBackgroundTaskOutput = useCallback(
-    async (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid || !taskId) {
-        setBackgroundOutput("");
-        return;
-      }
-      const res = await getBackgroundTask(sid, taskId);
-      setBackgroundOutput(res.ok ? res.data.output || "" : "");
-    },
-    [sessionId],
-  );
-
-  const stopBackgroundTaskById = useCallback(
-    async (taskId: string) => {
-      const sid = sessionId.trim();
-      if (!sid || !taskId) {
-        return;
-      }
-      const res = await stopBackgroundTask(sid, taskId);
-      if (res.ok) {
-        setBackgroundOutput(res.data.output || "");
-      }
-      void refreshBackgroundTasks({ silent: true });
-    },
-    [sessionId, refreshBackgroundTasks],
-  );
-
-  const clearFinishedTasks = useCallback(async () => {
-    const sid = sessionId.trim();
-    if (!sid) {
-      return;
-    }
-    await clearFinishedBackgroundTasks(sid);
-    setTasksSelectedId(null);
-    void refreshBackgroundTasks({ silent: true });
-  }, [sessionId, refreshBackgroundTasks]);
-
-  const refreshSchedulerJobs = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const silent = !!opts?.silent;
-      if (!silent) {
-        setSchedulerListLoading(true);
-        setSchedulerListError(null);
-      }
-      const res = await schedulerListJobs(false);
-      if (!silent) {
-        setSchedulerListLoading(false);
-      }
-      if (!res.ok) {
-        let msg = res.message;
-        if (res.status === 404) {
-          setSchedulerHttpLinked(false);
-          setSchedulerOpen(false);
-          setSchedulerEditor(null);
-          msg = t("scheduler.apiNotAvailable");
-          const sid = sessionId.trim();
-          if (sid) {
-            setSessionHashInLocation(sid);
-          } else if (window.location.hash) {
-            history.replaceState(
-              null,
-              "",
-              `${window.location.pathname}${window.location.search}`,
-            );
-          }
-          setSchedulerListError(msg);
-          setSchedulerJobs([]);
-          setSchedulerInfo(null);
-          return;
-        }
-        if (res.status === 503) {
-          msg = t("scheduler.disabled");
-          if (!silent) {
-            setSchedulerListError(msg);
-            setSchedulerJobs([]);
-            setSchedulerInfo(null);
-          }
-          return;
-        }
-        if (!silent) {
-          setSchedulerListError(msg);
-          setSchedulerJobs([]);
-          setSchedulerInfo(null);
-        }
-        return;
-      }
-      setSchedulerInfo(res.data.scheduler);
-      setSchedulerJobs(res.data.jobs || []);
-    },
-    [sessionId, t],
-  );
+  const {
+    llmModelIds,
+    llmModel,
+    llmReasoning,
+    maxContextTokens,
+    llmModelMultimodal,
+    llmReasoningLevels,
+    onLlmModelChange,
+    onLlmReasoningChange,
+    setOpenSessionSelection,
+    resetForNewChat: resetLlmSelectionForNewChat,
+    bumpModelsEpoch,
+  } = useLlmModelSelection({ sessionId, headers, viewedSessionIdRef });
 
   const applyLocationHash = useCallback(() => {
     const p = parseAppHash();
@@ -1577,26 +824,6 @@ export function App() {
   }, [sessionsOpen]);
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const r = await fetch("/coddy/scheduler/jobs");
-        if (cancelled) {
-          return;
-        }
-        setSchedulerHttpLinked(r.status !== 404);
-      } catch {
-        if (!cancelled) {
-          setSchedulerHttpLinked(true);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     applyLocationHash();
   }, [applyLocationHash]);
 
@@ -1617,224 +844,9 @@ export function App() {
     })();
   }, []);
 
-  // Background tasks outlive the SSE stream of the turn that started them, so
-  // the drawer and the nav badge are kept honest by polling rather than by the
-  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
-  useEffect(() => {
-    if (!sessionId.trim()) {
-      setBackgroundTasks([]);
-      setBackgroundRunning(0);
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTasks({ silent: !tasksOpen });
-  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
-
-  useEffect(() => {
-    if (!sessionId.trim()) {
-      return;
-    }
-    const id = window.setInterval(() => {
-      void refreshBackgroundTasks({ silent: true });
-      if (tasksOpen && tasksSelectedId) {
-        void refreshBackgroundTaskOutput(tasksSelectedId);
-      }
-    }, tasksPollIntervalMs(backgroundRunning));
-    return () => window.clearInterval(id);
-  }, [
-    sessionId,
-    tasksOpen,
-    tasksSelectedId,
-    backgroundRunning,
-    refreshBackgroundTasks,
-    refreshBackgroundTaskOutput,
-  ]);
-
-  useEffect(() => {
-    if (!tasksOpen || !tasksSelectedId) {
-      setBackgroundOutput("");
-      return;
-    }
-    void refreshBackgroundTaskOutput(tasksSelectedId);
-  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
-
-  // Elapsed labels must advance between polls, so the clock ticks on its own
-  // while something is actually running.
-  useEffect(() => {
-    if (backgroundRunning <= 0) {
-      return;
-    }
-    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [backgroundRunning]);
-
-  useEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked === false) {
-      return;
-    }
-    void refreshSchedulerJobs();
-  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
-
-  useEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked !== true) {
-      return;
-    }
-    const id = window.setInterval(() => {
-      void refreshSchedulerJobs({ silent: true });
-    }, SCHEDULER_JOBS_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [schedulerOpen, schedulerHttpLinked, refreshSchedulerJobs]);
-
-  useEffect(() => {
-    void (async () => {
-      const res = await fetchJSON<{
-        default_agent_model?: string;
-        data?: Array<{
-          id?: string;
-          owned_by?: string;
-          max_context_tokens?: number;
-          multimodal?: boolean;
-          reasoning_levels?: string[];
-          reasoning_default?: string;
-        }>;
-      }>("/v1/models");
-      if (!res.ok || !res.data?.data) {
-        return;
-      }
-      const raw = res.data.data
-        .map((d) => ({
-          id: (d.id || "").trim(),
-          ownedBy: (d.owned_by || "").trim(),
-          ...(d.max_context_tokens !== undefined
-            ? { maxContextTokens: d.max_context_tokens }
-            : {}),
-          multimodal: !!d.multimodal,
-          reasoningLevels: Array.isArray(d.reasoning_levels)
-            ? d.reasoning_levels.map((s) => `${s}`.trim()).filter(Boolean)
-            : [],
-          reasoningDefault: (d.reasoning_default || "").trim(),
-        }))
-        .filter((d) => d.id);
-      const rows: ModelInfo[] = raw.map((d) => {
-        const m: ModelInfo = {
-          id: d.id,
-          ownedBy: d.ownedBy,
-          multimodal: d.multimodal,
-          reasoningLevels: d.reasoningLevels,
-          reasoningDefault: d.reasoningDefault,
-        };
-        if (d.maxContextTokens !== undefined) {
-          m.maxContextTokens = d.maxContextTokens;
-        }
-        return m;
-      });
-      setModelInfos(rows);
-      const backends = raw
-        .filter((r) => r.ownedBy !== "coddy")
-        .map((r) => r.id);
-      setLlmModelIds(backends);
-      const defaultYaml = (res.data.default_agent_model || "").trim();
-      setDefaultAgentYamlModel(defaultYaml);
-      if (!viewedSessionIdRef.current.trim()) {
-        setLlmModel(
-          pickDefaultLlmModelForNewChat({
-            backends,
-            cookie: readLlmModelCookie(),
-            defaultAgentModel: defaultYaml,
-          }),
-        );
-      }
-    })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
-
-  // Apply the opened session's saved model/reasoning once the backends list is
-  // known. Runs whenever either input lands, so the restore is independent of
-  // whether /v1/models or the session messages resolve first after a reload.
-  useEffect(() => {
-    if (!openSessionSelection || llmModelIds.length === 0) {
-      return;
-    }
-    if (openSessionSelection.sid !== viewedSessionIdRef.current.trim()) {
-      return;
-    }
-    setLlmModel(
-      pickLlmModelForOpenSession({
-        backends: llmModelIds,
-        sessionModel: openSessionSelection.model,
-        cookie: readLlmModelCookie(),
-        defaultAgentModel: defaultAgentYamlModel,
-      }),
-    );
-    setLlmReasoning(openSessionSelection.reasoning);
-  }, [openSessionSelection, llmModelIds, defaultAgentYamlModel]);
-
   useEffect(() => {
     setDescribePreview((p) => (p && p.sessionId !== sessionId ? null : p));
   }, [sessionId]);
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1920px)");
-    const apply = () => setViewportXL(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!schedulerOpen || schedulerHttpLinked !== true) {
-      setSchedDockClusterWidthPx(0);
-      return;
-    }
-    const el = schedulerDockClusterRef.current;
-    if (!el) {
-      setSchedDockClusterWidthPx(0);
-      return;
-    }
-    const ro = new ResizeObserver(() => {
-      setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
-    });
-    ro.observe(el);
-    setSchedDockClusterWidthPx(Math.round(el.getBoundingClientRect().width));
-    return () => ro.disconnect();
-  }, [schedulerOpen, schedulerHttpLinked, schedulerEditor]);
-
-  useEffect(() => {
-    if (!viewportXL) {
-      return;
-    }
-    const c = readNavRailCookie();
-    setRailLabelsWide(c === "wide");
-  }, [viewportXL]);
-
-  useEffect(() => {
-    const t = window.setTimeout(
-      () => setSessionFilterQ(sessionFilterDraft.trim()),
-      300,
-    );
-    return () => window.clearTimeout(t);
-  }, [sessionFilterDraft]);
-
-  useEffect(() => {
-    const t = window.setTimeout(
-      () => setSchedulerFilterQ(schedulerFilterDraft.trim()),
-      200,
-    );
-    return () => window.clearTimeout(t);
-  }, [schedulerFilterDraft]);
-
-  useEffect(() => {
-    sessionsCursorRef.current = sessionsCursor;
-  }, [sessionsCursor]);
-
-  useEffect(() => {
-    sessionsHasMoreRef.current = sessionsHasMore;
-  }, [sessionsHasMore]);
-
-  useEffect(() => {
-    sessionsLoadingMoreRef.current = sessionsLoadingMore;
-  }, [sessionsLoadingMore]);
 
   useEffect(() => {
     if (!sessionsOpen && !schedulerOpen) {
@@ -1860,68 +872,6 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [sessionsOpen, schedulerOpen, schedulerEditor, closeSchedulerDrawer]);
-
-  const loadSessionsList = useCallback(
-    async (reset: boolean): Promise<SessionRow[] | null> => {
-      if (reset) {
-        sessionsCursorRef.current = null;
-        setSessionsCursor(null);
-      } else if (
-        !sessionsHasMoreRef.current ||
-        sessionsLoadingMoreRef.current
-      ) {
-        return null;
-      }
-      if (!reset) {
-        sessionsLoadingMoreRef.current = true;
-        setSessionsLoadingMore(true);
-      }
-      const ps = new URLSearchParams();
-      ps.set("limit", "30");
-      if (!reset) {
-        const cur = sessionsCursorRef.current;
-        if (cur) {
-          ps.set("cursor", cur);
-        }
-      }
-      if (sessionFilterQ) {
-        ps.set("q", sessionFilterQ);
-      }
-      ps.set("include_activity", "true");
-      const res = await fetchJSON<{
-        sessions: SessionRow[];
-        nextCursor?: string | null;
-        hasMore?: boolean;
-      }>(`/coddy/sessions?${ps.toString()}`, {
-        headers,
-      });
-      if (!reset) {
-        sessionsLoadingMoreRef.current = false;
-        setSessionsLoadingMore(false);
-      }
-      if (!res.ok || !res.data) {
-        setSessionsError(t("app.backendUnavailable", { status: res.status }));
-        return null;
-      }
-      setSessionsError(null);
-      const next = res.data.sessions || [];
-      setSessions((prev) => {
-        if (reset) {
-          return next;
-        }
-        const seen = new Set(prev.map((s) => s.id));
-        return [...prev, ...next.filter((s) => !seen.has(s.id))];
-      });
-      const nextCur = res.data.nextCursor ?? null;
-      setSessionsCursor(nextCur);
-      sessionsCursorRef.current = nextCur;
-      const hm = !!res.data.hasMore;
-      setSessionsHasMore(hm);
-      sessionsHasMoreRef.current = hm;
-      return next;
-    },
-    [sessionFilterQ, headers, t],
-  );
 
   useEffect(() => {
     void (async () => {
@@ -2550,18 +1500,7 @@ export function App() {
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
     evictStaleSessionCaches("");
-    // Drop any stashed session selection so its restore effect cannot reapply
-    // the old session's model over the new chat default.
-    setOpenSessionSelection(null);
-    if (llmModelIds.length > 0) {
-      setLlmModel(
-        pickDefaultLlmModelForNewChat({
-          backends: llmModelIds,
-          cookie: readLlmModelCookie(),
-          defaultAgentModel: defaultAgentYamlModel,
-        }),
-      );
-    }
+    resetLlmSelectionForNewChat();
   }
 
   async function deleteSession(id: string) {
@@ -3587,105 +2526,9 @@ export function App() {
     postAbortBySidRef.current.get(sid)?.abort();
   }
 
-  const maxContextTokens = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.maxContextTokens || 128000;
-  }, [modelInfos, llmModel]);
-
-  const llmModelMultimodal = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.multimodal ?? false;
-  }, [modelInfos, llmModel]);
-
-  const llmReasoningLevels = useMemo(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    return row?.reasoningLevels ?? [];
-  }, [modelInfos, llmModel]);
-
-  // Keep the selected reasoning level valid for the current model: keep the user's
-  // pick when the new model still offers it, else fall back (cookie -> model default).
-  useEffect(() => {
-    const row = modelInfos.find((m) => m.id === llmModel);
-    const levels = row?.reasoningLevels ?? [];
-    setLlmReasoning((prev) =>
-      pickReasoningLevel({
-        levels,
-        cookie: readReasoningCookie(),
-        sessionLevel: prev,
-        modelDefault: row?.reasoningDefault ?? null,
-      }),
-    );
-  }, [llmModel, modelInfos]);
-
-  const onLlmReasoningChange = useCallback(
-    (level: string) => {
-      const lv = level.trim();
-      if (!lv) {
-        return;
-      }
-      setLlmReasoning(lv);
-      writeReasoningCookie(lv);
-      const sid = sessionId.trim();
-      if (!sid) {
-        return;
-      }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedReasoning: lv }),
-      });
-    },
-    [sessionId, headers],
-  );
-
-  const onLlmModelChange = useCallback(
-    (id: string) => {
-      const mid = id.trim();
-      if (!mid) {
-        return;
-      }
-      setLlmModel(mid);
-      writeLlmModelCookie(mid);
-      const sid = sessionId.trim();
-      if (!sid || !llmModelIds.includes(mid)) {
-        return;
-      }
-      void fetch(`/coddy/sessions/${encodeURIComponent(sid)}`, {
-        method: "PATCH",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedModelId: mid }),
-      });
-    },
-    [sessionId, llmModelIds, headers],
-  );
-
   const contextPct = useMemo(
     () => contextUsagePercent(maxContextTokens, contextBreakdown),
     [maxContextTokens, contextBreakdown],
-  );
-
-  const onSchedulerRunJob = useCallback(
-    async (jobId: string) => {
-      const r = await schedulerRunJob(jobId);
-      if (!r.ok) {
-        setSchedulerListError(r.message);
-        return;
-      }
-      void refreshSchedulerJobs({ silent: true });
-    },
-    [refreshSchedulerJobs],
-  );
-
-  const onSchedulerCancelJob = useCallback(
-    async (jobId: string) => {
-      const r = await schedulerCancelJob(jobId);
-      if (!r.ok) {
-        setSchedulerListError(r.message);
-        return;
-      }
-      void refreshSchedulerJobs({ silent: true });
-    },
-    [refreshSchedulerJobs],
   );
 
   const openSchedulerFromNav = useCallback(() => {
@@ -3792,19 +2635,6 @@ export function App() {
     setHistoryHash();
   }, []);
 
-  /** Background tasks indexed by the tool call that started them, so a
-   *  transcript row can keep ticking after the tool itself returned. */
-  const backgroundTasksByToolCallId = useMemo(() => {
-    const byToolCall = new Map<string, BackgroundTask>();
-    for (const t of backgroundTasks) {
-      const tc = (t.tool_call_id || "").trim();
-      if (tc) {
-        byToolCall.set(tc, t);
-      }
-    }
-    return byToolCall;
-  }, [backgroundTasks]);
-
   // The panel belongs to a chat, so it only exists when one is open.
   const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
@@ -3812,18 +2642,6 @@ export function App() {
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
     settingsRoute;
-
-  const filteredSchedulerJobs = useMemo(() => {
-    const q = schedulerFilterQ.trim().toLowerCase();
-    if (!q) {
-      return schedulerJobs;
-    }
-    return schedulerJobs.filter((j) => {
-      const id = (j.job_id || "").toLowerCase();
-      const desc = (j.description || "").toLowerCase();
-      return id.includes(q) || desc.includes(q);
-    });
-  }, [schedulerJobs, schedulerFilterQ]);
 
   const sessionPanelShared = {
     sessionId: sidebarActiveId,
@@ -3862,14 +2680,6 @@ export function App() {
     hasMore: sessionsHasMore,
     loadingMore: sessionsLoadingMore,
     onLoadMore: () => void loadSessionsList(false),
-  };
-
-  const toggleRailWidth = () => {
-    setRailLabelsWide((prev) => {
-      const next = !prev;
-      writeNavRailCookie(next ? "wide" : "narrow");
-      return next;
-    });
   };
 
   // Identity-stable handlers for the React.memo message rows: a shell
@@ -3972,72 +2782,31 @@ export function App() {
         {sessionsOpen ? <SessionsSidebar {...sessionPanelShared} /> : null}
 
         {schedulerOpen && schedulerHttpLinked === true ? (
-          <div
-            ref={schedulerDockClusterRef}
-            className={[
-              "scheduler-dock-cluster",
-              schedulerEditor ? "scheduler-dock-cluster-editor-active" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <SchedulerJobsDrawer
-              open={schedulerOpen}
-              selectedJobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
-              }
-              className="scheduler-dock-drawer"
-              onClose={closeSchedulerDrawer}
-              scheduler={schedulerInfo}
-              jobs={filteredSchedulerJobs}
-              listError={schedulerListError}
-              loading={schedulerListLoading}
-              onAddJob={() => {
-                setSchedulerCreateHash();
-              }}
-              onOpenJob={(jid) => {
-                setSchedulerEditor({ mode: "edit", jobId: jid });
-                setSchedulerJobHash(jid);
-              }}
-              onRunJob={(jid) => void onSchedulerRunJob(jid)}
-              onCancelJob={(jid) => void onSchedulerCancelJob(jid)}
-              searchDraft={schedulerFilterDraft}
-              onSearchDraftChange={setSchedulerFilterDraft}
-              onSearchClear={() => setSchedulerFilterDraft("")}
-            />
-
-            <SchedulerJobEditorSheet
-              open={schedulerHttpLinked === true && !!schedulerEditor}
-              mode={schedulerEditor?.mode === "create" ? "create" : "edit"}
-              jobId={
-                schedulerEditor?.mode === "edit" ? schedulerEditor.jobId : null
-              }
-              availableModels={llmModelIds}
-              defaultModel={llmModel}
-              currentCwd={currentSessionCwd}
-              onClose={() => {
-                setSchedulerEditor(null);
-                setSchedulerListHash();
-              }}
-              onSaved={(createdId) => {
-                void refreshSchedulerJobs({ silent: true });
-                if (createdId) {
-                  setSchedulerEditor({ mode: "edit", jobId: createdId });
-                }
-              }}
-              onDeleted={() => {
-                setSchedulerEditor(null);
-                void refreshSchedulerJobs({ silent: true });
-              }}
-            />
-          </div>
+          <SchedulerDockCluster
+            clusterRef={schedulerDockClusterRef}
+            editor={schedulerEditor}
+            setEditor={setSchedulerEditor}
+            info={schedulerInfo}
+            jobs={filteredSchedulerJobs}
+            listError={schedulerListError}
+            loading={schedulerListLoading}
+            filterDraft={schedulerFilterDraft}
+            setFilterDraft={setSchedulerFilterDraft}
+            onClose={closeSchedulerDrawer}
+            onRunJob={onSchedulerRunJob}
+            onCancelJob={onSchedulerCancelJob}
+            refreshJobs={refreshSchedulerJobs}
+            availableModels={llmModelIds}
+            defaultModel={llmModel}
+            currentCwd={currentSessionCwd}
+          />
         ) : null}
 
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={bumpModelsEpoch}
               initialSection={settingsSection}
             />
           </div>

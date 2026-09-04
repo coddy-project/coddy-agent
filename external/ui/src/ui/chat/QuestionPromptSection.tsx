@@ -7,166 +7,21 @@ import {
 } from "react";
 
 import type {
-  CoddyQuestionItem,
   CoddyQuestionPayload,
   QuestionResolvedState,
 } from "./questionTypes";
-import { letterForOptionIndex } from "./questionTypes";
+import {
+  OTHER_SENTINEL,
+  buildAnswerRows,
+  formatResolvedSummaryLine,
+  readyToSubmit,
+  rowLettersForQuestion,
+} from "./questionAnswers";
+import { questionPromptFocusComposer } from "./questionPromptFocus";
+import { QuestionResolvedCard } from "./QuestionResolvedCard";
 import { useT } from "../i18n/I18nProvider";
-import { t as translate } from "../i18n/i18n";
 
 const HDR = "X-Coddy-Session-ID";
-
-const OTHER_SENTINEL = "__coddy_other__";
-
-/** Move focus back to the composer after answering a gate question. */
-export function questionPromptFocusComposer(): void {
-  window.requestAnimationFrame(() => {
-    const el =
-      document.querySelector<HTMLElement>(
-        '[data-slot="composer"] textarea',
-      ) ?? document.querySelector<HTMLElement>('[data-slot="composer"]');
-
-    try {
-      el?.focus?.({ preventScroll: true });
-    } catch {
-      try {
-        el?.focus?.();
-      } catch {
-        // ignore DOM focus failures
-      }
-    }
-    try {
-      el?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    } catch {
-      // ignore scroll failures
-    }
-  });
-}
-
-function buildAnswerRows(
-  payload: CoddyQuestionPayload,
-  multiSel: string[][],
-  singleSel: string[],
-  extraText: string[],
-  skipped: boolean,
-): string[][] {
-  if (skipped) return payload.questions.map(() => []);
-  const out: string[][] = [];
-  for (let qi = 0; qi < payload.questions.length; qi++) {
-    const q = payload.questions[qi];
-    if (!q) {
-      out.push([]);
-      continue;
-    }
-    const cells: string[] = [];
-    if (q.multiple) {
-      const sel = multiSel[qi] || [];
-      const wantsFree = sel.includes(OTHER_SENTINEL);
-      for (const lab of sel) {
-        if (lab !== OTHER_SENTINEL) cells.push(lab);
-      }
-      const ex = String(extraText[qi] ?? "").trim();
-      if (wantsFree && ex.length > 0) cells.push(ex);
-    } else {
-      const sel = String(singleSel[qi] ?? "").trim();
-      const ex = String(extraText[qi] ?? "").trim();
-      if (sel === OTHER_SENTINEL) {
-        if (ex.length > 0) cells.push(ex);
-      } else if (sel) {
-        cells.push(sel);
-      }
-    }
-    out.push(cells);
-  }
-  return out;
-}
-
-function allAnsweredNonEmpty(rows: string[][]): boolean {
-  return rows.every((r) =>
-    [...r].map((x) => String(x).trim()).some((x) => x.length > 0),
-  );
-}
-
-function readyToSubmit(args: {
-  questions: CoddyQuestionItem[];
-  multiSel: string[][];
-  singleSel: string[];
-  extraText: string[];
-}): boolean {
-  const minimalPayload: CoddyQuestionPayload = {
-    sessionId: "",
-    requestId: "",
-    questions: args.questions,
-  };
-
-  const rows = buildAnswerRows(
-    minimalPayload,
-    args.multiSel,
-    args.singleSel,
-    args.extraText,
-    false,
-  );
-
-  const n = args.questions.length;
-  for (let qi = 0; qi < n; qi++) {
-    const q = args.questions[qi];
-    if (!q) return false;
-
-    if (q.multiple) {
-      const sel = args.multiSel[qi] || [];
-      const wantsFree = sel.includes(OTHER_SENTINEL);
-      const picks = sel.filter((l) => l !== OTHER_SENTINEL);
-      const ex = String(args.extraText[qi] ?? "").trim();
-      if (wantsFree && ex.length === 0) return false;
-      const ok =
-        picks.length > 0 || (wantsFree && ex.length > 0);
-      if (!ok) return false;
-    } else {
-      const pick = String(args.singleSel[qi] ?? "").trim();
-      if (pick === OTHER_SENTINEL) {
-        if (String(args.extraText[qi] ?? "").trim().length === 0) {
-          return false;
-        }
-      }
-    }
-  }
-
-  return allAnsweredNonEmpty(rows);
-}
-
-function formatResolvedSummaryLine(
-  questions: CoddyQuestionItem[],
-  skipped: boolean,
-  answersMatrix: string[][],
-): string {
-  if (!questions.length || skipped) {
-    return translate("prompts.skipped");
-  }
-  const parts: string[] = [];
-  for (let qi = 0; qi < questions.length; qi++) {
-    const q = questions[qi];
-    if (!q) continue;
-    const joined = [...(answersMatrix[qi] ?? [])]
-      .map((s) => String(s).trim())
-      .filter((s) => s.length > 0)
-      .join(", ");
-    const ansText = joined.length > 0 ? joined : translate("prompts.noAnswer");
-    let stem = q.question.trim().replace(/\s+/g, " ");
-    if (stem.length > 112) stem = `${stem.slice(0, 109)}...`;
-    const qDisp = stem.endsWith("?") ? stem : `${stem}?`;
-    parts.push(`${qDisp} ${ansText}`);
-  }
-  return parts.length > 0 ? parts.join(" · ") : translate("prompts.answered");
-}
-
-function rowLettersForQuestion(q: CoddyQuestionItem): readonly string[] {
-  const opts = Math.max(q.options?.length ?? 0, 0);
-  const total = opts + (q.custom ? 1 : 0);
-  const list: string[] = [];
-  for (let i = 0; i < Math.min(total, 26); i++) list.push(letterForOptionIndex(i));
-  return list;
-}
 
 export type QuestionPromptSectionProps = {
   itemId: string;
@@ -275,49 +130,7 @@ export function QuestionPromptSection(props: QuestionPromptSectionProps) {
   }, [resolved, submit, submitting]);
 
   if (resolved) {
-    const sum = resolved.summaryLine.trim() || t("prompts.answered");
-    return (
-      <section
-        className="question-prompt-frame"
-        data-test="question_prompt_resolved"
-      >
-        <details className="question-prompt-card question-prompt-collapsed">
-          <summary className="question-prompt-head question-prompt-head--stack">
-            <div className="question-prompt-head-left">
-              <span className="question-prompt-icon" aria-hidden />
-              <span className="question-prompt-title">{t("prompts.questions")}</span>
-            </div>
-            <span className="question-prompt-summary-line">{sum}</span>
-          </summary>
-          <div className="question-prompt-body question-prompt-resolved-body">
-            {resolved.skipped ? (
-              <p className="question-prompt-skipped-note">{t("prompts.skipped")}</p>
-            ) : null}
-            {qs.map((q, qi) => {
-              const parts = (resolved.answers[qi] ?? [])
-                .map((s) => String(s).trim())
-                .filter((s) => s.length > 0);
-              const aText = parts.length > 0 ? parts.join(", ") : "-";
-              return (
-                <div
-                  key={`${qi}-${q.question}`}
-                  className={
-                    qi === 0
-                      ? undefined
-                      : "question-prompt-resolved-block"
-                  }
-                >
-                  <div className="question-prompt-resolved-pair">
-                    <div className="question-prompt-resolved-q">{q.question}</div>
-                    <div className="question-prompt-resolved-a">{aText}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      </section>
-    );
+    return <QuestionResolvedCard questions={qs} resolved={resolved} />;
   }
 
   return (

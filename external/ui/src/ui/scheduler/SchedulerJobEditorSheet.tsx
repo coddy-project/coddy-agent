@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useConfirm } from "../components/useConfirm";
 import { useT } from "../i18n/I18nProvider";
-import { t as translate } from "../i18n/i18n";
 import {
   schedulerCreateJob,
   schedulerDeleteJob,
@@ -11,12 +10,20 @@ import {
   schedulerResumeJob,
 } from "./api";
 import { describeCronScheduleOrError } from "./cronDescribe";
-import { MarkdownLineEditor } from "./MarkdownLineEditor";
+import {
+  AUTOSAVE_MS,
+  collectJobFieldErrors,
+  normalizeJobMode,
+  snapshotJobForm,
+  type EditorMode,
+  type FieldErrors,
+} from "./jobEditorForm";
 import {
   parseAppHash,
   setSchedulerJobHash,
   setSchedulerListHash,
 } from "./hashRoute";
+import { SchedulerJobEditorFields } from "./SchedulerJobEditorFields";
 import type {
   SchedulerJob,
   SchedulerJobCreate,
@@ -27,44 +34,6 @@ import {
   SchedulerIconResume,
   SchedulerIconTrash,
 } from "./schedulerToolbarIcons";
-
-type EditorMode = "create" | "edit";
-
-type FieldErrors = Partial<{
-  jobId: string;
-  description: string;
-  schedule: string;
-  body: string;
-}>;
-
-const AUTOSAVE_MS = 600;
-
-const JOB_MODES = ["agent", "plan", "ask"] as const;
-type JobMode = (typeof JOB_MODES)[number];
-
-// Frontmatter `mode` values the daemon accepts (external/scheduler/daemon
-// parseSessionMode); anything else falls back to agent the same way it does.
-function normalizeJobMode(raw: string | undefined): JobMode {
-  const v = (raw || "agent").toLowerCase();
-  return (JOB_MODES as readonly string[]).includes(v) ? (v as JobMode) : "agent";
-}
-
-function validateJobId(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) {
-    return translate("scheduler.validation.required");
-  }
-  if (s.length > 64) {
-    return translate("scheduler.validation.tooLong");
-  }
-  if (/\s/.test(s)) {
-    return translate("scheduler.validation.noSpaces");
-  }
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(s)) {
-    return translate("scheduler.validation.invalidJobId");
-  }
-  return null;
-}
 
 type FormRef = {
   mode: EditorMode;
@@ -144,54 +113,6 @@ export function SchedulerJobEditorSheet(props: {
     loadErr,
   };
 
-  const snapshotFromForm = useCallback((f: FormRef) => {
-    return JSON.stringify({
-      jobId: f.jobIdField.trim(),
-      description: f.description.trim(),
-      schedule: f.schedule.trim(),
-      body: f.body,
-      cwd: f.cwd.trim(),
-      model: f.model.trim(),
-      mode: f.modeField,
-      paused: f.paused,
-    });
-  }, []);
-
-  const collectFieldErrors = useCallback(
-    (f: FormRef, forCreate: boolean): FieldErrors => {
-      const errs: FieldErrors = {};
-      const jid = f.jobIdField.trim();
-      const desc = f.description.trim();
-      const sch = f.schedule.trim();
-      const bod = f.body;
-      if (forCreate) {
-        const jidErr = validateJobId(jid);
-        if (jidErr) {
-          errs.jobId = jidErr;
-        }
-      } else {
-        const existing = (f.jobId || "").trim();
-        if (jid !== existing) {
-          const jidErr = validateJobId(jid);
-          if (jidErr) {
-            errs.jobId = jidErr;
-          }
-        }
-      }
-      if (!desc) {
-        errs.description = translate("scheduler.validation.required");
-      }
-      if (!sch) {
-        errs.schedule = translate("scheduler.validation.required");
-      }
-      if (!bod.trim()) {
-        errs.body = translate("scheduler.validation.required");
-      }
-      return errs;
-    },
-    [],
-  );
-
   const runPatch = useCallback(async () => {
     const f = formRef.current;
     if (f.mode !== "edit" || f.loading || f.loadErr) {
@@ -201,12 +122,15 @@ export function SchedulerJobEditorSheet(props: {
     if (!existing) {
       return;
     }
-    const errs = collectFieldErrors(f, false);
+    const errs = collectJobFieldErrors(f, {
+      forCreate: false,
+      existingJobId: existing,
+    });
     setFieldErrs(errs);
     if (Object.keys(errs).length > 0) {
       return;
     }
-    const snap = snapshotFromForm(f);
+    const snap = snapshotJobForm(f);
     if (snap === lastCommittedRef.current) {
       return;
     }
@@ -259,14 +183,17 @@ export function SchedulerJobEditorSheet(props: {
     } finally {
       setSaving(false);
     }
-  }, [collectFieldErrors, snapshotFromForm]);
+  }, []);
 
   const runCreate = useCallback(async () => {
     const f = formRef.current;
     if (f.mode !== "create" || createdOnceRef.current) {
       return;
     }
-    const errs = collectFieldErrors(f, true);
+    const errs = collectJobFieldErrors(f, {
+      forCreate: true,
+      existingJobId: "",
+    });
     setFieldErrs(errs);
     if (Object.keys(errs).length > 0) {
       return;
@@ -299,7 +226,7 @@ export function SchedulerJobEditorSheet(props: {
     } finally {
       setSaving(false);
     }
-  }, [collectFieldErrors]);
+  }, []);
 
   useEffect(() => {
     if (!props.open || props.mode !== "create") {
@@ -379,7 +306,7 @@ export function SchedulerJobEditorSheet(props: {
     if (!jid || lastCommittedRef.current === null) {
       return;
     }
-    if (snapshotFromForm(formRef.current) === lastCommittedRef.current) {
+    if (snapshotJobForm(formRef.current) === lastCommittedRef.current) {
       return;
     }
     window.clearTimeout(flushTimerRef.current);
@@ -401,7 +328,6 @@ export function SchedulerJobEditorSheet(props: {
     model,
     modeField,
     paused,
-    snapshotFromForm,
     runPatch,
   ]);
 
@@ -537,157 +463,28 @@ export function SchedulerJobEditorSheet(props: {
           ) : null}
 
           {!loadErr && (props.mode === "create" || !loading) ? (
-            <div className="scheduler-editor-form">
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.jobId")}</span>
-                <span className="scheduler-field-help">
-                  {t("scheduler.field.jobIdHelp")}
-                </span>
-                <input
-                  className={[
-                    "scheduler-field-input",
-                    fieldErrs.jobId ? "scheduler-field-input-err" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  value={jobIdField}
-                  onChange={(ev) => setJobIdField(ev.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-                {fieldErrs.jobId ? (
-                  <div className="scheduler-field-err">{fieldErrs.jobId}</div>
-                ) : null}
-              </label>
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.description")}</span>
-                <input
-                  className={[
-                    "scheduler-field-input",
-                    fieldErrs.description ? "scheduler-field-input-err" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  value={description}
-                  onChange={(ev) => setDescription(ev.target.value)}
-                />
-                {fieldErrs.description ? (
-                  <div className="scheduler-field-err">
-                    {fieldErrs.description}
-                  </div>
-                ) : null}
-              </label>
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">
-                  {t("scheduler.field.schedule")}
-                </span>
-                <input
-                  className={[
-                    "scheduler-field-input",
-                    "scheduler-field-input-cron",
-                    fieldErrs.schedule ? "scheduler-field-input-err" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  value={schedule}
-                  onChange={(ev) => setSchedule(ev.target.value)}
-                  spellCheck={false}
-                  placeholder={t("scheduler.field.schedulePlaceholder")}
-                />
-                {fieldErrs.schedule ? (
-                  <div className="scheduler-field-err">
-                    {fieldErrs.schedule}
-                  </div>
-                ) : null}
-              </label>
-              <div
-                className={
-                  cronHint.ok
-                    ? "scheduler-cron-hint"
-                    : "scheduler-cron-hint scheduler-cron-hint-err"
-                }
-                data-testid="scheduler-cron-hint"
-              >
-                {cronHint.ok ? cronHint.text : cronHint.error}
-              </div>
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.cwd")}</span>
-                <span className="scheduler-field-help">
-                  {t("scheduler.field.cwdHelp")}
-                </span>
-                <input
-                  className="scheduler-field-input"
-                  value={cwd}
-                  onChange={(ev) => setCwd(ev.target.value)}
-                  placeholder={props.currentCwd || ""}
-                />
-              </label>
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.mode")}</span>
-                <select
-                  className="scheduler-field-input"
-                  value={modeField}
-                  onChange={(ev) => setModeField(ev.target.value)}
-                >
-                  <option value="agent">{t("scheduler.mode.agent")}</option>
-                  <option value="plan">{t("scheduler.mode.plan")}</option>
-                  <option value="ask">{t("scheduler.mode.ask")}</option>
-                </select>
-              </label>
-              <label className="scheduler-field">
-                <span className="scheduler-field-label">{t("scheduler.field.model")}</span>
-                {props.availableModels.length > 0 ? (
-                  <select
-                    className="scheduler-field-input"
-                    value={model}
-                    onChange={(ev) => setModel(ev.target.value)}
-                  >
-                    {props.availableModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    className="scheduler-field-input"
-                    value={model}
-                    onChange={(ev) => setModel(ev.target.value)}
-                    spellCheck={false}
-                    placeholder={props.defaultModel || ""}
-                  />
-                )}
-              </label>
-              <div className="scheduler-field scheduler-field-stack">
-                <span className="scheduler-field-label">{t("scheduler.field.body")}</span>
-                <div
-                  className={[
-                    "scheduler-body-editor-wrap",
-                    fieldErrs.body ? "scheduler-body-editor-wrap-err" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                >
-                  <MarkdownLineEditor
-                    value={body}
-                    onChange={setBody}
-                    aria-label={t("scheduler.bodyAriaLabel")}
-                    placeholder={t("scheduler.bodyPlaceholder")}
-                  />
-                </div>
-                {fieldErrs.body ? (
-                  <div className="scheduler-field-err">{fieldErrs.body}</div>
-                ) : null}
-              </div>
-              {saveErr ? (
-                <div
-                  className="scheduler-save-err"
-                  data-testid="scheduler-editor-save-err"
-                >
-                  {saveErr}
-                </div>
-              ) : null}
-            </div>
+            <SchedulerJobEditorFields
+              jobIdField={jobIdField}
+              onJobIdChange={setJobIdField}
+              description={description}
+              onDescriptionChange={setDescription}
+              schedule={schedule}
+              onScheduleChange={setSchedule}
+              cwd={cwd}
+              onCwdChange={setCwd}
+              modeField={modeField}
+              onModeChange={setModeField}
+              model={model}
+              onModelChange={setModel}
+              body={body}
+              onBodyChange={setBody}
+              fieldErrs={fieldErrs}
+              cronHint={cronHint}
+              saveErr={saveErr}
+              availableModels={props.availableModels}
+              defaultModel={props.defaultModel}
+              currentCwd={props.currentCwd}
+            />
           ) : null}
         </div>
       </div>
