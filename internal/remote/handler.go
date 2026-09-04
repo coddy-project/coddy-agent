@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -47,6 +48,9 @@ type Handler struct {
 	preferred string
 	models    []remoteModel
 	defModel  string
+
+	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
+	cancelWG sync.WaitGroup
 }
 
 type sessionState struct {
@@ -203,6 +207,11 @@ func (h *Handler) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	if preferred != "" {
 		msgs, err := h.sessionMessages(ctx, id)
 		switch {
+		case isNotFound(err) && session.IsSubagentSessionID(id):
+			// The sub_ prefix belongs to subagent child sessions; an unknown
+			// one cannot be minted remotely any more than locally.
+			h.forget(id)
+			return nil, fmt.Errorf("session/new: %w: %s", session.ErrReservedSessionID, id)
 		case isNotFound(err):
 			// no such session remotely: a fresh one starts under this id
 		case err != nil:
@@ -377,11 +386,40 @@ func (h *Handler) HandleSessionCancel(params acp.SessionCancelParams) {
 	if cancel != nil {
 		cancel()
 	}
+	// The server-side cancel is posted off the caller's goroutine (a key
+	// handler must not wait on the network), but tracked, so a surface that
+	// is about to exit can wait for it with WaitCancels.
+	h.cancelWG.Add(1)
 	go func() {
+		defer h.cancelWG.Done()
 		if err := h.cancelSession(context.Background(), params.SessionID); err != nil {
 			h.log.Warn("remote cancel", "session", params.SessionID, "error", err)
 		}
 	}()
+}
+
+// WaitCancels blocks until every server-side cancel posted by
+// HandleSessionCancel has completed, or until d elapses. The console calls
+// it on its way out so a detached server turn is not left running just
+// because the process exited before the request left the machine.
+func (h *Handler) WaitCancels(d time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		h.cancelWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(d):
+		h.log.Warn("remote cancel still in flight at exit", "timeout", d.String())
+	}
+}
+
+// forget drops the client-side state of a session that never came to be.
+func (h *Handler) forget(id string) {
+	h.mu.Lock()
+	delete(h.sessions, id)
+	h.mu.Unlock()
 }
 
 // ---- session.Manager extras used by the console surface ----

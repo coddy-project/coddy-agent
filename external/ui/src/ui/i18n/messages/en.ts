@@ -279,7 +279,7 @@ export const messagesEn: Record<string, string> = {
     "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
   "settings.schema.subagents.project_trust.label": "Project definitions",
   "settings.schema.subagents.project_trust.desc":
-    'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace (coddy agents trust). "allow": treat them like your own files. "deny": never read them.',
+    'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust). "allow": treat them like your own files. "deny": never read them.',
   "settings.schema.subagents.max_concurrent.label": "Max concurrent",
   "settings.schema.subagents.max_concurrent.desc":
     "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",

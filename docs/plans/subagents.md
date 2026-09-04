@@ -765,3 +765,15 @@ shipped behaviour.
   records it as failed; `session/new` refuses a preferred `sub_` id without a
   bundle and `session/set_mode` / `session/set_config_option` refuse child
   sessions; `POST /coddy/sessions/{id}/workspace` answers 409 for a child.
+- Remote-mode audit: the relay stamps the stricter of the incoming stamp and
+  its own mode (a grandchild's `ask` survives a bypass intermediate child) and
+  withholds the "always" options; the HTTP bridge does not persist relayed
+  prompts (they cannot be resumed and must not evict the parent's own
+  record); the remote client ignores a 404/409 on a permission answer instead
+  of failing the turn; `session/new` in the remote client refuses an unknown
+  `sub_` id; the remote cancel is tracked and the console waits for it on
+  exit; the concurrency cap is read from the live configuration at spawn;
+  the HTTP background wake turn runs through the composer relay with a
+  non-interactive sender (gated tools denied unless the server is in
+  bypass); every approval hint says the receipt is written on the machine
+  running coddy and names the REST route.

@@ -72,6 +72,20 @@ type permissionArbiter struct {
 	waiting atomic.Int32
 }
 
+// relayedPermissionOptions keeps the per-call answers of a forwarded prompt
+// and drops the "always" ones: a child lives for one turn, so a standing grant
+// could not outlive the call it was given for and would only mislead.
+func relayedPermissionOptions(opts []acp.PermissionOption) []acp.PermissionOption {
+	out := make([]acp.PermissionOption, 0, len(opts))
+	for _, o := range opts {
+		if strings.HasPrefix(strings.TrimSpace(o.OptionID), "allow_always") || strings.HasPrefix(strings.TrimSpace(o.Kind), "allow_always") {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
 // arbiterWaiters reports how many relays of a parent are queued on its slot.
 func arbiterWaiters(parentID string) int {
 	arbitersMu.Lock()
@@ -113,10 +127,9 @@ func releaseArbiter(parentID string) {
 // fails closed afterwards. It is created per spawn, so a child spawned by a
 // later turn carries that turn's context.
 type permissionRelay struct {
-	parent           acp.UpdateSender
-	parentSessionID  string
-	parentSessionDir string
-	agentName        string
+	parent          acp.UpdateSender
+	parentSessionID string
+	agentName       string
 	// childPermissionMode is the child's effective mode, stamped on every
 	// forwarded request so a sender never mistakes it for the parent's.
 	childPermissionMode string
@@ -156,7 +169,14 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	}
 
 	params.SessionID = r.parentSessionID
-	params.EffectivePermissionMode = r.childPermissionMode
+	// The stamp is the stricter of what arrived and this child's own mode: a
+	// grandchild's prompt crosses two relays, and the intermediate child must
+	// not re-widen a narrower stamp on its way to the parent-facing sender.
+	params.EffectivePermissionMode = subagents.NarrowPermissionMode(r.childPermissionMode, params.EffectivePermissionMode)
+	// A child runs one turn and is retired, so an "always" answer could only
+	// ever cover that one run; the parent-facing modal offers the honest
+	// choices, allow once or reject.
+	params.Options = relayedPermissionOptions(params.Options)
 	title := strings.TrimSpace(params.ToolCall.Title)
 	if title == "" {
 		title = "Run a tool"
@@ -174,15 +194,11 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		res, err := r.parent.RequestPermission(reqCtx, params)
 		done <- outcome{res: res, err: err}
 	}()
-	// A forwarded prompt the parent never answers leaves the HTTP bridge's
-	// pending_permission.json in the parent bundle; the permission route could
-	// never clear it because the tool call belongs to the child, so the relay
-	// clears it itself on every path that gives up.
+	// A forwarded prompt is never persisted by the parent-facing senders (the
+	// HTTP bridge skips the pending record for a stamped request), so giving
+	// up leaves nothing behind but the cancelled forward.
 	abandon := func() *acp.PermissionResult {
 		cancel()
-		if r.parentSessionDir != "" {
-			_ = session.ClearPendingPermission(r.parentSessionDir)
-		}
 		return deniedPermission()
 	}
 	select {
@@ -464,10 +480,11 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	policy := cfg.Subagents.ResolvedProjectTrust()
 	store := subagents.NewTrustStore(cfg.Paths.Home)
 	if subagents.Decide(def, policy, workspace, store) == subagents.TrustNeedsApproval {
-		return "", fmt.Errorf("subagent %q comes from a project file (%s) that is not approved for this workspace; "+
-			"ask the user to approve it with `coddy agents trust %s` (or POST /coddy/subagents/%s/trust), "+
+		return "", fmt.Errorf("subagent %q comes from a project file (%s) that is not approved for workspace %s; "+
+			"ask the user to approve it on the machine running coddy: `coddy agents trust %s --cwd %s` there, "+
+			"or POST /coddy/subagents/%s/trust with body {\"cwd\": %q}; "+
 			"or to set subagents.project_trust to allow for this checkout, then try again",
-			def.Name, def.Path, def.Name, def.Name)
+			def.Name, def.Path, workspace, def.Name, workspace, def.Name, workspace)
 	}
 
 	// The parent mode is the mode this turn was admitted in, not the live
@@ -513,7 +530,16 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		}
 	}
 
-	subagentLimiter.SetLimit(cfg.Subagents.EffectiveMaxConcurrent())
+	// The cap is process-wide and follows the live configuration, not the
+	// snapshot this turn started with: a limit saved through the settings
+	// while an older turn was running must not be written back by that turn.
+	limitCfg := cfg
+	if live, ok := rt.(interface{ Cfg() *config.Config }); ok {
+		if c := live.Cfg(); c != nil {
+			limitCfg = c
+		}
+	}
+	subagentLimiter.SetLimit(limitCfg.Subagents.EffectiveMaxConcurrent())
 	release, ok := subagentLimiter.TryAcquire()
 	if !ok {
 		return "", fmt.Errorf("cannot start subagent %q: subagents.max_concurrent (%d) runs are already in flight; wait for one with background_wait or background_list, then try again",
@@ -544,7 +570,6 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	relay := &permissionRelay{
 		parent:              a.server,
 		parentSessionID:     parentID,
-		parentSessionDir:    sd,
 		agentName:           def.Name,
 		childPermissionMode: childPerm,
 		turnCtx:             ctx,

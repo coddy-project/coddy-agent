@@ -212,7 +212,13 @@ agents trust` on the server, or `POST /coddy/subagents/{name}/trust`); the
 local `coddy agents` subcommands do not take `--remote`. A child's permission
 prompts reach the remote console like the parent's own, prefixed
 `[subagent <name>]`, and the status line reads `Running subagent <name>` while
-the child runs. See `docs/subagents.md`, Remote mode.
+the child runs. The footer shows the local folder; the trust receipt is keyed
+by the server-side session workspace (the server's default cwd for a session
+the console created). A dropped connection leaves the server turn and its
+child running; `/resume` shows the outcome once it ends, and an answer to a
+prompt the server has already withdrawn is ignored. Quitting the console
+mid-turn waits briefly for the remote cancel to reach the server. See
+`docs/subagents.md`, Remote mode.
 
 ## Subagent definitions (`coddy agents`)
 

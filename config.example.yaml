@@ -271,7 +271,8 @@ tools:
 # permission_mode, ...) whose body is the child's role; each run is a background task of
 # the parent session with its own child session and transcript. Definitions found inside
 # the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
-# that file for that workspace with `coddy agents trust <name>`. See docs/subagents.md.
+# that file for that workspace on the machine running coddy (`coddy agents trust <name>`
+# there, or `POST /coddy/subagents/{name}/trust`). See docs/subagents.md.
 # subagents:
 #   enabled: true
 #   dirs:

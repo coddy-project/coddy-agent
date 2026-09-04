@@ -1015,7 +1015,7 @@ func TestSpawnSubagentRefusalsReleaseTheLimiter(t *testing.T) {
 	})
 	t.Run("unapproved project definition", func(t *testing.T) {
 		_, err := ag.spawnSubagent(ctx, spawnReq("reviewer"))
-		check(t, err, "not approved for this workspace")
+		check(t, err, "not approved for workspace")
 		if !strings.Contains(err.Error(), "coddy agents trust reviewer") {
 			t.Fatalf("refusal lacks the approval hint: %v", err)
 		}
@@ -1779,4 +1779,122 @@ func containsToolDef(defs []llm.ToolDefinition, name string) bool {
 		}
 	}
 	return false
+}
+
+// ---- remote audit: nested relays, relayed options ----
+
+// relayAsSender lets one relay stand in for the parent-facing sender of
+// another, the way a child's subagentSender does for a grandchild.
+type relayAsSender struct{ r *permissionRelay }
+
+func (s relayAsSender) SendSessionUpdate(string, interface{}) error { return nil }
+func (s relayAsSender) RequestPermission(ctx context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return s.r.Request(ctx, p)
+}
+func (s relayAsSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// A grandchild's prompt crosses two relays. The intermediate child (bypass)
+// must not re-widen the grandchild's ask stamp, and the "always" options are
+// withheld on the way.
+func TestPermissionRelayKeepsTheStricterStampAcrossNestedRelays(t *testing.T) {
+	const parentID = "sess_nested_relay"
+	top := &recordingPermissionSender{}
+	turnCtx, cancelTurn := context.WithCancel(context.Background())
+	defer cancelTurn()
+	outer := &permissionRelay{
+		parent:              top,
+		parentSessionID:     parentID,
+		agentName:           "worker",
+		childPermissionMode: config.PermModeBypass,
+		turnCtx:             turnCtx,
+		childCtx:            turnCtx,
+		arbiter:             acquireArbiter(parentID),
+	}
+	defer releaseArbiter(parentID)
+	inner := &permissionRelay{
+		parent:              relayAsSender{r: outer},
+		parentSessionID:     "sub_worker",
+		agentName:           "auditor",
+		childPermissionMode: config.PermModeAsk,
+		turnCtx:             turnCtx,
+		childCtx:            turnCtx,
+		arbiter:             acquireArbiter("sub_worker"),
+	}
+	defer releaseArbiter("sub_worker")
+
+	params := permParams("Run: run_command")
+	params.Options = []acp.PermissionOption{
+		{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+		{OptionID: "allow_always", Name: "Always", Kind: "allow_always"},
+		{OptionID: "allow_always_program", Name: "Always for program", Kind: "allow_always"},
+		{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+	}
+	if _, err := inner.Request(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	if len(top.requests) != 1 {
+		t.Fatalf("top sender saw %d requests, want 1", len(top.requests))
+	}
+	got := top.requests[0]
+	if got.EffectivePermissionMode != config.PermModeAsk {
+		t.Fatalf("stamp at the parent-facing sender = %q, want the grandchild's ask (the bypass child must not widen it)", got.EffectivePermissionMode)
+	}
+	if got.SessionID != parentID {
+		t.Fatalf("session id = %q, want the top parent %q", got.SessionID, parentID)
+	}
+	ids := make([]string, 0, len(got.Options))
+	for _, o := range got.Options {
+		ids = append(ids, o.OptionID)
+	}
+	if strings.Join(ids, ",") != "allow,reject" {
+		t.Fatalf("relayed options = %v, want only allow and reject", ids)
+	}
+	if !strings.HasPrefix(got.ToolCall.Title, "[subagent worker] [subagent auditor] ") {
+		t.Fatalf("title = %q, want both relay prefixes", got.ToolCall.Title)
+	}
+}
+
+// End to end through the real runtime: with max_depth 2, a bypass parent and
+// a worker that does not narrow, an auditor narrowed to ask still reaches the
+// parent-facing client as an ask prompt.
+func TestSpawnSubagentGrandchildNarrowingSurvivesABypassChild(t *testing.T) {
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		two := 2
+		cfg.Subagents.MaxDepth = &two
+		cfg.Subagents.ProjectTrust = config.SubagentsProjectTrustAllow
+	})
+	rig.parent.SetPermissionMode(config.PermModeBypass)
+	rig.writeDefinition("worker", "")
+	rig.writeDefinition("auditor", "permission_mode: ask\n")
+	rig.setChildProvider(func(st *session.State) llm.Provider {
+		switch st.Subagent().Name {
+		case "worker":
+			return &scriptedProvider{steps: []scriptStep{toolStep(spawnCall("call_inner", "auditor", false)), answerStep("REPORT: worker done")}}
+		default:
+			return &scriptedProvider{steps: []scriptStep{toolStep(commandCall("call_cmd", "echo nested-probe", false)), answerStep("REPORT: auditor done")}}
+		}
+	})
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("worker"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := parseSubagentEnvelope(t, res); env.Status != string(bgtask.StatusSucceeded) {
+		t.Fatalf("worker run = %s", res)
+	}
+	perms := rig.client.permissions()
+	if len(perms) != 1 {
+		t.Fatalf("parent-facing client saw %d prompts, want exactly the auditor's run_command", len(perms))
+	}
+	if perms[0].EffectivePermissionMode != config.PermModeAsk {
+		t.Fatalf("stamp = %q, want ask: the bypass worker re-widened the auditor's prompt", perms[0].EffectivePermissionMode)
+	}
+	if !strings.Contains(perms[0].ToolCall.Title, "[subagent auditor]") {
+		t.Fatalf("title = %q", perms[0].ToolCall.Title)
+	}
+	auditor := rig.childByDepth(2)
+	if auditor.GetPermissionMode() != config.PermModeAsk {
+		t.Fatalf("auditor mode = %q", auditor.GetPermissionMode())
+	}
 }

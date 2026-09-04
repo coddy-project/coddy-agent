@@ -6,7 +6,9 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -559,5 +561,67 @@ func TestPromptPassesThroughAskModeRefusalOn409(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "busy") {
 		t.Fatalf("409 refusal was mistaken for the turn lock: %v", err)
+	}
+}
+
+// A permission answer the server refuses with 404 (the prompt was withdrawn:
+// a subagent's relayed prompt after the child stopped) or 409 is stale, not
+// fatal: the client keeps reading the stream and the turn completes.
+func TestAStaleAnswerToAWithdrawnPromptKeepsTheTurnAlive(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusConflict} {
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /v1/responses", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("event: permission\n" +
+				`data: {"sessionId":"s1","toolCall":{"toolCallId":"child-1","title":"[subagent explore] Run: run_command","status":"pending"},"options":[{"optionId":"allow","name":"Allow","kind":"allow_once"}]}` + "\n\n" +
+				`data: {"choices":[{"delta":{"content":"after the withdrawn prompt"}}]}` + "\n\n" +
+				"data: [DONE]\n\n"))
+		})
+		mux.HandleFunc("POST /coddy/sessions/{id}/permission", func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, `{"error":{"message":"no pending permission for this toolCallId"}}`, status)
+		})
+		srv := httptest.NewServer(mux)
+		sender := &collectSender{}
+		res, err := promptOnce(t, srv, sender)
+		srv.Close()
+		if err != nil {
+			t.Fatalf("status %d: a stale permission answer failed the turn: %v", status, err)
+		}
+		if res == nil || res.StopReason != acp.StopReasonEndTurn {
+			t.Fatalf("status %d: result = %+v", status, res)
+		}
+		if got := strings.Join(sender.texts(), ""); !strings.Contains(got, "after the withdrawn prompt") {
+			t.Fatalf("status %d: the stream was not read past the stale answer: %q", status, got)
+		}
+	}
+}
+
+// --session-id sub_… against a remote server names a subagent child; when the
+// server has no such session the client refuses up front, like the local
+// manager, instead of minting a console that fails on its first prompt.
+func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"agent","owned_by":"coddy"},{"id":"remote/alpha","owned_by":"remote"}]}`))
+	})
+	mux.HandleFunc("GET /coddy/sessions/{id}/messages", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL, Log: slog.Default()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetServer(&collectSender{})
+	h.SetPreferredSessionID("sub_00000000000000000000dead")
+	_, err = h.HandleSessionNew(context.Background(), acp.SessionNewParams{})
+	if !errors.Is(err, session.ErrReservedSessionID) {
+		t.Fatalf("session/new with an unknown sub_ id = %v, want ErrReservedSessionID", err)
+	}
+	// An ordinary unknown id still starts a fresh remote session.
+	h.SetPreferredSessionID("sess_fresh_remote")
+	if _, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{}); err != nil {
+		t.Fatalf("an ordinary preferred id must still be accepted: %v", err)
 	}
 }

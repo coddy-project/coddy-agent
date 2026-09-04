@@ -12,6 +12,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 func TestForwardTextChunk_ReasoningEmittedAsReasoningContent(t *testing.T) {
@@ -226,4 +227,58 @@ func TestRequestPermissionHonoursTheStampedEffectiveMode(t *testing.T) {
 	if got := <-done; got == nil || got.OptionID != "reject" {
 		t.Fatalf("interactive answer = %#v, want the operator's reject", got)
 	}
+}
+
+// A relayed subagent prompt (stamped with the child's mode) is answered live
+// or not at all: it never becomes the parent's pending permission record, so
+// it cannot be resumed later and cannot evict the parent's own gate.
+func TestRequestPermissionDoesNotPersistARelayedPrompt(t *testing.T) {
+	dir := t.TempDir()
+	out := &syncBuffer{}
+	sender := NewSender(&config.Config{}, out, true, "agent-model")
+	sender.SetSessionDir(dir)
+	relayed := acp.PermissionRequestParams{
+		SessionID:               "s1",
+		ToolCall:                acp.PermissionToolCall{ToolCallID: "child-1", Title: "[subagent explore] Run: run_command", Status: "pending"},
+		EffectivePermissionMode: config.PermModeAsk,
+	}
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		r, _ := sender.RequestPermission(context.Background(), relayed)
+		done <- r
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "event: permission") {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if session.PendingPermissionHeld(dir) {
+		t.Fatal("a relayed prompt must not write pending_permission.json")
+	}
+	if !CompletePermissionAnswer("s1", "child-1", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}) {
+		t.Fatal("the in-memory wait must still accept the answer")
+	}
+	if got := <-done; got == nil || got.OptionID != "allow" {
+		t.Fatalf("answer = %#v", got)
+	}
+
+	// The parent's own prompt still leaves its record while it waits.
+	own := acp.PermissionRequestParams{
+		SessionID: "s1",
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "own-1", Title: "Run: run_command", Status: "pending"},
+	}
+	go func() {
+		r, _ := sender.RequestPermission(context.Background(), own)
+		done <- r
+	}()
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !session.PendingPermissionHeld(dir) {
+		time.Sleep(2 * time.Millisecond)
+	}
+	if !session.PendingPermissionHeld(dir) {
+		t.Fatal("the parent's own prompt must be recorded")
+	}
+	if !CompletePermissionAnswer("s1", "own-1", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}) {
+		t.Fatal("CompletePermissionAnswer failed")
+	}
+	<-done
 }

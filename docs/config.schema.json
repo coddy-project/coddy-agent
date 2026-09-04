@@ -547,7 +547,7 @@
         },
         "project_trust": {
           "type": "string",
-          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace (coddy agents trust, POST /coddy/subagents/{name}/trust); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
+          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
           "default": "ask",
           "enum": [
             "ask",

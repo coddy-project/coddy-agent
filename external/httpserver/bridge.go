@@ -291,7 +291,13 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 			toolName = strings.TrimSpace(after)
 		}
 	}
-	if sd != "" {
+	// A stamped request is a subagent's prompt relayed under the parent's
+	// session: it cannot be resumed later (the child's tool call is not in
+	// the parent transcript, and the child is retired with its turn), so it
+	// is answered live or not at all and never becomes the parent's pending
+	// record, which stays reserved for the parent's own gate.
+	relayed := strings.TrimSpace(params.EffectivePermissionMode) != ""
+	if sd != "" && !relayed {
 		_ = session.WritePendingPermission(sd, params, toolName, argsJSON)
 	}
 	ch := registerPermissionWait(sid, tcid, sd)
@@ -304,7 +310,7 @@ func (s *Sender) RequestPermission(ctx context.Context, params acp.PermissionReq
 		if res == nil {
 			return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
 		}
-		if sd != "" {
+		if sd != "" && !relayed {
 			_ = session.ClearPendingPermission(sd)
 		}
 		return res, nil

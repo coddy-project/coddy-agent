@@ -82,7 +82,7 @@ func PromptBlock(entries []CatalogEntry) string {
 	b.WriteString("Available subagents:\n\n")
 	for _, e := range visible {
 		if e.NeedsApproval {
-			fmt.Fprintf(&b, "- `%s`: project definition awaiting approval; its description is withheld until the user runs `coddy agents trust %s`, and spawning it is refused until then\n", e.Name, e.Name)
+			fmt.Fprintf(&b, "- `%s`: project definition awaiting approval; its description is withheld and spawning it is refused until the user approves it on the machine running coddy (`coddy agents trust %s` there, or POST /coddy/subagents/%s/trust with the session workspace as cwd)\n", e.Name, e.Name, e.Name)
 			continue
 		}
 		fmt.Fprintf(&b, "- `%s`: %s\n", e.Name, strings.Join(strings.Fields(e.Description), " "))

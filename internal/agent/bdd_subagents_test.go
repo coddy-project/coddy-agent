@@ -817,7 +817,7 @@ func (s *subagentsFeatureState) secondSpawnResultMentions(text string) error {
 }
 
 func (s *subagentsFeatureState) spawnResultSaysNotApproved() error {
-	return s.spawnResultContains("not approved for this workspace")
+	return s.spawnResultContains("not approved for workspace")
 }
 
 func (s *subagentsFeatureState) noChildSessionCreated() error {

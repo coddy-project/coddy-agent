@@ -453,7 +453,7 @@ func UISchemaMap() map[string]interface{} {
 				"project_trust": map[string]interface{}{
 					"type":        "string",
 					"title":       "Project definitions",
-					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace (coddy agents trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
 					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
 				},
 				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
