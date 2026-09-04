@@ -17,14 +17,31 @@ function workspacePathsEqual(a: string, b: string): boolean {
 }
 
 /**
- * True when **`text`** already contains a completed **`@path`** workspace mention for **`path`** (same grammar as **`extractAtFileAttachments`**).
+ * True when **`text`** already contains a completed **`@path`** workspace mention for **`path`**
+ * with the same line range (same grammar as **`extractAtFileAttachments`**). A plain
+ * mention does not cover a ranged attachment of the same path, and vice versa.
  */
-function userBubbleAlreadyShowsAtPath(visiblePrefix: string, path: string): boolean {
+function userBubbleAlreadyShowsAtPath(
+  visiblePrefix: string,
+  path: string,
+  lines: { start: number; end: number } | null,
+): boolean {
   if (!path.trim()) {
     return false;
   }
   for (const sp of listAtPathSpans(visiblePrefix)) {
-    if (workspacePathsEqual(sp.path, path)) {
+    if (!workspacePathsEqual(sp.path, path)) {
+      continue;
+    }
+    if (lines == null && sp.lines == null) {
+      return true;
+    }
+    if (
+      lines != null &&
+      sp.lines != null &&
+      sp.lines.start === lines.start &&
+      sp.lines.end === lines.end
+    ) {
       return true;
     }
   }
@@ -92,10 +109,14 @@ export function stripCoddyAttachmentsForUserDisplay(raw: string): string {
     rebuilt += s.slice(lastIdx, m.index);
     const pathEnc = m[1] ?? "";
     const path = decodeXmlAttrValue(pathEnc).trim();
-    if (path !== "" && userBubbleAlreadyShowsAtPath(rebuilt, path)) {
+    // The lines attribute lives in the opening tag only — never scan the body.
+    const openTag = m[0].slice(0, m[0].indexOf(">") + 1);
+    const lm = /\blines="(\d+)-(\d+)"/.exec(openTag);
+    const lines = lm ? { start: Number(lm[1]), end: Number(lm[2]) } : null;
+    if (path !== "" && userBubbleAlreadyShowsAtPath(rebuilt, path, lines)) {
       rebuilt += "";
     } else if (path !== "") {
-      rebuilt += `@${path}`;
+      rebuilt += lines ? `@${path}:${lines.start}-${lines.end}` : `@${path}`;
     }
     lastIdx = m.index + m[0].length;
   }

@@ -24,10 +24,59 @@ type PromptFileAttachment struct {
 }
 
 // PromptFileAttachmentSourceField selects how attachment body is sourced.
+// Start/End are byte offsets into the decoded file; StartLine/EndLine are a
+// 1-based inclusive line range, which is what a ranged mention ("@f.go:21-31")
+// sends. Byte offsets win when both are present.
 type PromptFileAttachmentSourceField struct {
-	Literal string `json:"literal,omitempty"`
-	Start   int    `json:"start,omitempty"`
-	End     int    `json:"end,omitempty"`
+	Literal   string `json:"literal,omitempty"`
+	Start     int    `json:"start,omitempty"`
+	End       int    `json:"end,omitempty"`
+	StartLine int    `json:"startLine,omitempty"`
+	EndLine   int    `json:"endLine,omitempty"`
+}
+
+// lineRangeURI appends the "#L<start>-<end>" fragment carrying a mention's line
+// range through acp.Resource.URI without changing the ACP types.
+func lineRangeURI(rel string, startLine, endLine int) string {
+	if startLine < 1 || endLine < startLine {
+		return rel
+	}
+	return fmt.Sprintf("%s#L%d-%d", rel, startLine, endLine)
+}
+
+// splitLineRangeURI strips a "#L<start>-<end>" fragment from a resource URI.
+func splitLineRangeURI(uri string) (base string, startLine, endLine int) {
+	h := strings.LastIndex(uri, "#L")
+	if h < 0 {
+		return uri, 0, 0
+	}
+	var s, e int
+	if n, err := fmt.Sscanf(uri[h:], "#L%d-%d", &s, &e); err != nil || n != 2 || s < 1 || e < s {
+		return uri, 0, 0
+	}
+	return uri[:h], s, e
+}
+
+// sliceLines returns the 1-based inclusive line range of text. EndLine past the
+// last line clamps; StartLine past the last line falls back to the whole text.
+// Lines split on "\n" so CRLF content keeps its "\r" intact mid-range.
+func sliceLines(text string, startLine, endLine int) string {
+	if startLine < 1 || endLine < startLine {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	// A trailing newline yields an empty last element; it is not a line.
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if startLine > len(lines) {
+		return text
+	}
+	if endLine > len(lines) {
+		endLine = len(lines)
+	}
+	out := strings.Join(lines[startLine-1:endLine], "\n")
+	return strings.TrimSuffix(out, "\r")
 }
 
 // ErrFolderAttach means a path refers to a directory; only file content may be attached.
@@ -96,6 +145,9 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 			return nil, ErrFolderAttach
 		}
 		uri := filepath.ToSlash(strings.TrimSpace(rel))
+		if a.Source != nil {
+			uri = lineRangeURI(uri, a.Source.StartLine, a.Source.EndLine)
+		}
 		if a.Source != nil && strings.TrimSpace(a.Source.Literal) != "" {
 			text := a.Source.Literal
 			if !utf8.ValidString(text) {
@@ -121,6 +173,8 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 				return nil, fmt.Errorf("invalid attachment source range")
 			}
 			text = text[start:end]
+		} else if a.Source != nil {
+			text = sliceLines(text, a.Source.StartLine, a.Source.EndLine)
 		}
 		out = append(out, acp.ContentBlock{
 			Type: "resource",
@@ -150,7 +204,8 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		if strings.TrimSpace(res.Text) != "" {
 			continue
 		}
-		rel, err := resourceURIWorkspaceRel(cwdAbs, res.URI)
+		baseURI, startLine, endLine := splitLineRangeURI(res.URI)
+		rel, err := resourceURIWorkspaceRel(cwdAbs, baseURI)
 		if err != nil {
 			return nil, err
 		}
@@ -167,7 +222,7 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		out[i].Resource = &acp.Resource{
 			URI:      res.URI,
 			MimeType: mime,
-			Text:     text,
+			Text:     sliceLines(text, startLine, endLine),
 		}
 	}
 
@@ -192,13 +247,13 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		if b.Type != "text" && b.Type != acp.ContentTypeText {
 			continue
 		}
-		for _, relPath := range ExtractAtFilePathsFromText(b.Text) {
-			key := filepath.ToSlash(strings.TrimSpace(relPath))
+		for _, ref := range ExtractAtFileRefsFromText(b.Text) {
+			key := lineRangeURI(filepath.ToSlash(strings.TrimSpace(ref.Path)), ref.StartLine, ref.EndLine)
 			if _, ok := covered[key]; ok {
 				continue
 			}
 			covered[key] = struct{}{}
-			textContent, mime, err := ReadWorkspaceUTF8(cwdAbs, relPath)
+			textContent, mime, err := ReadWorkspaceUTF8(cwdAbs, ref.Path)
 			if err != nil {
 				// @tokens here are extracted heuristically from free text. One that does not
 				// resolve to a readable workspace file (an @mention rule trigger, a username,
@@ -214,7 +269,7 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 				Resource: &acp.Resource{
 					URI:      key,
 					MimeType: mime,
-					Text:     textContent,
+					Text:     sliceLines(textContent, ref.StartLine, ref.EndLine),
 				},
 			})
 		}
@@ -227,11 +282,12 @@ func normalizedResourceRelativeKey(cwdAbs, uri string) (string, error) {
 	if uri == "" {
 		return "", nil
 	}
-	rel, err := resourceURIWorkspaceRel(cwdAbs, uri)
+	base, startLine, endLine := splitLineRangeURI(uri)
+	rel, err := resourceURIWorkspaceRel(cwdAbs, base)
 	if err != nil {
 		return "", err
 	}
-	return filepath.ToSlash(rel), nil
+	return lineRangeURI(filepath.ToSlash(rel), startLine, endLine), nil
 }
 
 func resourceURIWorkspaceRel(cwdAbs, uri string) (string, error) {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -1341,9 +1342,18 @@ func wrapXMLCDATA(body string) string {
 	return "<![CDATA[" + escaped + "]]>"
 }
 
+// attachmentLineRangeRe matches the "#L<start>-<end>" resource URI fragment a
+// ranged @mention carries (see internal/session lineRangeURI).
+var attachmentLineRangeRe = regexp.MustCompile(`#L(\d+)-(\d+)$`)
+
 func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	pathRaw := strings.TrimSpace(res.URI)
 	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	lines := ""
+	if m := attachmentLineRangeRe.FindStringSubmatch(pathRaw); m != nil {
+		lines = m[1] + "-" + m[2]
+		pathRaw = strings.TrimSuffix(pathRaw, m[0])
+	}
 	pathFwd := filepath.ToSlash(pathRaw)
 	name := filepath.Base(pathFwd)
 	if name == "." || name == "/" {
@@ -1354,6 +1364,10 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	b.WriteString(xmlEscapedAttr(pathFwd))
 	b.WriteString(`" name="`)
 	b.WriteString(xmlEscapedAttr(name))
+	if lines != "" {
+		b.WriteString(`" lines="`)
+		b.WriteString(lines)
+	}
 	b.WriteString(`">`)
 	b.WriteByte('\n')
 	b.WriteString(wrapXMLCDATA(res.Text))

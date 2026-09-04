@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -554,6 +555,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
+			// A hydrated @mention turn also carries <coddy_attachment> file bodies;
+			// a title is the user's own text, never the attachment XML.
+			text = stripCoddyAttachmentXML(text)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -581,6 +585,17 @@ func stripCoddySessionAssetsXML(s string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// coddyAttachmentBlockRe matches one hydrated <coddy_attachment ...>...</coddy_attachment>
+// block, including the file body in its CDATA section. Unlike the session-assets
+// annotation the opening tag carries attributes, so a plain index scan will not do.
+var coddyAttachmentBlockRe = regexp.MustCompile(`(?is)<coddy_attachment\b[^>]*>.*?</coddy_attachment\s*>`)
+
+// stripCoddyAttachmentXML removes hydrated @mention attachment blocks from s.
+// Transcripts keep them - only derived titles drop them.
+func stripCoddyAttachmentXML(s string) string {
+	return coddyAttachmentBlockRe.ReplaceAllString(s, "")
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.
