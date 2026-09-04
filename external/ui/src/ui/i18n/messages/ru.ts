@@ -269,6 +269,31 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.background.output_buffer_bytes.desc":
     "Какая часть вывода каждой задачи хранится в памяти для тикера; полный лог всё равно попадает в бандл сессии (по умолчанию 262144).",
 
+  "settings.schema.subagents.desc":
+    "Пользовательские дочерние агенты, которым модель может делегировать работу через spawn_agent. Определения хранятся в markdown-файлах с YAML-фронтматтером; каждый запуск выполняется как фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
+  "settings.schema.subagents.enabled.label": "Включено",
+  "settings.schema.subagents.enabled.desc":
+    "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
+  "settings.schema.subagents.dirs.label": "Каталоги определений",
+  "settings.schema.subagents.dirs.desc":
+    "Первыми идут каталоги с самым низким приоритетом; более поздние записи переопределяют ранние по имени. ${CODDY_HOME} и ${CWD} разворачиваются. Каталоги внутри рабочего пространства относятся к проектной области и подчиняются политике доверия.",
+  "settings.schema.subagents.project_trust.label": "Проектные определения",
+  "settings.schema.subagents.project_trust.desc":
+    'Определения, найденные внутри рабочего пространства, приходят вместе с чекаутом. Значение "ask" загружает их, но отказывает в запуске, пока определение не одобрено для этого рабочего пространства (coddy agents trust). Значение "allow" считает их вашими собственными файлами. Значение "deny" никогда их не читает.',
+  "settings.schema.subagents.max_concurrent.label": "Максимум одновременно",
+  "settings.schema.subagents.max_concurrent.desc":
+    "Сколько запусков субагентов может одновременно выполняться во всём процессе (по умолчанию 4). Лишние запуски отклоняются, а не ставятся в очередь.",
+  "settings.schema.subagents.max_depth.label": "Максимальная глубина",
+  "settings.schema.subagents.max_depth.desc":
+    "Насколько глубоко может вкладываться порождение субагентов. Значение 1 позволяет сессии запускать субагентов, которые сами не могут порождать дальше (по умолчанию), 0 запрещает порождение везде.",
+  "settings.schema.subagents.default_timeout_seconds.label":
+    "Таймаут по умолчанию (с)",
+  "settings.schema.subagents.default_timeout_seconds.desc":
+    "Жёсткий предел для одного запуска, когда ни определение, ни вызов не задают таймаут (по умолчанию 1800); ограничен сверху максимальным таймаутом фоновых задач.",
+  "settings.schema.subagents.max_turns.label": "Максимум итераций",
+  "settings.schema.subagents.max_turns.desc":
+    "Сколько итераций ReAct может сделать дочерний агент; 0 берёт значение agent.max_turns.",
+
   "settings.schema.skills.dirs.label": "Каталоги навыков",
   "settings.schema.skills.dirs.desc":
     "Пути поиска навыков. По умолчанию: ~/.agents/skills (глобальные, совместно с npx skills / npx skillsbd), ${CODDY_HOME}/skills (специфичные для coddy), ${CWD}/.coddy/skills (проектные). ${CODDY_HOME} и ${CWD} разворачиваются во время выполнения.",

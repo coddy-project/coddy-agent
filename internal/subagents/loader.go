@@ -47,6 +47,7 @@ func (l *Loader) Load(cwd, home string) []*Definition {
 		log = slog.Default()
 	}
 	workspace := CanonicalWorkspace(cwd)
+	lexicalWorkspace := lexicalPath(cwd)
 
 	byName := map[string]*Definition{}
 	for _, d := range Bundled() {
@@ -58,7 +59,7 @@ func (l *Loader) Load(cwd, home string) []*Definition {
 		if dir == "" {
 			continue
 		}
-		scope := scopeFor(dir, workspace)
+		scope := scopeFor(dir, workspace, lexicalWorkspace)
 		if scope == ScopeProject && l.ProjectTrust == "deny" {
 			continue
 		}
@@ -78,17 +79,41 @@ func (l *Loader) Load(cwd, home string) []*Definition {
 	return out
 }
 
-// scopeFor decides whether a directory belongs to the workspace. Both paths are
-// canonical, so a cwd reached through a symlink still owns its .coddy/agents.
-func scopeFor(dir, workspace string) Scope {
-	canon := CanonicalWorkspace(dir)
-	if workspace == "" {
+// scopeFor decides whether a directory belongs to the workspace. A directory
+// is project scope when it lies under the workspace by its canonical
+// (symlink-resolved) path or by its lexical path: the first keeps a cwd
+// reached through a symlink owning its .coddy/agents, the second keeps a
+// checkout that commits .coddy as a symlink pointing elsewhere from escaping
+// the project policy.
+func scopeFor(dir, workspace, lexicalWorkspace string) Scope {
+	if workspace == "" && lexicalWorkspace == "" {
 		return ScopeUser
 	}
-	if canon == workspace || strings.HasPrefix(canon, workspace+string(filepath.Separator)) {
+	if under(CanonicalWorkspace(dir), workspace) || under(lexicalPath(dir), lexicalWorkspace) {
 		return ScopeProject
 	}
 	return ScopeUser
+}
+
+// under reports whether path equals root or sits below it.
+func under(path, root string) bool {
+	if root == "" || path == "" {
+		return false
+	}
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
+}
+
+// lexicalPath is the absolute, cleaned form of a path without resolving
+// symlinks.
+func lexicalPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
 }
 
 // expandDir resolves ${CODDY_HOME}, ${CWD} and a leading ~.
@@ -121,13 +146,20 @@ func loadDir(dir string, scope Scope, log *slog.Logger) []*Definition {
 	if err != nil || !info.IsDir() {
 		return nil
 	}
+	// WalkDir does not follow a symlinked root (it sees a file), so a
+	// .coddy/agents that is itself a symlink is walked through its target.
+	// Symlinks below the root are still not followed.
+	walkRoot := dir
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		walkRoot = resolved
+	}
 	var files []string
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+	_ = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil
 		}
 		if d.IsDir() {
-			if path != dir && strings.HasPrefix(d.Name(), ".") {
+			if path != walkRoot && strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
 			return nil

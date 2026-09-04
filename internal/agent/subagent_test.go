@@ -626,12 +626,19 @@ func TestSubagentReportBlock(t *testing.T) {
 
 func newChildAgentForTest(t *testing.T, cwd string, allowed []string) (*Agent, *session.State, *recordingClient) {
 	t.Helper()
+	return newChildAgentWithConfig(t, cwd, allowed, &config.Config{})
+}
+
+// newChildAgentWithConfig builds a child agent over a hand-made child state,
+// so tests can exercise the loop without a manager or a spawn.
+func newChildAgentWithConfig(t *testing.T, cwd string, allowed []string, cfg *config.Config) (*Agent, *session.State, *recordingClient) {
+	t.Helper()
 	st := &session.State{ID: "sub_enforce_" + strings.ReplaceAll(t.Name(), "/", "_"), CWD: cwd, Mode: session.ModeAgent, SessionDir: t.TempDir()}
 	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "tool"}, {Name: "other"}}))
 	st.SetSubagentMeta(session.SubagentMeta{Name: "explore", ParentSessionID: "sess_parent", TaskID: "bg_1", Depth: 1, Tools: allowed})
 	st.SetPermissionMode(config.PermModeBypass)
 	client := &recordingClient{answer: "allow"}
-	return NewAgent(&config.Config{}, st, client, nil), st, client
+	return NewAgent(cfg, st, client, nil), st, client
 }
 
 func TestSubagentChildRefusesToolOutsideEffectiveSet(t *testing.T) {
@@ -1467,4 +1474,232 @@ func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
 	}
 	rig.assertRetired(middle.ID, rig.parent.ID)
 	rig.assertRetired(nested[0].Agent.SessionID, middle.ID)
+}
+
+// ---- review round: model inheritance, tool set, creation, labels ----
+
+// gatedRuntime wraps the manager so a test can hold CreateSubagentSession
+// open and prove the pool's Stop and timeout reach a child that is still
+// being created.
+type gatedRuntime struct {
+	SubagentRuntime
+	gate    chan struct{}
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (g *gatedRuntime) CreateSubagentSession(ctx context.Context, spec session.SubagentSpec) (*session.State, error) {
+	g.once.Do(func() { close(g.entered) })
+	select {
+	case <-g.gate:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return g.SubagentRuntime.CreateSubagentSession(ctx, spec)
+}
+
+func TestSpawnSubagentChildInheritsTheParentModelUnlessTheDefinitionNamesAConfiguredOne(t *testing.T) {
+	rig := newSubagentRig(t, func(cfg *config.Config) {
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "fake/other", MaxTokens: 100})
+	})
+	rig.parent.SetSelectedModelID("fake/other")
+	rig.approvedDefinition("inherit", "")
+	rig.approvedDefinition("pinned", "model: fake/model\n")
+	rig.approvedDefinition("ghost", "model: ghost/model\n")
+
+	cases := []struct {
+		name, agent, wantModel, wantLog string
+	}{
+		{"inherits the parent's selection", "inherit", "fake/other", ""},
+		{"a configured model wins", "pinned", "fake/model", ""},
+		{"an unknown model falls back and is noted", "ghost", "fake/other", `model "ghost/model" is not configured; using the parent's model "fake/other"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq(tc.agent))
+			if err != nil {
+				t.Fatal(err)
+			}
+			env := parseSubagentEnvelope(t, res)
+			snap, err := rig.store.ReadSnapshot(env.Session)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := snap.Meta.SelectedModelID; got != tc.wantModel {
+				t.Fatalf("child model = %q, want %q", got, tc.wantModel)
+			}
+			out := rig.taskOutput(env.Task)
+			if tc.wantLog != "" && !strings.Contains(out, tc.wantLog) {
+				t.Fatalf("task log lacks %q:\n%s", tc.wantLog, out)
+			}
+			if tc.wantLog == "" && strings.Contains(out, "is not configured") {
+				t.Fatalf("task log carries a fallback note without reason:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestSpawnSubagentRefusesADefinitionWhoseToolSetIsEmpty(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("toothless", "tools: no_such_tool_anywhere\n")
+	before := subagentLimiter.InFlight()
+	_, err := rig.parentAgent().spawnSubagent(context.Background(), spawnReq("toothless"))
+	if err == nil || !strings.Contains(err.Error(), "would have no tools at all") || !strings.Contains(err.Error(), "no_such_tool_anywhere") {
+		t.Fatalf("error = %v, want a refusal naming the empty allowlist", err)
+	}
+	if got := subagentLimiter.InFlight(); got != before {
+		t.Fatalf("limiter in flight = %d, want %d", got, before)
+	}
+	if tasks := rig.agentTasks(); len(tasks) != 0 {
+		t.Fatalf("a refused spawn left agent tasks behind: %+v", tasks)
+	}
+	if bundles := rig.childBundles(); len(bundles) != 0 {
+		t.Fatalf("a refused spawn left child bundles behind: %v", bundles)
+	}
+}
+
+// A child restored with an empty tool set advertises nothing rather than
+// everything: nil and empty must not read as "unrestricted".
+func TestSubagentChildWithAnEmptyToolSetAdvertisesNothing(t *testing.T) {
+	ag, _, _ := newChildAgentForTest(t, t.TempDir(), nil)
+	if defs := ag.currentToolDefinitions("agent"); len(defs) != 0 {
+		names := make([]string, 0, len(defs))
+		for _, d := range defs {
+			names = append(names, d.Name)
+		}
+		t.Fatalf("an empty effective set advertised %v", names)
+	}
+}
+
+// /compact and /plugin are operator commands; in a child's prompt they are
+// the parent model's words and go to the model like any other task text.
+func TestSubagentChildDoesNotRunBuiltInCommands(t *testing.T) {
+	for _, text := range []string{"/plugin list", "/compact keep the findings"} {
+		t.Run(text, func(t *testing.T) {
+			cfg := &config.Config{
+				Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+				Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+				Agent:     config.Agent{Model: "fake/model", MaxTurns: 4},
+			}
+			cfg.Prompts.ApplyDefaults()
+			ag, st, _ := newChildAgentWithConfig(t, t.TempDir(), []string{"read"}, cfg)
+			prov := &scriptedProvider{steps: []scriptStep{answerStep("model saw: " + text)}}
+			ag.SetProviderFactory(func(llm.ProviderInput) (llm.Provider, error) { return prov, nil })
+			if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if !prov.wasCalled() {
+				t.Fatalf("the model was never called: %q was intercepted as a built-in", text)
+			}
+			if last := lastAssistantPlainText(st.GetMessages()); last != "model saw: "+text {
+				t.Fatalf("last assistant message = %q", last)
+			}
+		})
+	}
+}
+
+func TestSpawnSubagentStopAndTimeoutReachAChildStillBeingCreated(t *testing.T) {
+	t.Run("stop", func(t *testing.T) {
+		rig := newSubagentRig(t, nil)
+		rig.approvedDefinition("slowstart", "background: true\n")
+		gate := &gatedRuntime{SubagentRuntime: rig.mgr, gate: make(chan struct{}), entered: make(chan struct{})}
+		ag := rig.parentAgent()
+		ag.SetSubagentRuntime(gate)
+		before := subagentLimiter.InFlight()
+
+		if _, err := ag.spawnSubagent(context.Background(), spawnReq("slowstart")); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-gate.entered:
+		case <-time.After(testWait):
+			t.Fatal("session creation never started")
+		}
+		task := rig.lastAgentTask()
+		if task.Status != bgtask.StatusRunning {
+			t.Fatalf("task = %+v, want running while creation is held", task)
+		}
+		if _, err := bgtask.Default().Stop(rig.parent.ID, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		final := rig.waitTask(task.ID)
+		if final.Status != bgtask.StatusStopped {
+			t.Fatalf("task after stop = %+v", final)
+		}
+		if got := subagentLimiter.InFlight(); got != before {
+			t.Fatalf("limiter in flight = %d, want %d", got, before)
+		}
+		if bundles := rig.childBundles(); len(bundles) != 0 {
+			t.Fatalf("a child stopped during creation left bundles: %v", bundles)
+		}
+		if _, ok := arbiterEntry(rig.parent.ID); ok {
+			t.Fatal("the parent's arbiter must be released")
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		rig := newSubagentRig(t, nil)
+		rig.approvedDefinition("slowstart", "timeout_seconds: 1\n")
+		gate := &gatedRuntime{SubagentRuntime: rig.mgr, gate: make(chan struct{}), entered: make(chan struct{})}
+		ag := rig.parentAgent()
+		ag.SetSubagentRuntime(gate)
+
+		start := time.Now()
+		res, err := ag.spawnSubagent(context.Background(), spawnReq("slowstart"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(start); elapsed > testWait {
+			t.Fatalf("the spawn took %s with a 1s timeout and a held creation", elapsed)
+		}
+		env := parseSubagentEnvelope(t, res)
+		if env.Status != string(bgtask.StatusTimedOut) {
+			t.Fatalf("status = %q, want timed_out: %s", env.Status, res)
+		}
+		if !strings.Contains(rig.taskOutput(env.Task), "create subagent session") {
+			t.Fatalf("task log must say the creation failed:\n%s", rig.taskOutput(env.Task))
+		}
+	})
+}
+
+func TestSpawnSubagentPoolRefusalNamesTheSessionLimitKey(t *testing.T) {
+	rig := newSubagentRig(t, func(cfg *config.Config) { cfg.Tools.Background.MaxConcurrent = 1 })
+	rig.approvedDefinition("approved", "")
+	pool := bgtask.Default()
+	sleeper, err := pool.Start(bgtask.Spec{SessionID: rig.parent.ID, Command: "sleep 30", TimeoutSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = pool.Stop(rig.parent.ID, sleeper.ID) }()
+	_, err = rig.parentAgent().spawnSubagent(context.Background(), spawnReq("approved"))
+	if !errors.Is(err, bgtask.ErrPoolFull) || !strings.Contains(err.Error(), "tools.background.max_concurrent") || !strings.Contains(err.Error(), "background_wait") {
+		t.Fatalf("error = %v, want ErrPoolFull naming the config key and a way out", err)
+	}
+}
+
+func TestSpawnSubagentTaskLabelIsCappedAndTurnsCountAssistantRounds(t *testing.T) {
+	rig := newSubagentRig(t, nil)
+	rig.approvedDefinition("worker", "")
+	rig.setChildProvider(func(*session.State) llm.Provider {
+		return &scriptedProvider{steps: []scriptStep{
+			toolStep(llm.ToolCall{ID: "call_ls", Name: "print_tree", InputJSON: `{"path":"."}`}),
+			answerStep("REPORT: two rounds"),
+		}}
+	})
+	req := spawnReq("worker")
+	req.Description = strings.Repeat("describe ", 20) + "\nsecond line must not appear"
+	res, err := rig.parentAgent().spawnSubagent(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := parseSubagentEnvelope(t, res)
+	if env.Turns != 2 {
+		t.Fatalf("turns = %d, want 2 (one tool round, one answer): %s", env.Turns, res)
+	}
+	task := rig.lastAgentTask()
+	if n := len([]rune(task.Label)); n > 60 {
+		t.Fatalf("label is %d runes, want at most 60: %q", n, task.Label)
+	}
+	if !strings.HasPrefix(task.Label, "agent worker: describe") || strings.Contains(task.Label, "second line") {
+		t.Fatalf("label = %q", task.Label)
+	}
 }

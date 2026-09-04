@@ -269,6 +269,31 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.background.output_buffer_bytes.desc":
     "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144).",
 
+  "settings.schema.subagents.desc":
+    "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+  "settings.schema.subagents.enabled.label": "Enabled",
+  "settings.schema.subagents.enabled.desc":
+    "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+  "settings.schema.subagents.dirs.label": "Definition directories",
+  "settings.schema.subagents.dirs.desc":
+    "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+  "settings.schema.subagents.project_trust.label": "Project definitions",
+  "settings.schema.subagents.project_trust.desc":
+    'Definitions found inside the workspace travel with the checkout. "ask": load them but refuse to spawn one until it is approved for this workspace (coddy agents trust). "allow": treat them like your own files. "deny": never read them.',
+  "settings.schema.subagents.max_concurrent.label": "Max concurrent",
+  "settings.schema.subagents.max_concurrent.desc":
+    "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued.",
+  "settings.schema.subagents.max_depth.label": "Max depth",
+  "settings.schema.subagents.max_depth.desc":
+    "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere.",
+  "settings.schema.subagents.default_timeout_seconds.label":
+    "Default timeout (s)",
+  "settings.schema.subagents.default_timeout_seconds.desc":
+    "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout.",
+  "settings.schema.subagents.max_turns.label": "Max turns",
+  "settings.schema.subagents.max_turns.desc":
+    "ReAct rounds a child may take; 0 follows agent.max_turns.",
+
   "settings.schema.skills.dirs.label": "Skill directories",
   "settings.schema.skills.dirs.desc":
     "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
@@ -22,6 +23,20 @@ const subagentSessionPrefix = "sub_"
 // does not come from the child's own task turn: resuming or messaging a
 // subagent is not supported, so its transcript is read-only for every surface.
 var ErrSubagentReadOnly = errors.New("subagent sessions are read-only transcripts")
+
+// ErrReservedSessionID is returned when a caller asks to create an ordinary
+// session under the sub_ prefix, which only CreateSubagentSession may use.
+var ErrReservedSessionID = errors.New("session id uses the reserved subagent prefix")
+
+// ErrSessionDeleting is returned to a turn that arrives while DeleteSessionTree
+// is removing the session.
+var ErrSessionDeleting = errors.New("session is being deleted")
+
+// subagentMCPDialTimeout bounds the MCP handshakes a child performs while it is
+// created. A hung server must not hold the launch, the limiter slot and the
+// parent's foreground wait hostage; a dial that runs out of time is logged and
+// skipped like a failed one.
+const subagentMCPDialTimeout = mcpReloadTimeout
 
 // NewSubagentSessionID returns a fresh child session id (sub_ plus 24 hex).
 func NewSubagentSessionID() string {
@@ -95,20 +110,9 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		return nil, fmt.Errorf("subagent session needs a definition name")
 	}
 
-	m.mu.RLock()
-	_, occupied := m.sessions[id]
-	m.mu.RUnlock()
-	if occupied {
-		return nil, fmt.Errorf("subagent session id already active: %s", id)
-	}
-
 	cwd, err := EffectiveSessionCWD(spec.CWD, m.defaultCWD)
 	if err != nil {
 		return nil, fmt.Errorf("subagent cwd: %w", err)
-	}
-	sessionDir, err := m.store.EnsureLayout(id)
-	if err != nil {
-		return nil, fmt.Errorf("subagent session layout: %w", err)
 	}
 
 	active := m.activeCfg()
@@ -126,10 +130,38 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 		CWD:             cwd,
 		Mode:            mode,
 		Skills:          loadedSkills,
-		SessionDir:      sessionDir,
 		SelectedModelID: strings.TrimSpace(spec.SelectedModelID),
 		PermissionMode:  strings.TrimSpace(spec.PermissionMode),
 	}
+
+	// Reserve the live entry before the bundle exists on disk. The HTTP read
+	// path serves a live session when it finds one and loads the bundle
+	// otherwise; registering first means a transcript read racing this call
+	// finds the one state the child will run with, never a second state built
+	// from a half-written bundle.
+	m.mu.Lock()
+	if _, occupied := m.sessions[id]; occupied {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("subagent session id already active: %s", id)
+	}
+	m.sessions[id] = state
+	m.mu.Unlock()
+	failed := true
+	defer func() {
+		if failed {
+			m.mu.Lock()
+			if m.sessions[id] == state {
+				delete(m.sessions, id)
+			}
+			m.mu.Unlock()
+		}
+	}()
+
+	sessionDir, err := m.store.EnsureLayout(id)
+	if err != nil {
+		return nil, fmt.Errorf("subagent session layout: %w", err)
+	}
+	state.setSessionDir(sessionDir)
 	state.SetSubagentMeta(SubagentMeta{
 		Name:            name,
 		ParentSessionID: parentID,
@@ -146,9 +178,10 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 	state.SetPersistHook(m.makePersist(state))
 
 	if spec.ConnectMCP {
-		m.connectConfiguredMCPServers(ctx, state)
+		dialCtx, cancel := context.WithTimeout(ctx, subagentMCPDialTimeout)
+		m.connectConfiguredMCPServers(dialCtx, state)
 		for _, srv := range spec.ClientMCPServers {
-			client, err := m.connectMCPServer(ctx, state, srv)
+			client, err := m.connectMCPServer(dialCtx, state, srv)
 			if err != nil {
 				m.log.Warn("failed to redial client MCP server for subagent", "server", srv.Name, "error", err)
 				continue
@@ -156,17 +189,72 @@ func (m *Manager) CreateSubagentSession(ctx context.Context, spec SubagentSpec) 
 			state.AddSessionMCPClient(client)
 			state.RememberSessionMCPDeclaration(srv)
 		}
+		cancel()
+		if ctx.Err() != nil {
+			state.CloseAll()
+			return nil, fmt.Errorf("subagent session creation cancelled: %w", ctx.Err())
+		}
 	}
-
-	m.mu.Lock()
-	m.sessions[id] = state
-	m.mu.Unlock()
 
 	if err := m.store.Save(state); err != nil {
 		m.log.Warn("initial subagent session save", "id", id, "error", err)
 	}
+	failed = false
 	m.log.Info("subagent session created", "id", id, "parent", parentID, "agent", name, "task", spec.TaskID)
 	return state, nil
+}
+
+// isDeleting reports whether DeleteSessionTree is removing the session.
+func (m *Manager) isDeleting(id string) bool {
+	m.deletingMu.Lock()
+	defer m.deletingMu.Unlock()
+	return m.deleting[strings.TrimSpace(id)]
+}
+
+func (m *Manager) markDeleting(ids []string, on bool) {
+	m.deletingMu.Lock()
+	defer m.deletingMu.Unlock()
+	if m.deleting == nil {
+		m.deleting = map[string]bool{}
+	}
+	for _, id := range ids {
+		if on {
+			m.deleting[id] = true
+		} else {
+			delete(m.deleting, id)
+		}
+	}
+}
+
+// deleteSettleTimeout bounds how long DeleteSessionTree waits for a cancelled
+// turn to release before removing bundles anyway.
+const deleteSettleTimeout = 15 * time.Second
+
+// cancelAndAwaitTurns cancels the running turn of every node and waits until
+// none of them is active in this process, so no persist hook fires after the
+// bundle is gone.
+func (m *Manager) cancelAndAwaitTurns(nodes []SessionTreeNode) {
+	for _, n := range nodes {
+		if st := m.getSession(n.ID); st != nil {
+			st.SetUserCancelledTurn()
+			st.Cancel()
+		}
+	}
+	deadline := time.Now().Add(deleteSettleTimeout)
+	for time.Now().Before(deadline) {
+		busy := false
+		for _, n := range nodes {
+			if m.SessionTurnActiveInProcess(n.ID) {
+				busy = true
+				break
+			}
+		}
+		if !busy {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	m.log.Warn("delete session tree: a turn did not settle in time", "root", nodes[0].ID)
 }
 
 // RunSubagentTurn runs the child's one and only prompt turn through the normal
@@ -269,6 +357,8 @@ func (m *Manager) SessionTree(rootID string) ([]SessionTreeNode, error) {
 // DeleteSessionTree removes a session together with every child session it
 // spawned, in an order that leaves no writer behind:
 //
+//  0. every node is marked as deleting (new turns are refused) and its active
+//     turn, if any, is cancelled and awaited;
 //  1. every node's representing task is stopped and awaited, root to leaf
 //     (a child's task lives under its parent session, so this reaches a
 //     running child and a running descendant alike);
@@ -283,6 +373,16 @@ func (m *Manager) DeleteSessionTree(rootID string, pool *bgtask.Pool) error {
 	if err != nil {
 		return err
 	}
+	ids := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.ID)
+	}
+	// From here on a new turn against any node is refused, an active one is
+	// cancelled and awaited: a turn that outlived the delete would recreate
+	// the bundle through its persist hook (atomic writes MkdirAll their target).
+	m.markDeleting(ids, true)
+	defer m.markDeleting(ids, false)
+	m.cancelAndAwaitTurns(nodes)
 	if pool != nil {
 		for _, n := range nodes {
 			if n.SubagentRun && n.ParentSessionID != "" && n.SubagentTaskID != "" {

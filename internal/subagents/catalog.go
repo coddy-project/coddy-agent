@@ -57,9 +57,11 @@ func BuildCatalog(defs []*Definition, policy, workspace string, store *TrustStor
 }
 
 // PromptBlock renders the catalog the parent model reads, plus guidance on
-// when delegation pays off. Hidden definitions are omitted; an unapproved
-// project definition is listed with its state so the model can tell the
-// operator instead of calling and failing.
+// when delegation pays off. Hidden definitions are omitted. An unapproved
+// project definition is listed by name with a static approval notice and
+// nothing the file authored: until the operator approves it, its text must not
+// reach the parent's prompt at all, or an untrusted checkout could steer the
+// parent before any approval.
 func PromptBlock(entries []CatalogEntry) string {
 	visible := make([]CatalogEntry, 0, len(entries))
 	for _, e := range entries {
@@ -79,11 +81,11 @@ func PromptBlock(entries []CatalogEntry) string {
 	b.WriteString("collect detached runs with **`background_wait`** or **`background_output`** and stop them with **`background_stop`**. Do not delegate a one-step task you can do directly.\n\n")
 	b.WriteString("Available subagents:\n\n")
 	for _, e := range visible {
-		fmt.Fprintf(&b, "- `%s`: %s", e.Name, strings.TrimSpace(e.Description))
 		if e.NeedsApproval {
-			b.WriteString(" (project file, needs approval: ask the user to run `coddy agents trust " + e.Name + "` before spawning it)")
+			fmt.Fprintf(&b, "- `%s`: project definition awaiting approval; its description is withheld until the user runs `coddy agents trust %s`, and spawning it is refused until then\n", e.Name, e.Name)
+			continue
 		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "- `%s`: %s\n", e.Name, strings.Join(strings.Fields(e.Description), " "))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

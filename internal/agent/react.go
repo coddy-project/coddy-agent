@@ -122,16 +122,22 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact command compacts history instead of running the
-	// ReAct loop. The command text is persisted (so it shows in the transcript
-	// like any other message) by runCompactCommand itself.
-	if instructions, ok := parseCompactCommand(userText); ok {
-		return a.runCompactCommand(ctx, instructions, userText)
-	}
-	// The built-in /plugin command manages skill plugins and marketplaces
-	// deterministically, without an LLM turn; the command text is persisted too.
-	if args, ok := parsePluginCommand(userText); ok {
-		return a.runPluginCommand(ctx, args, userText)
+	// The built-in /compact and /plugin commands are operator input: they run
+	// deterministically, outside the tool set and the permission gate. A
+	// child's prompt is written by the parent model, so for a subagent the
+	// same text is an ordinary task and never reaches the built-ins.
+	if a.subagent == nil {
+		// The built-in /compact command compacts history instead of running the
+		// ReAct loop. The command text is persisted (so it shows in the transcript
+		// like any other message) by runCompactCommand itself.
+		if instructions, ok := parseCompactCommand(userText); ok {
+			return a.runCompactCommand(ctx, instructions, userText)
+		}
+		// The built-in /plugin command manages skill plugins and marketplaces
+		// deterministically, without an LLM turn; the command text is persisted too.
+		if args, ok := parsePluginCommand(userText); ok {
+			return a.runPluginCommand(ctx, args, userText)
+		}
 	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
@@ -1129,6 +1135,12 @@ func (a *Agent) currentToolDefinitions(mode string) []llm.ToolDefinition {
 		defs = append(defs, mcpToolDefinitions(a.state.GetMCPClients(), a.state.GetMCPToolFilter())...)
 	}
 	if a.subagent != nil {
+		// An empty effective set means no tools at all, not "unrestricted" as
+		// the nil ToolSet would read; the spawn refuses such a set up front,
+		// this keeps a replayed or restored child honest too.
+		if len(a.subagent.Tools) == 0 {
+			return nil
+		}
 		defs = FilterToolDefinitions(defs, ToolSet(a.subagent.Tools))
 	} else if !a.canSpawn() {
 		// spawn_agent is registered whenever the feature is on; a surface with no

@@ -4137,43 +4137,47 @@ export function App() {
               ),
             );
           }}
-          onPlanDocumentRun={(slug) => {
-            if (subagentTranscript) {
-              return;
-            }
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            void streamResponses(t("chat.runPlanMessage"), {
-              modeOverride: "agent",
-              runPlanSlug: slug,
-            });
-          }}
-          onPlanDocumentDiscard={async (itemId, slug) => {
-            const sid = sessionId.trim();
-            if (!sid) return;
-            try {
-              await fetch(
-                `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                {
-                  method: "DELETE",
-                  headers,
+          // A subagent transcript is read-only: like onEdit below, Run plan and
+          // Discard are withheld rather than stubbed, so the plan card renders
+          // without its footer and its editor is read-only.
+          {...(subagentTranscript
+            ? {}
+            : {
+                onPlanDocumentRun: (slug: string) => {
+                  if (
+                    sessionId.trim() &&
+                    activeComposerSidRef.current.has(sessionId.trim())
+                  ) {
+                    return;
+                  }
+                  void streamResponses(t("chat.runPlanMessage"), {
+                    modeOverride: "agent",
+                    runPlanSlug: slug,
+                  });
                 },
-              );
-            } catch {
-              return;
-            }
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, discarded: true }
-                  : x,
-              ),
-            );
-          }}
+                onPlanDocumentDiscard: async (itemId: string, slug: string) => {
+                  const sid = sessionId.trim();
+                  if (!sid) return;
+                  try {
+                    await fetch(
+                      `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                      {
+                        method: "DELETE",
+                        headers,
+                      },
+                    );
+                  } catch {
+                    return;
+                  }
+                  setItems((prev) =>
+                    prev.map((x) =>
+                      x.id === itemId && x.type === "plan_document"
+                        ? { ...x, discarded: true }
+                        : x,
+                    ),
+                  );
+                },
+              })}
           {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}

@@ -967,6 +967,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The source is a subagent child session (sub_…): its transcript is read-only and cannot be forked; branch the parent instead.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -1905,7 +1913,7 @@ func openAPISpec() map[string]interface{} {
 						"description":    map[string]string{"type": "string"},
 						"scope":          map[string]interface{}{"type": "string", "enum": []string{"builtin", "user", "project"}},
 						"path":           map[string]string{"type": "string", "description": "Definition file; absent for built-ins."},
-						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes; absent for built-ins."},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the definition bytes (the embedded bytes for built-ins)."},
 						"model":          map[string]string{"type": "string", "description": "models[].model id from the frontmatter, when set."},
 						"mode":           map[string]string{"type": "string", "description": "agent or plan from the frontmatter, when set."},
 						"builtin":        map[string]string{"type": "boolean"},

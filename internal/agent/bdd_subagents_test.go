@@ -226,8 +226,13 @@ func (c *recordingClient) RequestPermission(_ context.Context, params acp.Permis
 	c.perms = append(c.perms, params)
 	answer := c.answer
 	c.mu.Unlock()
-	// Hold the prompt open long enough for a second child to collide with it.
-	time.Sleep(40 * time.Millisecond)
+	// Hold the prompt open until a second child is queued on the parent's
+	// arbiter (or briefly, when no other child is coming), so the overlap the
+	// serialisation scenario checks is a fact, not a matter of timing.
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) && arbiterWaiters(params.SessionID) == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
 	c.mu.Lock()
 	c.inFlight--
 	c.mu.Unlock()
@@ -736,6 +741,20 @@ func (s *subagentsFeatureState) systemPromptListsSubagent(name string) error {
 	return nil
 }
 
+func (s *subagentsFeatureState) systemPromptNamesAwaitingApproval(name string) error {
+	sp, ok := s.parentProvider.firstSystemPrompt()
+	if !ok {
+		return fmt.Errorf("the parent model received no system prompt")
+	}
+	if !strings.Contains(sp, "`"+name+"`") || !strings.Contains(sp, "awaiting approval") || !strings.Contains(sp, "coddy agents trust "+name) {
+		return fmt.Errorf("system prompt does not name %q as awaiting approval", name)
+	}
+	if strings.Contains(sp, "BDD helper "+name) {
+		return fmt.Errorf("system prompt leaks the description of the unapproved definition %q", name)
+	}
+	return nil
+}
+
 func (s *subagentsFeatureState) systemPromptDoesNotList(name string) error {
 	sp, ok := s.parentProvider.firstSystemPrompt()
 	if !ok {
@@ -1056,6 +1075,7 @@ func initializeSubagentsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a prompt is sent to the child session from outside$`, s.promptChildFromOutside)
 
 	sc.Step(`^the system prompt lists the subagent "([^"]*)" with its description$`, s.systemPromptListsSubagent)
+	sc.Step(`^the system prompt names the subagent "([^"]*)" as awaiting approval and withholds its description$`, s.systemPromptNamesAwaitingApproval)
 	sc.Step(`^the system prompt does not list the subagent "([^"]*)"$`, s.systemPromptDoesNotList)
 	sc.Step(`^the model is offered the spawn_agent tool$`, s.modelOfferedSpawn)
 	sc.Step(`^the spawn_agent tool result contains "([^"]*)"$`, s.spawnResultContains)

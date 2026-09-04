@@ -157,6 +157,20 @@ describe("taskTimingLine", () => {
     });
     expect(taskTimingLine(t, START_MS + 9_000_000)).toBe("1m30s · exit 2");
   });
+
+  test("finished agent task omits the synthetic exit code", () => {
+    const finished = {
+      kind: "agent" as const,
+      label: "agent explore: survey the repo",
+      agent: { name: "explore", session_id: "sub_0a1b2c" },
+      running: false,
+      elapsed_seconds: 90,
+    };
+    const ok = task({ ...finished, status: "succeeded", exit_code: 0 });
+    expect(taskTimingLine(ok, START_MS + 9_000_000)).toBe("1m30s");
+    const failed = task({ ...finished, status: "failed", exit_code: 1 });
+    expect(taskTimingLine(failed, START_MS + 9_000_000)).toBe("1m30s");
+  });
 });
 
 describe("tasksPollIntervalMs", () => {

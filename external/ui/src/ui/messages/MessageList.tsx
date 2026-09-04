@@ -228,6 +228,11 @@ export function MessageList(props: {
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
+          // A read-only transcript (a subagent child session) passes neither
+          // handler; the card then renders without Run plan / Discard and its
+          // editor is read-only, instead of showing controls that do nothing.
+          const onPlanRun = props.onPlanDocumentRun;
+          const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
             <div key={it.id} className="message-row-plan">
               <PlanDocumentSection
@@ -243,8 +248,10 @@ export function MessageList(props: {
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
-                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() => props.onPlanDocumentDiscard?.(it.id, it.slug)}
+                {...(onPlanRun ? { onRunPlan: () => onPlanRun(it.slug) } : {})}
+                {...(onPlanDiscard
+                  ? { onDiscard: () => onPlanDiscard(it.id, it.slug) }
+                  : {})}
               />
             </div>
           );

@@ -107,7 +107,14 @@ export function taskTimingLine(task: BackgroundTask, nowMs: number): string {
   if (task.expected_seconds && task.expected_seconds > 0) {
     parts.push(t("tasks.estimate", { value: formatDuration(task.expected_seconds) }));
   }
-  if (!task.running && typeof task.exit_code === "number") {
+  // An agent task has no process behind it, so its exit code is synthetic:
+  // the status already says how the run ended, and "exit 0" would only
+  // suggest a shell that never existed.
+  if (
+    !task.running &&
+    !isAgentTask(task) &&
+    typeof task.exit_code === "number"
+  ) {
     parts.push(t("tasks.exitCode", { code: task.exit_code }));
   }
   if (isOverdue(task, nowMs)) {

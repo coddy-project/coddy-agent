@@ -34,7 +34,7 @@ Only `description` is required. `name` defaults to the file stem (or the directo
 |---|---|---|
 | `name` | | Identifier matching `[a-z0-9][a-z0-9_-]*`; what the model passes to `spawn_agent`. |
 | `description` | | One line shown to the parent model so it can pick the agent; cut to 200 characters in the catalog. |
-| `model` | | A `models[].model` id for the child. An unknown id falls back to the parent's model with a warning in the agent log. |
+| `model` | | A `models[].model` id for the child. An unknown id falls back to the parent's model with a warning in the agent log and a note in the task's output log. |
 | `mode` | | `agent` or `plan`. Empty inherits the parent's mode; a plan-mode parent always forces `plan`. |
 | `tools` | | Allowlist: a YAML list or a comma-separated string (`tools: read, grep`). Entries are exact tool names, a bare `*`, or a `prefix*` pattern, so `context7__*` admits every tool of one MCP server. Empty means everything the parent has. |
 | `disallowed_tools` | `disallowedTools` | Denylist with the same syntax; wins over `tools`. |
@@ -64,7 +64,7 @@ separate defects from style remarks, and end with a short verdict.
 
 ### Bounds
 
-The loader and the tool keep a definition tree from flooding the prompt: at most **200** definitions per directory (the rest are skipped with a warning), a file over **256 KiB** is skipped, a role body over **64 KiB** is truncated with a marker, `description` is cut to **200** characters, and a `spawn_agent` `prompt` over **32 KiB** is refused. The task label is `agent <name>: <description>` where `description` is the call's own argument, falling back to the first line of the prompt.
+The loader and the tool keep a definition tree from flooding the prompt: at most **200** definitions per directory (the rest are skipped with a warning), a file over **256 KiB** is skipped, a role body over **64 KiB** is truncated with a marker, `description` is cut to **200** characters, and a `spawn_agent` `prompt` over **32 KiB** is refused. The task label is `agent <name>: <description>` where `description` is the call's own argument, falling back to the first line of the prompt; the whole label is capped at **60** characters, the pool's rule for command labels.
 
 Every loaded definition is an **immutable value** carrying its scope, its path and a SHA-256 **digest** of the file bytes. The file is read once; trust, the tool set and the role are all decided on that same value, never on a re-read.
 
@@ -82,7 +82,7 @@ A definition that arrived with the checkout directs a child's tools, and the per
 `subagents.project_trust` takes the same vocabulary as `mcp.project_trust`:
 
 - **`deny`** - project-scope directories are not read at all. Agent discovery, `coddy agents list` and the HTTP catalog omit them; the test proves the files stay unread.
-- **`ask`** (default) - project-scope definitions load and are listed as `needs_approval` until a receipt exists for `(canonical workspace, name, digest)`. Spawning one without a receipt is **refused** in the runtime, on the resolved definition: the tool result says the definition comes from a project file that is not approved for this workspace and names the ways to approve it, so the model can tell the operator and retry afterwards. The catalog block in the prompt already marks such entries (`project file, needs approval: ask the user to run coddy agents trust <name> before spawning it`).
+- **`ask`** (default) - project-scope definitions load and are listed as `needs_approval` until a receipt exists for `(canonical workspace, name, digest)`. Spawning one without a receipt is **refused** in the runtime, on the resolved definition: the tool result says the definition comes from a project file that is not approved for this workspace and names the ways to approve it, so the model can tell the operator and retry afterwards. The catalog block in the prompt lists such an entry by **name only**, with a fixed notice that it is awaiting approval and how to approve it; the file's description is withheld until the receipt exists, so an untrusted checkout cannot put a single line of its own into the parent's system prompt. Descriptions of approved and user-scope definitions are flattened to one line before they are rendered.
 - **`allow`** - project-scope definitions behave like user-scope ones.
 
 Built-ins and user-scope files are always `trusted`. Whatever the scope, `permission_mode`, `tools` and `disallowed_tools` only ever narrow the parent's capabilities, and a definition carries no hooks, commands or MCP declarations of its own, so nothing in it starts a process at load time.
@@ -135,7 +135,7 @@ A **foreground** spawn (the default) blocks the tool call until the child's turn
 The user did not see this report: restate what matters in your own reply. The full transcript is session sub_9f1c… (Tasks panel → Open transcript).
 ```
 
-`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
+`status` is the pool's verdict for the task (`succeeded`, `failed`, `timed_out`, `stopped`); when it is anything but `succeeded` a line says so and tells the model to treat the report accordingly, and a run that ended with an error names it. `turns` is the number of assistant rounds in the child's transcript. The report is wrapped in CDATA so nothing the child wrote can break the envelope.
 
 A **background** spawn returns at once:
 
@@ -159,7 +159,7 @@ Everything a child may do is derived from the parent at spawn time and can only 
 - **Mandatory exclusions.** `question` (a child cannot ask the user; `RequestQuestion` always refuses), `config_set`, `config_changes`, `config_commit`, `config_revert`, `config_rollback` (a child cannot rewrite the agent's own configuration), `plan_exit` (a child cannot leave plan mode on the operator's behalf), and `spawn_agent` for a child at the depth limit.
 - **Enforced twice.** The definitions advertised to the child's model are filtered to the set, and every call is checked again before the permission gate runs, MCP calls included: a hallucinated or replayed `run_command` is answered with `tool run_command is not available to this subagent` and never executed.
 - **Depth.** `subagents.max_depth` bounds nesting. The default `1` lets a session spawn children that cannot spawn further; the tool is withheld from a child at the limit and a spawn past it is refused. An explicit `0` forbids spawning everywhere.
-- **Model.** The definition's `model` must be a configured `models[].model` id; otherwise the child inherits the parent's model and the fallback is logged.
+- **Model.** The child inherits the model the parent session is running with unless the definition's `model` names a configured `models[].model` id; an unknown id keeps the parent's model, and the fallback is noted both in the agent log and in the task's output log.
 - **Turns.** The definition's `max_turns`, else `subagents.max_turns`, else `agent.max_turns`.
 - **MCP.** Servers are dialed for the child only when its effective set can contain MCP names. Configured servers are re-resolved for the child's cwd through the workspace trust gate exactly as for a new session, and the parent's ACP client-supplied servers are redialed from the declarations the parent retained. The child owns and closes its own clients; nothing is borrowed from the parent, so a parent reload or forget cannot cut a child mid-run.
 
@@ -172,12 +172,14 @@ A child in `ask` or `accept_edits` mode still hits the permission gate, and the 
 - at most **one prompt is in flight per parent session**: an arbiter serialises the requests of every child of that parent, which is also what the HTTP pending-permission record (one per session) can represent. Two children asking at once are prompted one after the other;
 - a child spawned by a later turn carries that turn's context, so an earlier detached child's finished turn does not deny it.
 
+The operator's global setting sits above all of this. A config-level `tools.permission_mode: bypass` switches prompting off on every surface, children included, because the parent-facing senders auto-allow under it. A definition's `permission_mode` can narrow the session-level mode (`ask` or `accept_edits`, chosen per session) but cannot re-enable prompts the operator disabled globally.
+
 ## Concurrency and timeouts
 
 Two caps apply to a spawn, and each refusal names its own key:
 
 - **`subagents.max_concurrent`** (default 4) is **process-wide**: the number of child LLM loops that may run at once, whatever session started them. It is a resizable semaphore that refuses rather than queues, matching the pool's "refused, not queued" contract; the message tells the model to wait with `background_wait` or `background_list` and try again. Lowering the cap under load never stops a running child; new spawns are refused until the count drops under the new limit. The value is re-read on every spawn, so a config commit applies without a restart.
-- **`tools.background.max_concurrent`** is the pool's **per-session** task limit, and a child's task is registered under the **parent's** session, so subagent runs count against the parent's tasks like its background commands do.
+- **`tools.background.max_concurrent`** is the pool's **per-session** task limit, and a child's task is registered under the **parent's** session, so subagent runs count against the parent's tasks like its background commands do. A spawn refused because this limit is full names `tools.background.max_concurrent`, so the model can tell the two caps apart.
 
 The hard limit for one run is resolved in this order: the call's `timeout_seconds`, then the definition's `timeout_seconds`, then `expected_seconds × 3` floored at 60 s, then `subagents.default_timeout_seconds` (1800). The result is capped by `tools.background.max_timeout_seconds`, exactly like a background command. Hitting it cancels the child and records the task as `timed_out`, which is a failure, not a success.
 
@@ -193,7 +195,7 @@ Every run creates a child session with an id of the form **`sub_<24 hex>`**, gen
 ## Lifecycle rules
 
 - **One turn.** A child runs exactly one prompt turn through the session manager's normal path, so it takes the turn lock, reports activity edges, honours cross-process cancel and persists like any session.
-- **Retirement settles the child's own work first.** A `general` child inherits backgrounded `run_command` and, below the depth limit, `spawn_agent`, so it can leave a command or a detached grandchild running when its turn returns. A retired child is a read-only transcript with no turn left to collect them, so before the live entry is dropped every task the child owns is stopped and awaited (a grandchild's handle cancels that grandchild, whose own retirement recurses the same way). Finished task records stay in the child's bundle. Then the child's MCP clients are closed and its live entry dropped; the bundle stays on disk.
+- **Retirement settles the child's own work first.** A `general` child inherits backgrounded `run_command` and, below the depth limit, `spawn_agent`, so it can leave a command or a detached grandchild running when its turn returns. A retired child is a read-only transcript with no turn left to collect them, so before the live entry is dropped every task the child owns is stopped and awaited (a grandchild's handle cancels that grandchild, whose own retirement recurses the same way). Finished task records stay in the child's bundle. The time this settlement takes, bounded by the pool's 3 s stop grace per task, counts toward the child's own hard timeout. Then the child's MCP clients are closed and its live entry dropped; the bundle stays on disk.
 - **Nobody is woken on a child's behalf.** A spawn made by a child never carries `notify_on_finish`, and a woken turn aimed at a child session is refused by the read-only guard, so a task finishing around retirement starts no turn.
 - **Parent turn cancelled (Stop).** A foreground child runs on a context derived from the parent's tool call, so it is cancelled with the parent and the tool result reports the final status. A detached child runs on a context detached from the tool call, because that context ends the moment the tool returns; it keeps running by design and is stopped from the Tasks panel or with `background_stop`.
 - **Shutdown and drain.** Server drain stops agent tasks like commands: each handle cancels its child, the child is retired and its limiter slot released. Nothing new starts once the pool is draining.
@@ -217,7 +219,7 @@ agent: explore | task: bg_3 | session: sub_9f1c… | outcome: end_turn | turns: 
 …the child's last assistant message…
 ```
 
-`✗ <tool> (failed)` marks a tool call that failed or was refused, including one outside the child's tool set. `outcome` is the child's stop reason (`end_turn`, `cancelled`, `failed`, or another ACP stop reason), and an `error:` line precedes the report when the run ended with one.
+`✗ <tool> (failed)` marks a tool call that failed or was refused, including one outside the child's tool set. `outcome` is the child's stop reason (`end_turn`, `cancelled`, `failed`, or another ACP stop reason), `turns` is the number of assistant rounds in the child's transcript (the same count the foreground envelope carries), and an `error:` line precedes the report when the run ended with one.
 
 ## Configuration
 

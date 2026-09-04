@@ -5,11 +5,19 @@ Feature: The agent delegates bounded work to subagents
   child's final report. Subagent runs are tasks in the background task pool, so the pool
   tools, the Tasks panel and the REST surface all see them.
 
-  Scenario: A project-local definition is offered to the model
+  Scenario: An approved project-local definition is offered to the model
     Given a workspace with a subagent definition "reviewer" under .coddy/agents
+    And the workspace definition "reviewer" is approved for that workspace
     And a parent agent session in that workspace
     When the parent model receives its first request
     Then the system prompt lists the subagent "reviewer" with its description
+    And the model is offered the spawn_agent tool
+
+  Scenario: An unapproved project-local definition is named without its description
+    Given a workspace with a subagent definition "reviewer" under .coddy/agents
+    And a parent agent session in that workspace
+    When the parent model receives its first request
+    Then the system prompt names the subagent "reviewer" as awaiting approval and withholds its description
     And the model is offered the spawn_agent tool
 
   Scenario: A foreground spawn returns the child's report and persists the child session

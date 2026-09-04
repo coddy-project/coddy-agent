@@ -2,16 +2,19 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/subagents"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
@@ -64,6 +67,20 @@ var (
 type permissionArbiter struct {
 	slot chan struct{}
 	refs int
+	// waiting counts relays blocked on the slot; tests use it to make an
+	// overlap deterministic instead of timing it.
+	waiting atomic.Int32
+}
+
+// arbiterWaiters reports how many relays of a parent are queued on its slot.
+func arbiterWaiters(parentID string) int {
+	arbitersMu.Lock()
+	arb := arbiters[parentID]
+	arbitersMu.Unlock()
+	if arb == nil {
+		return 0
+	}
+	return int(arb.waiting.Load())
 }
 
 func acquireArbiter(parentID string) *permissionArbiter {
@@ -96,12 +113,13 @@ func releaseArbiter(parentID string) {
 // fails closed afterwards. It is created per spawn, so a child spawned by a
 // later turn carries that turn's context.
 type permissionRelay struct {
-	parent          acp.UpdateSender
-	parentSessionID string
-	agentName       string
-	turnCtx         context.Context
-	childCtx        context.Context
-	arbiter         *permissionArbiter
+	parent           acp.UpdateSender
+	parentSessionID  string
+	parentSessionDir string
+	agentName        string
+	turnCtx          context.Context
+	childCtx         context.Context
+	arbiter          *permissionArbiter
 }
 
 func deniedPermission() *acp.PermissionResult {
@@ -115,13 +133,18 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 	if r == nil || r.parent == nil || r.turnCtx.Err() != nil {
 		return deniedPermission(), nil
 	}
+	r.arbiter.waiting.Add(1)
 	select {
 	case r.arbiter.slot <- struct{}{}:
+		r.arbiter.waiting.Add(-1)
 	case <-r.turnCtx.Done():
+		r.arbiter.waiting.Add(-1)
 		return deniedPermission(), nil
 	case <-r.childCtx.Done():
+		r.arbiter.waiting.Add(-1)
 		return deniedPermission(), nil
 	case <-ctx.Done():
+		r.arbiter.waiting.Add(-1)
 		return deniedPermission(), nil
 	}
 	defer func() { <-r.arbiter.slot }()
@@ -147,18 +170,29 @@ func (r *permissionRelay) Request(ctx context.Context, params acp.PermissionRequ
 		res, err := r.parent.RequestPermission(reqCtx, params)
 		done <- outcome{res: res, err: err}
 	}()
+	// A forwarded prompt the parent never answers leaves the HTTP bridge's
+	// pending_permission.json in the parent bundle; the permission route could
+	// never clear it because the tool call belongs to the child, so the relay
+	// clears it itself on every path that gives up.
+	abandon := func() *acp.PermissionResult {
+		cancel()
+		if r.parentSessionDir != "" {
+			_ = session.ClearPendingPermission(r.parentSessionDir)
+		}
+		return deniedPermission()
+	}
 	select {
 	case out := <-done:
 		if out.err != nil || out.res == nil {
-			return deniedPermission(), nil
+			return abandon(), nil
 		}
 		return out.res, nil
 	case <-r.turnCtx.Done():
-		return deniedPermission(), nil
+		return abandon(), nil
 	case <-r.childCtx.Done():
-		return deniedPermission(), nil
+		return abandon(), nil
 	case <-ctx.Done():
-		return deniedPermission(), nil
+		return abandon(), nil
 	}
 }
 
@@ -425,6 +459,10 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 		exclusions = append(exclusions, tools.ToolSpawnAgent)
 	}
 	effective := subagents.EffectiveTools(a.parentToolNames(parentMode), ToolSetForMode(childMode), def, exclusions)
+	if len(effective) == 0 {
+		return "", fmt.Errorf("subagent %q would have no tools at all: its allowlist %v leaves nothing of this session's tool set (after the denylist and the mandatory exclusions); fix the definition or pick another subagent",
+			def.Name, def.Tools)
+	}
 	connectMCP := false
 	for _, n := range effective {
 		if strings.Contains(n, "__") {
@@ -433,12 +471,17 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 		}
 	}
 
-	model := ""
+	// The child inherits the parent's effective model; a definition may name
+	// a configured one instead. An unknown id falls back to the parent's and
+	// is noted in the task log as well as the agent log.
+	model := a.state.EffectiveModelID(cfg)
+	unknownModel := ""
 	if def.Model != "" {
 		if cfg.FindModelEntry(def.Model) != nil {
 			model = def.Model
 		} else {
-			a.log.Warn("subagent definition names an unknown model; the parent's model is used", "agent", def.Name, "model", def.Model)
+			unknownModel = def.Model
+			a.log.Warn("subagent definition names an unknown model; the parent's model is used", "agent", def.Name, "model", def.Model, "using", model)
 		}
 	}
 
@@ -451,11 +494,11 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 
 	background := req.Background || def.Background
 	notify := req.NotifyOnFinish && background && a.subagentDepth() == 0
-	label := strings.TrimSpace(req.Description)
+	label := firstLine(req.Description)
 	if label == "" {
 		label = firstLine(req.Prompt)
 	}
-	label = "agent " + def.Name + ": " + label
+	label = capRunes("agent "+def.Name+": "+label, maxTaskLabelRunes)
 	timeout := subagents.ResolveTimeoutSeconds(req.TimeoutSeconds, def.TimeoutSeconds, req.ExpectedSeconds, cfg.Subagents.EffectiveDefaultTimeoutSeconds())
 
 	parentID := a.state.GetID()
@@ -471,12 +514,13 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 	handle := &subagentHandle{cancel: cancel, done: make(chan struct{})}
 	arbiter := acquireArbiter(parentID)
 	relay := &permissionRelay{
-		parent:          a.server,
-		parentSessionID: parentID,
-		agentName:       def.Name,
-		turnCtx:         ctx,
-		childCtx:        runCtx,
-		arbiter:         arbiter,
+		parent:           a.server,
+		parentSessionID:  parentID,
+		parentSessionDir: sd,
+		agentName:        def.Name,
+		turnCtx:          ctx,
+		childCtx:         runCtx,
+		arbiter:          arbiter,
 	}
 	run := &subagentRun{def: def, childID: childID, prompt: req.Prompt, handle: handle, startedAt: time.Now()}
 
@@ -503,11 +547,18 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 		NotifyOnFinish:  notify,
 		Agent:           &bgtask.AgentInfo{Name: def.Name, SessionID: childID},
 	}
+	// The callback hands the handle back at once and does everything that can
+	// block (session creation, MCP dialing, the turn itself) on the run
+	// goroutine, so the pool's Stop and timeout reach a child that is still
+	// being created. The task id is known before anything starts.
 	snap, err := pool.Launch(spec, func(taskID string, out io.Writer) (bgtask.Handle, error) {
 		run.taskID = taskID
 		run.sender = newSubagentSender(out, relay)
 		_, _ = fmt.Fprintf(out, "subagent %s (task %s, session %s) starting\n", def.Name, taskID, childID)
-		st, err := rt.CreateSubagentSession(runCtx, session.SubagentSpec{
+		if unknownModel != "" {
+			_, _ = fmt.Fprintf(out, "model %q is not configured; using the parent's model %q\n", unknownModel, model)
+		}
+		childSpec := session.SubagentSpec{
 			ID:               childID,
 			ParentSessionID:  parentID,
 			Name:             def.Name,
@@ -523,16 +574,18 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 			MaxTurns:         def.MaxTurns,
 			ConnectMCP:       connectMCP,
 			ClientMCPServers: a.parentSessionMCPDeclarations(),
-		})
-		if err != nil {
-			finish()
-			return nil, fmt.Errorf("create subagent session: %w", err)
 		}
-		go a.executeSubagentRun(runCtx, rt, run, st, out, finish)
+		go a.executeSubagentRun(runCtx, rt, run, childSpec, out, finish)
 		return handle, nil
 	})
 	if err != nil {
 		finish()
+		if errors.Is(err, bgtask.ErrPoolFull) {
+			return "", fmt.Errorf("cannot start subagent %q: %w; that is the per-session tools.background.max_concurrent limit, wait for a task with background_wait or background_list, then try again", def.Name, err)
+		}
+		if errors.Is(err, bgtask.ErrDraining) {
+			return "", fmt.Errorf("cannot start subagent %q: %w", def.Name, err)
+		}
 		return "", err
 	}
 
@@ -561,10 +614,13 @@ func (a *Agent) spawnSubagent(ctx context.Context, req tooling.SpawnRequest) (st
 	return b.String(), nil
 }
 
-// executeSubagentRun drives the child's one turn and records the outcome. It
-// runs on its own goroutine; the pool supervises through the handle.
-func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, st *session.State, out io.Writer, finish func()) {
+// executeSubagentRun creates the child session, drives its one turn and
+// records the outcome. It runs on its own goroutine; the pool supervises
+// through the handle, and a Stop or timeout that lands while the session is
+// still being created cancels the creation through the run context.
+func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run *subagentRun, spec session.SubagentSpec, out io.Writer, finish func()) {
 	exit := 1
+	var st *session.State
 	defer func() {
 		if r := recover(); r != nil {
 			run.mu.Lock()
@@ -582,12 +638,25 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 		close(run.handle.done)
 	}()
 
+	created, err := rt.CreateSubagentSession(ctx, spec)
+	if err != nil {
+		run.mu.Lock()
+		run.status = "failed"
+		run.err = fmt.Errorf("create subagent session: %w", err)
+		if ctx.Err() != nil {
+			run.status = "cancelled"
+		}
+		run.mu.Unlock()
+		return
+	}
+	st = created
+
 	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: run.prompt}}
 	res, err := rt.RunSubagentTurn(ctx, run.childID, prompt, run.sender)
 
 	run.mu.Lock()
 	defer run.mu.Unlock()
-	run.turns = session.CountUserTurns(st.GetMessages())
+	run.turns = assistantRounds(st.GetMessages())
 	run.report = lastAssistantPlainText(st.GetMessages())
 	switch {
 	case err != nil:
@@ -674,17 +743,36 @@ func formatForegroundResult(run *subagentRun, snap bgtask.Snapshot) string {
 	return b.String()
 }
 
-// firstLine trims a prompt to a label-sized first line.
+// maxTaskLabelRunes is the pool's label rule: a task label is one short line.
+const maxTaskLabelRunes = 60
+
+// firstLine trims text to its first line.
 func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if idx := strings.IndexAny(s, "\r\n"); idx >= 0 {
 		s = strings.TrimSpace(s[:idx])
 	}
-	const maxLabel = 48
-	if r := []rune(s); len(r) > maxLabel {
-		return string(r[:maxLabel-1]) + "…"
+	return s
+}
+
+// capRunes truncates s to at most n runes, marking the cut with an ellipsis.
+func capRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n-1]) + "…"
 	}
 	return s
+}
+
+// assistantRounds counts the ReAct rounds of a transcript: one per assistant
+// message, whether it carried tool calls or the final answer.
+func assistantRounds(msgs []llm.Message) int {
+	n := 0
+	for _, m := range msgs {
+		if m.Role == llm.RoleAssistant {
+			n++
+		}
+	}
+	return n
 }
 
 // humanSecondsAgent mirrors the shell package's rendering without importing it.

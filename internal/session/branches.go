@@ -140,6 +140,11 @@ func (m *Manager) CreateBranchSession(params CreateBranchParams) (*CreateBranchR
 	if err != nil {
 		return nil, fmt.Errorf("read source session: %w", err)
 	}
+	// A child transcript is read-only on every surface; forking it would hand
+	// the model's task history to a writable session and reopen it that way.
+	if snap.Meta.IsSubagentRun(srcID) {
+		return nil, fmt.Errorf("%w: %s cannot be branched", ErrSubagentReadOnly, srcID)
+	}
 
 	// Collect the messages up to (not including) the Nth user message.
 	prefix, preview := sliceMessagesBeforeUserN(snap.Messages, params.UserMessageIndex)

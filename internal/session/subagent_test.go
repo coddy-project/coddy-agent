@@ -38,13 +38,21 @@ func acpMCPToConfig(name string) config.MCPServerConfig {
 type holdHandle struct {
 	done chan struct{}
 	once sync.Once
+	// onStop, when set, observes the world at the moment the pool stops the
+	// handle.
+	onStop func()
 }
 
 func newHoldHandle() *holdHandle { return &holdHandle{done: make(chan struct{})} }
 
 func (h *holdHandle) Wait() (int, error) { <-h.done; return 0, nil }
 func (h *holdHandle) Stop(time.Duration) error {
-	h.once.Do(func() { close(h.done) })
+	h.once.Do(func() {
+		if h.onStop != nil {
+			h.onStop()
+		}
+		close(h.done)
+	})
 	return nil
 }
 func (h *holdHandle) PID() int                    { return 0 }
@@ -385,5 +393,283 @@ func TestSessionMCPDeclarationsAreRetainedForChildren(t *testing.T) {
 	decls[0].Name = "mutated"
 	if st.SessionMCPDeclarations()[0].Name != "alpha" {
 		t.Fatal("SessionMCPDeclarations must return a copy")
+	}
+}
+
+// newSubagentTestManagerWithRunner is newSubagentTestManager with a caller
+// supplied runner, for tests that need a turn to block or to observe its
+// prompt.
+func newSubagentTestManagerWithRunner(t *testing.T, runner session.AgentRunner) (*session.Manager, *session.FileStore, string) {
+	t.Helper()
+	root := t.TempDir()
+	store := &session.FileStore{Root: filepath.Join(root, "sessions")}
+	if err := os.MkdirAll(store.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig()
+	cfg.Paths.Home = filepath.Join(root, "home")
+	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, store)
+	return m, store, root
+}
+
+// A delete that lands while the parent is mid-turn must cancel that turn and
+// wait for it, refuse a turn that arrives meanwhile, and leave no bundle
+// behind once the turn's persist hook has fired for the last time.
+func TestDeleteSessionTreeCancelsAnActiveParentTurn(t *testing.T) {
+	entered := make(chan struct{})
+	var enteredOnce sync.Once
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		st.AddMessage(acpToLLM(prompt))
+		enteredOnce.Do(func() { close(entered) })
+		<-ctx.Done()
+		// A turn that is torn down still persists on its way out, as the
+		// real loop does; the bundle must not come back from this write.
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "partial"})
+		return string(acp.StopReasonCancelled), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+
+	turnDone := make(chan error, 1)
+	go func() {
+		_, err := m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: parent.ID, Prompt: []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "long task"}},
+		})
+		turnDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the parent turn never started")
+	}
+	if !m.SessionTurnActiveInProcess(parent.ID) {
+		t.Fatal("precondition: the parent turn must be active")
+	}
+
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-turnDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the cancelled turn did not return")
+	}
+	if m.SessionTurnActiveInProcess(parent.ID) {
+		t.Fatal("the turn must have settled before the delete returned")
+	}
+	if m.SessionByID(parent.ID) != nil {
+		t.Fatal("the session must leave the live map")
+	}
+	time.Sleep(150 * time.Millisecond)
+	if store.HasPersistedSnapshot(parent.ID) {
+		t.Fatal("the bundle must stay removed after the cancelled turn persisted on its way out")
+	}
+	if _, err := os.Stat(store.SessionPath(parent.ID)); !os.IsNotExist(err) {
+		t.Fatalf("removed bundle reappeared: %v", err)
+	}
+}
+
+// While a tree is being deleted, a prompt against any of its nodes is refused
+// instead of recreating the bundle.
+func TestPromptDuringDeleteIsRefused(t *testing.T) {
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	var enteredOnce sync.Once
+	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		st.AddMessage(acpToLLM(prompt))
+		enteredOnce.Do(func() { close(entered) })
+		select {
+		case <-ctx.Done():
+		case <-release:
+		}
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, store, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "hold"}}
+
+	go func() {
+		_, _ = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt})
+	}()
+	<-entered
+
+	// The delete blocks in cancelAndAwaitTurns only until the runner sees
+	// ctx.Done, which it does at once; the interesting window is the one
+	// between the mark and the removal, so a concurrent prompt fired right
+	// after the delete starts must see ErrSessionDeleting or, if it lost the
+	// race entirely, an unknown session, never a fresh bundle.
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- m.DeleteSessionTree(parent.ID, pool) }()
+	var promptErr error
+	for i := 0; i < 200; i++ {
+		_, promptErr = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{SessionID: parent.ID, Prompt: prompt})
+		if promptErr != nil {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if promptErr == nil {
+		t.Fatal("a prompt racing the delete must be refused")
+	}
+	if errors.Is(promptErr, session.ErrSessionDeleting) {
+		return
+	}
+	// Lost the race: the session is gone and the prompt did not resurrect it.
+	if store.HasPersistedSnapshot(parent.ID) {
+		t.Fatalf("prompt error = %v and the bundle exists again", promptErr)
+	}
+}
+
+// The order of the tree delete is observed at the moment each task is
+// stopped, not inferred afterwards: when a node's representing task stops,
+// its bundle and every bundle below it are still on disk.
+func TestDeleteSessionTreeStopsTasksWhileBundlesStillExist(t *testing.T) {
+	m, store, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+	pool := bgtask.NewWithRunner(bgtask.Config{}, nopRunner{})
+
+	childID := session.NewSubagentSessionID()
+	grandID := session.NewSubagentSessionID()
+	type seen struct {
+		task            string
+		parentB, childB bool
+		grandB          bool
+	}
+	var mu sync.Mutex
+	var observations []seen
+	observe := func(task string) func() {
+		return func() {
+			mu.Lock()
+			observations = append(observations, seen{
+				task:    task,
+				parentB: store.HasPersistedSnapshot(parent.ID),
+				childB:  store.HasPersistedSnapshot(childID),
+				grandB:  store.HasPersistedSnapshot(grandID),
+			})
+			mu.Unlock()
+		}
+	}
+	childHandle := newHoldHandle()
+	childHandle.onStop = observe("child")
+	childTask, err := pool.Launch(bgtask.Spec{SessionID: parent.ID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "mid", SessionID: childID}},
+		func(string, io.Writer) (bgtask.Handle, error) { return childHandle, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "mid", TaskID: childTask.ID, CWD: root, Depth: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	grandHandle := newHoldHandle()
+	grandHandle.onStop = observe("grand")
+	grandTask, err := pool.Launch(bgtask.Spec{SessionID: childID, Kind: bgtask.KindAgent, Agent: &bgtask.AgentInfo{Name: "leaf", SessionID: grandID}},
+		func(string, io.Writer) (bgtask.Handle, error) { return grandHandle, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: grandID, ParentSessionID: childID, Name: "leaf", TaskID: grandTask.ID, CWD: root, Depth: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := m.DeleteSessionTree(parent.ID, pool); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(observations) != 2 || observations[0].task != "child" || observations[1].task != "grand" {
+		t.Fatalf("stop order = %+v, want the child's task first, then the grandchild's", observations)
+	}
+	for _, o := range observations {
+		if !o.parentB || !o.childB || !o.grandB {
+			t.Fatalf("task %s was stopped after a bundle was already gone: %+v", o.task, o)
+		}
+	}
+}
+
+// The HTTP surface may not mint an ordinary session under the sub_ prefix,
+// and a child transcript cannot be forked into a writable branch.
+func TestReservedPrefixAndBranchRefusals(t *testing.T) {
+	m, _, root := newSubagentTestManager(t)
+	parent := newParent(t, m, root)
+
+	_, err := m.EnsureHTTPSession(context.Background(), "sub_0123456789abcdef", root)
+	if !errors.Is(err, session.ErrReservedSessionID) {
+		t.Fatalf("EnsureHTTPSession on an unknown sub_ id = %v, want ErrReservedSessionID", err)
+	}
+	if m.SessionByID("sub_0123456789abcdef") != nil {
+		t.Fatal("no session may be created under the reserved prefix")
+	}
+
+	childID := session.NewSubagentSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "do the work"}}
+	if _, err := m.RunSubagentTurn(context.Background(), childID, prompt, noopSender{}); err != nil {
+		t.Fatal(err)
+	}
+	// An existing child is served, not refused: the prefix guard is about
+	// creating new sessions only.
+	if st, err := m.EnsureHTTPSession(context.Background(), childID, root); err != nil || st == nil || st.ID != childID {
+		t.Fatalf("EnsureHTTPSession on a live child = %v, %v", st, err)
+	}
+	_, err = m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
+	if !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("branching a child = %v, want ErrSubagentReadOnly", err)
+	}
+	// Retired children are read from the bundle and refused the same way.
+	m.RetireSubagentSession(childID)
+	_, err = m.CreateBranchSession(session.CreateBranchParams{SourceSessionID: childID, UserMessageIndex: 0})
+	if !errors.Is(err, session.ErrSubagentReadOnly) {
+		t.Fatalf("branching a retired child = %v, want ErrSubagentReadOnly", err)
+	}
+}
+
+// The child's task prompt is the parent model's text: the run-plan
+// delegation and the @plans mention hydration that operator prompts get must
+// not reinterpret it, or a task phrased "implement the plan x" would refuse
+// the child's only turn.
+func TestSubagentTurnTakesThePromptVerbatim(t *testing.T) {
+	var got []string
+	var mu sync.Mutex
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		got = append(got, acpToLLM(prompt).Content)
+		mu.Unlock()
+		st.AddMessage(acpToLLM(prompt))
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m, _, root := newSubagentTestManagerWithRunner(t, runner)
+	parent := newParent(t, m, root)
+	childID := session.NewSubagentSessionID()
+	if _, err := m.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID: childID, ParentSessionID: parent.ID, Name: "reviewer", TaskID: "bg_1", CWD: root,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{
+		"implement the plan nonexistent-plan and report",
+		"read @plans/nonexistent-plan.plan.md and summarise it",
+	} {
+		prompt := []acp.ContentBlock{{Type: acp.ContentTypeText, Text: text}}
+		if _, err := m.RunSubagentTurn(context.Background(), childID, prompt, noopSender{}); err != nil {
+			t.Fatalf("child turn %q: %v", text, err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(got) != 2 || !strings.Contains(got[0], "implement the plan nonexistent-plan") || !strings.Contains(got[1], "@plans/nonexistent-plan.plan.md") {
+		t.Fatalf("runner saw %q, want both prompts verbatim", got)
 	}
 }

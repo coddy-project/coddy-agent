@@ -56,6 +56,12 @@ type Manager struct {
 	turnObserverMu  sync.Mutex
 	turnObservers   map[int]func(TurnEvent)
 	turnObserverSeq int
+
+	// deleting marks sessions whose bundles are being removed by
+	// DeleteSessionTree, so a turn racing the delete is refused instead of
+	// recreating the bundle through its persist hook.
+	deletingMu sync.Mutex
+	deleting   map[string]bool
 }
 
 // NewManager creates a session manager. defaultCWD is the fallback filesystem root when the
@@ -513,6 +519,12 @@ func (m *Manager) EnsureHTTPSession(ctx context.Context, sessionID string, defau
 		}
 		return st, nil
 	}
+	// The sub_ prefix is how bundles are recognised as subagent runs. A
+	// client must not be able to mint an ordinary chat under it: the listing
+	// would hide it and a reload would turn it read-only.
+	if strings.HasPrefix(sessionID, subagentSessionPrefix) {
+		return nil, fmt.Errorf("%w: %s", ErrReservedSessionID, sessionID)
+	}
 	m.SetPreferredSessionID(sessionID)
 	res, err := m.HandleSessionNew(ctx, acp.SessionNewParams{CWD: defaultCWD})
 	if err != nil {
@@ -624,6 +636,9 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if state.IsSubagentRun() && (opts == nil || !opts.subagentTurn) {
 		return nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, params.SessionID, subagentParentOf(state))
 	}
+	if m.isDeleting(params.SessionID) {
+		return nil, fmt.Errorf("%w: %s", ErrSessionDeleting, params.SessionID)
+	}
 
 	// Before the lock, not after: a turn queued behind another one is already active as
 	// far as a client watching the session is concerned.
@@ -656,7 +671,13 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 		go m.runCrossProcessCancelPoll(turnCtx, state, sessionDir)
 	}
 
-	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" {
+	// A child's own task turn carries text the parent model wrote, never a
+	// plan the operator saved: the run-plan delegation and the @plans mention
+	// hydration read the (empty) child bundle and would refuse or fail the
+	// child's only legitimate turn, so the prompt goes to the runner verbatim.
+	subagentTurn := opts != nil && opts.subagentTurn
+
+	if slug := RunPlanSlugFromPromptMeta(params.Meta); slug != "" && !subagentTurn {
 		return m.RunPlan(turnCtx, params.SessionID, slug, sender)
 	}
 
@@ -679,7 +700,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if err != nil {
 		return nil, err
 	}
-	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" {
+	if sd := strings.TrimSpace(state.GetPersistedSessionDir()); sd != "" && !subagentTurn {
 		hydrated, err = HydrateSessionPlanMentions(sd, hydrated)
 		if err != nil {
 			return nil, err

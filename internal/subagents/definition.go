@@ -143,7 +143,10 @@ func Parse(path string, data []byte) (*Definition, error) {
 	if !namePattern.MatchString(name) {
 		return nil, fmt.Errorf("%s: invalid subagent name %q (use lowercase letters, digits, hyphen, underscore)", path, name)
 	}
-	description := strings.TrimSpace(meta.Description)
+	// The description is one line by contract: it is rendered into the parent's
+	// system prompt, and a multi-line value could otherwise smuggle whole
+	// instruction blocks in under a project file's name.
+	description := strings.Join(strings.Fields(meta.Description), " ")
 	if description == "" {
 		return nil, fmt.Errorf("%s: description is required", path)
 	}

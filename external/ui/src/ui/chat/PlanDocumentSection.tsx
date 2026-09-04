@@ -21,8 +21,13 @@ export type PlanDocumentSectionProps = {
   discarded?: boolean;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
-  onDiscard: () => void;
-  onRunPlan: () => void;
+  /**
+   * Footer actions. A read-only transcript (a subagent child session) passes
+   * neither: the card then renders without its footer, the markdown editor is
+   * read-only and no autosave is scheduled, so nothing on it can be sent.
+   */
+  onDiscard?: () => void;
+  onRunPlan?: () => void;
 };
 
 function descriptionLine(overview: string, body: string): string {
@@ -86,33 +91,38 @@ function PlanPreviewEyeToggle(p: {
 
 function PlanDocumentActions(p: {
   discarded: boolean;
-  onRunPlan: () => void;
-  onDiscard: () => void;
+  onRunPlan: (() => void) | undefined;
+  onDiscard: (() => void) | undefined;
 }) {
   const { t } = useT();
+  const { onRunPlan, onDiscard } = p;
   return (
     <>
-      <button
-        type="button"
-        className="plan-document-discard"
-        data-test="plan_document_discard"
-        disabled={p.discarded}
-        onClick={() => p.onDiscard()}
-      >
-        {t("prompts.planDiscard")}
-      </button>
-      <button
-        type="button"
-        className="plan-document-run"
-        data-test="plan_document_run"
-        disabled={p.discarded}
-        onClick={() => p.onRunPlan()}
-      >
-        <span className="plan-document-run-ic" aria-hidden>
-          ▶
-        </span>
-        {t("prompts.planRun")}
-      </button>
+      {onDiscard ? (
+        <button
+          type="button"
+          className="plan-document-discard"
+          data-test="plan_document_discard"
+          disabled={p.discarded}
+          onClick={() => onDiscard()}
+        >
+          {t("prompts.planDiscard")}
+        </button>
+      ) : null}
+      {onRunPlan ? (
+        <button
+          type="button"
+          className="plan-document-run"
+          data-test="plan_document_run"
+          disabled={p.discarded}
+          onClick={() => onRunPlan()}
+        >
+          <span className="plan-document-run-ic" aria-hidden>
+            ▶
+          </span>
+          {t("prompts.planRun")}
+        </button>
+      ) : null}
     </>
   );
 }
@@ -126,6 +136,8 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   const [saveError, setSaveError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const discarded = props.discarded === true;
+  // No action handler at all means a read-only transcript: no footer, no edits.
+  const readOnly = !props.onRunPlan && !props.onDiscard;
   const previewOn = bodyView === "preview";
 
   useEffect(() => {
@@ -135,7 +147,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
   const persist = useCallback(
     async (text: string) => {
       const sid = props.sessionId.trim();
-      if (!sid || discarded) return;
+      if (!sid || discarded || readOnly) return;
       setSaving(true);
       setSaveError("");
       try {
@@ -164,18 +176,18 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
         setSaving(false);
       }
     },
-    [props.sessionId, props.slug, props.content, discarded],
+    [props.sessionId, props.slug, props.content, discarded, readOnly],
   );
 
   const scheduleSave = useCallback(
     (text: string) => {
-      if (discarded) return;
+      if (discarded || readOnly) return;
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
         void persist(text);
       }, 600);
     },
-    [persist, discarded],
+    [persist, discarded, readOnly],
   );
 
   const title = props.name.trim() || props.slug;
@@ -186,6 +198,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
     "plan-document-card",
     props.expanded ? "plan-document-card--expanded" : "",
     discarded ? "plan-document-card--discarded" : "",
+    readOnly ? "plan-document-card--readonly" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -257,7 +270,7 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
                   <MarkdownLineEditor
                     className="md-line-editor--plan"
                     value={draft}
-                    readOnly={discarded}
+                    readOnly={discarded || readOnly}
                     minRows={4}
                     spellCheck
                     gutterTestId="plan_editor_gutter"
@@ -275,13 +288,15 @@ export function PlanDocumentSection(props: PlanDocumentSectionProps) {
           </div>
         ) : null}
 
-        <footer className="plan-document-foot">
-          <PlanDocumentActions
-            discarded={discarded}
-            onRunPlan={props.onRunPlan}
-            onDiscard={props.onDiscard}
-          />
-        </footer>
+        {readOnly ? null : (
+          <footer className="plan-document-foot">
+            <PlanDocumentActions
+              discarded={discarded}
+              onRunPlan={props.onRunPlan}
+              onDiscard={props.onDiscard}
+            />
+          </footer>
+        )}
       </div>
     </section>
   );

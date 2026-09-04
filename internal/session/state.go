@@ -167,6 +167,14 @@ func (s *State) SetCWD(dir string) {
 	s.touchPersist()
 }
 
+// setSessionDir records the bundle directory once it exists (child sessions
+// register before their bundle is laid out).
+func (s *State) setSessionDir(dir string) {
+	s.mu.Lock()
+	s.SessionDir = dir
+	s.mu.Unlock()
+}
+
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
 func (s *State) GetPersistedSessionDir() string {
 	s.mu.RLock()

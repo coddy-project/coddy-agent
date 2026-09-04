@@ -680,11 +680,15 @@ in layer-sized steps on this branch:
 Recorded while implementing; the code and `docs/subagents.md` describe the
 shipped behaviour.
 
-- The task label falls back to the first prompt line capped at 48 runes when
-  the call gives no `description`, rather than the pool's 60-character
-  `deriveLabel`; the pool still applies its own cap on top.
-- An unknown `model` in a definition is logged through the agent logger, not
-  written into the task log.
+- The task label is `agent <name>: <description>` (the call's argument, else
+  the first prompt line), and the whole label is capped at 60 characters, the
+  same cap `deriveLabel` applies to command labels. The pool takes a non-empty
+  `Spec.Label` as is, so this cap is the only one.
+- An unknown `model` in a definition is logged through the agent logger and
+  also noted in the task's output log, so the fallback is visible in the panel.
+- `turns` in the report block and in the foreground envelope counts the
+  assistant messages in the child's transcript (assistant rounds), not the
+  user turns.
 - Catalog rows carry no separate `source` field: `scope`, `path` and `builtin`
   identify the origin.
 - The ACP live e2e (`examples/acp/acp_e2e_subagents.py`) does not pass a stdio
@@ -701,3 +705,24 @@ shipped behaviour.
 - The foreground envelope reads the pool's terminal verdict through
   `Pool.Wait` before returning, because the pool records the status on its
   supervisor goroutine after the handle closes.
+- The child's own turn skips the plan-mention heuristics (`RunPlan`
+  delegation and `@plans` hydration), so a prompt like "implement the plan X"
+  reaches the child verbatim instead of being rerouted.
+- The `Launch` callback returns the handle at once and creates the child
+  session on the run goroutine, so `Stop` and the timeout reach a creation
+  that blocks.
+- MCP dialing for a child is bounded by the manager's 30 s reload timeout
+  (`mcpReloadTimeout`).
+- `EnsureHTTPSession` refuses to mint a fresh session under the reserved
+  `sub_` prefix.
+- The branch route (`POST /coddy/sessions/{id}/branches`) refuses child
+  sessions.
+- `DeleteSessionTree` cancels an active turn of each node, rejects new turns
+  while the deletion runs, and awaits settlement before removing bundles.
+- The `/compact` and `/plugin` built-ins are not intercepted for a child's
+  prompt.
+- A symlinked project directory is project scope by its lexical path as well
+  as by its canonical one.
+- An empty effective tool set refuses the spawn.
+- The child inherits the parent's selected model unless the definition names
+  a configured one.

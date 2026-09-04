@@ -78,6 +78,16 @@ func (s *Server) coddyBranchCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
 		return
 	}
+	// A child transcript is read-only; forking it would reopen it as a
+	// writable session. The manager refuses too, this answers before the
+	// workspace rollback runs.
+	if st := s.mgr.SessionByID(id); st != nil && st.IsSubagentRun() {
+		writeSubagentsError(w, http.StatusConflict, subagentReadOnlyMessage(st))
+		return
+	} else if snap, err := fs.ReadSnapshot(id); err == nil && snap.Meta.IsSubagentRun(id) {
+		writeSubagentsError(w, http.StatusConflict, "subagent sessions are read-only transcripts; branch the parent session "+snap.Meta.ParentSessionID+" instead")
+		return
+	}
 
 	// Determine the CWD of the source session (for file rollback).
 	var cwd string

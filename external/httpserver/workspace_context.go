@@ -7,6 +7,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -197,6 +198,10 @@ func (s *Server) coddySessionWorkspacePost(w http.ResponseWriter, r *http.Reques
 	}
 	st, err := s.mgr.EnsureHTTPSession(r.Context(), id, s.defaultCWD)
 	if err != nil {
+		if errors.Is(err, session.ErrReservedSessionID) {
+			http.Error(w, `{"error":{"message":"session not found"}}`, http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		return
 	}
