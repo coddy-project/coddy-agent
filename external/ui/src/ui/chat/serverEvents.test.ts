@@ -138,3 +138,29 @@ test("a malformed event payload is skipped rather than thrown", async () => {
 
   expect(seen).toEqual(["sess_ok"]);
 });
+
+test("provider_usage frames reach their handler with the session that caused them", async () => {
+  const seen: Array<{ sid: string; used: number | undefined }> = [];
+  const ctl = new AbortController();
+  const frame =
+    `event: provider_usage\ndata: ${JSON.stringify({
+      object: "coddy.provider_usage",
+      sessionId: "sess_a",
+      usage: { provider: "neuraldeep", providerType: "neuraldeep", windows: [{ id: "session", label: "3h", used: 42, limit: 100, usedPercent: 42 }] },
+    })}\n\n`;
+  const fetchImpl = vi.fn(async () =>
+    responseOf(`event: ready\ndata: {"object":"coddy.events_ready"}\n\n` + frame + `event: provider_usage\ndata: {"broken":true}\n\n`),
+  );
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onProviderUsage: (sid, usage) => {
+      seen.push({ sid, used: usage.windows?.[0]?.used });
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+  expect(seen).toEqual([{ sid: "sess_a", used: 42 }]);
+});

@@ -411,6 +411,42 @@ Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`Contex
 
 See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
+### Composer usage pill and usage banner
+
+The account quota behind the selected model's provider (today: `neuraldeep`,
+the hub's `GET /v1/limits` read by the server, see `docs/plans/neuraldeep-usage.md`).
+
+- **Pill** (`UsagePill.tsx`, **`.composer-usage-host`** / **`.composer-usage-pill`**,
+  **`data-testid="composer-usage-pill"`**) sits in **`composer-bar-actions`**
+  immediately **left of the context ring**, rendered only when the selected
+  model's provider reports usage. Text is the leading metered window as
+  percent **used** (`3h 3%`), or `∞ volume` for a model on the provider's
+  unlimited option, `limit reached` / `rate limited` / `key blocked` /
+  `wallet empty` / `account blocked` on a block, `key rejected` for a revoked
+  login. Tones: plain (**`--muted`** on a **`--border`** outline), **warn**
+  from 80 % (**`.composer-usage-host--warn`**, amber), **error** on a block
+  (**`.composer-usage-host--error`**, red). No numeric label anywhere else;
+  the details live in the tooltip (**`rail-tip`** family, above the pill,
+  centered, **`composer-usage-tip`**): brand and plan, every window with its
+  counters and reset time in the reader's clock, the wallet in rubles, a
+  stale note when the latest read failed.
+- **Banner** (`UsageBanner.tsx`, **`.usage-banner`**,
+  **`data-testid="usage-banner"`**) renders **above the composer card** in
+  both the hero and the docked layout, only at 80 % of a window (**warn**
+  tone, `You've used 85% of your NeuralDeep 3h limit · resets 20:59`) or on a
+  block (**error** tone, `Usage limit reached · Resets 20:59`). The **×**
+  control dismisses it for that window and period (**`localStorage`**
+  `coddy_usage_banner_dismissed`); a new period shows it again. Wording
+  mirrors Claude Desktop's limit notice.
+- Data flow (`useProviderUsage.ts`): REST `GET /coddy/providers/{name}/usage`
+  at session open and model change (a cache read on the server), a refresh
+  after every finished turn of the viewed session, one hub read after a
+  window's reset, one cache read when the server deferred a refresh
+  (`refreshPending`/`refreshInSec`), one follow-up when a passed reset still
+  shows; `provider_usage` frames on `GET /coddy/events` replace the snapshot
+  between turns. Nothing polls otherwise. The snapshot is account-wide; the
+  model's selector suffix is compared with `unlimitedModels` client-side.
+
 ### Composer primary action (**Send** **/** **Stop**)
 
 - Control **`#btn-send`** (**`.composer-icon`**) sits **directly right** of the context ring (**`.composer-context-tip-host`**).
