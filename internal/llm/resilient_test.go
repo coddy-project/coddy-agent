@@ -466,8 +466,10 @@ func TestResilientProviderFailsFastPastTheRetryBudget(t *testing.T) {
 }
 
 // The caller's RetryBudget bounds the whole call, so the sleeps already taken
-// count: three pauses of 100 ms under a 250 ms budget are slept twice and
-// then reported as a reset, with the third request never repeated.
+// count, and the request after a pause keeps a quarter of a small budget as
+// headroom: three pauses of 100 ms under a 350 ms budget are slept twice
+// (263 ms and then 158 ms left) and then reported as a reset (53 ms left),
+// with the third request never repeated.
 func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 	var calls atomic.Int32
 	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "100"})
@@ -481,7 +483,7 @@ func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 		RetryMax:       5,
 		RetryBase:      5 * time.Millisecond,
 		RetryMaxDelay:  100 * time.Millisecond,
-		RetryBudget:    250 * time.Millisecond,
+		RetryBudget:    350 * time.Millisecond,
 		RetryBudgetSet: true,
 	})
 	before := time.Now()

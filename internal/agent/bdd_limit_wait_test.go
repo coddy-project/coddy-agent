@@ -112,6 +112,7 @@ type limitWaitState struct {
 	started time.Time
 	took    time.Duration
 	reply   string
+	stop    string
 	runErr  error
 }
 
@@ -124,6 +125,7 @@ func (s *limitWaitState) reset() error {
 	s.state = nil
 	s.took = 0
 	s.reply = ""
+	s.stop = ""
 	s.runErr = nil
 	return nil
 }
@@ -197,7 +199,47 @@ func (s *limitWaitState) waitIsOnWithAMaximumOf(maxMS int) error {
 	return nil
 }
 
-func (s *limitWaitState) theUserSendsATurn() error {
+func (s *limitWaitState) theUserSendsATurnAndStopsItWhileItWaits() error {
+	ag := s.agent()
+	s.started = time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.stop, s.runErr = ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(s.sender.resuming()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(s.sender.resuming()) == 0 {
+		return fmt.Errorf("the turn never started waiting")
+	}
+	// Esc / Stop: the manager marks the turn as the user's cancel and
+	// cancels the turn context.
+	s.state.SetUserCancelledTurn()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("the turn did not end after the stop")
+	}
+	s.took = time.Since(s.started)
+	return nil
+}
+
+func (s *limitWaitState) theTurnEndsAsCancelledAfterCalls(calls int) error {
+	if s.runErr != nil || s.stop != string(acp.StopReasonCancelled) {
+		return fmt.Errorf("turn ended with %q / %v, want cancelled and no error", s.stop, s.runErr)
+	}
+	if got := s.provider.count(); got != calls {
+		return fmt.Errorf("provider calls = %d, want %d", got, calls)
+	}
+	return nil
+}
+
+func (s *limitWaitState) agent() *Agent {
 	ag := NewAgent(s.cfg, s.state, s.sender, nil)
 	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
 		if !s.viaWrapper {
@@ -214,10 +256,15 @@ func (s *limitWaitState) theUserSendsATurn() error {
 			RetryBudgetSet: in.RetryBudgetSet,
 		}), nil
 	}
+	return ag
+}
+
+func (s *limitWaitState) theUserSendsATurn() error {
+	ag := s.agent()
 	s.started = time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	_, s.runErr = ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	s.stop, s.runErr = ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
 	s.took = time.Since(s.started)
 	for _, m := range s.state.Messages {
 		if m.Role == llm.RoleAssistant {
@@ -310,6 +357,8 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^wait_for_limit_reset is on$`, s.waitIsOn)
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)
+	sc.Step(`^the user sends a turn and stops it while it waits$`, s.theUserSendsATurnAndStopsItWhileItWaits)
+	sc.Step(`^the turn ends as cancelled after (\d+) provider calls?$`, s.theTurnEndsAsCancelledAfterCalls)
 	sc.Step(`^the turn ends with "([^"]+)" after (\d+) provider calls$`, s.theTurnEndsWithAfterCalls)
 	sc.Step(`^the turn took at least (\d+) s$`, s.theTurnTookAtLeast)
 	sc.Step(`^the turn took less than (\d+) ms$`, s.theTurnTookLessThan)

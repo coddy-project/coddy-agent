@@ -18,6 +18,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		if u.sessionID == a.turnSessionID {
 			a.turnActive = false
 			a.stopSpinner()
+			a.stopUsageResume()
 			// A permission or question modal belonging to this turn is now
 			// orphaned (the worker already unblocked via ctx cancellation).
 			switch a.modal.(type) {
@@ -83,9 +84,15 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		u.box.SetOutput(u.text, u.dropped)
 		return
 	case usageResumeDue:
+		// The reset a waiting turn counted down to has passed: the row goes
+		// back to the model, and the footer asks the hub for the numbers
+		// after the reset instead of keeping the pre-reset snapshot for
+		// the whole re-issued call.
 		if a.turnActive {
 			a.setStatus(newWaitingStatus())
 		}
+		a.refreshUsage(usageProviderOf(a.modelID), true)
+		return
 	case usageResetDue:
 		// A window's reset passed: one fresh read for the provider that is
 		// still active; a switched-away provider gets nothing.

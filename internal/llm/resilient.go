@@ -165,11 +165,17 @@ func (p *resilientProvider) quotaReset(err error, attempt int, elapsed time.Dura
 	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Elapsed: elapsed, Cause: err}
 }
 
+// retryBudgetHeadroom is what a retried request keeps of the caller's
+// budget for itself: a pause that ate the whole remainder would send the
+// request out with nothing left for its first token.
+const retryBudgetHeadroom = 5 * time.Second
+
 // retryBudget is the longest server-requested pause the loop honours by
 // waiting at the given attempt, elapsed being the time the call has already
 // taken: the caller's RetryBudget is a wall-clock bound on the whole call
 // (the agent's first-token timer), so the sleeps already taken count
-// against it.
+// against it, and the request after the pause keeps some headroom (a
+// quarter of a small budget, five seconds of a large one).
 func (p *resilientProvider) retryBudget(attempt int, elapsed time.Duration) time.Duration {
 	waits := p.opts.RetryMax - attempt
 	if waits < 0 {
@@ -177,7 +183,11 @@ func (p *resilientProvider) retryBudget(attempt int, elapsed time.Duration) time
 	}
 	budget := p.opts.RetryMaxDelay * time.Duration(waits)
 	if p.opts.RetryBudgetSet {
-		if left := p.opts.RetryBudget - elapsed; left < budget {
+		headroom := p.opts.RetryBudget / 4
+		if headroom > retryBudgetHeadroom {
+			headroom = retryBudgetHeadroom
+		}
+		if left := p.opts.RetryBudget - elapsed - headroom; left < budget {
 			budget = left
 		}
 	}

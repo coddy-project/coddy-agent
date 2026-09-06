@@ -100,7 +100,9 @@ type App struct {
 	// Provider usage on the status bar (usage.go): the reset timer, the
 	// notices already shown, the follow-up armed after a passed reset, and
 	// the timer factory tests replace.
-	usageTimer    func() bool
+	usageTimer func() bool
+	// usageResume is the pending note that a waiting turn's reset passed.
+	usageResume   func() bool
 	usageNotified map[string]bool
 	usageFollowUp string
 	usageAfterFn  func(time.Duration, func()) func() bool

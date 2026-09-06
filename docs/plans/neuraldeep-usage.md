@@ -627,7 +627,14 @@ must beat common 60 s idle proxies (cursor 10).
   warning tone when the turn stream's frame carries the flag (the events
   stream never carries it). The wrapper's `RetryBudget` counts the sleeps
   already taken, so a chain of short pauses cannot run into the first-token
-  timer unreported (`[rev5]` fresh reviewer 1, codex 3).
+  timer unreported (`[rev5]` fresh reviewer 1, codex 3), and keeps
+  headroom for the request after a pause (a quarter of a small budget,
+  five seconds of a large one) so that request is not cut by the timer
+  either. At the reset the console's row goes back to the model and the
+  footer asks the hub for the numbers after the reset (`[rev6]` fresh
+  reviewer 3, 4). A maximum under the ladder's 60 s cap also bounds the
+  turn's ordinary 429 retries, which the reference says (`[rev6]` fresh
+  reviewer 2).
 - Tests: `features/llm_retry_after.feature` gains the threshold scenario
   (a 600 s pause fails after one request as a quota reset error); the agent
   loop's happy path is a godog scenario over a fake provider whose first

@@ -533,9 +533,12 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 		t.Fatal("a resuming update must not replace the footer's hub snapshot")
 	}
 	// One timer only: the note that brings the row back to the model at
-	// the reset, never a hub read.
+	// the reset; the footer's own reset timer is untouched.
 	if armed != 1 {
 		t.Fatalf("a resuming update armed %d timers, want the one resume note", armed)
+	}
+	if a.usageResume == nil || a.usageTimer != nil {
+		t.Fatal("the resume note must have its own handle, apart from the footer's reset timer")
 	}
 	if len(a.chat.Children()) != 0 {
 		t.Fatalf("a resuming update posted %d transcript rows, want none", len(a.chat.Children()))
@@ -559,5 +562,14 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 	a.applyLoopMessage(msg)
 	if got := a.statusMessage(); !strings.HasPrefix(got, statusWaitingModel) {
 		t.Fatalf("after the reset the row reads %q, want %q with its counter", got, statusWaitingModel)
+	}
+	// A turn end drops a note that has not fired yet.
+	a.applyProviderUsage(resuming)
+	a.turnSessionID = "s1"
+	a.status = &tui.Container{}
+	a.plain = true
+	a.applyLoopMessage(updateMsg{update: turnDone{sessionID: "s1"}})
+	if a.usageResume != nil {
+		t.Fatal("the turn's end must drop the pending resume note")
 	}
 }

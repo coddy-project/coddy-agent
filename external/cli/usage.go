@@ -515,10 +515,10 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 			text += " · resuming at " + formatResetTime(at, a.usageNow())
 		}
 		a.setStatus(liveStatus{verb: text, startedAt: time.Now()})
-		a.stopUsageTimer()
+		a.stopUsageResume()
 		if !at.IsZero() {
 			sessionID := a.sessionID
-			a.usageTimer = a.usageAfter(at.Sub(a.usageNow()), func() {
+			a.usageResume = a.usageAfter(at.Sub(a.usageNow()), func() {
 				_ = a.Sender().SendSessionUpdate(sessionID, usageResumeDue{})
 			})
 		}
@@ -624,6 +624,15 @@ func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	})
 }
 
+// stopUsageResume drops the pending resume note (a turn ended, or a newer
+// countdown replaced it).
+func (a *App) stopUsageResume() {
+	if a.usageResume != nil {
+		a.usageResume()
+		a.usageResume = nil
+	}
+}
+
 func (a *App) stopUsageTimer() {
 	if a.usageTimer != nil {
 		a.usageTimer()
@@ -644,7 +653,7 @@ func (a *App) usageAfter(d time.Duration, fn func()) func() bool {
 // and feeds the answer back as an update; refresh asks for a fresh read.
 func (a *App) refreshUsage(provider string, refresh bool) {
 	provider = strings.TrimSpace(provider)
-	if provider == "" {
+	if provider == "" || a.mgr == nil || a.workCtx == nil {
 		return
 	}
 	sessionID := a.sessionID
