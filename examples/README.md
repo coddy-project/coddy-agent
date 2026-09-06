@@ -15,7 +15,7 @@ pty (see the CLI section below):
 | **`e2e_memory`** | **`httpserver/http_e2e_memory.py`** | **`acp/acp_e2e_memory.py`** |
 | **`e2e_background`** | **`httpserver/http_e2e_background.py`** (task list, live output, stop, 404) | **`acp/acp_e2e_background.py`** (persisted `background/<id>/meta.json` plus `output.log`) |
 | **`e2e_subagents`** | **`httpserver/http_e2e_subagents.py`** (trust route, `spawn_agent` run as an `agent` task, read-only child transcript, `include_subagents`, catalog) | **`acp/acp_e2e_subagents.py`** (`coddy agents trust`, persisted `agent` task plus `sub_*` child bundle with the parent link) |
-| **`e2e_hooks`** | - | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `coddy hooks trust .coddy/hooks.json`, then runs on the next turn) |
+| **`e2e_hooks`** | **`httpserver/http_e2e_hooks.py`** (catalog with the held project file, the notice row in the transcript, `POST /coddy/hooks/trust` then a turn that runs the approved hook, `untrust`) | **`acp/acp_e2e_hooks.py`** (user-scope `PreToolUse` / `PostToolUse` recorder hooks see a real `run_command`, the project-scope hook stays held until `coddy hooks trust .coddy/hooks.json`, then runs on the next turn) |
 | **`e2e_toolcalls_persist`** | **`httpserver/http_e2e_toolcalls_persist.py`** | **`acp/acp_e2e_toolcalls_persist.py`** |
 | **`e2e_compact`** | **`httpserver/http_e2e_compact.py`** (`/compact` prompt + REST endpoint) | **`acp/acp_e2e_compact.py`** (also auto threshold via tiny-window config) |
 | **`e2e_skills_slash`** | **`httpserver/http_e2e_skills_slash.py`** | **`acp/acp_e2e_skills_slash.py`** |
