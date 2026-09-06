@@ -1,8 +1,13 @@
 import { parseSSEBlocks } from "./sse";
+import type { ProviderUsage } from "./providerUsage";
 
 export type ServerEventsHandlers = {
   onTurnStarted: (sessionId: string) => void;
   onTurnEnded: (sessionId: string) => void;
+  /** A fresh account-usage snapshot the server built outside a request
+   *  (a finished turn, a deferred refresh); sessionId names the turn, the
+   *  snapshot is account-wide. */
+  onProviderUsage?: (sessionId: string, usage: ProviderUsage) => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
   onConnectedChange?: (connected: boolean) => void;
   signal: AbortSignal;
@@ -17,6 +22,24 @@ const BACKOFF_MAX_MS = 10000;
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function providerUsageOf(
+  data: string,
+): { sessionId: string; usage: ProviderUsage } | null {
+  try {
+    const parsed = JSON.parse(data) as {
+      sessionId?: unknown;
+      usage?: ProviderUsage | null;
+    };
+    if (!parsed.usage || typeof parsed.usage.provider !== "string") return null;
+    return {
+      sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : "",
+      usage: parsed.usage,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function sessionIdOf(data: string): string {
@@ -66,6 +89,11 @@ export async function subscribeServerEvents(
           carry,
         );
         for (const ev of events) {
+          if (ev.event === "provider_usage") {
+            const parsed = providerUsageOf(ev.data);
+            if (parsed) p.onProviderUsage?.(parsed.sessionId, parsed.usage);
+            continue;
+          }
           if (ev.event !== "turn_started" && ev.event !== "turn_ended")
             continue;
           const sid = sessionIdOf(ev.data);

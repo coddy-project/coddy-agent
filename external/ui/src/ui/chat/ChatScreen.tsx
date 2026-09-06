@@ -11,6 +11,8 @@ import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { UsageBanner } from "./UsageBanner";
+import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
@@ -36,6 +38,10 @@ export function ChatScreen(props: {
   items: TranscriptItem[];
   draft: string;
   tokenUsage: TokenUsage | null;
+  /** Account usage behind the selected model's provider: the pill and the banner. */
+  providerUsage?: ProviderUsage | null;
+  usageBannerDismissedKey?: string;
+  onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?:
@@ -272,10 +278,23 @@ export function ChatScreen(props: {
             })()}
           </h1>
           <div className="hero-composer">
+            {readOnlyNotice ? null : (
+              <UsageBanner
+                usage={props.providerUsage}
+                modelId={props.llmModel ?? ""}
+                {...(props.usageBannerDismissedKey
+                  ? { dismissedKey: props.usageBannerDismissedKey }
+                  : {})}
+                {...(props.onUsageBannerDismiss
+                  ? { onDismiss: props.onUsageBannerDismiss }
+                  : {})}
+              />
+            )}
             {readOnlyNotice ?? (
               <Composer
                 value={props.draft}
                 isEmpty={true}
+                providerUsage={props.providerUsage ?? null}
                 attachedFiles={attachedFiles}
                 onAttachedFilesChange={setAttachedFiles}
                 focusEpoch={props.heroComposerFocusEpoch}
@@ -441,10 +460,23 @@ export function ChatScreen(props: {
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
+              {readOnlyNotice ? null : (
+                <UsageBanner
+                  usage={props.providerUsage}
+                  modelId={props.llmModel ?? ""}
+                  {...(props.usageBannerDismissedKey
+                    ? { dismissedKey: props.usageBannerDismissedKey }
+                    : {})}
+                  {...(props.onUsageBannerDismiss
+                    ? { onDismiss: props.onUsageBannerDismiss }
+                    : {})}
+                />
+              )}
               {readOnlyNotice ?? (
                 <Composer
                   value={props.draft}
                   isEmpty={false}
+                  providerUsage={props.providerUsage ?? null}
                   attachedFiles={attachedFiles}
                   onAttachedFilesChange={setAttachedFiles}
                   sessionId={props.sessionId}

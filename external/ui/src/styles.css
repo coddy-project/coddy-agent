@@ -4731,6 +4731,171 @@ textarea#composer {
   box-shadow: var(--coddy-tip-shadow);
 }
 
+/* Provider account usage: the pill left of the context ring and the notice
+   above the composer (DESIGN.md, Composer usage pill and usage banner). */
+.composer-usage-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+  cursor: default;
+}
+
+.composer-usage-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.composer-usage-host--warn .composer-usage-pill {
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.55);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.composer-usage-host--error .composer-usage-pill {
+  color: #dc2626;
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Every dark canvas (the default and the five dark presets, keyed the way
+   color-scheme is) lifts the tone text for contrast; only light opts out. */
+html:not([data-theme="light"]) .composer-usage-host--warn .composer-usage-pill {
+  color: #fbbf24;
+}
+
+html:not([data-theme="light"]) .composer-usage-host--error .composer-usage-pill {
+  color: #f87171;
+}
+
+.composer-usage-host:focus-visible .composer-usage-pill {
+  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
+}
+
+.composer-usage-host:hover .rail-tip,
+.composer-usage-host:focus-within .rail-tip,
+.composer-usage-host--open .rail-tip {
+  opacity: 1;
+}
+
+.composer-usage-host .composer-usage-tip.rail-tip {
+  left: 50%;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%);
+  white-space: pre-line;
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 14px;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  box-shadow: var(--coddy-tip-shadow);
+}
+
+@media (max-width: 1199px) {
+  .composer-usage-pill {
+    height: 22px;
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  /* No hover on a narrow shell: a tap on the pill opens the details as a
+     popover (the tooltip element, shown until the next tap or Escape). */
+  .composer-usage-host--open .composer-usage-tip.rail-tip {
+    display: block;
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  /* A phone has no room to center the popover on the pill: it anchors to
+     the composer card instead and sits above its right edge. */
+  .composer-usage-host {
+    position: static;
+  }
+
+  .composer-usage-host .composer-usage-tip.rail-tip {
+    left: auto;
+    right: 12px;
+    transform: none;
+    min-width: 200px;
+  }
+}
+
+.usage-banner {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.usage-banner--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.usage-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.usage-banner-dismiss {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.usage-banner-dismiss:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
+}
+
 .context-ring {
   position: relative;
   display: grid;

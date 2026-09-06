@@ -19,6 +19,8 @@ import {
   type ContextBreakdown,
 } from "./ContextBreakdownPopover";
 import { ContextUsageRing } from "./ContextUsageRing";
+import { UsagePill } from "./UsagePill";
+import type { ProviderUsage } from "./providerUsage";
 import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
@@ -265,6 +267,8 @@ export function Composer(props: {
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
+  /** Account usage behind the selected model's provider (the usage pill left of the ring). */
+  providerUsage?: ProviderUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
@@ -2306,6 +2310,7 @@ export function Composer(props: {
             </div>
 
             <div className="composer-bar-actions">
+              <UsagePill usage={props.providerUsage} modelId={llmVal || ""} />
               <div
                 className={[
                   "composer-context-tip-host",
