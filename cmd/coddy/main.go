@@ -173,6 +173,7 @@ func printUsage(w *os.File) {
   %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s gateway [flags] (messenger gateway: Telegram etc.)
   %[1]s sessions list [flags]
+  %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
   %[1]s skills enable <name>
   %[1]s skills disable <name>
@@ -369,9 +370,22 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 
 func runSessions(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>]", os.Args[0])
+		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] | sessions export <session-id> [flags]", os.Args[0])
 	}
 	switch strings.TrimSpace(args[0]) {
+	case "export":
+		if len(args) < 2 {
+			return errors.New(sessionsExportUsage())
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.LoadFromCLI(config.CLIPaths{})
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		return sessionsExport(os.Stdout, nil, cfg, cwd, args[1:])
 	case "list":
 		fs := flag.NewFlagSet("sessions list", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
@@ -407,7 +421,7 @@ func runSessions(args []string) error {
 		fmt.Printf("(total %d)\n", len(rows))
 		return nil
 	default:
-		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list)", args[0], os.Args[0])
+		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list or sessions export)", args[0], os.Args[0])
 	}
 }
 

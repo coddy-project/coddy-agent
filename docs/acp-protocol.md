@@ -430,7 +430,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands from skills
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The built-in commands lead the list (**`compact`** while compaction is enabled, **`export`**, **`plugin`**; the same rows as **`GET /coddy/commands`**), followed by the skills. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
