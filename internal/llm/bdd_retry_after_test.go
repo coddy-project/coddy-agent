@@ -9,6 +9,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -115,6 +116,37 @@ func (s *retryAfterState) theCallSucceedsAfterUpstreamRequests(want int) error {
 	return nil
 }
 
+func (s *retryAfterState) theCallFailsWithAQuotaReset(want int) error {
+	if s.callErr == nil {
+		return fmt.Errorf("provider call succeeded, want a quota reset error")
+	}
+	var reset *QuotaResetError
+	if !errors.As(s.callErr, &reset) {
+		return fmt.Errorf("provider call failed with %T (%v), want QuotaResetError", s.callErr, s.callErr)
+	}
+	s.mu.Lock()
+	got := len(s.requests)
+	s.mu.Unlock()
+	if got != want {
+		return fmt.Errorf("upstream requests = %d, want %d", got, want)
+	}
+	return nil
+}
+
+func (s *retryAfterState) theReportedPauseIsAtLeast(minSec int) error {
+	var reset *QuotaResetError
+	if !errors.As(s.callErr, &reset) {
+		return fmt.Errorf("no quota reset error to inspect: %v", s.callErr)
+	}
+	if reset.Delay < time.Duration(minSec)*time.Second {
+		return fmt.Errorf("reported pause = %v, want at least %ds", reset.Delay, minSec)
+	}
+	if reset.ResetAt.Before(time.Now().Add(time.Duration(minSec-5) * time.Second)) {
+		return fmt.Errorf("reset time %v is earlier than the pause implies", reset.ResetAt)
+	}
+	return nil
+}
+
 func (s *retryAfterState) atLeastMsPassBetweenRequests(minMS int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -143,6 +175,8 @@ func initializeRetryAfterScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a completion is requested$`, s.aCompletionIsRequested)
 	sc.Step(`^the call succeeds after (\d+) upstream requests$`, s.theCallSucceedsAfterUpstreamRequests)
 	sc.Step(`^at least (\d+) ms pass between the two upstream requests$`, s.atLeastMsPassBetweenRequests)
+	sc.Step(`^the call fails after (\d+) upstream requests? with a quota reset error$`, s.theCallFailsWithAQuotaReset)
+	sc.Step(`^the reported pause is at least (\d+) s$`, s.theReportedPauseIsAtLeast)
 }
 
 func TestLLMRetryAfterFeature(t *testing.T) {

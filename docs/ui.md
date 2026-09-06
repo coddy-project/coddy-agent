@@ -482,6 +482,33 @@ Automated checks:
 - Update granularity is per completed backend model call, not per generated token.
 - UI restores token counters after restart via `GET /coddy/sessions/{id}/stats`.
 
+## Provider account usage
+
+- When the selected model's provider reports account usage (today
+  `neuraldeep`), the **context popover** (the context ring next to Send)
+  ends with a **usage section**, the way Claude Desktop lists its plan
+  limits under the context window: the provider and plan, one meter per
+  metered window with its reset time in the browser's clock, the label in
+  the UI language and the percent used, the wallet in rubles, and a note
+  when something changed: a hit limit with its reset (or the cause of a
+  block no clock lifts), a model on the provider's unlimited option, a
+  rejected login, a stale read, a turn waiting for the reset. At 80 % the
+  meter turns amber and a **banner** above the composer says `You've used
+  85% of your NeuralDeep 3h limit · resets 20:59`, dismissable per provider
+  row, window and period; on a block the banner turns to the error tone: a
+  timed block reads `Usage limit reached · Resets 20:59`, an empty wallet,
+  a blocked key or account and a rate limit name their cause; while the
+  agent waits for the reset it reads `Usage limit reached · Auto-resuming
+  at 20:59`.
+- Data comes from **`GET /coddy/providers/{name}/usage`** (session open,
+  model change, after each finished turn of the viewed session, one read
+  after a window's reset, one cache read when the server deferred a refresh)
+  and from **`event: provider_usage`** on **`GET /coddy/events`** between
+  turns. Nothing polls otherwise; snapshots order by the server's read time,
+  so a slow answer never brings older numbers back. Visual contract:
+  **`DESIGN.md`** (**Context popover usage section and usage banner**); design record
+  **`docs/plans/neuraldeep-usage.md`**.
+
 ## Markdown rendering
 
 - Tool outputs are excluded; they stay raw monospace text (**`ToolCallMessage`**).

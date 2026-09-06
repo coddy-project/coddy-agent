@@ -64,37 +64,71 @@ func ProviderAPIKeyEnvVarName(providerName string) string {
 // succeeds), then the conventional environment variable derived from the provider
 // name (see ProviderAPIKeyEnvVarName).
 func (p *ProviderConfig) EffectiveAPIKey() string {
+	return p.EffectiveAPIKeyContext(context.Background())
+}
+
+// EffectiveAPIKeyContext is EffectiveAPIKey bounded by ctx: a credential
+// helper that outlives the caller's deadline is killed and the resolution
+// falls back to the environment variable, so a hung helper cannot hold a
+// caller that budgeted a few seconds for a network read.
+func (p *ProviderConfig) EffectiveAPIKeyContext(ctx context.Context) string {
+	key, _ := p.EffectiveAPIKeyContextErr(ctx)
+	return key
+}
+
+// EffectiveAPIKeyContextErr is EffectiveAPIKeyContext that also reports why
+// the credential helper yielded nothing when it ran out of time or was
+// cancelled (context.DeadlineExceeded, context.Canceled): a caller can then
+// tell "no credential" from "the helper did not answer in time". A helper
+// that exited without output is not an error; the environment variable is
+// the fallback in every case.
+func (p *ProviderConfig) EffectiveAPIKeyContextErr(ctx context.Context) (string, error) {
 	if p == nil {
-		return ""
+		return "", nil
 	}
 	if k := strings.TrimSpace(p.APIKey); k != "" {
-		return k
+		return k, nil
 	}
+	var helperErr error
 	if cmd := strings.TrimSpace(p.APIKeyCommand); cmd != "" {
-		if k := runAPIKeyCommand(cmd); k != "" {
-			return k
+		k, err := runAPIKeyCommandContext(ctx, cmd)
+		if k != "" {
+			return k, nil
 		}
+		helperErr = err
 	}
 	env := ProviderAPIKeyEnvVarName(p.Name)
 	if env == "" {
-		return ""
+		return "", helperErr
 	}
-	return strings.TrimSpace(os.Getenv(env))
+	if k := strings.TrimSpace(os.Getenv(env)); k != "" {
+		return k, nil
+	}
+	return "", helperErr
 }
 
-// runAPIKeyCommand executes a provider credential-helper command via the detected host shell and
-// returns its trimmed stdout. It returns "" on any error (non-zero exit, timeout,
-// spawn failure) so EffectiveAPIKey can fall back to the conventional env var.
-func runAPIKeyCommand(command string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), apiKeyCommandTimeout)
+// runAPIKeyCommandContext executes a provider credential-helper command via
+// the detected host shell, under the caller's context on top of the usual
+// timeout, and returns its trimmed stdout. It returns "" on any failure
+// (non-zero exit, timeout, cancellation, spawn failure) so the resolution can
+// fall back to the conventional env var; the error is set only when the
+// helper was cut short by the timeout or the caller's context.
+func runAPIKeyCommandContext(parent context.Context, command string) (string, error) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, apiKeyCommandTimeout)
 	defer cancel()
 	commandShell := platform.CurrentShell()
 	executable, args := commandShell.Command(command)
 	out, err := exec.CommandContext(ctx, executable, args...).Output()
 	if err != nil {
-		return ""
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+		return "", nil
 	}
-	return strings.TrimSpace(platform.DecodeOutput(out))
+	return strings.TrimSpace(platform.DecodeOutput(out)), nil
 }
 
 // Normalize trims string fields in place.

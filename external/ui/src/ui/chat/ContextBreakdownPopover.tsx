@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/I18nProvider";
+import { UsageSection } from "./UsageSection";
+import type { ProviderUsage } from "./providerUsage";
 
 export type ContextBreakdown = {
   systemPrompt: number;
@@ -55,6 +57,9 @@ export function ContextBreakdownPopover(props: {
   contextPct?: number | null;
   maxContextTokens: number;
   breakdown?: ContextBreakdown | null;
+  /** Account usage of the selected model's provider, listed under the context window. */
+  usage?: ProviderUsage | null;
+  modelId?: string;
 }) {
   const { t } = useT();
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -244,6 +249,7 @@ export function ContextBreakdownPopover(props: {
           </li>
         ))}
       </ul>
+      <UsageSection usage={props.usage} modelId={props.modelId ?? ""} />
     </>
   );
 

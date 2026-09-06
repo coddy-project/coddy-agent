@@ -152,3 +152,31 @@ test("a desync frame is reported without ending the stream", async () => {
     .join("");
   expect(text).toBe("after the gap");
 });
+
+test("a provider_usage frame on the turn stream reaches the usage callback", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  const seen: string[] = [];
+  const usage = { sessionUpdate: "provider_usage", provider: "neuraldeep", providerType: "neuraldeep", plan: "pro" };
+  const sse = `event: provider_usage\ndata: ${JSON.stringify(usage)}\n\n${textEvent("hi")}data: [DONE]\n\n`;
+  const items: TranscriptItem[] = [];
+  await consumeComposerSseReader({
+    reader: mockReader(sse),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: (fn) => {
+      const next = fn(items.slice());
+      items.length = 0;
+      items.push(...next);
+    },
+    setTokenUsage: () => {},
+    setContextUsage: () => {},
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => `${p}-x`,
+    applyMemoryPhaseToItems: (prev) => prev,
+    applyMemoryChunkToItems: (prev) => prev,
+    onProviderUsage: (u) => seen.push(`${u.provider}:${u.plan ?? ""}`),
+  });
+  expect(seen).toEqual(["neuraldeep:pro"]);
+});

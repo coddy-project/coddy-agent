@@ -31,7 +31,7 @@ func (m *Manager) RunPlan(ctx context.Context, sessionID, slug string, sender ac
 	// A plan run is a turn: the direct route (HTTP plans) is admitted like a
 	// prompt, with the lock, the registration and the cancel. A prompt that
 	// delegates to a plan is already admitted and calls runPlanAdmitted.
-	turnCtx, finish, err := m.beginTurn(ctx, sessionID, state, false)
+	turnCtx, finish, err := m.beginTurn(ctx, sessionID, state, turnAdmission{publishUsage: true})
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +86,7 @@ func (m *Manager) runPlanAdmitted(ctx context.Context, sessionID, slug string, s
 	if err != nil {
 		return nil, err
 	}
+	MarkTurnRan(ctx)
 	stopReason, err := m.runner(ctx, state, hydrated, sender)
 	if err != nil {
 		return nil, err

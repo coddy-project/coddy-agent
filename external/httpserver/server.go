@@ -67,6 +67,9 @@ type Server struct {
 	// events fans server-wide turn lifecycle events out to GET /coddy/events subscribers.
 	events             *serverEventsHub
 	removeTurnObserver func()
+	// removeUsageObserver detaches the provider usage observer that feeds
+	// provider_usage frames to the events stream.
+	removeUsageObserver func()
 
 	codexAuthIssuer string
 	// codexAuthMu guards both browser-login attempt maps; the attempts share
@@ -82,6 +85,9 @@ type Server struct {
 // Drain waits for all background goroutines (e.g. turn-diff writers) to finish.
 // Call after closing the HTTP server and before tearing down any session directories.
 func (s *Server) Drain() {
+	if s.removeUsageObserver != nil {
+		s.removeUsageObserver()
+	}
 	if s.removeTurnObserver != nil {
 		s.removeTurnObserver()
 	}
@@ -118,6 +124,7 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	// observer registration rather than a single manager-wide slot.
 	if mgr != nil {
 		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
+		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
 	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.

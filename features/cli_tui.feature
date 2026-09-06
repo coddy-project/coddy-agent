@@ -147,3 +147,43 @@ Feature: Interactive console TUI
     And the stub turn streams the text "automation pong"
     Then the one-shot output contains "automation pong"
     And the one-shot run ends cleanly
+
+  Scenario: The footer shows the NeuralDeep session and weekly usage
+    Given a coddy console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    Then the footer shows the neuraldeep usage "Pro • 3h 3% (resets"
+    And the footer shows the neuraldeep usage "week 7% (resets"
+    And the footer shows the neuraldeep usage "wallet -1 229 ₽"
+
+  Scenario: The footer warns when the session window is nearly spent
+    Given a coddy console app over a stub agent runner with a neuraldeep provider
+    And the stand-in limits API reports the session window at 85%
+    When the console app starts
+    Then the footer shows the neuraldeep usage "3h 85%"
+    And the transcript shows a usage notice containing "You've used 85% of your NeuralDeep 3h limit"
+
+  Scenario: A finished turn refreshes the usage line
+    Given a coddy console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the usage clock moves 20 seconds forward
+    And the stand-in limits API reports the session window at 42%
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    Then the footer shows the neuraldeep usage "3h 42%"
+
+  Scenario: /usage prints the account breakdown
+    Given a coddy console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the operator submits the command "/usage"
+    Then the usage report shows "NeuralDeep · Pro · key coddy"
+    And the usage report shows "407 / 15 000"
+    And the usage report shows "rpm            2 / 120 this minute"
+
+  Scenario: Switching to another provider hides the usage line
+    Given a coddy console app over a stub agent runner with a neuraldeep provider
+    When the console app starts
+    And the footer shows the neuraldeep usage "3h 3%"
+    And the operator switches the model to "stub/model-one"
+    Then the footer names the model "(stub) model-one"
+    And the footer does not show the neuraldeep usage

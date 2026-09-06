@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // registerBackgroundRoutes wires the background task surface the tasks panel
@@ -60,10 +61,11 @@ func (s *Server) attachBackgroundWaker() {
 		bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
 		bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
 		defer func() { _ = bridge.FinishStream() }()
+		// Nobody watches a wake turn's footer: no usage refresh.
 		_, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sessionID,
 			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: instruction}},
-		}, bridge, nil)
+		}, bridge, &session.PromptRunOpts{SkipUsagePublish: true})
 		return err
 	})
 	waker.Attach(bgtask.Default())

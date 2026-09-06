@@ -131,6 +131,12 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	turn := &turnStream{h: h, ctx: turnCtx, sessionID: sid, sender: sender}
 	streamErr := readSSE(res.Body, turn.onFrame)
 	cancelled := h.endTurn(st)
+	// The turn spent quota; the server refreshed its snapshot when the turn
+	// released, so a pull now joins that fetch (or learns it was deferred).
+	// It runs aside: the turn's result never waits for the hub.
+	if !cancelled {
+		h.pullProviderUsageAsync(sid, true)
+	}
 
 	switch {
 	case turn.turnErr != "":
@@ -199,6 +205,11 @@ func (t *turnStream) onFrame(f sseFrame) error {
 		}
 	case "usage_update":
 		var u acp.UsageUpdate
+		if json.Unmarshal([]byte(f.data), &u) == nil {
+			_ = t.sender.SendSessionUpdate(t.sessionID, u)
+		}
+	case "provider_usage":
+		var u acp.ProviderUsageUpdate
 		if json.Unmarshal([]byte(f.data), &u) == nil {
 			_ = t.sender.SendSessionUpdate(t.sessionID, u)
 		}

@@ -51,6 +51,10 @@ type Handler struct {
 
 	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
 	cancelWG sync.WaitGroup
+
+	// usageState caches which providers the server reported as having no
+	// usage source (usage.go).
+	usageState
 }
 
 type sessionState struct {
@@ -443,6 +447,10 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 			})
 		}
 	}
+	// The footer is populated before the first prompt, like the local
+	// console's session-ready refresh; the server's cache answers when warm,
+	// and the load never waits for it.
+	h.pullProviderUsageAsync(sessionID, false)
 }
 
 // SetPreferredSessionID pins the id the next HandleSessionNew adopts.

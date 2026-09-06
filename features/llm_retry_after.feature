@@ -16,3 +16,16 @@ Feature: Coddy honors server-requested retry pauses
       | openai    | Retry-After-Ms | 300   | 300   |
       | anthropic | Retry-After    | 1     | 1000  |
       | anthropic | Retry-After-Ms | 300   | 300   |
+
+  Scenario: A pause the capped retries could never cover fails fast as a quota reset
+    The retry ladder waits at most 60 s per attempt, so a pause longer than
+    the retries could add up to (three capped waits by default, none with
+    retries disabled) cannot be honoured by retrying. Repeating the request
+    would only burn the budget
+    and end in the same 429 minutes later, so the wrapper reports the pause
+    as a typed quota reset error at once, after a single upstream request,
+    and the agent decides whether to wait for it (agent.wait_for_limit_reset).
+    Given an "openai" provider whose upstream responds 429 with header "Retry-After" set to "600" and then succeeds
+    When a completion is requested
+    Then the call fails after 1 upstream request with a quota reset error
+    And the reported pause is at least 600 s

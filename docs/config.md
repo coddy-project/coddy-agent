@@ -118,6 +118,8 @@ agent:
                                # capped at 60s
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
+  wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
+  wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
@@ -469,6 +471,8 @@ Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic AP
 NeuralDeep API via its OpenAI-compatible endpoint.
 
 Credentials come from either a hub sign-in or a plain key. **`coddy providers login neuraldeep`** opens the browser on the NeuralDeep hub (add **`--device`** on headless machines), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and appends the tier's models to the config; the bundled web UI offers **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** (or **`api_key_command`** / **`NEURALDEEP_API_KEY`**) always wins over the stored login.
+
+While a `neuraldeep` model is active, the console footer, the remote console and the HTTP API show the account's usage (the hub's read-only **`GET /v1/limits`**: session and week windows as percent used with reset times, the wallet in rubles, a hit limit with its reset time), refreshed at session start and after every turn; see **`docs/cli.md`** (Footer, `/usage`) and **`docs/http-api.md`** (**`GET /coddy/providers/{name}/usage`**). Nothing to configure: the row's own credential is used, and no dollar figure is ever shown.
 
 The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`coddy providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; Coddy warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`CODDY_NEURALDEEP_BASE_URL`** and **`CODDY_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
 

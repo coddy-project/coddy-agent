@@ -148,6 +148,21 @@ type ProviderInput struct {
 	RetryBase time.Duration
 	// RetryMaxDelay caps retry backoff (default 60s).
 	RetryMaxDelay time.Duration
+	// CallBudget bounds one call's time, sleeps on a limit included, to
+	// what the caller's own timer allows (the agent's first-token timer);
+	// zero means no such bound (see ResilientOptions.CallBudget).
+	CallBudget time.Duration
+	// RetryBudget caps the total the caller's unit of work spends on limits,
+	// the LimitLedger's total plus this call; a longer pause fails fast as
+	// a QuotaResetError. It counts only with RetryBudgetSet: unset means
+	// the RetryMaxDelay ladder alone, set to zero means no sleep on a limit
+	// at all (see ResilientOptions.RetryBudget).
+	RetryBudget    time.Duration
+	RetryBudgetSet bool
+	// LimitLedger, when set, is charged with every sleep the wrapper takes
+	// after a 429 and its total counts against RetryBudget, so the budget
+	// spans the caller's unit of work (see ResilientOptions.Ledger).
+	LimitLedger LimitLedger
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
 	// DisableStream turns off the streaming transport (models[].stream: false):

@@ -27,6 +27,7 @@ import {
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
 import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
 import { subscribeServerEvents } from "./chat/serverEvents";
+import { useProviderUsage } from "./chat/useProviderUsage";
 import { parseSSEBlocks } from "./chat/sse";
 import {
   consumeComposerSseReader,
@@ -80,6 +81,7 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import type { ProviderUsage } from "./chat/providerUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import {
   injectBranchNavItems,
@@ -782,7 +784,17 @@ export function App() {
   const serverEventHandlersRef = useRef<{
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {} });
+    providerUsage: (usage: ProviderUsage) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
+  // Provider account usage for the composer pill and banner: read over REST
+  // at session open, model change and after each viewed turn, pushed by the
+  // events stream in between (chat/useProviderUsage.ts).
+  const [providerUsageTurnEpoch, setProviderUsageTurnEpoch] = useState(0);
+  const noteUsageTurnEnded = useCallback((sid: string) => {
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setProviderUsageTurnEpoch((n) => n + 1);
+    }
+  }, []);
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -944,6 +956,11 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const providerUsageState = useProviderUsage({
+    sessionId,
+    llmModel,
+    turnEpoch: providerUsageTurnEpoch,
+  });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
    * Raw model/reasoning stored on the opened session. Held until the backends
@@ -2030,6 +2047,7 @@ export function App() {
       void loadMessages(key, { preserveOnError: true });
       void refreshSessionStats(key);
     },
+    providerUsage: providerUsageState.applyPushed,
   };
 
   useEffect(() => {
@@ -2037,6 +2055,8 @@ export function App() {
     void subscribeServerEvents({
       onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onProviderUsage: (_sid, usage) =>
+        serverEventHandlersRef.current.providerUsage(usage),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -2987,6 +3007,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
@@ -3112,6 +3133,10 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
       // The session is no longer pinned; bound the cache now rather than
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -3408,6 +3433,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
@@ -3546,6 +3572,7 @@ export function App() {
       }
     } finally {
       postAbortBySidRef.current.delete(postSessionKey);
+      noteUsageTurnEnded(postSessionKey);
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
@@ -4106,6 +4133,9 @@ export function App() {
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}
+          providerUsage={providerUsageState.usage}
+          usageBannerDismissedKey={providerUsageState.dismissedKey}
+          onUsageBannerDismiss={providerUsageState.dismissBanner}
           contextPct={contextPct}
           maxContextTokens={maxContextTokens}
           contextBreakdown={contextBreakdown}

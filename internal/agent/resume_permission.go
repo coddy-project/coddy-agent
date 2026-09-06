@@ -208,8 +208,11 @@ func backgroundConfig(cfg *config.Config) bgtask.Config {
 	}
 }
 
-// continueReAct runs the ReAct loop using messages already on the session (no new user turn).
+// continueReAct runs the ReAct loop using messages already on the session (no
+// new user turn): the turn's account of time spent on usage limits carries
+// over, since this is the same user turn.
 func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.Env) (string, error) {
+	a.limitLedgerFor()
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)

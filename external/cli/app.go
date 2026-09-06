@@ -97,6 +97,16 @@ type App struct {
 	modelID   string
 	reasoning string
 
+	// Provider usage on the status bar (usage.go): the reset timer, the
+	// notices already shown, the follow-up armed after a passed reset, and
+	// the timer factory tests replace.
+	usageTimer func() bool
+	// usageResume is the pending note that a waiting turn's reset passed.
+	usageResume   func() bool
+	usageNotified map[string]bool
+	usageFollowUp string
+	usageAfterFn  func(time.Duration, func()) func() bool
+
 	slashServer []tui.AutocompleteItem
 
 	updatesCh chan updateMsg
@@ -386,6 +396,8 @@ func (a *App) Close() {
 	a.closeOnce.Do(func() {
 		close(a.closed)
 		a.workStop()
+		a.stopUsageTimer()
+		a.stopUsageResume()
 	})
 }
 
@@ -755,6 +767,16 @@ func (a *App) setModel(id string) {
 			_ = a.Sender().SendSessionUpdate(sessionID, statusErr{msg: "model: " + err.Error()})
 			return
 		}
+		// The new model may belong to another provider: the footer line
+		// follows it without waiting for the next turn. The backend answers
+		// from its cache when warm, so this costs no request most of the time.
+		if provider := usageProviderOf(id); provider != "" {
+			ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
+			defer cancel()
+			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, false); err == nil && u != nil && !u.Unsupported {
+				_ = a.Sender().SendSessionUpdate(sessionID, *u)
+			}
+		}
 	}()
 }
 
@@ -1069,6 +1091,7 @@ func (a *App) slashCatalog() []tui.AutocompleteItem {
 		tui.AutocompleteItem{Value: "new", Label: "new", Description: "Start a new session"},
 		tui.AutocompleteItem{Value: "theme", Label: "theme", Description: "Switch color theme"},
 		tui.AutocompleteItem{Value: "hotkeys", Label: "hotkeys", Description: "Show keyboard shortcuts"},
+		tui.AutocompleteItem{Value: "usage", Label: "usage", Description: "Show the provider's account usage and limits"},
 		tui.AutocompleteItem{Value: "quit", Label: "quit", Description: "Exit coddy"},
 	)
 	items = append(items, a.slashServer...)

@@ -12,8 +12,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +30,45 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
+
+// neuralDeepUsageBDDKey is the stored hub login of the console scenarios.
+const neuralDeepUsageBDDKey = "sk-cli-bdd-usage-key-0123456789ab"
+
+// usageStandPayload renders the hub's schema-1 GET /limits answer for a pro
+// wallet key with the session counter at used (limit 15000).
+func usageStandPayload(used int) string {
+	return `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","tier_expires_at":null,
+ "unlimited_volume":false,"options":[],"bypass":false,"fair_use":true,
+ "key":{"name":"coddy","status":"ok","billing_mode":"wallet","cap":null},
+ "decision":{"scope":"chat","can_request":true,"blockers":[],"retry_after_sec":null},
+ "chat":{"session":{"used":` + strconv.Itoa(used) + `,"limit":15000,"remaining":` + strconv.Itoa(15000-used) + `,"reset_in_sec":777,
+                    "resets_at":"2026-09-06T17:59:59Z","window":"3h"},
+         "week":{"used":9981,"limit":150000,"remaining":140019,"reset_in_sec":22378,
+                 "resets_at":"2026-09-07T00:00:00Z","window":"iso-week"},
+         "rpm":{"used":2,"limit":120,"remaining":118,"reset_in_sec":58},"cooldown_sec":0,"scope":"account"},
+ "daily_capacity":{"pct_used":0.0,"exhausted":false,"resets_at":"2026-09-07T00:00:00+00:00"},
+ "night":{"enabled":true,"active":false,"capacity_factor":2},
+ "wallet":{"balance_rub":-1229.244167,"spent_rub_30d":2000.73518},"kimi":null}`
+}
+
+// usageClock is the manager's clock in the neuraldeep scenarios: real time
+// plus whatever the steps added, so the pacing floor can be crossed at will.
+type usageClock struct {
+	mu     sync.Mutex
+	offset time.Duration
+}
+
+func (c *usageClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Now().Add(c.offset)
+}
+
+func (c *usageClock) advance(d time.Duration) {
+	c.mu.Lock()
+	c.offset += d
+	c.mu.Unlock()
+}
 
 // bddTerminal is the in-memory terminal for the harness.
 type bddTerminal struct {
@@ -84,6 +126,16 @@ type cliTUIState struct {
 
 	printOut  *syncBuffer
 	printDone chan error
+
+	// The neuraldeep scenarios: the manager, the stand-in GET /limits, its
+	// session counter, the manager clock, and the environment to restore.
+	mgr         *session.Manager
+	usageStand  *httptest.Server
+	usageUsed   int
+	usageClock  *usageClock
+	prevBaseEnv string
+	prevKeyEnv  string
+	usageEnvSet bool
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -117,6 +169,11 @@ func (s *cliTUIState) reset() {
 	s.prevSessionID = ""
 	s.printOut = nil
 	s.printDone = nil
+	s.mgr = nil
+	s.usageStand = nil
+	s.usageUsed = 407
+	s.usageClock = nil
+	s.usageEnvSet = false
 	s.directives = make(chan stubDirective, 16)
 	s.turnEnds = make(chan struct{}, 4)
 }
@@ -133,6 +190,20 @@ func (s *cliTUIState) shutdown() {
 		case <-s.appDone:
 		case <-time.After(2 * time.Second):
 		}
+	}
+	// The stand-in is selected through a process-wide variable: no usage
+	// fetch may outlive the scenario, or it lands on the next one's server.
+	if s.mgr != nil {
+		s.mgr.ShutdownProviderUsage(2 * time.Second)
+	}
+	if s.usageStand != nil {
+		s.usageStand.Close()
+		s.usageStand = nil
+	}
+	if s.usageEnvSet {
+		_ = os.Setenv(llm.EnvNeuralDeepBaseURL, s.prevBaseEnv)
+		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
+		s.usageEnvSet = false
 	}
 }
 
@@ -248,7 +319,12 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 	}
 }
 
-func (s *cliTUIState) buildApp() error {
+func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
+
+// buildAppWith assembles the console; with neuraldeep the default model
+// belongs to a neuraldeep provider whose stored hub login points at a
+// stand-in GET /limits, and the manager runs on the scenario's clock.
+func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-bdd-%d", time.Now().UnixNano()))
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
@@ -268,6 +344,17 @@ func (s *cliTUIState) buildApp() error {
 		},
 		Agent: config.Agent{Model: "stub/model-one"},
 	}
+	if neuraldeep {
+		if err := s.startUsageStand(); err != nil {
+			return err
+		}
+		if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(s.home, "neuraldeep"), neuralDeepUsageBDDKey, "https://hub.bdd.invalid", llm.NeuralDeepClientID, "coddy"); err != nil {
+			return err
+		}
+		cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"})
+		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
+		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
+	}
 	cfg.Tools.PermissionMode = "ask"
 	cfg.Rules.AutoDiscover = &noAuto
 	s.cfg = cfg
@@ -278,10 +365,101 @@ func (s *cliTUIState) buildApp() error {
 	var app *App
 	late := &lateBoundSender{}
 	mgr := session.NewManager(cfg, late, s.stubRunner, log, s.cwd, s.store)
+	if neuraldeep {
+		s.usageClock = &usageClock{}
+		mgr.SetProviderUsageClock(s.usageClock.Now, func(d time.Duration, fn func()) func() bool {
+			return time.AfterFunc(d, fn).Stop
+		})
+	}
+	s.mgr = mgr
 	app = newApp(cfg, mgr, log, term, "dark", true)
 	late.inner = app.Sender()
 	s.app = app
 	return nil
+}
+
+// startUsageStand serves GET /limits with the scenario's session counter
+// and routes the neuraldeep provider at it.
+func (s *cliTUIState) startUsageStand() error {
+	s.usageStand = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/limits" || r.Header.Get("Authorization") != "Bearer "+neuralDeepUsageBDDKey {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		s.mu.Lock()
+		used := s.usageUsed
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, usageStandPayload(used))
+	}))
+	s.prevBaseEnv = os.Getenv(llm.EnvNeuralDeepBaseURL)
+	s.prevKeyEnv = os.Getenv("NEURALDEEP_API_KEY")
+	s.usageEnvSet = true
+	if err := os.Setenv(llm.EnvNeuralDeepBaseURL, s.usageStand.URL); err != nil {
+		return err
+	}
+	return os.Setenv("NEURALDEEP_API_KEY", "")
+}
+
+// --- provider usage steps ---
+
+func (s *cliTUIState) aConsoleAppWithNeuralDeep() error { return s.buildAppWith(true) }
+
+func (s *cliTUIState) standReportsSessionAt(pct int) error {
+	s.mu.Lock()
+	s.usageUsed = pct * 15000 / 100
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *cliTUIState) footerShowsUsage(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) transcriptShowsUsageNotice(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) usageClockMoves(seconds int) error {
+	if s.usageClock == nil {
+		return fmt.Errorf("no usage clock: the scenario has no neuraldeep provider")
+	}
+	s.usageClock.advance(time.Duration(seconds) * time.Second)
+	return nil
+}
+
+func (s *cliTUIState) operatorSubmitsCommand(text string) error {
+	s.typeText(text)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) usageReportShows(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+func (s *cliTUIState) operatorSwitchesModelTo(id string) error {
+	s.typeText("/model " + id)
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) footerNamesModel(text string) error {
+	return s.waitScreen(text, 3*time.Second)
+}
+
+// footerHidesUsage waits for the usage line to leave the frame: the model
+// switch renders asynchronously, so the absence is polled rather than read
+// once.
+func (s *cliTUIState) footerHidesUsage() error {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !strings.Contains(s.screenText(), "3h 3%") {
+			return nil
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	return fmt.Errorf("the usage line is still on screen:\n%s", s.screenText())
 }
 
 func (s *cliTUIState) startApp(sessionID string) error {
@@ -893,6 +1071,16 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator types "([^"]*)" without sending it$`, s.operatorTypesWithoutSending)
 	sc.Step(`^the editor borders render in the local shell color$`, s.editorBordersUseLocalShellColor)
 	sc.Step(`^the operator runs a one-shot prompt "([^"]*)"$`, s.operatorRunsOneShot)
+	sc.Step(`^a coddy console app over a stub agent runner with a neuraldeep provider$`, s.aConsoleAppWithNeuralDeep)
+	sc.Step(`^the stand-in limits API reports the session window at (\d+)%$`, s.standReportsSessionAt)
+	sc.Step(`^the footer shows the neuraldeep usage "([^"]*)"$`, s.footerShowsUsage)
+	sc.Step(`^the transcript shows a usage notice containing "([^"]*)"$`, s.transcriptShowsUsageNotice)
+	sc.Step(`^the usage clock moves (\d+) seconds forward$`, s.usageClockMoves)
+	sc.Step(`^the operator submits the command "([^"]*)"$`, s.operatorSubmitsCommand)
+	sc.Step(`^the usage report shows "([^"]*)"$`, s.usageReportShows)
+	sc.Step(`^the operator switches the model to "([^"]*)"$`, s.operatorSwitchesModelTo)
+	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)
+	sc.Step(`^the footer does not show the neuraldeep usage$`, s.footerHidesUsage)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)
 }

@@ -4731,6 +4731,62 @@ textarea#composer {
   box-shadow: var(--coddy-tip-shadow);
 }
 
+/* Provider account usage: the pill left of the context ring and the notice
+   above the composer (DESIGN.md, Context popover usage section and usage banner). */
+.usage-banner {
+  display: flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.usage-banner--error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.usage-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.usage-banner-dismiss {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.usage-banner-dismiss:hover {
+  background: var(--border);
+  color: var(--fg);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
+}
+
 .context-ring {
   position: relative;
   display: grid;
@@ -4964,6 +5020,114 @@ textarea#composer {
 
 .context-breakdown-value {
   font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+/* Account usage under the context window (UsageSection.tsx): one meter per
+   metered window, the reset time and the percent used on its right, the
+   wallet below, a note for the states that change what the user can do. */
+.context-usage {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.context-usage-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.context-usage-note {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-note--warn {
+  color: #b45309;
+}
+
+.context-usage-note--error {
+  color: #dc2626;
+}
+
+/* Every dark canvas (the default and the five dark presets, keyed the way
+   color-scheme is) lifts the tone text for contrast; only light opts out. */
+html:not([data-theme="light"]) .context-usage-note--warn {
+  color: #fbbf24;
+}
+
+html:not([data-theme="light"]) .context-usage-note--error {
+  color: #f87171;
+}
+
+.context-usage-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.context-usage-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.context-usage-label {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-meta {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-usage-pct {
+  margin-left: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.context-usage-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.context-usage-rows li[data-tone="warn"] .context-usage-fill {
+  background: #f59e0b;
+}
+
+.context-usage-rows li[data-tone="error"] .context-usage-fill {
+  background: #ef4444;
+}
+
+.context-usage-foot {
+  margin-top: 10px;
   color: color-mix(in srgb, var(--text) 70%, transparent);
 }
 

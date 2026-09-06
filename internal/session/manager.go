@@ -65,6 +65,9 @@ type Manager struct {
 	deletingMu sync.Mutex
 	deleting   map[string]int
 
+	// usage is the provider usage cache and schedule (provider_usage.go).
+	usage providerUsageState
+
 	// testHooks pause the manager at points a test needs to observe; every
 	// field is nil outside tests (see export_test.go).
 	testHooks struct {
@@ -138,6 +141,11 @@ func (m *Manager) storeConfig(next *config.Config) *config.Config {
 	previous := m.activeCfg()
 	m.skillsLoad = skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
 	m.cfgAt.Store(next)
+	// The provider rows behind the usage cache may have changed with the
+	// configuration: work in flight for the old rows is dropped, the
+	// snapshots and their pacing stay, and the fingerprint tells a changed
+	// credential apart on the next read.
+	m.pauseProviderUsage()
 	return previous
 }
 
@@ -633,10 +641,35 @@ type PromptRunOpts struct {
 	// request-scoped cancellation, since hanging up is the only way it can stop a turn.
 	DetachFromRequest bool
 
+	// SkipUsagePublish turns off the provider usage refresh a finished turn
+	// normally triggers (provider_usage.go). Surfaces that cannot show the
+	// numbers set it: coddy -p, the messenger gateway, the background wake.
+	SkipUsagePublish bool
+
 	// subagentTurn marks the one prompt a child session may run: its own task
 	// turn, started by the subagent runtime. Every other prompt against a child
 	// is refused with ErrSubagentReadOnly (see RunSubagentTurn).
 	subagentTurn bool
+}
+
+// turnAdmission carries what beginTurn needs to know about the caller.
+type turnAdmission struct {
+	// skipLock says the caller already holds the composer turn lock.
+	skipLock bool
+	// publishUsage says the turn's release refreshes the provider usage of the
+	// session's model, provided the turn reached its runner (MarkTurnRan).
+	publishUsage bool
+}
+
+// admissionFor derives the admission of a prompt from its options: a
+// subagent turn and an opted-out caller publish no usage.
+func admissionFor(opts *PromptRunOpts) turnAdmission {
+	adm := turnAdmission{publishUsage: true}
+	if opts != nil {
+		adm.skipLock = opts.SkipTurnLock
+		adm.publishUsage = !opts.SkipUsagePublish && !opts.subagentTurn
+	}
+	return adm
 }
 
 // AcquireComposerTurnLock acquires the exclusive per-session turn lock used by agent turns.
@@ -664,7 +697,7 @@ func (m *Manager) WriteCrossProcessCancelRequest(sessionID string) error {
 // and then rechecks the mark. Whichever order the two interleave in, either
 // the delete sees this turn's cancel or this recheck sees the mark, so no turn
 // runs on past the removal of its bundle.
-func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State, skipLock bool) (context.Context, func(), error) {
+func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State, adm turnAdmission) (context.Context, func(), error) {
 	if hook := m.testHooks.beforeTurnAdmission; hook != nil {
 		hook(sessionID)
 	}
@@ -675,7 +708,7 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 	// active as far as a client watching the session is concerned.
 	clearActive := m.markTurnActive(sessionID)
 	unlock := func() {}
-	if !skipLock {
+	if !adm.skipLock {
 		var err error
 		unlock, err = m.acquireTurnLockWithReloadDrain(sessionID, state)
 		if err != nil {
@@ -683,12 +716,24 @@ func (m *Manager) beginTurn(ctx context.Context, sessionID string, state *State,
 			return nil, nil, err
 		}
 	}
-	turnCtx, cancel := context.WithCancel(ctx)
+	// The ran marker lives on this admission's context, so a concurrent
+	// admission that loses the lock cannot reset it.
+	markedCtx, ran := withTurnRanMarker(ctx)
+	turnCtx, cancel := context.WithCancel(markedCtx)
 	state.SetCancel(cancel)
+	var finishOnce sync.Once
 	finish := func() {
-		cancel()
-		unlock()
-		clearActive()
+		finishOnce.Do(func() {
+			cancel()
+			// The usage refresh is reserved before the turn is released: a
+			// client that pulls the numbers on turn_ended joins that fetch
+			// instead of reading the pre-turn snapshot.
+			if adm.publishUsage && ran.Load() {
+				m.publishProviderUsageAsync(sessionID, state)
+			}
+			unlock()
+			clearActive()
+		})
 	}
 	if hook := m.testHooks.beforeTurnAdmissionRecheck; hook != nil {
 		hook(sessionID)
@@ -733,7 +778,7 @@ func (m *Manager) BeginTurn(ctx context.Context, sessionID string, opts *PromptR
 	if state.IsSubagentRun() || IsSubagentSessionID(sessionID) {
 		return nil, nil, fmt.Errorf("%w: %s belongs to %s", ErrSubagentReadOnly, sessionID, subagentParentOf(state))
 	}
-	return m.beginTurn(ctx, sessionID, state, opts != nil && opts.SkipTurnLock)
+	return m.beginTurn(ctx, sessionID, state, admissionFor(opts))
 }
 
 // HandleSessionPromptWithSender runs a prompt turn using sender for agent updates (e.g. SSE over HTTP).
@@ -752,7 +797,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	if opts != nil && opts.DetachFromRequest {
 		turnBase = context.WithoutCancel(ctx)
 	}
-	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, opts != nil && opts.SkipTurnLock)
+	turnCtx, finish, err := m.beginTurn(turnBase, params.SessionID, state, admissionFor(opts))
 	if err != nil {
 		return nil, err
 	}
@@ -818,6 +863,7 @@ func (m *Manager) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	}()
 
 	ranRunner = true
+	MarkTurnRan(turnCtx)
 	stopReason, err := m.runner(turnCtx, state, hydrated, sender)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -976,6 +1022,9 @@ func (m *Manager) HandleSessionReady(sessionID string) {
 		}
 	}
 	m.sendAvailableSlashCommands(sessionID, st)
+	// The footer is populated before the first prompt: an automatic read,
+	// served from the cache when it is warm.
+	m.publishProviderUsageOnReady(sessionID, st)
 }
 
 func (m *Manager) sendAvailableSlashCommands(sessionID string, st *State) {
