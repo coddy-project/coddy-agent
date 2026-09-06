@@ -147,10 +147,11 @@ func PrintPrompt(ctx context.Context, mgr backend, opts PrintOptions) error {
 	}
 
 	snd := &printSender{mgr: mgr, cfg: cfg, out: opts.Out, errOut: opts.ErrOut}
+	// A one-shot print has no footer: no usage refresh at the end.
 	result, err := mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 		SessionID: res.SessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: opts.Prompt}},
-	}, snd, nil)
+	}, snd, &session.PromptRunOpts{SkipUsagePublish: true})
 	if snd.wrote {
 		_, _ = io.WriteString(opts.Out, "\n")
 	}

@@ -125,6 +125,9 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	// A resumed turn keeps running the ReAct loop, so it may spawn subagents
 	// like the turn it continues.
 	ag.SetSubagentRuntime(s.mgr)
+	// The resumed turn calls the model like any other: its release refreshes
+	// the provider usage.
+	session.MarkTurnRan(ctx)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
 		return

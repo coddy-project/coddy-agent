@@ -51,6 +51,10 @@ type Handler struct {
 
 	// cancelWG tracks server-side cancels posted from HandleSessionCancel.
 	cancelWG sync.WaitGroup
+
+	// usageState caches which providers the server reported as having no
+	// usage source (usage.go).
+	usageState
 }
 
 type sessionState struct {
@@ -61,6 +65,9 @@ type sessionState struct {
 	// that the cancel targeted that turn (never a later one).
 	turnCancel    context.CancelFunc
 	turnCancelled bool
+	// usageFollowUp is the pending follow-up usage pull a deferred refresh
+	// asked for (usage.go).
+	usageFollowUp *time.Timer
 }
 
 type remoteModel struct {
@@ -418,6 +425,7 @@ func (h *Handler) WaitCancels(d time.Duration) {
 // forget drops the client-side state of a session that never came to be.
 func (h *Handler) forget(id string) {
 	h.mu.Lock()
+	stopUsageFollowUp(h.sessions[id])
 	delete(h.sessions, id)
 	h.mu.Unlock()
 }
@@ -443,6 +451,11 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 			})
 		}
 	}
+	// The footer is populated before the first prompt, like the local
+	// console's session-ready refresh; the server's cache answers when warm.
+	ctx, cancel := context.WithTimeout(context.Background(), restTimeout)
+	defer cancel()
+	h.pullProviderUsage(ctx, sessionID, false)
 }
 
 // SetPreferredSessionID pins the id the next HandleSessionNew adopts.
@@ -455,6 +468,7 @@ func (h *Handler) SetPreferredSessionID(id string) {
 // ForgetLiveSession drops local per-session state.
 func (h *Handler) ForgetLiveSession(id string) {
 	h.mu.Lock()
+	stopUsageFollowUp(h.sessions[id])
 	delete(h.sessions, id)
 	h.mu.Unlock()
 }

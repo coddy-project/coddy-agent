@@ -153,6 +153,7 @@ func (s *Server) coddyProviderNeuralDeepAuthDelete(w http.ResponseWriter, r *htt
 		writeCoddyConfigErr(w, http.StatusInternalServerError, "could not remove NeuralDeep credentials")
 		return
 	}
+	s.dropProviderUsage(name)
 	resp, err := s.neuralDeepAuthStatus(name, provider, "")
 	if err != nil {
 		writeCoddyConfigErr(w, http.StatusInternalServerError, err.Error())
@@ -318,7 +319,17 @@ func (s *Server) persistNeuralDeepLogin(ctx context.Context, attempt *codexAuthL
 	}
 	attempt.Status = "completed"
 	attempt.Connected = true
+	// A new key is another account as far as the usage cache is concerned.
+	s.dropProviderUsage(attempt.ProviderName)
 	return nil
+}
+
+// dropProviderUsage forgets the cached account usage of a provider after a
+// credential changed (login, logout), including a sticky rejected-key mark.
+func (s *Server) dropProviderUsage(name string) {
+	if s.mgr != nil && strings.TrimSpace(name) != "" {
+		s.mgr.DropProviderUsage(name)
+	}
 }
 
 // neuralDeepDeviceStartEndpoint settles which deployment a device sign-in is

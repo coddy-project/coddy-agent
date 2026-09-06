@@ -483,6 +483,60 @@ After **`session/new`** and **`session/load`**, Coddy derives slash commands fro
 
 Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
 
+### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
+
+Coddy sends three `session/update` kinds the ACP specification does not
+define; a client that ignores unknown kinds keeps working.
+
+- **`token_usage`** after every completed model call: `inputTokens`,
+  `outputTokens` of that call and `totalTokens` accumulated over the turn.
+- **`usage_update`** when the context window occupancy changes (a model call,
+  manual or automatic compaction): `used` and `size` in tokens.
+- **`provider_usage`**: the account quota behind the session's model
+  provider, so a client can draw a status bar like the console's third footer
+  line. Sent at session ready and after every turn (never for a subagent
+  child), once the provider has a usage source; today only `neuraldeep` has
+  one (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
+  and cached by the manager (20 s, a 15 s floor between reads); relative
+  durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
+  the snapshot's age when it is delivered. No dollar figure and no credential
+  ever appear. HTTP clients read the same shape from
+  `GET /coddy/providers/{name}/usage` (see `docs/http-api.md`).
+
+```json
+{
+  "sessionUpdate": "provider_usage",
+  "provider": "neuraldeep",
+  "providerType": "neuraldeep",
+  "observedAt": "2026-09-06T17:47:02Z",
+  "fetchedAt": "2026-09-06T17:47:10Z",
+  "plan": "pro",
+  "keyName": "coddy",
+  "windows": [
+    {"id": "session", "label": "3h", "used": 407, "limit": 15000, "remaining": 14593,
+     "usedPercent": 2.71, "resetsAt": "2026-09-06T17:59:59Z", "resetInSec": 777},
+    {"id": "week", "label": "week", "used": 9981, "limit": 150000, "remaining": 140019,
+     "usedPercent": 6.65, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378},
+    {"id": "day", "label": "day", "usedPercent": 0, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378}
+  ],
+  "rate": {"used": 2, "limit": 120, "remaining": 118, "resetInSec": 58},
+  "wallet": {"balanceRub": -1229.24, "spentRub30d": 2000.74},
+  "blocked": false,
+  "unlimitedModels": ["qwen3.6-35b-a3b"]
+}
+```
+
+`blocked: true` comes with `blockers` (`session_exhausted`, `week_exhausted`,
+`rpm_exhausted`, `session_cooldown`, `abuse_cooldown`,
+`daily_capacity_exhausted`, `key_blocked`, `key_cap_blocked`, `wallet_empty`,
+`user_blocked`) and, for the timed ones, `retryAt` / `retryInSec`.
+`unlimited: true` marks a key without volume windows; `unlimitedModels` lists
+upstream model ids that bypass them on a metered key (a client compares the
+part of the model selector after the first `/`). A failed read keeps the
+previous windows with `stale: true` and `error` (`unauthorized`,
+`unavailable`, `invalid`); `unsupported: true` is answered by the REST route
+for a provider type without a source.
+
 ### `memory_phase` - Memory copilot phase boundary
 
 When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.

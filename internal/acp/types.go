@@ -316,6 +316,7 @@ const (
 	UpdateTypeConfigOptionUpdate      = "config_option_update"
 	UpdateTypeTokenUsage              = "token_usage"
 	UpdateTypeUsage                   = "usage_update"
+	UpdateTypeProviderUsage           = "provider_usage"
 	UpdateTypeMemoryPhase             = "memory_phase"
 	UpdateTypeMemoryMessageChunk      = "memory_message_chunk"
 	UpdateTypeAvailableCommandsUpdate = "available_commands_update"
@@ -408,6 +409,104 @@ type UsageUpdate struct {
 	SessionUpdate string `json:"sessionUpdate"` // "usage_update"
 	Used          int    `json:"used"`
 	Size          int    `json:"size"`
+}
+
+// ProviderUsageUpdate reports the provider-side account quota behind the
+// session's model: how much of each metered window is spent, when it resets,
+// the wallet balance for wallet keys, and whether a request would be refused
+// right now. Today only the neuraldeep provider type fills it (GET /v1/limits
+// on the hub); consumers branch on ProviderType. The update never carries a
+// credential, a hub URL, or a dollar amount.
+//
+// Relative durations (ResetInSec, RetryInSec, Rate.ResetInSec) are corrected
+// for the snapshot's age when a cached snapshot is delivered, so a client can
+// schedule its refresh from the value as received. Unsupported marks a
+// provider type that has no usage source at all; Error marks a transport or
+// credential failure (the windows, when present, are then Stale).
+type ProviderUsageUpdate struct {
+	SessionUpdate string `json:"sessionUpdate"` // "provider_usage"
+	// Provider is the provider row name; ProviderType its wire type.
+	Provider     string `json:"provider"`
+	ProviderType string `json:"providerType"`
+	// ObservedAt is the hub's own timestamp of the counters; FetchedAt is
+	// the local time of the request that fetched them.
+	ObservedAt string `json:"observedAt,omitempty"`
+	FetchedAt  string `json:"fetchedAt,omitempty"`
+	// Plan is the subscription tier (free, starter, pro); KeyName names the
+	// key on the hub (never its value).
+	Plan    string `json:"plan,omitempty"`
+	KeyName string `json:"keyName,omitempty"`
+	// Windows are the metered volumes: session, week, day.
+	Windows []UsageWindow `json:"windows,omitempty"`
+	// Rate is the live requests-per-minute window of the current minute.
+	Rate *UsageRate `json:"rate,omitempty"`
+	// CooldownSec is the pause the hub imposes after an exhausted session.
+	CooldownSec int `json:"cooldownSec,omitempty"`
+	// Wallet is the account's own balance in rubles, wallet keys only.
+	Wallet *UsageWallet `json:"wallet,omitempty"`
+	// Blocked reports that a chat request would be refused now; Blockers
+	// lists why (session_exhausted, week_exhausted, rpm_exhausted,
+	// session_cooldown, abuse_cooldown, daily_capacity_exhausted,
+	// key_blocked, key_cap_blocked, wallet_empty, user_blocked).
+	Blocked  bool     `json:"blocked"`
+	Blockers []string `json:"blockers,omitempty"`
+	// RetryAt is when the timed blockers lift (hub clock); RetryInSec the
+	// same as a relative, age-corrected duration.
+	RetryAt    string `json:"retryAt,omitempty"`
+	RetryInSec int    `json:"retryInSec,omitempty"`
+	// Unlimited marks a key without volume windows (wallet or bypass keys);
+	// UnlimitedModels lists upstream model ids that bypass the windows on a
+	// metered key, and ModelUnlimited says the session's own model is one of
+	// them (stamped by the server, which knows the session's model).
+	Unlimited       bool     `json:"unlimited,omitempty"`
+	UnlimitedModels []string `json:"unlimitedModels,omitempty"`
+	ModelUnlimited  bool     `json:"modelUnlimited,omitempty"`
+	// Stale marks windows carried over from an earlier successful fetch
+	// because the latest one failed (see Error).
+	Stale bool `json:"stale,omitempty"`
+	// Error is the failure kind of the latest fetch: "unauthorized",
+	// "unavailable", or "invalid".
+	Error string `json:"error,omitempty"`
+	// Unsupported marks a provider type that has no usage source.
+	Unsupported bool `json:"unsupported,omitempty"`
+	// RefreshPending says the snapshot is older than the turn that asked for
+	// it and a refresh is deferred by the hub's pacing floor; RefreshInSec is
+	// when it fires, so a client can schedule one follow-up read.
+	RefreshPending bool `json:"refreshPending,omitempty"`
+	RefreshInSec   int  `json:"refreshInSec,omitempty"`
+}
+
+// UsageWindow is one metered volume window of a ProviderUsageUpdate. The
+// counters are optional: a percent-only window (day) omits them.
+type UsageWindow struct {
+	// ID is "session", "week", or "day"; Label is the display label the
+	// provider uses for it ("3h", "week", "day").
+	ID          string  `json:"id"`
+	Label       string  `json:"label"`
+	Used        *int    `json:"used,omitempty"`
+	Limit       *int    `json:"limit,omitempty"`
+	Remaining   *int    `json:"remaining,omitempty"`
+	UsedPercent float64 `json:"usedPercent"`
+	Exhausted   bool    `json:"exhausted,omitempty"`
+	// ResetsAt is the hub's absolute reset time (display); ResetInSec the
+	// age-corrected relative one (local deadlines).
+	ResetsAt   string `json:"resetsAt,omitempty"`
+	ResetInSec int    `json:"resetInSec,omitempty"`
+}
+
+// UsageRate is the live per-minute request window of a ProviderUsageUpdate.
+type UsageRate struct {
+	Used       int `json:"used"`
+	Limit      int `json:"limit"`
+	Remaining  int `json:"remaining"`
+	ResetInSec int `json:"resetInSec"`
+}
+
+// UsageWallet is the account's own money on the provider, in rubles. The
+// balance may be negative on post-paid accounts.
+type UsageWallet struct {
+	BalanceRub  float64 `json:"balanceRub"`
+	SpentRub30d float64 `json:"spentRub30d"`
 }
 
 // MemoryPhaseUpdate marks start or completion of a memory copilot sub-phase.

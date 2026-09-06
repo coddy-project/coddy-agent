@@ -298,10 +298,11 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		draftID:    b.draftSeq.Add(1),
 	})
 
+	// A chat has no status bar: no provider usage refresh at the end.
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: promptText}},
-	}, sender, nil)
+	}, sender, &session.PromptRunOpts{SkipUsagePublish: true})
 	sender.Flush()
 
 	stopReason := ""

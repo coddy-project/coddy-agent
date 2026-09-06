@@ -14,6 +14,7 @@ func (s *Server) registerProvidersRoutes() {
 	s.mux.HandleFunc("GET /coddy/providers/{name}/models", s.coddyProviderModelsGet)
 	s.registerCodexAuthRoutes()
 	s.registerNeuralDeepAuthRoutes()
+	s.registerProviderUsageRoutes()
 }
 
 // coddyProviderModelsGet fetches the model list advertised by a configured
