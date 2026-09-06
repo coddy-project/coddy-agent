@@ -1201,6 +1201,17 @@ func TestProviderUsageReadIsSupersededByACredentialChange(t *testing.T) {
 		_, err := m.ProviderUsage(context.Background(), "neuraldeep", false)
 		fresh <- err
 	}()
+	// The read on the rotated key replaces the entry and starts its own
+	// fetch (the stand's second request) before the gate opens; releasing
+	// the gate earlier would let the first fetch land under a generation
+	// nobody has invalidated yet.
+	deadline = time.Now().Add(2 * time.Second)
+	for stand.calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if stand.calls.Load() < 2 {
+		t.Fatalf("the read on the rotated key never reached the hub (calls %d)", stand.calls.Load())
+	}
 	close(gate)
 	select {
 	case err := <-fresh:
