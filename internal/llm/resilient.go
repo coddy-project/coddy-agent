@@ -103,6 +103,10 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
 	var lastErr error
 	start := time.Now()
+	// What the caller's unit of work had spent on limits before this call:
+	// this call's own sleeps are in the elapsed time already, so counting
+	// the live ledger would book them twice.
+	spentBefore := p.ledgerSpent()
 	for attempt := 0; attempt <= p.opts.RetryMax; attempt++ {
 		// Inside the loop so llm_min_interval_ms paces retry attempts too, not
 		// only fresh calls: the pause stacks with the retry delay below, and
@@ -125,7 +129,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		// After the retryable gate, so a 429 that arrived mid-stream (never
 		// retryable once text was emitted) is never re-issued; before the
 		// attempt gate, so retries disabled still fail typed.
-		if reset := p.quotaReset(err, attempt, time.Since(start)+p.ledgerSpent()); reset != nil {
+		if reset := p.quotaReset(err, attempt, time.Since(start)+spentBefore); reset != nil {
 			return nil, reset
 		}
 		if attempt >= p.opts.RetryMax {
@@ -165,21 +169,29 @@ func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
 	}
 }
 
-// quotaReset turns a 429 whose server-requested pause exceeds what the
-// remaining retries could wait into a QuotaResetError. The loop still has
-// RetryMax-attempt waits of at most RetryMaxDelay each (none with retries
-// disabled), and the caller may cap the total with RetryBudget (the agent
-// passes its first-token timeout, which would cut a longer sleep anyway):
-// a pause inside that is retried as usual, a longer one could only end in
-// the same 429 after the budget was burnt, so the caller learns of the
-// reset at once, after this one request.
+// quotaReset turns a 429 whose pause exceeds what the remaining retries
+// could wait into a QuotaResetError. The pause is the one the server named
+// (Retry-After, "Limit resets at", "retry in Ns") or, for a 429 that named
+// none, the backoff the loop would take. The loop still has RetryMax-attempt
+// waits of at most RetryMaxDelay each (none with retries disabled), and the
+// caller may cap the total with RetryBudget (the agent passes its
+// first-token timeout, which would cut a longer sleep anyway, and the
+// wait's maximum when the wait is on, an explicit zero meaning no sleep on
+// a limit at all): a pause inside that is retried as usual, a longer one
+// could only end in the same 429 after the budget was burnt, so the caller
+// learns of the reset at once, after this one request.
 func (p *resilientProvider) quotaReset(err error, attempt int, elapsed time.Duration) *QuotaResetError {
 	if httpStatusFromError(err) != 429 {
 		return nil
 	}
-	d, ok := serverRetryDelay(err)
-	if !ok {
-		return nil
+	d, named := serverRetryDelay(err)
+	if !named {
+		if !p.opts.RetryBudgetSet {
+			// Without a caller's budget an unnamed 429 keeps the ordinary
+			// backoff, which the ladder bounds by itself.
+			return nil
+		}
+		d = retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
 	}
 	if d <= p.retryBudget(attempt, elapsed) {
 		return nil

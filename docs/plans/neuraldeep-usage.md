@@ -611,7 +611,12 @@ must beat common 60 s idle proxies (cursor 10).
   afterwards too (the wrapper charges them to the turn's `llm.LimitLedger`
   and reads the total when it judges a new pause; `[rev7]` codex 3), so a
   provider that keeps naming short resets cannot hold the turn open without
-  end; a resumed permission keeps the account, a new user turn starts one; with the option on the same maximum caps the
+  end; a resumed permission keeps the account, a new user turn starts one.
+  The wrapper judges a call against the ledger as it was before the call
+  plus the call's own time, so a sleep is never booked twice, and a 429
+  that names no pause is judged by the backoff the loop would take, so an
+  empty budget reports it at once and a small one bounds the ordinary
+  retries too (`[rev8]` codex 4); with the option on the same maximum caps the
   wrapper's retry sleeps on a limit, and an explicit zero means no sleep on
   a limit anywhere (`RetryBudgetSet`) (`[rev5]` codex 2, fresh reviewer 3;
   `[rev6]` codex 1, 2). A pause that would exceed it fails fast with the

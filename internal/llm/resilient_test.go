@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -516,5 +517,107 @@ func TestResilientProviderZeroBudgetNeverSleeps(t *testing.T) {
 	var reset *QuotaResetError
 	if !errors.As(err, &reset) || calls.Load() != 1 {
 		t.Fatalf("want a reset after one call, got calls=%d err=%v", calls.Load(), err)
+	}
+}
+
+// testLimitLedger is the caller's account of limit time in the tests.
+type testLimitLedger struct {
+	mu    sync.Mutex
+	spent time.Duration
+}
+
+func (l *testLimitLedger) Spent() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.spent
+}
+
+func (l *testLimitLedger) Charge(d time.Duration) {
+	l.mu.Lock()
+	l.spent += d
+	l.mu.Unlock()
+}
+
+// With a ledger attached the wrapper charges every sleep after a 429 and
+// judges a new pause against what the ledger held before the call plus
+// this call's own time, never booking a sleep twice: the same three 100 ms
+// pauses under a 350 ms budget still give two sleeps and then the verdict,
+// and the ledger ends up holding the two sleeps.
+func TestResilientProviderLedgerCountsEachSleepOnce(t *testing.T) {
+	var calls atomic.Int32
+	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "100"})
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls.Add(1)
+			return nil, cause
+		},
+	}
+	ledger := &testLimitLedger{}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:       5,
+		RetryBase:      5 * time.Millisecond,
+		RetryMaxDelay:  100 * time.Millisecond,
+		RetryBudget:    350 * time.Millisecond,
+		RetryBudgetSet: true,
+		Ledger:         ledger,
+	})
+	_, err := p.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) {
+		t.Fatalf("want a QuotaResetError once the budget is spent, got %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d want 3 (two sleeps inside the budget, then the verdict)", calls.Load())
+	}
+	if spent := ledger.Spent(); spent < 200*time.Millisecond || spent > 300*time.Millisecond {
+		t.Fatalf("ledger holds %v, want the two sleeps (about 200 ms)", spent)
+	}
+	// What the ledger held before a call counts: a second call with the
+	// same budget finds nothing left and reports the first pause at once.
+	calls.Store(0)
+	_, err = p.Stream(context.Background(), nil, nil, nil)
+	if !errors.As(err, &reset) || calls.Load() != 1 {
+		t.Fatalf("a call after a spent ledger must fail at once, got calls=%d err=%v", calls.Load(), err)
+	}
+}
+
+// A 429 that names no pause is judged by the backoff the loop would take:
+// an empty budget reports it at once, and a small one lets the backoff
+// run until it is spent.
+func TestResilientProviderUnnamed429HonoursTheBudget(t *testing.T) {
+	var calls atomic.Int32
+	cause := retryHTTPError(t, "openai", 429, nil)
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls.Add(1)
+			return nil, cause
+		},
+	}
+	zero := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: 50 * time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, RetryBudgetSet: true})
+	_, err := zero.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) || calls.Load() != 1 {
+		t.Fatalf("an empty budget must report an unnamed 429 at once, got calls=%d err=%v", calls.Load(), err)
+	}
+	calls.Store(0)
+	small := wrapResilient(inner, ResilientOptions{
+		RetryMax:       5,
+		RetryBase:      100 * time.Millisecond,
+		RetryMaxDelay:  100 * time.Millisecond,
+		RetryBudget:    350 * time.Millisecond,
+		RetryBudgetSet: true,
+	})
+	before := time.Now()
+	_, err = small.Stream(context.Background(), nil, nil, nil)
+	if !errors.As(err, &reset) || calls.Load() != 3 {
+		t.Fatalf("a small budget lets two backoffs run and then reports, got calls=%d err=%v", calls.Load(), err)
+	}
+	if took := time.Since(before); took < 200*time.Millisecond || took > 400*time.Millisecond {
+		t.Fatalf("the wrapper slept %v, want about 200 ms", took)
+	}
+	plain := wrapResilient(inner, ResilientOptions{RetryMax: 1, RetryBase: time.Millisecond, RetryMaxDelay: 100 * time.Millisecond})
+	calls.Store(0)
+	if _, err := plain.Stream(context.Background(), nil, nil, nil); errors.As(err, &reset) || calls.Load() != 2 {
+		t.Fatalf("without a budget an unnamed 429 keeps the ordinary retry, got calls=%d err=%v", calls.Load(), err)
 	}
 }
