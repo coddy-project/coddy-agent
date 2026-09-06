@@ -520,8 +520,10 @@ The console has no i18n; strings are English literals like the rest of
   selected model's provider reports usage: `3h 3%` with a tooltip listing
   every window, its reset time and the wallet; 80 % switches the pill to the
   warning tone.
-- A **banner** above the composer at 80 % and on a timed block, with the
-  Claude Desktop wording, dismissable per reset period (localStorage keyed by
+- A **banner** above the composer at 80 % and on a block, with the Claude
+  Desktop wording for a timed block and the cause for the others (an empty
+  wallet, a blocked key or account, a rate limit), dismissable per provider
+  row and reset period (localStorage keyed by the row, the window and
   `resetsAt`).
 - Data `[rev]`: REST on session open and model change, `[rev2]` REST again
   once a turn's stream ends (`[DONE]` or an error frame), the

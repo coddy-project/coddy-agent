@@ -52,6 +52,8 @@ export const USAGE_SHORT_BLOCK_SEC = 60;
 export const USAGE_RESET_GRACE_MS = 2000;
 /** The single retry when a read after a passed reset still shows the old window. */
 export const USAGE_FOLLOW_UP_MS = 30_000;
+/** Largest delay a browser timer honours; longer ones fire at once. */
+export const USAGE_TIMER_MAX_MS = 2 ** 31 - 1;
 
 /** Provider row name of a model selector (`provider/model`). */
 export function usageProviderOf(modelId: string | undefined | null): string {
@@ -178,7 +180,6 @@ export function usageBlockKind(u: ProviderUsage): UsageBlockKind {
 
 export type UsageSummary =
   | { kind: "none" }
-  | { kind: "unsupported" }
   | { kind: "unauthorized"; provider: string }
   | { kind: "unlimited"; wallet: ProviderUsage["wallet"] }
   | {
@@ -259,22 +260,30 @@ export function usageNextReadMs(
   if (!u) return { delayMs: 0, forced: false };
   let best = 0;
   let forced = false;
+  // On a tie the hub read wins: a reset that lands with a deferred refresh
+  // is still a reset.
   const consider = (sec: number | undefined, hub: boolean) => {
-    if (typeof sec === "number" && sec > 0 && (best === 0 || sec < best)) {
+    if (typeof sec !== "number" || sec <= 0) return;
+    if (best === 0 || sec < best || (sec === best && hub)) {
       best = sec;
-      forced = hub;
+      forced = hub || (sec === best && forced);
     }
   };
   for (const w of u.windows ?? []) consider(w.resetInSec, true);
   consider(u.retryInSec, true);
   if (u.refreshPending) consider(u.refreshInSec, false);
   if (best === 0) return { delayMs: 0, forced: false };
-  return { delayMs: best * 1000 + USAGE_RESET_GRACE_MS, forced };
+  // A browser timer past 2^31-1 ms fires at once; a block the hub measures
+  // in weeks waits for the cap instead of re-reading in a loop.
+  const delayMs = Math.min(best * 1000 + USAGE_RESET_GRACE_MS, USAGE_TIMER_MAX_MS);
+  return { delayMs, forced };
 }
 
 /** A window whose reset the snapshot says has passed, keyed for the single follow-up. */
 export function usagePassedResetKey(u: ProviderUsage | null | undefined): string {
   for (const w of u?.windows ?? []) {
+    // The server omits a zero resetInSec (Go omitempty): absent means the
+    // reset already passed, the same as an explicit 0.
     if ((w.resetInSec ?? 0) === 0 && w.resetsAt && w.id !== "day") {
       return `${w.id}@${w.resetsAt}`;
     }
@@ -282,12 +291,51 @@ export function usagePassedResetKey(u: ProviderUsage | null | undefined): string
   return "";
 }
 
-/** Key under which a banner dismissal is remembered: the window and its period. */
+/**
+ * Key under which a banner dismissal is remembered: the provider row, the
+ * window and its period, so dismissing one account's notice never hides
+ * another row's notice with the same reset time.
+ */
 export function usageBannerKey(u: ProviderUsage | null | undefined): string {
   if (!u) return "";
-  if (u.blocked) return `blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
+  if (u.blocked) {
+    return `${u.provider}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
+  }
   const w = usageWarnWindow(u);
-  return w ? `${w.id}@${w.resetsAt ?? ""}` : "";
+  return w ? `${u.provider}@${w.id}@${w.resetsAt ?? ""}` : "";
+}
+
+/**
+ * The i18n key naming a window when the server's label is a plain English
+ * word ("week", "day"); the session window's label is a duration the hub
+ * chose ("3h") and reads the same in every language. Empty when the label
+ * stands as is.
+ */
+export function usageWindowLabelKey(w: Pick<UsageWindow, "id">): string {
+  switch (w.id) {
+    case "week":
+      return "usage.window.week";
+    case "day":
+      return "usage.window.day";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Order snapshots by the server's read time: a REST answer that was issued
+ * before a pushed frame, or a frame that crossed a later read, must not
+ * replace the newer numbers. Snapshots without a read time (a synthetic
+ * unsupported answer) never outrank one with it.
+ */
+export function usageIsNewer(
+  next: ProviderUsage,
+  current: ProviderUsage | null | undefined,
+): boolean {
+  if (!current || current.provider !== next.provider) return true;
+  if (!next.fetchedAt) return !current.fetchedAt;
+  if (!current.fetchedAt) return true;
+  return next.fetchedAt >= current.fetchedAt;
 }
 
 export type ProviderUsageAnswer =

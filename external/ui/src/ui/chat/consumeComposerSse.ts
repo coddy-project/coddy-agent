@@ -7,6 +7,7 @@ import {
 import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
+import type { ProviderUsage } from "./providerUsage";
 import { t } from "../i18n/i18n";
 
 export type ContextUsageUpdate = {
@@ -149,6 +150,8 @@ export type ConsumeComposerSseParams = {
   onQuestion?: (payload: Record<string, unknown>) => void;
   /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
   onPermission?: (payload: Record<string, unknown>) => void;
+  /** Coddy extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
+  onProviderUsage?: (usage: ProviderUsage) => void;
 };
 
 export type ConsumeComposerSseResult = {
@@ -186,6 +189,7 @@ export async function consumeComposerSseReader(
     applyMemoryChunkToItems,
     onQuestion,
     onPermission,
+    onProviderUsage,
   } = p;
 
       // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -526,6 +530,20 @@ export async function consumeComposerSseReader(
                 size > 0
               ) {
                 setContextUsage({ used, size });
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "provider_usage") {
+            // Reserved on this stream today (the events stream carries the
+            // snapshot between turns); a frame that does arrive is applied.
+            try {
+              const raw = JSON.parse(ev.data) as ProviderUsage;
+              if (raw && typeof raw.provider === "string") {
+                onProviderUsage?.(raw);
               }
             } catch {
               // ignore

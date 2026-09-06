@@ -7,14 +7,24 @@ import {
   summarizeUsage,
   usageBannerKey,
   usageBlockKind,
+  usageIsNewer,
   usageNextReadMs,
   usagePassedResetKey,
   usagePercent,
   usageProviderOf,
+  usageWindowLabelKey,
+  USAGE_TIMER_MAX_MS,
   type ProviderUsage,
+  type UsageWindow,
 } from "./providerUsage";
 
 const now = new Date("2026-09-06T17:47:12Z");
+
+function windowAt(u: ProviderUsage, i: number): UsageWindow {
+  const w = u.windows?.[i];
+  if (!w) throw new Error(`no window ${i}`);
+  return w;
+}
 
 function fixture(): ProviderUsage {
   return {
@@ -67,10 +77,10 @@ describe("providerUsage helpers", () => {
     expect(s.warn).toBe(false);
     expect(s.wallet?.balanceRub).toBeLessThan(0);
     const warm = fixture();
-    warm.windows![0].usedPercent = 85;
+    windowAt(warm, 0).usedPercent = 85;
     const w = summarizeUsage(warm, "neuraldeep/qwen3.8-27b");
     expect(w.kind === "metered" && w.warn).toBe(true);
-    expect(usageBannerKey(warm)).toBe("session@2026-09-06T17:59:59Z");
+    expect(usageBannerKey(warm)).toBe("neuraldeep@session@2026-09-06T17:59:59Z");
   });
 
   test("summary hides foreign providers, unsupported and empty snapshots", () => {
@@ -91,7 +101,31 @@ describe("providerUsage helpers", () => {
     expect(usageBlockKind({ ...blocked, blockers: ["wallet_empty"] })).toBe("wallet");
     expect(usageBlockKind({ ...blocked, blockers: ["user_blocked"] })).toBe("account");
     expect(usageBlockKind({ ...blocked, blockers: ["mystery"] })).toBe("other");
-    expect(usageBannerKey(blocked)).toBe("blocked@2026-09-06T17:59:59Z@session_exhausted");
+    expect(usageBannerKey(blocked)).toBe("neuraldeep@blocked@2026-09-06T17:59:59Z@session_exhausted");
+    expect(usageBannerKey({ ...blocked, provider: "nd-work" })).not.toBe(usageBannerKey(blocked));
+  });
+
+  test("a tie prefers the hub read, long delays are capped, snapshots order by read time", () => {
+    const tie = fixture();
+    for (const w of tie.windows ?? []) w.resetInSec = 0;
+    windowAt(tie, 0).resetInSec = 9;
+    tie.refreshPending = true;
+    tie.refreshInSec = 9;
+    expect(usageNextReadMs(tie)).toEqual({ delayMs: 11_000, forced: true });
+    const long: ProviderUsage = { ...fixture(), windows: [], blocked: true, retryInSec: 40 * 24 * 3600 };
+    expect(usageNextReadMs(long)).toEqual({ delayMs: USAGE_TIMER_MAX_MS, forced: true });
+    const older: ProviderUsage = { ...fixture(), fetchedAt: "2026-09-06T17:47:00Z" };
+    const newer: ProviderUsage = { ...fixture(), fetchedAt: "2026-09-06T17:47:20Z" };
+    expect(usageIsNewer(newer, older)).toBe(true);
+    expect(usageIsNewer(older, newer)).toBe(false);
+    expect(usageIsNewer(older, older)).toBe(true);
+    expect(usageIsNewer(newer, null)).toBe(true);
+    expect(usageIsNewer({ provider: "neuraldeep" }, newer)).toBe(false);
+    expect(usageIsNewer(newer, { provider: "neuraldeep" })).toBe(true);
+    expect(usageIsNewer(older, { provider: "nd-work", fetchedAt: "2026-09-06T17:47:40Z" })).toBe(true);
+    expect(usageWindowLabelKey({ id: "week" })).toBe("usage.window.week");
+    expect(usageWindowLabelKey({ id: "day" })).toBe("usage.window.day");
+    expect(usageWindowLabelKey({ id: "session" })).toBe("");
   });
 
   test("next read: resets and retries reach the hub, a deferred refresh reads the cache", () => {

@@ -1,11 +1,18 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
+import { setLocale } from "../i18n/i18n";
 import { UsagePill } from "./UsagePill";
 import { UsageBanner } from "./UsageBanner";
-import type { ProviderUsage } from "./providerUsage";
+import type { ProviderUsage, UsageWindow } from "./providerUsage";
 
 const now = new Date("2026-09-06T17:47:12Z");
+
+function windowAt(u: ProviderUsage, i: number): UsageWindow {
+  const w = u.windows?.[i];
+  if (!w) throw new Error(`no window ${i}`);
+  return w;
+}
 
 function fixture(): ProviderUsage {
   return {
@@ -44,7 +51,7 @@ test("the pill hides for another provider and for an unsupported answer", () => 
 
 test("the pill turns to the warning tone at 80 percent and to the error tone on a block", () => {
   const warm = fixture();
-  warm.windows![0].usedPercent = 85;
+  windowAt(warm, 0).usedPercent = 85;
   const warmRender = render(<UsagePill usage={warm} modelId="neuraldeep/qwen3.8-27b" now={now} />);
   expect(
     warmRender.container.querySelector("[data-testid=composer-usage-pill]")?.getAttribute("data-tone"),
@@ -78,7 +85,7 @@ test("a narrow shell keeps the pill to the number or one word", () => {
 
 test("the banner appears at the threshold, reads the reset time and dismisses per period", () => {
   const warm = fixture();
-  warm.windows![0].usedPercent = 85;
+  windowAt(warm, 0).usedPercent = 85;
   let dismissed = "";
   const { rerender } = render(
     <UsageBanner usage={warm} modelId="neuraldeep/qwen3.8-27b" now={now} onDismiss={(k) => (dismissed = k)} />,
@@ -88,7 +95,7 @@ test("the banner appears at the threshold, reads the reset time and dismisses pe
   expect(banner.textContent).toContain("You've used 85% of your NeuralDeep 3h limit");
   expect(banner.textContent).toContain("resets");
   (banner.querySelector("button") as HTMLButtonElement).click();
-  expect(dismissed).toBe("session@2026-09-06T17:59:59Z");
+  expect(dismissed).toBe("neuraldeep@session@2026-09-06T17:59:59Z");
   rerender(
     <UsageBanner usage={warm} modelId="neuraldeep/qwen3.8-27b" now={now} dismissedKey={dismissed} />,
   );
@@ -103,4 +110,56 @@ test("the banner says a limit is reached in the error tone and stays quiet below
   expect(banner.textContent).toContain("Usage limit reached · Resets");
   const quiet = render(<UsageBanner usage={fixture()} modelId="neuraldeep/qwen3.8-27b" now={now} />);
   expect(quiet.container.querySelector("[data-testid=usage-banner]")).toBeNull();
+});
+
+test("the banner names the cause of a block that has no reset", () => {
+  const wallet: ProviderUsage = { ...fixture(), blocked: true, blockers: ["wallet_empty"] };
+  const r1 = render(<UsageBanner usage={wallet} modelId="neuraldeep/qwen3.8-27b" now={now} />);
+  expect(r1.container.querySelector("[data-testid=usage-banner]")?.textContent).toContain("The wallet is empty");
+  const key: ProviderUsage = { ...fixture(), blocked: true, blockers: ["key_blocked"] };
+  const r2 = render(<UsageBanner usage={key} modelId="neuraldeep/qwen3.8-27b" now={now} />);
+  expect(r2.container.querySelector("[data-testid=usage-banner]")?.textContent).toContain("The key is blocked");
+  const rate: ProviderUsage = { ...fixture(), blocked: true, blockers: ["rpm_exhausted"], retryInSec: 42 };
+  const r3 = render(<UsageBanner usage={rate} modelId="neuraldeep/qwen3.8-27b" now={now} />);
+  expect(r3.container.querySelector("[data-testid=usage-banner]")?.textContent).toContain("Rate limited");
+});
+
+test("the pill is a button described by its tooltip and opens it on a tap", () => {
+  const { container } = render(
+    <UsagePill usage={fixture()} modelId="neuraldeep/qwen3.8-27b" now={now} compact />,
+  );
+  const host = container.querySelector("[data-testid=composer-usage-pill]") as HTMLButtonElement;
+  expect(host.tagName).toBe("BUTTON");
+  const tip = container.querySelector("[role=tooltip]") as HTMLElement;
+  expect(tip.id).not.toBe("");
+  expect(host.getAttribute("aria-describedby")).toBe(tip.id);
+  expect(tip.textContent).toContain("week 7%");
+  expect(host.getAttribute("aria-expanded")).toBe("false");
+  act(() => host.click());
+  expect(host.getAttribute("aria-expanded")).toBe("true");
+  expect(host.classList.contains("composer-usage-host--open")).toBe(true);
+  act(() => host.click());
+  expect(host.getAttribute("aria-expanded")).toBe("false");
+  expect(host.classList.contains("composer-usage-host--open")).toBe(false);
+});
+
+test("the reader's language names the windows in the tooltip and the banner", () => {
+  expect(setLocale("ru")).toBe(true);
+  try {
+    const warm = fixture();
+    windowAt(warm, 1).usedPercent = 85;
+    const { container } = render(
+      <>
+        <UsagePill usage={warm} modelId="neuraldeep/qwen3.8-27b" now={now} />
+        <UsageBanner usage={warm} modelId="neuraldeep/qwen3.8-27b" now={now} />
+      </>,
+    );
+    expect(container.querySelector(".composer-usage-pill")?.textContent).toBe("3h 3%");
+    expect(container.querySelector("[role=tooltip]")?.textContent).toContain("неделя 85%");
+    expect(container.querySelector("[data-testid=usage-banner]")?.textContent).toContain(
+      "Использовано 85% лимита NeuralDeep (неделя)",
+    );
+  } finally {
+    setLocale("en");
+  }
 });

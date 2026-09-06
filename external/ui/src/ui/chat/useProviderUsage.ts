@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchProviderUsage,
   usageBannerKey,
+  usageIsNewer,
   usageNextReadMs,
   usagePassedResetKey,
   usageProviderOf,
@@ -10,6 +11,9 @@ import {
 } from "./providerUsage";
 
 const DISMISS_STORAGE_KEY = "coddy_usage_banner_dismissed";
+
+/** How long a row that answered "unsupported" is left alone (the Go remote client uses the same). */
+export const USAGE_UNSUPPORTED_TTL_MS = 5 * 60_000;
 
 function readDismissed(): string {
   try {
@@ -48,12 +52,22 @@ export function useProviderUsage(params: {
   const provider = usageProviderOf(params.llmModel);
   const [usage, setUsage] = useState<ProviderUsage | null>(null);
   const [dismissedKey, setDismissedKey] = useState<string>(() => readDismissed());
-  const unsupportedRef = useRef<Set<string>>(new Set());
+  // Rows that answered "unsupported", each with the time the mark expires.
+  const unsupportedRef = useRef<Map<string, number>>(new Map());
+  // Sequence of the reads issued: only the latest one issued applies.
+  const seqRef = useRef(0);
   const timerRef = useRef<number | null>(null);
   const followUpRef = useRef<string>("");
   const providerRef = useRef(provider);
   providerRef.current = provider;
   const fetchImpl = params.fetchImpl;
+
+  // A snapshot replaces the state only when the server read it no earlier
+  // than the one shown: a REST answer issued before a pushed frame, or a
+  // frame that crossed a later read, never brings the numbers back.
+  const accept = useCallback((next: ProviderUsage) => {
+    setUsage((current) => (usageIsNewer(next, current) ? next : current));
+  }, []);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -64,21 +78,28 @@ export function useProviderUsage(params: {
 
   const read = useCallback(
     async (name: string, refresh: boolean) => {
-      if (!name || unsupportedRef.current.has(name)) return;
+      if (!name) return;
+      const until = unsupportedRef.current.get(name);
+      if (until !== undefined) {
+        if (until > Date.now()) return;
+        unsupportedRef.current.delete(name);
+      }
+      const seq = ++seqRef.current;
       try {
         const answer = await fetchProviderUsage(name, refresh, fetchImpl);
         if (providerRef.current !== name) return;
         if (!answer.ok && "unsupported" in answer) {
-          unsupportedRef.current.add(name);
+          unsupportedRef.current.set(name, Date.now() + USAGE_UNSUPPORTED_TTL_MS);
           return;
         }
-        const next = answer.ok ? answer.usage : answer.usage;
-        if (next) setUsage({ ...next, provider: next.provider || name });
+        if (seq !== seqRef.current) return;
+        const next = answer.usage;
+        if (next) accept({ ...next, provider: next.provider || name });
       } catch {
         // A failed read keeps the last snapshot; the next trigger tries again.
       }
     },
-    [fetchImpl],
+    [fetchImpl, accept],
   );
 
   // Session open and model change: a cache read for the active provider.
@@ -106,12 +127,17 @@ export function useProviderUsage(params: {
     if (!usage || usage.provider !== provider) return;
     let { delayMs, forced } = usageNextReadMs(usage);
     const passed = usagePassedResetKey(usage);
-    if (passed && followUpRef.current !== passed) {
+    // The passed-reset follow-up is remembered only once it is the read
+    // armed here; a shorter cache read that returns the same passed window
+    // still gets its follow-up afterwards.
+    if (
+      passed &&
+      followUpRef.current !== passed &&
+      (delayMs === 0 || USAGE_FOLLOW_UP_MS < delayMs)
+    ) {
       followUpRef.current = passed;
-      if (delayMs === 0 || USAGE_FOLLOW_UP_MS < delayMs) {
-        delayMs = USAGE_FOLLOW_UP_MS;
-        forced = true;
-      }
+      delayMs = USAGE_FOLLOW_UP_MS;
+      forced = true;
     }
     if (delayMs === 0) return;
     timerRef.current = window.setTimeout(() => {
@@ -123,11 +149,14 @@ export function useProviderUsage(params: {
 
   useEffect(() => clearTimer, [clearTimer]);
 
-  const applyPushed = useCallback((pushed: ProviderUsage) => {
-    if (!pushed || pushed.unsupported) return;
-    if (pushed.provider !== providerRef.current) return;
-    setUsage(pushed);
-  }, []);
+  const applyPushed = useCallback(
+    (pushed: ProviderUsage) => {
+      if (!pushed || pushed.unsupported) return;
+      if (pushed.provider !== providerRef.current) return;
+      accept(pushed);
+    },
+    [accept],
+  );
 
   const dismissBanner = useCallback((key: string) => {
     setDismissedKey(key);

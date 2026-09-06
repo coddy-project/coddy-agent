@@ -4737,7 +4737,14 @@ textarea#composer {
   position: relative;
   display: flex;
   align-items: center;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   outline: none;
+  cursor: default;
 }
 
 .composer-usage-pill {
@@ -4768,11 +4775,13 @@ textarea#composer {
   background: rgba(239, 68, 68, 0.1);
 }
 
-[data-theme="dark"] .composer-usage-host--warn .composer-usage-pill {
+/* Every dark canvas (the default and the five dark presets, keyed the way
+   color-scheme is) lifts the tone text for contrast; only light opts out. */
+html:not([data-theme="light"]) .composer-usage-host--warn .composer-usage-pill {
   color: #fbbf24;
 }
 
-[data-theme="dark"] .composer-usage-host--error .composer-usage-pill {
+html:not([data-theme="light"]) .composer-usage-host--error .composer-usage-pill {
   color: #f87171;
 }
 
@@ -4781,7 +4790,8 @@ textarea#composer {
 }
 
 .composer-usage-host:hover .rail-tip,
-.composer-usage-host:focus-within .rail-tip {
+.composer-usage-host:focus-within .rail-tip,
+.composer-usage-host--open .rail-tip {
   opacity: 1;
 }
 
@@ -4807,6 +4817,28 @@ textarea#composer {
     height: 22px;
     padding: 0 7px;
     font-size: 11px;
+  }
+
+  /* No hover on a narrow shell: a tap on the pill opens the details as a
+     popover (the tooltip element, shown until the next tap or Escape). */
+  .composer-usage-host--open .composer-usage-tip.rail-tip {
+    display: block;
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  /* A phone has no room to center the popover on the pill: it anchors to
+     the composer card instead and sits above its right edge. */
+  .composer-usage-host {
+    position: static;
+  }
+
+  .composer-usage-host .composer-usage-tip.rail-tip {
+    left: auto;
+    right: 12px;
+    transform: none;
+    min-width: 200px;
   }
 }
 
@@ -4838,8 +4870,9 @@ textarea#composer {
 
 .usage-banner-dismiss {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
+  margin: -4px 0;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -4852,6 +4885,15 @@ textarea#composer {
 .usage-banner-dismiss:hover {
   background: var(--border);
   color: var(--fg);
+}
+
+@media (max-width: 1199px) {
+  /* A touch target on a narrow shell: 44 px of hit area, the same visual size. */
+  .usage-banner-dismiss {
+    width: 44px;
+    height: 44px;
+    margin: -10px -10px -10px 0;
+  }
 }
 
 .context-ring {

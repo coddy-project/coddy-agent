@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n/I18nProvider";
 import {
   serverSnapshotShellStack,
@@ -11,6 +11,7 @@ import {
   formatDurationSec,
   summarizeUsage,
   usagePercent,
+  usageWindowLabelKey,
   type ProviderUsage,
   type UsageWindow,
 } from "./providerUsage";
@@ -19,8 +20,10 @@ import {
  * Account usage pill next to the context ring: the session window as percent
  * used ("3h 3%"), the warning tone from 80 %, a "limit reached" pill in the
  * error tone on a block, "∞" for a model on the provider's unlimited option,
- * "key rejected" for a revoked login. The tooltip lists every window with its
- * reset time and the wallet. Design contract: DESIGN.md (Composer usage pill).
+ * "key rejected" for a revoked login. The details (every window with its
+ * reset time, the wallet) live in one element: a hover tooltip on a wide
+ * shell, a tap-to-open popover on a narrow one, and the button's accessible
+ * description everywhere. Design contract: DESIGN.md (Composer usage pill).
  */
 export function UsagePill(props: {
   usage: ProviderUsage | null | undefined;
@@ -29,21 +32,29 @@ export function UsagePill(props: {
   /** Force the narrow-shell wording (tests). */
   compact?: boolean;
 }) {
-  const { t } = useT();
+  const { t, locale } = useT();
+  const tipId = useId();
+  const [open, setOpen] = useState(false);
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
     serverSnapshotShellStack,
   );
   // On a narrow shell the actions row has no room for words: the pill
-  // keeps the number (or one short word) and the tooltip keeps the rest.
+  // keeps the number (or one short word) and the popover keeps the rest.
   const compact = props.compact ?? isMobileShell;
   const summary = summarizeUsage(props.usage, props.modelId);
-  if (summary.kind === "none" || summary.kind === "unsupported") return null;
+  if (summary.kind === "none") return null;
   const now = props.now ?? new Date();
   const u = props.usage as ProviderUsage;
   const brand =
     u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;
+  // The server labels a window in English ("week"); the reader's language
+  // names it, while a duration the hub chose ("3h") stands as is.
+  const windowName = (w: UsageWindow) => {
+    const key = usageWindowLabelKey(w);
+    return key ? t(key) : w.label || w.id;
+  };
 
   let text = "";
   let tone: "" | "warn" | "error" = "";
@@ -54,12 +65,12 @@ export function UsagePill(props: {
     const pct = usagePercent(w.usedPercent);
     const counters =
       typeof w.used === "number" && typeof w.limit === "number"
-        ? ` (${w.used.toLocaleString()} / ${w.limit.toLocaleString()})`
+        ? ` (${w.used.toLocaleString(locale)} / ${w.limit.toLocaleString(locale)})`
         : "";
     const resets = w.resetsAt
-      ? ` · ${t("usage.resets", { time: formatResetTime(w.resetsAt, now) })}`
+      ? ` · ${t("usage.resets", { time: formatResetTime(w.resetsAt, now, locale) })}`
       : "";
-    return `${w.label || w.id} ${pct}%${counters}${resets}`;
+    return `${windowName(w)} ${pct}%${counters}${resets}`;
   };
 
   switch (summary.kind) {
@@ -100,7 +111,7 @@ export function UsagePill(props: {
           tipLines.push(
             summary.retryAt
               ? t("usage.limitReachedResets", {
-                  time: formatResetTime(summary.retryAt, now),
+                  time: formatResetTime(summary.retryAt, now, locale),
                 })
               : t("usage.limitReached"),
           );
@@ -114,7 +125,7 @@ export function UsagePill(props: {
       if (lead) {
         text = compact
           ? `${usagePercent(lead.usedPercent)}%`
-          : `${lead.label || lead.id} ${usagePercent(lead.usedPercent)}%`;
+          : `${windowName(lead)} ${usagePercent(lead.usedPercent)}%`;
       } else if (summary.wallet) {
         text = formatRub(summary.wallet.balanceRub);
       }
@@ -138,19 +149,34 @@ export function UsagePill(props: {
   }
   if (!text) return null;
   return (
-    <div
-      className={["composer-usage-host", tone ? `composer-usage-host--${tone}` : ""]
+    <button
+      type="button"
+      className={[
+        "composer-usage-host",
+        tone ? `composer-usage-host--${tone}` : "",
+        open ? "composer-usage-host--open" : "",
+      ]
         .filter(Boolean)
         .join(" ")}
-      tabIndex={0}
       aria-label={t("usage.aria")}
+      aria-describedby={tipId}
+      aria-expanded={open}
+      title={compact ? t("usage.showDetails") : undefined}
       data-testid="composer-usage-pill"
       data-tone={tone || "ok"}
+      onClick={() => setOpen((v) => !v)}
+      onBlur={() => setOpen(false)}
+      onKeyDown={(ev) => {
+        if (ev.key === "Escape" && open) {
+          ev.preventDefault();
+          setOpen(false);
+        }
+      }}
     >
       <span className="composer-usage-pill">{text}</span>
-      <span className="rail-tip composer-usage-tip" role="tooltip">
+      <span id={tipId} className="rail-tip composer-usage-tip" role="tooltip">
         {tipLines.join("\n")}
       </span>
-    </div>
+    </button>
   );
 }
