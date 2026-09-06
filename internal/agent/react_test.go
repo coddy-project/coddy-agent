@@ -1676,3 +1676,118 @@ func TestResumeAfterPermissionRefusesArgumentsChangedAfterTheApproval(t *testing
 		t.Fatalf("a call rewritten after the approval must not run, got %q", result)
 	}
 }
+
+// promptRefusingSender fails the test if a permission prompt is issued.
+type promptRefusingSender struct {
+	t        *testing.T
+	prompted bool
+}
+
+func (*promptRefusingSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *promptRefusingSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.prompted = true
+	s.t.Error("no permission prompt must be issued")
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+func (*promptRefusingSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// toolCallArgsPath finds the persisted args.json of the fixture's tool call.
+func toolCallArgsPath(t *testing.T, sessionDir string) string {
+	t.Helper()
+	var found string
+	_ = filepath.WalkDir(sessionDir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && d.Name() == "args.json" {
+			found = p
+		}
+		return nil
+	})
+	if found == "" {
+		t.Fatalf("no persisted arguments under %s", sessionDir)
+	}
+	return found
+}
+
+// The same hook answering again on the resume is not a change: the bundle
+// stores the arguments pretty-printed and the hook answers them compact, and
+// the approval must survive that formatting difference.
+func TestResumeAfterPermissionRunsWhenTheSameHookAnswersAgain(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "cancelled") {
+		t.Fatalf("the hook that produced the approved arguments must not cancel the resume, got %q", result)
+	}
+}
+
+// A bundle without persisted arguments predates them: the prompt showed the
+// model's own arguments, so those run.
+func TestResumeAfterPermissionWithoutPersistedArgumentsRunsTheHistory(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(toolCallArgsPath(t, st.SessionDir)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	if result := resumedToolResult(st); !strings.Contains(result, "original-arguments") {
+		t.Fatalf("without persisted arguments the history's arguments run, got %q", result)
+	}
+}
+
+// Persisted arguments that cannot be read fail closed: nothing runs, and the
+// error leaves the pending gate in place for another attempt.
+func TestResumeAfterPermissionFailsClosedWhenTheApprovedArgumentsCannotBeRead(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	// A directory in place of the file: the read fails, and not with not-exist.
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("an unreadable arguments file must fail the resume, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run when the approved arguments cannot be read, got %q", result)
+	}
+}
+
+// Rewritten arguments that cannot be persisted cancel the call before the
+// prompt: a resume would otherwise fall back to arguments the user never saw.
+func TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	toolCalls := filepath.Dir(filepath.Dir(toolCallArgsPath(t, st.SessionDir)))
+	if err := os.RemoveAll(toolCalls); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the tool call directories live: every write fails.
+	if err := os.WriteFile(toolCalls, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &promptRefusingSender{t: t}
+	ag.server = sender
+	tc := st.GetMessages()[1].ToolCalls[0]
+	env := ag.buildToolEnv(st.GetMode(), st.SessionDir)
+	result, err := ag.executeToolCall(context.Background(), tc, env, st.GetMode(), st.GetID(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "cancelled") || !strings.Contains(result, "persisted") {
+		t.Fatalf("a rewrite that cannot be persisted must cancel the call, got %q", result)
+	}
+	if sender.prompted {
+		t.Fatal("the prompt must not be issued for arguments that were not persisted")
+	}
+}

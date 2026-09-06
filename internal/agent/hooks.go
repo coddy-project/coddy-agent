@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -429,4 +430,19 @@ func (a *Agent) runNotificationHooks(ctx context.Context, mode, kind string, tc 
 		"tool_use_id": tc.ID,
 	}))
 	a.reportHookOutcome(hooks.EventNotification, out)
+}
+
+// sameToolArgs reports whether two argument documents describe the same call.
+// The bundle stores arguments pretty-printed and a hook answers them compact,
+// so a byte comparison would read a formatting difference as a rewrite and
+// cancel a resume the very hook that produced the arguments answers again.
+func sameToolArgs(a, b string) bool {
+	if a == b {
+		return true
+	}
+	var av, bv any
+	if json.Unmarshal([]byte(a), &av) != nil || json.Unmarshal([]byte(b), &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }

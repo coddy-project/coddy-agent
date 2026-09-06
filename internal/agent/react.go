@@ -975,6 +975,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// original arguments, so a rewrite must be applied again to what runs);
 	// there allow and ask are moot, because the user already answered.
 	var hookRes preToolUseOutcome
+	var argsPersistErr error
 	{
 		original := tc.InputJSON
 		var ran bool
@@ -991,19 +992,22 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
-		if ran && tc.InputJSON != original && skipPermission {
+		if ran && skipPermission && !sameToolArgs(tc.InputJSON, original) {
 			// The user approved the arguments the prompt showed; a hook that
 			// changes them again on the resume is not covered by that answer.
 			result := "cancelled: a hook changed the approved arguments after the approval; run the call again"
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
-		if ran && tc.InputJSON != original {
+		if ran && !sameToolArgs(tc.InputJSON, original) {
 			// The rewritten arguments are what runs and what the operator must
 			// see on the tool call card; the model's own message keeps the
-			// original call, as it must for the transcript to replay.
+			// original call, as it must for the transcript to replay. A
+			// permission answered later resumes on this persisted value, so a
+			// write that fails cancels the call before any prompt instead of
+			// letting the resume fall back to arguments nobody saw.
 			if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
-				_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+				argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 			}
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
@@ -1092,6 +1096,11 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		if tc.Name == "config_rollback" {
 			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
 				"changes committed after that snapshot leave the active file."
+		}
+		if argsPersistErr != nil {
+			result := "cancelled: the arguments rewritten by a hook could not be persisted before the permission prompt: " + argsPersistErr.Error()
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
 		}
 		// Notification hooks learn that a prompt is about to wait for the
 		// operator (a chat ping, a desktop notification); they cannot answer it.

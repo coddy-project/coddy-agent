@@ -569,6 +569,23 @@ Codex, second iteration, three more, all confirmed and fixed:
 3. The async-and-failClosed warning hid the `if` warning on the same
    handler; both are reported.
 
+Codex, third iteration, two more, both confirmed and fixed:
+
+1. The resume compared the shown and the re-hooked arguments as bytes, while
+   the bundle stores them pretty-printed and a hook answers them compact, so
+   the very hook that produced the approved arguments cancelled the resume.
+   The comparison is canonical now (`sameToolArgs` decodes both sides); test
+   `TestResumeAfterPermissionRunsWhenTheSameHookAnswersAgain`.
+2. Persistence failed open: a rewrite that could not be written was ignored
+   and a resume fell back to the history on every read error. The write now
+   happens before the prompt and a failure cancels the call
+   (`TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt`); the
+   resume runs the history's arguments only when no file exists (a bundle
+   that predates them, or a call without arguments:
+   `TestResumeAfterPermissionWithoutPersistedArgumentsRunsTheHistory`) and
+   fails with the pending gate kept on any other read error
+   (`TestResumeAfterPermissionFailsClosedWhenTheApprovedArgumentsCannotBeRead`).
+
 Coddy (`neuraldeep/qwen3.8-27b`) answered only once the model entry carried
 `stream: false`: the endpoint drops streamed answers to long prompts, the
 first-token guard (90 s) cut the 122 KB brief, and a single shell argument

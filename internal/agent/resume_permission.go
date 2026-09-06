@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -36,8 +38,19 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	// approval binds to the latter, so those are what runs and what an
 	// allow-always grant is recorded against.
 	if sd != "" {
-		if shown, err := session.ReadToolCallArgs(sd, tc.ID); err == nil && strings.TrimSpace(shown) != "" {
+		shown, err := session.ReadToolCallArgs(sd, tc.ID)
+		switch {
+		case err == nil && strings.TrimSpace(shown) != "":
 			tc.InputJSON = shown
+		case err == nil || errors.Is(err, fs.ErrNotExist):
+			// No persisted arguments: the bundle predates them or the call
+			// carries none. A rewrite is persisted before the prompt or the
+			// call is cancelled, so the prompt showed the model's own
+			// arguments, which the history holds.
+		default:
+			// Anything else fails closed: the history's arguments may not be
+			// what the user approved, and the pending gate stays for a retry.
+			return "", fmt.Errorf("resume tool call %s: the approved arguments could not be read: %w", tc.ID, err)
 		}
 	}
 	toolEnv := a.buildToolEnv(mode, sd)
