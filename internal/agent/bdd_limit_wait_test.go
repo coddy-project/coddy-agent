@@ -282,6 +282,42 @@ func (s *limitWaitState) theUserSendsATurnAndStopsItWhileItWaits() error {
 	return nil
 }
 
+func (s *limitWaitState) theUsersClientGoesAwayWhileItWaits() error {
+	ag := s.agent()
+	s.started = time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.stop, s.runErr = ag.Run(ctx, []acp.ContentBlock{{Type: "text", Text: "hello"}})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(s.sender.resuming()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(s.sender.resuming()) == 0 {
+		return fmt.Errorf("the turn never started waiting")
+	}
+	// Not the user's Stop: a shutdown or a dropped client cancels the turn
+	// context without marking the turn as the user's cancel.
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("the turn did not end after the cancel")
+	}
+	s.took = time.Since(s.started)
+	return nil
+}
+
+func (s *limitWaitState) theErrorNamesTheInterruptedWait() error {
+	if s.runErr == nil || !strings.Contains(s.runErr.Error(), "the wait for the reset was interrupted") {
+		return fmt.Errorf("turn error %v, want it to name the interrupted wait", s.runErr)
+	}
+	return nil
+}
+
 func (s *limitWaitState) theTurnEndsAsCancelledAfterCalls(calls int) error {
 	if s.runErr != nil || s.stop != string(acp.StopReasonCancelled) {
 		return fmt.Errorf("turn ended with %q / %v, want cancelled and no error", s.stop, s.runErr)
@@ -305,6 +341,7 @@ func (s *limitWaitState) agent() *Agent {
 			RetryMax:       in.RetryMax,
 			RetryBase:      5 * time.Millisecond,
 			RetryMaxDelay:  s.wrapperCap,
+			CallBudget:     in.CallBudget,
 			RetryBudget:    in.RetryBudget,
 			RetryBudgetSet: in.RetryBudgetSet,
 			Ledger:         in.LimitLedger,
@@ -415,6 +452,8 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)
 	sc.Step(`^the user sends a turn and stops it while it waits$`, s.theUserSendsATurnAndStopsItWhileItWaits)
+	sc.Step(`^the user sends a turn and the client goes away while it waits$`, s.theUsersClientGoesAwayWhileItWaits)
+	sc.Step(`^the error names the interrupted wait$`, s.theErrorNamesTheInterruptedWait)
 	sc.Step(`^the turn ends as cancelled after (\d+) provider calls?$`, s.theTurnEndsAsCancelledAfterCalls)
 	sc.Step(`^the turn ends with "([^"]+)" after (\d+) provider calls$`, s.theTurnEndsWithAfterCalls)
 	sc.Step(`^the turn took at least (\d+) s$`, s.theTurnTookAtLeast)

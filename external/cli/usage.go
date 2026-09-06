@@ -517,8 +517,9 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 		a.setStatus(liveStatus{verb: text, startedAt: time.Now()})
 		a.stopUsageResume()
 		if !at.IsZero() {
+			// The grace lets the hub roll the window before the read.
 			sessionID := a.sessionID
-			a.usageResume = a.usageAfter(at.Sub(a.usageNow()), func() {
+			a.usageResume = a.usageAfter(at.Sub(a.usageNow())+usageResetGrace, func() {
 				_ = a.Sender().SendSessionUpdate(sessionID, usageResumeDue{})
 			})
 		}

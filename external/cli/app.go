@@ -397,6 +397,7 @@ func (a *App) Close() {
 		close(a.closed)
 		a.workStop()
 		a.stopUsageTimer()
+		a.stopUsageResume()
 	})
 }
 

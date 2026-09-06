@@ -136,6 +136,9 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
 	mode := a.state.GetMode()
+	// A new user turn starts its account of time spent on usage limits
+	// (limit_wait.go); the built-ins below never touch it.
+	a.limitLedger = &limitWaitLedger{}
 	// Hook definitions are re-read for every turn.
 	a.resetHooks()
 	a.hookStopReason = ""
@@ -196,10 +199,6 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
 	toolDefs := a.currentToolDefinitions(mode)
-
-	// A new user turn starts its account of time spent on usage limits;
-	// the provider built below charges its retry sleeps to it.
-	a.limitLedger = &limitWaitLedger{}
 
 	// Get or create LLM provider.
 	transport, err := a.getProvider(mode)
@@ -1492,7 +1491,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	if mk == nil {
 		mk = llm.NewProvider
 	}
-	in := a.llmProviderInput(rm)
+	in := a.turnProviderInput(rm)
 	in.ReasoningEffort = a.state.EffectiveReasoning(a.cfg)
 	provider, err := mk(in)
 	if err != nil {
@@ -1501,8 +1500,36 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 	return llmTransport{provider: provider, streaming: rm.Stream}, nil
 }
 
+// turnProviderInput is llmProviderInput plus the bounds of a user turn: the
+// first-token timer as the call's own budget, and with the wait on, the
+// wait's maximum as the turn's budget and the turn's ledger. Helpers
+// (compaction, the memory copilot) use llmProviderInput alone and never
+// see the option.
+func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
+	in := a.llmProviderInput(rm)
+	// The first-token timer cuts a streamed call that stays silent, retry
+	// waits included: a server-requested pause the timer would cut anyway
+	// is reported as a quota reset instead of being slept through in vain.
+	if rm.Stream {
+		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
+			in.CallBudget = timeout
+		}
+	}
+	// With the wait on, its maximum bounds every sleep the turn spends on a
+	// limit, the wrapper's retries included: a pause beyond it comes back
+	// as a quota reset and ends the turn at once instead of being slept
+	// through by the retries first, and an explicit zero means no sleep on
+	// a limit anywhere. The wrapper's sleeps count against the turn's
+	// total, calls that succeed afterwards included.
+	if a.cfg.Agent.WaitForLimitReset {
+		in.RetryBudget, in.RetryBudgetSet = a.cfg.Agent.EffectiveWaitForLimitResetMax(), true
+		in.LimitLedger = a.limitLedgerFor()
+	}
+	return in
+}
+
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
-	in := llm.WithAgentResilience(llm.ProviderInput{
+	return llm.WithAgentResilience(llm.ProviderInput{
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
@@ -1514,28 +1541,6 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
-	// The first-token timer cuts a streamed call that stays silent, retry
-	// waits included: a server-requested pause the timer would cut anyway
-	// is reported as a quota reset instead of being slept through in vain.
-	if rm.Stream {
-		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
-			in.RetryBudget, in.RetryBudgetSet = timeout, true
-		}
-	}
-	// With the wait on, its maximum bounds every sleep the turn spends on a
-	// limit, the wrapper's retries included: a pause beyond it comes back
-	// as a quota reset and ends the turn at once instead of being slept
-	// through by the retries first, and an explicit zero means no sleep on
-	// a limit anywhere.
-	if a.cfg.Agent.WaitForLimitReset {
-		if limit := a.cfg.Agent.EffectiveWaitForLimitResetMax(); !in.RetryBudgetSet || limit < in.RetryBudget {
-			in.RetryBudget, in.RetryBudgetSet = limit, true
-		}
-		// The wrapper's sleeps on a limit count against the turn's total,
-		// calls that succeed afterwards included.
-		in.LimitLedger = a.limitLedgerFor()
-	}
-	return in
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

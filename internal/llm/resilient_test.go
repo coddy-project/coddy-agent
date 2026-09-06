@@ -622,3 +622,37 @@ func TestResilientProviderUnnamed429HonoursTheBudget(t *testing.T) {
 		t.Fatalf("without a budget an unnamed 429 keeps the ordinary retry, got calls=%d err=%v", calls.Load(), err)
 	}
 }
+
+// The call's own bound (the caller's timer) counts this call's time only:
+// a turn that spent its ledger elsewhere still retries a short pause under
+// it, while a pause the timer would cut fails fast.
+func TestResilientProviderCallBudgetIsPerCall(t *testing.T) {
+	var calls atomic.Int32
+	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "100"})
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			if calls.Add(1) == 1 {
+				return nil, cause
+			}
+			return &Response{Content: "done", StopReason: "end_turn"}, nil
+		},
+	}
+	ledger := &testLimitLedger{spent: time.Hour}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:      3,
+		RetryBase:     5 * time.Millisecond,
+		RetryMaxDelay: 100 * time.Millisecond,
+		CallBudget:    time.Second,
+		Ledger:        ledger,
+	})
+	if _, err := p.Stream(context.Background(), nil, nil, nil); err != nil || calls.Load() != 2 {
+		t.Fatalf("a short pause under the call's bound is retried whatever the ledger holds: calls=%d err=%v", calls.Load(), err)
+	}
+	calls.Store(0)
+	tight := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: 5 * time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, CallBudget: 120 * time.Millisecond})
+	_, err := tight.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) || calls.Load() != 1 {
+		t.Fatalf("a pause the caller's timer would cut fails fast: calls=%d err=%v", calls.Load(), err)
+	}
+}

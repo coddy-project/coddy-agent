@@ -134,7 +134,9 @@ agent:
   # 20:59" every 20 s, and then re-issues the same call. The turn lock and
   # the client stream stay open meanwhile, hence off by default.
   # wait_for_limit_reset: false
-  # wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h); a longer pause ends the turn; 0 never waits
+  # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
+  #                                          # included; under 60 s it also bounds ordinary 429 retries;
+  #                                          # a longer pause ends the turn; 0 never waits
 
 sessions:
   # Directory to store session bundles.

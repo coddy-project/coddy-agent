@@ -618,7 +618,13 @@ must beat common 60 s idle proxies (cursor 10).
   backoff runs while the budget allows and the call then ends with the
   provider's own error, so an empty budget ends it at once, a small one
   bounds the ordinary retries, and no countdown is ever built on a guessed
-  moment (`[rev9]` codex 5); with the option on the same maximum caps the
+  moment (`[rev9]` codex 5). The wrapper keeps the two bounds apart: the
+  first-token timer is the call's own budget (this call's time only), the
+  wait's maximum with the ledger is the turn's, so a turn that spent much
+  of its maximum still retries a short named pause under the timer instead
+  of counting it down; `Run` starts the ledger before the built-ins, and
+  compaction's provider carries neither bound nor ledger (`[rev10]` fresh
+  reviewer 2, 4); with the option on the same maximum caps the
   wrapper's retry sleeps on a limit, and an explicit zero means no sleep on
   a limit anywhere (`RetryBudgetSet`) (`[rev5]` codex 2, fresh reviewer 3;
   `[rev6]` codex 1, 2). A pause that would exceed it fails fast with the
