@@ -8,6 +8,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,12 +25,14 @@ func (a *Agent) buildHookRunner(mode string) *hooks.Runner {
 	if a.cfg == nil || !a.cfg.Hooks.ResolvedEnabled() {
 		return nil
 	}
-	loader := hooks.NewLoader(a.cfg.Hooks.Files, a.cfg.Hooks.ResolvedProjectTrust())
+	loader := hooks.NewLoader(a.cfg.Hooks.Files, a.cfg.Hooks.ResolvedProjectTrust()).
+		WithStore(hooks.NewTrustStore(a.cfg.Paths.Home))
 	loader.Log = a.log
 	sources := loader.Load(a.state.GetCWD(), a.cfg.Paths.Home)
 	if len(sources) == 0 {
 		return nil
 	}
+	a.noteHookFiles(sources)
 	transcript := ""
 	if sd := strings.TrimSpace(a.state.GetPersistedSessionDir()); sd != "" {
 		transcript = filepath.Join(sd, session.MessagesFileName)
@@ -57,6 +60,37 @@ func (a *Agent) buildHookRunner(mode string) *hooks.Runner {
 		TimeoutSeconds: a.cfg.Hooks.EffectiveDefaultTimeoutSeconds(),
 		MaxOutputChars: a.cfg.Hooks.EffectiveMaxOutputChars(),
 		Log:            a.log,
+	}
+}
+
+// noteHookFiles tells the operator, once per live session and file, about a
+// project hooks file that is held until approved and about a file that does
+// not parse. The note goes to the agent log and to the session's UI log, so
+// the SPA shows it in the transcript; there is no in-chat prompt, because
+// every sender auto-allows under permission_mode: bypass.
+func (a *Agent) noteHookFiles(sources []*hooks.Source) {
+	st := sessionStatePtr(a.state)
+	turn := session.CountUserTurns(a.state.GetMessages())
+	for _, src := range sources {
+		var key, msg string
+		switch {
+		case src.Err != nil:
+			key = "invalid:" + src.Path
+			msg = fmt.Sprintf("Hooks file %s is invalid and was skipped: %v", src.Display, src.Err)
+		case src.Trust == hooks.TrustNeedsApproval:
+			key = "held:" + src.Path
+			msg = fmt.Sprintf("Hooks file %s is not approved for this workspace, so its hooks are held. "+
+				"Review it, then approve it on the machine running coddy with `coddy hooks trust %s --cwd %s` "+
+				"or POST /coddy/hooks/trust, or set hooks.project_trust: allow for a checkout you trust.",
+				src.Display, src.Display, a.state.GetCWD())
+		default:
+			continue
+		}
+		if st == nil || !st.MarkHookNoticeShown(key) {
+			continue
+		}
+		a.log.Warn("hooks file notice", "file", src.Display, "trust", src.Trust, "error", src.Err)
+		st.AppendUILogNotice(turn, msg)
 	}
 }
 

@@ -149,6 +149,7 @@ func (s *Server) registerCoddyRoutes() {
 	s.registerMemoryRoutes()
 	s.registerBackgroundRoutes()
 	s.registerSubagentRoutes()
+	s.registerHookRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()

@@ -64,6 +64,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.system.label": "Система",
   "settings.section.compaction.label": "Сжатие контекста",
   "settings.section.subagents.label": "Субагенты",
+  "settings.section.hooks.label": "Хуки",
   "settings.section.appearance.desc": "Тема и цветовой режим",
   "settings.section.providers.desc": "Подключения LLM API",
   "settings.section.models.desc": "Именованные конфигурации моделей",
@@ -75,6 +76,7 @@ export const messagesRu: Record<string, string> = {
   "settings.section.system.desc": "Планировщик, логи, промпты",
   "settings.section.compaction.desc": "Сжатие истории диалога",
   "settings.section.subagents.desc": "Пул делегирования и доверие",
+  "settings.section.hooks.desc": "Хуки жизненного цикла и доверие",
 
   "settings.nav.aria.scrollLeft": "Прокрутить разделы влево",
   "settings.nav.aria.scrollRight": "Прокрутить разделы вправо",
@@ -293,6 +295,28 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.subagents.max_turns.label": "Максимум итераций",
   "settings.schema.subagents.max_turns.desc":
     "Сколько итераций ReAct может сделать дочерний агент; 0 берёт значение agent.max_turns.",
+
+  "settings.schema.hooks.desc":
+    "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
+  "settings.schema.hooks.enabled.label": "Включено",
+  "settings.schema.hooks.enabled.desc":
+    "Загружать и запускать хуки вообще (по умолчанию включено).",
+  "settings.schema.hooks.files.label": "Файлы определений",
+  "settings.schema.hooks.files.desc":
+    "Сначала файлы с низшим приоритетом; выполняется каждый подходящий хук. ${CODDY_HOME} и ${CWD} раскрываются. Файлы внутри рабочей папки считаются проектными и подчиняются политике доверия; из файла настроек Claude Code читается только ключ hooks.",
+  "settings.schema.hooks.project_trust.label": "Проектные хуки",
+  "settings.schema.hooks.project_trust.desc":
+    'Файлы хуков внутри рабочей папки приходят вместе с checkout. "ask": показывать их, но ничего не запускать, пока файл не одобрен для этой папки на машине, где работает coddy (coddy hooks trust там или POST /coddy/hooks/trust). "allow": считать их своими. "deny": никогда не читать.',
+  "settings.schema.hooks.default_timeout_seconds.label":
+    "Таймаут по умолчанию (с)",
+  "settings.schema.hooks.default_timeout_seconds.desc":
+    "Жёсткий лимит для процесса хука, у которого в определении нет своего таймаута (по умолчанию 60).",
+  "settings.schema.hooks.stop_loop_limit.label": "Лимит цикла Stop",
+  "settings.schema.hooks.stop_loop_limit.desc":
+    "Сколько раз за ход хук Stop может вернуть агента к работе (по умолчанию 5).",
+  "settings.schema.hooks.max_output_chars.label": "Максимум символов вывода",
+  "settings.schema.hooks.max_output_chars.desc":
+    "Предел для контекста, сообщений и причин, которые один хук передаёт модели или пользователю; более длинные значения обрезаются с пометкой (по умолчанию 10000).",
 
   "settings.schema.skills.dirs.label": "Каталоги навыков",
   "settings.schema.skills.dirs.desc":

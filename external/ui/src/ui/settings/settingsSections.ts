@@ -2,7 +2,12 @@ import type { JsonSchema } from "./SchemaForm";
 import { translate } from "../i18n/i18n";
 
 export type SectionKind =
-  "array" | "object" | "group" | "skills" | "mcp" | "appearance";
+  | "array"
+  | "object"
+  | "group"
+  | "skills"
+  | "mcp"
+  | "appearance";
 
 export type SectionDescriptor = {
   /** Unique id: a config key, or a synthetic id ("system", "appearance"). */
@@ -36,6 +41,7 @@ const SECTION_LABEL_KEYS: Record<string, string> = {
   system: "settings.section.system.label",
   compaction: "settings.section.compaction.label",
   subagents: "settings.section.subagents.label",
+  hooks: "settings.section.hooks.label",
 };
 
 /**
@@ -57,6 +63,7 @@ const SECTION_DESC_KEYS: Record<string, string> = {
   system: "settings.section.system.desc",
   compaction: "settings.section.compaction.desc",
   subagents: "settings.section.subagents.desc",
+  hooks: "settings.section.hooks.desc",
 };
 
 /** Config keys folded into the single "System" tab (rarely edited). */

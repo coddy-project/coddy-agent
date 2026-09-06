@@ -45,6 +45,7 @@ type hooksFeatureState struct {
 	client          *recordingClient
 	provider        *scriptedProvider
 	permMode        string
+	trustPolicy     string
 	entries         []hooktest.Entry
 	recordFile      string
 	results         map[string]string
@@ -66,6 +67,7 @@ func (s *hooksFeatureState) reset() error {
 		}
 	}
 	s.permMode = config.PermModeBypass
+	s.trustPolicy = ""
 	s.entries = nil
 	s.recordFile = filepath.Join(root, "payload.json")
 	s.results = map[string]string{}
@@ -127,6 +129,7 @@ func (s *hooksFeatureState) buildConfig() *config.Config {
 		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
 	}
 	cfg.Tools.PermissionMode = s.permMode
+	cfg.Hooks.ProjectTrust = s.trustPolicy
 	cfg.Hooks.ApplyDefaults(cfg.Paths)
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
 	cfg.Prompts.ApplyDefaults()
@@ -364,6 +367,146 @@ func initializeHooksScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the recorded payload carries the session id and the workspace path$`, s.payloadCarriesSession)
 	sc.Step(`^the recorded payload carries the command "([^"]*)" as the tool input$`, s.payloadCarriesCommand)
 	sc.Step(`^the recorded payload carries an error mentioning "([^"]*)"$`, s.payloadCarriesError)
+}
+
+// ---- project-scope files and trust (features/hooks_project_trust.feature, @acp) ----
+
+// workspaceHook writes (or overwrites) a project-scope hooks file with one
+// recording handler. The workspace exists from reset, so the file can be
+// written before the session starts.
+func (s *hooksFeatureState) workspaceHook(file, event, matcher string) error {
+	entry := hooktest.Entry{Event: event, Matcher: matcher, Handlers: []hooks.Handler{hooktest.Handler("record", s.recordFile)}}
+	return hooktest.Write(filepath.Join(s.cwd, filepath.FromSlash(file)), entry)
+}
+
+func (s *hooksFeatureState) trustPolicyIs(policy string) error {
+	s.trustPolicy = policy
+	return nil
+}
+
+// loadSources resolves the hook files the way the agent does for the session
+// cwd, with the receipts store consulted.
+func (s *hooksFeatureState) loadSources() []*hooks.Source {
+	files := config.DefaultHookFiles()
+	policy := s.trustPolicy
+	if policy == "" {
+		policy = config.ProjectTrustAsk
+	}
+	return hooks.NewLoader(files, policy).WithStore(hooks.NewTrustStore(s.home)).Load(s.cwd, s.home)
+}
+
+func (s *hooksFeatureState) approveFile(file string) error {
+	src := hooks.FindSource(s.loadSources(), file)
+	if src == nil {
+		return fmt.Errorf("no hooks file %q to approve", file)
+	}
+	return hooks.NewTrustStore(s.home).Approve(hooks.CanonicalWorkspace(s.cwd), src)
+}
+
+func (s *hooksFeatureState) recordingHookDidNotRun() error {
+	if _, err := os.Stat(s.recordFile); !os.IsNotExist(err) {
+		return fmt.Errorf("the recording hook ran (stat err %v)", err)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) catalogLists(file, state string) error {
+	for _, e := range hooks.BuildCatalog(s.loadSources()) {
+		if e.File != file {
+			continue
+		}
+		switch state {
+		case "awaiting approval":
+			if !e.NeedsApproval {
+				return fmt.Errorf("%s should await approval, got %+v", file, e)
+			}
+		case "trusted":
+			if !e.Trusted {
+				return fmt.Errorf("%s should be trusted, got %+v", file, e)
+			}
+		default:
+			return fmt.Errorf("unknown state %q", state)
+		}
+		return nil
+	}
+	return fmt.Errorf("catalog does not list %s", file)
+}
+
+func (s *hooksFeatureState) catalogDoesNotList(file string) error {
+	for _, e := range hooks.BuildCatalog(s.loadSources()) {
+		if e.File == file {
+			return fmt.Errorf("catalog lists %s: %+v", file, e)
+		}
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) uiLogNotes(file, hint string) error {
+	if s.countHeldNotices(file, hint) == 0 {
+		return fmt.Errorf("no notice-level UI log entry mentions %q and %q: %+v", file, hint, s.sess.GetUILog())
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) countHeldNotices(file, hint string) int {
+	n := 0
+	for _, e := range s.sess.GetUILog() {
+		if e.Level == session.UILogLevelNotice && strings.Contains(e.Message, file) && strings.Contains(e.Message, hint) {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *hooksFeatureState) noteRecordedOnce() error {
+	if err := s.modelRunsCommand("echo again"); err != nil {
+		return err
+	}
+	if n := s.countHeldNotices(".coddy/hooks.json", "coddy hooks trust"); n != 1 {
+		return fmt.Errorf("the held-file notice must be recorded once per session, found %d", n)
+	}
+	return nil
+}
+
+func initializeHooksTrustScenario(sc *godog.ScenarioContext) {
+	s := &hooksFeatureState{}
+	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		return ctx, s.reset()
+	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		s.close()
+		return ctx, nil
+	})
+	sc.Step(`^the workspace's (\S+) has a (\w+) hook for "([^"]*)" that records its stdin$`, s.workspaceHook)
+	sc.Step(`^the workspace's (\S+) is rewritten with a (\w+) hook for "([^"]*)" that records its stdin$`, s.workspaceHook)
+	sc.Step(`^the operator approved the hook file "([^"]*)" for that workspace$`, s.approveFile)
+	sc.Step(`^the hooks project trust policy is "([^"]*)"$`, s.trustPolicyIs)
+	sc.Step(`^an agent session$`, s.agentSession)
+	sc.Step(`^the model runs the command "([^"]*)"$`, s.modelRunsCommand)
+	sc.Step(`^the recording hook did not run$`, s.recordingHookDidNotRun)
+	sc.Step(`^the tool result contains "([^"]*)"$`, s.resultContains)
+	sc.Step(`^the recorded payload names the event "([^"]*)" and the tool "([^"]*)"$`, s.payloadNames)
+	sc.Step(`^the hooks catalog lists "([^"]*)" as (awaiting approval|trusted)$`, s.catalogLists)
+	sc.Step(`^the hooks catalog does not list "([^"]*)"$`, s.catalogDoesNotList)
+	sc.Step(`^the session's UI log notes that "([^"]*)" awaits approval and names "([^"]*)"$`, s.uiLogNotes)
+	sc.Step(`^the note is recorded once even after a second turn$`, s.noteRecordedOnce)
+}
+
+func TestHooksTrustFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "hooks-trust",
+		ScenarioInitializer: initializeHooksTrustScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/hooks_project_trust.feature"},
+			Tags:     "@acp",
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("hooks trust feature suite failed")
+	}
 }
 
 func TestHooksFeature(t *testing.T) {

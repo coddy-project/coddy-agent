@@ -254,6 +254,34 @@ still alive, opens the usual modal in the parent chat with the title prefixed
 `-c` never picks one, and a prompt sent to one is refused with a message naming
 the parent session.
 
+## Hook definition files (`coddy hooks`)
+
+Three subcommands manage the hook definition files a session would load
+(`docs/hooks.md`). They need no build tag, like `coddy agents`:
+
+```
+coddy hooks list [--cwd DIR]
+coddy hooks trust <file> [--cwd DIR]
+coddy hooks untrust <file> [--cwd DIR]
+```
+
+`list` prints the workspace and the effective `hooks.project_trust`, then a
+table with `FILE` (the name receipts use: the workspace-relative path for a
+project file, the absolute path for the operator's own), `SCOPE` (`user`,
+`project`), `TRUST` (`trusted` or `needs_approval`) and `HOOKS` (a summary such
+as `PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file
+that does not parse), a `(total N)` line, and a hint when project files await
+approval. `trust` prints the hooks it is about to approve (event, matcher,
+command) and records a receipt for the file as it is on disk right now, keyed
+by the canonical workspace, the file and its digest, in
+`<home>/hooks-trust.json`; a user-scope file needs no approval and the command
+says so, and an invalid file is refused. `untrust` withdraws a receipt. `--cwd`
+defaults to the process working directory, resolved like `coddy mcp`. Under
+`hooks.project_trust: deny` project files are not listed at all, and under
+`allow` they need no receipt. A remote console (`--remote`) approves through
+`POST /coddy/hooks/trust` on the server instead, because the receipt must live
+on the machine running the hooks.
+
 ## Security
 
 All text from outside the renderer — model output, tool previews, titles,

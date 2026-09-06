@@ -86,6 +86,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			DefaultTimeoutSeconds: SubagentsDefaultTimeoutSeconds,
 			MaxTurns:              0,
 		},
+		Hooks: HooksJSON{
+			Enabled:               boolPtr(true),
+			Files:                 DefaultHookFiles(),
+			ProjectTrust:          ProjectTrustAsk,
+			DefaultTimeoutSeconds: HooksDefaultTimeoutSeconds,
+			StopLoopLimit:         HooksDefaultStopLoopLimit,
+			MaxOutputChars:        HooksDefaultMaxOutputChars,
+		},
 		Scheduler: SchedulerJSON{
 			Enabled:        false,
 			Dir:            "${CODDY_HOME}/scheduler",

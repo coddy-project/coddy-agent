@@ -185,9 +185,27 @@ The keys are ordinary `config.yaml` keys, so the Settings page and the bundled `
 
 ## Project files and trust
 
-A hooks file inside the workspace arrived with the checkout. Under the default policy `ask` it is parsed and listed, but none of its hooks runs until you approve that exact file for that workspace on the machine running Coddy; editing the file withdraws the approval, because the receipt is bound to a digest of the file. The approval surfaces (`coddy hooks list|trust|untrust`, `GET /coddy/hooks`, `POST /coddy/hooks/trust`) are delivered by the trust sub-feature of `docs/plans/hooks.md`; until then a project file stays held under `ask`, and `project_trust: allow` is the way to run one in a checkout you trust.
+A hooks file inside the workspace arrived with the checkout. Under the default policy `ask` it is parsed and listed, but none of its hooks runs until you approve that exact file for that workspace on the machine running Coddy. The receipt is bound to a digest of the file, so editing an approved file withdraws the approval and asks again. Your own file (user scope) never needs approval.
 
-Your own file (user scope) never needs approval.
+The first turn that finds a held file records a notice in the session (the SPA shows it as a system row after the turn, once per session and file, without a retry control; the agent log carries the same line), so you learn that hooks exist and are held:
+
+| Dark | Light |
+|---|---|
+| ![Held hooks file notice, dark](assets/screenshot-hooks-notice-dark.png) | ![Held hooks file notice, light](assets/screenshot-hooks-notice-light.png) |
+
+Approval surfaces:
+
+```
+coddy hooks list [--cwd DIR]
+coddy hooks trust <file> [--cwd DIR]
+coddy hooks untrust <file> [--cwd DIR]
+```
+
+`list` prints the workspace, the effective `hooks.project_trust` and a table with one row per file: `FILE` (the name receipts use: the workspace-relative path for a project file, the absolute path for your own), `SCOPE`, `TRUST` (`trusted` or `needs_approval`) and a summary of its hooks (`PreToolUse(run_command); PostToolUse(*)`, or `invalid: <error>` for a file that does not parse), then a hint when project files await approval. `trust` prints the hooks it is about to approve and records the receipt in `~/.coddy/hooks-trust.json`, keyed by the canonical workspace path, the file and its digest; a user-scope file needs no approval and the command says so, an invalid file cannot be approved. `untrust` withdraws a receipt. `--cwd` defaults to the process working directory.
+
+Over HTTP, `GET /coddy/hooks?cwd=<absolute path>` returns the same catalog with every handler as a row, and `POST /coddy/hooks/trust` / `POST /coddy/hooks/untrust` with the body `{"cwd": ..., "file": ".coddy/hooks.json"}` record or withdraw a receipt; `cwd` must be the session's server-side workspace, so this route is the approval path for a remote console or an ACP client, whose local `coddy hooks trust` would write a receipt on the wrong machine. The catalog's policy and the config keys can be changed in Settings > Hooks or with the bundled `configure-coddy` skill (`set hooks.project_trust=allow` for a checkout you trust; under `allow` project files need no receipt, under `deny` they are never read).
+
+The receipt file is a sibling of `mcp-trust.json` and `subagents-trust.json`, never shared with them: one kind of approval must never read as another.
 
 ## Examples
 

@@ -61,6 +61,10 @@ type State struct {
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
+	// hookNotices remembers which hooks-file notices this live session has
+	// already recorded (see MarkHookNoticeShown); not persisted.
+	hookNotices map[string]bool
+
 	// configuredMCPClients come from config.yaml and are replaced on hot reload.
 	configuredMCPClients []*mcp.Client
 	// sessionMCPClients come from ACP session/new or session/load parameters.

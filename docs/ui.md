@@ -21,7 +21,7 @@ This page captures the original UI requirements and the intended end state. It i
 - **Locale maintenance:** adding a locale requires its dictionary plus one **`locales.ts`** entry. Every registered dictionary must add or change the same key and interpolation tokens in one patch; **`messagesParity.test.ts`** enforces both.
 - **Plural copy:** counted strings use **`translatePlural`** / **`tp(key, count)`** with one dictionary entry per CLDR category (**`key.one`**, **`key.few`**, **`key.many`**, **`key.other`**), so Russian declines the noun by the number instead of falling back to one form. Each locale must supply exactly the categories its own **`Intl.PluralRules`** produces; the parity test derives that set per locale.
 - **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), schema-driven settings field labels and descriptions are translated too (see below), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, and the env health banner. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
-- **Schema field localization:** settings sections rendered from the server JSON Schema (providers, models, agent, tools, subagents, memory, compaction, and every System group child) localize their field labels and descriptions client-side via **`settings/schemaI18n.ts`**: the dictionary key derives deterministically from the section id and the dotted field path (**`settings.schema.<section>.<path>.label` / `.desc`**, System children as **`settings.schema.system.<child>.<path>`**). A key no dictionary defines falls back to the schema's own English text, so unmapped or newly added server fields never leak a raw key. Array item rows inherit the domain for their nested fields but keep their own fallback for the row label, so the enclosing fieldset legend and description are not repeated per row.
+- **Schema field localization:** settings sections rendered from the server JSON Schema (providers, models, agent, tools, subagents, hooks, memory, compaction, and every System group child) localize their field labels and descriptions client-side via **`settings/schemaI18n.ts`**: the dictionary key derives deterministically from the section id and the dotted field path (**`settings.schema.<section>.<path>.label` / `.desc`**, System children as **`settings.schema.system.<child>.<path>`**). A key no dictionary defines falls back to the schema's own English text, so unmapped or newly added server fields never leak a raw key. Array item rows inherit the domain for their nested fields but keep their own fallback for the row label, so the enclosing fieldset legend and description are not repeated per row.
 - **Settings sub-panels (Appearance / Skills) are mutually exclusive** — opening one closes the other. Only one sub-panel may be expanded at a time.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
 - **CSS contract:** **`--text`** and **`--bg`** on **`[data-theme="light"]`** are **`#18181b`** and **`#f8f8fa`**; glass panels use **`rgba(255, 255, 255, 0.9)`** (not dark tint). Dark defaults remain on **`:root`** / **`[data-theme="dark"]`**.
@@ -429,6 +429,19 @@ Automated checks:
 - **external/ui/src/ui/tasks/BackgroundTasksChip.test.tsx** (counts, singular/plural, history fallback, empty chat)
 - **external/ui/src/ui/tasks/backgroundTaskCss.test.ts** (chip tokens, panel docking, reduced motion, agent badge tokens)
 - **external/ui/src/ui/messages/ToolCallMessage.test.tsx** (transcript ticker chip)
+
+### Hooks
+
+**Settings > Hooks** is a schema-driven object tab like Subagents (`settings-tab-hooks`): the `hooks` config section (`enabled`, `files`, `project_trust`, `default_timeout_seconds`, `stop_loop_limit`, `max_output_chars`) with localized labels and blurbs (`settings.section.hooks.*`, `settings.schema.hooks.*`) and the defaults of `SchemaExampleConfigJSON` as placeholders. Definitions themselves live in JSON files (`docs/hooks.md`); the tab edits where they are read from and how project files are trusted.
+
+![Settings Hooks tab](assets/screenshot-fullhd-settings-hooks.png)
+
+A held project hooks file surfaces in the transcript as a **notice-level system row**: `GET /coddy/sessions/{id}/messages` carries it in `uiLog` with `level: "notice"`, the SPA renders it with the same `SystemNoticeMessage` as an error row (`system_notice` transcript item, `level: "notice"`) in a calmer blue palette, `role="status"` instead of `role="alert"`, the copy control, and **no retry control** even when the row is the last item. Rows with any other level stay invisible rather than mis-rendered.
+
+![Held hooks file notice](assets/screenshot-hooks-notice-dark.png)
+
+- **external/ui/src/ui/messages/SystemNoticeMessage.test.tsx** (notice row: status role, notice class, no retry)
+- **external/ui/src/ui/settings/settingsSections.test.ts** (translated label and blurb for the `hooks` config tab)
 
 ### Subagent transcripts
 
