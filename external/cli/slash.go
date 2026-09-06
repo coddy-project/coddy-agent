@@ -50,6 +50,9 @@ func (a *App) dispatchSlash(text string) bool {
 	case "hotkeys":
 		a.showHotkeys()
 		return true
+	case "usage":
+		a.showUsage()
+		return true
 	case "quit", "exit":
 		a.requestQuit(nil)
 		return true
@@ -176,6 +179,7 @@ func (a *App) showHotkeys() {
 		"shift+tab cycle reasoning · ctrl+t thinking · ctrl+o expand",
 		"up/down prompt history · / commands · @ file mention",
 		"!!<command> run it here, hidden from the agent",
+		"/usage provider quota, resets and wallet",
 	}
 	a.appendStatus(roleDim, strings.Join(lines, "\n"))
 }

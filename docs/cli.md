@@ -69,6 +69,27 @@ Top to bottom:
   those lines reach the model (see `docs/ui.md`, **Line ranges**).
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
+  A third line appears while the active model's provider reports account
+  usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
+  `pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
+  the plan, each metered window as percent **used** with its reset time in
+  your clock (time of day within 24 h, weekday within a week, date beyond),
+  the day window only when it is above zero, and the account's own ruble
+  balance for wallet keys. A window at 80 % or more turns to the warning
+  colour and a transcript notice says `You've used 82% of your NeuralDeep 3h
+  limit · resets 20:59`, once per window and period; a hit limit replaces the
+  windows with `limit reached (resets 20:59)` in the error colour (`rate
+  limited (retry in 42s)` for a per-minute block, `key blocked`, `wallet
+  empty` or `account blocked` for the ones no clock lifts) and posts `Usage
+  limit reached` once. A model on the provider's unlimited option (Qwen ∞)
+  reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
+  coddy providers login neuraldeep`; when the hub cannot be reached the last
+  numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
+  week and the plan leave in that order. The numbers arrive from the session
+  manager at session start and after every turn (`provider_usage` update,
+  same on `--remote`), the console asks for a fresh read after `/model` and
+  once a window's reset passes, and never polls otherwise. Design record:
+  `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous
 frame, synchronized output (`ESC[?2026h/l`), per-line SGR + OSC 8 reset, a
@@ -82,7 +103,14 @@ Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
 loaded skill (from the ACP available-commands catalog). Enter on a slash
 suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/session-export.md`);
-under `--remote` the file lands on the server.
+under `--remote` the file lands on the server. `/usage` forces a fresh read
+of the active provider's account usage and prints the breakdown as a dim
+block: every window with a ten-cell bar, its percent, counters and reset
+time, the live requests-per-minute, the cooldown, the wallet with the last
+30 days of spend, a `refresh in Ns (pacing)` line when the hub's pacing
+floor deferred the read, and the snapshot's age. Under `--remote` the
+server's own key is read, so a `key rejected` line there is informational
+(sign in on the server).
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,
@@ -329,7 +357,13 @@ comparison, as described under **Visual model**.
 
 - Unit + BDD: `go test -tags=cli ./...`; the happy-path spec is
   `features/cli_tui.feature` run by `external/cli/bdd_cli_tui_test.go`
-  (stub runner, fake terminal — no LLM, no pty).
+  (stub runner, fake terminal — no LLM, no pty). The provider usage
+  scenarios stand a fake hub `GET /limits` behind
+  `CODDY_NEURALDEEP_BASE_URL` (process-wide, so the package stays
+  sequential) and drive the manager's pacing clock with
+  `SetProviderUsageClock`; `external/cli/usage_test.go` pins the footer
+  wording, the drop order, the blocker copy, the sanitising of hub strings
+  and the reset timer.
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty
   (pexpect + pyte, Linux-only) against `neuraldeep/qwen3.8-27b` by default —
   see `examples/README.md`.

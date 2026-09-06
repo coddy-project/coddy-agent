@@ -6,13 +6,17 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
-// footer renders the two status lines under the editor (pi FooterComponent):
+// footer renders the status lines under the editor (pi FooterComponent):
 // line 1: dim cwd (git branch) • session title [• plan]
-// line 2: token stats + context percent left, (provider) model • reasoning right.
+// line 2: token stats + context percent left, (provider) model • reasoning right;
+// line 3, only while the active model's provider reports account usage:
+// plan • window percentages with reset times • wallet (usage.go).
 type footer struct {
 	theme *tui.Theme
 
@@ -29,6 +33,12 @@ type footer struct {
 	provider  string
 	model     string
 	reasoning string
+
+	// usage is the latest provider usage update; it renders only while it
+	// belongs to the active model's provider. now is the clock of the
+	// reset-time wording (tests pin it).
+	usage *acp.ProviderUsageUpdate
+	now   func() time.Time
 }
 
 func newFooter(theme *tui.Theme, cwd string) *footer {
@@ -57,6 +67,25 @@ func (f *footer) SetContext(percent float64, maxTokens int) {
 func (f *footer) SetModel(modelID, reasoning string) {
 	f.provider, f.model = splitModelID(modelID)
 	f.reasoning = reasoning
+}
+
+// SetUsage adopts a provider usage update (nil clears the line).
+func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) { f.usage = u }
+
+// Usage returns the adopted update, or nil.
+func (f *footer) Usage() *acp.ProviderUsageUpdate { return f.usage }
+
+// usageLine renders the third line, or "" when nothing applies.
+func (f *footer) usageLine(width int) string {
+	if f.usage == nil || f.provider == "" || f.usage.Provider != f.provider {
+		return ""
+	}
+	now := time.Now()
+	if f.now != nil {
+		now = f.now()
+	}
+	modelID := f.provider + "/" + f.model
+	return renderUsageLine(f.theme, usageFooterSegments(f.usage, modelID, now), width)
 }
 
 func splitModelID(id string) (provider, model string) {
@@ -107,10 +136,14 @@ func (f *footer) Render(width int) []string {
 	}
 	line2 := left + strings.Repeat(" ", gap) + right
 
-	return []string{
+	lines := []string{
 		th.Fg(roleDim, tui.TruncateToWidth(line1, width, "...")),
 		th.Fg(roleDim, tui.TruncateToWidth(line2, width, "")),
 	}
+	if usage := f.usageLine(width); usage != "" {
+		lines = append(lines, usage)
+	}
+	return lines
 }
 
 func detectGitBranch(cwd string) string {

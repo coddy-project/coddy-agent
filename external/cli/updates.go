@@ -82,6 +82,18 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case localShellOutput:
 		u.box.SetOutput(u.text, u.dropped)
 		return
+	case usageResetDue:
+		// A window's reset passed: one fresh read for the provider that is
+		// still active; a switched-away provider gets nothing.
+		if u.provider == usageProviderOf(a.modelID) {
+			a.refreshUsage(u.provider, true)
+		}
+		return
+	case usageReport:
+		if msg.sessionID == "" || a.sessionID == "" || msg.sessionID == a.sessionID {
+			a.applyUsageReport(u)
+		}
+		return
 	case localShellDone:
 		u.box.SetOutput(u.text, u.dropped)
 		u.box.Finish(u.exitCode, u.err)
@@ -135,6 +147,8 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			percent = float64(u.Used) / float64(u.Size) * 100
 		}
 		a.foot.SetContext(percent, u.Size)
+	case acp.ProviderUsageUpdate:
+		a.applyProviderUsage(u)
 	case acp.ModeUpdate:
 		a.modeID = u.CurrentModeID
 		a.foot.SetSession("", a.modeID)

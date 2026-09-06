@@ -32,6 +32,10 @@ type backend interface {
 	HandleSessionSetMode(ctx context.Context, params acp.SessionSetModeParams) error
 	HandleSessionSetConfigOption(ctx context.Context, params acp.SessionSetConfigOptionParams) (*acp.SessionSetConfigOptionResult, error)
 	HandleSessionPromptWithSender(ctx context.Context, params acp.SessionPromptParams, sender acp.UpdateSender, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error)
+	// ProviderUsage reads the account usage behind a provider row (the
+	// status bar's third line); refresh asks for a fresh read. A provider
+	// type without a usage source answers Unsupported.
+	ProviderUsage(ctx context.Context, name string, refresh bool) (*acp.ProviderUsageUpdate, error)
 }
 
 // Interface conformance is pinned where the concrete types are visible:
