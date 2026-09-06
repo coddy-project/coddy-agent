@@ -21,6 +21,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // TestHelperHook is not a real test: re-executed with the hook-helper
@@ -524,6 +525,16 @@ func TestRunnerShellFormGoesThroughTheHostShell(t *testing.T) {
 	handler := hooks.Handler{
 		Type:    hooks.HandlerCommand,
 		Command: `"` + os.Args[0] + `" -test.run=^TestHelperHook$ ` + hooktest.Sentinel + ` allow`,
+	}
+	// A shell-form command is written in the host shell's syntax, which is
+	// what commandWindows is for: PowerShell parses a leading quoted path as
+	// a string expression, so the call goes through the call operator with
+	// single-quoted (literal) arguments; cmd.exe takes the POSIX-looking form.
+	switch platform.CurrentShell().Kind {
+	case platform.ShellPwsh, platform.ShellPowerShell:
+		handler.CommandWindows = "& '" + strings.ReplaceAll(os.Args[0], "'", "''") + "' '-test.run=^TestHelperHook$' '" + hooktest.Sentinel + "' 'allow'"
+	default:
+		handler.CommandWindows = handler.Command
 	}
 	r := newRunner(t, userSource(preToolUse("*", handler)))
 	out := r.Run(context.Background(), commandEvent("echo hi"))
