@@ -64,6 +64,14 @@ func ProviderAPIKeyEnvVarName(providerName string) string {
 // succeeds), then the conventional environment variable derived from the provider
 // name (see ProviderAPIKeyEnvVarName).
 func (p *ProviderConfig) EffectiveAPIKey() string {
+	return p.EffectiveAPIKeyContext(context.Background())
+}
+
+// EffectiveAPIKeyContext is EffectiveAPIKey bounded by ctx: a credential
+// helper that outlives the caller's deadline is killed and the resolution
+// falls back to the environment variable, so a hung helper cannot hold a
+// caller that budgeted a few seconds for a network read.
+func (p *ProviderConfig) EffectiveAPIKeyContext(ctx context.Context) string {
 	if p == nil {
 		return ""
 	}
@@ -71,7 +79,7 @@ func (p *ProviderConfig) EffectiveAPIKey() string {
 		return k
 	}
 	if cmd := strings.TrimSpace(p.APIKeyCommand); cmd != "" {
-		if k := runAPIKeyCommand(cmd); k != "" {
+		if k := runAPIKeyCommandContext(ctx, cmd); k != "" {
 			return k
 		}
 	}
@@ -82,11 +90,16 @@ func (p *ProviderConfig) EffectiveAPIKey() string {
 	return strings.TrimSpace(os.Getenv(env))
 }
 
-// runAPIKeyCommand executes a provider credential-helper command via the detected host shell and
-// returns its trimmed stdout. It returns "" on any error (non-zero exit, timeout,
-// spawn failure) so EffectiveAPIKey can fall back to the conventional env var.
-func runAPIKeyCommand(command string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), apiKeyCommandTimeout)
+// runAPIKeyCommandContext executes a provider credential-helper command via
+// the detected host shell, under the caller's context on top of the usual
+// timeout, and returns its trimmed stdout. It returns "" on any error
+// (non-zero exit, timeout, cancellation, spawn failure) so the resolution can
+// fall back to the conventional env var.
+func runAPIKeyCommandContext(parent context.Context, command string) string {
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, apiKeyCommandTimeout)
 	defer cancel()
 	commandShell := platform.CurrentShell()
 	executable, args := commandShell.Command(command)

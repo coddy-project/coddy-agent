@@ -133,10 +133,9 @@ func (h *Handler) HandleSessionPromptWithSender(ctx context.Context, params acp.
 	cancelled := h.endTurn(st)
 	// The turn spent quota; the server refreshed its snapshot when the turn
 	// released, so a pull now joins that fetch (or learns it was deferred).
+	// It runs aside: the turn's result never waits for the hub.
 	if !cancelled {
-		pullCtx, cancelPull := context.WithTimeout(context.Background(), restTimeout)
-		h.pullProviderUsage(pullCtx, sid, true)
-		cancelPull()
+		h.pullProviderUsageAsync(sid, true)
 	}
 
 	switch {

@@ -168,4 +168,9 @@ capture.snapshot(tui, OUT, "11-usage-blocked")
 print("blocked captured")
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")
 tui.pump(1)
-render_pngs(OUT, ["09-usage-footer", "10-usage-warning", "11-usage-blocked"])
+names = ["09-usage-footer", "10-usage-warning", "11-usage-blocked"]
+for name in names:
+    # The frame's empty tail rows would otherwise end the file with blank lines.
+    txt = OUT / f"{name}.txt"
+    txt.write_text(txt.read_text().rstrip("\n") + "\n")
+render_pngs(OUT, names)

@@ -2402,10 +2402,12 @@ func openAPISpec() map[string]interface{} {
 				"ProviderUsageAnswer": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"ok":          map[string]interface{}{"type": "boolean"},
-						"unsupported": map[string]interface{}{"type": "boolean", "description": "The provider type has no usage source."},
-						"error":       map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
-						"usage":       map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"},
+						"ok":           map[string]interface{}{"type": "boolean"},
+						"unsupported":  map[string]interface{}{"type": "boolean", "description": "The provider type has no usage source."},
+						"provider":     map[string]interface{}{"type": "string", "description": "Provider row name, on the unsupported answer."},
+						"providerType": map[string]interface{}{"type": "string", "description": "Provider wire type, on the unsupported answer."},
+						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
+						"usage":        map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"},
 					},
 				},
 				"ProviderUsage": map[string]interface{}{

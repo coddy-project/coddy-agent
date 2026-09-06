@@ -34,11 +34,11 @@ type footer struct {
 	model     string
 	reasoning string
 
-	// usage is the latest provider usage update; it renders only while it
-	// belongs to the active model's provider. now is the clock of the
-	// reset-time wording (tests pin it).
-	usage *acp.ProviderUsageUpdate
-	now   func() time.Time
+	// usages holds the latest usage update per provider row; the active
+	// model's renders. now is the clock of the reset-time wording (tests pin
+	// it).
+	usages map[string]*acp.ProviderUsageUpdate
+	now    func() time.Time
 }
 
 func newFooter(theme *tui.Theme, cwd string) *footer {
@@ -69,15 +69,29 @@ func (f *footer) SetModel(modelID, reasoning string) {
 	f.reasoning = reasoning
 }
 
-// SetUsage adopts a provider usage update (nil clears the line).
-func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) { f.usage = u }
+// SetUsage adopts a provider usage update for its provider row.
+func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) {
+	if u == nil || u.Provider == "" {
+		return
+	}
+	if f.usages == nil {
+		f.usages = make(map[string]*acp.ProviderUsageUpdate)
+	}
+	f.usages[u.Provider] = u
+}
 
-// Usage returns the adopted update, or nil.
-func (f *footer) Usage() *acp.ProviderUsageUpdate { return f.usage }
+// Usage returns the update of the active model's provider, or nil.
+func (f *footer) Usage() *acp.ProviderUsageUpdate {
+	if f.provider == "" || f.usages == nil {
+		return nil
+	}
+	return f.usages[f.provider]
+}
 
 // usageLine renders the third line, or "" when nothing applies.
 func (f *footer) usageLine(width int) string {
-	if f.usage == nil || f.provider == "" || f.usage.Provider != f.provider {
+	u := f.Usage()
+	if u == nil {
 		return ""
 	}
 	now := time.Now()
@@ -85,7 +99,7 @@ func (f *footer) usageLine(width int) string {
 		now = f.now()
 	}
 	modelID := f.provider + "/" + f.model
-	return renderUsageLine(f.theme, usageFooterSegments(f.usage, modelID, now), width)
+	return renderUsageLine(f.theme, usageFooterSegments(u, modelID, now), width)
 }
 
 func splitModelID(id string) (provider, model string) {

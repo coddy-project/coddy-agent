@@ -768,9 +768,9 @@ func (a *App) setModel(id string) {
 		// follows it without waiting for the next turn. The backend answers
 		// from its cache when warm, so this costs no request most of the time.
 		if provider := usageProviderOf(id); provider != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 			defer cancel()
-			if u, err := a.mgr.ProviderUsage(ctx, provider, false); err == nil && u != nil && !u.Unsupported {
+			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, false); err == nil && u != nil && !u.Unsupported {
 				_ = a.Sender().SendSessionUpdate(sessionID, *u)
 			}
 		}

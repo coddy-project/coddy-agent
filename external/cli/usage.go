@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -40,8 +42,14 @@ const (
 	usageBarCells = 10
 )
 
-// usageResetDue is the internal loop message of the reset timer.
-type usageResetDue struct{ provider string }
+// usageResetDue is the internal loop message of the reset timer. forced says
+// the deadline was a window reset or a retry time, so the read must reach
+// the hub; a deadline from a deferred refresh is a cache read, the backend
+// has fetched by then, and asking it to fetch again would only defer again.
+type usageResetDue struct {
+	provider string
+	forced   bool
+}
 
 // usageReport is the internal loop message carrying a /usage answer.
 type usageReport struct {
@@ -435,28 +443,30 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 
 // earliestUsageDeadline is how long until the first reset, retry or
 // deferred refresh in the update, plus the grace; zero when nothing is
-// pending. The per-minute rate is ignored: it would fire every minute.
-func earliestUsageDeadline(u *acp.ProviderUsageUpdate) time.Duration {
+// pending. forced reports whether that deadline is a reset or a retry (a
+// hub read) rather than a deferred refresh (a cache read). The per-minute
+// rate is ignored: it would fire every minute.
+func earliestUsageDeadline(u *acp.ProviderUsageUpdate) (delay time.Duration, forced bool) {
 	if u == nil {
-		return 0
+		return 0, false
 	}
 	best := 0
-	consider := func(sec int) {
+	consider := func(sec int, hub bool) {
 		if sec > 0 && (best == 0 || sec < best) {
-			best = sec
+			best, forced = sec, hub
 		}
 	}
 	for _, w := range u.Windows {
-		consider(w.ResetInSec)
+		consider(w.ResetInSec, true)
 	}
-	consider(u.RetryInSec)
+	consider(u.RetryInSec, true)
 	if u.RefreshPending {
-		consider(u.RefreshInSec)
+		consider(u.RefreshInSec, false)
 	}
 	if best == 0 {
-		return 0
+		return 0, false
 	}
-	return time.Duration(best)*time.Second + usageResetGrace
+	return time.Duration(best)*time.Second + usageResetGrace, forced
 }
 
 // passedResetKey names a window whose reset the snapshot says has passed
@@ -489,6 +499,9 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 		return
 	}
 	snapshot := u
+	// Every provider keeps its latest snapshot on the footer; only the
+	// active model's renders, so a foreign row's update never blanks the
+	// line during a model switch.
 	a.foot.SetUsage(&snapshot)
 	if !a.usageActive(&snapshot) {
 		return
@@ -557,7 +570,8 @@ func blockedNotice(segment string) string {
 	if segment == "" {
 		return "Usage blocked"
 	}
-	return strings.ToUpper(segment[:1]) + segment[1:]
+	first, size := utf8.DecodeRuneInString(segment)
+	return string(unicode.ToUpper(first)) + segment[size:]
 }
 
 // armUsageTimer schedules the refresh for the first reset in the update,
@@ -565,11 +579,11 @@ func blockedNotice(segment string) string {
 // snapshot still shows it, one follow-up is armed for that window.
 func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	a.stopUsageTimer()
-	delay := earliestUsageDeadline(u)
+	delay, forced := earliestUsageDeadline(u)
 	if delay == 0 {
 		if key := passedResetKey(u); key != "" && a.usageFollowUp != key {
 			a.usageFollowUp = key
-			delay = usageFollowUpDelay
+			delay, forced = usageFollowUpDelay, true
 		}
 	}
 	if delay == 0 {
@@ -577,7 +591,7 @@ func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	}
 	provider, sessionID := u.Provider, a.sessionID
 	a.usageTimer = a.usageAfter(delay, func() {
-		_ = a.Sender().SendSessionUpdate(sessionID, usageResetDue{provider: provider})
+		_ = a.Sender().SendSessionUpdate(sessionID, usageResetDue{provider: provider, forced: forced})
 	})
 }
 
@@ -610,7 +624,7 @@ func (a *App) refreshUsage(provider string, refresh bool) {
 		defer a.workers.Done()
 		ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 		defer cancel()
-		u, err := a.mgr.ProviderUsage(ctx, provider, refresh)
+		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, refresh)
 		if err != nil || u == nil || u.Unsupported {
 			return
 		}
@@ -631,7 +645,7 @@ func (a *App) showUsage() {
 		defer a.workers.Done()
 		ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 		defer cancel()
-		u, err := a.mgr.ProviderUsage(ctx, provider, true)
+		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, true)
 		_ = a.Sender().SendSessionUpdate(sessionID, usageReport{provider: provider, update: u, err: err})
 	}()
 }

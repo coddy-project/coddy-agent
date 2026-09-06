@@ -19,17 +19,3 @@
 /home/pasha/demo/coddy-agent (main)
                                                                             (neuraldeep) qwen3.8-27b
 pro • 3h 3% (resets 23:40) • week 27% (resets Wed 02:49) • wallet 1 250 ₽
-
-
-
-
-
-
-
-
-
-
-
-
-
-

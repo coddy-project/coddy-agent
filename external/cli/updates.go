@@ -86,7 +86,7 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		// A window's reset passed: one fresh read for the provider that is
 		// still active; a switched-away provider gets nothing.
 		if u.provider == usageProviderOf(a.modelID) {
-			a.refreshUsage(u.provider, true)
+			a.refreshUsage(u.provider, u.forced)
 		}
 		return
 	case usageReport:

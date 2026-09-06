@@ -452,10 +452,9 @@ func (h *Handler) HandleSessionReady(sessionID string) {
 		}
 	}
 	// The footer is populated before the first prompt, like the local
-	// console's session-ready refresh; the server's cache answers when warm.
-	ctx, cancel := context.WithTimeout(context.Background(), restTimeout)
-	defer cancel()
-	h.pullProviderUsage(ctx, sessionID, false)
+	// console's session-ready refresh; the server's cache answers when warm,
+	// and the load never waits for it.
+	h.pullProviderUsageAsync(sessionID, false)
 }
 
 // SetPreferredSessionID pins the id the next HandleSessionNew adopts.

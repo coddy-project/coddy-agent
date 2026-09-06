@@ -87,8 +87,11 @@ Top to bottom:
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
   week and the plan leave in that order. The numbers arrive from the session
   manager at session start and after every turn (`provider_usage` update,
-  same on `--remote`), the console asks for a fresh read after `/model` and
-  once a window's reset passes, and never polls otherwise. Design record:
+  same on `--remote`); after `/model` the console asks its backend for the
+  numbers of the new provider (from the cache when warm), once a window's
+  reset passes it asks for a fresh read, and when the backend deferred a
+  refresh by its pacing floor the console reads the cache again when the
+  answer says so. Nothing polls otherwise. Design record:
   `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous

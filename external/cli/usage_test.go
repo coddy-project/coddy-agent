@@ -261,21 +261,57 @@ func TestFormatRubAndThousands(t *testing.T) {
 
 func TestEarliestUsageDeadlineIgnoresTheRate(t *testing.T) {
 	u := usageFixtureUpdate()
-	if d := earliestUsageDeadline(u); d != 777*time.Second+usageResetGrace {
-		t.Fatalf("deadline = %s, want the session reset plus grace", d)
+	if d, forced := earliestUsageDeadline(u); d != 777*time.Second+usageResetGrace || !forced {
+		t.Fatalf("deadline = %s forced=%v, want the session reset plus grace, forced", d, forced)
 	}
 	u.Windows[0].ResetInSec = 0
 	u.Windows[1].ResetInSec = 0
 	u.Windows[2].ResetInSec = 0
-	if d := earliestUsageDeadline(u); d != 0 {
+	if d, _ := earliestUsageDeadline(u); d != 0 {
 		t.Fatalf("with no window reset the rate must not arm a timer: %s", d)
 	}
 	u.RefreshPending, u.RefreshInSec = true, 9
-	if d := earliestUsageDeadline(u); d != 9*time.Second+usageResetGrace {
-		t.Fatalf("deferred refresh deadline = %s", d)
+	if d, forced := earliestUsageDeadline(u); d != 9*time.Second+usageResetGrace || forced {
+		t.Fatalf("deferred refresh deadline = %s forced=%v, want a cache read", d, forced)
 	}
+	// A reset sooner than the deferred refresh wins, and it is a hub read.
+	u.Windows[1].ResetInSec = 4
+	if d, forced := earliestUsageDeadline(u); d != 4*time.Second+usageResetGrace || !forced {
+		t.Fatalf("earliest deadline = %s forced=%v", d, forced)
+	}
+	u.Windows[1].ResetInSec = 0
 	if key := passedResetKey(u); key != "session@2026-09-06T17:59:59Z" {
 		t.Fatalf("passed reset key = %q", key)
+	}
+}
+
+func TestUsageTimerPostsACacheReadForADeferredRefresh(t *testing.T) {
+	a := &App{updatesCh: make(chan updateMsg, 8)}
+	a.foot = newFooter(newTheme("dark"), ".")
+	a.chat = &tui.Container{}
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	a.sessionID = "s1"
+	var fire func()
+	a.usageAfterFn = func(_ time.Duration, fn func()) func() bool {
+		fire = fn
+		return func() bool { return true }
+	}
+	deferred := usageFixtureUpdate()
+	for i := range deferred.Windows {
+		deferred.Windows[i].ResetInSec = 0
+	}
+	deferred.RefreshPending, deferred.RefreshInSec = true, 9
+	a.applyProviderUsage(*deferred)
+	fire()
+	msg := <-a.updatesCh
+	if due, ok := msg.update.(usageResetDue); !ok || due.forced {
+		t.Fatalf("a deferred refresh must post a cache read, got %+v", msg.update)
+	}
+	a.applyProviderUsage(*usageFixtureUpdate())
+	fire()
+	msg = <-a.updatesCh
+	if due, ok := msg.update.(usageResetDue); !ok || !due.forced {
+		t.Fatalf("a window reset must post a hub read, got %+v", msg.update)
 	}
 }
 
@@ -398,6 +434,14 @@ func TestFooterShowsUsageOnlyForTheActiveProvider(t *testing.T) {
 	f.SetModel("stub/model", "")
 	if lines = f.Render(120); len(lines) != 2 {
 		t.Fatalf("another provider must hide the line: %q", lines)
+	}
+	// A foreign row's update never blanks the active provider's line.
+	other := usageFixtureUpdate()
+	other.Provider = "nd-work"
+	f.SetUsage(other)
+	f.SetModel("neuraldeep/qwen3.8-27b", "")
+	if lines = f.Render(120); len(lines) != 3 || !strings.Contains(plain(lines[2]), "3h 3%") {
+		t.Fatalf("foreign update hid the active line: %q", lines)
 	}
 	f.SetModel("neuraldeep/qwen3.6-35b-a3b", "")
 	if lines = f.Render(120); len(lines) != 3 || !strings.Contains(plain(lines[2]), "∞ volume") {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -95,7 +96,7 @@ func TestFetchNeuralDeepUsageParsesThePayload(t *testing.T) {
 	if u.Schema != 1 || u.Tier != "pro" || u.ObservedAt != "2026-09-06T17:47:02Z" {
 		t.Fatalf("header fields = %+v", u)
 	}
-	if !u.FairUse || u.Bypass || u.UnlimitedVolume {
+	if u.FairUse == nil || !*u.FairUse || u.Bypass || u.UnlimitedVolume {
 		t.Fatalf("flags = fair_use %v bypass %v unlimited %v", u.FairUse, u.Bypass, u.UnlimitedVolume)
 	}
 	if u.Key.Name != "coddy" || u.Key.Status != "ok" || u.Key.BillingMode != "wallet" {
@@ -140,7 +141,7 @@ func TestFetchNeuralDeepUsageNullWindowsAndMissingBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if !u.Bypass || u.FairUse || u.Chat.Session.Limit != nil || u.Chat.Session.Used != nil || u.Chat.RPM.Limit != nil {
+	if !u.Bypass || u.FairUse == nil || *u.FairUse || u.Chat.Session.Limit != nil || u.Chat.Session.Used != nil || u.Chat.RPM.Limit != nil {
 		t.Fatalf("null windows must decode as nil pointers: %+v", u.Chat)
 	}
 	if u.Wallet != nil || u.DailyCapacity != nil || len(u.Options) != 0 {
@@ -276,5 +277,46 @@ func TestNeuralDeepUsageFingerprint(t *testing.T) {
 	}
 	if NeuralDeepUsageFingerprint(prov, filepath.Join(home, "none.json")) != "" {
 		t.Fatalf("no credential must give an empty fingerprint")
+	}
+}
+
+func TestFetchNeuralDeepUsageRejectsAPayloadWithoutTheRequiredBlocks(t *testing.T) {
+	cases := map[string]string{
+		"bare schema":      `{"schema":1}`,
+		"no decision":      `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","chat":{"session":{},"week":{},"rpm":{}}}`,
+		"no chat":          `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","decision":{"can_request":true}}`,
+		"no tier":          `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","decision":{"can_request":true},"chat":{}}`,
+		"broken timestamp": `{"schema":1,"observed_at":"yesterday","tier":"pro","decision":{"can_request":true},"chat":{}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, _, _ := neuralDeepUsageServer(t, "", http.StatusOK, body, nil)
+			_, err := FetchNeuralDeepUsage(context.Background(), srv.URL, "sk-x", srv.Client())
+			var ue *NeuralDeepUsageError
+			if !errors.As(err, &ue) || ue.Kind != NeuralDeepUsageInvalid {
+				t.Fatalf("err = %v, want invalid", err)
+			}
+		})
+	}
+}
+
+func TestNeuralDeepUsageForProviderBoundsTheCredentialHelper(t *testing.T) {
+	if _, err := exec.LookPath("sleep"); err != nil {
+		t.Skip("no sleep binary")
+	}
+	srv, calls, _ := neuralDeepUsageServer(t, "", http.StatusOK, neuralDeepUsageFixture, nil)
+	t.Setenv(EnvNeuralDeepBaseURL, srv.URL)
+	t.Setenv("HUNG_API_KEY", "")
+	prov := config.ProviderConfig{Name: "hung", Type: "neuraldeep", APIKeyCommand: "sleep 30"}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := NeuralDeepUsageForProvider(ctx, prov, filepath.Join(t.TempDir(), "none.json"))
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("a hung credential helper held the fetch for %s", elapsed)
+	}
+	var ue *NeuralDeepUsageError
+	if !errors.As(err, &ue) || ue.Kind != NeuralDeepUsageUnauthorized || calls.Load() != 0 {
+		t.Fatalf("err = %v calls = %d, want unauthorized without a request", err, calls.Load())
 	}
 }

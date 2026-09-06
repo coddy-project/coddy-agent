@@ -479,13 +479,24 @@ func TestProviderUsageBackoffKeepsStaleWindows(t *testing.T) {
 		t.Fatalf("stale: err=%v update=%+v calls=%d", err, u, stand.calls.Load())
 	}
 	clock.advance(2 * time.Second)
-	if _, _ = m.ProviderUsage(ctx, "neuraldeep", true); stand.calls.Load() != 2 {
-		t.Fatalf("inside the backoff no request goes out: calls=%d", stand.calls.Load())
+	u, _ = m.ProviderUsage(ctx, "neuraldeep", true)
+	// The pause ends in 3 s but the floor after the failed attempt lasts 13 s
+	// more: the later of the two is when the deferred refresh fires.
+	if stand.calls.Load() != 2 || !u.RefreshPending || u.RefreshInSec != 13 {
+		t.Fatalf("inside the backoff no request goes out and the answer says when: calls=%d update=%+v", stand.calls.Load(), u)
+	}
+	stand.set(http.StatusOK, usageFixture(77), nil)
+	clock.advance(14 * time.Second)
+	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if stand.calls.Load() != 3 {
+		t.Fatalf("the deferred refresh did not fire at the floor's end: calls=%d", stand.calls.Load())
 	}
 	clock.advance(20 * time.Second)
-	stand.set(http.StatusOK, usageFixture(77), nil)
+	stand.set(http.StatusOK, usageFixture(78), nil)
 	u, _ = m.ProviderUsage(ctx, "neuraldeep", true)
-	if stand.calls.Load() != 3 || u.Stale || u.Error != "" || *findWindow(*u, "session").Used != 77 {
+	if stand.calls.Load() != 4 || u.Stale || u.Error != "" || *findWindow(*u, "session").Used != 78 {
 		t.Fatalf("after the backoff: calls=%d update=%+v", stand.calls.Load(), u)
 	}
 }
@@ -656,5 +667,182 @@ func TestProviderUsageTwoSessionsShareOneSnapshot(t *testing.T) {
 		if len(u.UnlimitedModels) != 1 || u.UnlimitedModels[0] != "qwen3.6-35b-a3b" {
 			t.Fatalf("snapshot = %+v", u)
 		}
+	}
+}
+
+// usageNoopSender stands for coddy http's manager-wide sender: it drops
+// everything, so only the observers can carry a snapshot.
+type usageNoopSender struct{}
+
+func (usageNoopSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (usageNoopSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow"}, nil
+}
+
+func (usageNoopSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// gatedUsageStand is a stand-in whose answer waits for the test to release
+// it, so several sessions can join one running fetch.
+func gatedUsageStand(t *testing.T) (*usageStand, chan struct{}) {
+	t.Helper()
+	gate := make(chan struct{})
+	s := &usageStand{status: http.StatusOK, body: usageFixture(407)}
+	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.calls.Add(1)
+		<-gate
+		s.mu.Lock()
+		body := s.body
+		s.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(s.srv.Close)
+	return s, gate
+}
+
+func TestProviderUsageFansOutToEverySessionThatJoinedTheFetch(t *testing.T) {
+	stand, gate := gatedUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	var observed []string
+	var obsMu sync.Mutex
+	remove := m.AddUsageObserver(func(id string, _ acp.ProviderUsageUpdate) {
+		obsMu.Lock()
+		observed = append(observed, id)
+		obsMu.Unlock()
+	})
+	defer remove()
+
+	a := newUsageSession(t, m, "")
+	b := newUsageSession(t, m, "neuraldeep/qwen3.6-35b-a3b")
+	// Both turns end while the upstream is still answering the first fetch.
+	if err := usagePrompt(t, m, a, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for stand.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := usagePrompt(t, m, b, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	close(gate)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	if stand.calls.Load() != 1 {
+		t.Fatalf("calls = %d, want one coalesced fetch", stand.calls.Load())
+	}
+	got := map[string]int{}
+	for _, id := range ids {
+		got[id]++
+	}
+	if got[a] != 1 || got[b] != 1 || len(updates) != 2 {
+		t.Fatalf("deliveries = %v (%d updates), want one fresh snapshot per session", got, len(updates))
+	}
+	for _, u := range updates {
+		if u.Plan != "pro" || findWindow(u, "session") == nil {
+			t.Fatalf("delivered snapshot = %+v", u)
+		}
+	}
+	obsMu.Lock()
+	n := len(observed)
+	obsMu.Unlock()
+	if n == 0 {
+		t.Fatalf("observers saw no snapshot")
+	}
+}
+
+func TestProviderUsageReadyDeliversExactlyOnce(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	id := newUsageSession(t, m, "")
+	m.HandleSessionReady(id)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	if len(updates) != 1 || ids[0] != id || stand.calls.Load() != 1 {
+		t.Fatalf("ready delivered %d updates to %v with %d fetches, want exactly one", len(updates), ids, stand.calls.Load())
+	}
+	// A second ready inside the TTL answers from the cache, once again.
+	m.HandleSessionReady(id)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if updates, _ = sender.snapshot(); len(updates) != 2 || stand.calls.Load() != 1 {
+		t.Fatalf("second ready: %d updates, %d fetches", len(updates), stand.calls.Load())
+	}
+}
+
+func TestProviderUsageDeferredTurnEndReachesObservers(t *testing.T) {
+	stand := newUsageStand(t)
+	// A no-op manager sender stands for coddy http, where only the
+	// observers listen.
+	m := newUsageManager(t, stand, usageNoopSender{}, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	var pending []bool
+	var obsMu sync.Mutex
+	remove := m.AddUsageObserver(func(_ string, u acp.ProviderUsageUpdate) {
+		obsMu.Lock()
+		pending = append(pending, u.RefreshPending)
+		obsMu.Unlock()
+	})
+	defer remove()
+	id := newUsageSession(t, m, "")
+	if err := usagePrompt(t, m, id, usageNoopSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(time.Second)
+	if err := usagePrompt(t, m, id, usageNoopSender{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	obsMu.Lock()
+	got := append([]bool(nil), pending...)
+	obsMu.Unlock()
+	if len(got) != 2 || got[0] || !got[1] {
+		t.Fatalf("observer saw %v, want a fresh snapshot then a deferred one", got)
+	}
+}
+
+func TestProviderUsageForSessionReportsADeferredReadToTheSession(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if _, err := m.ProviderUsageForSession(ctx, "s1", "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	if updates, _ := sender.snapshot(); len(updates) != 0 || stand.calls.Load() != 1 {
+		t.Fatalf("a read the caller awaits delivers nothing by itself: %d updates, %d calls", len(updates), stand.calls.Load())
+	}
+	clock.advance(5 * time.Second)
+	stand.set(http.StatusOK, usageFixture(555), nil)
+	u, err := m.ProviderUsageForSession(ctx, "s1", "neuraldeep", true)
+	if err != nil || !u.RefreshPending || u.RefreshInSec == 0 {
+		t.Fatalf("inside the floor: err=%v update=%+v", err, u)
+	}
+	clock.advance(11 * time.Second)
+	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	if len(updates) != 1 || ids[0] != "s1" || *findWindow(updates[0], "session").Used != 555 || updates[0].RefreshPending {
+		t.Fatalf("deferred read: updates=%+v ids=%v", updates, ids)
+	}
+	// The settled snapshot re-arms nothing on the server side: no pending refresh.
+	if clock.pending() != 0 {
+		t.Fatalf("pending timers = %d", clock.pending())
 	}
 }

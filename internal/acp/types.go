@@ -456,11 +456,10 @@ type ProviderUsageUpdate struct {
 	RetryInSec int    `json:"retryInSec,omitempty"`
 	// Unlimited marks a key without volume windows (wallet or bypass keys);
 	// UnlimitedModels lists upstream model ids that bypass the windows on a
-	// metered key, and ModelUnlimited says the session's own model is one of
-	// them (stamped by the server, which knows the session's model).
+	// metered key. The snapshot is account-wide: a client compares the part
+	// of its model selector after the first slash with this list.
 	Unlimited       bool     `json:"unlimited,omitempty"`
 	UnlimitedModels []string `json:"unlimitedModels,omitempty"`
-	ModelUnlimited  bool     `json:"modelUnlimited,omitempty"`
 	// Stale marks windows carried over from an earlier successful fetch
 	// because the latest one failed (see Error).
 	Stale bool `json:"stale,omitempty"`

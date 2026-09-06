@@ -351,6 +351,11 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 				w.WaitCancels(5 * time.Second)
 			}
 		}
+		if c, ok := app.mgr.(interface{ Close() }); ok {
+			// A remote backend stops its usage follow-up timers: nothing may
+			// fire into the closed console.
+			c.Close()
+		}
 		app.Close()
 		app.JoinWorkers(3 * time.Second)
 		app.stopSpinner()

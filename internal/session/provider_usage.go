@@ -74,11 +74,17 @@ type providerUsageEntry struct {
 	pendingStop    func() bool
 	pendingAt      time.Time
 	pendingSession string
+	// waiters are the sessions that joined the running fetch after it
+	// started; every one of them receives the result.
+	waiters []string
 }
 
 type providerUsageState struct {
-	mu          sync.Mutex
-	entries     map[string]*providerUsageEntry
+	mu      sync.Mutex
+	entries map[string]*providerUsageEntry
+	// generation is one monotonic counter for every entry, so a callback that
+	// outlived a dropped entry can never match its replacement.
+	generation  uint64
 	now         func() time.Time
 	after       providerUsageTimerFunc
 	wg          sync.WaitGroup
@@ -185,14 +191,28 @@ func providerUsageSource(providerType string) bool {
 // provider type without a usage source answers Unsupported; otherwise the
 // cached snapshot inside the TTL, or a fresh one. refresh bypasses the TTL:
 // past the floor it fetches at once, inside it the cached snapshot comes
-// back with RefreshPending and the fetch is deferred to the floor's end. A
-// fetch failure answers the previous snapshot marked Stale with the error
-// kind, so a surface keeps the last known numbers.
+// back with RefreshPending and the fetch is deferred to the floor's end
+// (the caller reads again when it says so). A fetch failure answers the
+// previous snapshot marked Stale with the error kind, so a surface keeps the
+// last known numbers.
 func (m *Manager) ProviderUsage(ctx context.Context, providerName string, refresh bool) (*acp.ProviderUsageUpdate, error) {
 	return m.providerUsageRead(ctx, providerName, refresh, "")
 }
 
-func (m *Manager) providerUsageRead(ctx context.Context, providerName string, refresh bool, sessionID string) (*acp.ProviderUsageUpdate, error) {
+// ProviderUsageForSession is ProviderUsage for a surface that cannot read
+// again on its own schedule, the console: when the read is deferred by the
+// floor, the deferred fetch delivers its result to sessionID through the
+// manager sender, so the caller applies the answer it gets now and the
+// fresh one when it lands.
+func (m *Manager) ProviderUsageForSession(ctx context.Context, sessionID, providerName string, refresh bool) (*acp.ProviderUsageUpdate, error) {
+	return m.providerUsageRead(ctx, providerName, refresh, strings.TrimSpace(sessionID))
+}
+
+// providerUsageRead is the shared read; deferTo names the session a deferred
+// fetch reports to ("" for a plain read, whose caller reads again itself).
+// A fetch the read starts delivers to nobody: the caller receives that
+// result directly.
+func (m *Manager) providerUsageRead(ctx context.Context, providerName string, refresh bool, deferTo string) (*acp.ProviderUsageUpdate, error) {
 	cfg := m.activeCfg()
 	prov := cfg.FindProvider(strings.TrimSpace(providerName))
 	if prov == nil {
@@ -216,7 +236,11 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 	sinceAttempt := now.Sub(e.lastAttempt)
 	switch {
 	case e.update != nil && !e.backoffUntil.IsZero() && now.Before(e.backoffUntil):
-		// The hub asked for a pause: serve what we have until it passes.
+		// The hub asked for a pause: serve what we have until it passes; a
+		// refresh is deferred to the pause's end and the answer says so.
+		if refresh {
+			m.usageDeferLocked(prov.Name, e, deferTo, now)
+		}
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
@@ -241,12 +265,12 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		return &u, nil
 	case e.update != nil && !e.lastAttempt.IsZero() && sinceAttempt < providerUsageFloor:
 		// Inside the floor: the snapshot comes back now, the fetch later.
-		m.usageDeferLocked(prov.Name, e, sessionID, now)
+		m.usageDeferLocked(prov.Name, e, deferTo, now)
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
 	}
-	done := m.usageStartFetchLocked(prov, authPath, e, sessionID)
+	done := m.usageStartFetchLocked(prov, authPath, e, "")
 	m.usage.mu.Unlock()
 	return m.usageAwait(ctx, done, prov.Name)
 }
@@ -278,12 +302,11 @@ func (m *Manager) usageEntryLocked(name, fingerprint string) *providerUsageEntry
 	if e != nil && e.fingerprint == fingerprint {
 		return e
 	}
-	var generation uint64
 	if e != nil {
-		generation = e.generation + 1
 		m.usageInvalidateLocked(e)
 	}
-	e = &providerUsageEntry{fingerprint: fingerprint, generation: generation}
+	m.usage.generation++
+	e = &providerUsageEntry{fingerprint: fingerprint, generation: m.usage.generation}
 	m.usage.entries[name] = e
 	return e
 }
@@ -292,7 +315,8 @@ func (m *Manager) usageEntryLocked(name, fingerprint string) *providerUsageEntry
 // timer is cancelled, the in-flight fetch is cancelled and its result will
 // be discarded because the generation moved on.
 func (m *Manager) usageInvalidateLocked(e *providerUsageEntry) {
-	e.generation++
+	m.usage.generation++
+	e.generation = m.usage.generation
 	if e.pendingStop != nil {
 		e.pendingStop()
 		e.pendingStop, e.pendingAt, e.pendingSession = nil, time.Time{}, ""
@@ -328,7 +352,13 @@ func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID
 	if e.pendingStop != nil {
 		return
 	}
+	// The refresh answers the sessions that are still waiting for one.
+	e.waiters = nil
+	// The floor's end, or the backoff's end when the hub asked for a pause.
 	at := e.lastAttempt.Add(providerUsageFloor)
+	if e.backoffUntil.After(at) {
+		at = e.backoffUntil
+	}
 	delay := at.Sub(now)
 	if delay < 0 {
 		delay = 0
@@ -349,6 +379,9 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	sessionID := e.pendingSession
 	e.pendingStop, e.pendingAt, e.pendingSession = nil, time.Time{}, ""
 	if e.inflight != nil {
+		if sessionID != "" {
+			e.waiters = appendSession(e.waiters, sessionID)
+		}
 		return
 	}
 	cfg := m.activeCfg()
@@ -368,6 +401,10 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 	ctx, cancel := context.WithTimeout(context.Background(), providerUsageFetchTimeout)
 	e.inflight, e.inflightCancel = done, cancel
 	e.lastAttempt = m.usageNow()
+	e.waiters = nil
+	if sessionID != "" {
+		e.waiters = appendSession(e.waiters, sessionID)
+	}
 	generation := e.generation
 	name := prov.Name
 	provider := *prov
@@ -394,14 +431,30 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 			m.usageRecordFailureLocked(e, name, provider.Type, err, fetchedAt)
 		}
 		delivered := m.usageDeliverableLocked(e, fetchedAt)
+		// Every session that asked while the fetch ran gets the result: the
+		// one that started it and the ones that joined it.
+		waiters := e.waiters
+		e.waiters = nil
 		m.usage.mu.Unlock()
 		close(done)
-		if sessionID != "" && m.server != nil {
-			_ = m.server.SendSessionUpdate(sessionID, delivered)
+		if m.server != nil {
+			for _, id := range waiters {
+				_ = m.server.SendSessionUpdate(id, delivered)
+			}
 		}
 		m.notifyUsageObservers(sessionID, delivered)
 	}()
 	return done
+}
+
+// appendSession adds a session id to a waiter list once.
+func appendSession(list []string, id string) []string {
+	for _, have := range list {
+		if have == id {
+			return list
+		}
+	}
+	return append(list, id)
 }
 
 // usageRecordFailureLocked folds a failed fetch into the entry: the
@@ -541,14 +594,15 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	var deliverNow *acp.ProviderUsageUpdate
 	switch {
 	case e.inflight != nil:
-		// The running fetch delivers to its own requester; this session gets
-		// the result as soon as it lands, so it is remembered as pending.
-		e.pendingSession = sessionID
+		// The running fetch delivers to every session that joined it; the
+		// current snapshot, when there is one, goes out right away.
+		e.waiters = appendSession(e.waiters, sessionID)
 		if e.update != nil {
 			u := m.usageDeliverableLocked(e, now)
 			deliverNow = &u
 		}
 	case e.update != nil && !e.backoffUntil.IsZero() && now.Before(e.backoffUntil):
+		m.usageDeferLocked(prov.Name, e, sessionID, now)
 		u := m.usageDeliverableLocked(e, now)
 		deliverNow = &u
 	case e.update != nil && !e.lastAttempt.IsZero() && now.Sub(e.lastAttempt) < providerUsageFloor:
@@ -559,8 +613,13 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 		m.usageStartFetchLocked(prov, authPath, e, sessionID)
 	}
 	m.usage.mu.Unlock()
-	if deliverNow != nil && m.server != nil {
-		_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+	if deliverNow != nil {
+		if m.server != nil {
+			_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+		}
+		// The HTTP server listens through the observers only: a deferred or
+		// backed-off turn end still has to reach its events stream.
+		m.notifyUsageObservers(sessionID, *deliverNow)
 	}
 }
 
@@ -578,7 +637,9 @@ func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 		defer m.usage.wg.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), providerUsageReadyBudget)
 		defer cancel()
-		u, err := m.providerUsageRead(ctx, name, false, sessionID)
+		// A plain read: the fetch it may start delivers to nobody, so the
+		// session receives the snapshot exactly once, from here.
+		u, err := m.providerUsageRead(ctx, name, false, "")
 		if err != nil || u == nil || u.Unsupported {
 			return
 		}
@@ -599,7 +660,9 @@ func mapNeuralDeepUsage(u *llm.NeuralDeepUsage, providerName string, fetchedAt t
 		FetchedAt:     fetchedAt.UTC().Format(time.RFC3339),
 		Plan:          strings.TrimSpace(u.Tier),
 		KeyName:       strings.TrimSpace(u.Key.Name),
-		Unlimited:     u.Bypass || !u.FairUse || u.UnlimitedVolume,
+		// A missing fair_use reads as metered: only an explicit false lifts
+		// the windows.
+		Unlimited: u.Bypass || (u.FairUse != nil && !*u.FairUse) || u.UnlimitedVolume,
 	}
 	observedAt, _ := time.Parse(time.RFC3339, out.ObservedAt)
 	if w, ok := countedUsageWindow("session", u.Chat.Session); ok {

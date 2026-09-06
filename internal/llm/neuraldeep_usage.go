@@ -70,18 +70,22 @@ func (e *NeuralDeepUsageError) Error() string {
 // fields the hub sends as null: a window that does not apply to the key
 // (wallet and bypass keys, unlimited options) has null counters.
 type NeuralDeepUsage struct {
-	Schema          int                     `json:"schema"`
-	ObservedAt      string                  `json:"observed_at"`
-	Tier            string                  `json:"tier"`
-	UnlimitedVolume bool                    `json:"unlimited_volume"`
-	Bypass          bool                    `json:"bypass"`
-	FairUse         bool                    `json:"fair_use"`
-	Options         []NeuralDeepUsageOption `json:"options"`
-	Key             NeuralDeepUsageKey      `json:"key"`
-	Decision        NeuralDeepUsageDecision `json:"decision"`
-	Chat            NeuralDeepUsageChat     `json:"chat"`
-	DailyCapacity   *NeuralDeepUsageDaily   `json:"daily_capacity"`
-	Wallet          *NeuralDeepUsageWallet  `json:"wallet"`
+	Schema          int    `json:"schema"`
+	ObservedAt      string `json:"observed_at"`
+	Tier            string `json:"tier"`
+	UnlimitedVolume bool   `json:"unlimited_volume"`
+	Bypass          bool   `json:"bypass"`
+	// FairUse is nil when the hub omits it; only an explicit false means the
+	// session and week windows do not apply to the key.
+	FairUse *bool                   `json:"fair_use"`
+	Options []NeuralDeepUsageOption `json:"options"`
+	Key     NeuralDeepUsageKey      `json:"key"`
+	// Decision and Chat are required blocks of the schema: a payload without
+	// them is not a limits answer, whatever its schema number says.
+	Decision      *NeuralDeepUsageDecision `json:"decision"`
+	Chat          *NeuralDeepUsageChat     `json:"chat"`
+	DailyCapacity *NeuralDeepUsageDaily    `json:"daily_capacity"`
+	Wallet        *NeuralDeepUsageWallet   `json:"wallet"`
 }
 
 // NeuralDeepUsageOption is an option enabled on the key (Qwen ∞): its models
@@ -200,7 +204,33 @@ func FetchNeuralDeepUsage(ctx context.Context, apiBase, key string, hc *http.Cli
 	if usage.Schema != neuralDeepUsageSchema {
 		return nil, &NeuralDeepUsageError{Status: resp.StatusCode, Kind: NeuralDeepUsageInvalid, Detail: fmt.Sprintf("schema %d, want %d", usage.Schema, neuralDeepUsageSchema)}
 	}
+	if err := usage.validate(); err != nil {
+		return nil, &NeuralDeepUsageError{Status: resp.StatusCode, Kind: NeuralDeepUsageInvalid, Detail: err.Error()}
+	}
 	return &usage, nil
+}
+
+// validate checks the fields every schema-1 answer carries. A renamed or
+// dropped block must read as invalid, not as an account with nothing left
+// (a missing fair_use would otherwise read as unlimited and a missing
+// decision as blocked).
+func (u *NeuralDeepUsage) validate() error {
+	switch {
+	case u == nil:
+		return errors.New("empty payload")
+	case strings.TrimSpace(u.Tier) == "":
+		return errors.New("payload without tier")
+	case strings.TrimSpace(u.ObservedAt) == "":
+		return errors.New("payload without observed_at")
+	case u.Decision == nil:
+		return errors.New("payload without decision")
+	case u.Chat == nil:
+		return errors.New("payload without chat")
+	}
+	if _, err := time.Parse(time.RFC3339, strings.TrimSpace(u.ObservedAt)); err != nil {
+		return errors.New("observed_at is not RFC3339")
+	}
+	return nil
 }
 
 // neuralDeepUsageDetail extracts a short, redacted description from an
@@ -249,7 +279,9 @@ func parseUsageRetryAfter(raw string) time.Duration {
 // the api_base selects the deployment, providers[].proxy applies. Without
 // any credential it returns an unauthorized error without a request.
 func NeuralDeepUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*NeuralDeepUsage, error) {
-	key := neuralDeepEffectiveKey(provider.EffectiveAPIKey(), authPath)
+	// The credential helper runs under the caller's deadline: a hung
+	// api_key_command must not hold a fetch that budgeted five seconds.
+	key := neuralDeepEffectiveKey(provider.EffectiveAPIKeyContext(ctx), authPath)
 	if strings.TrimSpace(key) == "" {
 		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnauthorized, Detail: "no credential: sign in with coddy providers login " + provider.Name}
 	}
