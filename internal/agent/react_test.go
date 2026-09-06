@@ -1593,6 +1593,31 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 	}
 }
 
+func TestContentBlocksToText_lineRangeAttachment(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "docs/ui.md#L10-20", Text: "body"}},
+	}
+	got := contentBlocksToText(blocks)
+	if !strings.Contains(got, `path="docs/ui.md"`) ||
+		!strings.Contains(got, `name="ui.md"`) ||
+		!strings.Contains(got, `lines="10-20"`) {
+		t.Fatalf("unexpected XML bundle: %s", got)
+	}
+	if strings.Contains(got, "#L10-20") {
+		t.Fatalf("range fragment leaked into the path: %s", got)
+	}
+}
+
+// A path that is not a well-formed range fragment stays part of the file name.
+func TestContentBlocksToText_noLinesAttributeWithoutRange(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "notes.md", Text: "b"}},
+	}
+	if got := contentBlocksToText(blocks); strings.Contains(got, "lines=") {
+		t.Fatalf("unexpected lines attribute: %s", got)
+	}
+}
+
 // resumeRewriteFixture prepares a session whose pending run_command call was
 // rewritten by a PreToolUse hook that then asked for permission: the history
 // holds the model's original arguments, the bundle holds the arguments the

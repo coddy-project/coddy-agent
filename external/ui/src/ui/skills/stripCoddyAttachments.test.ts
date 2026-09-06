@@ -57,3 +57,28 @@ test("no duplicate @path when user text already mentioned the attachment", () =>
     "@http_todo_report.md что тут?\n\n",
   );
 });
+
+test("attachment with lines attribute collapses to @path:range", () => {
+  const raw =
+    'see @Dockerfile:21-31\n<coddy_attachment path="Dockerfile" name="Dockerfile" lines="21-31">\n<![CDATA[FROM x]]>\n</coddy_attachment>';
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("see @Dockerfile:21-31\n");
+});
+
+test("ranged attachment renders @path:range when text lacks the mention", () => {
+  const raw =
+    'look\n<coddy_attachment path="f.go" name="f.go" lines="2-4">\n<![CDATA[x]]>\n</coddy_attachment>';
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("look\n@f.go:2-4");
+});
+
+test("plain and ranged mentions of the same path are distinct", () => {
+  const raw =
+    'see @f.go:1-2\n<coddy_attachment path="f.go" name="f.go">\n<![CDATA[x]]>\n</coddy_attachment>';
+  expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("see @f.go:1-2\n@f.go");
+});
+
+test("a malformed lines attribute falls back to the plain @path", () => {
+  for (const bad of ["9-2", "0-3"]) {
+    const raw = `look\n<coddy_attachment path="f.go" name="f.go" lines="${bad}">\n<![CDATA[x]]>\n</coddy_attachment>`;
+    expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("look\n@f.go");
+  }
+});

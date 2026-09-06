@@ -606,6 +606,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
+			// A hydrated @mention turn also carries <coddy_attachment> file bodies;
+			// a title is the user's own text, never the attachment XML.
+			text = stripCoddyAttachmentXML(text)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -633,6 +636,47 @@ func stripCoddySessionAssetsXML(s string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// stripCoddyAttachmentXML removes hydrated @mention attachment blocks from s.
+// Transcripts keep them - only derived titles drop them. The file body sits in
+// CDATA sections (internal/agent wrapXMLCDATA splits an embedded "]]>" across
+// two of them), so the closing tag is looked for outside those sections only:
+// a file that itself contains "</coddy_attachment>" must not leak past it.
+func stripCoddyAttachmentXML(s string) string {
+	const openTag, closeTag, cdataOpen, cdataClose = "<coddy_attachment", "</coddy_attachment>", "<![CDATA[", "]]>"
+	var b strings.Builder
+	for {
+		start := strings.Index(s, openTag)
+		if start < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:start])
+		rest := s[start:]
+		end := -1
+		for pos := len(openTag); pos < len(rest); {
+			if strings.HasPrefix(rest[pos:], cdataOpen) {
+				n := strings.Index(rest[pos+len(cdataOpen):], cdataClose)
+				if n < 0 {
+					break
+				}
+				pos += len(cdataOpen) + n + len(cdataClose)
+				continue
+			}
+			if strings.HasPrefix(rest[pos:], closeTag) {
+				end = pos + len(closeTag)
+				break
+			}
+			pos++
+		}
+		if end < 0 {
+			// An unterminated block: keep the text as it is rather than eat it.
+			b.WriteString(rest)
+			return b.String()
+		}
+		s = rest[end:]
+	}
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.

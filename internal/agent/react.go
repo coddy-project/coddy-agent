@@ -1509,6 +1509,13 @@ func wrapXMLCDATA(body string) string {
 func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	pathRaw := strings.TrimSpace(res.URI)
 	pathRaw = strings.TrimPrefix(pathRaw, "file://")
+	// A ranged @mention carries its lines as the "#L<start>-<end>" fragment that
+	// internal/session wrote; the same parser takes it back off the path.
+	pathRaw, startLine, endLine := session.SplitLineRangeURI(pathRaw)
+	lines := ""
+	if startLine > 0 {
+		lines = fmt.Sprintf("%d-%d", startLine, endLine)
+	}
 	pathFwd := filepath.ToSlash(pathRaw)
 	name := filepath.Base(pathFwd)
 	if name == "." || name == "/" {
@@ -1519,6 +1526,10 @@ func resourceBlockToXMLAttachment(res *acp.Resource) string {
 	b.WriteString(xmlEscapedAttr(pathFwd))
 	b.WriteString(`" name="`)
 	b.WriteString(xmlEscapedAttr(name))
+	if lines != "" {
+		b.WriteString(`" lines="`)
+		b.WriteString(lines)
+	}
 	b.WriteString(`">`)
 	b.WriteByte('\n')
 	b.WriteString(wrapXMLCDATA(res.Text))

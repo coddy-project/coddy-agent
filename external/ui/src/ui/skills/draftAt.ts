@@ -38,12 +38,49 @@ function prefixClosedAfterFileExtensionForAtMenu(prefix: string): boolean {
   return true;
 }
 
+/** One **`@`** mention span: a workspace file path, optionally with a line range. */
+export type AtPathSpan = {
+  start: number;
+  end: number;
+  path: string;
+  /** 1-based inclusive line range from a **`":start-end"`** suffix (**`@f.go:21-31`**). */
+  lines?: { start: number; end: number };
+};
+
+/**
+ * Reads a **`":start-end"`** suffix at **`text[k]`**. The suffix counts only when both
+ * numbers are valid (1 <= start <= end) and the token ends there: the next
+ * char must not be a letter, digit, or **`-`**, so **`":21-31x"`** stays prose.
+ * Mirrors internal/session parseAtLineRangeSuffix.
+ */
+function parseAtLineRangeSuffix(
+  text: string,
+  k: number,
+): { start: number; end: number; next: number } | null {
+  const m = /^:(\d{1,9})-(\d{1,9})/u.exec(text.slice(k));
+  if (!m) {
+    return null;
+  }
+  const after = text[k + m[0].length];
+  if (after !== undefined && /[\p{L}\p{N}-]/u.test(after)) {
+    return null;
+  }
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  if (start < 1 || end < start) {
+    return null;
+  }
+  return { start, end, next: k + m[0].length };
+}
+
 /**
  * Workspace-relative **`@path`** spans (files only) in document order.
  * Folder navigation tokens end with **`/`** and are omitted.
+ * A **`":start-end"`** suffix on a file token becomes **`lines`** and joins the span,
+ * so the mirror chips **`@f.go:21-31`** as one token.
  */
-export function listAtPathSpans(text: string): { start: number; end: number; path: string }[] {
-  const out: { start: number; end: number; path: string }[] = [];
+export function listAtPathSpans(text: string): AtPathSpan[] {
+  const out: AtPathSpan[] = [];
   let i = 0;
   const n = text.length;
   while (i < text.length) {
@@ -97,24 +134,50 @@ export function listAtPathSpans(text: string): { start: number; end: number; pat
     if (raw.endsWith("/")) {
       continue;
     }
-    out.push({ start: j, end: k, path: raw });
+    let end = k;
+    let lines: { start: number; end: number } | undefined;
+    // Only an unpadded token may carry a range: "@foo :1-5" had its trailing
+    // whitespace trimmed, and the suffix there belongs to the prose.
+    if (raw === text.slice(j + 1, k)) {
+      const range = parseAtLineRangeSuffix(text, k);
+      if (range) {
+        lines = { start: range.start, end: range.end };
+        end = range.next;
+        i = end;
+      }
+    }
+    out.push({ start: j, end, path: raw, ...(lines ? { lines } : {}) });
   }
   return out;
 }
 
+/** One prompt attachment derived from an **`@path`** mention. */
+export type AtFileAttachment = {
+  path: string;
+  startLine?: number;
+  endLine?: number;
+};
+
 /**
  * Builds attachment list from **`@path`** occurrences in composer text (files only).
  * Folder navigation tokens end with **`/`** and are skipped.
+ * Deduped by path plus line range, so **`@f.go`** and **`@f.go:2-4`** are two attachments.
  */
-export function extractAtFileAttachments(text: string): { path: string }[] {
-  const out: { path: string }[] = [];
+export function extractAtFileAttachments(text: string): AtFileAttachment[] {
+  const out: AtFileAttachment[] = [];
   const seen = new Set<string>();
   for (const sp of listAtPathSpans(text)) {
-    if (seen.has(sp.path)) {
+    const key = sp.lines
+      ? `${sp.path}#L${sp.lines.start}-${sp.lines.end}`
+      : sp.path;
+    if (seen.has(key)) {
       continue;
     }
-    seen.add(sp.path);
-    out.push({ path: sp.path });
+    seen.add(key);
+    out.push({
+      path: sp.path,
+      ...(sp.lines ? { startLine: sp.lines.start, endLine: sp.lines.end } : {}),
+    });
   }
   return out;
 }

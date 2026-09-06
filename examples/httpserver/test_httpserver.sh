@@ -69,6 +69,8 @@ python3 "$HTTP_DIR/http_e2e_todo.py"
 python3 "$HTTP_DIR/http_e2e_memory.py"
 python3 "$HTTP_DIR/http_e2e_skills_slash.py"
 python3 "$HTTP_DIR/http_e2e_rules.py"
+# Ranged @mentions: picker read, attachments[].source lines, typed grammar, 400 past EOF.
+python3 "$HTTP_DIR/http_e2e_mentions.py"
 python3 "$HTTP_DIR/http_e2e_background.py"
 python3 "$HTTP_DIR/http_e2e_subagents.py"
 python3 "$HTTP_DIR/http_e2e_hooks.py"
