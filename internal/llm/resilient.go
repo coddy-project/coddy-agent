@@ -146,12 +146,14 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			delay = p.opts.RetryBase
 		}
 		onLimit := httpStatusFromError(err) == 429
-		if onLimit && p.opts.RetryBudgetSet && delay > p.retryBudget(attempt, elapsed, spentBefore) {
+		bounded := p.opts.RetryBudgetSet || p.opts.CallBudget > 0
+		if onLimit && bounded && delay > p.retryBudget(attempt, elapsed, spentBefore) {
 			// A 429 that named no pause takes the ordinary backoff only
-			// while the caller's budget allows; past it the call ends with
-			// the provider's own error. No reset is invented for it: the
-			// typed error, and the countdown built on it, stand for a
-			// moment the provider named.
+			// while the caller's bounds allow, the call's own as much as
+			// the unit of work's; past them the call ends with the
+			// provider's own error rather than sleeping into the caller's
+			// timer. No reset is invented for it: the typed error, and the
+			// countdown built on it, stand for a moment the provider named.
 			return resp, err
 		}
 		sleepStart := time.Now()

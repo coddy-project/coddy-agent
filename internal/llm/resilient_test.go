@@ -655,4 +655,25 @@ func TestResilientProviderCallBudgetIsPerCall(t *testing.T) {
 	if !errors.As(err, &reset) || calls.Load() != 1 {
 		t.Fatalf("a pause the caller's timer would cut fails fast: calls=%d err=%v", calls.Load(), err)
 	}
+	// An unnamed 429 under the call's bound alone: its backoff runs while
+	// the bound allows and the call otherwise ends with the provider's own
+	// error, never a reset and never a sleep into the caller's timer.
+	unnamed := retryHTTPError(t, "openai", 429, nil)
+	inner.streamFn = func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+		if calls.Add(1) == 1 {
+			return nil, unnamed
+		}
+		return &Response{Content: "done", StopReason: "end_turn"}, nil
+	}
+	calls.Store(0)
+	roomy := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: 100 * time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, CallBudget: time.Second})
+	if _, err := roomy.Stream(context.Background(), nil, nil, nil); err != nil || calls.Load() != 2 {
+		t.Fatalf("a backoff under the call's bound is taken: calls=%d err=%v", calls.Load(), err)
+	}
+	calls.Store(0)
+	cut := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: 100 * time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, CallBudget: 120 * time.Millisecond})
+	_, err = cut.Stream(context.Background(), nil, nil, nil)
+	if errors.As(err, &reset) || !errors.Is(err, unnamed) || calls.Load() != 1 {
+		t.Fatalf("a backoff past the call's bound ends with the provider's error at once: calls=%d err=%v", calls.Load(), err)
+	}
 }
