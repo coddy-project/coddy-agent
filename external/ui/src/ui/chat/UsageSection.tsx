@@ -5,6 +5,7 @@ import {
   formatRub,
   summarizeUsage,
   usagePercent,
+  usagePlanLabel,
   usageWindowLabelKey,
   type ProviderUsage,
   type UsageWindow,
@@ -94,7 +95,7 @@ export function UsageSection(props: {
     <div className="context-usage" data-testid="context-usage" data-kind={summary.kind}>
       <div className="context-usage-head">
         <span className="context-usage-title">
-          {u.plan ? `${brand} · ${u.plan}` : brand}
+          {u.plan ? `${brand} · ${usagePlanLabel(u.plan)}` : brand}
         </span>
         {note ? (
           <span

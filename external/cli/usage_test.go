@@ -46,7 +46,7 @@ func TestUsageFooterLineReadsPlanWindowsAndWallet(t *testing.T) {
 	th := newTheme("dark")
 	segs := usageFooterSegments(usageFixtureUpdate(), "neuraldeep/qwen3.8-27b", usageNow)
 	line := plain(renderUsageLine(th, segs, 120))
-	want := "pro • 3h 3% (resets 17:59) • week 7% (resets 00:00) • wallet -1 229 ₽"
+	want := "Pro • 3h 3% (resets 17:59) • week 7% (resets 00:00) • wallet -1 229 ₽"
 	if line != want {
 		t.Fatalf("footer line = %q, want %q", line, want)
 	}
@@ -59,8 +59,8 @@ func TestUsageFooterDropsSegmentsOnNarrowTerminals(t *testing.T) {
 		width int
 		want  string
 	}{
-		{60, "pro • 3h 3% (resets 17:59) • week 7% (resets 00:00)"},
-		{40, "pro • 3h 3% (resets 17:59)"},
+		{60, "Pro • 3h 3% (resets 17:59) • week 7% (resets 00:00)"},
+		{40, "Pro • 3h 3% (resets 17:59)"},
 		{24, "3h 3% (resets 17:59)"},
 		{12, "3h 3% (reset"},
 	}
@@ -100,7 +100,7 @@ func TestUsageFooterWarnsAtTheThresholdAndOnABlock(t *testing.T) {
 	blocked.RetryAt = "2026-09-06T17:59:59Z"
 	blocked.RetryInSec = 767
 	segs = usageFooterSegments(blocked, "neuraldeep/qwen3.8-27b", usageNow)
-	if got := plain(renderUsageLine(th, segs, 120)); got != "pro • limit reached (resets 17:59) • wallet -1 229 ₽" {
+	if got := plain(renderUsageLine(th, segs, 120)); got != "Pro • limit reached (resets 17:59) • wallet -1 229 ₽" {
 		t.Fatalf("blocked line = %q", got)
 	}
 	if segs[1].role != roleError {
@@ -149,14 +149,14 @@ func TestUsageFooterUnlimitedModelAndKey(t *testing.T) {
 	th := newTheme("dark")
 	u := usageFixtureUpdate()
 	segs := usageFooterSegments(u, "neuraldeep/qwen3.6-35b-a3b", usageNow)
-	if got := plain(renderUsageLine(th, segs, 120)); got != "pro • ∞ volume • wallet -1 229 ₽" {
+	if got := plain(renderUsageLine(th, segs, 120)); got != "Pro • ∞ volume • wallet -1 229 ₽" {
 		t.Fatalf("unlimited model line = %q", got)
 	}
 	u.Unlimited = true
 	u.Windows = u.Windows[2:] // only the day window survives on such a key
 	u.Windows[0].UsedPercent = 12.5
 	segs = usageFooterSegments(u, "neuraldeep/qwen3.8-27b", usageNow)
-	if got := plain(renderUsageLine(th, segs, 120)); got != "pro • ∞ volume • day 13% (resets 00:00) • wallet -1 229 ₽" {
+	if got := plain(renderUsageLine(th, segs, 120)); got != "Pro • ∞ volume • day 13% (resets 00:00) • wallet -1 229 ₽" {
 		t.Fatalf("unlimited key line = %q", got)
 	}
 }
@@ -213,7 +213,7 @@ func TestUsageStringsFromTheHubAreSanitised(t *testing.T) {
 func TestUsageReportLines(t *testing.T) {
 	lines := usageReportLines(usageFixtureUpdate(), "neuraldeep/qwen3.8-27b", usageNow)
 	want := []string{
-		"NeuralDeep · pro · key coddy",
+		"NeuralDeep · Pro · key coddy",
 		"  session (3h)   ▮▯▯▯▯▯▯▯▯▯    3%  407 / 15 000  resets 17:59",
 		"  week           ▮▯▯▯▯▯▯▯▯▯    7%  9 981 / 150 000  resets 00:00",
 		"  day            ▯▯▯▯▯▯▯▯▯▯    0%  resets 00:00",

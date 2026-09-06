@@ -34,7 +34,7 @@ test("the section lists the metered windows with their reset time and percent, a
   const { container } = render(<UsageSection usage={fixture()} modelId="neuraldeep/qwen3.8-27b" now={now} />);
   const section = container.querySelector("[data-testid=context-usage]") as HTMLElement;
   expect(section.getAttribute("data-kind")).toBe("metered");
-  expect(section.querySelector(".context-usage-title")?.textContent).toBe("NeuralDeep · pro");
+  expect(section.querySelector(".context-usage-title")?.textContent).toBe("NeuralDeep · Pro");
   const session = section.querySelector("[data-testid=context-usage-row-session]") as HTMLElement;
   expect(session.getAttribute("data-tone")).toBe("ok");
   expect(session.querySelector(".context-usage-label")?.textContent).toBe("3h");

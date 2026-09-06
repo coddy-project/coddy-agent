@@ -118,6 +118,19 @@ func usagePercent(pct float64) int {
 	return int(math.Round(pct))
 }
 
+// usagePlanLabel renders the hub's tier id the way the footer and the
+// report show it: sanitised, with its first letter in upper case ("pro"
+// reads "Pro", "coder" reads "Coder"), no mapping, so a tier the hub adds
+// tomorrow reads as well.
+func usagePlanLabel(plan string) string {
+	plan = tui.SanitizeText(strings.TrimSpace(plan))
+	if plan == "" {
+		return ""
+	}
+	r, size := utf8.DecodeRuneInString(plan)
+	return string(unicode.ToUpper(r)) + plan[size:]
+}
+
 // formatResetTime renders a hub timestamp in the reader's clock: the time
 // of day within 24 h, the weekday and time within 7 days, the date beyond.
 // Both instants are compared as given; at is shown in now's location.
@@ -276,7 +289,7 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 		return nil
 	}
 	var segs []usageSegment
-	if plan := tui.SanitizeText(strings.TrimSpace(u.Plan)); plan != "" {
+	if plan := usagePlanLabel(u.Plan); plan != "" {
 		segs = append(segs, usageSegment{text: plan, role: roleDim, drop: dropPlan})
 	}
 	switch {
@@ -387,7 +400,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 		return nil
 	}
 	head := usageBrand(u)
-	if plan := tui.SanitizeText(strings.TrimSpace(u.Plan)); plan != "" {
+	if plan := usagePlanLabel(u.Plan); plan != "" {
 		head += " · " + plan
 	}
 	if key := tui.SanitizeText(strings.TrimSpace(u.KeyName)); key != "" {

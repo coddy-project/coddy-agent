@@ -151,7 +151,7 @@ Feature: Interactive console TUI
   Scenario: The footer shows the NeuralDeep session and weekly usage
     Given a coddy console app over a stub agent runner with a neuraldeep provider
     When the console app starts
-    Then the footer shows the neuraldeep usage "pro • 3h 3% (resets"
+    Then the footer shows the neuraldeep usage "Pro • 3h 3% (resets"
     And the footer shows the neuraldeep usage "week 7% (resets"
     And the footer shows the neuraldeep usage "wallet -1 229 ₽"
 
@@ -176,7 +176,7 @@ Feature: Interactive console TUI
     Given a coddy console app over a stub agent runner with a neuraldeep provider
     When the console app starts
     And the operator submits the command "/usage"
-    Then the usage report shows "NeuralDeep · pro · key coddy"
+    Then the usage report shows "NeuralDeep · Pro · key coddy"
     And the usage report shows "407 / 15 000"
     And the usage report shows "rpm            2 / 120 this minute"
 

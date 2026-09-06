@@ -308,6 +308,17 @@ export function usageBannerKey(u: ProviderUsage | null | undefined): string {
 }
 
 /**
+ * The plan name as the popover shows it: the hub's tier id with its first
+ * letter in upper case ("pro" reads "Pro", "coder" reads "Coder"), no
+ * mapping, so a tier the hub adds tomorrow reads as well.
+ */
+export function usagePlanLabel(plan: string | undefined): string {
+  const p = (plan ?? "").trim();
+  if (!p) return "";
+  return p.charAt(0).toLocaleUpperCase() + p.slice(1);
+}
+
+/**
  * The i18n key naming a window when the server's label is a plain English
  * word ("week", "day"); the session window's label is a duration the hub
  * chose ("3h") and reads the same in every language. Empty when the label

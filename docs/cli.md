@@ -71,7 +71,7 @@ Top to bottom:
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
   A third line appears while the active model's provider reports account
   usage (today: `neuraldeep`, read from the hub's `GET /v1/limits`):
-  `pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
+  `Pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 ₽`,
   the plan, each metered window as percent **used** with its reset time in
   your clock (time of day within 24 h, weekday within a week, date beyond),
   the day window only when it is above zero, and the account's own ruble

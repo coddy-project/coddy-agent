@@ -11,6 +11,7 @@ import {
   usageNextReadMs,
   usagePassedResetKey,
   usagePercent,
+  usagePlanLabel,
   usageProviderOf,
   usageWindowLabelKey,
   USAGE_TIMER_MAX_MS,
@@ -54,6 +55,14 @@ describe("providerUsage helpers", () => {
     expect(modelUnlimited(fixture(), "neuraldeep/qwen3.6-35b-a3b")).toBe(true);
     expect(modelUnlimited(fixture(), "neuraldeep/qwen3.8-27b")).toBe(false);
     expect(modelUnlimited({ ...fixture(), unlimited: true }, "neuraldeep/x")).toBe(true);
+  });
+
+  test("the plan name gets a capital, nothing else", () => {
+    expect(usagePlanLabel("pro")).toBe("Pro");
+    expect(usagePlanLabel("coder")).toBe("Coder");
+    expect(usagePlanLabel(" starter ")).toBe("Starter");
+    expect(usagePlanLabel("")).toBe("");
+    expect(usagePlanLabel(undefined)).toBe("");
   });
 
   test("percent, rubles and reset time", () => {
