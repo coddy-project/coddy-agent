@@ -537,7 +537,9 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 // enough to retry for a row whose key is produced by a command: the
 // fingerprint cannot see the command's output change, so time does.
 func (m *Manager) usageRejectionExpiredLocked(prov *config.ProviderConfig, e *providerUsageEntry, now time.Time) bool {
-	if strings.TrimSpace(prov.APIKeyCommand) == "" {
+	// The command is the credential in use only when no literal key outranks
+	// it (EffectiveAPIKey: api_key, then the command, then the env var).
+	if strings.TrimSpace(prov.APIKeyCommand) == "" || strings.TrimSpace(prov.APIKey) != "" {
 		return false
 	}
 	return !e.unauthorizedAt.IsZero() && now.Sub(e.unauthorizedAt) >= providerUsageCommandRetry
@@ -576,13 +578,22 @@ func (m *Manager) resetProviderUsage() {
 func (m *Manager) pauseProviderUsage() {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
+	now := m.usageNow()
 	for name, e := range m.usage.entries {
 		pendingAt, sessions := e.pendingAt, e.pendingSessions
 		hadPending := e.pendingStop != nil
+		// The sessions waiting on the cancelled fetch are owed a result: they
+		// join the re-armed refresh, which fires at once when nothing was
+		// pending.
+		waiters := e.waiters
+		hadInflight := e.inflight != nil
 		m.usageInvalidateLocked(e)
-		e.inflight, e.inflightCancel = nil, nil
-		if hadPending {
-			m.usageArmPendingLocked(name, e, pendingAt, sessions)
+		e.inflight, e.inflightCancel, e.waiters = nil, nil, nil
+		switch {
+		case hadPending:
+			m.usageArmPendingLocked(name, e, pendingAt, appendSessions(sessions, waiters))
+		case hadInflight:
+			m.usageArmPendingLocked(name, e, now, waiters)
 		}
 	}
 }

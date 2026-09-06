@@ -615,6 +615,56 @@ func TestProviderUsageCommandBackedRowRetriesARejectionAfterAWhile(t *testing.T)
 	}
 }
 
+func TestProviderUsageConfigSwapDuringAFetchStillAnswersTheWaiter(t *testing.T) {
+	stand, gate := gatedUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	id := newUsageSession(t, m, "")
+	if err := usagePrompt(t, m, id, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for stand.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	// The settings save lands while the turn-end fetch is blocked upstream.
+	m.pauseProviderUsage()
+	close(gate)
+	deadline = time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if updates, _ := sender.snapshot(); len(updates) >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	if len(updates) != 1 || ids[0] != id || updates[0].Plan != "pro" {
+		t.Fatalf("waiter after a config swap: %d updates to %v (calls %d)", len(updates), ids, stand.calls.Load())
+	}
+}
+
+func TestProviderUsageLiteralKeyKeepsARejectionStickyDespiteACommand(t *testing.T) {
+	stand := newUsageStand(t)
+	stand.set(http.StatusUnauthorized, `{"detail":"unknown key"}`, nil)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	cfg := m.activeCfg()
+	cfg.Providers[0].APIKey = "sk-literal-key-0123456789abcdef0"
+	cfg.Providers[0].APIKeyCommand = "echo sk-unused-helper-0123456789ab"
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if u, _ := m.ProviderUsage(ctx, "neuraldeep", false); u.Error != "unauthorized" || stand.calls.Load() != 1 {
+		t.Fatalf("first: %+v calls=%d", u, stand.calls.Load())
+	}
+	clock.advance(5 * time.Minute)
+	if _, _ = m.ProviderUsage(ctx, "neuraldeep", false); stand.calls.Load() != 1 {
+		t.Fatalf("the literal key outranks the command: the rejection must stay sticky, calls=%d", stand.calls.Load())
+	}
+}
+
 func TestProviderUsageFingerprintRotation(t *testing.T) {
 	stand := newUsageStand(t)
 	m := newUsageManager(t, stand, &usageCapture{}, nil)

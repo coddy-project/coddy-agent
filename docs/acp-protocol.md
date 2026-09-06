@@ -533,9 +533,11 @@ define; a client that ignores unknown kinds keeps working.
 `unlimited: true` marks a key without volume windows; `unlimitedModels` lists
 upstream model ids that bypass them on a metered key (a client compares the
 part of the model selector after the first `/`). A failed read keeps the
-previous windows with `stale: true` and `error` (`unauthorized`,
-`unavailable`, `invalid`); `unsupported: true` is answered by the REST route
-for a provider type without a source.
+previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
+except a rejected key: `error: unauthorized` comes without windows, since
+numbers read with a key the hub no longer honours are not the account's
+numbers any more. `unsupported: true` is answered by the REST route for a
+provider type without a source.
 
 ### `memory_phase` - Memory copilot phase boundary
 
