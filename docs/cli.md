@@ -361,7 +361,7 @@ regenerate them when the transcript chrome changes. The four usage states
 `11-usage-blocked`) come from `examples/cli/capture_usage.py`, which stands
 a fake hub `GET /limits` behind `CODDY_NEURALDEEP_BASE_URL`, plus one chat
 completion that answers a `429` naming a reset far ahead for the waiting
-turn, so no real key is needed.
+turn, so no real key is needed; only their PNGs are kept.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.

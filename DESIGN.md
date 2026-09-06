@@ -411,57 +411,57 @@ Ring to the **left** of **Send** in **`Composer.tsx`**. Implemented by **`Contex
 
 See **`.cursor/rules/ui-spa.mdc`** for the full wording.
 
-### Composer usage pill and usage banner
+### Context popover usage section and usage banner
 
 The account quota behind the selected model's provider (today: `neuraldeep`,
 the hub's `GET /v1/limits` read by the server, see `docs/plans/neuraldeep-usage.md`).
+The composer carries no extra control for it: the numbers live where Claude
+Desktop keeps its plan limits, under the context window in the context
+popover, and a banner speaks up only when something needs the user.
 
-- **Pill** (`UsagePill.tsx`, **`.composer-usage-host`** / **`.composer-usage-pill`**,
-  **`data-testid="composer-usage-pill"`**) sits in **`composer-bar-actions`**
-  immediately **left of the context ring**, rendered only when the selected
-  model's provider reports usage. Text is the leading metered window as
-  percent **used** (`3h 3%`), or `∞ volume` for a model on the provider's
-  unlimited option, `limit reached` / `rate limited` / `key blocked` /
-  `wallet empty` / `account blocked` on a block, `key rejected` for a revoked
-  login. Tones: plain (**`--muted`** on a **`--border`** outline), **warn**
-  from 80 % (**`.composer-usage-host--warn`**, amber), **error** on a block
-  (**`.composer-usage-host--error`**, red); every dark theme lifts the tone
-  text (keyed on **`html:not([data-theme="light"])`**, as `color-scheme`
-  is). The host is a **`button`** whose accessible description
-  (**`aria-describedby`**) is the details element (**`rail-tip`** family,
-  above the pill, centered, **`composer-usage-tip`**, `role="tooltip"`):
-  brand and plan, every window with its counters and reset time in the
-  reader's clock and language (`week` / `неделя`; a duration the hub chose,
-  `3h`, stands as is), the wallet in rubles, a stale note when the latest
-  read failed. On a wide shell it shows on hover and focus; below 1200 px,
-  where `rail-tip` is hidden, a tap toggles it as a popover
-  (**`.composer-usage-host--open`**, `aria-expanded`; Escape or blur
-  closes it), anchored to the composer card's right edge under 640 px. No
-  numeric label anywhere else.
+- **Usage section** (`UsageSection.tsx`, **`.context-usage`**,
+  **`data-testid="context-usage"`**) is the last block of the context
+  popover (`ContextBreakdownPopover.tsx`, floating on a wide shell, a bottom
+  sheet on a stacked one), rendered only when the selected model's provider
+  reports usage. A head row names the provider and plan (`NeuralDeep · pro`)
+  and, when there is one, a **note** on the right (**`.context-usage-note`**):
+  `Usage limit reached · resets 20:59` or the cause of a block no clock lifts
+  (**error** tone), `Auto-resuming at 20:59` while the agent waits for the
+  reset and the key-rejected hint (**warn** tone), the unlimited-option note
+  for a model that bypasses the windows, the stale note when the latest read
+  failed. Below it one **meter per metered window** (the session, the week,
+  the day only when it is above zero), each a label in the reader's language
+  (`week` / `неделя`; a duration the hub chose, `3h`, stands as is), the
+  reset time in the reader's clock and the percent **used** on the right,
+  and a 6 px track (**`.context-usage-track`** / **`.context-usage-fill`**,
+  accent fill; amber from 80 %, red when exhausted or blocked, keyed by
+  **`data-tone`**). The wallet line (**`.context-usage-foot`**) closes the
+  block; a rejected key shows the note alone. Tone text is lifted on every
+  dark theme (**`html:not([data-theme="light"])`**, as `color-scheme` is).
 - **Banner** (`UsageBanner.tsx`, **`.usage-banner`**,
   **`data-testid="usage-banner"`**) renders **above the composer card** in
   both the hero and the docked layout, only at 80 % of a window (**warn**
-  tone, `You've used 85% of your NeuralDeep 3h limit · resets 20:59`) or on a
-  block (**error** tone): a timed block names its reset (`Usage limit
-  reached · Resets 20:59`), the others name their cause (`The wallet is
-  empty: top it up to keep going`, a blocked key or account, `Rate limited
-  · retry in 42 s`). The **×** control (32 px, a 44 px hit area below
-  1200 px) dismisses it for that provider row, window and period
-  (**`localStorage`** `coddy_usage_banner_dismissed`); a new period shows it
-  again. Wording mirrors Claude Desktop's limit notice.
+  tone, `You've used 85% of your NeuralDeep 3h limit · resets 20:59`), on a
+  block (**error** tone: a timed block names its reset, `Usage limit reached
+  · Resets 20:59`, the others name their cause), and while the agent waits
+  for the reset (**warn** tone, `Usage limit reached · Auto-resuming at
+  20:59`). The **×** control (32 px, a 44 px hit area below 1200 px)
+  dismisses it for that provider row, window and period (**`localStorage`**
+  `coddy_usage_banner_dismissed`); a new period shows it again. Wording
+  mirrors Claude Desktop's limit notice.
 - Data flow (`useProviderUsage.ts`): REST `GET /coddy/providers/{name}/usage`
   at session open and model change (a cache read on the server), a refresh
   after every finished turn of the viewed session, one hub read after a
   window's reset, one cache read when the server deferred a refresh
   (`refreshPending`/`refreshInSec`), one follow-up when a passed reset still
   shows; `provider_usage` frames on `GET /coddy/events` replace the snapshot
-  between turns (and on the turn stream, should the server emit one there).
-  Nothing polls otherwise. Snapshots order by the server's `fetchedAt`: a
-  REST answer issued before a pushed frame, or a frame that crossed a later
-  read, never brings older numbers back, and only the latest read issued
-  applies. A row that answered "unsupported" is left alone for five
-  minutes. The snapshot is account-wide; the model's selector suffix is
-  compared with `unlimitedModels` client-side.
+  between turns, and the same frame on the turn stream carries the
+  auto-resume countdown. Nothing polls otherwise. Snapshots order by the
+  server's `fetchedAt`: a REST answer issued before a pushed frame, or a
+  frame that crossed a later read, never brings older numbers back, and
+  only the latest read issued applies. A row that answered "unsupported" is
+  left alone for five minutes. The snapshot is account-wide; the model's
+  selector suffix is compared with `unlimitedModels` client-side.
 
 ### Composer primary action (**Send** **/** **Stop**)
 

@@ -516,10 +516,15 @@ The console has no i18n; strings are English literals like the rest of
 
 ### 4.6 SPA (sub-feature 3)
 
-- A **usage pill** next to the context ring in `Composer.tsx` when the
-  selected model's provider reports usage: `3h 3%` with a tooltip listing
-  every window, its reset time and the wallet; 80 % switches the pill to the
-  warning tone.
+- `[rev11]` A **usage section** at the end of the context popover
+  (`UsageSection.tsx` in `ContextBreakdownPopover.tsx`) when the selected
+  model's provider reports usage, the way Claude Desktop lists its plan
+  limits under the context window: the provider and plan, one meter per
+  metered window with its reset time and percent used, the wallet, and a
+  note for a hit limit, a rejected key, an unlimited model, a stale read or
+  a turn waiting for the reset. The first cut put a pill with a tooltip next
+  to the context ring; the operator asked for the Claude Desktop placement
+  and no extra control in the composer, so the pill went.
 - A **banner** above the composer at 80 % and on a block, with the Claude
   Desktop wording for a timed block and the cause for the others (an empty
   wallet, a blocked key or account, a rate limit), dismissable per provider
@@ -529,8 +534,9 @@ The console has no i18n; strings are English literals like the rest of
   once a turn's stream ends (`[DONE]` or an error frame), the
   `provider_usage` SSE frame during turns (auto-resume, 4.7), and the same
   event on `GET /coddy/events` for turns other clients run (claude 2). i18n keys in `en.ts` and `ru.ts`; `DESIGN.md` and
-  `docs/ui.md` sections; screenshots (light and dark, 390 px and 1280 px) in
-  the PR per `.claude/rules/workflow.md`.
+  `docs/ui.md` sections; screenshots in the PR per
+  `.claude/rules/workflow.md`, `[rev11]` kept to the default (dark) and the
+  light theme at 1280 px plus one stacked-shell shot, PNG only.
 
 ### 4.7 Auto-resume after a hit limit (sub-feature 4, separate PR)
 

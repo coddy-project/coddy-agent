@@ -4732,116 +4732,7 @@ textarea#composer {
 }
 
 /* Provider account usage: the pill left of the context ring and the notice
-   above the composer (DESIGN.md, Composer usage pill and usage banner). */
-.composer-usage-host {
-  position: relative;
-  display: flex;
-  align-items: center;
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  outline: none;
-  cursor: default;
-}
-
-.composer-usage-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  cursor: default;
-}
-
-.composer-usage-host--warn .composer-usage-pill {
-  color: #b45309;
-  border-color: rgba(245, 158, 11, 0.55);
-  background: rgba(245, 158, 11, 0.1);
-}
-
-.composer-usage-host--error .composer-usage-pill {
-  color: #dc2626;
-  border-color: rgba(239, 68, 68, 0.55);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-/* Every dark canvas (the default and the five dark presets, keyed the way
-   color-scheme is) lifts the tone text for contrast; only light opts out. */
-html:not([data-theme="light"]) .composer-usage-host--warn .composer-usage-pill {
-  color: #fbbf24;
-}
-
-html:not([data-theme="light"]) .composer-usage-host--error .composer-usage-pill {
-  color: #f87171;
-}
-
-.composer-usage-host:focus-visible .composer-usage-pill {
-  box-shadow: 0 0 0 2px rgba(147, 51, 234, 0.35);
-}
-
-.composer-usage-host:hover .rail-tip,
-.composer-usage-host:focus-within .rail-tip,
-.composer-usage-host--open .rail-tip {
-  opacity: 1;
-}
-
-.composer-usage-host .composer-usage-tip.rail-tip {
-  left: 50%;
-  right: auto;
-  top: auto;
-  bottom: calc(100% + 12px);
-  transform: translateX(-50%);
-  white-space: pre-line;
-  min-width: 240px;
-  max-width: min(360px, calc(100vw - 32px));
-  padding: 10px 14px;
-  font-weight: 500;
-  font-size: 12px;
-  line-height: 1.45;
-  text-align: left;
-  box-shadow: var(--coddy-tip-shadow);
-}
-
-@media (max-width: 1199px) {
-  .composer-usage-pill {
-    height: 22px;
-    padding: 0 7px;
-    font-size: 11px;
-  }
-
-  /* No hover on a narrow shell: a tap on the pill opens the details as a
-     popover (the tooltip element, shown until the next tap or Escape). */
-  .composer-usage-host--open .composer-usage-tip.rail-tip {
-    display: block;
-    opacity: 1;
-  }
-}
-
-@media (max-width: 640px) {
-  /* A phone has no room to center the popover on the pill: it anchors to
-     the composer card instead and sits above its right edge. */
-  .composer-usage-host {
-    position: static;
-  }
-
-  .composer-usage-host .composer-usage-tip.rail-tip {
-    left: auto;
-    right: 12px;
-    transform: none;
-    min-width: 200px;
-  }
-}
-
+   above the composer (DESIGN.md, Context popover usage section and usage banner). */
 .usage-banner {
   display: flex;
   box-sizing: border-box;
@@ -5129,6 +5020,114 @@ html:not([data-theme="light"]) .composer-usage-host--error .composer-usage-pill 
 
 .context-breakdown-value {
   font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+/* Account usage under the context window (UsageSection.tsx): one meter per
+   metered window, the reset time and the percent used on its right, the
+   wallet below, a note for the states that change what the user can do. */
+.context-usage {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.context-usage-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.context-usage-note {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-note--warn {
+  color: #b45309;
+}
+
+.context-usage-note--error {
+  color: #dc2626;
+}
+
+/* Every dark canvas (the default and the five dark presets, keyed the way
+   color-scheme is) lifts the tone text for contrast; only light opts out. */
+html:not([data-theme="light"]) .context-usage-note--warn {
+  color: #fbbf24;
+}
+
+html:not([data-theme="light"]) .context-usage-note--error {
+  color: #f87171;
+}
+
+.context-usage-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.context-usage-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.context-usage-label {
+  color: color-mix(in srgb, var(--text) 85%, transparent);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.context-usage-meta {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-usage-pct {
+  margin-left: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.context-usage-track {
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.context-usage-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.context-usage-rows li[data-tone="warn"] .context-usage-fill {
+  background: #f59e0b;
+}
+
+.context-usage-rows li[data-tone="error"] .context-usage-fill {
+  background: #ef4444;
+}
+
+.context-usage-foot {
+  margin-top: 10px;
   color: color-mix(in srgb, var(--text) 70%, transparent);
 }
 

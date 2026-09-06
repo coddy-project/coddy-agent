@@ -4,10 +4,11 @@
 Stands a local GET /limits (a fake hub with a pro wallet key) plus a chat
 completion that answers one 429 naming a reset far ahead, points the
 neuraldeep provider at it through CODDY_NEURALDEEP_BASE_URL, starts
-build/coddy cli in a pty and dumps four states through capture.py's
-renderer (text, styled HTML, PNG): the footer line, the 80 % warning with
-its notice and /usage, the status row of a turn waiting for the limit to
-lift (agent.wait_for_limit_reset), and a hit limit. No real key.
+build/coddy cli in a pty and renders four states as PNG (the text and
+HTML twins capture.py writes on the way are removed, the PNG is the
+reference): the footer line, the 80 % warning with its notice and /usage,
+the status row of a turn waiting for the limit to lift
+(agent.wait_for_limit_reset), and a hit limit. No real key.
 
 Usage: python3 capture_usage.py [repo] [outdir]   (default docs/assets/cli-tui)
 Needs a cli-tagged build/coddy (make build TAGS=cli), pexpect, pyte and
@@ -195,8 +196,9 @@ print("blocked captured")
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")
 tui.pump(1)
 names = ["09-usage-footer", "10-usage-warning", "12-usage-resuming", "11-usage-blocked"]
-for name in names:
-    # The frame's empty tail rows would otherwise end the file with blank lines.
-    txt = OUT / f"{name}.txt"
-    txt.write_text(txt.read_text().rstrip("\n") + "\n")
 render_pngs(OUT, names)
+for name in names:
+    # Only the PNG is kept: the text and HTML twins add nothing a reader
+    # of the docs needs.
+    for ext in (".txt", ".html"):
+        (OUT / f"{name}{ext}").unlink(missing_ok=True)
