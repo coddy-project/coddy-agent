@@ -3007,6 +3007,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
@@ -3132,7 +3133,10 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
-      noteUsageTurnEnded(key);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
       // The session is no longer pinned; bound the cache now rather than
       // only after the reconciliation below succeeds.
       evictStaleSessionCaches(viewedSessionIdRef.current);
@@ -3429,6 +3433,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
