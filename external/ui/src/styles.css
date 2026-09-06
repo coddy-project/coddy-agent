@@ -2386,6 +2386,10 @@ a.rail-brand {
   margin-top: 8px;
   min-height: 28px;
   box-sizing: border-box;
+  /* The row sits below the bordered card, not inside it: inset it by the
+     card's horizontal padding so the copy control lines up with the one
+     under an assistant row, which inherits that padding from its card. */
+  padding-left: 14px;
 }
 
 .msg-system-time {
