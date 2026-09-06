@@ -105,7 +105,8 @@ export type TranscriptItem =
   | {
       id: string;
       type: "system_notice";
-      level: "error";
+      /** error rows carry the retry control; notice rows are informational. */
+      level: "error" | "notice";
       message: string;
       createdAtUtc?: string;
     }

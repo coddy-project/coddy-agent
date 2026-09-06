@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -68,5 +69,24 @@ func TestWriteToolCallPlanSnapshotPersistsFinalTodoState(t *testing.T) {
 	}
 	if len(meta.PlanSnapshot) != len(entries) || meta.PlanSnapshot[1].Status != "in_progress" {
 		t.Fatalf("PlanSnapshot = %+v, want %+v", meta.PlanSnapshot, entries)
+	}
+}
+
+// The persisted arguments keep their number literals: a permission resume
+// binds to this file, so an integer past 2^53 must not come back rounded.
+func TestWriteToolCallArgsKeepsLargeIntegers(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteToolCallArgs(dir, "call_big", `{"n":9007199254740993,"command":"echo x"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadToolCallArgs(dir, "call_big")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "9007199254740993") {
+		t.Fatalf("the persisted arguments must keep the literal, got %q", got)
+	}
+	if !strings.Contains(got, "\n  \"n\": ") {
+		t.Fatalf("the persisted arguments are pretty-printed, got %q", got)
 	}
 }

@@ -53,6 +53,7 @@ The bundled `/configure-coddy` skill teaches the agent this syntax, the confirm-
 | [`mcp`](#mcp) | object | Trust policy for project-local MCP declarations | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
 | [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
+| [`hooks`](#hooks) | object | Lifecycle hook definition files, trust policy and runner bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
@@ -316,6 +317,21 @@ Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the
 | `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
 
 Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+
+## `hooks`
+
+Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/hooks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `files` | string list | no | `["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${CODDY_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
+| `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
+| `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
+| `stop_loop_limit` | int | no | `5` | How many times per turn a `Stop` hook may send the agent back to work. |
+| `max_output_chars` | int | no | `10000` | Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. |
+
+Approvals for project-scope files are recorded in `~/.coddy/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
 
 ## `logger`
 

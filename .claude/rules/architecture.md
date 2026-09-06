@@ -13,7 +13,7 @@ paths:
 1. **`internal/version`**, **`internal/logger`**, small shared helpers - minimal inward imports.
 2. **`internal/config`** - configuration structs and loading.
 3. **`internal/session`**, **`internal/llm`**, **`internal/prompts`**, **`internal/bgtask`** - runtime state, model access, and the background task pool (**`internal/bgtask`** imports only **`internal/platform`**; nothing below it may import back).
-4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`**, **`internal/subagents`** - capabilities and policies (**`internal/subagents`** produces immutable definitions and pure trust / tool-set decisions; **`internal/agent`** applies them).
+4. **`internal/tools`**, **`internal/permission`**, **`internal/skills`**, **`internal/subagents`**, **`internal/hooks`** - capabilities and policies (**`internal/subagents`** produces immutable definitions and pure trust / tool-set decisions, **`internal/hooks`** loads hook definitions and runs hook processes with pure outcome merging; **`internal/agent`** applies both).
 5. **`internal/agent`** - ReAct-style loop assembling the above.
 6. **`internal/acp`** - ACP protocol server on top of the agent and session manager.
 7. **`cmd/coddy`** - CLI entrypoints and wiring.

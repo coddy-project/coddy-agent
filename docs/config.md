@@ -236,6 +236,16 @@ tools:
 #   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
 #   max_turns: 0                  # 0 follows agent.max_turns
 
+# Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
+# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files: ["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5            # Stop-hook continuations per turn
+#   max_output_chars: 10000       # cap on what one hook hands to the model or the user
+
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"

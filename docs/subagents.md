@@ -10,6 +10,10 @@ A session that may spawn gets a `## Subagents` section in its system prompt: wha
 
 The section is rendered in `agent` and `plan` mode (a planner fans out investigation the way Claude Code's Explore does; the child of a plan-mode parent is forced into plan mode) and never in `ask` mode, which is read-only and delegates nothing. It is omitted, and the tool hidden, for a session that cannot spawn: the feature is disabled, the surface has no session manager (a scheduled run), the turn runs in `ask` mode, or the session already sits at `subagents.max_depth`.
 
+## Hooks around a child
+
+Operator hooks (`docs/hooks.md`) follow the agent into its children. `SubagentStart` fires in the parent before a child starts (it can refuse the spawn, or hand the child context that is prepended to its task) and `SubagentStop` fires in the parent when the child's turn ended, with its outcome and report. Inside the child every ordinary event fires for the child's own turn, and the payload carries a `subagent` block naming the child, its parent session and its depth, so a hook can treat delegated work differently.
+
 ## Definition files
 
 ### Directories and precedence

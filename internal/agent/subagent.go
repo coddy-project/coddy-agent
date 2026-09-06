@@ -328,18 +328,21 @@ func (h *subagentHandle) ProcessStartedAt() time.Time { return time.Time{} }
 
 // subagentRun is the bookkeeping of one spawn from the parent's side.
 type subagentRun struct {
-	def       *subagents.Definition
-	childID   string
-	taskID    string
-	prompt    string
-	handle    *subagentHandle
-	sender    *subagentSender
-	report    string
-	startedAt time.Time
-	turns     int
-	status    string // end_turn | cancelled | failed | ...
-	err       error
-	mu        sync.Mutex
+	def     *subagents.Definition
+	childID string
+	taskID  string
+	prompt  string
+	// parentMode is the mode the spawning turn was admitted in; the parent's
+	// hook runner is keyed by it.
+	parentMode string
+	handle     *subagentHandle
+	sender     *subagentSender
+	report     string
+	startedAt  time.Time
+	turns      int
+	status     string // end_turn | cancelled | failed | ...
+	err        error
+	mu         sync.Mutex
 }
 
 // subagentDepth is how deep this agent's session sits in a spawn tree.
@@ -530,6 +533,19 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		}
 	}
 
+	parentID := a.state.GetID()
+	childID := session.NewSubagentSessionID()
+	background := req.Background || def.Background
+
+	// SubagentStart hooks in the parent may refuse the spawn or hand the child
+	// context, which is prepended to its task.
+	prompt := req.Prompt
+	if reason, contextText, blocked := a.runSubagentStartHooks(ctx, mode, def.Name, childID, req.Prompt, background); blocked {
+		return "", fmt.Errorf("spawn of subagent %q blocked by hook: %s", def.Name, reason)
+	} else if contextText != "" {
+		prompt = contextText + "\n\n" + req.Prompt
+	}
+
 	// The cap is process-wide and follows the live configuration, not the
 	// snapshot this turn started with: a limit saved through the settings
 	// while an older turn was running must not be written back by that turn.
@@ -546,7 +562,6 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 			def.Name, cfg.Subagents.EffectiveMaxConcurrent())
 	}
 
-	background := req.Background || def.Background
 	notify := req.NotifyOnFinish && background && a.subagentDepth() == 0
 	label := firstLine(req.Description)
 	if label == "" {
@@ -555,8 +570,6 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	label = capRunes("agent "+def.Name+": "+label, maxTaskLabelRunes)
 	timeout := subagents.ResolveTimeoutSeconds(req.TimeoutSeconds, def.TimeoutSeconds, req.ExpectedSeconds, cfg.Subagents.EffectiveDefaultTimeoutSeconds())
 
-	parentID := a.state.GetID()
-	childID := session.NewSubagentSessionID()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	pool := a.backgroundPool(sd)
 
@@ -576,7 +589,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 		childCtx:            runCtx,
 		arbiter:             arbiter,
 	}
-	run := &subagentRun{def: def, childID: childID, prompt: req.Prompt, handle: handle, startedAt: time.Now()}
+	run := &subagentRun{def: def, childID: childID, prompt: prompt, parentMode: mode, handle: handle, startedAt: time.Now()}
 
 	var finishOnce sync.Once
 	finish := func() {
@@ -731,6 +744,9 @@ func (a *Agent) executeSubagentRun(ctx context.Context, rt SubagentRuntime, run 
 		}
 		exit = 0
 	}
+	// SubagentStop hooks in the parent see the outcome before the report is
+	// sealed, so a foreground parent reads a report the hook already saw.
+	a.runSubagentStopHooks(context.WithoutCancel(ctx), run.parentMode, run.def.Name, run.childID, run.taskID, run.status, run.report, run.turns)
 }
 
 // parentSessionMCPDeclarations returns the ACP client-supplied MCP declarations

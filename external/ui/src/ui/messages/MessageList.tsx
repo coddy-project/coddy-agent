@@ -220,7 +220,7 @@ export function MessageList(props: {
               level={it.level}
               message={it.message}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(isLast && props.onRetryLast
+              {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }
                 : {})}
             />

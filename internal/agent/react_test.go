@@ -12,6 +12,8 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -1554,6 +1556,11 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 		return provider, nil
 	}
 
+	// Every persisted bundle carries the arguments the prompt showed; a
+	// resume without them fails closed before the mode check.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_ask_hidden", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
 	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
 		Outcome:  "allow",
 		OptionID: "allow_always",
@@ -1583,6 +1590,262 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 	}
 	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
 		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
+	}
+}
+
+// resumeRewriteFixture prepares a session whose pending run_command call was
+// rewritten by a PreToolUse hook that then asked for permission: the history
+// holds the model's original arguments, the bundle holds the arguments the
+// prompt showed, exactly the state a persisted approval resumes from.
+func resumeRewriteFixture(t *testing.T, hookCommand string) (*Agent, *session.State, string) {
+	t.Helper()
+	home := t.TempDir()
+	if err := hooktest.Write(filepath.Join(home, "hooks.json"), hooktest.Entry{
+		Event:    hooks.EventPreToolUse,
+		Matcher:  "run_command",
+		Handlers: []hooks.Handler{hooktest.Handler("rewrite-ask", hookCommand)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{
+		ID:         "sess_resume_rewrite",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run the command"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_rewrite",
+					Name:      "run_command",
+					InputJSON: `{"command":"echo original-arguments"}`,
+				}},
+			},
+		},
+	}
+	// What the permission prompt showed: the arguments after the first
+	// PreToolUse run, persisted by executeToolCall before the prompt.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_rewrite", `{"command":"echo shown-and-approved"}`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: st.CWD},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	return ag, st, home
+}
+
+func resumedToolResult(st *session.State) string {
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_rewrite" {
+			return m.Content
+		}
+	}
+	return ""
+}
+
+// The approval binds to the arguments the prompt showed: they run even when
+// the hook that produced them is gone by the time the approval arrives.
+func TestResumeAfterPermissionRunsTheApprovedArguments(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "original-arguments") {
+		t.Fatalf("the resumed call must run the approved arguments, got %q", result)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("a plain allow records no grant, got %v", grants)
+	}
+}
+
+// A hook that changes the approved arguments again on the resume is not
+// covered by the answer the user gave: the call is cancelled instead.
+func TestResumeAfterPermissionRefusesArgumentsChangedAfterTheApproval(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo changed-after-approval")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if strings.Contains(result, "changed-after-approval") || strings.Contains(result, "shown-and-approved") || !strings.Contains(result, "cancelled") {
+		t.Fatalf("a call rewritten after the approval must not run, got %q", result)
+	}
+}
+
+// promptRefusingSender fails the test if a permission prompt is issued.
+type promptRefusingSender struct {
+	t        *testing.T
+	prompted bool
+}
+
+func (*promptRefusingSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *promptRefusingSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.prompted = true
+	s.t.Error("no permission prompt must be issued")
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+func (*promptRefusingSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// toolCallArgsPath finds the persisted args.json of the fixture's tool call.
+func toolCallArgsPath(t *testing.T, sessionDir string) string {
+	t.Helper()
+	var found string
+	_ = filepath.WalkDir(sessionDir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && d.Name() == "args.json" {
+			found = p
+		}
+		return nil
+	})
+	if found == "" {
+		t.Fatalf("no persisted arguments under %s", sessionDir)
+	}
+	return found
+}
+
+// The same hook answering again on the resume is not a change: the bundle
+// stores the arguments pretty-printed and the hook answers them compact, and
+// the approval must survive that formatting difference.
+func TestResumeAfterPermissionRunsWhenTheSameHookAnswersAgain(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "cancelled") {
+		t.Fatalf("the hook that produced the approved arguments must not cancel the resume, got %q", result)
+	}
+}
+
+// A bundle without persisted arguments has nothing the approval can bind to:
+// the resume fails instead of running the history's arguments.
+func TestResumeAfterPermissionFailsClosedWithoutPersistedArguments(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(toolCallArgsPath(t, st.SessionDir)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("a resume without persisted arguments must fail, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run without persisted arguments, got %q", result)
+	}
+}
+
+// A refusal needs nothing from the bundle: it is recorded and the gate is
+// cleared even when the persisted arguments cannot be read.
+func TestResumeAfterPermissionRejectsWithoutReadingTheArguments(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := session.WritePendingPermission(st.SessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_rewrite", Status: "pending"},
+	}, "run_command", ""); err != nil {
+		t.Fatal(err)
+	}
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}); err != nil {
+		t.Fatalf("a refusal must not depend on the arguments file: %v", err)
+	}
+	if result := resumedToolResult(st); result != "permission denied by user" {
+		t.Fatalf("the refusal must be recorded, got %q", result)
+	}
+	if session.PendingPermissionHeld(st.SessionDir) {
+		t.Fatal("the refused gate must be cleared")
+	}
+}
+
+// Persisted arguments that cannot be read fail closed: nothing runs, and the
+// error leaves the pending gate in place for another attempt.
+func TestResumeAfterPermissionFailsClosedWhenTheApprovedArgumentsCannotBeRead(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	// A directory in place of the file: the read fails, and not with not-exist.
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("an unreadable arguments file must fail the resume, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run when the approved arguments cannot be read, got %q", result)
+	}
+}
+
+// Rewritten arguments that cannot be persisted cancel the call before the
+// prompt: a resume would otherwise fall back to arguments the user never saw.
+func TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	toolCalls := filepath.Dir(filepath.Dir(toolCallArgsPath(t, st.SessionDir)))
+	if err := os.RemoveAll(toolCalls); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the tool call directories live: every write fails.
+	if err := os.WriteFile(toolCalls, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &promptRefusingSender{t: t}
+	ag.server = sender
+	tc := st.GetMessages()[1].ToolCalls[0]
+	env := ag.buildToolEnv(st.GetMode(), st.SessionDir)
+	result, err := ag.executeToolCall(context.Background(), tc, env, st.GetMode(), st.GetID(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "cancelled") || !strings.Contains(result, "persisted") {
+		t.Fatalf("a rewrite that cannot be persisted must cancel the call, got %q", result)
+	}
+	if sender.prompted {
+		t.Fatal("the prompt must not be issued for arguments that were not persisted")
+	}
+}
+
+// The comparison behind the resume check keeps number literals verbatim: a
+// float64 decode would read two integers past 2^53 as the same arguments.
+func TestSameToolArgsKeepsLargeIntegersApart(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b string
+		same bool
+	}{
+		{"formatting", `{"command":"echo x","n":1}`, "{\n  \"n\": 1,\n  \"command\": \"echo x\"\n}\n", true},
+		{"large integers", `{"n":9007199254740992}`, `{"n":9007199254740993}`, false},
+		{"float literal", `{"n":1.0}`, `{"n":1}`, false},
+		{"different values", `{"command":"echo a"}`, `{"command":"echo b"}`, false},
+		{"invalid", `{not json`, `{not json`, true},
+		{"one invalid", `{"n":1}`, `{n:1}`, false},
+	}
+	for _, c := range cases {
+		if got := sameToolArgs(c.a, c.b); got != c.same {
+			t.Errorf("%s: sameToolArgs(%q, %q) = %v, want %v", c.name, c.a, c.b, got, c.same)
+		}
 	}
 }
 

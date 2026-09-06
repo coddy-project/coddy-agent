@@ -112,6 +112,15 @@ borrow the parent's connections: configured servers are re-resolved for the chil
 servers are redialed ungated, as the original connect was. A child whose tool set cannot contain
 MCP names (the built-in `explore`) never dials anything. See `docs/subagents.md`.
 
+Hook definition files found inside the workspace (`.coddy/hooks.json`, the Claude Code
+`.claude/settings.json` and `.claude/settings.local.json`) are the third kind of project-local
+content that executes code, and they follow the same model with a third sibling store: policy
+`hooks.project_trust` (`ask` / `allow` / `deny`), receipts in `~/.coddy/hooks-trust.json` keyed by
+the canonical workspace path plus the workspace-relative file path and a digest of the file,
+approved with `coddy hooks trust <file>` or `POST /coddy/hooks/trust`. Under `ask` a held file is
+parsed and listed, but none of its hooks runs, and the session records a notice naming the
+approval commands. See `docs/hooks.md`.
+
 ## Enable / disable switches
 
 Every config level supports switching off a whole server or individual tools without

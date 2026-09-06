@@ -26,3 +26,18 @@ test("hides the retry button when onRetry is not provided", () => {
   expect(screen.queryByTestId("system-message-retry")).toBeNull();
   expect(screen.getByTestId("system-message-copy")).toBeTruthy();
 });
+
+test("renders a notice row as a status without the retry control", () => {
+  const { container } = render(
+    <SystemNoticeMessage
+      level="notice"
+      message="Hooks file .coddy/hooks.json is not approved for this workspace"
+      onRetry={vi.fn()}
+    />,
+  );
+  const row = container.querySelector(".msg-system");
+  expect(row?.getAttribute("role")).toBe("status");
+  expect(row?.classList.contains("msg-system-notice")).toBe(true);
+  expect(screen.queryByTestId("system-message-retry")).toBeNull();
+  expect(screen.getByTestId("system-message-copy")).toBeTruthy();
+});
