@@ -76,6 +76,12 @@ func Main(args []string) bool {
 			"permissionDecision": "allow",
 			"updatedInput":       map[string]interface{}{"command": param(0)},
 		}))
+	case "rewrite-ask":
+		// Rewrite the command and still leave the permission prompt in place.
+		emit(specific(map[string]interface{}{
+			"permissionDecision": "ask",
+			"updatedInput":       map[string]interface{}{"command": param(0)},
+		}))
 	case "context":
 		emit(specific(map[string]interface{}{"additionalContext": param(0)}))
 	case "text":

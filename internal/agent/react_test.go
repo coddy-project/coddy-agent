@@ -1587,14 +1587,17 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 	}
 }
 
-// A persisted permission resumes with the model's original arguments in
-// history; the PreToolUse hooks run again so a rewrite applies to what runs.
-func TestResumeAfterPermissionAppliesHookRewrite(t *testing.T) {
+// resumeRewriteFixture prepares a session whose pending run_command call was
+// rewritten by a PreToolUse hook that then asked for permission: the history
+// holds the model's original arguments, the bundle holds the arguments the
+// prompt showed, exactly the state a persisted approval resumes from.
+func resumeRewriteFixture(t *testing.T, hookCommand string) (*Agent, *session.State, string) {
+	t.Helper()
 	home := t.TempDir()
 	if err := hooktest.Write(filepath.Join(home, "hooks.json"), hooktest.Entry{
 		Event:    hooks.EventPreToolUse,
 		Matcher:  "run_command",
-		Handlers: []hooks.Handler{hooktest.Handler("rewrite", "echo rewritten-by-hook")},
+		Handlers: []hooks.Handler{hooktest.Handler("rewrite-ask", hookCommand)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1615,6 +1618,11 @@ func TestResumeAfterPermissionAppliesHookRewrite(t *testing.T) {
 			},
 		},
 	}
+	// What the permission prompt showed: the arguments after the first
+	// PreToolUse run, persisted by executeToolCall before the prompt.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_rewrite", `{"command":"echo shown-and-approved"}`); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{
 		Paths:     config.Paths{Home: home, CWD: st.CWD},
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
@@ -1625,17 +1633,46 @@ func TestResumeAfterPermissionAppliesHookRewrite(t *testing.T) {
 	provider := &resumePermissionProvider{t: t}
 	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
 	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	return ag, st, home
+}
 
+func resumedToolResult(st *session.State) string {
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_rewrite" {
+			return m.Content
+		}
+	}
+	return ""
+}
+
+// The approval binds to the arguments the prompt showed: they run even when
+// the hook that produced them is gone by the time the approval arrives.
+func TestResumeAfterPermissionRunsTheApprovedArguments(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
 		t.Fatal(err)
 	}
-	var result string
-	for _, m := range st.GetMessages() {
-		if m.Role == llm.RoleTool && m.ToolCallID == "call_rewrite" {
-			result = m.Content
-		}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "original-arguments") {
+		t.Fatalf("the resumed call must run the approved arguments, got %q", result)
 	}
-	if !strings.Contains(result, "rewritten-by-hook") || strings.Contains(result, "original-arguments") {
-		t.Fatalf("the resumed call must run the rewritten arguments, got %q", result)
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("a plain allow records no grant, got %v", grants)
+	}
+}
+
+// A hook that changes the approved arguments again on the resume is not
+// covered by the answer the user gave: the call is cancelled instead.
+func TestResumeAfterPermissionRefusesArgumentsChangedAfterTheApproval(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo changed-after-approval")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if strings.Contains(result, "changed-after-approval") || strings.Contains(result, "shown-and-approved") || !strings.Contains(result, "cancelled") {
+		t.Fatalf("a call rewritten after the approval must not run, got %q", result)
 	}
 }

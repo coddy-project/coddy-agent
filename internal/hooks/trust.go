@@ -44,8 +44,9 @@ type trustFile struct {
 // TrustStore persists receipts at <home>/hooks-trust.json. Every operation
 // re-reads the file, so an approval granted through the CLI or the HTTP route
 // reaches a running agent on its next turn. Instances are cheap and created
-// per request; the lock that serialises read-modify-write cycles is shared by
-// every instance of the same path, and the file is replaced atomically.
+// per request; a write is a transaction under an in-process mutex shared by
+// every instance of the same path plus a file lock shared with other
+// processes, and the file is replaced atomically through a unique temporary.
 type TrustStore struct {
 	path string
 }
@@ -91,15 +92,53 @@ func (s *TrustStore) write(file trustFile) error {
 	if err != nil {
 		return fmt.Errorf("hooks trust store: %w", err)
 	}
-	tmp := s.path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+	// A unique temporary file: two processes writing at once must never
+	// share one.
+	tmp, err := os.CreateTemp(filepath.Dir(s.path), TrustFileName+".*.tmp")
+	if err != nil {
 		return fmt.Errorf("hooks trust store: %w", err)
 	}
-	if err := os.Rename(tmp, s.path); err != nil {
-		_ = os.Remove(tmp)
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("hooks trust store: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("hooks trust store: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0o600); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("hooks trust store: %w", err)
+	}
+	if err := os.Rename(tmpPath, s.path); err != nil {
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("hooks trust store: %w", err)
 	}
 	return nil
+}
+
+// transaction serialises a read-modify-write cycle against every other
+// writer of the same file: the in-process mutex covers goroutines, the file
+// lock next to the receipts covers the CLI and the HTTP server, which are
+// separate processes. It returns the release function.
+func (s *TrustStore) transaction() (func(), error) {
+	mu := s.lock()
+	mu.Lock()
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		mu.Unlock()
+		return nil, fmt.Errorf("hooks trust store: %w", err)
+	}
+	unlockFile, err := lockFile(s.path + ".lock")
+	if err != nil {
+		mu.Unlock()
+		return nil, err
+	}
+	return func() {
+		unlockFile()
+		mu.Unlock()
+	}, nil
 }
 
 // Records returns the receipts recorded for a canonical workspace, sorted by
@@ -144,9 +183,11 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 	case strings.TrimSpace(workspace) == "" || src.Digest == "":
 		return fmt.Errorf("hooks trust store: workspace and digest are required")
 	}
-	mu := s.lock()
-	mu.Lock()
-	defer mu.Unlock()
+	release, err := s.transaction()
+	if err != nil {
+		return err
+	}
+	defer release()
 	file := s.read()
 	records := file.Workspaces[workspace]
 	kept := records[:0]
@@ -167,9 +208,11 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 // Revoke removes the receipt of a file in a workspace and reports whether one
 // was on file.
 func (s *TrustStore) Revoke(workspace, file string) (bool, error) {
-	mu := s.lock()
-	mu.Lock()
-	defer mu.Unlock()
+	release, err := s.transaction()
+	if err != nil {
+		return false, err
+	}
+	defer release()
 	tf := s.read()
 	records := tf.Workspaces[workspace]
 	kept := make([]TrustRecord, 0, len(records))

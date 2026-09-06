@@ -548,9 +548,41 @@ comment fix, one was declined: the four `open` calls per turn for absent
 files are cheaper than a cache and the re-read is what makes approvals take
 effect without a restart.
 
-Coddy on the local model: see the note below the list (the 122 KB brief
-exceeded what the model answers within the first-token timeout; the run on
-the 62 KB core brief is recorded when it finishes).
+Codex, second iteration, three more, all confirmed and fixed:
+
+1. The approval was still not bound to the arguments the prompt showed: the
+   resume reloaded the model's original arguments and re-ran the hooks on
+   them, so a hook removed or edited while the permission was pending would
+   have let the original arguments run. The resume now takes the arguments
+   the bundle persisted before the prompt (`tool_calls/<id>/args.json`,
+   written after the PreToolUse rewrite) for execution and for grants, and a
+   hook that changes them again on the resume cancels the call; tests
+   `TestResumeAfterPermissionRunsTheApprovedArguments` (hook file removed
+   before the resume) and
+   `TestResumeAfterPermissionRefusesArgumentsChangedAfterTheApproval`.
+2. The receipts lock was process-local and the temporary file fixed, while
+   the CLI and the HTTP server are separate processes. A write is now a
+   transaction under the in-process mutex plus a file lock next to the
+   receipts (flock on Unix, LockFileEx on Windows) with a unique temporary;
+   test `TestTrustStoreSerialisesConcurrentProcesses` approves eight files
+   from eight re-executed test binaries.
+3. The async-and-failClosed warning hid the `if` warning on the same
+   handler; both are reported.
+
+Coddy (`neuraldeep/qwen3.8-27b`) answered only once the model entry carried
+`stream: false`: the endpoint drops streamed answers to long prompts, the
+first-token guard (90 s) cut the 122 KB brief, and a single shell argument
+cannot exceed 128 KB anyway, so the brief it reviewed was the 31 KB core
+(loader, trust, runner). Seven findings: two confirmed and fixed (a hook
+whose grandchild kept a pipe open past the drain delay reported exit 0
+instead of its real code, so a block could read as an allow; the final wait
+after a kill was unbounded), two accepted as hardening (detached hooks are
+capped at eight in flight; a JSON answer cut by the 256 KiB capture limit is
+reported as cut, not as invalid), three declined or reworded: the empty-cwd
+scope is already fail-closed after the loader change (entries that need a
+cwd are skipped), `truncate` caps the content and the comment says so now,
+and `HasHandlers` skipping subject matching only costs one payload
+encoding when a matcher does not match.
 
 Follow-up outside this branch: the MCP and subagent receipt stores share the
 per-instance mutex pattern that finding 4 fixed here.

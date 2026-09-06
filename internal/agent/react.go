@@ -991,6 +991,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}
+		if ran && tc.InputJSON != original && skipPermission {
+			// The user approved the arguments the prompt showed; a hook that
+			// changes them again on the resume is not covered by that answer.
+			result := "cancelled: a hook changed the approved arguments after the approval; run the call again"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
 		if ran && tc.InputJSON != original {
 			// The rewritten arguments are what runs and what the operator must
 			// see on the tool call card; the model's own message keeps the

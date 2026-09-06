@@ -9,8 +9,11 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -629,5 +632,59 @@ func TestLoaderSkipsWorkspaceEntriesWithoutACwd(t *testing.T) {
 	sources := hooks.NewLoader(files, "ask").Load("", home)
 	if len(sources) != 1 || sources[0].Scope != hooks.ScopeUser || sources[0].Display != filepath.Join(home, "hooks.json") {
 		t.Fatalf("without a cwd only the home file may load, got %+v", sources)
+	}
+}
+
+func TestParseAccumulatesHandlerWarnings(t *testing.T) {
+	def, err := hooks.Parse([]byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"./audit.sh","async":true,"failClosed":true,"if":"Bash(rm *)"}]}]}}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(def.Warnings) != 1 || !strings.Contains(def.Warnings[0], "failClosed") || !strings.Contains(def.Warnings[0], "\"if\" filter") {
+		t.Fatalf("both warnings must be reported for one handler, got %v", def.Warnings)
+	}
+}
+
+// TestHelperTrustApprove is not a real test: re-executed with the
+// trust-helper positional arguments it approves one file from its own
+// process, the way a CLI run next to a running server does.
+func TestHelperTrustApprove(t *testing.T) {
+	args := flag.Args()
+	if len(args) < 4 || args[0] != "trust-helper" {
+		t.Skip("helper process")
+	}
+	home, workspace, file := args[1], args[2], args[3]
+	src := &hooks.Source{Display: file, Path: filepath.Join(workspace, file), Scope: hooks.ScopeProject, Digest: "sha256:" + file, Trust: hooks.TrustNeedsApproval}
+	if err := hooks.NewTrustStore(home).Approve(workspace, src); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func TestTrustStoreSerialisesConcurrentProcesses(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "home")
+	workspace := filepath.Join(t.TempDir(), "work")
+	const n = 8
+	procs := make([]*exec.Cmd, 0, n)
+	for i := 0; i < n; i++ {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestHelperTrustApprove$", "trust-helper", home, workspace, ".coddy/hooks-"+strconv.Itoa(i)+".json") // #nosec G204 -- the test binary re-executes itself
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		procs = append(procs, cmd)
+	}
+	for _, cmd := range procs {
+		if err := cmd.Wait(); err != nil {
+			t.Fatalf("helper process: %v", err)
+		}
+	}
+	if got := len(hooks.NewTrustStore(home).Records(workspace)); got != n {
+		t.Fatalf("every approval from a separate process must survive, got %d records", got)
+	}
+	leftovers, _ := filepath.Glob(filepath.Join(home, hooks.TrustFileName+".*.tmp"))
+	if len(leftovers) != 0 {
+		t.Fatalf("temporary files left behind: %v", leftovers)
 	}
 }

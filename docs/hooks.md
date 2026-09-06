@@ -57,7 +57,7 @@ Handler fields:
 | `args` | Optional. When the key is present the command is spawned directly with these arguments and no shell (Claude Code's exec form). |
 | `commandWindows` | Optional replacement for `command` when Coddy runs on Windows (Codex's key; `command_windows` is accepted too). |
 | `timeout` | Seconds. Default `hooks.default_timeout_seconds` (60). A hook that overruns is terminated with its whole process group. |
-| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide (so `failClosed` on an async handler is dropped with a warning). |
+| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide (so `failClosed` on an async handler is dropped with a warning). At most 8 detached hooks run at once across the process; the rest wait for a slot. |
 | `failClosed` | `true` turns a crash, a timeout, an interruption by the turn's cancellation, or invalid output into a block instead of a non-blocking error (`fail_closed` is accepted too). Use it for policy hooks. |
 
 `statusMessage`, `shell`, `once` and `additionalContextLimit` are accepted and ignored. Claude Code's `if` filter is ignored with a logged warning: the hook runs for every matching call, so a policy that relied on `if` must check the arguments itself.
@@ -78,7 +78,7 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 |---|---|---|---|
 | `SessionStart` | `session/new` (`startup`) and `session/load` or a reopen (`resume`), synchronously, before the session is returned | source | no; context only |
 | `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact` and `/plugin` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
-| `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, because the history holds the model's original arguments and a rewrite must apply to what runs | tool name | yes: deny, or force or skip the prompt |
+| `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, on the arguments the prompt showed (a deny still denies; a hook that changes those arguments again cancels the call, because the answer covered what the user saw) | tool name | yes: deny, or force or skip the prompt |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
 | `PostToolUseFailure` | after a tool returned an error (not after a permission denial or a hook denial) | tool name | no; context only |
 | `Stop` | when the ReAct loop is about to end the turn with `end_turn` (not on cancel, an error, or the turn cap) | none | yes: the agent is sent back to work |
@@ -179,7 +179,7 @@ JSON fields:
 
 The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 
-Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it.
+Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it. Stdout and stderr are captured up to 256 KiB each; a JSON answer that runs past that limit is reported as cut, not as invalid.
 
 ## Configuration
 
@@ -230,7 +230,7 @@ coddy hooks untrust <file> [--cwd DIR]
 
 Over HTTP, `GET /coddy/hooks?cwd=<absolute path>` returns the same catalog with every handler as a row, and `POST /coddy/hooks/trust` / `POST /coddy/hooks/untrust` with the body `{"cwd": ..., "file": ".coddy/hooks.json"}` record or withdraw a receipt; `cwd` must be the session's server-side workspace, so this route is the approval path for a remote console or an ACP client, whose local `coddy hooks trust` would write a receipt on the wrong machine. The catalog's policy and the config keys can be changed in Settings > Hooks or with the bundled `configure-coddy` skill (`set hooks.project_trust=allow` for a checkout you trust; under `allow` project files need no receipt, under `deny` they are never read).
 
-The receipt file is a sibling of `mcp-trust.json` and `subagents-trust.json`, never shared with them: one kind of approval must never read as another. It is replaced atomically, and every store instance for the same path shares one lock, so concurrent approvals from the CLI and the HTTP routes cannot lose each other.
+The receipt file is a sibling of `mcp-trust.json` and `subagents-trust.json`, never shared with them: one kind of approval must never read as another. A write is a transaction: an in-process lock shared by every store of the same path, a file lock (`hooks-trust.json.lock`) shared with other processes, and an atomic replace through a unique temporary file, so approvals from the CLI and the HTTP server cannot lose each other.
 
 ## Examples
 

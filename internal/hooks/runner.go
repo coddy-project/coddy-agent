@@ -26,6 +26,12 @@ const (
 	DecisionBlock = "block"
 )
 
+// maxAsyncHooks bounds how many detached hooks run at once across the
+// process (Codex uses the same figure); the rest wait for a slot.
+const maxAsyncHooks = 8
+
+var asyncSlots = make(chan struct{}, maxAsyncHooks)
+
 const (
 	defaultTimeoutSeconds = 60
 	defaultMaxOutputChars = 10000
@@ -171,7 +177,11 @@ func (r *Runner) Run(ctx context.Context, ev Event) Outcome {
 		}
 		out.Ran++
 		if b.handler.Async {
+			// Detached hooks queue behind a process-wide cap, so a chatty
+			// event cannot fork an unbounded number of processes at once.
 			go func(b bound, payload []byte) {
+				asyncSlots <- struct{}{}
+				defer func() { <-asyncSlots }()
 				res := r.exec(context.WithoutCancel(ctx), ev.Name, b.handler, payload)
 				if msg := res.failure(b.source.Display); msg != "" {
 					r.logger().Warn("async hook failed", "event", ev.Name, "error", msg)
@@ -195,6 +205,9 @@ type execResult struct {
 	cancelled bool
 	timeout   int
 	err       error
+	// outputDropped records that stdout or stderr exceeded the capture
+	// limit, so a JSON answer cut in half is reported as such.
+	outputDropped bool
 }
 
 // failure describes a run that did not complete normally, or "" for one that
@@ -270,7 +283,17 @@ func (r *Runner) exec(ctx context.Context, event string, h Handler, payload []by
 	}
 	res.stdout = platform.DecodeOutput(stdout.Bytes())
 	res.stderr = platform.DecodeOutput(stderr.Bytes())
-	if waitErr != nil && !errors.Is(waitErr, exec.ErrWaitDelay) {
+	res.outputDropped = stdout.dropped || stderr.dropped
+	switch {
+	case waitErr == nil:
+	case errors.Is(waitErr, exec.ErrWaitDelay):
+		// The hook itself exited; a grandchild kept a pipe open past the
+		// drain delay. Its exit code is still the answer (a block that forked
+		// a logger must stay a block).
+		if cmd.ProcessState != nil {
+			res.exitCode = cmd.ProcessState.ExitCode()
+		}
+	default:
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
 			res.exitCode = exitErr.ExitCode()
@@ -282,7 +305,8 @@ func (r *Runner) exec(ctx context.Context, event string, h Handler, payload []by
 }
 
 // terminate stops a hook's whole process group and reaps it, falling back to
-// a plain kill of the leader when the group refuses to go.
+// a plain kill of the leader when the group refuses to go. The final wait is
+// bounded too: a process that survives the kill must not hold the turn.
 func terminate(cmd *exec.Cmd, done <-chan error) error {
 	_ = platform.TerminateProcessGroup(cmd, terminateGrace)
 	select {
@@ -292,7 +316,12 @@ func terminate(cmd *exec.Cmd, done <-chan error) error {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		return <-done
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(waitDelay):
+		return errors.New("the hook process did not exit after it was killed")
 	}
 }
 
@@ -387,6 +416,10 @@ func (r *Runner) merge(out *Outcome, ev Event, b bound, res execResult, fields m
 	if looksJSON(stdout) {
 		parsed, err := parseOutput(stdout)
 		if err != nil {
+			if res.outputDropped {
+				r.fail(out, ev, b, fmt.Sprintf("hook in %s printed more than the %d KiB capture limit; its answer was cut", label, captureLimit>>10))
+				return
+			}
 			r.fail(out, ev, b, fmt.Sprintf("hook in %s printed invalid JSON: %v", label, err))
 			return
 		}
@@ -487,8 +520,10 @@ func (r *Runner) apply(out *Outcome, ev Event, label string, o hookOutput, field
 	}
 }
 
-// truncate caps a text at MaxOutputChars characters (runes, not bytes, so a
-// non-ASCII text keeps as many characters as an ASCII one) and marks the cut.
+// truncate caps the content of a text at MaxOutputChars characters (runes,
+// not bytes, so a non-ASCII text keeps as many characters as an ASCII one)
+// and appends a marker past the cut, so the result is the content plus the
+// marker.
 func (r *Runner) truncate(s string) string {
 	limit := r.MaxOutputChars
 	if limit <= 0 {

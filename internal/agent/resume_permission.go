@@ -31,6 +31,15 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	}
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
+	// The history holds the arguments the model produced; the bundle holds
+	// the arguments the prompt showed, after any PreToolUse rewrite. The
+	// approval binds to the latter, so those are what runs and what an
+	// allow-always grant is recorded against.
+	if sd != "" {
+		if shown, err := session.ReadToolCallArgs(sd, tc.ID); err == nil && strings.TrimSpace(shown) != "" {
+			tc.InputJSON = shown
+		}
+	}
 	toolEnv := a.buildToolEnv(mode, sd)
 	// A call the current mode refuses (a pending agent-mode write approved
 	// after switching to ask) must not leave an "allow always" grant behind:
