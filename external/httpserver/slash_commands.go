@@ -159,9 +159,10 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // coddyCommandsGet lists the deterministic built-in slash commands (/compact,
-// /plugin) so the composer can surface a "Commands" group alongside skills. These
-// run without an LLM turn and are not part of /coddy/slash-commands (which is
-// skills only). compact appears only while compaction is enabled.
+// /export, /plugin) so the composer can surface a "Commands" group alongside
+// skills. These run without an LLM turn and are not part of
+// /coddy/slash-commands (which is skills only). compact appears only while
+// compaction is enabled.
 func (s *Server) coddyCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)

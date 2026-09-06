@@ -187,7 +187,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 }
 
 // addUserCommandMessage persists the raw text of a built-in slash command
-// (/compact, /plugin) as a user message so it appears in the transcript like any
+// (/compact, /plugin, /export) as a user message so it appears in the transcript like any
 // other user input, instead of vanishing when the client reconciles with the
 // server snapshot.
 func (a *Agent) addUserCommandMessage(text string) {

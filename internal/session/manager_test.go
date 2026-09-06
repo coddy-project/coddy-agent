@@ -674,17 +674,17 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 		return
 	}
-	// Skills plus the built-in commands: compact (while compaction is enabled)
-	// and plugin (always).
-	if len(slash.AvailableCommands) != 5 {
+	// Skills plus the built-in commands: compact (while compaction is enabled),
+	// export and plugin (always).
+	if len(slash.AvailableCommands) != 6 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, and plugin, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["export"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, export, and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 
