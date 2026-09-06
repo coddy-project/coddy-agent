@@ -77,6 +77,9 @@ type Agent struct {
 	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
 	// countdown (tests); zero means limitWaitHeartbeat.
 	limitWaitHeartbeat time.Duration
+	// limitLedger is the user turn's account of time spent on usage
+	// limits (limit_wait.go); Run starts a fresh one.
+	limitLedger *limitWaitLedger
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
@@ -193,6 +196,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
 
 	toolDefs := a.currentToolDefinitions(mode)
+
+	// A new user turn starts its account of time spent on usage limits;
+	// the provider built below charges its retry sleeps to it.
+	a.limitLedger = &limitWaitLedger{}
 
 	// Get or create LLM provider.
 	transport, err := a.getProvider(mode)
@@ -366,8 +373,8 @@ func (a *Agent) runReActLoop(
 	stopHookActive := false
 	stopBlocks := 0
 
-	// What this turn has spent waiting for hit usage limits (limit_wait.go).
-	var limitWait limitWaitLedger
+	// The turn's account of time spent on usage limits (limit_wait.go).
+	limitWait := a.limitLedgerFor()
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -570,13 +577,10 @@ func (a *Agent) runReActLoop(
 			// then the same call runs again (nothing was persisted for the
 			// failed one, so nothing repeats). A cancel during the wait ends
 			// the turn as a stop. The iteration is repeated, not counted.
-			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny, limitWait); ok {
-				// The wrapper's own sleeps on this call count against the
-				// same total as the wait that follows.
-				limitWait.waited += reset.Elapsed
+			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny); ok {
 				waitStart := time.Now()
 				err := a.waitForLimitReset(ctx, sessionID, reset)
-				limitWait.waited += time.Since(waitStart)
+				limitWait.Charge(time.Since(waitStart))
 				if err != nil {
 					if a.state.IsUserCancelledTurn() {
 						return string(acp.StopReasonCancelled), nil
@@ -1527,6 +1531,9 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		if limit := a.cfg.Agent.EffectiveWaitForLimitResetMax(); !in.RetryBudgetSet || limit < in.RetryBudget {
 			in.RetryBudget, in.RetryBudgetSet = limit, true
 		}
+		// The wrapper's sleeps on a limit count against the turn's total,
+		// calls that succeed afterwards included.
+		in.LimitLedger = a.limitLedgerFor()
 	}
 	return in
 }

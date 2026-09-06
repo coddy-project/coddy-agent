@@ -35,12 +35,30 @@ type limitWaitProvider struct {
 	raw   bool
 	pause time.Duration
 	reply string
+	// script, when set, names each call's answer in order: "limit" (a raw
+	// 429 naming the pause), "empty" (an answer the loop nudges past), or
+	// "reply"; calls past its end reply.
+	script []string
 }
 
 func (p *limitWaitProvider) next() (*llm.Response, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
+	if len(p.script) > 0 {
+		step := "reply"
+		if p.calls <= len(p.script) {
+			step = p.script[p.calls-1]
+		}
+		switch step {
+		case "limit":
+			return nil, fmt.Errorf("openai stream: 429 Too Many Requests: rate limit exceeded, retry in %ds", int(p.pause/time.Second))
+		case "empty":
+			return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+		default:
+			return &llm.Response{Content: p.reply, StopReason: "end_turn"}, nil
+		}
+	}
 	if p.calls <= p.fails {
 		if p.raw {
 			return nil, fmt.Errorf("openai stream: 429 Too Many Requests: rate limit exceeded, retry in %ds", int(p.pause/time.Second))
@@ -159,6 +177,15 @@ func (s *limitWaitState) anAgentWhoseProviderAnswersA429ThroughTheWrapper(pauseS
 	return s.agentOver(&limitWaitProvider{fails: 1, raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply})
 }
 
+func (s *limitWaitState) anAgentWhoseProviderSleepsThenSucceedsThenLimitsAgain(pauseSec int, reply string) error {
+	s.viaWrapper = true
+	s.wrapperCap = time.Second
+	// A 429 the wrapper sleeps through, an answer the loop nudges past (so
+	// the turn goes on to another model call), then a 429 again.
+	return s.agentOver(&limitWaitProvider{raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply,
+		script: []string{"limit", "empty", "limit"}})
+}
+
 func (s *limitWaitState) anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper(pauseSec int, reply string) error {
 	s.viaWrapper = true
 	// A ladder that can sleep the first pause, so the wrapper spends time
@@ -254,6 +281,7 @@ func (s *limitWaitState) agent() *Agent {
 			RetryMaxDelay:  s.wrapperCap,
 			RetryBudget:    in.RetryBudget,
 			RetryBudgetSet: in.RetryBudgetSet,
+			Ledger:         in.LimitLedger,
 		}), nil
 	}
 	return ag
@@ -354,6 +382,7 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent whose provider reports a limit that lifts in (\d+) s twice and then answers "([^"]+)"$`, s.anAgentWhoseProviderReportsALimitTwice)
 	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429ThroughTheWrapper)
 	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s twice through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper)
+	sc.Step(`^an agent whose provider sleeps through a 429 naming a reset in (\d+) s, answers nothing, hits the limit again and then answers "([^"]+)"$`, s.anAgentWhoseProviderSleepsThenSucceedsThenLimitsAgain)
 	sc.Step(`^wait_for_limit_reset is on$`, s.waitIsOn)
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)

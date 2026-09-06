@@ -57,42 +57,60 @@ func TestLimitResetToWaitForGuards(t *testing.T) {
 	maxMS := 5000
 	ag, _ := limitWaitAgent(t, true, &maxMS)
 	reset := quotaReset(time.Second)
-	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{}); !ok {
+	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false); !ok {
 		t.Fatal("a plain reset on a top-level turn must be waited for")
 	}
-	if _, ok := ag.limitResetToWaitFor(errors.New("500 boom"), nil, "", false, limitWaitLedger{}); ok {
+	if _, ok := ag.limitResetToWaitFor(errors.New("500 boom"), nil, "", false); ok {
 		t.Fatal("an ordinary error is not a reset")
 	}
-	if _, ok := ag.limitResetToWaitFor(reset, nil, "", true, limitWaitLedger{}); ok {
+	if _, ok := ag.limitResetToWaitFor(reset, nil, "", true); ok {
 		t.Fatal("a call that already streamed is never re-issued")
 	}
-	if _, ok := ag.limitResetToWaitFor(reset, nil, "thinking...", false, limitWaitLedger{}); ok {
+	if _, ok := ag.limitResetToWaitFor(reset, nil, "thinking...", false); ok {
 		t.Fatal("buffered reasoning counts as streamed output")
 	}
-	if _, ok := ag.limitResetToWaitFor(reset, &llm.Response{Content: "partial"}, "", false, limitWaitLedger{}); ok {
+	if _, ok := ag.limitResetToWaitFor(reset, &llm.Response{Content: "partial"}, "", false); ok {
 		t.Fatal("a partial answer counts as streamed output")
 	}
-	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{waited: 4500 * time.Millisecond}); ok {
+	// The ledger is a total per turn: what the wrapper charged for its
+	// sleeps (a call that succeeded after one included) and earlier waits.
+	ag.limitLedgerFor().Charge(4500 * time.Millisecond)
+	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false); ok {
 		t.Fatal("the maximum is a total per turn: 4.5 s spent plus 1 s exceeds 5 s")
 	}
-	slept := quotaReset(time.Second)
-	slept.Elapsed = 4500 * time.Millisecond
-	if _, ok := ag.limitResetToWaitFor(slept, nil, "", false, limitWaitLedger{}); ok {
-		t.Fatal("the wrapper's own sleeps on the call count: 4.5 s slept plus 1 s exceeds 5 s")
-	}
+	ag.limitLedger = &limitWaitLedger{}
 	ag.subagent = &session.SubagentMeta{Depth: 1}
-	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{}); ok {
+	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false); ok {
 		t.Fatal("a subagent's turn fails fast")
 	}
 	ag.subagent = nil
 	off, _ := limitWaitAgent(t, false, nil)
-	if _, ok := off.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{}); ok {
+	if _, ok := off.limitResetToWaitFor(reset, nil, "", false); ok {
 		t.Fatal("off by default")
 	}
 	zero := 0
 	never, _ := limitWaitAgent(t, true, &zero)
-	if _, ok := never.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{}); ok {
+	if _, ok := never.limitResetToWaitFor(reset, nil, "", false); ok {
 		t.Fatal("an explicit 0 never waits")
+	}
+}
+
+// The wrapper the agent builds shares the turn's ledger only with the wait
+// on, and a new Run starts the account afresh.
+func TestLLMProviderInputSharesTheTurnLedger(t *testing.T) {
+	on, _ := limitWaitAgent(t, true, nil)
+	in := on.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true})
+	if in.LimitLedger == nil || in.LimitLedger != llm.LimitLedger(on.limitLedgerFor()) {
+		t.Fatal("with the wait on the wrapper must charge the turn's ledger")
+	}
+	on.limitLedgerFor().Charge(time.Second)
+	on.limitLedger = &limitWaitLedger{}
+	if on.limitLedgerFor().Spent() != 0 {
+		t.Fatal("a fresh ledger starts at zero")
+	}
+	off, _ := limitWaitAgent(t, false, nil)
+	if in := off.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); in.LimitLedger != nil {
+		t.Fatal("with the wait off the wrapper keeps its per-call accounting")
 	}
 }
 

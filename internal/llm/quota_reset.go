@@ -27,3 +27,14 @@ func (e *QuotaResetError) Error() string {
 }
 
 func (e *QuotaResetError) Unwrap() error { return e.Cause }
+
+// LimitLedger is the caller's account of the time one unit of work (the
+// agent's user turn) has spent on usage limits across its calls. The
+// resilient wrapper charges every sleep it takes after a 429 to it, calls
+// that succeed afterwards included, and reads the total when it judges a
+// new pause against RetryBudget, so the budget is a total for the unit of
+// work rather than for one call.
+type LimitLedger interface {
+	Spent() time.Duration
+	Charge(d time.Duration)
+}

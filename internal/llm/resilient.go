@@ -39,6 +39,9 @@ type ResilientOptions struct {
 	// all, so every named pause is reported.
 	RetryBudget    time.Duration
 	RetryBudgetSet bool
+	// Ledger, when set, receives every sleep taken after a 429 and its
+	// total counts against RetryBudget like this call's own elapsed time.
+	Ledger LimitLedger
 }
 
 func (o ResilientOptions) withDefaults() ResilientOptions {
@@ -122,7 +125,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		// After the retryable gate, so a 429 that arrived mid-stream (never
 		// retryable once text was emitted) is never re-issued; before the
 		// attempt gate, so retries disabled still fail typed.
-		if reset := p.quotaReset(err, attempt, time.Since(start)); reset != nil {
+		if reset := p.quotaReset(err, attempt, time.Since(start)+p.ledgerSpent()); reset != nil {
 			return nil, reset
 		}
 		if attempt >= p.opts.RetryMax {
@@ -132,15 +135,34 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
+		onLimit := httpStatusFromError(err) == 429
+		sleepStart := time.Now()
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			p.chargeLimitSleep(onLimit, time.Since(sleepStart))
 			return resp, ctx.Err()
 		case <-timer.C:
+			p.chargeLimitSleep(onLimit, time.Since(sleepStart))
 		}
 	}
 	return nil, lastErr
+}
+
+// ledgerSpent is what the caller's unit of work already spent on limits.
+func (p *resilientProvider) ledgerSpent() time.Duration {
+	if p.opts.Ledger == nil {
+		return 0
+	}
+	return p.opts.Ledger.Spent()
+}
+
+// chargeLimitSleep books a sleep taken after a 429 to the caller's ledger.
+func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
+	if onLimit && p.opts.Ledger != nil && d > 0 {
+		p.opts.Ledger.Charge(d)
+	}
 }
 
 // quotaReset turns a 429 whose server-requested pause exceeds what the
@@ -473,5 +495,6 @@ func applyResilientWrap(p Provider, in ProviderInput) Provider {
 		MinInterval:    in.MinInterval,
 		RetryBudget:    in.RetryBudget,
 		RetryBudgetSet: in.RetryBudgetSet,
+		Ledger:         in.LimitLedger,
 	}.withDefaults())
 }

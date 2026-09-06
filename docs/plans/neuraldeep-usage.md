@@ -607,9 +607,11 @@ must beat common 60 s idle proxies (cursor 10).
 - The wait is bounded by `wait_for_limit_reset_max_ms` (default 4 h, an
   explicit 0 never waits, a negative value is rejected by validation), a
   total per turn: what earlier waits of the same turn spent counts, the
-  retry wrapper's own sleeps on a limit included (`QuotaResetError.Elapsed`
-  carries them), so a provider that keeps naming short resets cannot hold
-  the turn open without end; with the option on the same maximum caps the
+  retry wrapper's own sleeps after a 429 included, on calls that succeeded
+  afterwards too (the wrapper charges them to the turn's `llm.LimitLedger`
+  and reads the total when it judges a new pause; `[rev7]` codex 3), so a
+  provider that keeps naming short resets cannot hold the turn open without
+  end; a resumed permission keeps the account, a new user turn starts one; with the option on the same maximum caps the
   wrapper's retry sleeps on a limit, and an explicit zero means no sleep on
   a limit anywhere (`RetryBudgetSet`) (`[rev5]` codex 2, fresh reviewer 3;
   `[rev6]` codex 1, 2). A pause that would exceed it fails fast with the

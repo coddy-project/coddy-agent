@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -16,11 +17,40 @@ import (
 // every surface keeps the reset time in view while nothing else streams.
 const limitWaitHeartbeat = 20 * time.Second
 
-// limitWaitLedger is what one user turn has spent on waiting for limits so
-// far: the configured maximum is a total per turn, so a provider that keeps
-// naming short resets cannot hold the turn open without end.
+// limitWaitLedger is what one user turn has spent on usage limits so far:
+// the waits of the loop and the retry wrapper's own sleeps after a 429,
+// calls that succeeded afterwards included (the wrapper charges them
+// through llm.LimitLedger). The configured maximum is a total per turn, so
+// a provider that keeps naming short resets cannot hold the turn open
+// without end. Run starts a fresh one; a resumed permission continues the
+// same turn and keeps it.
 type limitWaitLedger struct {
+	mu     sync.Mutex
 	waited time.Duration
+}
+
+func (l *limitWaitLedger) Spent() time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.waited
+}
+
+func (l *limitWaitLedger) Charge(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	l.mu.Lock()
+	l.waited += d
+	l.mu.Unlock()
+}
+
+// limitLedgerFor returns the turn's ledger, creating it for a loop entered
+// without Run (tests).
+func (a *Agent) limitLedgerFor() *limitWaitLedger {
+	if a.limitLedger == nil {
+		a.limitLedger = &limitWaitLedger{}
+	}
+	return a.limitLedger
 }
 
 // limitResetToWaitFor decides whether this turn waits for the reset behind
@@ -30,7 +60,7 @@ type limitWaitLedger struct {
 // chunk callback for every provider, response and reasoning cover the
 // blocking transport), so the same call can be re-issued without repeating
 // anything.
-func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, reasoning string, streamed bool, state limitWaitLedger) (*llm.QuotaResetError, bool) {
+func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, reasoning string, streamed bool) (*llm.QuotaResetError, bool) {
 	var reset *llm.QuotaResetError
 	if !errors.As(streamErr, &reset) || !a.cfg.Agent.WaitForLimitReset {
 		return nil, false
@@ -44,11 +74,11 @@ func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, rea
 	if response != nil && (strings.TrimSpace(response.Content) != "" || len(response.ToolCalls) > 0) {
 		return nil, false
 	}
-	// The wrapper's sleeps on this very call are part of the turn's total
-	// as much as the wait that would follow.
+	// The wrapper already booked its sleeps on this and earlier calls to
+	// the ledger; the wait that would follow must fit what is left.
 	limit := a.cfg.Agent.EffectiveWaitForLimitResetMax()
 	remaining := time.Until(reset.ResetAt)
-	if limit <= 0 || state.waited+reset.Elapsed+remaining > limit {
+	if limit <= 0 || a.limitLedgerFor().Spent()+remaining > limit {
 		return nil, false
 	}
 	return reset, true

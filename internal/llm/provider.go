@@ -155,6 +155,10 @@ type ProviderInput struct {
 	// ResilientOptions.RetryBudget).
 	RetryBudget    time.Duration
 	RetryBudgetSet bool
+	// LimitLedger, when set, is charged with every sleep the wrapper takes
+	// after a 429 and its total counts against RetryBudget, so the budget
+	// spans the caller's unit of work (see ResilientOptions.Ledger).
+	LimitLedger LimitLedger
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
 	// DisableStream turns off the streaming transport (models[].stream: false):

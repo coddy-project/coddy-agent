@@ -70,3 +70,11 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     When the user sends a turn and stops it while it waits
     Then the turn ends as cancelled after 1 provider call
     And the turn took less than 1000 ms
+
+  Scenario: A retry sleep on a call that then succeeded counts against the same maximum
+    Given an agent whose provider sleeps through a 429 naming a reset in 1 s, answers nothing, hits the limit again and then answers "done"
+    And wait_for_limit_reset is on with a maximum of 1500 ms
+    When the user sends a turn
+    Then the turn fails with the quota reset error after 3 provider calls
+    And the turn took at least 1 s
+    And the turn took less than 1500 ms
