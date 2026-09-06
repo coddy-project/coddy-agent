@@ -90,6 +90,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 - **MCP server integration** - connect any MCP server for additional tools
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama, any OpenAI-compatible API
 - **Context compaction** - built-in `/compact [instructions]` command and automatic summarization when the context reaches `compaction.threshold_percent` (default 80%) of the model's `max_context_tokens`; the last `compaction.keep_recent_turns` (default 2) user turns stay verbatim and the full transcript is preserved on disk - see [Configuration](docs/config-reference.md#compaction)
+- **Session export** - built-in `/export [md|html|json|jsonl] [path]` writes the conversation to a file in the workspace (markdown, a self-contained HTML page, JSON, or JSON Lines); `--no-tools` and `--no-thinking` trim it to the chat text - see [Session export](docs/session-export.md)
 - **Multimodal / file attachments** - attach images and files via the composer (📎) when `multimodal: true` in the model config; assets saved to `~/.coddy/sessions/<id>/assets/` and injected into the agent context; file chips displayed in the user bubble
 - **Reasoning level** - for reasoning models (gpt-5, o-series, Claude thinking models) a composer dropdown picks the effort level (`minimal`/`low`/`medium`/`high`), mapped to OpenAI `reasoning_effort` or Anthropic extended-thinking `budget_tokens`; levels auto-detect from the model id and are configurable per model — see [Configuration](docs/config.md)
 - **ACP protocol** - Coddy is an **ACP server** (`coddy acp`); pair it with editors or scripts that implement an ACP client (see [Editor and IDE integration](#editor-and-ide-integration))
@@ -571,6 +572,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Codex hooks](docs/codex-hooks.md) - how `.cursor/rules/*.mdc` reach a Codex CLI session working on this repo
 - [OpenCode hooks](docs/opencode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to OpenCode sessions working on this repo
 - [Skills](docs/skills.md) - slash commands and **`skills.dirs`**
+- [Session export](docs/session-export.md) - the **`/export`** command: formats, path rules, trimming options, the JSON document
 - [Custom tools](docs/custom-tools.md) - adding a tool to the registry, schema, and permission wiring
 - [Scheduler](docs/scheduler.md) - cron job files, UTC firing rules, run sessions, and the **`coddy_scheduler_*`** tools
 - [ZCode hooks](docs/zcode-hooks.md) - deterministic delivery of `.cursor/rules/*.mdc` to ZCode sessions working on this repo
@@ -590,6 +592,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 By default, `coddy acp` and `coddy http` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`**, **`coddy http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
 - **`coddy sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
+- **`/export`** in any chat writes the current transcript to **`coddy-export-<timestamp>.md`** (or `html`, `json`, `jsonl`, or a path you name) inside the workspace - see [Session export](docs/session-export.md).
 - **`coddy acp --session-id <id>`** makes the **next** `session/new` either reopen snapshots for that folder (if present) or create a fresh bundle whose directory name matches that id.
 - **`session/load`** restores history and notifies the client; **`session/list`** lists bundles for ACP-aware clients.
 

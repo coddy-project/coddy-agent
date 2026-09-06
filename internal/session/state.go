@@ -600,6 +600,12 @@ func (s *State) SetAgentMemory(text string) {
 	s.touchPersist()
 }
 
+// ConversationTitle returns the pinned title, or the one derived from the
+// first user message (the value session.json records).
+func (s *State) ConversationTitle() string {
+	return persistedConversationTitle(s)
+}
+
 // GetTitlePinned returns the user-pinned session title shown in snapshots, if any.
 func (s *State) GetTitlePinned() string {
 	s.mu.RLock()
