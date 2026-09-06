@@ -557,7 +557,7 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 		t.Fatalf("the resume note must reach the loop, got %+v", msg.update)
 	}
 	a.applyLoopMessage(msg)
-	if got := a.statusMessage(); got != statusWaitingModel {
-		t.Fatalf("after the reset the row reads %q, want %q", got, statusWaitingModel)
+	if got := a.statusMessage(); !strings.HasPrefix(got, statusWaitingModel) {
+		t.Fatalf("after the reset the row reads %q, want %q with its counter", got, statusWaitingModel)
 	}
 }

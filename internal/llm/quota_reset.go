@@ -14,6 +14,10 @@ import (
 type QuotaResetError struct {
 	ResetAt time.Time
 	Delay   time.Duration
+	// Elapsed is what the call had already spent, retry sleeps on earlier
+	// pauses included, when the wrapper gave up: a caller that budgets its
+	// waiting counts it too.
+	Elapsed time.Duration
 	Cause   error
 }
 

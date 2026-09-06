@@ -75,6 +75,11 @@ func TestLimitResetToWaitForGuards(t *testing.T) {
 	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{waited: 4500 * time.Millisecond}); ok {
 		t.Fatal("the maximum is a total per turn: 4.5 s spent plus 1 s exceeds 5 s")
 	}
+	slept := quotaReset(time.Second)
+	slept.Elapsed = 4500 * time.Millisecond
+	if _, ok := ag.limitResetToWaitFor(slept, nil, "", false, limitWaitLedger{}); ok {
+		t.Fatal("the wrapper's own sleeps on the call count: 4.5 s slept plus 1 s exceeds 5 s")
+	}
 	ag.subagent = &session.SubagentMeta{Depth: 1}
 	if _, ok := ag.limitResetToWaitFor(reset, nil, "", false, limitWaitLedger{}); ok {
 		t.Fatal("a subagent's turn fails fast")
@@ -123,18 +128,23 @@ func TestWaitForLimitResetHeartbeatsAndCancel(t *testing.T) {
 // the wait's maximum on top when the option is on, nothing otherwise.
 func TestLLMProviderInputRetryBudget(t *testing.T) {
 	ag, _ := limitWaitAgent(t, false, nil)
-	if in := ag.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); in.RetryBudget != 90*time.Second {
-		t.Fatalf("streamed: budget %v, want the 90 s first-token timeout", in.RetryBudget)
+	if in := ag.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); !in.RetryBudgetSet || in.RetryBudget != 90*time.Second {
+		t.Fatalf("streamed: budget %v (set %v), want the 90 s first-token timeout", in.RetryBudget, in.RetryBudgetSet)
 	}
-	if in := ag.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: false}); in.RetryBudget != 0 {
-		t.Fatalf("blocking: budget %v, want none", in.RetryBudget)
+	if in := ag.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: false}); in.RetryBudgetSet {
+		t.Fatalf("blocking: budget %v set, want the ladder alone", in.RetryBudget)
 	}
 	maxMS := 300
 	on, _ := limitWaitAgent(t, true, &maxMS)
-	if in := on.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); in.RetryBudget != 300*time.Millisecond {
+	if in := on.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); !in.RetryBudgetSet || in.RetryBudget != 300*time.Millisecond {
 		t.Fatalf("with the wait on: budget %v, want its 300 ms maximum", in.RetryBudget)
 	}
-	if in := on.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: false}); in.RetryBudget != 300*time.Millisecond {
+	if in := on.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: false}); !in.RetryBudgetSet || in.RetryBudget != 300*time.Millisecond {
 		t.Fatalf("with the wait on, blocking: budget %v, want its 300 ms maximum", in.RetryBudget)
+	}
+	zero := 0
+	never, _ := limitWaitAgent(t, true, &zero)
+	if in := never.llmProviderInput(&config.ResolvedLLM{ProviderType: "neuraldeep", Model: "m", Stream: true}); !in.RetryBudgetSet || in.RetryBudget != 0 {
+		t.Fatalf("an explicit 0: budget %v (set %v), want a set zero so the wrapper never sleeps on a limit", in.RetryBudget, in.RetryBudgetSet)
 	}
 }

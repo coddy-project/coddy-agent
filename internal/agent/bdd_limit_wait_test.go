@@ -103,6 +103,7 @@ func (s *limitWaitSender) resuming() []acp.ProviderUsageUpdate {
 type limitWaitState struct {
 	provider   *limitWaitProvider
 	viaWrapper bool
+	wrapperCap time.Duration
 	sender     *limitWaitSender
 	cfg        *config.Config
 	state      *session.State
@@ -117,6 +118,7 @@ type limitWaitState struct {
 func (s *limitWaitState) reset() error {
 	s.provider = nil
 	s.viaWrapper = false
+	s.wrapperCap = 100 * time.Millisecond
 	s.sender = &limitWaitSender{}
 	s.cfg = nil
 	s.state = nil
@@ -153,6 +155,14 @@ func (s *limitWaitState) anAgentWhoseProviderReportsALimitTwice(pauseSec int, re
 func (s *limitWaitState) anAgentWhoseProviderAnswersA429ThroughTheWrapper(pauseSec int, reply string) error {
 	s.viaWrapper = true
 	return s.agentOver(&limitWaitProvider{fails: 1, raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply})
+}
+
+func (s *limitWaitState) anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper(pauseSec int, reply string) error {
+	s.viaWrapper = true
+	// A ladder that can sleep the first pause, so the wrapper spends time
+	// before its verdict and that time counts against the turn's maximum.
+	s.wrapperCap = time.Second
+	return s.agentOver(&limitWaitProvider{fails: 2, raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply})
 }
 
 func (s *limitWaitState) agentOver(p *limitWaitProvider) error {
@@ -193,13 +203,15 @@ func (s *limitWaitState) theUserSendsATurn() error {
 		if !s.viaWrapper {
 			return s.provider, nil
 		}
-		// The wrapper as the agent configures it, with a small ladder so a
-		// one-second pause is beyond what the retries could wait.
+		// The wrapper as the agent configures it, with a ladder the
+		// scenario sizes: 100 ms per wait leaves a one-second pause beyond
+		// what the retries could wait, one second lets them sleep it.
 		return llm.WrapResilient(s.provider, llm.ResilientOptions{
-			RetryMax:      in.RetryMax,
-			RetryBase:     5 * time.Millisecond,
-			RetryMaxDelay: 100 * time.Millisecond,
-			RetryBudget:   in.RetryBudget,
+			RetryMax:       in.RetryMax,
+			RetryBase:      5 * time.Millisecond,
+			RetryMaxDelay:  s.wrapperCap,
+			RetryBudget:    in.RetryBudget,
+			RetryBudgetSet: in.RetryBudgetSet,
 		}), nil
 	}
 	s.started = time.Now()
@@ -294,6 +306,7 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent whose provider first reports a limit that lifts in (\d+) s and then answers "([^"]+)"$`, s.anAgentWhoseProviderFirstReportsALimit)
 	sc.Step(`^an agent whose provider reports a limit that lifts in (\d+) s twice and then answers "([^"]+)"$`, s.anAgentWhoseProviderReportsALimitTwice)
 	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429ThroughTheWrapper)
+	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s twice through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper)
 	sc.Step(`^wait_for_limit_reset is on$`, s.waitIsOn)
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)

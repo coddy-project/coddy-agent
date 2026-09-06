@@ -44,9 +44,11 @@ func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, rea
 	if response != nil && (strings.TrimSpace(response.Content) != "" || len(response.ToolCalls) > 0) {
 		return nil, false
 	}
+	// The wrapper's sleeps on this very call are part of the turn's total
+	// as much as the wait that would follow.
 	limit := a.cfg.Agent.EffectiveWaitForLimitResetMax()
 	remaining := time.Until(reset.ResetAt)
-	if limit <= 0 || state.waited+remaining > limit {
+	if limit <= 0 || state.waited+reset.Elapsed+remaining > limit {
 		return nil, false
 	}
 	return reset, true

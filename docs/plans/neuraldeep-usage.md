@@ -606,11 +606,14 @@ must beat common 60 s idle proxies (cursor 10).
   compaction and the HTTP helpers never see the option.
 - The wait is bounded by `wait_for_limit_reset_max_ms` (default 4 h, an
   explicit 0 never waits, a negative value is rejected by validation), a
-  total per turn: what earlier waits of the same turn spent counts, so a
-  provider that keeps naming short resets cannot hold the turn open without
-  end, and with the option on the same maximum caps the wrapper's own
-  retry sleeps on a limit (`[rev5]` codex 2, fresh reviewer 3). A pause
-  that would exceed it fails fast with the error, before any sleep. The
+  total per turn: what earlier waits of the same turn spent counts, the
+  retry wrapper's own sleeps on a limit included (`QuotaResetError.Elapsed`
+  carries them), so a provider that keeps naming short resets cannot hold
+  the turn open without end; with the option on the same maximum caps the
+  wrapper's retry sleeps on a limit, and an explicit zero means no sleep on
+  a limit anywhere (`RetryBudgetSet`) (`[rev5]` codex 2, fresh reviewer 3;
+  `[rev6]` codex 1, 2). A pause that would exceed it fails fast with the
+  error, before any sleep. The
   turn context bounds it too: a user Stop ends the turn as cancelled, any
   other cancellation ends it with the error and names the cause. The loop
   re-runs the same iteration with the same messages (`turn--; continue`)

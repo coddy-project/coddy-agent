@@ -421,11 +421,12 @@ func TestResilientProviderFailsFastPastTheRetryBudget(t *testing.T) {
 				},
 			}
 			p := wrapResilient(inner, ResilientOptions{
-				RetryMax:      tc.retryMax,
-				RetryDisabled: tc.disabled,
-				RetryBase:     5 * time.Millisecond,
-				RetryMaxDelay: 100 * time.Millisecond,
-				RetryBudget:   tc.budget,
+				RetryMax:       tc.retryMax,
+				RetryDisabled:  tc.disabled,
+				RetryBase:      5 * time.Millisecond,
+				RetryMaxDelay:  100 * time.Millisecond,
+				RetryBudget:    tc.budget,
+				RetryBudgetSet: tc.budget > 0,
 			})
 			before := time.Now()
 			_, err := p.Stream(context.Background(), nil, nil, nil)
@@ -477,10 +478,11 @@ func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 		},
 	}
 	p := wrapResilient(inner, ResilientOptions{
-		RetryMax:      5,
-		RetryBase:     5 * time.Millisecond,
-		RetryMaxDelay: 100 * time.Millisecond,
-		RetryBudget:   250 * time.Millisecond,
+		RetryMax:       5,
+		RetryBase:      5 * time.Millisecond,
+		RetryMaxDelay:  100 * time.Millisecond,
+		RetryBudget:    250 * time.Millisecond,
+		RetryBudgetSet: true,
 	})
 	before := time.Now()
 	_, err := p.Stream(context.Background(), nil, nil, nil)
@@ -493,5 +495,24 @@ func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
 	}
 	if took := time.Since(before); took < 200*time.Millisecond || took > 400*time.Millisecond {
 		t.Fatalf("the wrapper slept %v, want about 200 ms", took)
+	}
+}
+
+// A budget set to zero means no sleep on a limit at all: the first named
+// pause is reported, the request never repeated.
+func TestResilientProviderZeroBudgetNeverSleeps(t *testing.T) {
+	var calls atomic.Int32
+	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "10"})
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls.Add(1)
+			return nil, cause
+		},
+	}
+	p := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, RetryBudgetSet: true})
+	_, err := p.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) || calls.Load() != 1 {
+		t.Fatalf("want a reset after one call, got calls=%d err=%v", calls.Load(), err)
 	}
 }

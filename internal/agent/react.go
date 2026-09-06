@@ -571,6 +571,9 @@ func (a *Agent) runReActLoop(
 			// failed one, so nothing repeats). A cancel during the wait ends
 			// the turn as a stop. The iteration is repeated, not counted.
 			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny, limitWait); ok {
+				// The wrapper's own sleeps on this call count against the
+				// same total as the wait that follows.
+				limitWait.waited += reset.Elapsed
 				waitStart := time.Now()
 				err := a.waitForLimitReset(ctx, sessionID, reset)
 				limitWait.waited += time.Since(waitStart)
@@ -1512,16 +1515,17 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	// is reported as a quota reset instead of being slept through in vain.
 	if rm.Stream {
 		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
-			in.RetryBudget = timeout
+			in.RetryBudget, in.RetryBudgetSet = timeout, true
 		}
 	}
 	// With the wait on, its maximum bounds every sleep the turn spends on a
 	// limit, the wrapper's retries included: a pause beyond it comes back
 	// as a quota reset and ends the turn at once instead of being slept
-	// through by the retries first.
+	// through by the retries first, and an explicit zero means no sleep on
+	// a limit anywhere.
 	if a.cfg.Agent.WaitForLimitReset {
-		if limit := a.cfg.Agent.EffectiveWaitForLimitResetMax(); limit > 0 && (in.RetryBudget == 0 || limit < in.RetryBudget) {
-			in.RetryBudget = limit
+		if limit := a.cfg.Agent.EffectiveWaitForLimitResetMax(); !in.RetryBudgetSet || limit < in.RetryBudget {
+			in.RetryBudget, in.RetryBudgetSet = limit, true
 		}
 	}
 	return in

@@ -34,8 +34,11 @@ type ResilientOptions struct {
 	MinInterval   time.Duration
 	// RetryBudget caps the total server-requested pause the wrapper honours
 	// by waiting, on top of the RetryMaxDelay-per-wait ladder; a longer
-	// pause fails fast as a QuotaResetError. Zero means the ladder alone.
-	RetryBudget time.Duration
+	// pause fails fast as a QuotaResetError. Unset (RetryBudgetSet false)
+	// means the ladder alone; set to zero it means no sleep on a limit at
+	// all, so every named pause is reported.
+	RetryBudget    time.Duration
+	RetryBudgetSet bool
 }
 
 func (o ResilientOptions) withDefaults() ResilientOptions {
@@ -159,7 +162,7 @@ func (p *resilientProvider) quotaReset(err error, attempt int, elapsed time.Dura
 	if d <= p.retryBudget(attempt, elapsed) {
 		return nil
 	}
-	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Cause: err}
+	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Elapsed: elapsed, Cause: err}
 }
 
 // retryBudget is the longest server-requested pause the loop honours by
@@ -173,7 +176,7 @@ func (p *resilientProvider) retryBudget(attempt int, elapsed time.Duration) time
 		waits = 0
 	}
 	budget := p.opts.RetryMaxDelay * time.Duration(waits)
-	if p.opts.RetryBudget > 0 {
+	if p.opts.RetryBudgetSet {
 		if left := p.opts.RetryBudget - elapsed; left < budget {
 			budget = left
 		}
@@ -453,11 +456,12 @@ func WithAgentResilience(in ProviderInput, retryMax, retryBaseMS, minIntervalMS 
 
 func applyResilientWrap(p Provider, in ProviderInput) Provider {
 	return wrapResilient(p, ResilientOptions{
-		RetryMax:      in.RetryMax,
-		RetryDisabled: in.RetryDisabled,
-		RetryBase:     in.RetryBase,
-		RetryMaxDelay: in.RetryMaxDelay,
-		MinInterval:   in.MinInterval,
-		RetryBudget:   in.RetryBudget,
+		RetryMax:       in.RetryMax,
+		RetryDisabled:  in.RetryDisabled,
+		RetryBase:      in.RetryBase,
+		RetryMaxDelay:  in.RetryMaxDelay,
+		MinInterval:    in.MinInterval,
+		RetryBudget:    in.RetryBudget,
+		RetryBudgetSet: in.RetryBudgetSet,
 	}.withDefaults())
 }
