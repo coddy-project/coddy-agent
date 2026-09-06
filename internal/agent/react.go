@@ -562,7 +562,9 @@ func (a *Agent) runReActLoop(
 					if a.state.IsUserCancelledTurn() {
 						return string(acp.StopReasonCancelled), nil
 					}
-					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", reset)
+					// A shutdown or a deadline, not the user: the turn ends with
+					// the limit it was waiting on and says what cut the wait.
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w (the wait for the reset was interrupted: %v)", reset, err)
 				}
 				turn--
 				continue

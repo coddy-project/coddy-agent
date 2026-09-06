@@ -505,7 +505,10 @@ define; a client that ignores unknown kinds keeps working.
   `agent.wait_for_limit_reset` on, a turn that hits a limit the retries
   could never cover sends the same update itself every 20 s while it waits,
   with `blocked`, `retryAt`, `retryInSec` and `resuming: true`; it then
-  re-issues the call, and the next turn-end snapshot replaces the update.
+  re-issues the call, and the next turn-end snapshot replaces the update:
+  `{"sessionUpdate": "provider_usage", "provider": "neuraldeep",
+  "providerType": "neuraldeep", "blocked": true, "retryAt":
+  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`.
 
 ```json
 {

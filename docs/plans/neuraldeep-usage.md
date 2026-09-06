@@ -699,9 +699,11 @@ Layered order, each layer red → green → `make test` → docs → `make lint`
    the PR.
 3. **SPA** (second PR): pill, banner, i18n, vitest, DESIGN.md, docs/ui.md,
    screenshots.
-4. **Auto-resume** (third PR): config, agent-loop wait, status line and
-   banner wording, config schema sync, spec scenario "A turn waits for the
-   session window to reset".
+4. **Auto-resume** (third PR, branch `claude/coddy-usage-auto-resume` on
+   top of #143): config, agent-loop wait, status line and banner wording,
+   config schema sync, spec scenarios in `features/llm_limit_wait.feature`
+   (the turn waits and answers, off by default, a pause beyond the maximum)
+   and the threshold scenario in `features/llm_retry_after.feature`.
 
 `[rev]` Steps 1 and 2 ship in one PR as two commits: the plumbing alone has
 no visible surface, and the status bar is what the issue asks for (cursor 12,

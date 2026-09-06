@@ -1,35 +1,35 @@
-[Context]
-  AGENTS.md
-
-[Skills]
-  generate-rules, configure-coddy, brainstorming, dispatching-parallel-agents, executing-plans,
-  find-skills, finishing-a-development-branch, receiving-code-review, requesting-code-review,
-  subagent-driven-development, systematic-debugging, test-driven-development, tg-send,
   using-git-worktrees, using-superpowers, verification-before-completion, writing-plans,
   writing-skills
  NeuralDeep · pro · key coddy
-   session (3h)   ▮▯▯▯▯▯▯▯▯▯    3%  407 / 15 000  resets 23:40
-   week           ▮▮▮▯▯▯▯▯▯▯   27%  41 230 / 150 000  resets Wed 02:49
+   session (3h)   ▮▯▯▯▯▯▯▯▯▯    3%  407 / 15 000  resets 01:48
+   week           ▮▮▮▯▯▯▯▯▯▯   27%  41 230 / 150 000  resets Wed 04:57
    day            ▯▯▯▯▯▯▯▯▯▯    0%  resets 03:00
    rpm            3 / 120 this minute
    cooldown       none
    wallet         1 250 ₽ (3 471 ₽ spent in 30 days)
    refresh in 15s (pacing)
    observed 1s ago
- You've used 85% of your NeuralDeep 3h limit · resets 23:40
- Usage limit reached: limit reached (resets 23:40)
- NeuralDeep · pro · key coddy · limit reached (resets 23:40)
-   session (3h)   ▮▮▮▮▮▮▮▮▮▮  100%  15 000 / 15 000  resets 23:40  exhausted
-   week           ▮▮▮▯▯▯▯▯▯▯   27%  41 230 / 150 000  resets Wed 02:50
+ You've used 85% of your NeuralDeep 3h limit · resets 01:48
+
+
+ hi
+
+ Interrupted by escape
+ Operation aborted
+ Usage limit reached (resets 01:48)
+ NeuralDeep · pro · key coddy · limit reached (resets 01:48)
+   session (3h)   ▮▮▮▮▮▮▮▮▮▮  100%  15 000 / 15 000  resets 01:48  exhausted
+   week           ▮▮▮▯▯▯▯▯▯▯   27%  41 230 / 150 000  resets Wed 04:58
    day            ▯▯▯▯▯▯▯▯▯▯    0%  resets 03:00
    rpm            3 / 120 this minute
    cooldown       none
    wallet         1 250 ₽ (3 471 ₽ spent in 30 days)
-   refresh in 11s (pacing)
-   observed 4s ago
+   refresh in 12s (pacing)
+   observed 3s ago
+
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────────────────────────────────
 /home/pasha/demo/coddy-agent (main)
-                                                                            (neuraldeep) qwen3.8-27b
-pro • limit reached (resets 23:40) • wallet 1 250 ₽
+10.7%/262.1k (auto)                                                         (neuraldeep) qwen3.8-27b
+pro • limit reached (resets 01:48) • wallet 1 250 ₽

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Capture the console status bar with NeuralDeep account usage.
 
-Stands a local GET /limits (a fake hub with a pro wallet key), points the
+Stands a local GET /limits (a fake hub with a pro wallet key) plus a chat
+completion that answers one 429 naming a reset far ahead, points the
 neuraldeep provider at it through CODDY_NEURALDEEP_BASE_URL, starts
-build/coddy cli in a pty and dumps three states through capture.py's
+build/coddy cli in a pty and dumps four states through capture.py's
 renderer (text, styled HTML, PNG): the footer line, the 80 % warning with
-its notice and /usage, and a hit limit. No real key and no model call.
+its notice and /usage, the status row of a turn waiting for the limit to
+lift (agent.wait_for_limit_reset), and a hit limit. No real key.
 
 Usage: python3 capture_usage.py [repo] [outdir]   (default docs/assets/cli-tui)
 Needs a cli-tagged build/coddy (make build TAGS=cli), pexpect, pyte and
@@ -23,7 +25,7 @@ import pexpect, pyte  # noqa: E402
 import capture  # noqa: E402
 from cli_tui_driver import COLS, ROWS, CR  # noqa: E402
 
-STATE = {"used": 407, "blocked": False}
+STATE = {"used": 407, "blocked": False, "limit": 0}
 
 def payload():
     used = STATE["used"]
@@ -54,6 +56,18 @@ class H(BaseHTTPRequestHandler):
         body = json.dumps(payload()).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+    def do_POST(self):
+        # The only model call the capture makes: a 429 whose Retry-After is
+        # far beyond the retry budget, so the turn waits for the reset.
+        if self.path != "/chat/completions" or STATE["limit"] <= 0:
+            self.send_response(404); self.end_headers(); return
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        pause, STATE["limit"] = STATE["limit"], 0
+        body = json.dumps({"error": {"message": "Rate limit exceeded for api_key: coddy. Limit type: session.",
+                                     "type": "rate_limit_error", "code": "429"}}).encode()
+        self.send_response(429); self.send_header("Content-Type", "application/json")
+        self.send_header("Retry-After", str(pause)); self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
     def log_message(self, *a):
         pass
 
@@ -76,6 +90,7 @@ models:
     max_context_tokens: 262144
 agent:
   model: neuraldeep/qwen3.8-27b
+  wait_for_limit_reset: true
 """)
 
 class Shot:
@@ -158,6 +173,17 @@ tui.pump(0.5)
 capture.snapshot(tui, OUT, "10-usage-warning")
 print("warning captured")
 
+# A turn that hits a limit the retries could never cover: the status row
+# counts down to the reset while the footer keeps the hub's numbers.
+STATE["limit"] = 120
+tui.send("hi" + CR)
+tui.wait_for("resuming at", timeout=25)
+tui.pump(0.5)
+capture.snapshot(tui, OUT, "12-usage-resuming")
+print("resuming captured")
+tui.send("\x1b")  # Esc stops the waiting turn like any other
+tui.pump(1)
+
 # A hit limit.
 STATE["blocked"] = True
 time.sleep(16)
@@ -168,7 +194,7 @@ capture.snapshot(tui, OUT, "11-usage-blocked")
 print("blocked captured")
 tui.send("\x03"); time.sleep(0.2); tui.send("\x03")
 tui.pump(1)
-names = ["09-usage-footer", "10-usage-warning", "11-usage-blocked"]
+names = ["09-usage-footer", "10-usage-warning", "12-usage-resuming", "11-usage-blocked"]
 for name in names:
     # The frame's empty tail rows would otherwise end the file with blank lines.
     txt = OUT / f"{name}.txt"
