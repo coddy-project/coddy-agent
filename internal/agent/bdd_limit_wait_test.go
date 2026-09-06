@@ -53,6 +53,8 @@ func (p *limitWaitProvider) next() (*llm.Response, error) {
 		switch step {
 		case "limit":
 			return nil, fmt.Errorf("openai stream: 429 Too Many Requests: rate limit exceeded, retry in %ds", int(p.pause/time.Second))
+		case "limit-unnamed":
+			return nil, errors.New("openai stream: 429 Too Many Requests: rate limit exceeded")
 		case "empty":
 			return &llm.Response{Content: "", StopReason: "end_turn"}, nil
 		default:
@@ -184,6 +186,30 @@ func (s *limitWaitState) anAgentWhoseProviderSleepsThenSucceedsThenLimitsAgain(p
 	// the turn goes on to another model call), then a 429 again.
 	return s.agentOver(&limitWaitProvider{raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply,
 		script: []string{"limit", "empty", "limit"}})
+}
+
+func (s *limitWaitState) anAgentWhoseProviderKeepsAnsweringUnnamed429s(reply string) error {
+	s.viaWrapper = true
+	// Four unnamed 429s outlast the wrapper's three retries.
+	return s.agentOver(&limitWaitProvider{raw: true, reply: reply,
+		script: []string{"limit-unnamed", "limit-unnamed", "limit-unnamed", "limit-unnamed"}})
+}
+
+func (s *limitWaitState) theTurnFailsWithTheProviderErrorAfterCalls(calls int) error {
+	if s.runErr == nil {
+		return fmt.Errorf("turn succeeded with %q, want the provider's error", s.reply)
+	}
+	var reset *llm.QuotaResetError
+	if errors.As(s.runErr, &reset) {
+		return fmt.Errorf("turn failed with a quota reset (%v), want the provider's own error", s.runErr)
+	}
+	if !strings.Contains(s.runErr.Error(), "429") {
+		return fmt.Errorf("turn failed with %v, want the provider's 429", s.runErr)
+	}
+	if got := s.provider.count(); got != calls {
+		return fmt.Errorf("provider calls = %d, want %d", got, calls)
+	}
+	return nil
 }
 
 func (s *limitWaitState) anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper(pauseSec int, reply string) error {
@@ -383,6 +409,8 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429ThroughTheWrapper)
 	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s twice through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429TwiceThroughTheWrapper)
 	sc.Step(`^an agent whose provider sleeps through a 429 naming a reset in (\d+) s, answers nothing, hits the limit again and then answers "([^"]+)"$`, s.anAgentWhoseProviderSleepsThenSucceedsThenLimitsAgain)
+	sc.Step(`^an agent whose provider keeps answering 429 without naming a pause and would then answer "([^"]+)"$`, s.anAgentWhoseProviderKeepsAnsweringUnnamed429s)
+	sc.Step(`^the turn fails with the provider's error after (\d+) provider calls?$`, s.theTurnFailsWithTheProviderErrorAfterCalls)
 	sc.Step(`^wait_for_limit_reset is on$`, s.waitIsOn)
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)

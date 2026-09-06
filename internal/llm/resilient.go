@@ -129,7 +129,8 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		// After the retryable gate, so a 429 that arrived mid-stream (never
 		// retryable once text was emitted) is never re-issued; before the
 		// attempt gate, so retries disabled still fail typed.
-		if reset := p.quotaReset(err, attempt, time.Since(start)+spentBefore); reset != nil {
+		elapsed := time.Since(start) + spentBefore
+		if reset := p.quotaReset(err, attempt, elapsed); reset != nil {
 			return nil, reset
 		}
 		if attempt >= p.opts.RetryMax {
@@ -140,6 +141,14 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			delay = p.opts.RetryBase
 		}
 		onLimit := httpStatusFromError(err) == 429
+		if onLimit && p.opts.RetryBudgetSet && delay > p.retryBudget(attempt, elapsed) {
+			// A 429 that named no pause takes the ordinary backoff only
+			// while the caller's budget allows; past it the call ends with
+			// the provider's own error. No reset is invented for it: the
+			// typed error, and the countdown built on it, stand for a
+			// moment the provider named.
+			return resp, err
+		}
 		sleepStart := time.Now()
 		timer := time.NewTimer(delay)
 		select {
@@ -169,31 +178,24 @@ func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
 	}
 }
 
-// quotaReset turns a 429 whose pause exceeds what the remaining retries
-// could wait into a QuotaResetError. The pause is the one the server named
-// (Retry-After, "Limit resets at", "retry in Ns") or, for a 429 that named
-// none, the backoff the loop would take. The loop still has RetryMax-attempt
-// waits of at most RetryMaxDelay each (none with retries disabled), and the
-// caller may cap the total with RetryBudget (the agent passes its
-// first-token timeout, which would cut a longer sleep anyway, and the
-// wait's maximum when the wait is on, an explicit zero meaning no sleep on
-// a limit at all): a pause inside that is retried as usual, a longer one
-// could only end in the same 429 after the budget was burnt, so the caller
-// learns of the reset at once, after this one request.
+// quotaReset turns a 429 whose server-named pause (Retry-After, "Limit
+// resets at", "retry in Ns") exceeds what the remaining retries could wait
+// into a QuotaResetError. The loop still has RetryMax-attempt waits of at
+// most RetryMaxDelay each (none with retries disabled), and the caller may
+// cap the total with RetryBudget (the agent passes its first-token timeout,
+// which would cut a longer sleep anyway, and the wait's maximum when the
+// wait is on, an explicit zero meaning no sleep on a limit at all): a pause
+// inside that is retried as usual, a longer one could only end in the same
+// 429 after the budget was burnt, so the caller learns of the reset at
+// once, after this one request. A 429 that names no pause is never turned
+// into a reset: its backoff is bounded by the budget in callWithRetry and
+// the call ends with the provider's own error.
 func (p *resilientProvider) quotaReset(err error, attempt int, elapsed time.Duration) *QuotaResetError {
 	if httpStatusFromError(err) != 429 {
 		return nil
 	}
 	d, named := serverRetryDelay(err)
-	if !named {
-		if !p.opts.RetryBudgetSet {
-			// Without a caller's budget an unnamed 429 keeps the ordinary
-			// backoff, which the ladder bounds by itself.
-			return nil
-		}
-		d = retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
-	}
-	if d <= p.retryBudget(attempt, elapsed) {
+	if !named || d <= p.retryBudget(attempt, elapsed) {
 		return nil
 	}
 	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Elapsed: elapsed, Cause: err}

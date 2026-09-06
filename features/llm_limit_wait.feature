@@ -78,3 +78,10 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     Then the turn fails with the quota reset error after 3 provider calls
     And the turn took at least 1 s
     And the turn took less than 1500 ms
+
+  Scenario: A 429 that names no pause never starts a wait
+    Given an agent whose provider keeps answering 429 without naming a pause and would then answer "done"
+    And wait_for_limit_reset is on
+    When the user sends a turn
+    Then the turn fails with the provider's error after 4 provider calls
+    And the client saw no resuming usage update

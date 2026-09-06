@@ -581,9 +581,10 @@ func TestResilientProviderLedgerCountsEachSleepOnce(t *testing.T) {
 	}
 }
 
-// A 429 that names no pause is judged by the backoff the loop would take:
-// an empty budget reports it at once, and a small one lets the backoff
-// run until it is spent.
+// A 429 that names no pause takes the ordinary backoff only while the
+// caller's budget allows, and never becomes a reset: an empty budget ends
+// the call with the provider's own error at once, a small one lets the
+// backoff run until it is spent and then ends the call the same way.
 func TestResilientProviderUnnamed429HonoursTheBudget(t *testing.T) {
 	var calls atomic.Int32
 	cause := retryHTTPError(t, "openai", 429, nil)
@@ -596,8 +597,8 @@ func TestResilientProviderUnnamed429HonoursTheBudget(t *testing.T) {
 	zero := wrapResilient(inner, ResilientOptions{RetryMax: 3, RetryBase: 50 * time.Millisecond, RetryMaxDelay: 100 * time.Millisecond, RetryBudgetSet: true})
 	_, err := zero.Stream(context.Background(), nil, nil, nil)
 	var reset *QuotaResetError
-	if !errors.As(err, &reset) || calls.Load() != 1 {
-		t.Fatalf("an empty budget must report an unnamed 429 at once, got calls=%d err=%v", calls.Load(), err)
+	if errors.As(err, &reset) || !errors.Is(err, cause) || calls.Load() != 1 {
+		t.Fatalf("an empty budget must end an unnamed 429 with the provider's error at once, got calls=%d err=%v", calls.Load(), err)
 	}
 	calls.Store(0)
 	small := wrapResilient(inner, ResilientOptions{
@@ -609,8 +610,8 @@ func TestResilientProviderUnnamed429HonoursTheBudget(t *testing.T) {
 	})
 	before := time.Now()
 	_, err = small.Stream(context.Background(), nil, nil, nil)
-	if !errors.As(err, &reset) || calls.Load() != 3 {
-		t.Fatalf("a small budget lets two backoffs run and then reports, got calls=%d err=%v", calls.Load(), err)
+	if errors.As(err, &reset) || !errors.Is(err, cause) || calls.Load() != 3 {
+		t.Fatalf("a small budget lets two backoffs run and then ends with the provider's error, got calls=%d err=%v", calls.Load(), err)
 	}
 	if took := time.Since(before); took < 200*time.Millisecond || took > 400*time.Millisecond {
 		t.Fatalf("the wrapper slept %v, want about 200 ms", took)
