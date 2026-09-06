@@ -604,6 +604,10 @@ Codex, fourth iteration, three more, all confirmed and fixed:
    call pending. The refusal is processed before anything is read; test
    `TestResumeAfterPermissionRejectsWithoutReadingTheArguments`.
 
+Codex approved the branch on the fifth iteration (2026-09-06), after every
+finding of the four rounds before it had been reproduced by a test that fails
+on the previous commit and fixed.
+
 Coddy (`neuraldeep/qwen3.8-27b`) answered only once the model entry carried
 `stream: false`: the endpoint drops streamed answers to long prompts, the
 first-token guard (90 s) cut the 122 KB brief, and a single shell argument
