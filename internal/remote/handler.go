@@ -65,9 +65,6 @@ type sessionState struct {
 	// that the cancel targeted that turn (never a later one).
 	turnCancel    context.CancelFunc
 	turnCancelled bool
-	// usageFollowUp is the pending follow-up usage pull a deferred refresh
-	// asked for (usage.go).
-	usageFollowUp *time.Timer
 }
 
 type remoteModel struct {
@@ -425,7 +422,6 @@ func (h *Handler) WaitCancels(d time.Duration) {
 // forget drops the client-side state of a session that never came to be.
 func (h *Handler) forget(id string) {
 	h.mu.Lock()
-	stopUsageFollowUp(h.sessions[id])
 	delete(h.sessions, id)
 	h.mu.Unlock()
 }
@@ -467,7 +463,6 @@ func (h *Handler) SetPreferredSessionID(id string) {
 // ForgetLiveSession drops local per-session state.
 func (h *Handler) ForgetLiveSession(id string) {
 	h.mu.Lock()
-	stopUsageFollowUp(h.sessions[id])
 	delete(h.sessions, id)
 	h.mu.Unlock()
 }

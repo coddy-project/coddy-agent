@@ -3,12 +3,15 @@
 package cli
 
 import (
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/external/cli/tui"
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 func ip(v int) *int { return &v }
@@ -171,6 +174,14 @@ func TestUsageFooterErrorsAndStaleness(t *testing.T) {
 	stale.Error, stale.Stale = "unavailable", true
 	if got := plain(renderUsageLine(th, usageFooterSegments(stale, "neuraldeep/x", usageNow), 120)); !strings.HasSuffix(got, "• (stale)") {
 		t.Fatalf("stale line = %q", got)
+	}
+	revoked := usageFixtureUpdate()
+	revoked.Error = "unauthorized"
+	if got := plain(renderUsageLine(th, usageFooterSegments(revoked, "neuraldeep/x", usageNow), 120)); got != "neuraldeep: key rejected, run coddy providers login neuraldeep" {
+		t.Fatalf("a rejected key must outrank old numbers: %q", got)
+	}
+	if lines := usageReportLines(revoked, "neuraldeep/x", usageNow); len(lines) != 2 || !strings.Contains(lines[1], "key rejected") {
+		t.Fatalf("report for a rejected key = %q", lines)
 	}
 	if segs := usageFooterSegments(&acp.ProviderUsageUpdate{Provider: "stub", Unsupported: true}, "stub/x", usageNow); segs != nil {
 		t.Fatalf("unsupported must render nothing: %+v", segs)
@@ -368,12 +379,26 @@ func TestUsageTimerRearmsAndFollowsUpOnce(t *testing.T) {
 	if len(arms) != 3 {
 		t.Fatalf("a second follow-up must not be armed for the same window: arms=%d", len(arms))
 	}
+	// A passed session reset with the week window still far away arms the
+	// follow-up, not the week deadline, and only once for that window.
+	weekIntact := usageFixtureUpdate()
+	weekIntact.Windows[0].ResetInSec = 0
+	weekIntact.Windows[0].ResetsAt = "2026-09-06T14:59:59Z"
+	a.usageFollowUp = ""
+	a.applyProviderUsage(*weekIntact)
+	if len(arms) != 4 || arms[3].d != usageFollowUpDelay {
+		t.Fatalf("follow-up with the week intact: arms=%d last=%s", len(arms), arms[len(arms)-1].d)
+	}
+	a.applyProviderUsage(*weekIntact)
+	if len(arms) != 5 || arms[4].d != 22378*time.Second+usageResetGrace {
+		t.Fatalf("after the single follow-up the week deadline is armed: arms=%d last=%s", len(arms), arms[len(arms)-1].d)
+	}
 	// Another provider's update never touches the timer.
 	stoppedBefore := stopped
 	other := usageFixtureUpdate()
 	other.Provider = "nd-work"
 	a.applyProviderUsage(*other)
-	if len(arms) != 3 || stopped != stoppedBefore {
+	if len(arms) != 5 || stopped != stoppedBefore {
 		t.Fatalf("foreign provider armed a timer: arms=%d stopped=%d", len(arms), stopped)
 	}
 }
@@ -419,6 +444,30 @@ func TestUsageNoticesOncePerWindowAndBlock(t *testing.T) {
 	a.applyProviderUsage(*other)
 	if got = rows(); len(got) != 3 {
 		t.Fatalf("foreign provider notified: %q", got)
+	}
+}
+
+func TestThemeSwitchKeepsTheUsageLine(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: home},
+		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep"}},
+		Models:    []config.ModelEntry{{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 100, MaxContextTokens: 1000}},
+		Agent:     config.Agent{Model: "neuraldeep/qwen3.8-27b"},
+	}
+	mgr := session.NewManager(cfg, nil, nil, slog.New(slog.DiscardHandler), home, nil)
+	a := newApp(cfg, mgr, slog.New(slog.DiscardHandler), &bddTerminal{cols: 100, rows: 30}, "dark", true)
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	a.refreshFooterModel()
+	a.foot.now = func() time.Time { return usageNow }
+	a.applyProviderUsage(*usageFixtureUpdate())
+	if lines := a.foot.Render(120); len(lines) != 3 {
+		t.Fatalf("footer before the switch = %q", lines)
+	}
+	a.switchTheme("light")
+	lines := a.foot.Render(120)
+	if len(lines) != 3 || !strings.Contains(plain(lines[2]), "3h 3% (resets 17:59)") {
+		t.Fatalf("footer after the switch = %q", lines)
 	}
 }
 

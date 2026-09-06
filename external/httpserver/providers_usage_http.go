@@ -50,7 +50,9 @@ func (s *Server) coddyProviderUsageGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	switch {
 	case err != nil:
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error(), "usage": nil})
+		// A cancelled request or a fetch that produced nothing: the kind the
+		// clients understand, with the detail beside it.
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "unavailable", "detail": err.Error(), "usage": nil})
 	case usage == nil:
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "no usage snapshot", "usage": nil})
 	case usage.Unsupported:

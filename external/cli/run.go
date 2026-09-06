@@ -352,8 +352,8 @@ func runInteractive(ctx context.Context, app *App, term *tui.ProcessTerminal, re
 			}
 		}
 		if c, ok := app.mgr.(interface{ Close() }); ok {
-			// A remote backend stops its usage follow-up timers: nothing may
-			// fire into the closed console.
+			// A remote backend refuses further usage pulls and drops the ones
+			// in flight: nothing may fire into the closed console.
 			c.Close()
 		}
 		app.Close()

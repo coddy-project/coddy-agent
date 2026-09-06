@@ -142,9 +142,10 @@ func (m *Manager) storeConfig(next *config.Config) *config.Config {
 	m.skillsLoad = skills.NewLoader(append([]string(nil), next.Skills.Dirs...))
 	m.cfgAt.Store(next)
 	// The provider rows behind the usage cache may have changed with the
-	// configuration; the fingerprint would catch a changed credential, the
-	// reset also stops work started for a row that no longer exists.
-	m.resetProviderUsage()
+	// configuration: work in flight for the old rows is dropped, the
+	// snapshots and their pacing stay, and the fingerprint tells a changed
+	// credential apart on the next read.
+	m.pauseProviderUsage()
 	return previous
 }
 

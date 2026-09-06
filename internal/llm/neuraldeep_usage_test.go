@@ -300,6 +300,8 @@ func TestFetchNeuralDeepUsageRejectsAPayloadWithoutTheRequiredBlocks(t *testing.
 	}
 }
 
+// A credential helper cut short by the caller's context is not a rejected
+// key: the read is unavailable and nothing sticks.
 func TestNeuralDeepUsageForProviderBoundsTheCredentialHelper(t *testing.T) {
 	if _, err := exec.LookPath("sleep"); err != nil {
 		t.Skip("no sleep binary")
@@ -316,7 +318,13 @@ func TestNeuralDeepUsageForProviderBoundsTheCredentialHelper(t *testing.T) {
 		t.Fatalf("a hung credential helper held the fetch for %s", elapsed)
 	}
 	var ue *NeuralDeepUsageError
+	if !errors.As(err, &ue) || ue.Kind != NeuralDeepUsageUnavailable || calls.Load() != 0 {
+		t.Fatalf("err = %v calls = %d, want unavailable without a request", err, calls.Load())
+	}
+	// A helper that simply yields nothing is a missing credential.
+	prov = config.ProviderConfig{Name: "hung", Type: "neuraldeep", APIKeyCommand: "true"}
+	_, err = NeuralDeepUsageForProvider(context.Background(), prov, filepath.Join(t.TempDir(), "none.json"))
 	if !errors.As(err, &ue) || ue.Kind != NeuralDeepUsageUnauthorized || calls.Load() != 0 {
-		t.Fatalf("err = %v calls = %d, want unauthorized without a request", err, calls.Load())
+		t.Fatalf("empty helper: err = %v calls = %d, want unauthorized", err, calls.Load())
 	}
 }

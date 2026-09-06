@@ -79,15 +79,11 @@ func usageUpdates(sender *collectSender) []acp.ProviderUsageUpdate {
 	return out
 }
 
-func TestRemoteUsagePullsAtReadyAfterATurnAndFollowsUpOnce(t *testing.T) {
-	prev := usageFollowUpGrace
-	usageFollowUpGrace = 50 * time.Millisecond
-	defer func() { usageFollowUpGrace = prev }()
-
+func TestRemoteUsagePullsAtReadyAndAfterATurnWithoutATimerOfItsOwn(t *testing.T) {
 	stand := newUsageRemoteStand(t)
-	stand.answers <- usageAnswer(407, false, 0)  // ready
-	stand.answers <- usageAnswer(407, true, 0)   // after the turn: deferred
-	stand.answers <- usageAnswer(1200, false, 0) // the follow-up
+	stand.answers <- usageAnswer(407, false, 0) // ready
+	stand.answers <- usageAnswer(407, true, 9)  // after the turn: deferred by the server
+	stand.answers <- usageAnswer(1200, false, 0)
 	h, err := NewHandler(Options{BaseURL: stand.srv.URL})
 	if err != nil {
 		t.Fatal(err)
@@ -109,25 +105,20 @@ func TestRemoteUsagePullsAtReadyAfterATurnAndFollowsUpOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.WaitUsage(2 * time.Second)
-	if got := usageUpdates(sender); len(got) != 2 || !got[1].RefreshPending || stand.refresh.Load() != 1 {
+	got := usageUpdates(sender)
+	if len(got) != 2 || !got[1].RefreshPending || got[1].RefreshInSec != 9 || stand.refresh.Load() != 1 {
 		t.Fatalf("post-turn pull = %+v (refresh reads %d)", got, stand.refresh.Load())
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if got := usageUpdates(sender); len(got) == 3 {
-			if *got[2].Windows[0].Used != 1200 || got[2].RefreshPending {
-				t.Fatalf("follow-up = %+v", got[2])
-			}
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	// The console's own timer reads the cache when refreshInSec says so;
+	// this client arms nothing, so no third pull happens by itself.
+	time.Sleep(150 * time.Millisecond)
+	if stand.calls.Load() != 2 || len(usageUpdates(sender)) != 2 {
+		t.Fatalf("calls = %d updates = %d, want no follow-up from the client", stand.calls.Load(), len(usageUpdates(sender)))
 	}
-	if got := usageUpdates(sender); len(got) != 3 {
-		t.Fatalf("follow-up never arrived: %d updates", len(got))
-	}
-	time.Sleep(3 * usageFollowUpGrace)
-	if stand.calls.Load() != 3 {
-		t.Fatalf("calls = %d, want exactly one follow-up", stand.calls.Load())
+	// A cache read from the console lands the fresh snapshot.
+	u, err := h.ProviderUsageForSession(context.Background(), res.SessionID, "neuraldeep", false)
+	if err != nil || *u.Windows[0].Used != 1200 || u.RefreshPending {
+		t.Fatalf("console read = %+v err=%v", u, err)
 	}
 }
 
@@ -153,16 +144,23 @@ func TestRemoteUsageCachesUnsupportedUntilARefresh(t *testing.T) {
 	if u, err = h.ProviderUsage(context.Background(), "stub", false); err != nil || u.Unsupported || stand.calls.Load() != 3 {
 		t.Fatalf("a supported answer clears the mark: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
 	}
+	// The mark expires on its own.
+	stand.answers <- `{"ok":false,"unsupported":true,"provider":"stub","providerType":"openai"}`
+	if _, err = h.ProviderUsage(context.Background(), "stub", true); err != nil {
+		t.Fatal(err)
+	}
+	h.usageMu.Lock()
+	h.usageUnsupported["stub"] = time.Now().Add(-time.Second)
+	h.usageMu.Unlock()
+	stand.answers <- usageAnswer(7, false, 0)
+	if u, err = h.ProviderUsage(context.Background(), "stub", false); err != nil || u.Unsupported || stand.calls.Load() != 5 {
+		t.Fatalf("an expired mark asks again: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
+	}
 }
 
-func TestRemoteCloseStopsThePendingFollowUp(t *testing.T) {
-	prev := usageFollowUpGrace
-	usageFollowUpGrace = 50 * time.Millisecond
-	defer func() { usageFollowUpGrace = prev }()
-
+func TestRemotePullSkipsAForgottenSession(t *testing.T) {
 	stand := newUsageRemoteStand(t)
-	stand.answers <- usageAnswer(407, true, 0) // ready: deferred, arms the follow-up
-	stand.answers <- usageAnswer(900, false, 0)
+	stand.answers <- usageAnswer(407, false, 0)
 	h, err := NewHandler(Options{BaseURL: stand.srv.URL})
 	if err != nil {
 		t.Fatal(err)
@@ -173,19 +171,63 @@ func TestRemoteCloseStopsThePendingFollowUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.HandleSessionReady(res.SessionID)
-	h.WaitUsage(2 * time.Second)
-	h.Close()
-	time.Sleep(4 * usageFollowUpGrace)
-	if stand.calls.Load() != 1 || len(usageUpdates(sender)) != 1 {
-		t.Fatalf("a closed console must not pull again: calls=%d updates=%d", stand.calls.Load(), len(usageUpdates(sender)))
-	}
-	// A closed handler pulls nothing and arms nothing.
+	h.ForgetLiveSession(res.SessionID)
 	h.pullProviderUsage(context.Background(), res.SessionID, false)
+	if stand.calls.Load() != 0 || len(usageUpdates(sender)) != 0 {
+		t.Fatalf("a forgotten session pulled: calls=%d updates=%d", stand.calls.Load(), len(usageUpdates(sender)))
+	}
+	h.mu.Lock()
+	_, resurrected := h.sessions[res.SessionID]
+	h.mu.Unlock()
+	if resurrected {
+		t.Fatalf("the pull recreated the forgotten session")
+	}
+}
+
+func TestRemoteCloseDropsAPullAlreadyInFlight(t *testing.T) {
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"object":"list","default_agent_model":"neuraldeep/qwen","data":[{"id":"neuraldeep/qwen","owned_by":"neuraldeep"}]}`))
+	})
+	mux.HandleFunc("GET /coddy/providers/{name}/usage", func(w http.ResponseWriter, _ *http.Request) {
+		select {
+		case entered <- struct{}{}:
+		default:
+		}
+		<-gate
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(usageAnswer(407, false, 0)))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &collectSender{}
+	h.SetServer(sender)
+	res, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.HandleSessionReady(res.SessionID)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the pull never reached the server")
+	}
+	h.Close()
+	close(gate)
+	h.WaitUsage(2 * time.Second)
+	if got := usageUpdates(sender); len(got) != 0 {
+		t.Fatalf("a pull that finished after Close delivered %+v", got)
+	}
+	// Nothing starts after Close either.
 	h.pullProviderUsageAsync(res.SessionID, true)
 	h.WaitUsage(time.Second)
-	time.Sleep(4 * usageFollowUpGrace)
-	if stand.calls.Load() != 1 {
-		t.Fatalf("calls after close = %d, want none", stand.calls.Load())
+	if got := usageUpdates(sender); len(got) != 0 {
+		t.Fatalf("a pull after Close delivered %+v", got)
 	}
 }

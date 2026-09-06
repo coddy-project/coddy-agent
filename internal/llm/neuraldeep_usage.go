@@ -42,8 +42,11 @@ const (
 // have been renamed, and painting wrong percentages is worse than none.
 const neuralDeepUsageSchema = 1
 
-// neuralDeepUsageGuardTimeout bounds a fetch whose caller passed no deadline.
-const neuralDeepUsageGuardTimeout = 10 * time.Second
+// neuralDeepUsageRequestTimeout bounds the HTTP read of a fetch. The
+// credential helper that may run first keeps its own, longer budget
+// (config.apiKeyCommandTimeout): a helper that asks a person for a
+// biometric prompt must not be cut short by a network budget.
+const neuralDeepUsageRequestTimeout = 5 * time.Second
 
 // NeuralDeepUsageError is a failed usage fetch. RetryAfter carries the pause
 // the hub asked for on 429 and 503 (Retry-After as seconds or an HTTP-date),
@@ -156,18 +159,15 @@ type NeuralDeepUsageWallet struct {
 }
 
 // FetchNeuralDeepUsage reads GET {apiBase}/limits with the bearer key. The
-// deadline comes from ctx; a caller without one gets a guard timeout. The
-// error is always a *NeuralDeepUsageError, with the key redacted from any
-// upstream text.
+// HTTP read is bounded by the request timeout on top of ctx, whose
+// cancellation (a logout, a config swap) aborts it. The error is always a
+// *NeuralDeepUsageError, with the key redacted from any upstream text.
 func FetchNeuralDeepUsage(ctx context.Context, apiBase, key string, hc *http.Client) (*NeuralDeepUsage, error) {
 	if hc == nil {
 		hc = &http.Client{}
 	}
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, neuralDeepUsageGuardTimeout)
-		defer cancel()
-	}
+	ctx, cancel := context.WithTimeout(ctx, neuralDeepUsageRequestTimeout)
+	defer cancel()
 	url := strings.TrimRight(strings.TrimSpace(apiBase), "/") + "/limits"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -246,8 +246,8 @@ func neuralDeepUsageDetail(body []byte) string {
 	if detail == "" {
 		detail = strings.TrimSpace(string(body))
 	}
-	if len(detail) > 160 {
-		detail = detail[:160] + "…"
+	if runes := []rune(detail); len(runes) > 160 {
+		detail = string(runes[:160]) + "…"
 	}
 	return redactNeuralDeepSecrets(detail)
 }
@@ -277,12 +277,17 @@ func parseUsageRetryAfter(raw string) time.Duration {
 // provider row with the same credential and endpoint rules requests use: an
 // explicit api_key (or command, or env) wins, the stored hub login fills in,
 // the api_base selects the deployment, providers[].proxy applies. Without
-// any credential it returns an unauthorized error without a request.
+// any credential it returns an unauthorized error without a request. The
+// credential helper runs under ctx (a cancellation ends it) with its usual
+// budget; a helper that ran out of time or was cancelled answers
+// unavailable, not unauthorized, so a slow helper never sticks as a
+// rejected key.
 func NeuralDeepUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*NeuralDeepUsage, error) {
-	// The credential helper runs under the caller's deadline: a hung
-	// api_key_command must not hold a fetch that budgeted five seconds.
 	key := neuralDeepEffectiveKey(provider.EffectiveAPIKeyContext(ctx), authPath)
 	if strings.TrimSpace(key) == "" {
+		if strings.TrimSpace(provider.APIKeyCommand) != "" && ctx.Err() != nil {
+			return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnavailable, Detail: "credential helper cut short: " + ctx.Err().Error()}
+		}
 		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnauthorized, Detail: "no credential: sign in with coddy providers login " + provider.Name}
 	}
 	hc, err := HTTPClientForOptionalProxy(provider.Proxy)

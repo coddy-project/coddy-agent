@@ -636,7 +636,8 @@ Layered order, each layer red → green → `make test` → docs → `make lint`
    path and on a plan run, none for a subagent turn or an opted-out caller
    (claude 1, 2, 3), two sessions on different models sharing one snapshot
    (codex 1), observers receiving every snapshot, remote frame mapping and
-   the remote post-turn REST pull with its single follow-up. Docs: `docs/http-api.md`,
+   the remote post-turn REST pull (the console's own timer covers a deferred
+   refresh, the remote client arms none). Docs: `docs/http-api.md`,
    `external/httpserver/openapi.go`, `docs/acp-protocol.md` (a new
    "Coddy-specific session updates" section that also documents
    `token_usage` and `usage_update`, `[rev]` claude 15).

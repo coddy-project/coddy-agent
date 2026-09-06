@@ -125,7 +125,12 @@ func (a *App) switchTheme(name string) {
 	a.header = newHeader(a.theme)
 	a.header.SetExpanded(a.expanded)
 	a.populateHeader()
+	previous := a.foot
 	a.foot = newFooter(a.theme, a.config().Paths.CWD)
+	if previous != nil {
+		// The usage line is state, not chrome: it survives the theme.
+		a.foot.usages, a.foot.now = previous.usages, previous.now
+	}
 	a.refreshFooterModel()
 	a.foot.SetSession("", a.modeID)
 	a.editor = tui.NewEditor(a.term, tui.EditorTheme{BorderColor: a.theme.FgFn(roleBorderMuted)}, 0)

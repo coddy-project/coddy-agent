@@ -263,7 +263,8 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 	if u == nil || u.Unsupported {
 		return nil
 	}
-	if u.Error == "unauthorized" && len(u.Windows) == 0 {
+	if u.Error == "unauthorized" {
+		// A rejected key outranks whatever numbers were read with it.
 		provider := tui.SanitizeText(u.Provider)
 		return []usageSegment{{text: provider + ": key rejected, run coddy providers login " + provider, role: roleWarning}}
 	}
@@ -392,7 +393,7 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 		head += " · " + blockedSegment(u, now).text
 	}
 	lines := []string{head}
-	if u.Error == "unauthorized" && len(u.Windows) == 0 {
+	if u.Error == "unauthorized" {
 		provider := tui.SanitizeText(u.Provider)
 		return append(lines, "  key rejected, run coddy providers login "+provider)
 	}
@@ -580,9 +581,12 @@ func blockedNotice(segment string) string {
 func (a *App) armUsageTimer(u *acp.ProviderUsageUpdate) {
 	a.stopUsageTimer()
 	delay, forced := earliestUsageDeadline(u)
-	if delay == 0 {
-		if key := passedResetKey(u); key != "" && a.usageFollowUp != key {
-			a.usageFollowUp = key
+	// A window whose reset passed while the snapshot still shows it gets one
+	// follow-up read, whatever the other windows' deadlines are: the week
+	// window alone would otherwise park the timer for days.
+	if key := passedResetKey(u); key != "" && a.usageFollowUp != key {
+		a.usageFollowUp = key
+		if delay == 0 || usageFollowUpDelay < delay {
 			delay, forced = usageFollowUpDelay, true
 		}
 	}

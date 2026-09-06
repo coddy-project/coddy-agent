@@ -501,6 +501,41 @@ func TestProviderUsageBackoffKeepsStaleWindows(t *testing.T) {
 	}
 }
 
+func TestProviderUsageBackoffIsCappedAndPacingSurvivesAConfigSwap(t *testing.T) {
+	stand := newUsageStand(t)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if _, err := m.ProviderUsage(ctx, "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(30 * time.Second)
+	stand.set(http.StatusServiceUnavailable, `{"detail":"later"}`, map[string]string{"Retry-After": "3600"})
+	u, _ := m.ProviderUsage(ctx, "neuraldeep", true)
+	if u.Error != "unavailable" || stand.calls.Load() != 2 {
+		t.Fatalf("503: %+v calls=%d", u, stand.calls.Load())
+	}
+	clock.advance(4 * time.Minute)
+	if u, _ = m.ProviderUsage(ctx, "neuraldeep", true); stand.calls.Load() != 2 || !u.RefreshPending {
+		t.Fatalf("inside the capped backoff: calls=%d update=%+v", stand.calls.Load(), u)
+	}
+	stand.set(http.StatusOK, usageFixture(9), nil)
+	clock.advance(2 * time.Minute)
+	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if stand.calls.Load() != 3 {
+		t.Fatalf("the backoff must end at the cap, not at the hub's hour: calls=%d", stand.calls.Load())
+	}
+	// A config swap keeps the floor: a refresh right after it is deferred.
+	clock.advance(time.Second)
+	m.pauseProviderUsage()
+	if u, _ = m.ProviderUsage(ctx, "neuraldeep", true); stand.calls.Load() != 3 || !u.RefreshPending {
+		t.Fatalf("after a config swap the floor still holds: calls=%d update=%+v", stand.calls.Load(), u)
+	}
+}
+
 func TestProviderUsageFingerprintRotation(t *testing.T) {
 	stand := newUsageStand(t)
 	m := newUsageManager(t, stand, &usageCapture{}, nil)
@@ -750,10 +785,131 @@ func TestProviderUsageFansOutToEverySessionThatJoinedTheFetch(t *testing.T) {
 		}
 	}
 	obsMu.Lock()
-	n := len(observed)
+	seen := map[string]int{}
+	for _, id := range observed {
+		seen[id]++
+	}
 	obsMu.Unlock()
-	if n == 0 {
-		t.Fatalf("observers saw no snapshot")
+	if seen[a] != 1 || seen[b] != 1 {
+		t.Fatalf("observers saw %v, want one snapshot per session", seen)
+	}
+}
+
+func TestProviderUsageDeferredRefreshReachesEveryDeferredSession(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	var observed []string
+	var obsMu sync.Mutex
+	remove := m.AddUsageObserver(func(id string, _ acp.ProviderUsageUpdate) {
+		obsMu.Lock()
+		observed = append(observed, id)
+		obsMu.Unlock()
+	})
+	defer remove()
+	a := newUsageSession(t, m, "")
+	b := newUsageSession(t, m, "neuraldeep/qwen3.6-35b-a3b")
+	if err := usagePrompt(t, m, a, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	// Both sessions end a turn inside the floor: both are deferred.
+	clock.advance(time.Second)
+	if err := usagePrompt(t, m, a, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := usagePrompt(t, m, b, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	stand.set(http.StatusOK, usageFixture(900), nil)
+	clock.advance(15 * time.Second)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	fresh := map[string]int{}
+	for i, u := range updates {
+		if !u.RefreshPending && findWindow(u, "session") != nil && *findWindow(u, "session").Used == 900 {
+			fresh[ids[i]]++
+		}
+	}
+	if fresh[a] != 1 || fresh[b] != 1 {
+		t.Fatalf("fresh deliveries = %v (all: %v)", fresh, ids)
+	}
+	obsMu.Lock()
+	seen := map[string]int{}
+	for _, id := range observed {
+		seen[id]++
+	}
+	obsMu.Unlock()
+	if seen[b] == 0 || seen[a] == 0 {
+		t.Fatalf("observers saw %v, want both deferred sessions", seen)
+	}
+}
+
+func TestProviderUsageRevokedKeyOutranksTheOldNumbers(t *testing.T) {
+	stand := newUsageStand(t)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if _, err := m.ProviderUsage(ctx, "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(30 * time.Second)
+	stand.set(http.StatusUnauthorized, `{"detail":"unknown key"}`, nil)
+	u, _ := m.ProviderUsage(ctx, "neuraldeep", true)
+	if u.Error != "unauthorized" || len(u.Windows) != 0 || u.Wallet != nil || u.Stale || u.Blocked {
+		t.Fatalf("after a 401 the old numbers must go: %+v", u)
+	}
+	clock.advance(30 * time.Second)
+	stand.set(http.StatusOK, usageFixture(15000), nil)
+	if _, err := m.ProviderUsage(ctx, "neuraldeep", true); err != nil {
+		t.Fatal(err)
+	}
+	// A blocked account replaces whatever blockers the last snapshot carried.
+	clock.advance(30 * time.Second)
+	stand.set(http.StatusForbidden, `{"detail":"user blocked"}`, nil)
+	u, _ = m.ProviderUsage(ctx, "neuraldeep", true)
+	if !u.Blocked || len(u.Blockers) != 1 || u.Blockers[0] != "user_blocked" || u.Error != "" || !u.Stale || findWindow(*u, "session") == nil {
+		t.Fatalf("after a 403: %+v", u)
+	}
+}
+
+func TestProviderUsagePublishesFromAnAdmittedTurnThatMarkedItself(t *testing.T) {
+	// The door the HTTP permission resume uses: BeginTurn, MarkTurnRan on the
+	// turn context, finish.
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	id := newUsageSession(t, m, "")
+	turnCtx, finish, err := m.BeginTurn(context.Background(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	MarkTurnRan(turnCtx)
+	finish()
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if updates, ids := sender.snapshot(); len(updates) != 1 || ids[0] != id {
+		t.Fatalf("admitted turn published %d updates to %v", len(updates), ids)
+	}
+	// An admission that never reached its runner publishes nothing.
+	_, finish, err = m.BeginTurn(context.Background(), id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish()
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if updates, _ := sender.snapshot(); len(updates) != 1 {
+		t.Fatalf("an unmarked admission published: %d updates", len(updates))
 	}
 }
 

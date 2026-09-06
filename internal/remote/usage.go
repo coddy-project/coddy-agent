@@ -15,13 +15,15 @@ import (
 // Provider usage on the remote console: the server owns the key and the
 // cache, so the numbers come from GET /coddy/providers/{name}/usage and from
 // the provider_usage SSE frames of a turn. The client pulls when nothing
-// streams: at session ready, after a turn's stream closed, after a model
-// switch, and once more when the server said a refresh was deferred.
+// streams: at session ready and after a turn's stream closed, on a
+// goroutine so neither waits for the hub. A refresh the server deferred by
+// its pacing floor answers refreshPending, and the console's own timer reads
+// the cache again when it says so, the same way it does with a local
+// backend, so this client arms no timer of its own.
 
-// usageFollowUpGrace is added to the server's refreshInSec before the single
-// follow-up pull, so the deferred fetch has landed. A variable so tests can
-// shorten the wait.
-var usageFollowUpGrace = 2 * time.Second
+// usageUnsupportedTTL is how long a provider the server reported as having
+// no usage source is taken at its word before it is asked again.
+const usageUnsupportedTTL = 5 * time.Minute
 
 // providerUsageAnswer is the REST envelope of the usage route.
 type providerUsageAnswer struct {
@@ -29,6 +31,16 @@ type providerUsageAnswer struct {
 	Unsupported bool                     `json:"unsupported"`
 	Error       string                   `json:"error"`
 	Usage       *acp.ProviderUsageUpdate `json:"usage"`
+}
+
+// usageState is the per-handler cache of unsupported providers, the closed
+// flag that keeps a shut-down console from pulling, and the group of pulls
+// in flight.
+type usageState struct {
+	usageMu          sync.Mutex
+	usageUnsupported map[string]time.Time
+	usageClosed      bool
+	usageWG          sync.WaitGroup
 }
 
 // usageProviderOf names the provider row behind a model selector: the part
@@ -47,17 +59,16 @@ func (h *Handler) ProviderUsageForSession(ctx context.Context, _ string, name st
 }
 
 // ProviderUsage reads the account usage behind a provider row from the
-// remote server. A provider the server reported as unsupported is cached so
-// non-metered models cost no round trips.
+// remote server. A provider the server reported as unsupported is remembered
+// for a while so non-metered models cost no round trips; a manual refresh
+// asks again regardless.
 func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) (*acp.ProviderUsageUpdate, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, fmt.Errorf("remote: provider usage needs a provider name")
 	}
-	// A manual refresh asks the server again even for a provider it once
-	// reported as unsupported: the row's type may have changed since.
 	h.usageMu.Lock()
-	if !refresh && h.usageUnsupported != nil && h.usageUnsupported[name] {
+	if until, ok := h.usageUnsupported[name]; ok && !refresh && time.Now().Before(until) {
 		h.usageMu.Unlock()
 		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, Unsupported: true}, nil
 	}
@@ -71,13 +82,17 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 	if err := h.getJSON(ctx, path, &answer); err != nil {
 		return nil, err
 	}
+	h.usageMu.Lock()
 	if answer.Unsupported {
-		h.usageMu.Lock()
 		if h.usageUnsupported == nil {
-			h.usageUnsupported = make(map[string]bool)
+			h.usageUnsupported = make(map[string]time.Time)
 		}
-		h.usageUnsupported[name] = true
-		h.usageMu.Unlock()
+		h.usageUnsupported[name] = time.Now().Add(usageUnsupportedTTL)
+	} else {
+		delete(h.usageUnsupported, name)
+	}
+	h.usageMu.Unlock()
+	if answer.Unsupported {
 		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, Unsupported: true}, nil
 	}
 	if answer.Usage == nil {
@@ -86,10 +101,6 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 		}
 		return nil, fmt.Errorf("remote: provider usage: empty answer")
 	}
-	// A supported answer clears an older unsupported mark for the row.
-	h.usageMu.Lock()
-	delete(h.usageUnsupported, name)
-	h.usageMu.Unlock()
 	if answer.Usage.SessionUpdate == "" {
 		answer.Usage.SessionUpdate = acp.UpdateTypeProviderUsage
 	}
@@ -101,12 +112,16 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 
 // pullProviderUsageAsync runs pullProviderUsage on its own goroutine with a
 // REST timeout: neither a turn's result nor a session load waits for the
-// hub round trip. A closed handler pulls nothing.
+// hub round trip. The registration and the closed check happen under one
+// lock, so Close cannot slip between them; a closed handler pulls nothing.
 func (h *Handler) pullProviderUsageAsync(sessionID string, refresh bool) {
-	if h.usageIsClosed() {
+	h.usageMu.Lock()
+	if h.usageClosed {
+		h.usageMu.Unlock()
 		return
 	}
 	h.usageWG.Add(1)
+	h.usageMu.Unlock()
 	go func() {
 		defer h.usageWG.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), restTimeout)
@@ -116,20 +131,27 @@ func (h *Handler) pullProviderUsageAsync(sessionID string, refresh bool) {
 }
 
 // pullProviderUsage reads the usage behind a session's model and delivers it
-// to the current sender as if it had streamed. When the server deferred the
-// refresh it schedules one follow-up pull, replacing any pending one; a
-// session that is forgotten cancels it.
+// to the current sender as if it had streamed. Nothing is sent once the
+// handler is closed, even when the read was already in flight.
 func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refresh bool) {
 	if h.usageIsClosed() {
 		return
 	}
-	st := h.session(sessionID)
+	// A session forgotten meanwhile (a quick /new after the ready pull) is
+	// not recreated by its own usage read.
 	h.mu.Lock()
-	model := st.modelID
+	st, live := h.sessions[sessionID]
+	model := ""
+	if live {
+		model = st.modelID
+	}
 	if model == "" {
 		model = h.defModel
 	}
 	h.mu.Unlock()
+	if !live {
+		return
+	}
 	provider := usageProviderOf(model)
 	if provider == "" {
 		return
@@ -139,60 +161,7 @@ func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refre
 		h.log.Debug("remote provider usage", "session", sessionID, "error", err)
 		return
 	}
-	if u == nil || u.Unsupported {
-		return
-	}
-	if h.usageIsClosed() {
-		return
-	}
-	if sender := h.currentSender(); sender != nil {
-		_ = sender.SendSessionUpdate(sessionID, *u)
-	}
-	h.scheduleUsageFollowUp(st, sessionID, u)
-}
-
-// scheduleUsageFollowUp arms the single follow-up pull a deferred refresh
-// asks for, cancelling a previous one for the session.
-func (h *Handler) scheduleUsageFollowUp(st *sessionState, sessionID string, u *acp.ProviderUsageUpdate) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if st.usageFollowUp != nil {
-		st.usageFollowUp.Stop()
-		st.usageFollowUp = nil
-	}
-	if u == nil || !u.RefreshPending || h.usageIsClosed() {
-		return
-	}
-	delay := time.Duration(u.RefreshInSec)*time.Second + usageFollowUpGrace
-	st.usageFollowUp = time.AfterFunc(delay, func() {
-		h.mu.Lock()
-		live := h.sessions[sessionID] == st
-		h.mu.Unlock()
-		if !live {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), restTimeout)
-		defer cancel()
-		h.pullProviderUsageOnce(ctx, sessionID)
-	})
-}
-
-// pullProviderUsageOnce is the follow-up pull: it delivers the answer and
-// never schedules another one.
-func (h *Handler) pullProviderUsageOnce(ctx context.Context, sessionID string) {
-	st := h.session(sessionID)
-	h.mu.Lock()
-	model := st.modelID
-	if model == "" {
-		model = h.defModel
-	}
-	h.mu.Unlock()
-	provider := usageProviderOf(model)
-	if provider == "" {
-		return
-	}
-	u, err := h.ProviderUsage(ctx, provider, false)
-	if err != nil || u == nil || u.Unsupported {
+	if u == nil || u.Unsupported || h.usageIsClosed() {
 		return
 	}
 	if sender := h.currentSender(); sender != nil {
@@ -200,37 +169,19 @@ func (h *Handler) pullProviderUsageOnce(ctx context.Context, sessionID string) {
 	}
 }
 
-// stopUsageFollowUp cancels a pending follow-up pull (session forgotten).
-func stopUsageFollowUp(st *sessionState) {
-	if st != nil && st.usageFollowUp != nil {
-		st.usageFollowUp.Stop()
-		st.usageFollowUp = nil
-	}
-}
-
-// usageState is the per-handler cache of unsupported providers, the closed
-// flag that keeps a shut-down console from arming new timers, and the
-// group of pulls in flight.
-type usageState struct {
-	usageMu          sync.Mutex
-	usageUnsupported map[string]bool
-	usageClosed      bool
-	usageWG          sync.WaitGroup
-}
-
-// Close stops every pending follow-up pull and refuses new ones: the console
-// is quitting, nothing may fire into a dead sender. Pulls already in flight
-// finish on their own (bounded by the REST timeout) and find the handler
-// closed.
+// Close refuses new pulls and marks the ones in flight as not to be
+// delivered: the console is quitting, nothing may fire into a dead sender.
 func (h *Handler) Close() {
 	h.usageMu.Lock()
 	h.usageClosed = true
 	h.usageMu.Unlock()
-	h.mu.Lock()
-	for _, st := range h.sessions {
-		stopUsageFollowUp(st)
-	}
-	h.mu.Unlock()
+}
+
+// usageIsClosed reports whether Close ran.
+func (h *Handler) usageIsClosed() bool {
+	h.usageMu.Lock()
+	defer h.usageMu.Unlock()
+	return h.usageClosed
 }
 
 // WaitUsage joins the pulls in flight, up to d (tests and a clean exit).
@@ -244,11 +195,4 @@ func (h *Handler) WaitUsage(d time.Duration) {
 	case <-done:
 	case <-time.After(d):
 	}
-}
-
-// usageIsClosed reports whether Close ran.
-func (h *Handler) usageIsClosed() bool {
-	h.usageMu.Lock()
-	defer h.usageMu.Unlock()
-	return h.usageClosed
 }

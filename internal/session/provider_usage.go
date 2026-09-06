@@ -32,9 +32,9 @@ const (
 	// providerUsageFloor is the least gap between two fetches of one account;
 	// a refresh inside it is deferred to its end.
 	providerUsageFloor = 15 * time.Second
-	// providerUsageFetchTimeout bounds one fetch; it never inherits a turn
-	// context, which is cancelled by the time the turn-end refresh runs.
-	providerUsageFetchTimeout = 5 * time.Second
+	// providerUsageBackoffCap bounds the pause a Retry-After can impose: a
+	// hub that asks for hours would otherwise freeze the line until a login.
+	providerUsageBackoffCap = 5 * time.Minute
 	// providerUsageReadyBudget bounds the session-ready refresh.
 	providerUsageReadyBudget = 5 * time.Second
 )
@@ -70,12 +70,13 @@ type providerUsageEntry struct {
 	inflight       chan struct{}
 	inflightCancel context.CancelFunc
 	// pendingStop cancels the deferred refresh timer; pendingAt says when it
-	// fires and pendingSession which session asked for it.
-	pendingStop    func() bool
-	pendingAt      time.Time
-	pendingSession string
-	// waiters are the sessions that joined the running fetch after it
-	// started; every one of them receives the result.
+	// fires and pendingSessions which sessions asked for it.
+	pendingStop     func() bool
+	pendingAt       time.Time
+	pendingSessions []string
+	// waiters are the sessions that asked for the running fetch: the one
+	// that started it and the ones that joined; every one of them receives
+	// the result, through the manager sender and the observers.
 	waiters []string
 }
 
@@ -319,7 +320,7 @@ func (m *Manager) usageInvalidateLocked(e *providerUsageEntry) {
 	e.generation = m.usage.generation
 	if e.pendingStop != nil {
 		e.pendingStop()
-		e.pendingStop, e.pendingAt, e.pendingSession = nil, time.Time{}, ""
+		e.pendingStop, e.pendingAt, e.pendingSessions = nil, time.Time{}, nil
 	}
 	if e.inflightCancel != nil {
 		e.inflightCancel()
@@ -347,13 +348,11 @@ func (m *Manager) usageDeliverableLocked(e *providerUsageEntry, now time.Time) a
 // one is already pending.
 func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID string, now time.Time) {
 	if sessionID != "" {
-		e.pendingSession = sessionID
+		e.pendingSessions = appendSession(e.pendingSessions, sessionID)
 	}
 	if e.pendingStop != nil {
 		return
 	}
-	// The refresh answers the sessions that are still waiting for one.
-	e.waiters = nil
 	// The floor's end, or the backoff's end when the hub asked for a pause.
 	at := e.lastAttempt.Add(providerUsageFloor)
 	if e.backoffUntil.After(at) {
@@ -376,11 +375,12 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	if e == nil || e.generation != generation {
 		return
 	}
-	sessionID := e.pendingSession
-	e.pendingStop, e.pendingAt, e.pendingSession = nil, time.Time{}, ""
+	sessions := e.pendingSessions
+	e.pendingStop, e.pendingAt, e.pendingSessions = nil, time.Time{}, nil
 	if e.inflight != nil {
-		if sessionID != "" {
-			e.waiters = appendSession(e.waiters, sessionID)
+		// A fetch is already running: the deferred sessions join it.
+		for _, id := range sessions {
+			e.waiters = appendSession(e.waiters, id)
 		}
 		return
 	}
@@ -389,7 +389,16 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	if prov == nil || !providerUsageSource(prov.Type) {
 		return
 	}
-	m.usageStartFetchLocked(prov, config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type), e, sessionID)
+	m.usageStartFetchLocked(prov, config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type), e, "")
+	e.waiters = appendSessions(e.waiters, sessions)
+}
+
+// appendSessions adds every id once.
+func appendSessions(list []string, ids []string) []string {
+	for _, id := range ids {
+		list = appendSession(list, id)
+	}
+	return list
 }
 
 // usageStartFetchLocked starts the fetch of an entry and returns the channel
@@ -398,7 +407,10 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 // the observers.
 func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath string, e *providerUsageEntry, sessionID string) <-chan struct{} {
 	done := make(chan struct{})
-	ctx, cancel := context.WithTimeout(context.Background(), providerUsageFetchTimeout)
+	// Cancel-only: the fetcher bounds its HTTP read itself and the
+	// credential helper keeps its own budget; a logout, a config swap or a
+	// rotated key cancels both through the entry's invalidation.
+	ctx, cancel := context.WithCancel(context.Background())
 	e.inflight, e.inflightCancel = done, cancel
 	e.lastAttempt = m.usageNow()
 	e.waiters = nil
@@ -432,17 +444,24 @@ func (m *Manager) usageStartFetchLocked(prov *config.ProviderConfig, authPath st
 		}
 		delivered := m.usageDeliverableLocked(e, fetchedAt)
 		// Every session that asked while the fetch ran gets the result: the
-		// one that started it and the ones that joined it.
+		// one that started it and the ones that joined it, each through the
+		// manager sender and through the observers (coddy http listens there
+		// only). A fetch nobody asked for by session reaches the observers
+		// once, unattributed.
 		waiters := e.waiters
 		e.waiters = nil
 		m.usage.mu.Unlock()
 		close(done)
-		if m.server != nil {
-			for _, id := range waiters {
+		if len(waiters) == 0 {
+			m.notifyUsageObservers("", delivered)
+			return
+		}
+		for _, id := range waiters {
+			if m.server != nil {
 				_ = m.server.SendSessionUpdate(id, delivered)
 			}
+			m.notifyUsageObservers(id, delivered)
 		}
-		m.notifyUsageObservers(sessionID, delivered)
 	}()
 	return done
 }
@@ -462,7 +481,8 @@ func appendSession(list []string, id string) []string {
 // account becomes a Blocked snapshot; a rejected key sticks; a requested
 // pause becomes the backoff.
 func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, providerType string, err error, at time.Time) {
-	base := acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: providerType}
+	fresh := acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: providerType}
+	base := fresh
 	if e.update != nil {
 		base = *e.update
 		base.Stale = true
@@ -475,17 +495,27 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 	}
 	switch kind {
 	case llm.NeuralDeepUsageUnauthorized:
+		// The hub's word is final: numbers read with a key it no longer
+		// honours are not this account's numbers any more.
 		e.unauthorized = true
+		base = fresh
 		base.Error = ProviderUsageErrorUnauthorized
 	case llm.NeuralDeepUsageForbidden:
+		// The account is blocked: the old windows stay for reference, the
+		// old blockers do not, the block is the reason now.
 		base.Blocked = true
-		base.Blockers = appendBlocker(base.Blockers, providerUsageBlockerUser)
+		base.Blockers = []string{providerUsageBlockerUser}
+		base.RetryAt, base.RetryInSec = "", 0
 	case llm.NeuralDeepUsageInvalid:
 		base.Error = ProviderUsageErrorInvalid
 	default:
 		base.Error = ProviderUsageErrorUnavailable
 		if ok && ue.RetryAfter > 0 {
-			e.backoffUntil = at.Add(ue.RetryAfter)
+			pause := ue.RetryAfter
+			if pause > providerUsageBackoffCap {
+				pause = providerUsageBackoffCap
+			}
+			e.backoffUntil = at.Add(pause)
 		}
 	}
 	if e.update == nil {
@@ -496,15 +526,6 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 	if m.log != nil && !errors.Is(err, context.Canceled) {
 		m.log.Debug("provider usage fetch failed", "provider", name, "error", err)
 	}
-}
-
-func appendBlocker(list []string, id string) []string {
-	for _, b := range list {
-		if b == id {
-			return list
-		}
-	}
-	return append(append([]string(nil), list...), id)
 }
 
 // DropProviderUsage forgets the cached usage of a provider, including the
@@ -520,14 +541,27 @@ func (m *Manager) DropProviderUsage(providerName string) {
 }
 
 // resetProviderUsage discards every cached snapshot and its asynchronous
-// work; storeConfig calls it because the rows behind the cache may have
-// changed.
+// work (shutdown).
 func (m *Manager) resetProviderUsage() {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
 	for name, e := range m.usage.entries {
 		m.usageInvalidateLocked(e)
 		delete(m.usage.entries, name)
+	}
+}
+
+// pauseProviderUsage stops the asynchronous work of every entry but keeps
+// the snapshots and the pacing state: storeConfig calls it because the rows
+// behind the cache may have changed. A row whose credential or endpoint did
+// change is caught by the fingerprint on its next read; a row that did not
+// keeps its floor, so a settings save is not a free extra fetch.
+func (m *Manager) pauseProviderUsage() {
+	m.usage.mu.Lock()
+	defer m.usage.mu.Unlock()
+	for _, e := range m.usage.entries {
+		m.usageInvalidateLocked(e)
+		e.inflight, e.inflightCancel = nil, nil
 	}
 }
 
