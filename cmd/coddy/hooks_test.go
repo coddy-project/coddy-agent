@@ -118,3 +118,18 @@ func TestHooksListUnderDenyOmitsProjectFiles(t *testing.T) {
 		t.Fatalf("deny must not list project files:\n%s", out.String())
 	}
 }
+
+func TestHooksUntrustAcceptsTheAbsolutePath(t *testing.T) {
+	cfg, ws := hooksTestConfig(t)
+	var out bytes.Buffer
+	if err := hooksTrust(&out, cfg, ws, ".coddy/hooks.json"); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := hooksUntrust(&out, cfg, ws, filepath.Join(ws, ".coddy", "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Withdrew") {
+		t.Fatalf("untrust by absolute path must find the receipt:\n%s", out.String())
+	}
+}

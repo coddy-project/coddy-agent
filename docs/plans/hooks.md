@@ -506,3 +506,51 @@ shipped behaviour.
   the parent's runner (guarded by a mutex).
 - `Notification` covers `permission_prompt` only; the `question` tool's
   prompt is a follow-up.
+
+## 9. Cross-review (2026-09-06)
+
+Three reviewers read the finished branch: Codex (`gpt-5.6-sol`, high
+reasoning, through the codex-review plugin, reading the tree itself), Cursor
+Agent (`auto`, from a brief with the production diff inline) and Coddy on
+`neuraldeep/qwen3.8-27b` (same brief, core diff only). Every finding was
+checked against the code before it was acted on.
+
+Codex, all five confirmed and fixed:
+
+1. A permission persisted over HTTP resumed with the model's original
+   arguments, skipping the PreToolUse rewrite. PreToolUse now runs on the
+   resume path too (allow and ask are moot there); regression test
+   `TestResumeAfterPermissionAppliesHookRewrite`.
+2. A resume kept a stale `SessionStart` context when the hooks were removed,
+   disabled or withdrawn. Every run of the manager's hook now replaces the
+   stored text, clearing it when nothing runs; test
+   `TestSessionStartHooksReplaceStaleContext`.
+3. `systemMessage` and non-blocking errors only reached the log. Both are
+   notice rows now (errors once per session and message); scenario "A hook's
+   message for the user reaches the session's UI log".
+4. The receipts file was written in place under a per-instance mutex while
+   HTTP creates an instance per request. Writes go through a temp file and
+   rename, and every instance of one path shares a process-wide lock; test
+   `TestTrustStoreSerialisesConcurrentInstances`.
+5. A Stop follow-up on the last ReAct iteration was persisted with no
+   iteration left to read it. The loop ends the turn instead; test
+   `TestStopHookDoesNotContinuePastTheTurnCap`.
+
+Cursor Agent, nine findings: seven confirmed and fixed (`failClosed` on an
+async handler is dropped with a warning; `max_output_chars` counts characters,
+not bytes; the cached runner's turn index is updated under the lock; the
+runner is built outside the lock and installed under it; without a session
+cwd the entries that need one are skipped instead of resolving against the
+root as user scope; a hook interrupted by the turn's cancellation is a failure
+that honours `failClosed`, and the interrupted call does not run;
+`coddy hooks untrust` resolves the file the way `trust` does), one was a
+comment fix, one was declined: the four `open` calls per turn for absent
+files are cheaper than a cache and the re-read is what makes approvals take
+effect without a restart.
+
+Coddy on the local model: see the note below the list (the 122 KB brief
+exceeded what the model answers within the first-token timeout; the run on
+the 62 KB core brief is recorded when it finishes).
+
+Follow-up outside this branch: the MCP and subagent receipt stores share the
+per-instance mutex pattern that finding 4 fixed here.

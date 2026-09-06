@@ -25,7 +25,19 @@ const (
 // the current one), and systemMessage values become notice rows.
 func (m *Manager) runSessionStartHooks(ctx context.Context, st *State, source string) {
 	cfg := m.activeCfg()
-	if cfg == nil || st == nil || !cfg.Hooks.ResolvedEnabled() {
+	if cfg == nil || st == nil {
+		return
+	}
+	// Whatever happens below, the stored context is what this run decided:
+	// a resume after the hooks were removed, disabled or withdrawn must not
+	// keep the text an earlier run stored.
+	next := ""
+	defer func() {
+		if st.GetHookContext() != next {
+			st.SetHookContext(next)
+		}
+	}()
+	if !cfg.Hooks.ResolvedEnabled() {
 		return
 	}
 	loader := hooks.NewLoader(cfg.Hooks.Files, cfg.Hooks.ResolvedProjectTrust()).
@@ -73,6 +85,9 @@ func (m *Manager) runSessionStartHooks(ctx context.Context, st *State, source st
 	}
 	for _, e := range out.Errors {
 		m.log.Warn("session start hook error", "session", st.GetID(), "source", source, "error", e)
+		if st.MarkHookNoticeShown("error:" + e) {
+			st.AppendUILogNotice(turn, "Hook error: "+e)
+		}
 	}
-	st.SetHookContext(strings.Join(out.Context, "\n"))
+	next = strings.Join(out.Context, "\n")
 }

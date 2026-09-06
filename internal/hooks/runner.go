@@ -205,6 +205,8 @@ func (res execResult) failure(label string) string {
 		return fmt.Sprintf("hook in %s could not start: %v", label, res.err)
 	case res.timedOut:
 		return fmt.Sprintf("hook in %s timed out after %ds", label, res.timeout)
+	case res.cancelled:
+		return fmt.Sprintf("hook in %s was interrupted before it answered", label)
 	case res.err != nil:
 		return fmt.Sprintf("hook in %s failed: %v", label, res.err)
 	}
@@ -350,9 +352,9 @@ func parseOutput(s string) (hookOutput, error) {
 // is a non-blocking error unless the handler fails closed.
 func (r *Runner) merge(out *Outcome, ev Event, b bound, res execResult, fields map[string]interface{}) {
 	label := b.source.Display
-	if res.cancelled {
-		return
-	}
+	// A hook cut short by the turn's cancellation answered nothing: that is a
+	// failure like a timeout, so a failClosed gate still blocks and the caller
+	// sees the interruption instead of an apparent "no decision".
 	if msg := res.failure(label); msg != "" {
 		r.fail(out, ev, b, msg)
 		return
@@ -485,20 +487,25 @@ func (r *Runner) apply(out *Outcome, ev Event, label string, o hookOutput, field
 	}
 }
 
-// truncate caps a text at MaxOutputChars on a rune boundary and marks the cut.
+// truncate caps a text at MaxOutputChars characters (runes, not bytes, so a
+// non-ASCII text keeps as many characters as an ASCII one) and marks the cut.
 func (r *Runner) truncate(s string) string {
 	limit := r.MaxOutputChars
 	if limit <= 0 {
 		limit = defaultMaxOutputChars
 	}
-	if len(s) <= limit {
+	if utf8.RuneCountInString(s) <= limit {
 		return s
 	}
-	cut := s[:limit]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
+	end := 0
+	for i := range s {
+		if limit == 0 {
+			end = i
+			break
+		}
+		limit--
 	}
-	return cut + truncationMarker
+	return s[:end] + truncationMarker
 }
 
 func firstLine(s string) string {

@@ -157,8 +157,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		}
 	}
 	// UserPromptSubmit hooks see the prompt before it becomes a message: a
-	// rejected prompt is never added, and the turn ends with the reason.
+	// rejected prompt is never added, and the turn ends with the reason. The
+	// attachments that came with it are dropped too, so they do not leak into
+	// the next prompt.
 	if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
+		a.state.TakePendingImageParts()
 		return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
 	}
 	imageParts := a.state.TakePendingImageParts()
@@ -172,9 +175,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
-	if a.hooks != nil {
-		a.hooks.Session.Turn = session.CountUserTurns(a.state.GetMessages())
-	}
+	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
@@ -710,6 +711,12 @@ func (a *Agent) runReActLoop(
 					a.log.Warn("stop hook loop limit reached; ending the turn", "limit", limit)
 					return string(acp.StopReasonEndTurn), nil
 				}
+				// The follow-up needs an iteration to be read in; on the last one
+				// it would only leave a dangling user message behind.
+				if turn+1 >= maxTurns {
+					a.log.Warn("stop hook follow-up dropped: the turn cap is reached", "max_turns", maxTurns)
+					return string(acp.StopReasonEndTurn), nil
+				}
 				stopBlocks++
 				stopHookActive = true
 				follow := llm.Message{
@@ -963,16 +970,24 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 
 	// Operator hooks see the call before the permission gate, whatever the
 	// permission mode: a hook can deny it, approve it past the prompt, force
-	// the prompt, rewrite its arguments or add context to its result. The
-	// permission resume path skips them, because they already ran before the
-	// prompt the user just answered.
+	// the prompt, rewrite its arguments or add context to its result. They run
+	// on the permission resume path as well (the history holds the model's
+	// original arguments, so a rewrite must be applied again to what runs);
+	// there allow and ask are moot, because the user already answered.
 	var hookRes preToolUseOutcome
-	if !skipPermission {
+	{
 		original := tc.InputJSON
 		var ran bool
 		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
 		if ran && hookRes.blocked {
 			result := "blocked by hook: " + hookRes.reason
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		// The turn was cancelled while a hook was running: the hooks answered
+		// nothing, and the call must not run on the strength of that silence.
+		if ran && ctx.Err() != nil {
+			result := "cancelled before the tool ran"
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}

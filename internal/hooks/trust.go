@@ -43,15 +43,24 @@ type trustFile struct {
 
 // TrustStore persists receipts at <home>/hooks-trust.json. Every operation
 // re-reads the file, so an approval granted through the CLI or the HTTP route
-// reaches a running agent on its next turn.
+// reaches a running agent on its next turn. Instances are cheap and created
+// per request; the lock that serialises read-modify-write cycles is shared by
+// every instance of the same path, and the file is replaced atomically.
 type TrustStore struct {
 	path string
-	mu   sync.Mutex
 }
+
+// storeLocks holds one mutex per receipts file path for the whole process.
+var storeLocks sync.Map
 
 // NewTrustStore returns the store backed by <home>/hooks-trust.json.
 func NewTrustStore(home string) *TrustStore {
 	return &TrustStore{path: filepath.Join(home, TrustFileName)}
+}
+
+func (s *TrustStore) lock() *sync.Mutex {
+	m, _ := storeLocks.LoadOrStore(s.path, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }
 
 // Path returns the receipts file path.
@@ -82,7 +91,12 @@ func (s *TrustStore) write(file trustFile) error {
 	if err != nil {
 		return fmt.Errorf("hooks trust store: %w", err)
 	}
-	if err := os.WriteFile(s.path, append(data, '\n'), 0o600); err != nil {
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+		return fmt.Errorf("hooks trust store: %w", err)
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("hooks trust store: %w", err)
 	}
 	return nil
@@ -91,8 +105,9 @@ func (s *TrustStore) write(file trustFile) error {
 // Records returns the receipts recorded for a canonical workspace, sorted by
 // file.
 func (s *TrustStore) Records(workspace string) []TrustRecord {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
 	out := append([]TrustRecord(nil), s.read().Workspaces[workspace]...)
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out
@@ -103,8 +118,9 @@ func (s *TrustStore) Approved(workspace, file, digest string) bool {
 	if workspace == "" || file == "" || digest == "" {
 		return false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
 	for _, rec := range s.read().Workspaces[workspace] {
 		if rec.File == file && rec.Digest == digest {
 			return true
@@ -128,8 +144,9 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 	case strings.TrimSpace(workspace) == "" || src.Digest == "":
 		return fmt.Errorf("hooks trust store: workspace and digest are required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
 	file := s.read()
 	records := file.Workspaces[workspace]
 	kept := records[:0]
@@ -150,8 +167,9 @@ func (s *TrustStore) Approve(workspace string, src *Source) error {
 // Revoke removes the receipt of a file in a workspace and reports whether one
 // was on file.
 func (s *TrustStore) Revoke(workspace, file string) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	mu := s.lock()
+	mu.Lock()
+	defer mu.Unlock()
 	tf := s.read()
 	records := tf.Workspaces[workspace]
 	kept := make([]TrustRecord, 0, len(records))

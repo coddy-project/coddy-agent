@@ -69,3 +69,10 @@ Feature: Operator hooks around tool calls
     When the model reads the missing file "nope.txt"
     Then the recorded payload names the event "PostToolUseFailure" and the tool "read"
     And the recorded payload carries an error mentioning "nope.txt"
+
+  Scenario: A hook's message for the user reaches the session's UI log
+    Given the operator's hooks.json has a PreToolUse hook for "run_command" that shows the message "hooks say hi"
+    And an agent session
+    When the model runs the command "echo shown"
+    Then the tool result contains "shown"
+    And the session's UI log carries the notice "hooks say hi"

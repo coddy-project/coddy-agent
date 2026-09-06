@@ -47,6 +47,7 @@ type hooksFeatureState struct {
 	permMode        string
 	trustPolicy     string
 	stopLoopLimit   int
+	maxTurns        int
 	entries         []hooktest.Entry
 	recordFile      string
 	results         map[string]string
@@ -72,6 +73,7 @@ func (s *hooksFeatureState) reset() error {
 	s.permMode = config.PermModeBypass
 	s.trustPolicy = ""
 	s.stopLoopLimit = 0
+	s.maxTurns = 0
 	s.turnErr = nil
 	s.stopReason = ""
 	s.entries = nil
@@ -133,6 +135,9 @@ func (s *hooksFeatureState) buildConfig() *config.Config {
 		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
 		Agent:     config.Agent{Model: "fake/model", MaxTurns: 4},
 		Sessions:  config.Sessions{Dir: filepath.Join(s.root, "sessions")},
+	}
+	if s.maxTurns > 0 {
+		cfg.Agent.MaxTurns = s.maxTurns
 	}
 	cfg.Tools.PermissionMode = s.permMode
 	cfg.Hooks.ProjectTrust = s.trustPolicy
@@ -355,6 +360,8 @@ func initializeHooksScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that adds the context "([^"]*)"$`, s.hookAddsContext)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that records its stdin$`, s.hookRecords)
 	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that exits with code 2 and prints "([^"]*)" to stderr$`, s.hookExitsTwo)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that shows the message "([^"]*)"$`, s.hookShowsMessage)
+	sc.Step(`^the session's UI log carries the notice "([^"]*)"$`, s.uiLogCarriesNotice)
 	sc.Step(`^an agent session$`, s.agentSession)
 	sc.Step(`^an agent session in permission mode "([^"]*)"$`, s.agentSessionWithPermission)
 	sc.Step(`^the client answers permission requests with "([^"]*)"$`, s.clientAnswers)
@@ -734,6 +741,50 @@ func (s *hooksFeatureState) payloadCarriesSummary(fragment string) error {
 		return fmt.Errorf("payload summary %q lacks %q", summary, fragment)
 	}
 	return nil
+}
+
+func (s *hooksFeatureState) hookShowsMessage(event, matcher, text string) error {
+	return s.addHook(event, matcher, hooktest.Handler("system-message", text))
+}
+
+func (s *hooksFeatureState) uiLogCarriesNotice(text string) error {
+	for _, e := range s.sess.GetUILog() {
+		if e.Level == session.UILogLevelNotice && strings.Contains(e.Message, text) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no notice-level UI log entry carries %q: %+v", text, s.sess.GetUILog())
+}
+
+// A Stop hook that wants another round on the last allowed iteration must
+// not leave a follow-up nobody reads; the turn ends instead.
+func TestStopHookDoesNotContinuePastTheTurnCap(t *testing.T) {
+	s := &hooksFeatureState{}
+	if err := s.reset(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.close()
+	s.maxTurns = 1
+	if err := s.hookBlocks(hooks.EventStop, "again"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.agentSession(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.runPrompt("go", answerStep("done")); err != nil {
+		t.Fatal(err)
+	}
+	if s.turnErr != nil || s.stopReason != string(acp.StopReasonEndTurn) {
+		t.Fatalf("turn must end normally, got err=%v stop=%q", s.turnErr, s.stopReason)
+	}
+	if n := s.modelCalls(); n != 1 {
+		t.Fatalf("model called %d times, want 1", n)
+	}
+	for _, c := range s.userMessages() {
+		if strings.HasPrefix(c, stopHookPrefix) {
+			t.Fatalf("a follow-up was persisted although no iteration was left: %q", c)
+		}
+	}
 }
 
 func initializeHooksTurnScenario(sc *godog.ScenarioContext) {

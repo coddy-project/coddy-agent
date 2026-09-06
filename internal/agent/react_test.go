@@ -11,6 +11,8 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
@@ -1582,5 +1584,58 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 	}
 	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
 		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
+	}
+}
+
+// A persisted permission resumes with the model's original arguments in
+// history; the PreToolUse hooks run again so a rewrite applies to what runs.
+func TestResumeAfterPermissionAppliesHookRewrite(t *testing.T) {
+	home := t.TempDir()
+	if err := hooktest.Write(filepath.Join(home, "hooks.json"), hooktest.Entry{
+		Event:    hooks.EventPreToolUse,
+		Matcher:  "run_command",
+		Handlers: []hooks.Handler{hooktest.Handler("rewrite", "echo rewritten-by-hook")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{
+		ID:         "sess_resume_rewrite",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run the command"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_rewrite",
+					Name:      "run_command",
+					InputJSON: `{"command":"echo original-arguments"}`,
+				}},
+			},
+		},
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: st.CWD},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	var result string
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_rewrite" {
+			result = m.Content
+		}
+	}
+	if !strings.Contains(result, "rewritten-by-hook") || strings.Contains(result, "original-arguments") {
+		t.Fatalf("the resumed call must run the rewritten arguments, got %q", result)
 	}
 }

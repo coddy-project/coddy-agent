@@ -163,7 +163,12 @@ func hooksTrust(w io.Writer, cfg *config.Config, cwd, file string) error {
 
 func hooksUntrust(w io.Writer, cfg *config.Config, cwd, file string) error {
 	store := hooks.NewTrustStore(cfg.Paths.Home)
+	// A file that is still on disk is named the way the catalog names it; a
+	// receipt whose file is gone can still be withdrawn by its stored name.
 	key := hookFileKey(cwd, file)
+	if src := hooks.FindSource(hooksLoad(cfg, cwd), file); src != nil {
+		key = src.Display
+	}
 	removed, err := store.Revoke(hooks.CanonicalWorkspace(cwd), key)
 	if err != nil {
 		return err

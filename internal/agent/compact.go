@@ -70,8 +70,8 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
-	// PreCompact hooks see the trigger and may veto; the manual command
-	// reports the veto, auto-compaction skips this check silently.
+	// PreCompact hooks see the trigger and may veto: the manual command
+	// reports the veto, an automatic compaction is skipped for this check.
 	trigger := compactTriggerAuto
 	if force {
 		trigger = compactTriggerManual

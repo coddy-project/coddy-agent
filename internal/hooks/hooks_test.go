@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
@@ -35,7 +36,7 @@ func TestParseClaudeShape(t *testing.T) {
 	    "PreToolUse": [
 	      {"matcher": "run_command", "hooks": [
 	        {"type": "command", "command": "./guard.sh", "timeout": 30},
-	        {"type": "command", "command": "/usr/bin/python3", "args": ["policy.py", "--strict"], "failClosed": true, "async": true, "commandWindows": "py -3 policy.py"}
+	        {"type": "command", "command": "/usr/bin/python3", "args": ["policy.py", "--strict"], "failClosed": true, "commandWindows": "py -3 policy.py"}
 	      ]}
 	    ],
 	    "PostToolUse": [
@@ -56,7 +57,7 @@ func TestParseClaudeShape(t *testing.T) {
 		t.Fatalf("first handler = %+v", first)
 	}
 	second := pre[0].Handlers[1]
-	if !second.ExecForm || len(second.Args) != 2 || second.Args[1] != "--strict" || !second.FailClosed || !second.Async || second.CommandWindows != "py -3 policy.py" {
+	if !second.ExecForm || len(second.Args) != 2 || second.Args[1] != "--strict" || !second.FailClosed || second.Async || second.CommandWindows != "py -3 policy.py" {
 		t.Fatalf("second handler = %+v", second)
 	}
 	post := def.Events[hooks.EventPostToolUse]
@@ -563,5 +564,70 @@ func TestRunnerMatchesLifecycleSubjects(t *testing.T) {
 	}
 	if out := r.Run(context.Background(), hooks.CompactEvent(hooks.EventPreCompact, "auto", nil)); !out.Blocked() || out.Reason != "never on auto" {
 		t.Fatalf("auto trigger must match and block, got %+v", out)
+	}
+}
+
+func TestParseClearsFailClosedOnAsyncHandlers(t *testing.T) {
+	def, err := hooks.Parse([]byte(`{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"./audit.sh","async":true,"failClosed":true}]}]}}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	h := def.Events[hooks.EventPreToolUse][0].Handlers[0]
+	if !h.Async || h.FailClosed {
+		t.Fatalf("an async handler cannot fail closed, got %+v", h)
+	}
+	if len(def.Warnings) == 0 || !strings.Contains(def.Warnings[0], "failClosed") {
+		t.Fatalf("the dropped flag must leave a warning, got %v", def.Warnings)
+	}
+}
+
+func TestRunnerTruncatesByCharactersNotBytes(t *testing.T) {
+	long := strings.Repeat("я", 150)
+	r := newRunner(t, userSource(preToolUse("*", hooktest.Handler("context", long))))
+	r.MaxOutputChars = 100
+	out := r.Run(context.Background(), commandEvent("echo hi"))
+	if len(out.Context) != 1 {
+		t.Fatalf("context = %v", out.Context)
+	}
+	kept := strings.TrimSuffix(out.Context[0], "\n[truncated by hooks.max_output_chars]")
+	if got := utf8.RuneCountInString(kept); got != 100 {
+		t.Fatalf("truncation must keep 100 characters, kept %d", got)
+	}
+}
+
+func TestRunnerInterruptedHookIsAFailure(t *testing.T) {
+	slow := hooktest.Handler("sleep", "20")
+	r := newRunner(t, userSource(preToolUse("*", slow)))
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+	out := r.Run(ctx, commandEvent("echo hi"))
+	if out.Blocked() || len(out.Errors) != 1 || !strings.Contains(out.Errors[0], "interrupted") {
+		t.Fatalf("an interrupted hook is a non-blocking error, got %+v", out)
+	}
+	slow.FailClosed = true
+	r = newRunner(t, userSource(preToolUse("*", slow)))
+	ctx, cancel = context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		cancel()
+	}()
+	if out := r.Run(ctx, commandEvent("echo hi")); !out.Blocked() {
+		t.Fatalf("failClosed must block when the hook was interrupted, got %+v", out)
+	}
+}
+
+func TestLoaderSkipsWorkspaceEntriesWithoutACwd(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	entry := hooktest.Entry{Event: hooks.EventPreToolUse, Handlers: []hooks.Handler{hooktest.Handler("allow")}}
+	writeHooks(t, filepath.Join(home, "hooks.json"), entry)
+	writeHooks(t, filepath.Join(root, "rel", "hooks.json"), entry)
+	files := []string{"${CODDY_HOME}/hooks.json", "${CWD}/.coddy/hooks.json", "rel/hooks.json"}
+	sources := hooks.NewLoader(files, "ask").Load("", home)
+	if len(sources) != 1 || sources[0].Scope != hooks.ScopeUser || sources[0].Display != filepath.Join(home, "hooks.json") {
+		t.Fatalf("without a cwd only the home file may load, got %+v", sources)
 	}
 }

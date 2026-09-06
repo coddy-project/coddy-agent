@@ -219,6 +219,12 @@ func (rh rawHandler) handler() (Handler, string, error) {
 	if h.Command == "" {
 		return h, "", fmt.Errorf("command handler needs a non-empty command")
 	}
+	if h.Async && h.FailClosed {
+		// A detached handler is never awaited, so nothing it does can block;
+		// a failClosed flag on it would promise a gate that cannot exist.
+		h.FailClosed = false
+		return h, "failClosed is ignored on an async handler: a detached hook can never block", nil
+	}
 	if strings.TrimSpace(rh.If) != "" {
 		return h, fmt.Sprintf("the \"if\" filter %q is not supported and is ignored: the hook runs for every matching call", rh.If), nil
 	}

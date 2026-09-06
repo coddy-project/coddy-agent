@@ -5,7 +5,9 @@ package hooks_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
@@ -108,7 +110,7 @@ func TestCatalogRowsDescribeEverySource(t *testing.T) {
 	cwd := filepath.Join(root, "work")
 	writeHooks(t, filepath.Join(home, "hooks.json"),
 		hooktest.Entry{Event: hooks.EventPreToolUse, Matcher: "run_command", Handlers: []hooks.Handler{hooktest.Handler("allow")}},
-		hooktest.Entry{Event: hooks.EventPostToolUse, Handlers: []hooks.Handler{{Type: hooks.HandlerCommand, Command: "gofmt -l .", TimeoutSeconds: 5, Async: true, FailClosed: true}}},
+		hooktest.Entry{Event: hooks.EventPostToolUse, Handlers: []hooks.Handler{{Type: hooks.HandlerCommand, Command: "gofmt -l .", TimeoutSeconds: 5, FailClosed: true}}},
 	)
 	if err := os.MkdirAll(filepath.Join(cwd, ".coddy"), 0o755); err != nil {
 		t.Fatal(err)
@@ -135,7 +137,7 @@ func TestCatalogRowsDescribeEverySource(t *testing.T) {
 	if user.Hooks[0].Event != hooks.EventPreToolUse || user.Hooks[0].Matcher != "run_command" || user.Hooks[0].Command == "" {
 		t.Fatalf("first hook row = %+v", user.Hooks[0])
 	}
-	if h := user.Hooks[1]; h.Event != hooks.EventPostToolUse || h.TimeoutSeconds != 5 || !h.Async || !h.FailClosed {
+	if h := user.Hooks[1]; h.Event != hooks.EventPostToolUse || h.TimeoutSeconds != 5 || h.Async || !h.FailClosed {
 		t.Fatalf("second hook row = %+v", h)
 	}
 	claude := entries[1]
@@ -163,5 +165,46 @@ func TestCatalogRowsDescribeEverySource(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("listing lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestTrustStoreSerialisesConcurrentInstances(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	cwd := filepath.Join(root, "work")
+	entry := hooktest.Entry{Event: hooks.EventPreToolUse, Handlers: []hooks.Handler{hooktest.Handler("allow")}}
+	files := []string{}
+	for i := 0; i < 8; i++ {
+		rel := filepath.Join(".coddy", "hooks-"+strconv.Itoa(i)+".json")
+		writeHooks(t, filepath.Join(cwd, rel), entry)
+		files = append(files, "${CWD}/"+filepath.ToSlash(rel))
+	}
+	sources := hooks.NewLoader(files, "ask").Load(cwd, home)
+	if len(sources) != 8 {
+		t.Fatalf("sources = %d", len(sources))
+	}
+	workspace := hooks.CanonicalWorkspace(cwd)
+	var wg sync.WaitGroup
+	errs := make(chan error, len(sources))
+	for _, src := range sources {
+		wg.Add(1)
+		go func(src *hooks.Source) {
+			defer wg.Done()
+			// Each goroutine owns a fresh instance, the way HTTP requests do.
+			if err := hooks.NewTrustStore(home).Approve(workspace, src); err != nil {
+				errs <- err
+			}
+		}(src)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("approve: %v", err)
+	}
+	if got := len(hooks.NewTrustStore(home).Records(workspace)); got != 8 {
+		t.Fatalf("every concurrent approval must survive, got %d records", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, hooks.TrustFileName+".tmp")); !os.IsNotExist(err) {
+		t.Fatal("the temporary file must not be left behind")
 	}
 }

@@ -57,8 +57,8 @@ Handler fields:
 | `args` | Optional. When the key is present the command is spawned directly with these arguments and no shell (Claude Code's exec form). |
 | `commandWindows` | Optional replacement for `command` when Coddy runs on Windows (Codex's key; `command_windows` is accepted too). |
 | `timeout` | Seconds. Default `hooks.default_timeout_seconds` (60). A hook that overruns is terminated with its whole process group. |
-| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide. |
-| `failClosed` | `true` turns a crash, a timeout, or invalid output into a block instead of a non-blocking error (`fail_closed` is accepted too). Use it for policy hooks. |
+| `async` | `true` runs the hook detached: its output is ignored and it can never block or decide (so `failClosed` on an async handler is dropped with a warning). |
+| `failClosed` | `true` turns a crash, a timeout, an interruption by the turn's cancellation, or invalid output into a block instead of a non-blocking error (`fail_closed` is accepted too). Use it for policy hooks. |
 
 `statusMessage`, `shell`, `once` and `additionalContextLimit` are accepted and ignored. Claude Code's `if` filter is ignored with a logged warning: the hook runs for every matching call, so a policy that relied on `if` must check the arguments itself.
 
@@ -78,7 +78,7 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 |---|---|---|---|
 | `SessionStart` | `session/new` (`startup`) and `session/load` or a reopen (`resume`), synchronously, before the session is returned | source | no; context only |
 | `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact` and `/plugin` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
-| `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode | tool name | yes: deny, or force or skip the prompt |
+| `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode; it runs again when a permission that was persisted over HTTP is resumed, because the history holds the model's original arguments and a rewrite must apply to what runs | tool name | yes: deny, or force or skip the prompt |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
 | `PostToolUseFailure` | after a tool returned an error (not after a permission denial or a hook denial) | tool name | no; context only |
 | `Stop` | when the ReAct loop is about to end the turn with `end_turn` (not on cancel, an error, or the turn cap) | none | yes: the agent is sent back to work |
@@ -144,7 +144,7 @@ The process also gets `CODDY_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` (the session 
 | `0`, stdout is a JSON object | the fields below are applied |
 | `0`, other stdout | plain text; ignored on tool events (it becomes context on the prompt and session events) |
 | `2` | block: the call is denied with the JSON `reason` when there is one, else stderr, else a generic reason |
-| anything else, a crash, a timeout, invalid JSON | a non-blocking error: logged, the event proceeds as if the hook were absent, unless the handler has `failClosed: true`, which turns it into a block with the error as the reason |
+| anything else, a crash, a timeout, an interruption by the turn's cancellation, invalid JSON | a non-blocking error: logged and recorded once per session as a notice row, the event proceeds as if the hook were absent, unless the handler has `failClosed: true`, which turns it into a block with the error as the reason. A call whose hooks were interrupted by a cancellation does not run. |
 
 JSON fields:
 
@@ -152,7 +152,7 @@ JSON fields:
 {
   "continue": true,
   "stopReason": "shown to the user when continue is false",
-  "systemMessage": "shown to the user, never to the model",
+  "systemMessage": "shown to the user as a notice row in the transcript, never to the model",
   "decision": "block",
   "reason": "why",
   "hookSpecificOutput": {
@@ -171,14 +171,15 @@ JSON fields:
 - `additionalContext` is appended to the tool result as `Hook context: ...` on the three tool events.
 - `UserPromptSubmit`: `decision: "block"` with `reason` (or exit 2) rejects the prompt: it is not added to the transcript, the model is not called, and the turn ends with `prompt rejected by hook: <reason>`, which the SPA shows as an error row. `additionalContext` and plain stdout become the turn's part of the **hook context block** (below).
 - `Stop`: `decision: "block"` with `reason` (or exit 2) sends the agent back to work. The reason, plus any `additionalContext`, is submitted as the next user message, persisted with the prefix `[Stop hook] ` so the transcript explains the continuation, and the loop continues in the same turn; the hook sees `stop_hook_active: true` on the next stop. At most `hooks.stop_loop_limit` continuations per turn (5), then the turn ends; the ReAct turn cap still applies.
-- `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text. `systemMessage` becomes a notice row.
+- `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text, clearing it when no hook runs any more. `systemMessage` becomes a notice row.
+- `Stop`: a follow-up is submitted only while an iteration of the ReAct turn is left; on the last one the turn ends instead of leaving a dangling message.
 - `PreCompact`: `decision: "block"` with `reason` (or exit 2) vetoes the compaction: `/compact` fails with `compaction blocked by hook: <reason>`, an automatic compaction is skipped for that check and the turn continues uncompacted.
 - `SubagentStart`: `decision: "block"` with `reason` (or exit 2) refuses the spawn; the `spawn_agent` tool result reads `spawn of subagent "<name>" blocked by hook: <reason>` and no child session is created. `additionalContext` is prepended to the child's task prompt as `Hook context: ...`.
 - `SubagentStop` and `Notification` are observational: `systemMessage` and errors are reported, decisions are ignored. A hook that pings a chat or raises a desktop notification should carry `"async": true` so the permission prompt is not delayed by it.
 
 The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 
-Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` (10,000) and truncated with a marker past it.
+Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` characters (10,000) and truncated with a marker past it.
 
 ## Configuration
 
@@ -203,7 +204,7 @@ hooks:
 | `project_trust` | `ask` | what a project-scope file may do: `ask` (listed, held until approved), `allow` (runs like your own file), `deny` (never read) |
 | `default_timeout_seconds` | `60` | per handler when the definition gives no `timeout` |
 | `stop_loop_limit` | `5` | how many times per turn a `Stop` hook may send the agent back to work |
-| `max_output_chars` | `10000` | cap on every text a hook hands to the model or the user |
+| `max_output_chars` | `10000` | cap, in characters, on every text a hook hands to the model or the user |
 
 The keys are ordinary `config.yaml` keys, so the Settings page and the bundled `configure-coddy` skill can change them. Definitions are re-read at the start of every turn: editing a file takes effect on the next turn without a restart.
 
@@ -229,7 +230,7 @@ coddy hooks untrust <file> [--cwd DIR]
 
 Over HTTP, `GET /coddy/hooks?cwd=<absolute path>` returns the same catalog with every handler as a row, and `POST /coddy/hooks/trust` / `POST /coddy/hooks/untrust` with the body `{"cwd": ..., "file": ".coddy/hooks.json"}` record or withdraw a receipt; `cwd` must be the session's server-side workspace, so this route is the approval path for a remote console or an ACP client, whose local `coddy hooks trust` would write a receipt on the wrong machine. The catalog's policy and the config keys can be changed in Settings > Hooks or with the bundled `configure-coddy` skill (`set hooks.project_trust=allow` for a checkout you trust; under `allow` project files need no receipt, under `deny` they are never read).
 
-The receipt file is a sibling of `mcp-trust.json` and `subagents-trust.json`, never shared with them: one kind of approval must never read as another.
+The receipt file is a sibling of `mcp-trust.json` and `subagents-trust.json`, never shared with them: one kind of approval must never read as another. It is replaced atomically, and every store instance for the same path shares one lock, so concurrent approvals from the CLI and the HTTP routes cannot lose each other.
 
 ## Examples
 

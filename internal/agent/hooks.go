@@ -97,12 +97,22 @@ func (a *Agent) noteHookFiles(sources []*hooks.Source) {
 // hooksFor returns the turn's runner, building it on first use: the HTTP
 // permission resume enters executeToolCall without passing through Run. The
 // lock covers a background child that finishes while the parent's turn is
-// still running its own tool calls.
+// still running its own tool calls; the build itself (file reads, the notice
+// rows) happens outside it, and a build that lost the race is discarded.
 func (a *Agent) hooksFor(mode string) *hooks.Runner {
+	a.hooksMu.Lock()
+	if a.hooksLoaded {
+		defer a.hooksMu.Unlock()
+		return a.hooks
+	}
+	a.hooksMu.Unlock()
+
+	built := a.buildHookRunner(mode)
+
 	a.hooksMu.Lock()
 	defer a.hooksMu.Unlock()
 	if !a.hooksLoaded {
-		a.hooks = a.buildHookRunner(mode)
+		a.hooks = built
 		a.hooksLoaded = true
 	}
 	return a.hooks
@@ -114,6 +124,16 @@ func (a *Agent) resetHooks() {
 	defer a.hooksMu.Unlock()
 	a.hooks = nil
 	a.hooksLoaded = false
+}
+
+// setHookTurn updates the turn index the cached runner reports in payloads;
+// under the lock, because a background child may be reading the runner.
+func (a *Agent) setHookTurn(turn int) {
+	a.hooksMu.Lock()
+	defer a.hooksMu.Unlock()
+	if a.hooks != nil {
+		a.hooks.Session.Turn = turn
+	}
 }
 
 // preToolUseOutcome is what executeToolCall needs from the PreToolUse hooks.
@@ -221,14 +241,23 @@ func stopReasonOr(reason string) string {
 }
 
 // reportHookOutcome surfaces what the user should see: systemMessage values
-// and non-blocking failures. They go to the agent log; a UI notice row is the
-// job of the trust sub-feature.
+// and non-blocking failures. Both go to the agent log and to the session's
+// UI log as notice rows; a failure is recorded once per session and message,
+// so a broken hook does not add a row on every tool call.
 func (a *Agent) reportHookOutcome(event string, out hooks.Outcome) {
+	st := sessionStatePtr(a.state)
+	turn := session.CountUserTurns(a.state.GetMessages())
 	for _, msg := range out.SystemMessages {
 		a.log.Info("hook message", "event", event, "message", msg)
+		if st != nil {
+			st.AppendUILogNotice(turn, fmt.Sprintf("Hook (%s): %s", event, msg))
+		}
 	}
 	for _, e := range out.Errors {
 		a.log.Warn("hook error", "event", event, "error", e)
+		if st != nil && st.MarkHookNoticeShown("error:"+e) {
+			st.AppendUILogNotice(turn, "Hook error: "+e)
+		}
 	}
 }
 
@@ -250,7 +279,7 @@ func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (re
 	}
 	// The prompt is not a message yet; the payload counts it as the turn
 	// it is about to start.
-	r.Session.Turn = session.CountUserTurns(a.state.GetMessages()) + 1
+	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()) + 1)
 	out := r.Run(ctx, hooks.PromptEvent(prompt))
 	a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
 	switch {

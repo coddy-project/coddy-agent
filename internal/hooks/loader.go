@@ -200,7 +200,9 @@ func lexicalPath(p string) string {
 }
 
 // expandFile resolves ${CODDY_HOME}, ${CWD} and a leading ~, and anchors a
-// relative entry at the session cwd.
+// relative entry at the session cwd. Without a cwd, an entry that needs one
+// is skipped rather than resolved against the filesystem root and read as a
+// user-scope file.
 func expandFile(path, cwd, home string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -208,6 +210,9 @@ func expandFile(path, cwd, home string) string {
 	}
 	if home != "" {
 		path = strings.ReplaceAll(path, "${CODDY_HOME}", home)
+	}
+	if strings.TrimSpace(cwd) == "" && (strings.Contains(path, "${CWD}") || !filepath.IsAbs(path) && !strings.HasPrefix(path, "~")) {
+		return ""
 	}
 	path = strings.ReplaceAll(path, "${CWD}", cwd)
 	if strings.HasPrefix(path, "~/") || path == "~" {
