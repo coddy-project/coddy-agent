@@ -283,10 +283,11 @@ func parseUsageRetryAfter(raw string) time.Duration {
 // unavailable, not unauthorized, so a slow helper never sticks as a
 // rejected key.
 func NeuralDeepUsageForProvider(ctx context.Context, provider config.ProviderConfig, authPath string) (*NeuralDeepUsage, error) {
-	key := neuralDeepEffectiveKey(provider.EffectiveAPIKeyContext(ctx), authPath)
+	explicit, helperErr := provider.EffectiveAPIKeyContextErr(ctx)
+	key := neuralDeepEffectiveKey(explicit, authPath)
 	if strings.TrimSpace(key) == "" {
-		if strings.TrimSpace(provider.APIKeyCommand) != "" && ctx.Err() != nil {
-			return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnavailable, Detail: "credential helper cut short: " + ctx.Err().Error()}
+		if helperErr != nil {
+			return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnavailable, Detail: "credential helper cut short: " + helperErr.Error()}
 		}
 		return nil, &NeuralDeepUsageError{Kind: NeuralDeepUsageUnauthorized, Detail: "no credential: sign in with coddy providers login " + provider.Name}
 	}

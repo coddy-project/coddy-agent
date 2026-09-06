@@ -2407,7 +2407,8 @@ func openAPISpec() map[string]interface{} {
 						"provider":     map[string]interface{}{"type": "string", "description": "Provider row name, on the unsupported answer."},
 						"providerType": map[string]interface{}{"type": "string", "description": "Provider wire type, on the unsupported answer."},
 						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
-						"usage":        map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"},
+						"detail":       map[string]interface{}{"type": "string", "description": "What went wrong when the read itself failed (a cancelled request, no snapshot); absent otherwise."},
+						"usage":        map[string]interface{}{"nullable": true, "allOf": []interface{}{map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}}, "description": "The snapshot; null when a failed read has nothing stale to show."},
 					},
 				},
 				"ProviderUsage": map[string]interface{}{

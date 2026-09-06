@@ -811,3 +811,35 @@ change there knows what breaks.
 - Auto-resume budget: the remaining capacity of the wrapper is
   `(RetryMax - attempt) * RetryMaxDelay`, computed per attempt; the boundary
   is pinned by a test. `[rev4]` 4.7.
+
+## 11. Addressed concerns (code review rounds 1-3)
+
+Codex (three iterations of the plugin's code phase), Cursor, coddy and a fresh
+Claude reviewer reviewed the implementation of layers 1 and 2. What changed
+against sections 4.3 and 4.4 above, which describe the plan before the code:
+
+- The fetch context is cancel-only; the fetcher bounds its HTTP read to 5 s
+  itself and the credential helper keeps its own budget under that context
+  (`ProviderConfig.EffectiveAPIKeyContextErr`), reporting a helper cut short
+  as `unavailable`, never as a rejected key.
+- Every read that finds a fetch in flight joins it, cache reads included, so
+  a read timed on a deferred refresh returns the result of that refresh; a
+  read whose account changed under it (a logout, a rotated key, a config
+  swap) answers an error instead of a superseded snapshot.
+- Sessions that a deferred refresh owes are a list, merged into the fetch's
+  waiters when it fires; the result reaches each of them through the manager
+  sender and the observers. The session-ready trigger is one of those
+  waiters rather than a bounded read, so a slow helper still delivers.
+- The remote console arms no follow-up timer: the console's own timer reads
+  the cache when the server says a refresh was deferred, for every backend;
+  the remote client's own pulls (ready, after a turn) run on a goroutine, are
+  refused after `Close`, never recreate a forgotten session, and remember an
+  unsupported provider for five minutes.
+- A 401 drops the numbers read with the key and the footer shows the sign-in
+  hint first; a 403 replaces the blockers with the account block; a
+  `Retry-After` backoff is capped at five minutes and a refresh inside it is
+  deferred to its end; a config save keeps the pacing state.
+- The footer keeps one snapshot per provider row and survives a theme
+  switch; the passed-reset follow-up competes with the other deadlines.
+- The turn stream's `provider_usage` event is reserved (nothing emits it
+  today); REST answers carry `detail` next to a non-kind `error`.

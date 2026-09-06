@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -58,6 +59,7 @@ type usageStand struct {
 	body    string
 	headers map[string]string
 	auths   []string
+	gate    chan struct{}
 }
 
 func newUsageStand(t *testing.T) *usageStand {
@@ -720,14 +722,18 @@ func (usageNoopSender) RequestQuestion(context.Context, acp.QuestionRequestParam
 }
 
 // gatedUsageStand is a stand-in whose answer waits for the test to release
-// it, so several sessions can join one running fetch.
+// it, so several sessions can join one running fetch. The gate can be
+// replaced between fetches (setGate) to hold a later one.
 func gatedUsageStand(t *testing.T) (*usageStand, chan struct{}) {
 	t.Helper()
 	gate := make(chan struct{})
-	s := &usageStand{status: http.StatusOK, body: usageFixture(407)}
+	s := &usageStand{status: http.StatusOK, body: usageFixture(407), gate: gate}
 	s.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.calls.Add(1)
-		<-gate
+		s.mu.Lock()
+		g := s.gate
+		s.mu.Unlock()
+		<-g
 		s.mu.Lock()
 		body := s.body
 		s.mu.Unlock()
@@ -736,6 +742,12 @@ func gatedUsageStand(t *testing.T) (*usageStand, chan struct{}) {
 	}))
 	t.Cleanup(s.srv.Close)
 	return s, gate
+}
+
+func (s *usageStand) setGate(g chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gate = g
 }
 
 func TestProviderUsageFansOutToEverySessionThatJoinedTheFetch(t *testing.T) {
@@ -910,6 +922,115 @@ func TestProviderUsagePublishesFromAnAdmittedTurnThatMarkedItself(t *testing.T) 
 	}
 	if updates, _ := sender.snapshot(); len(updates) != 1 {
 		t.Fatalf("an unmarked admission published: %d updates", len(updates))
+	}
+}
+
+func TestProviderUsageReadDuringADeferredFetchJoinsIt(t *testing.T) {
+	stand, gate := gatedUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	// A warm cache from a first read, then a refresh inside the floor.
+	close(gate)
+	if _, err := m.ProviderUsage(ctx, "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	gate2 := make(chan struct{})
+	stand.setGate(gate2)
+	stand.set(http.StatusOK, usageFixture(4242), nil)
+	clock.advance(5 * time.Second)
+	u, _ := m.ProviderUsage(ctx, "neuraldeep", true)
+	if !u.RefreshPending {
+		t.Fatalf("refresh inside the floor must be deferred: %+v", u)
+	}
+	// The deferred fetch fires and blocks on the stand-in; a cache read timed
+	// on refreshInSec lands during it and must not see the old snapshot.
+	clock.advance(11 * time.Second)
+	deadline := time.Now().Add(2 * time.Second)
+	for stand.calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	joined := make(chan *acp.ProviderUsageUpdate, 1)
+	go func() {
+		got, _ := m.ProviderUsage(ctx, "neuraldeep", false)
+		joined <- got
+	}()
+	select {
+	case got := <-joined:
+		t.Fatalf("the read answered before the fetch landed: %+v", got)
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(gate2)
+	select {
+	case got := <-joined:
+		if got == nil || *findWindow(*got, "session").Used != 4242 || got.RefreshPending {
+			t.Fatalf("joined read = %+v, want the deferred fetch's result", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the joined read never returned")
+	}
+}
+
+func TestProviderUsageReadIsSupersededByACredentialChange(t *testing.T) {
+	stand, gate := gatedUsageStand(t)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	ctx := context.Background()
+	answer := make(chan error, 1)
+	go func() {
+		_, err := m.ProviderUsage(ctx, "neuraldeep", false)
+		answer <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for stand.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	// The key rotates while the read waits: whatever the fetch brings back
+	// belongs to the old account.
+	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(m.activeCfg().Paths.Home, "neuraldeep"), "sk-rotated-mid-flight-0123456789", "https://hub.example", llm.NeuralDeepClientID, "coddy"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := make(chan error, 1)
+	go func() {
+		_, err := m.ProviderUsage(context.Background(), "neuraldeep", false)
+		fresh <- err
+	}()
+	close(gate)
+	select {
+	case err := <-fresh:
+		if err != nil {
+			t.Fatalf("the read on the rotated account failed: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the read on the rotated account never returned")
+	}
+	select {
+	case err := <-answer:
+		if !errors.Is(err, errUsageSuperseded) {
+			t.Fatalf("the superseded read answered %v, want errUsageSuperseded", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the superseded read never returned")
+	}
+}
+
+func TestProviderUsageReadyWaitsForASlowFetch(t *testing.T) {
+	stand, gate := gatedUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	id := newUsageSession(t, m, "")
+	m.HandleSessionReady(id)
+	time.Sleep(100 * time.Millisecond)
+	if updates, _ := sender.snapshot(); len(updates) != 0 {
+		t.Fatalf("ready delivered before the fetch landed: %+v", updates)
+	}
+	close(gate)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if updates, ids := sender.snapshot(); len(updates) != 1 || ids[0] != id || updates[0].Plan != "pro" {
+		t.Fatalf("ready after a slow fetch: %d updates to %v", len(updates), ids)
 	}
 }
 

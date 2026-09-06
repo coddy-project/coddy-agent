@@ -35,8 +35,6 @@ const (
 	// providerUsageBackoffCap bounds the pause a Retry-After can impose: a
 	// hub that asks for hours would otherwise freeze the line until a login.
 	providerUsageBackoffCap = 5 * time.Minute
-	// providerUsageReadyBudget bounds the session-ready refresh.
-	providerUsageReadyBudget = 5 * time.Second
 )
 
 // Failure kinds carried by ProviderUsageUpdate.Error.
@@ -250,16 +248,12 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		m.usage.mu.Unlock()
 		return &u, nil
 	case e.inflight != nil:
-		// A fetch is running: a fresh-enough cache answers at once, anything
-		// else joins it.
-		if e.update != nil && !refresh && age < providerUsageTTL {
-			u := m.usageDeliverableLocked(e, now)
-			m.usage.mu.Unlock()
-			return &u, nil
-		}
-		done := e.inflight
+		// A fetch is running: every read joins it, a cache read included,
+		// so a read timed on a deferred refresh gets the result of that
+		// refresh rather than the snapshot it was meant to replace.
+		done, generation := e.inflight, e.generation
 		m.usage.mu.Unlock()
-		return m.usageAwait(ctx, done, prov.Name)
+		return m.usageAwait(ctx, done, prov.Name, generation)
 	case e.update != nil && !refresh && age < providerUsageTTL:
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
@@ -272,12 +266,19 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		return &u, nil
 	}
 	done := m.usageStartFetchLocked(prov, authPath, e, "")
+	generation := e.generation
 	m.usage.mu.Unlock()
-	return m.usageAwait(ctx, done, prov.Name)
+	return m.usageAwait(ctx, done, prov.Name, generation)
 }
 
-// usageAwait waits for a running fetch and returns the stored snapshot.
-func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, providerName string) (*acp.ProviderUsageUpdate, error) {
+// errUsageSuperseded is answered when the account a read was waiting on
+// changed under it (a logout, a rotated key, a config swap): the snapshot
+// the entry holds, if any, belongs to a superseded identity.
+var errUsageSuperseded = errors.New("provider usage: the account changed while the read was running")
+
+// usageAwait waits for a running fetch and returns the stored snapshot,
+// provided the entry still is the one the caller started from.
+func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, providerName string, generation uint64) (*acp.ProviderUsageUpdate, error) {
 	select {
 	case <-done:
 	case <-ctx.Done():
@@ -286,7 +287,10 @@ func (m *Manager) usageAwait(ctx context.Context, done <-chan struct{}, provider
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
 	e := m.usage.entries[providerName]
-	if e == nil || e.update == nil {
+	if e == nil || e.generation != generation {
+		return nil, errUsageSuperseded
+	}
+	if e.update == nil {
 		return nil, fmt.Errorf("provider %q: usage fetch produced no snapshot", providerName)
 	}
 	u := m.usageDeliverableLocked(e, m.usageNow())
@@ -657,28 +661,38 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	}
 }
 
-// publishProviderUsageOnReady is the session-ready trigger: an automatic
-// read, so the footer is populated before the first prompt without a fetch
-// when the cache is warm.
+// publishProviderUsageOnReady is the session-ready trigger: the footer is
+// populated before the first prompt. A warm cache (or a sticky rejection, or
+// a backoff) is delivered at once; otherwise the session waits on the fetch,
+// the running one or a new one, and receives the result when it lands,
+// however long the credential helper takes. Nothing waits here.
 func (m *Manager) publishProviderUsageOnReady(sessionID string, st *State) {
 	prov, ok := m.usageProviderForSession(st)
 	if !ok || m.server == nil {
 		return
 	}
-	name := prov.Name
-	m.usage.wg.Add(1)
-	go func() {
-		defer m.usage.wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), providerUsageReadyBudget)
-		defer cancel()
-		// A plain read: the fetch it may start delivers to nobody, so the
-		// session receives the snapshot exactly once, from here.
-		u, err := m.providerUsageRead(ctx, name, false, "")
-		if err != nil || u == nil || u.Unsupported {
-			return
-		}
-		_ = m.server.SendSessionUpdate(sessionID, *u)
-	}()
+	cfg := m.activeCfg()
+	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+
+	m.usage.mu.Lock()
+	e := m.usageEntryLocked(prov.Name, fingerprint)
+	now := m.usageNow()
+	var deliverNow *acp.ProviderUsageUpdate
+	switch {
+	case e.inflight != nil:
+		e.waiters = appendSession(e.waiters, sessionID)
+	case e.update != nil && (e.unauthorized || now.Sub(e.fetchedAt) < providerUsageTTL ||
+		(!e.backoffUntil.IsZero() && now.Before(e.backoffUntil))):
+		u := m.usageDeliverableLocked(e, now)
+		deliverNow = &u
+	default:
+		m.usageStartFetchLocked(prov, authPath, e, sessionID)
+	}
+	m.usage.mu.Unlock()
+	if deliverNow != nil {
+		_ = m.server.SendSessionUpdate(sessionID, *deliverNow)
+	}
 }
 
 // mapNeuralDeepUsage turns the hub payload into the surface-facing update.
