@@ -16,9 +16,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
@@ -189,9 +193,11 @@ type SessionMeta struct {
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	// HookContext is what SessionStart hooks handed to the session.
+	HookContext string `json:"hookContext,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
@@ -514,6 +520,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),

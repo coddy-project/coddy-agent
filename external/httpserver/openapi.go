@@ -892,6 +892,74 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/hooks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Hook definition files visible from a workspace",
+					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${CODDY_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.coddy/hooks.json`**). " +
+						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/hooks.md`**.",
+					"operationId": "listHooks",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.hook_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/hooks/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project hooks file for a workspace",
+					"description": "Records a receipt in **`<home>/hooks-trust.json`** binding the workspace, the file and the digest of its current content, so its hooks run under **`hooks.project_trust: ask`** from the next turn. Rewriting the file changes the digest and withdraws the approval. " +
+						"Body **`{\"cwd\": ..., \"file\": ...}`**: **cwd** selects the workspace (default: the server's default cwd; it must be the session's server-side workspace, since receipts are keyed by that path) and **file** names the file as **GET /coddy/hooks** lists it. **404** when no such file is visible from the workspace; **400** for a user-scope file (nothing to approve), a file that does not parse, a missing **file**, a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/hooks/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project hooks file approval",
+					"description": "Removes the receipt of the named file for the workspace (same body as the trust route). Withdrawing an approval that was never on file changes nothing and still answers with the current entry. **404** when no such file is visible from the workspace; **400** for a missing **file**, a malformed body or a relative **cwd**.",
+					"operationId": "untrustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}": map[string]interface{}{
 				"patch": map[string]interface{}{
 					"summary":     "Patch session composer metadata",
@@ -2043,6 +2111,42 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
 				},
+				"HookCatalogHandler": map[string]interface{}{
+					"type":        "object",
+					"description": "One handler of a hooks file as the catalog shows it.",
+					"properties": map[string]interface{}{
+						"event":           map[string]string{"type": "string", "description": "Event name, for example PreToolUse."},
+						"matcher":         map[string]string{"type": "string", "description": "Matcher of the group; absent or empty means every occurrence."},
+						"type":            map[string]string{"type": "string", "description": "Handler type; only command runs."},
+						"command":         map[string]string{"type": "string"},
+						"args":            map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Present for the exec form."},
+						"timeout_seconds": map[string]string{"type": "integer"},
+						"async":           map[string]string{"type": "boolean"},
+						"fail_closed":     map[string]string{"type": "boolean"},
+						"unsupported":     map[string]string{"type": "string", "description": "Why the handler never runs (an unsupported type)."},
+					},
+					"required": []string{"event", "type"},
+				},
+				"HookCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One hook definition file as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"file":           map[string]string{"type": "string", "description": "The name receipts and the CLI use: the workspace-relative path for project scope, the absolute path otherwise."},
+						"path":           map[string]string{"type": "string", "description": "Absolute file path."},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"user", "project"}},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+						"error":          map[string]string{"type": "string", "description": "Parse or read error of an invalid file."},
+						"warnings":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"hooks": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogHandler"},
+						},
+					},
+					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -2801,6 +2905,44 @@ func subagentTrustRequestBody() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
 					},
+				},
+			},
+		},
+	}
+}
+
+// hookTrustRequestBody is the body of the hooks trust routes.
+func hookTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": true,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd":  map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"file": map[string]string{"type": "string", "description": "The file as **GET /coddy/hooks** names it (workspace-relative for project scope)."},
+					},
+					"required": []string{"file"},
+				},
+			},
+		},
+	}
+}
+
+// hookEntryResponse describes a 200 carrying one refreshed hooks catalog entry.
+func hookEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.hook_source"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
 				},
 			},
 		},

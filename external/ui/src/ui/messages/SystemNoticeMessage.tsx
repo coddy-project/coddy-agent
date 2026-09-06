@@ -9,7 +9,8 @@ import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { MessageRetryIconButton } from "./MessageRetryIconButton";
 
 export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
-  level: "error";
+  /** error: a failed request or turn; notice: information the operator should see once. */
+  level: "error" | "notice";
   message: string;
   createdAtUtc?: string;
   /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
@@ -24,8 +25,11 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
       ? formatUtcToLocalFullDetail(props.createdAtUtc)
       : "";
   return (
-    <div className="msg-system-stack">
-      <div className={`msg msg-system msg-system-${props.level}`} role="alert">
+    <div className={`msg-system-stack msg-system-stack-${props.level}`}>
+      <div
+        className={`msg msg-system msg-system-${props.level}`}
+        role={props.level === "error" ? "alert" : "status"}
+      >
         <div className="msg-system-label">{t("messages.systemLabel")}</div>
         <pre className="msg-system-body">{props.message}</pre>
       </div>
@@ -36,7 +40,7 @@ export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
           ariaLabel={t("messages.copyErrorMessage")}
           dataTestId="system-message-copy"
         />
-        {props.onRetry ? (
+        {props.level === "error" && props.onRetry ? (
           <MessageRetryIconButton
             onRetry={props.onRetry}
             tooltip={t("messages.refresh")}

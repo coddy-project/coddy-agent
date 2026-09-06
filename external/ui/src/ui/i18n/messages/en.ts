@@ -67,6 +67,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.system.label": "System",
   "settings.section.compaction.label": "Context compaction",
   "settings.section.subagents.label": "Subagents",
+  "settings.section.hooks.label": "Hooks",
   "settings.section.appearance.desc": "Theme & color mode",
   "settings.section.providers.desc": "LLM API connections",
   "settings.section.models.desc": "Named model configs",
@@ -78,6 +79,7 @@ export const messagesEn: Record<string, string> = {
   "settings.section.system.desc": "Scheduler, logs, prompts",
   "settings.section.compaction.desc": "Conversation history compaction",
   "settings.section.subagents.desc": "Delegation pool & trust",
+  "settings.section.hooks.desc": "Lifecycle hooks & trust",
 
   "settings.nav.aria.scrollLeft": "Scroll sections left",
   "settings.nav.aria.scrollRight": "Scroll sections right",
@@ -293,6 +295,27 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.subagents.max_turns.label": "Max turns",
   "settings.schema.subagents.max_turns.desc":
     "ReAct rounds a child may take; 0 follows agent.max_turns.",
+
+  "settings.schema.hooks.desc":
+    "Your own commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+  "settings.schema.hooks.enabled.label": "Enabled",
+  "settings.schema.hooks.enabled.desc":
+    "Load and run hooks at all (default true).",
+  "settings.schema.hooks.files.label": "Definition files",
+  "settings.schema.hooks.files.desc":
+    "Lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+  "settings.schema.hooks.project_trust.label": "Project hooks",
+  "settings.schema.hooks.project_trust.desc":
+    'Hook files found inside the workspace travel with the checkout. "ask": list them but run nothing until the file is approved for this workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust). "allow": treat them like your own file. "deny": never read them.',
+  "settings.schema.hooks.default_timeout_seconds.label": "Default timeout (s)",
+  "settings.schema.hooks.default_timeout_seconds.desc":
+    "Hard limit for one hook process whose definition gives no timeout (default 60).",
+  "settings.schema.hooks.stop_loop_limit.label": "Stop loop limit",
+  "settings.schema.hooks.stop_loop_limit.desc":
+    "How many times per turn a Stop hook may send the agent back to work (default 5).",
+  "settings.schema.hooks.max_output_chars.label": "Max output chars",
+  "settings.schema.hooks.max_output_chars.desc":
+    "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000).",
 
   "settings.schema.skills.dirs.label": "Skill directories",
   "settings.schema.skills.dirs.desc":

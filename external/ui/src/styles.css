@@ -29,7 +29,11 @@
   /* Tint stays fairly transparent so backdrop blur reads as frosted glass, not a solid bar */
   --coddy-glass-panel-bg: rgba(14, 14, 18, 0.62);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 12%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
   /* Match composer-card and History drawer corners */
   --coddy-glass-panel-radius: 18px;
@@ -67,9 +71,17 @@
   --coddy-bubble-user-bg: rgba(45, 45, 45, 0.85);
   --coddy-bubble-user-fg: #f4f4f5;
   --coddy-chip-badge-bg: rgba(15, 15, 18, 0.9);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(14, 14, 16, 0.92);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #ffffff;
   --coddy-context-ring-inner: rgba(196, 181, 253, 0.5);
   /* Logo outer arc (cmf-stroke light end); flat, no gradient */
@@ -168,7 +180,9 @@
   --coddy-skill-chip-bg: rgba(88, 101, 242, 0.14);
   --coddy-skill-chip-bd: rgba(88, 101, 242, 0.52);
   --coddy-skill-chip-text: rgba(199, 204, 255, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #e6edf3;
   --muted: #8b949e;
   --bubble-user: #161b27;
@@ -180,7 +194,11 @@
   --coddy-canvas-gradient-bottom: #070a11;
   --coddy-glass-panel-bg: rgba(10, 14, 24, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 10%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.6);
   --coddy-glass-panel-radius: 18px;
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.65);
@@ -197,7 +215,9 @@
   --coddy-link: rgba(120, 135, 255, 0.95);
   --coddy-md-inline-code-fg: rgba(220, 225, 240, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.09);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(130, 150, 255, 0.95);
   --coddy-link-action-hover: rgba(170, 185, 255, 1);
   --coddy-hero-muted-mid: rgba(220, 230, 244, 0.82);
@@ -213,9 +233,17 @@
   --coddy-bubble-user-bg: rgba(22, 27, 39, 0.9);
   --coddy-bubble-user-fg: #e6edf3;
   --coddy-chip-badge-bg: rgba(13, 17, 28, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(10, 14, 24, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #ffffff;
   --coddy-context-ring-inner: rgba(120, 135, 255, 0.5);
   --coddy-context-ring-fg: #c7ccff;
@@ -242,7 +270,9 @@
   --coddy-skill-chip-bg: rgba(38, 139, 210, 0.14);
   --coddy-skill-chip-bd: rgba(38, 139, 210, 0.5);
   --coddy-skill-chip-text: rgba(147, 161, 161, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #839496;
   --muted: #657b83;
   --bubble-user: #003847;
@@ -254,7 +284,11 @@
   --coddy-canvas-gradient-bottom: #001a22;
   --coddy-glass-panel-bg: rgba(0, 36, 46, 0.75);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 12%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
   --coddy-glass-panel-radius: 18px;
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
@@ -271,7 +305,9 @@
   --coddy-link: rgba(38, 139, 210, 0.95);
   --coddy-md-inline-code-fg: rgba(147, 161, 161, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.07);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(38, 139, 210, 0.95);
   --coddy-link-action-hover: rgba(100, 175, 230, 1);
   --coddy-hero-muted-mid: rgba(131, 148, 150, 0.82);
@@ -287,9 +323,17 @@
   --coddy-bubble-user-bg: rgba(0, 48, 62, 0.9);
   --coddy-bubble-user-fg: #93a1a1;
   --coddy-chip-badge-bg: rgba(0, 36, 46, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(0, 32, 42, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #fdf6e3;
   --coddy-context-ring-inner: rgba(38, 139, 210, 0.5);
   --coddy-context-ring-fg: #93a1a1;
@@ -316,7 +360,9 @@
   --coddy-skill-chip-bg: rgba(253, 151, 31, 0.13);
   --coddy-skill-chip-bd: rgba(253, 151, 31, 0.5);
   --coddy-skill-chip-text: rgba(255, 220, 170, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #f8f8f2;
   --muted: #75715e;
   --bubble-user: #3e3d32;
@@ -328,7 +374,11 @@
   --coddy-canvas-gradient-bottom: #1c1d18;
   --coddy-glass-panel-bg: rgba(28, 29, 24, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 11%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.52);
   --coddy-glass-panel-radius: 18px;
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.58);
@@ -345,7 +395,9 @@
   --coddy-link: rgba(253, 151, 31, 0.95);
   --coddy-md-inline-code-fg: rgba(248, 248, 242, 0.9);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(253, 151, 31, 0.95);
   --coddy-link-action-hover: rgba(255, 190, 100, 1);
   --coddy-hero-muted-mid: rgba(248, 248, 242, 0.82);
@@ -361,9 +413,17 @@
   --coddy-bubble-user-bg: rgba(62, 61, 50, 0.9);
   --coddy-bubble-user-fg: #f8f8f2;
   --coddy-chip-badge-bg: rgba(28, 29, 24, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(24, 25, 20, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #272822;
   --coddy-context-ring-inner: rgba(253, 151, 31, 0.5);
   --coddy-context-ring-fg: #ffe699;
@@ -390,7 +450,9 @@
   --coddy-skill-chip-bg: rgba(136, 192, 208, 0.13);
   --coddy-skill-chip-bd: rgba(136, 192, 208, 0.48);
   --coddy-skill-chip-text: rgba(216, 222, 233, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #eceff4;
   --muted: #4c566a;
   --bubble-user: #3b4252;
@@ -402,7 +464,11 @@
   --coddy-canvas-gradient-bottom: #21262f;
   --coddy-glass-panel-bg: rgba(30, 34, 44, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(170%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 10%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
   --coddy-glass-panel-radius: 18px;
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.6);
@@ -419,7 +485,9 @@
   --coddy-link: rgba(136, 192, 208, 0.95);
   --coddy-md-inline-code-fg: rgba(216, 222, 233, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(136, 192, 208, 0.95);
   --coddy-link-action-hover: rgba(180, 215, 230, 1);
   --coddy-hero-muted-mid: rgba(236, 239, 244, 0.82);
@@ -435,9 +503,17 @@
   --coddy-bubble-user-bg: rgba(59, 66, 82, 0.9);
   --coddy-bubble-user-fg: #eceff4;
   --coddy-chip-badge-bg: rgba(36, 41, 51, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(32, 37, 47, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #2e3440;
   --coddy-context-ring-inner: rgba(136, 192, 208, 0.5);
   --coddy-context-ring-fg: #d8dee9;
@@ -464,7 +540,9 @@
   --coddy-skill-chip-bg: rgba(196, 167, 231, 0.13);
   --coddy-skill-chip-bd: rgba(196, 167, 231, 0.48);
   --coddy-skill-chip-text: rgba(224, 222, 244, 0.96);
-  --coddy-skill-chip-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --coddy-skill-chip-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    monospace;
   --text: #e0def4;
   --muted: #6e6a86;
   --bubble-user: #26233a;
@@ -476,7 +554,11 @@
   --coddy-canvas-gradient-bottom: #0f0d1a;
   --coddy-glass-panel-bg: rgba(16, 14, 26, 0.72);
   --coddy-glass-panel-backdrop: blur(52px) saturate(175%);
-  --coddy-glass-panel-border: color-mix(in srgb, var(--text) 11%, var(--coddy-blend-base));
+  --coddy-glass-panel-border: color-mix(
+    in srgb,
+    var(--text) 11%,
+    var(--coddy-blend-base)
+  );
   --coddy-glass-panel-shadow: 0 14px 44px rgba(0, 0, 0, 0.56);
   --coddy-glass-panel-radius: 18px;
   --coddy-overlay-scrim-bg: rgba(0, 0, 0, 0.62);
@@ -493,7 +575,9 @@
   --coddy-link: rgba(196, 167, 231, 0.95);
   --coddy-md-inline-code-fg: rgba(224, 222, 244, 0.92);
   --coddy-md-inline-code-bg: rgba(255, 255, 255, 0.08);
-  --coddy-md-inline-code-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --coddy-md-inline-code-font:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   --coddy-link-action: rgba(196, 167, 231, 0.95);
   --coddy-link-action-hover: rgba(220, 200, 255, 1);
   --coddy-hero-muted-mid: rgba(224, 222, 244, 0.82);
@@ -509,9 +593,17 @@
   --coddy-bubble-user-bg: rgba(38, 35, 58, 0.9);
   --coddy-bubble-user-fg: #e0def4;
   --coddy-chip-badge-bg: rgba(20, 18, 32, 0.92);
-  --coddy-chip-badge-fg: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  --coddy-chip-badge-fg: color-mix(
+    in srgb,
+    var(--text) 72%,
+    var(--coddy-blend-base)
+  );
   --coddy-plan-eye-bg: rgba(16, 14, 26, 0.94);
-  --coddy-plan-eye-fg: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  --coddy-plan-eye-fg: color-mix(
+    in srgb,
+    var(--text) 45%,
+    var(--coddy-blend-base)
+  );
   --coddy-on-accent-fg: #191724;
   --coddy-context-ring-inner: rgba(196, 167, 231, 0.5);
   --coddy-context-ring-fg: #f5f3ff;
@@ -1107,7 +1199,8 @@ a.rail-brand {
   align-items: center;
   gap: 8px;
   padding: 8px 12px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .sessions-search-input {
@@ -1163,7 +1256,8 @@ a.rail-brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .sessions-close {
@@ -1370,7 +1464,8 @@ a.rail-brand {
 }
 
 .sessions-foot {
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   padding: 10px 12px;
 }
 
@@ -1403,8 +1498,12 @@ a.rail-brand {
 }
 
 @keyframes chat-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .chat-skeleton {
@@ -1791,22 +1890,14 @@ a.rail-brand {
     radial-gradient(
       ellipse min(140%, 920px) 115% at 50% 100%,
       var(--coddy-canvas-gradient-bottom) 0%,
-      color-mix(
-          in srgb,
-          var(--coddy-canvas-gradient-bottom) 48%,
-          transparent
-        )
+      color-mix(in srgb, var(--coddy-canvas-gradient-bottom) 48%, transparent)
         45%,
       transparent 72%
     ),
     linear-gradient(
       to bottom,
       transparent 0%,
-      color-mix(
-          in srgb,
-          var(--coddy-canvas-gradient-bottom) 62%,
-          transparent
-        )
+      color-mix(in srgb, var(--coddy-canvas-gradient-bottom) 62%, transparent)
         100%
     );
 }
@@ -1858,7 +1949,8 @@ a.rail-brand {
   min-height: 36px;
   padding: 6px 10px;
   border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--coddy-blend-base));
+  border: 1px solid
+    color-mix(in srgb, var(--accent) 35%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--accent) 10%, var(--coddy-blend-base));
   color: var(--accent);
   font: inherit;
@@ -1970,8 +2062,16 @@ a.rail-brand {
 }
 
 @keyframes typing-dot-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-  30% { transform: translateY(-5px); opacity: 1; }
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
 }
 
 .typing-dots {
@@ -2160,7 +2260,10 @@ a.rail-brand {
   font-size: 14px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s, background 0.12s, color 0.12s;
+  transition:
+    opacity 0.12s,
+    background 0.12s,
+    color 0.12s;
   padding: 0;
   line-height: 1;
   flex-shrink: 0;
@@ -2200,7 +2303,10 @@ a.rail-brand {
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  transition:
+    background 0.1s,
+    color 0.1s,
+    border-color 0.1s;
 }
 
 .branch-nav-btn:hover:not(:disabled) {
@@ -2280,6 +2386,10 @@ a.rail-brand {
   margin-top: 8px;
   min-height: 28px;
   box-sizing: border-box;
+  /* The row sits below the bordered card, not inside it: inset it by the
+     card's horizontal padding so the copy control lines up with the one
+     under an assistant row, which inherits that padding from its card. */
+  padding-left: 14px;
 }
 
 .msg-system-time {
@@ -2289,6 +2399,26 @@ a.rail-brand {
   user-select: none;
   white-space: nowrap;
   cursor: help;
+}
+
+/* Notice level: information the operator should see once (a held hooks
+   file, for example). Same shape as the error row, calmer palette, no
+   retry control. */
+.msg-system.msg-system-notice {
+  background: rgba(18, 30, 42, 0.55);
+  border-color: rgba(120, 180, 255, 0.25);
+}
+
+.msg-system-notice .msg-system-label {
+  color: rgba(168, 208, 255, 0.85);
+}
+
+.msg-system-notice .msg-system-body {
+  color: rgba(222, 236, 250, 0.92);
+}
+
+.msg-system-stack-notice .msg-system-time {
+  color: rgba(168, 208, 255, 0.55);
 }
 
 .tool-block {
@@ -2409,7 +2539,8 @@ a.rail-brand {
   flex-shrink: 0;
   align-items: baseline;
   gap: 0;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   user-select: none;
 }
 
@@ -2663,7 +2794,8 @@ a.rail-brand {
 .coddy-memory-copilot-body .coddy-memory-phase + .coddy-memory-phase {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
 
 .coddy-memory-for-agent :where(.md) {
@@ -2733,7 +2865,8 @@ a.rail-brand {
 .coddy-tool-call-body .tool-block + .tool-block {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
 }
 
 .coddy-tool-call-body .tool-block.tool-result-raw {
@@ -2776,7 +2909,8 @@ a.rail-brand {
   min-height: 34px;
   padding: 6px 10px;
   box-sizing: border-box;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   background: color-mix(in srgb, var(--text) 5%, var(--coddy-surface-inset));
   color: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
   font-size: 10.5px;
@@ -2812,9 +2946,7 @@ a.rail-brand {
   margin: 0 0 2px;
 }
 
-.coddy-tool-call-body
-  > .tool-call-result-card
-  + .tool-result-toggle-row {
+.coddy-tool-call-body > .tool-call-result-card + .tool-result-toggle-row {
   margin-top: -8px;
 }
 
@@ -2910,8 +3042,10 @@ a.rail-brand {
 .md-table-scroll :where(th, td),
 .md :where(th, td) {
   padding: 10px 12px;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   vertical-align: top;
 }
 
@@ -3626,7 +3760,8 @@ textarea#composer {
   justify-content: space-between;
   gap: 10px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .composer-tabs {
@@ -3946,8 +4081,8 @@ textarea#composer {
   width: auto;
   min-width: 0;
   max-width: min(560px, 100vw);
-  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius) 0
-    0;
+  border-radius: var(--coddy-glass-panel-radius) var(--coddy-glass-panel-radius)
+    0 0;
   z-index: 101;
 }
 
@@ -4312,8 +4447,11 @@ textarea#composer {
   border-radius: 10px;
   cursor: pointer;
   line-height: 1.2;
-  transition: background 120ms ease, border-color 120ms ease,
-    box-shadow 120ms ease, transform 80ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 80ms ease;
 }
 
 .confirm-dialog-btn:active:not(:disabled) {
@@ -4564,7 +4702,8 @@ textarea#composer {
 }
 
 .composer-context-tip-host.composer-context-tip-suppressed:hover .rail-tip,
-.composer-context-tip-host.composer-context-tip-suppressed:focus-within .rail-tip {
+.composer-context-tip-host.composer-context-tip-suppressed:focus-within
+  .rail-tip {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -4682,17 +4821,27 @@ textarea#composer {
   padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
 }
 
-.context-breakdown-menu--sheet.context-breakdown-menu--above-composer .context-breakdown-menu-scroll {
+.context-breakdown-menu--sheet.context-breakdown-menu--above-composer
+  .context-breakdown-menu-scroll {
   min-height: 0;
-  max-height: min(36vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
+  max-height: min(
+    36vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px)
+  );
 }
 
 .slash-menu--sheet.slash-menu--above-composer {
-  max-height: min(42vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 16px));
+  max-height: min(
+    42vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 16px)
+  );
 }
 
 .slash-menu--sheet.slash-menu--above-composer .slash-menu-scroll {
-  max-height: min(40vh, calc(100dvh - var(--context-sheet-bottom, 120px) - 24px));
+  max-height: min(
+    40vh,
+    calc(100dvh - var(--context-sheet-bottom, 120px) - 24px)
+  );
 }
 
 .context-breakdown-menu--sheet .context-breakdown-summary {
@@ -5021,7 +5170,8 @@ textarea#composer {
     width: 42px;
     height: 42px;
     border-radius: 12px;
-    border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    border: 1px solid
+      color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
     background: rgba(20, 20, 22, 0.35);
   }
   .rail-brand {
@@ -5147,11 +5297,11 @@ textarea#composer {
     top: calc(var(--coddy-mobile-top-inset) + 6px);
     bottom: 14px;
   }
-
 }
 
 .scheduler-search-row {
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .scheduler-drawer-footer {
@@ -5161,7 +5311,8 @@ textarea#composer {
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .scheduler-drawer-meta {
@@ -5381,7 +5532,6 @@ textarea#composer {
   min-height: 34px;
 }
 
-
 /* Scheduler list + job editor docked beside the rail (no fullscreen scrim). */
 .scheduler-dock-cluster {
   position: fixed;
@@ -5427,14 +5577,16 @@ textarea#composer {
   width: min(
     480px,
     calc(
-      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) - 16px -
+      100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
+        16px -
         min(
           320px,
           calc(
             100vw - var(--rail-shell-track-width) - var(--nav-floating-gutter) -
               16px
           )
-        ) - 8px
+        ) -
+        8px
     )
   );
   max-width: min(560px, 46vw);
@@ -5572,7 +5724,8 @@ textarea#composer {
   justify-content: flex-start;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .md-line-editor {
@@ -5620,7 +5773,8 @@ textarea#composer {
   margin: 0;
   padding: 8px 6px 8px 8px;
   overflow: hidden;
-  border-right: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   box-sizing: border-box;
   text-align: right;
   user-select: none;
@@ -5629,13 +5783,20 @@ textarea#composer {
 }
 
 .md-line-editor-gutter-line {
-  height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
-  line-height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
+  height: var(
+    --md-editor-line-px,
+    calc(var(--md-editor-fs) * var(--md-editor-lh))
+  );
+  line-height: var(
+    --md-editor-line-px,
+    calc(var(--md-editor-fs) * var(--md-editor-lh))
+  );
   /* flex-shrink:0 prevents flex from squeezing gutter rows when container px rounds
      differently from gutter content sum, which would shift all line numbers. */
   flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: var(--md-editor-fs);
   color: color-mix(in srgb, var(--text) 32%, var(--coddy-blend-base));
   padding: 0 2px;
@@ -5668,8 +5829,9 @@ textarea#composer {
 }
 
 .md-line-editor-hl-line {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: var(--md-editor-fs);
   line-height: var(--md-editor-lh);
   white-space: pre-wrap;
@@ -5682,7 +5844,10 @@ textarea#composer {
 }
 
 .md-line-editor-hl-band {
-  height: var(--md-editor-line-px, calc(var(--md-editor-fs) * var(--md-editor-lh)));
+  height: var(
+    --md-editor-line-px,
+    calc(var(--md-editor-fs) * var(--md-editor-lh))
+  );
   flex-shrink: 0;
   box-sizing: border-box;
 }
@@ -5716,8 +5881,9 @@ textarea#composer {
   border: none;
   margin: 0;
   padding: 8px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: var(--md-editor-fs);
   line-height: var(--md-editor-lh);
   white-space: pre-wrap;
@@ -5759,7 +5925,9 @@ textarea#composer {
   }
 
   /* Jobs list alone uses the full cluster height like History. */
-  .shell-main > .scheduler-dock-cluster .scheduler-jobs.drawer.scheduler-dock-drawer {
+  .shell-main
+    > .scheduler-dock-cluster
+    .scheduler-jobs.drawer.scheduler-dock-drawer {
     /* Override mobile .sessions.drawer / .scheduler-jobs.drawer inset - those are for fixed History panels.
        On relative children inside the dock cluster they resolve as offsets and pull the panel left (~-10px). */
     position: relative;
@@ -5858,7 +6026,8 @@ textarea#composer {
 .settings.drawer .settings-lead-pane {
   flex-shrink: 0;
   padding: 8px 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .settings.drawer .settings-stack {
@@ -5920,12 +6089,19 @@ textarea#composer {
   padding: 8px 14px;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease,
-    box-shadow 120ms ease, transform 80ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 80ms ease;
 }
 
 .settings-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 16%, var(--coddy-glass-panel-bg));
+  background: color-mix(
+    in srgb,
+    var(--accent) 16%,
+    var(--coddy-glass-panel-bg)
+  );
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
 }
@@ -6097,7 +6273,8 @@ textarea#composer {
   cursor: pointer;
 }
 
-.settings-switch-field:has(.skill-switch:disabled) > .settings-switch-field-label {
+.settings-switch-field:has(.skill-switch:disabled)
+  > .settings-switch-field-label {
   cursor: default;
 }
 
@@ -6145,7 +6322,8 @@ textarea#composer {
   align-items: flex-end;
   gap: 8px;
   padding-bottom: 8px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .settings-array-row:last-child {
@@ -6177,7 +6355,8 @@ textarea#composer {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-right: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .settings-nav {
@@ -6544,7 +6723,8 @@ textarea#composer {
   align-items: center;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 /* Dim the label/icon of a disabled skill but keep its on/off switch crisp. */
@@ -6822,7 +7002,8 @@ textarea#composer {
 }
 
 .mcp-list-item {
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
   padding: 4px 0;
 }
 
@@ -6996,7 +7177,8 @@ textarea#composer {
   align-items: center;
   gap: 8px;
   padding: 5px 0;
-  border-top: 1px dashed color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-top: 1px dashed
+    color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
 }
 
 .mcp-tool-row.is-disabled .mcp-tool-text {
@@ -7071,7 +7253,8 @@ textarea#composer {
     flex-direction: row;
     align-items: stretch;
     border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   }
   .settings-nav {
     flex: 1 1 auto;
@@ -7099,7 +7282,9 @@ textarea#composer {
     font-size: 1.2rem;
     line-height: 1;
     cursor: pointer;
-    transition: background 120ms ease, opacity 120ms ease;
+    transition:
+      background 120ms ease,
+      opacity 120ms ease;
   }
   .settings-nav-arrow:hover:not(:disabled) {
     background: color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
@@ -7109,10 +7294,12 @@ textarea#composer {
     cursor: default;
   }
   .settings-nav-arrow-left {
-    border-right: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-right: 1px solid
+      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   }
   .settings-nav-arrow-right {
-    border-left: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+    border-left: 1px solid
+      color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   }
 
   /* Mobile section picker: 2-wide tile grid (title + short description),
@@ -7136,13 +7323,16 @@ textarea#composer {
     text-align: left;
     padding: 10px 12px;
     border-radius: 14px;
-    border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+    border: 1px solid
+      color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
     background: color-mix(in srgb, var(--text) 3%, var(--coddy-blend-base));
     color: inherit;
     font: inherit;
     cursor: pointer;
     box-sizing: border-box;
-    transition: background 120ms ease, border-color 120ms ease;
+    transition:
+      background 120ms ease,
+      border-color 120ms ease;
   }
   .settings-tile:hover,
   .settings-tile:focus-visible {
@@ -7199,7 +7389,9 @@ textarea#composer {
   background: rgba(20, 20, 22, 0.35);
   color: color-mix(in srgb, var(--text) 85%, var(--coddy-blend-base));
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
 .settings.drawer .settings-head-back:hover {
@@ -7240,7 +7432,8 @@ textarea#composer {
   -webkit-backdrop-filter: var(--coddy-glass-panel-backdrop);
   padding: 12px 14px;
   box-sizing: border-box;
-  box-shadow: 0 8px 26px color-mix(in srgb, var(--coddy-blend-base) 22%, transparent);
+  box-shadow: 0 8px 26px
+    color-mix(in srgb, var(--coddy-blend-base) 22%, transparent);
 }
 
 .permission-prompt-head {
@@ -7463,7 +7656,8 @@ textarea#composer {
 }
 
 .todo-tool-preview-row + .todo-tool-preview-row {
-  border-top: 1px solid color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 7%, var(--coddy-blend-base));
 }
 
 .todo-tool-preview-mark {
@@ -7728,7 +7922,8 @@ textarea#composer {
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px 10px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .question-prompt-head-left {
@@ -7927,7 +8122,8 @@ button.question-prompt-row.question-prompt-row--active:hover {
 }
 
 label.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
-button.question-prompt-row.question-prompt-row--active .question-prompt-row-text,
+button.question-prompt-row.question-prompt-row--active
+  .question-prompt-row-text,
 .question-prompt-row:focus-within .question-prompt-row-text {
   color: color-mix(in srgb, var(--text) 90%, var(--coddy-blend-base));
 }
@@ -7978,7 +8174,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   align-items: center;
   gap: 12px;
   padding: 12px 14px 14px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .question-prompt-skip {
@@ -8078,7 +8275,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 
 .question-prompt-resolved-block {
   padding-top: 8px;
-  border-top: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 1px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .question-prompt-resolved-block:first-child {
@@ -8172,7 +8370,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   gap: 10px;
   min-width: 0;
   padding: 14px 14px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
 }
 
 .plan-document-card:not(.plan-document-card--expanded) .plan-document-head {
@@ -8388,7 +8587,6 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     width: 100%;
     justify-content: center;
   }
-
 }
 
 .plan-document-discard {
@@ -8427,7 +8625,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     rgba(249, 115, 22, 0.95) 0%,
     rgba(234, 88, 12, 0.95) 100%
   );
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base)) inset;
+  box-shadow: 0 1px 0
+    color-mix(in srgb, var(--text) 12%, var(--coddy-blend-base)) inset;
 }
 
 .plan-document-run:hover:not(:disabled) {
@@ -8481,6 +8680,23 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
    timestamp on the light canvas; keep it a muted member of the error family. */
 [data-theme="light"] .msg-system-time {
   color: rgba(185, 28, 28, 0.6);
+}
+
+[data-theme="light"] .msg-system.msg-system-notice {
+  background: rgba(239, 246, 255, 0.92);
+  border-color: rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="light"] .msg-system-notice .msg-system-label {
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .msg-system-notice .msg-system-body {
+  color: #1e3a8a;
+}
+
+[data-theme="light"] .msg-system-stack-notice .msg-system-time {
+  color: rgba(29, 78, 216, 0.6);
 }
 
 [data-theme="light"] .composer-wrap-docked .composer-card,
@@ -8630,7 +8846,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   cursor: pointer;
   padding: 0;
   background: transparent;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .appearance-swatch:hover {
@@ -8727,7 +8945,9 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border: 1px solid var(--coddy-glass-panel-border);
   border-radius: 10px;
   cursor: pointer;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .appearance-language-select:hover {
@@ -9298,7 +9518,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
 .bgtask-finished-list {
   display: flex;
   flex-direction: column;
-  border-top: 0.5px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-top: 0.5px solid
+    color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
 }
 
 .bgtask-finished-row {
@@ -9308,7 +9529,8 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   width: 100%;
   min-width: 0;
   border: none;
-  border-bottom: 0.5px solid color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
+  border-bottom: 0.5px solid
+    color-mix(in srgb, var(--text) 6%, var(--coddy-blend-base));
   background: transparent;
   font: inherit;
   text-align: left;

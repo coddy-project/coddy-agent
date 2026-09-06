@@ -25,6 +25,7 @@ const rootSchema: JsonSchema = {
     "sessions",
     "compaction",
     "subagents",
+    "hooks",
     "gateways",
   ],
   properties: {
@@ -58,6 +59,7 @@ const rootSchema: JsonSchema = {
       properties: {},
     },
     subagents: { type: "object", title: "Subagents", properties: {} },
+    hooks: { type: "object", title: "Hooks", properties: {} },
     gateways: { type: "object", title: "Messenger gateways", properties: {} },
   },
 } as unknown as JsonSchema;
@@ -77,6 +79,7 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "system",
     "compaction",
     "subagents",
+    "hooks",
   ]);
 });
 
@@ -143,6 +146,15 @@ test("the schema-driven subagents tab gets its own label and blurb", () => {
   expect(byId.subagents.kind).toBe("object");
   expect(byId.subagents.label).toBe("Subagents");
   expect(byId.subagents.description).toBe("Delegation pool & trust");
+});
+
+test("the schema-driven hooks tab gets its own label and blurb", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.hooks.kind).toBe("object");
+  expect(byId.hooks.label).toBe("Hooks");
+  expect(byId.hooks.description).toBe("Lifecycle hooks & trust");
 });
 
 test("Appearance tab is present even without a schema", () => {

@@ -97,6 +97,9 @@ func validateSubconfigs(cfg *Config) error {
 	if err := cfg.Subagents.Validate(); err != nil {
 		return err
 	}
+	if err := cfg.Hooks.Validate(); err != nil {
+		return err
+	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
 	}
@@ -153,6 +156,7 @@ func applyDefaults(cfg *Config) {
 	})
 	cfg.Rules.ApplyDefaults()
 	cfg.Subagents.ApplyDefaults(p)
+	cfg.Hooks.ApplyDefaults(p)
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()

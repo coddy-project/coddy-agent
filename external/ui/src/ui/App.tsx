@@ -187,7 +187,9 @@ async function markCoddySessionActivityRead(id: string): Promise<void> {
 const SCHEDULER_JOBS_POLL_MS = 12_000;
 
 type SchedulerEditorState =
-  null | { mode: "create" } | { mode: "edit"; jobId: string };
+  | null
+  | { mode: "create" }
+  | { mode: "edit"; jobId: string };
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -2148,11 +2150,13 @@ export function App() {
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
-        if (row.level !== "error") continue;
+        // Only the two levels the transcript knows how to render; a level a
+        // newer server may add stays invisible rather than mis-rendered.
+        if (row.level !== "error" && row.level !== "notice") continue;
         next.push({
           id: row.id,
           type: "system_notice",
-          level: "error",
+          level: row.level,
           message: row.message,
           createdAtUtc: row.createdAt,
         });

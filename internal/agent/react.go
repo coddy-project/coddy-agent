@@ -11,11 +11,13 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
@@ -75,6 +77,17 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+
+	// hooks is the operator hook runner of the current turn, built on first
+	// use from the definition files (hooks.go). hookStopReason carries a
+	// continue:false answered by a hook to the loop, which ends the turn.
+	hooks          *hooks.Runner
+	hooksMu        sync.Mutex
+	hooksLoaded    bool
+	hookStopReason string
+	// turnHookContext is what UserPromptSubmit hooks handed over for this
+	// turn's system prompt (hooks.go).
+	turnHookContext string
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -117,6 +130,10 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
 	mode := a.state.GetMode()
+	// Hook definitions are re-read for every turn.
+	a.resetHooks()
+	a.hookStopReason = ""
+	a.turnHookContext = ""
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -144,6 +161,14 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return a.runExportCommand(ctx, args, userText)
 		}
 	}
+	// UserPromptSubmit hooks see the prompt before it becomes a message: a
+	// rejected prompt is never added, and the turn ends with the reason. The
+	// attachments that came with it are dropped too, so they do not leak into
+	// the next prompt.
+	if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
+		a.state.TakePendingImageParts()
+		return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
+	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
 	if note := filePathsNote(imageParts); note != "" {
@@ -155,6 +180,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
+	a.setHookTurn(session.CountUserTurns(a.state.GetMessages()))
 	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
@@ -330,6 +356,12 @@ func (a *Agent) runReActLoop(
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+
+	// Stop hooks may send the agent back to work; stopBlocks counts those
+	// continuations against hooks.stop_loop_limit and stopHookActive tells
+	// the hook that it already did so in this turn.
+	stopHookActive := false
+	stopBlocks := 0
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -675,6 +707,33 @@ func (a *Agent) runReActLoop(
 			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
 				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
 			}
+			// A Stop hook may send the agent back to work with a follow-up that
+			// is submitted as the next user message (persisted, so the transcript
+			// explains the continuation), bounded by hooks.stop_loop_limit.
+			if followUp, again := a.runStopHooks(ctx, mode, response.Content, stopHookActive); again {
+				limit := a.cfg.Hooks.EffectiveStopLoopLimit()
+				if stopBlocks >= limit {
+					a.log.Warn("stop hook loop limit reached; ending the turn", "limit", limit)
+					return string(acp.StopReasonEndTurn), nil
+				}
+				// The follow-up needs an iteration to be read in; on the last one
+				// it would only leave a dangling user message behind.
+				if turn+1 >= maxTurns {
+					a.log.Warn("stop hook follow-up dropped: the turn cap is reached", "max_turns", maxTurns)
+					return string(acp.StopReasonEndTurn), nil
+				}
+				stopBlocks++
+				stopHookActive = true
+				follow := llm.Message{
+					Role:      llm.RoleUser,
+					Content:   stopHookPrefix + followUp,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				}
+				messages = append(messages, follow)
+				a.state.AddMessage(follow)
+				a.refreshConversationContextUsage(true)
+				continue
+			}
 			return string(acp.StopReasonEndTurn), nil
 		}
 
@@ -724,6 +783,15 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+
+			// A hook answered continue: false. The remaining calls of the batch
+			// still get a result, because OpenAI-compatible endpoints reject the
+			// next request otherwise; then the turn ends with the hook's reason.
+			if reason := a.hookStopReason; reason != "" {
+				a.hookStopReason = ""
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i+1:], "not executed: a hook stopped the turn")
+				return string(acp.StopReasonRefused), fmt.Errorf("stopped by hook: %s", reason)
+			}
 		}
 		if toolEnv.ConfigReloaded {
 			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
@@ -871,9 +939,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
 	}
 
+	// The persisted arguments are what a permission answered later resumes
+	// on, so a write that fails is remembered and cancels the call before
+	// any prompt instead of leaving a resume nothing trustworthy to run.
+	var argsPersistErr error
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "in_progress")
-		_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+		argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 	}
 
 	// Mark as in_progress, include raw InputJSON so connected clients can show args.
@@ -903,6 +975,57 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	if refusal, refused := toolCallRefusedByMode(mode, tc.Name); refused {
 		a.finishToolCall(sessionDir, sessionID, tc, refusal, nil, "cancelled")
 		return refusal, nil
+	}
+
+	// Operator hooks see the call before the permission gate, whatever the
+	// permission mode: a hook can deny it, approve it past the prompt, force
+	// the prompt, rewrite its arguments or add context to its result. They run
+	// on the permission resume path as well (the history holds the model's
+	// original arguments, so a rewrite must be applied again to what runs);
+	// there allow and ask are moot, because the user already answered.
+	var hookRes preToolUseOutcome
+	{
+		original := tc.InputJSON
+		var ran bool
+		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
+		if ran && hookRes.blocked {
+			result := "blocked by hook: " + hookRes.reason
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		// The turn was cancelled while a hook was running: the hooks answered
+		// nothing, and the call must not run on the strength of that silence.
+		if ran && ctx.Err() != nil {
+			result := "cancelled before the tool ran"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		if ran && skipPermission && !sameToolArgs(tc.InputJSON, original) {
+			// The user approved the arguments the prompt showed; a hook that
+			// changes them again on the resume is not covered by that answer.
+			result := "cancelled: a hook changed the approved arguments after the approval; run the call again"
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		if ran && !sameToolArgs(tc.InputJSON, original) {
+			// The rewritten arguments are what runs and what the operator must
+			// see on the tool call card; the model's own message keeps the
+			// original call, as it must for the transcript to replay. A
+			// permission answered later resumes on this persisted value, so a
+			// write that fails cancels the call before any prompt instead of
+			// letting the resume fall back to arguments nobody saw.
+			if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
+				argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+			}
+			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    tc.ID,
+				Status:        "in_progress",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
+				},
+			})
+		}
 	}
 
 	// Check if tool requires permission.
@@ -959,6 +1082,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 	}
 
+	// A hook's allow skips the prompt; its ask forces one even in a mode that
+	// would auto-approve.
+	if hookRes.allow {
+		requiresPerm = false
+	}
+	if hookRes.ask {
+		requiresPerm = true
+	}
+
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
 		if tc.Name == "config_commit" {
@@ -973,6 +1105,14 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
 				"changes committed after that snapshot leave the active file."
 		}
+		if argsPersistErr != nil {
+			result := "cancelled: the arguments could not be persisted before the permission prompt: " + argsPersistErr.Error()
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		// Notification hooks learn that a prompt is about to wait for the
+		// operator (a chat ping, a desktop notification); they cannot answer it.
+		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{
@@ -1003,6 +1143,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// Execute the tool.
 	var result string
 	var execErr error
+	started := time.Now()
 
 	// Check if it's an MCP tool (name contains __).
 	if idx := strings.Index(tc.Name, "__"); idx >= 0 {
@@ -1018,6 +1159,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
+	}
+
+	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
+	// context travel with the result, so the model reads them next to the
+	// output they refer to.
+	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, time.Since(started), mode); feedback != "" {
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, feedback)
+		} else {
+			result = joinHookText(result, feedback)
+		}
+	}
+	if len(hookRes.context) > 0 {
+		text := hookContextText(hookRes.context)
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, text)
+		} else {
+			result = joinHookText(result, text)
+		}
 	}
 
 	status := "completed"

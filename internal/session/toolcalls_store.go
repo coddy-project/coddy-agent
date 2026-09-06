@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -51,11 +52,15 @@ func WriteToolCallArgs(sessionDir, toolCallID, argsJSON string) error {
 	if err != nil {
 		return err
 	}
-	var tmp any
-	if err := json.Unmarshal([]byte(argsJSON), &tmp); err != nil {
+	// Pretty-print the raw bytes: a round trip through interface{} would
+	// turn integers past 2^53 into rounded floats, and a permission resume
+	// binds to these exact arguments.
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, []byte(argsJSON), "", "  "); err != nil {
 		return writeTextAtomic(filepath.Join(dir, "args.json"), argsJSON)
 	}
-	return writeJSONAtomic(filepath.Join(dir, "args.json"), tmp)
+	pretty.WriteByte('\n')
+	return writeBytesAtomic(filepath.Join(dir, "args.json"), pretty.Bytes())
 }
 
 func WriteToolCallResult(sessionDir, toolCallID, resultMarkdown string) error {

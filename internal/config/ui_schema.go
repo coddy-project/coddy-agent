@@ -463,6 +463,32 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
 			nil),
+		"hooks": objectSchema("Hooks",
+			"Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Load and run hooks at all (default true).",
+				},
+				"files": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition files",
+					"description": "Lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project hooks",
+					"description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+				},
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one hook process whose definition gives no timeout (default 60)."),
+				"stop_loop_limit":         intProp("Stop loop limit", "How many times per turn a Stop hook may send the agent back to work (default 5)."),
+				"max_output_chars":        intProp("Max output chars", "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000)."),
+			},
+			[]string{"enabled", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
+			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
 			"title":       "MCP servers",
@@ -608,7 +634,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "subagents", "mcp_servers", "skills", "memory", "scheduler",
+		"providers", "models", "agent", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
 	}
 

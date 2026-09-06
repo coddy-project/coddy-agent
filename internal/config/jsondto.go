@@ -20,6 +20,7 @@ type ConfigJSON struct {
 	MCP          MCPJSON          `json:"mcp,omitempty"`
 	Tools        ToolsJSON        `json:"tools,omitempty"`
 	Subagents    SubagentsJSON    `json:"subagents,omitempty"`
+	Hooks        HooksJSON        `json:"hooks,omitempty"`
 	Logger       LoggerJSON       `json:"logger,omitempty"`
 	Sessions     SessionsJSON     `json:"sessions,omitempty"`
 	Compaction   CompactionJSON   `json:"compaction,omitempty"`
@@ -274,6 +275,16 @@ type SubagentsJSON struct {
 	MaxTurns              int      `json:"max_turns,omitempty"`
 }
 
+// HooksJSON mirrors Hooks.
+type HooksJSON struct {
+	Enabled               *bool    `json:"enabled,omitempty"`
+	Files                 []string `json:"files,omitempty"`
+	ProjectTrust          string   `json:"project_trust,omitempty"`
+	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
+	StopLoopLimit         int      `json:"stop_loop_limit,omitempty"`
+	MaxOutputChars        int      `json:"max_output_chars,omitempty"`
+}
+
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
 	Enabled        bool   `json:"enabled,omitempty"`
@@ -410,6 +421,14 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		MaxDepth:              cloneIntPtr(c.Subagents.MaxDepth),
 		DefaultTimeoutSeconds: c.Subagents.DefaultTimeoutSeconds,
 		MaxTurns:              c.Subagents.MaxTurns,
+	}
+	out.Hooks = HooksJSON{
+		Enabled:               cloneBoolPtr(c.Hooks.Enabled),
+		Files:                 append([]string(nil), c.Hooks.Files...),
+		ProjectTrust:          c.Hooks.ProjectTrust,
+		DefaultTimeoutSeconds: c.Hooks.DefaultTimeoutSeconds,
+		StopLoopLimit:         c.Hooks.StopLoopLimit,
+		MaxOutputChars:        c.Hooks.MaxOutputChars,
 	}
 	tg := c.Gateways.Telegram
 	tgJSON := TelegramGatewayJSON{
@@ -557,6 +576,14 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		MaxDepth:              cloneIntPtr(j.Subagents.MaxDepth),
 		DefaultTimeoutSeconds: j.Subagents.DefaultTimeoutSeconds,
 		MaxTurns:              j.Subagents.MaxTurns,
+	}
+	cfg.Hooks = Hooks{
+		Enabled:               cloneBoolPtr(j.Hooks.Enabled),
+		Files:                 append([]string(nil), j.Hooks.Files...),
+		ProjectTrust:          j.Hooks.ProjectTrust,
+		DefaultTimeoutSeconds: j.Hooks.DefaultTimeoutSeconds,
+		StopLoopLimit:         j.Hooks.StopLoopLimit,
+		MaxOutputChars:        j.Hooks.MaxOutputChars,
 	}
 	jt := j.Gateways.Telegram
 	tg := TelegramGatewayConfig{

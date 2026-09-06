@@ -577,6 +577,57 @@
         }
       }
     },
+    "hooks": {
+      "type": "object",
+      "title": "Hooks",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Load and run hooks at all.",
+          "default": true
+        },
+        "files": {
+          "type": "array",
+          "description": "Definition files, lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${CODDY_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.coddy/hooks.json"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for hook files found inside the workspace, which travel with the checkout: \"ask\" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust with the session workspace as cwd); \"allow\" treats them like the operator's own file; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one hook process whose definition gives no timeout. 0 uses the default.",
+          "default": 60
+        },
+        "stop_loop_limit": {
+          "type": "integer",
+          "description": "How many times per turn a Stop hook may send the agent back to work. 0 uses the default.",
+          "default": 5
+        },
+        "max_output_chars": {
+          "type": "integer",
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. 0 uses the default.",
+          "default": 10000
+        }
+      }
+    },
     "logger": {
       "type": "object",
       "title": "Logging",

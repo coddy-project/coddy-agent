@@ -213,3 +213,32 @@ func TestConfigReloadMCPHelperProcess(t *testing.T) {
 	}
 	os.Exit(0)
 }
+
+// A resume replaces the SessionStart context an earlier run stored, even
+// when nothing runs any more: the hooks were removed or switched off.
+func TestSessionStartHooksReplaceStaleContext(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: filepath.Join(root, "home"), CWD: filepath.Join(root, "work")},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	m := NewManager(cfg, nil, nil, slog.Default(), cfg.Paths.CWD, nil)
+
+	st := &State{ID: "sess_stale_hook_context", CWD: cfg.Paths.CWD, Mode: ModeAgent}
+	st.RestoreHookContextWithoutPersist("stale context from a removed hook")
+	m.runSessionStartHooks(context.Background(), st, "resume")
+	if got := st.GetHookContext(); got != "" {
+		t.Fatalf("a resume without hook files must clear the stored context, got %q", got)
+	}
+
+	off := false
+	cfg.Hooks.Enabled = &off
+	st.RestoreHookContextWithoutPersist("stale context with hooks disabled")
+	m.runSessionStartHooks(context.Background(), st, "resume")
+	if got := st.GetHookContext(); got != "" {
+		t.Fatalf("a resume with hooks disabled must clear the stored context, got %q", got)
+	}
+}
