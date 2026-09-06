@@ -430,7 +430,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands from skills
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The built-in commands lead the list (**`compact`** while compaction is enabled, **`export`**, **`plugin`**; the same rows as **`GET /coddy/commands`**), followed by the skills. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
@@ -592,17 +592,19 @@ These requests are sent only when `permission_mode` is `ask` (commands and write
 }
 ```
 
-**Response:**
+**Response:** the protocol nests the outcome in its own object, which is what editors such as Zed send:
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 10,
   "result": {
-    "outcome": "allow",
-    "optionId": "allow"
+    "outcome": { "outcome": "selected", "optionId": "allow" }
   }
 }
 ```
+
+A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. Coddy also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
 
 ## Question Requests (Agent -> Client, expects response)
 

@@ -1580,10 +1580,10 @@ func TestSubagentChildWithAnEmptyToolSetAdvertisesNothing(t *testing.T) {
 	}
 }
 
-// /compact and /plugin are operator commands; in a child's prompt they are
-// the parent model's words and go to the model like any other task text.
+// /compact, /plugin and /export are operator commands; in a child's prompt
+// they are the parent model's words and go to the model like any other task text.
 func TestSubagentChildDoesNotRunBuiltInCommands(t *testing.T) {
-	for _, text := range []string{"/plugin list", "/compact keep the findings"} {
+	for _, text := range []string{"/plugin list", "/compact keep the findings", "/export md findings.md"} {
 		t.Run(text, func(t *testing.T) {
 			cfg := &config.Config{
 				Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},

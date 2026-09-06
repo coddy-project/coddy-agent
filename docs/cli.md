@@ -75,9 +75,11 @@ throttle with immediate renders after keystrokes.
 ## Commands and keys
 
 Slash commands: client-side `/model`, `/mode`, `/resume`, `/new`, `/theme`,
-`/hotkeys`, `/quit`; server-driven `/compact`, `/plugin`, and every loaded
-skill (from the ACP available-commands catalog). Enter on a slash suggestion
-applies and submits in one stroke.
+`/hotkeys`, `/quit`; server-driven `/compact`, `/export`, `/plugin`, and every
+loaded skill (from the ACP available-commands catalog). Enter on a slash
+suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
+[path]` writes the transcript into the workspace (`docs/session-export.md`);
+under `--remote` the file lands on the server.
 
 Agent self-configuration works as it does over ACP and HTTP: every turn
 offers the staged config tools (`config_get`, `config_set`,

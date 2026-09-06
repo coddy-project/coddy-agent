@@ -2,6 +2,7 @@ package acp_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -151,5 +152,67 @@ func TestStopReasonConstants(t *testing.T) {
 		if string(c) == "" {
 			t.Errorf("empty stop reason constant")
 		}
+	}
+}
+
+// A permission approval must survive both response shapes: the protocol nests
+// the outcome in its own object (Zed), Coddy's own surfaces send it flat.
+// Decoding the nested form used to fail, and the caller read that failure as a
+// cancellation, so every approval became "permission denied by user".
+func TestPermissionResultAcceptsBothWireShapes(t *testing.T) {
+	cases := []struct {
+		name        string
+		payload     string
+		wantOutcome string
+		wantOption  string
+	}{
+		{
+			name:        "nested selected",
+			payload:     `{"outcome":{"outcome":"selected","optionId":"allow"}}`,
+			wantOutcome: "selected",
+			wantOption:  "allow",
+		},
+		{
+			name:        "nested allow always",
+			payload:     `{"outcome":{"outcome":"selected","optionId":"allow_always_program"}}`,
+			wantOutcome: "selected",
+			wantOption:  "allow_always_program",
+		},
+		{
+			name:        "nested cancelled",
+			payload:     `{"outcome":{"outcome":"cancelled"}}`,
+			wantOutcome: "cancelled",
+		},
+		{
+			name:        "flat selected",
+			payload:     `{"outcome":"selected","optionId":"allow"}`,
+			wantOutcome: "selected",
+			wantOption:  "allow",
+		},
+		{
+			name:        "flat reject",
+			payload:     `{"outcome":"selected","optionId":"reject"}`,
+			wantOutcome: "selected",
+			wantOption:  "reject",
+		},
+		{
+			name:        "flat cancelled",
+			payload:     `{"outcome":"cancelled"}`,
+			wantOutcome: "cancelled",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got acp.PermissionResult
+			if err := json.Unmarshal([]byte(tc.payload), &got); err != nil {
+				t.Fatalf("unmarshal %s: %v", tc.payload, err)
+			}
+			if got.Outcome != tc.wantOutcome {
+				t.Errorf("outcome: got %q, want %q", got.Outcome, tc.wantOutcome)
+			}
+			if got.OptionID != tc.wantOption {
+				t.Errorf("optionId: got %q, want %q", got.OptionID, tc.wantOption)
+			}
+		})
 	}
 }

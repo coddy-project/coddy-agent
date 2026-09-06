@@ -42,7 +42,7 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	if sd != "" {
 		_ = session.ClearPendingPermission(sd)
 	}
-	if perm.Outcome == "cancelled" || perm.OptionID == "reject" {
+	if !permission.Approved(perm) {
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
 			Content:    "permission denied by user",

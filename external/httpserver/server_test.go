@@ -1559,7 +1559,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 }
 
 // TestCoddyCommandsEndpoint verifies /coddy/commands surfaces the built-in
-// deterministic commands (compact + plugin) for the composer's "Commands" group.
+// deterministic commands (compact, export, plugin) for the composer's "Commands" group.
 func TestCoddyCommandsEndpoint(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -1604,8 +1604,8 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	if code != http.StatusOK || obj != "coddy.commands" {
 		t.Fatalf("status=%d object=%q", code, obj)
 	}
-	if len(items) != 2 || items[0]["name"] != "compact" || items[1]["name"] != "plugin" {
-		t.Fatalf("commands = %+v, want compact then plugin", items)
+	if len(items) != 3 || items[0]["name"] != "compact" || items[1]["name"] != "export" || items[2]["name"] != "plugin" {
+		t.Fatalf("commands = %+v, want compact, export, plugin", items)
 	}
 	for _, it := range items {
 		if strings.TrimSpace(it["description"]) == "" {

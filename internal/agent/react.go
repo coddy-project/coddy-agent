@@ -123,10 +123,10 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	a.state.ClearMemoryCopilotBlock()
 	userText := contentBlocksToText(prompt)
 
-	// The built-in /compact and /plugin commands are operator input: they run
-	// deterministically, outside the tool set and the permission gate. A
-	// child's prompt is written by the parent model, so for a subagent the
-	// same text is an ordinary task and never reaches the built-ins.
+	// The built-in /compact, /plugin, and /export commands are operator input:
+	// they run deterministically, outside the tool set and the permission
+	// gate. A child's prompt is written by the parent model, so for a subagent
+	// the same text is an ordinary task and never reaches the built-ins.
 	if a.subagent == nil {
 		// The built-in /compact command compacts history instead of running the
 		// ReAct loop. The command text is persisted (so it shows in the transcript
@@ -138,6 +138,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		// deterministically, without an LLM turn; the command text is persisted too.
 		if args, ok := parsePluginCommand(userText); ok {
 			return a.runPluginCommand(ctx, args, userText)
+		}
+		// The built-in /export command writes the transcript to a file in the
+		// workspace; the command text is persisted after the export is built.
+		if args, ok := parseExportCommand(userText); ok {
+			return a.runExportCommand(ctx, args, userText)
 		}
 	}
 	imageParts := a.state.TakePendingImageParts()
@@ -983,7 +988,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			Options: permission.Options(tc.Name, tc.InputJSON),
 		})
 
-		if err != nil || permResult == nil || permResult.Outcome == "cancelled" || permResult.OptionID == "reject" {
+		if err != nil || !permission.Approved(permResult) {
 			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
 				SessionUpdate: acp.UpdateTypeToolCallUpdate,
 				ToolCallID:    tc.ID,

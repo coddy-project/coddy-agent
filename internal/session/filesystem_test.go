@@ -2,6 +2,9 @@ package session
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -491,5 +494,38 @@ func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
 	})
 	if got := deriveSessionTitle(st); got != "@Dockerfile:21-31 почему медленно?" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFileStoreResolveSessionID(t *testing.T) {
+	root := t.TempDir()
+	store := &FileStore{Root: root}
+	for _, id := range []string{"sess_alpha_one", "sess_alpha_two", "sess_beta"} {
+		if _, err := store.EnsureLayout(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A folder without session.json is not a session.
+	if err := os.MkdirAll(filepath.Join(root, "sess_gamma_stray"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := store.ResolveSessionID("sess_beta"); err != nil || got != "sess_beta" {
+		t.Fatalf("exact: %q, %v", got, err)
+	}
+	if got, err := store.ResolveSessionID("sess_b"); err != nil || got != "sess_beta" {
+		t.Fatalf("unique prefix: %q, %v", got, err)
+	}
+	if got, err := store.ResolveSessionID("sess_alpha_o"); err != nil || got != "sess_alpha_one" {
+		t.Fatalf("longer unique prefix: %q, %v", got, err)
+	}
+	if _, err := store.ResolveSessionID("sess_alpha"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ambiguous prefix: %v", err)
+	}
+	if _, err := store.ResolveSessionID("sess_gamma"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("stray folder must not resolve: %v", err)
+	}
+	if _, err := store.ResolveSessionID("  "); err == nil {
+		t.Fatal("blank id must fail")
 	}
 }

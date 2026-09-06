@@ -10,6 +10,18 @@ import (
 // one exact command to the program it invokes.
 const OptionAllowAlwaysProgram = "allow_always_program"
 
+// OptionAllow, OptionAllowAlways and OptionReject are the ids of the choices
+// every permission dialog offers; a client answers with one of them.
+const (
+	OptionAllow       = "allow"
+	OptionAllowAlways = "allow_always"
+	OptionReject      = "reject"
+)
+
+// OutcomeCancelled is the outcome a client reports when the request was
+// dismissed instead of answered.
+const OutcomeCancelled = "cancelled"
+
 // shellMetacharacters are the characters that let one command line run more than
 // one command, redirect it, or substitute another. A grant is only ever offered
 // for a command free of all of them: approving "curl https://example.com" must
@@ -91,8 +103,8 @@ func ProgramGrant(cmd string) (string, bool) {
 // once per call.
 func Options(toolName, argsJSON string) []acp.PermissionOption {
 	options := []acp.PermissionOption{
-		{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
-		{OptionID: "allow_always", Name: "Allow always", Kind: "allow_always"},
+		{OptionID: OptionAllow, Name: "Allow", Kind: "allow_once"},
+		{OptionID: OptionAllowAlways, Name: "Allow always", Kind: "allow_always"},
 	}
 	if strings.TrimSpace(toolName) == "run_command" {
 		if grant, ok := ProgramGrant(ExtractRunCommand(argsJSON)); ok {
@@ -103,7 +115,7 @@ func Options(toolName, argsJSON string) []acp.PermissionOption {
 			})
 		}
 	}
-	return append(options, acp.PermissionOption{OptionID: "reject", Name: "Reject", Kind: "reject_once"})
+	return append(options, acp.PermissionOption{OptionID: OptionReject, Name: "Reject", Kind: "reject_once"})
 }
 
 // isPlainInvocation reports whether cmd is a single command with no shell

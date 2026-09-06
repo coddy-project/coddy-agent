@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1607,5 +1608,195 @@ func TestContentBlocksToText_noLinesAttributeWithoutRange(t *testing.T) {
 	}
 	if got := contentBlocksToText(blocks); strings.Contains(got, "lines=") {
 		t.Fatalf("unexpected lines attribute: %s", got)
+	}
+}
+
+// --- /export built-in command ---------------------------------------------
+
+func TestParseExportCommand(t *testing.T) {
+	tests := []struct {
+		in     string
+		want   exportCommandArgs
+		wantOK bool
+	}{
+		{"/export", exportCommandArgs{}, true},
+		{"  /export  ", exportCommandArgs{}, true},
+		{"/export md", exportCommandArgs{Format: "md"}, true},
+		{"/export JSON chat.json", exportCommandArgs{Format: "JSON", Target: "chat.json"}, true},
+		{"/export chat.md", exportCommandArgs{Target: "chat.md"}, true},
+		{"/export md my notes/chat.md", exportCommandArgs{Format: "md", Target: "my notes/chat.md"}, true},
+		{"/export\thtml\tout/", exportCommandArgs{Format: "html", Target: "out/"}, true},
+		{"/export\rjsonl", exportCommandArgs{Format: "jsonl"}, true},
+		{"/export --no-tools md chat.md", exportCommandArgs{Format: "md", Target: "chat.md", Options: session.ExportOptions{NoTools: true}}, true},
+		{"/export md chat.md --no-thinking", exportCommandArgs{Format: "md", Target: "chat.md", Options: session.ExportOptions{NoThinking: true}}, true},
+		{"/export --no-tools --no-thinking", exportCommandArgs{Options: session.ExportOptions{NoTools: true, NoThinking: true}}, true},
+		{"/export --bogus chat.md", exportCommandArgs{Target: "chat.md", UnknownOptions: []string{"--bogus"}}, true},
+		{"/exports", exportCommandArgs{}, false},          // must not match a longer word
+		{"say /export later", exportCommandArgs{}, false}, // only when it leads the message
+		{"hello world", exportCommandArgs{}, false},
+	}
+	for _, tc := range tests {
+		got, ok := parseExportCommand(tc.in)
+		if ok != tc.wantOK {
+			t.Errorf("parseExportCommand(%q) ok=%v, want %v", tc.in, ok, tc.wantOK)
+			continue
+		}
+		if ok && !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("parseExportCommand(%q) = %+v, want %+v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// newExportTestAgent builds an agent over a two-message session whose provider
+// factory fails: a built-in command must never reach the model.
+func newExportTestAgent(t *testing.T) (*Agent, *session.State, *compactionUsageSender, string) {
+	t.Helper()
+	cwd := t.TempDir()
+	st := &session.State{
+		ID:         "sess_export",
+		CWD:        cwd,
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "question 1", CreatedAt: "2026-09-06T10:00:00Z"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer 1", Model: "fake/model", CreatedAt: "2026-09-06T10:00:01Z"})
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	sender := &compactionUsageSender{}
+	ag := NewAgent(cfg, st, sender, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return nil, errors.New("the LLM must not be called for /export")
+	}
+	return ag, st, sender, cwd
+}
+
+func lastAssistantText(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleAssistant {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+func TestRunExportCommandWritesTranscriptAndPersistsRows(t *testing.T) {
+	ag, st, sender, cwd := newExportTestAgent(t)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md chat.md"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason = %q", stop)
+	}
+
+	b, err := os.ReadFile(filepath.Join(cwd, "chat.md"))
+	if err != nil {
+		t.Fatalf("exported file: %v", err)
+	}
+	md := string(b)
+	for _, want := range []string{"`sess_export`", "question 1", "answer 1", "`fake/model`"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("export lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "/export") {
+		t.Errorf("the export must hold the conversation before the command, got:\n%s", md)
+	}
+
+	msgs := st.GetMessages()
+	if len(msgs) != 4 {
+		t.Fatalf("transcript rows = %d, want 4 (command + reply appended)", len(msgs))
+	}
+	if msgs[2].Role != llm.RoleUser || msgs[2].Content != "/export md chat.md" {
+		t.Fatalf("command row = %+v", msgs[2])
+	}
+	reply := lastAssistantText(msgs)
+	if !strings.HasPrefix(reply, "Session exported to markdown: chat.md") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if !strings.Contains(reply, filepath.Join(cwd, "chat.md")) {
+		t.Fatalf("reply does not name the full path: %q", reply)
+	}
+	streamed := false
+	for _, u := range sender.updates {
+		if chunk, ok := u.(acp.MessageChunkUpdate); ok && chunk.Content.Text == reply {
+			streamed = true
+		}
+	}
+	if !streamed {
+		t.Fatalf("the reply was not streamed as an agent message chunk: %+v", sender.updates)
+	}
+}
+
+func TestRunExportCommandRejectsPathOutsideWorkspace(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md ../escape.md"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply := lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "inside the session workspace") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(cwd), "escape.md")); !os.IsNotExist(err) {
+		t.Fatalf("a file escaped the workspace: %v", err)
+	}
+}
+
+func TestRunExportCommandExplainsUnknownFormat(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export yaml"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply := lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "Usage: /export") || !strings.Contains(reply, "yaml") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "yaml")); !os.IsNotExist(err) {
+		t.Fatalf("a mistyped format became a file: %v", err)
+	}
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export --bogus chat.md"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply = lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "unknown option --bogus") || !strings.Contains(reply, "Usage: /export") {
+		t.Fatalf("reply = %q", reply)
+	}
+}
+
+func TestRunExportCommandOptionsTrimToolsAndThinking(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+	st.AddMessage(llm.Message{
+		Role:      llm.RoleAssistant,
+		Reasoning: "private thoughts",
+		ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "read", InputJSON: `{"path":"README.md"}`}},
+		Model:     "fake/model",
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_1", Content: "README BODY"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer 2", Model: "fake/model"})
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md chat.md --no-tools --no-thinking"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(cwd, "chat.md"))
+	if err != nil {
+		t.Fatalf("exported file: %v", err)
+	}
+	md := string(b)
+	for _, want := range []string{"question 1", "answer 1", "answer 2"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("export lacks %q:\n%s", want, md)
+		}
+	}
+	for _, unwanted := range []string{"README BODY", "private thoughts", "Tool call"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("export still holds %q:\n%s", unwanted, md)
+		}
 	}
 }

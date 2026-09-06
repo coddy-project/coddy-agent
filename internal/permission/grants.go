@@ -88,7 +88,7 @@ func RecordAllowAlways(st *session.State, toolName, argsJSON, cwd string, res *a
 	if st == nil || res == nil {
 		return
 	}
-	if res.OptionID != "allow_always" && res.OptionID != OptionAllowAlwaysProgram {
+	if res.OptionID != OptionAllowAlways && res.OptionID != OptionAllowAlwaysProgram {
 		return
 	}
 	toolName = strings.TrimSpace(toolName)
@@ -115,4 +115,18 @@ func RecordAllowAlways(st *session.State, toolName, argsJSON, cwd string, res *a
 			st.AddWriteGrantIfNew(k)
 		}
 	}
+}
+
+// Approved reports whether a client's answer to a permission request lets the
+// tool call proceed. A cancelled request and the reject option are the only
+// refusals; every other selected option is an approval, so a client that
+// answers in the protocol's nested shape is honoured like Coddy's own surfaces.
+func Approved(res *acp.PermissionResult) bool {
+	if res == nil {
+		return false
+	}
+	if res.Outcome == OutcomeCancelled {
+		return false
+	}
+	return res.OptionID != OptionReject
 }
