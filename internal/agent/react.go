@@ -74,6 +74,9 @@ type Agent struct {
 	subagentRuntime SubagentRuntime
 	// subagent is set when this session is itself a child run (see subagent.go).
 	subagent *session.SubagentMeta
+	// limitWaitHeartbeat overrides how often a waiting turn re-sends its
+	// countdown (tests); zero means limitWaitHeartbeat.
+	limitWaitHeartbeat time.Duration
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
@@ -363,6 +366,9 @@ func (a *Agent) runReActLoop(
 	stopHookActive := false
 	stopBlocks := 0
 
+	// What this turn has spent waiting for hit usage limits (limit_wait.go).
+	var limitWait limitWaitLedger
+
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
 			return string(acp.StopReasonCancelled), nil
@@ -390,6 +396,10 @@ func (a *Agent) runReActLoop(
 
 		reasonClockStart := time.Time{}
 		reasonClockEnd := time.Time{}
+		// streamedAny records that a chunk of any kind reached the client
+		// from this call: a limit reported after that is never waited for
+		// and re-issued, whatever the provider's own error carries.
+		streamedAny := false
 		maybeMarkReasonEnd := func(now time.Time) {
 			if reasonClockStart.IsZero() || !reasonClockEnd.IsZero() {
 				return
@@ -436,6 +446,7 @@ func (a *Agent) runReActLoop(
 
 		emitReason := func(d string, now time.Time) {
 			stopFirstTokenTimer()
+			streamedAny = true
 			reasoningBuf.WriteString(d)
 			// The clock measures wall time between the first reasoning delta and the
 			// first answer text. A blocking response replays both back to back once
@@ -452,6 +463,7 @@ func (a *Agent) runReActLoop(
 		}
 		emitText := func(delta string, now time.Time, markReasonEnd bool) {
 			stopFirstTokenTimer()
+			streamedAny = true
 			if markReasonEnd && strings.TrimSpace(delta) != "" {
 				maybeMarkReasonEnd(now)
 			}
@@ -492,6 +504,7 @@ func (a *Agent) runReActLoop(
 				emitText(chunk.TextDelta, now, false)
 			}
 			if chunk.ToolCall != nil && chunk.ToolCall.Name != "" {
+				streamedAny = true
 				maybeMarkReasonEnd(now)
 				if st := sessionStatePtr(a.state); st != nil {
 					if sd := strings.TrimSpace(st.GetPersistedSessionDir()); sd != "" && strings.TrimSpace(chunk.ToolCall.ID) != "" {
@@ -557,8 +570,11 @@ func (a *Agent) runReActLoop(
 			// then the same call runs again (nothing was persisted for the
 			// failed one, so nothing repeats). A cancel during the wait ends
 			// the turn as a stop. The iteration is repeated, not counted.
-			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String()); ok {
-				if err := a.waitForLimitReset(ctx, sessionID, reset); err != nil {
+			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String(), streamedAny, limitWait); ok {
+				waitStart := time.Now()
+				err := a.waitForLimitReset(ctx, sessionID, reset)
+				limitWait.waited += time.Since(waitStart)
+				if err != nil {
 					if a.state.IsUserCancelledTurn() {
 						return string(acp.StopReasonCancelled), nil
 					}
@@ -1497,6 +1513,15 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	if rm.Stream {
 		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
 			in.RetryBudget = timeout
+		}
+	}
+	// With the wait on, its maximum bounds every sleep the turn spends on a
+	// limit, the wrapper's retries included: a pause beyond it comes back
+	// as a quota reset and ends the turn at once instead of being slept
+	// through by the retries first.
+	if a.cfg.Agent.WaitForLimitReset {
+		if limit := a.cfg.Agent.EffectiveWaitForLimitResetMax(); limit > 0 && (in.RetryBudget == 0 || limit < in.RetryBudget) {
+			in.RetryBudget = limit
 		}
 	}
 	return in

@@ -812,6 +812,28 @@ func TestSkillsAutoDiscoveryDefaultsTrue(t *testing.T) {
 	}
 }
 
+func TestAgentWaitForLimitResetJSONRoundTrip(t *testing.T) {
+	// The Settings UI saves the whole config through the JSON DTO: an opt-in
+	// set in YAML must survive an unrelated save, pointer semantics included.
+	custom := 90_000
+	c := &config.Config{Agent: config.Agent{Model: "m", WaitForLimitReset: true, WaitForLimitResetMaxMS: &custom}}
+	dto := config.ConfigToJSONDTO(c)
+	if !dto.Agent.WaitForLimitReset || dto.Agent.WaitForLimitResetMaxMS == nil || *dto.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("DTO lost the wait settings: %+v", dto.Agent)
+	}
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if !back.Agent.WaitForLimitReset || back.Agent.WaitForLimitResetMaxMS == nil || *back.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("round-trip lost the wait settings: %+v", back.Agent)
+	}
+	plain := config.JSONDTOToConfig(config.ConfigToJSONDTO(&config.Config{Agent: config.Agent{Model: "m"}}), config.Paths{})
+	if plain.Agent.WaitForLimitReset || plain.Agent.WaitForLimitResetMaxMS != nil {
+		t.Fatalf("an unset maximum must stay nil (the default), got %+v", plain.Agent)
+	}
+	if ex := config.SchemaExampleConfigJSON(); ex.Agent.WaitForLimitResetMaxMS == nil || *ex.Agent.WaitForLimitResetMaxMS != config.AgentDefaultWaitForLimitResetMaxMS {
+		t.Fatalf("the schema example must carry the default maximum, got %+v", ex.Agent.WaitForLimitResetMaxMS)
+	}
+}
+
 func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
 	f := false
 	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}

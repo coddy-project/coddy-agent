@@ -386,7 +386,7 @@ func UISchemaMap() map[string]interface{} {
 				"wait_for_limit_reset": boolProp("Wait for limit reset",
 					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
 				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
-					"Longest pause the turn waits for in milliseconds (default four hours); a longer one ends the turn at once, 0 never waits."),
+					"Longest time one turn spends waiting for limits in total, in milliseconds (default four hours); a pause that would exceed it ends the turn at once, 0 never waits."),
 			},
 			[]string{
 				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",

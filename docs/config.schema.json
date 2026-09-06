@@ -187,7 +187,7 @@
         },
         "wait_for_limit_reset_max_ms": {
           "type": "integer",
-          "description": "Longest pause the turn waits for, in milliseconds; a longer one ends the turn at once with the error. An explicit 0 never waits.",
+          "description": "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits.",
           "default": 14400000,
           "minimum": 0
         }

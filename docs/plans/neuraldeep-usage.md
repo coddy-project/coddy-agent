@@ -605,18 +605,26 @@ must beat common 60 s idle proxies (cursor 10).
   error and the parent reads the report as today; the memory copilot,
   compaction and the HTTP helpers never see the option.
 - The wait is bounded by `wait_for_limit_reset_max_ms` (default 4 h, an
-  explicit 0 never waits, a negative value is rejected by validation): a
-  longer pause fails fast with the error, before any sleep. The turn
-  context bounds it too: a user Stop ends the turn as cancelled, any other
-  cancellation ends it with the error. The loop re-runs the same iteration
-  with the same messages (`turn--; continue`) and does not consume a
-  `max_turns` slot; the failed call persisted nothing, so nothing is
-  duplicated.
+  explicit 0 never waits, a negative value is rejected by validation), a
+  total per turn: what earlier waits of the same turn spent counts, so a
+  provider that keeps naming short resets cannot hold the turn open without
+  end, and with the option on the same maximum caps the wrapper's own
+  retry sleeps on a limit (`[rev5]` codex 2, fresh reviewer 3). A pause
+  that would exceed it fails fast with the error, before any sleep. The
+  turn context bounds it too: a user Stop ends the turn as cancelled, any
+  other cancellation ends it with the error and names the cause. The loop
+  re-runs the same iteration with the same messages (`turn--; continue`)
+  and does not consume a `max_turns` slot; the failed call persisted
+  nothing and streamed nothing (a chunk of any kind, tracked by the loop
+  itself, rules the wait out), so nothing is duplicated.
 - Surfaces: the console's live status row reads `Usage limit reached ·
-  resuming at 20:59` while the footer keeps the hub snapshot; the SPA banner
-  reads `Usage limit reached · Auto-resuming at 20:59` in the warning tone
-  when the turn stream's frame carries the flag (the banner of sub-feature
-  3 reads it; the events stream never carries it).
+  resuming at 20:59` while the footer keeps the hub snapshot, and goes back
+  to waiting for the model at the reset; the SPA banner of sub-feature 3
+  (#144) reads `Usage limit reached · Auto-resuming at 20:59` in the
+  warning tone when the turn stream's frame carries the flag (the events
+  stream never carries it). The wrapper's `RetryBudget` counts the sleeps
+  already taken, so a chain of short pauses cannot run into the first-token
+  timer unreported (`[rev5]` fresh reviewer 1, codex 3).
 - Tests: `features/llm_retry_after.feature` gains the threshold scenario
   (a 600 s pause fails after one request as a quota reset error); the agent
   loop's happy path is a godog scenario over a fake provider whose first

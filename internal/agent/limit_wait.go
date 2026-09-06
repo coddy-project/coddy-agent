@@ -16,12 +16,21 @@ import (
 // every surface keeps the reset time in view while nothing else streams.
 const limitWaitHeartbeat = 20 * time.Second
 
+// limitWaitLedger is what one user turn has spent on waiting for limits so
+// far: the configured maximum is a total per turn, so a provider that keeps
+// naming short resets cannot hold the turn open without end.
+type limitWaitLedger struct {
+	waited time.Duration
+}
+
 // limitResetToWaitFor decides whether this turn waits for the reset behind
-// streamErr: the option is on, the pause fits the configured maximum, this
-// is a top-level turn (a subagent fails fast and its parent reads the
-// report), and nothing was streamed yet, so the same call can be re-issued
-// without repeating anything.
-func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, reasoning string) (*llm.QuotaResetError, bool) {
+// streamErr: the option is on, the pause fits what is left of the turn's
+// maximum, this is a top-level turn (a subagent fails fast and its parent
+// reads the report), and nothing was streamed yet (streamed is set by the
+// chunk callback for every provider, response and reasoning cover the
+// blocking transport), so the same call can be re-issued without repeating
+// anything.
+func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, reasoning string, streamed bool, state limitWaitLedger) (*llm.QuotaResetError, bool) {
 	var reset *llm.QuotaResetError
 	if !errors.As(streamErr, &reset) || !a.cfg.Agent.WaitForLimitReset {
 		return nil, false
@@ -29,14 +38,15 @@ func (a *Agent) limitResetToWaitFor(streamErr error, response *llm.Response, rea
 	if a.subagentDepth() > 0 {
 		return nil, false
 	}
+	if streamed || strings.TrimSpace(reasoning) != "" {
+		return nil, false
+	}
 	if response != nil && (strings.TrimSpace(response.Content) != "" || len(response.ToolCalls) > 0) {
 		return nil, false
 	}
-	if strings.TrimSpace(reasoning) != "" {
-		return nil, false
-	}
 	limit := a.cfg.Agent.EffectiveWaitForLimitResetMax()
-	if limit <= 0 || time.Until(reset.ResetAt) > limit {
+	remaining := time.Until(reset.ResetAt)
+	if limit <= 0 || state.waited+remaining > limit {
 		return nil, false
 	}
 	return reset, true
@@ -71,7 +81,11 @@ func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *
 		"resets_at", reset.ResetAt.UTC().Format(time.RFC3339),
 		"wait", time.Until(reset.ResetAt).Round(time.Second))
 	send()
-	ticker := time.NewTicker(limitWaitHeartbeat)
+	heartbeat := a.limitWaitHeartbeat
+	if heartbeat <= 0 {
+		heartbeat = limitWaitHeartbeat
+	}
+	ticker := time.NewTicker(heartbeat)
 	defer ticker.Stop()
 	deadline := time.NewTimer(time.Until(reset.ResetAt))
 	defer deadline.Stop()
@@ -88,7 +102,9 @@ func (a *Agent) waitForLimitReset(ctx context.Context, sessionID string, reset *
 }
 
 // limitWaitProvider names the provider row behind the session's model for
-// the countdown update.
+// the countdown update. A model that no longer resolves (the row was
+// removed under the session) still gets its prefix as the label; the error
+// is not worth failing the countdown over.
 func (a *Agent) limitWaitProvider() (name, typ string) {
 	modelID := a.state.EffectiveModelID(a.cfg)
 	if rm, err := a.cfg.ResolveLLM(modelID); err == nil && rm != nil {

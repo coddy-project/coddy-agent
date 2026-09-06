@@ -463,3 +463,35 @@ func TestResilientProviderFailsFastPastTheRetryBudget(t *testing.T) {
 		})
 	}
 }
+
+// The caller's RetryBudget bounds the whole call, so the sleeps already taken
+// count: three pauses of 100 ms under a 250 ms budget are slept twice and
+// then reported as a reset, with the third request never repeated.
+func TestResilientProviderBudgetCountsTheTimeAlreadySlept(t *testing.T) {
+	var calls atomic.Int32
+	cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": "100"})
+	inner := &stubProvider{
+		streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+			calls.Add(1)
+			return nil, cause
+		},
+	}
+	p := wrapResilient(inner, ResilientOptions{
+		RetryMax:      5,
+		RetryBase:     5 * time.Millisecond,
+		RetryMaxDelay: 100 * time.Millisecond,
+		RetryBudget:   250 * time.Millisecond,
+	})
+	before := time.Now()
+	_, err := p.Stream(context.Background(), nil, nil, nil)
+	var reset *QuotaResetError
+	if !errors.As(err, &reset) {
+		t.Fatalf("want a QuotaResetError once the budget is spent, got %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d want 3 (two sleeps inside the budget, then the verdict)", calls.Load())
+	}
+	if took := time.Since(before); took < 200*time.Millisecond || took > 400*time.Millisecond {
+		t.Fatalf("the wrapper slept %v, want about 200 ms", took)
+	}
+}

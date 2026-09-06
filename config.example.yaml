@@ -130,11 +130,11 @@ agent:
   # Auto-continue when a usage limit resets (Claude Desktop style). A provider
   # pause the retries could never cover (a 429 naming a reset far ahead) ends
   # the turn with the error by default; with the wait on, a top-level turn
-  # waits for the reset, shows "Usage limit reached · resuming at 20:59" on
-  # every surface, and then re-issues the same call. The turn lock and the
-  # client stream stay open meanwhile, hence off by default.
+  # waits for the reset, tells its client "Usage limit reached · resuming at
+  # 20:59" every 20 s, and then re-issues the same call. The turn lock and
+  # the client stream stay open meanwhile, hence off by default.
   # wait_for_limit_reset: false
-  # wait_for_limit_reset_max_ms: 14400000  # longest pause to wait for (4 h); 0 never waits
+  # wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h); a longer pause ends the turn; 0 never waits
 
 sessions:
   # Directory to store session bundles.

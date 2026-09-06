@@ -508,8 +508,10 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 	a.modelID = "neuraldeep/qwen3.8-27b"
 	a.sessionID = "s1"
 	armed := 0
-	a.usageAfterFn = func(_ time.Duration, _ func()) func() bool {
+	var fire func()
+	a.usageAfterFn = func(_ time.Duration, fn func()) func() bool {
 		armed++
+		fire = fn
 		return func() bool { return true }
 	}
 	resuming := acp.ProviderUsageUpdate{
@@ -523,14 +525,17 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 	}
 	a.applyProviderUsage(resuming)
 	status := a.statusMessage()
-	if !strings.HasPrefix(status, "Usage limit reached · resuming at ") {
-		t.Fatalf("status row = %q, want the resuming line", status)
+	want := "Usage limit reached · resuming at " + formatResetTime(parseUsageTime(resuming.RetryAt), a.usageNow())
+	if status != want {
+		t.Fatalf("status row = %q, want %q (no running counter)", status, want)
 	}
 	if a.foot.Usage() != nil {
 		t.Fatal("a resuming update must not replace the footer's hub snapshot")
 	}
-	if armed != 0 {
-		t.Fatalf("a resuming update armed %d reset timers, want none", armed)
+	// One timer only: the note that brings the row back to the model at
+	// the reset, never a hub read.
+	if armed != 1 {
+		t.Fatalf("a resuming update armed %d timers, want the one resume note", armed)
 	}
 	if len(a.chat.Children()) != 0 {
 		t.Fatalf("a resuming update posted %d transcript rows, want none", len(a.chat.Children()))
@@ -542,5 +547,17 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 	a.applyProviderUsage(resuming)
 	if a.stepStatus.startedAt != started {
 		t.Fatal("a re-sent countdown must not restart the status clock")
+	}
+	// The reset passes while the turn is still on: the row goes back to
+	// waiting for the model until the re-issued call streams.
+	a.turnActive = true
+	fire()
+	msg := <-a.updatesCh
+	if _, ok := msg.update.(usageResumeDue); !ok {
+		t.Fatalf("the resume note must reach the loop, got %+v", msg.update)
+	}
+	a.applyLoopMessage(msg)
+	if got := a.statusMessage(); got != statusWaitingModel {
+		t.Fatalf("after the reset the row reads %q, want %q", got, statusWaitingModel)
 	}
 }

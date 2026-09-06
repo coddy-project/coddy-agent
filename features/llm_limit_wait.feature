@@ -26,3 +26,25 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     When the user sends a turn
     Then the turn fails with the quota reset error after 1 provider call
     And the turn took less than 300 ms
+
+  Scenario: The retry wrapper's own verdict drives the wait
+    Given an agent whose provider answers a 429 naming a reset in 1 s through the retry wrapper and then answers "done"
+    And wait_for_limit_reset is on
+    When the user sends a turn
+    Then the turn ends with "done" after 2 provider calls
+    And the turn took at least 1 s
+    And the client saw a resuming usage update with the reset time
+
+  Scenario: A second limit in the same turn counts against the same maximum
+    Given an agent whose provider reports a limit that lifts in 1 s twice and then answers "done"
+    And wait_for_limit_reset is on with a maximum of 1500 ms
+    When the user sends a turn
+    Then the turn fails with the quota reset error after 2 provider calls
+    And the turn took at least 1 s
+
+  Scenario: The maximum bounds the retry wrapper's own sleeps as well
+    Given an agent whose provider answers a 429 naming a reset in 1 s through the retry wrapper and then answers "done"
+    And wait_for_limit_reset is on with a maximum of 300 ms
+    When the user sends a turn
+    Then the turn fails with the quota reset error after 1 provider call
+    And the turn took less than 300 ms

@@ -46,6 +46,10 @@ const (
 // the deadline was a window reset or a retry time, so the read must reach
 // the hub; a deadline from a deferred refresh is a cache read, the backend
 // has fetched by then, and asking it to fetch again would only defer again.
+// usageResumeDue is the console's own note that the reset a waiting turn
+// counted down to has passed: the status row goes back to the model.
+type usageResumeDue struct{}
+
 type usageResetDue struct {
 	provider string
 	forced   bool
@@ -502,12 +506,22 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 	if u.Resuming {
 		// The turn is waiting for the limit to lift: the live status row
 		// shows the countdown, without a running counter; the footer keeps
-		// the hub's own snapshot and the notices stay quiet.
+		// the hub's own snapshot and the notices stay quiet. At the reset
+		// the row goes back to waiting for the model, since the re-issued
+		// call announces itself only with its first chunk.
 		text := "Usage limit reached"
-		if at := parseUsageTime(u.RetryAt); !at.IsZero() {
+		at := parseUsageTime(u.RetryAt)
+		if !at.IsZero() {
 			text += " · resuming at " + formatResetTime(at, a.usageNow())
 		}
 		a.setStatus(liveStatus{verb: text, startedAt: time.Now()})
+		a.stopUsageTimer()
+		if !at.IsZero() {
+			sessionID := a.sessionID
+			a.usageTimer = a.usageAfter(at.Sub(a.usageNow()), func() {
+				_ = a.Sender().SendSessionUpdate(sessionID, usageResumeDue{})
+			})
+		}
 		return
 	}
 	snapshot := u

@@ -82,6 +82,10 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 	case localShellOutput:
 		u.box.SetOutput(u.text, u.dropped)
 		return
+	case usageResumeDue:
+		if a.turnActive {
+			a.setStatus(newWaitingStatus())
+		}
 	case usageResetDue:
 		// A window's reset passed: one fresh read for the provider that is
 		// still active; a switched-away provider gets nothing.

@@ -24,11 +24,15 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-// limitWaitProvider fails its first call with a quota reset and answers the
-// second; every call is counted.
+// limitWaitProvider fails its first calls (fails of them) with a limit and
+// answers the next one; every call is counted. With raw set the limit is the
+// provider's own 429 text naming the pause, for the retry wrapper to judge;
+// otherwise it is the wrapper's typed verdict, handed over directly.
 type limitWaitProvider struct {
 	mu    sync.Mutex
 	calls int
+	fails int
+	raw   bool
 	pause time.Duration
 	reply string
 }
@@ -37,7 +41,10 @@ func (p *limitWaitProvider) next() (*llm.Response, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.calls++
-	if p.calls == 1 {
+	if p.calls <= p.fails {
+		if p.raw {
+			return nil, fmt.Errorf("openai stream: 429 Too Many Requests: rate limit exceeded, retry in %ds", int(p.pause/time.Second))
+		}
 		return nil, &llm.QuotaResetError{
 			ResetAt: time.Now().Add(p.pause),
 			Delay:   p.pause,
@@ -94,11 +101,12 @@ func (s *limitWaitSender) resuming() []acp.ProviderUsageUpdate {
 }
 
 type limitWaitState struct {
-	provider *limitWaitProvider
-	sender   *limitWaitSender
-	cfg      *config.Config
-	state    *session.State
-	tmp      []string
+	provider   *limitWaitProvider
+	viaWrapper bool
+	sender     *limitWaitSender
+	cfg        *config.Config
+	state      *session.State
+	tmp        []string
 
 	started time.Time
 	took    time.Duration
@@ -108,6 +116,7 @@ type limitWaitState struct {
 
 func (s *limitWaitState) reset() error {
 	s.provider = nil
+	s.viaWrapper = false
 	s.sender = &limitWaitSender{}
 	s.cfg = nil
 	s.state = nil
@@ -134,6 +143,19 @@ func (s *limitWaitState) tempDir() (string, error) {
 }
 
 func (s *limitWaitState) anAgentWhoseProviderFirstReportsALimit(pauseSec int, reply string) error {
+	return s.agentOver(&limitWaitProvider{fails: 1, pause: time.Duration(pauseSec) * time.Second, reply: reply})
+}
+
+func (s *limitWaitState) anAgentWhoseProviderReportsALimitTwice(pauseSec int, reply string) error {
+	return s.agentOver(&limitWaitProvider{fails: 2, pause: time.Duration(pauseSec) * time.Second, reply: reply})
+}
+
+func (s *limitWaitState) anAgentWhoseProviderAnswersA429ThroughTheWrapper(pauseSec int, reply string) error {
+	s.viaWrapper = true
+	return s.agentOver(&limitWaitProvider{fails: 1, raw: true, pause: time.Duration(pauseSec) * time.Second, reply: reply})
+}
+
+func (s *limitWaitState) agentOver(p *limitWaitProvider) error {
 	cwd, err := s.tempDir()
 	if err != nil {
 		return err
@@ -142,7 +164,7 @@ func (s *limitWaitState) anAgentWhoseProviderFirstReportsALimit(pauseSec int, re
 	if err != nil {
 		return err
 	}
-	s.provider = &limitWaitProvider{pause: time.Duration(pauseSec) * time.Second, reply: reply}
+	s.provider = p
 	s.state = &session.State{ID: "sess_bdd_limit_wait", CWD: cwd, Mode: session.ModeAgent, SessionDir: sessionDir}
 	s.cfg = &config.Config{
 		Providers: []config.ProviderConfig{{Name: "neuraldeep", Type: "neuraldeep", APIKey: "test"}},
@@ -167,7 +189,19 @@ func (s *limitWaitState) waitIsOnWithAMaximumOf(maxMS int) error {
 
 func (s *limitWaitState) theUserSendsATurn() error {
 	ag := NewAgent(s.cfg, s.state, s.sender, nil)
-	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return s.provider, nil }
+	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
+		if !s.viaWrapper {
+			return s.provider, nil
+		}
+		// The wrapper as the agent configures it, with a small ladder so a
+		// one-second pause is beyond what the retries could wait.
+		return llm.WrapResilient(s.provider, llm.ResilientOptions{
+			RetryMax:      in.RetryMax,
+			RetryBase:     5 * time.Millisecond,
+			RetryMaxDelay: 100 * time.Millisecond,
+			RetryBudget:   in.RetryBudget,
+		}), nil
+	}
 	s.started = time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -258,6 +292,8 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 	sc.Step(`^an agent whose provider first reports a limit that lifts in (\d+) s and then answers "([^"]+)"$`, s.anAgentWhoseProviderFirstReportsALimit)
+	sc.Step(`^an agent whose provider reports a limit that lifts in (\d+) s twice and then answers "([^"]+)"$`, s.anAgentWhoseProviderReportsALimitTwice)
+	sc.Step(`^an agent whose provider answers a 429 naming a reset in (\d+) s through the retry wrapper and then answers "([^"]+)"$`, s.anAgentWhoseProviderAnswersA429ThroughTheWrapper)
 	sc.Step(`^wait_for_limit_reset is on$`, s.waitIsOn)
 	sc.Step(`^wait_for_limit_reset is on with a maximum of (\d+) ms$`, s.waitIsOnWithAMaximumOf)
 	sc.Step(`^the user sends a turn$`, s.theUserSendsATurn)

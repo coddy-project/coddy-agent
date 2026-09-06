@@ -96,6 +96,7 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 
 func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
 	var lastErr error
+	start := time.Now()
 	for attempt := 0; attempt <= p.opts.RetryMax; attempt++ {
 		// Inside the loop so llm_min_interval_ms paces retry attempts too, not
 		// only fresh calls: the pause stacks with the retry delay below, and
@@ -118,7 +119,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		// After the retryable gate, so a 429 that arrived mid-stream (never
 		// retryable once text was emitted) is never re-issued; before the
 		// attempt gate, so retries disabled still fail typed.
-		if reset := p.quotaReset(err, attempt); reset != nil {
+		if reset := p.quotaReset(err, attempt, time.Since(start)); reset != nil {
 			return nil, reset
 		}
 		if attempt >= p.opts.RetryMax {
@@ -147,7 +148,7 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 // a pause inside that is retried as usual, a longer one could only end in
 // the same 429 after the budget was burnt, so the caller learns of the
 // reset at once, after this one request.
-func (p *resilientProvider) quotaReset(err error, attempt int) *QuotaResetError {
+func (p *resilientProvider) quotaReset(err error, attempt int, elapsed time.Duration) *QuotaResetError {
 	if httpStatusFromError(err) != 429 {
 		return nil
 	}
@@ -155,24 +156,37 @@ func (p *resilientProvider) quotaReset(err error, attempt int) *QuotaResetError 
 	if !ok {
 		return nil
 	}
-	if d <= p.retryBudget(attempt) {
+	if d <= p.retryBudget(attempt, elapsed) {
 		return nil
 	}
 	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Cause: err}
 }
 
 // retryBudget is the longest server-requested pause the loop honours by
-// waiting at the given attempt.
-func (p *resilientProvider) retryBudget(attempt int) time.Duration {
+// waiting at the given attempt, elapsed being the time the call has already
+// taken: the caller's RetryBudget is a wall-clock bound on the whole call
+// (the agent's first-token timer), so the sleeps already taken count
+// against it.
+func (p *resilientProvider) retryBudget(attempt int, elapsed time.Duration) time.Duration {
 	waits := p.opts.RetryMax - attempt
 	if waits < 0 {
 		waits = 0
 	}
 	budget := p.opts.RetryMaxDelay * time.Duration(waits)
-	if p.opts.RetryBudget > 0 && p.opts.RetryBudget < budget {
-		budget = p.opts.RetryBudget
+	if p.opts.RetryBudget > 0 {
+		if left := p.opts.RetryBudget - elapsed; left < budget {
+			budget = left
+		}
 	}
 	return budget
+}
+
+// WrapResilient applies the retry, pacing and quota-reset rules to any
+// provider, for harnesses that drive the agent over a fake provider and
+// still want the wrapper's own verdicts on its errors. NewProvider applies
+// the same wrapper to the real ones.
+func WrapResilient(inner Provider, opts ResilientOptions) Provider {
+	return wrapResilient(inner, opts)
 }
 
 func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
