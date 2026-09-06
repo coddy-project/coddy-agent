@@ -35,6 +35,11 @@ const (
 	// providerUsageBackoffCap bounds the pause a Retry-After can impose: a
 	// hub that asks for hours would otherwise freeze the line until a login.
 	providerUsageBackoffCap = 5 * time.Minute
+	// providerUsageCommandRetry is how long a rejected key stays sticky for a
+	// row whose key comes from api_key_command: the command's text is in the
+	// fingerprint, its output is not, so a helper that starts answering with
+	// a fresh key is noticed on the next automatic read after this long.
+	providerUsageCommandRetry = time.Minute
 )
 
 // Failure kinds carried by ProviderUsageUpdate.Error.
@@ -63,7 +68,9 @@ type providerUsageEntry struct {
 	fetchedAt    time.Time
 	lastAttempt  time.Time
 	unauthorized bool
-	backoffUntil time.Time
+	// unauthorizedAt is when the rejection was recorded (the command retry).
+	unauthorizedAt time.Time
+	backoffUntil   time.Time
 	// inflight is closed when the running fetch ends; nil while idle.
 	inflight       chan struct{}
 	inflightCancel context.CancelFunc
@@ -243,7 +250,7 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
-	case e.unauthorized && !refresh:
+	case e.unauthorized && !refresh && !m.usageRejectionExpiredLocked(prov, e, now):
 		u := m.usageDeliverableLocked(e, now)
 		m.usage.mu.Unlock()
 		return &u, nil
@@ -362,13 +369,7 @@ func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID
 	if e.backoffUntil.After(at) {
 		at = e.backoffUntil
 	}
-	delay := at.Sub(now)
-	if delay < 0 {
-		delay = 0
-	}
-	generation := e.generation
-	e.pendingAt = at
-	e.pendingStop = m.usageAfter(delay, func() { m.usageDeferredFire(name, generation) })
+	m.usageArmPendingLocked(name, e, at, e.pendingSessions)
 }
 
 // usageDeferredFire runs the deferred refresh when its timer fires.
@@ -501,7 +502,7 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 	case llm.NeuralDeepUsageUnauthorized:
 		// The hub's word is final: numbers read with a key it no longer
 		// honours are not this account's numbers any more.
-		e.unauthorized = true
+		e.unauthorized, e.unauthorizedAt = true, at
 		base = fresh
 		base.Error = ProviderUsageErrorUnauthorized
 	case llm.NeuralDeepUsageForbidden:
@@ -532,6 +533,16 @@ func (m *Manager) usageRecordFailureLocked(e *providerUsageEntry, name, provider
 	}
 }
 
+// usageRejectionExpiredLocked reports whether a sticky rejection is old
+// enough to retry for a row whose key is produced by a command: the
+// fingerprint cannot see the command's output change, so time does.
+func (m *Manager) usageRejectionExpiredLocked(prov *config.ProviderConfig, e *providerUsageEntry, now time.Time) bool {
+	if strings.TrimSpace(prov.APIKeyCommand) == "" {
+		return false
+	}
+	return !e.unauthorizedAt.IsZero() && now.Sub(e.unauthorizedAt) >= providerUsageCommandRetry
+}
+
 // DropProviderUsage forgets the cached usage of a provider, including the
 // sticky rejected-key mark, and discards its asynchronous work. The
 // credential handlers call it after a login or a logout.
@@ -555,18 +566,37 @@ func (m *Manager) resetProviderUsage() {
 	}
 }
 
-// pauseProviderUsage stops the asynchronous work of every entry but keeps
-// the snapshots and the pacing state: storeConfig calls it because the rows
-// behind the cache may have changed. A row whose credential or endpoint did
-// change is caught by the fingerprint on its next read; a row that did not
-// keeps its floor, so a settings save is not a free extra fetch.
+// pauseProviderUsage cancels the fetches in flight but keeps the snapshots,
+// the pacing state and the deferred refreshes: storeConfig calls it because
+// the rows behind the cache may have changed. A row whose credential or
+// endpoint did change is caught by the fingerprint on its next read; a row
+// that did not keeps its floor, so a settings save is not a free extra
+// fetch, and a refresh promised to a session is re-armed under the new
+// generation rather than forgotten.
 func (m *Manager) pauseProviderUsage() {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
-	for _, e := range m.usage.entries {
+	for name, e := range m.usage.entries {
+		pendingAt, sessions := e.pendingAt, e.pendingSessions
+		hadPending := e.pendingStop != nil
 		m.usageInvalidateLocked(e)
 		e.inflight, e.inflightCancel = nil, nil
+		if hadPending {
+			m.usageArmPendingLocked(name, e, pendingAt, sessions)
+		}
 	}
+}
+
+// usageArmPendingLocked schedules the deferred refresh of an entry at a
+// given instant under its current generation.
+func (m *Manager) usageArmPendingLocked(name string, e *providerUsageEntry, at time.Time, sessions []string) {
+	delay := at.Sub(m.usageNow())
+	if delay < 0 {
+		delay = 0
+	}
+	generation := e.generation
+	e.pendingAt, e.pendingSessions = at, sessions
+	e.pendingStop = m.usageAfter(delay, func() { m.usageDeferredFire(name, generation) })
 }
 
 // WaitProviderUsageIdle blocks until every in-flight usage fetch returned,
@@ -631,6 +661,11 @@ func (m *Manager) publishProviderUsageAsync(sessionID string, st *State) {
 	now := m.usageNow()
 	var deliverNow *acp.ProviderUsageUpdate
 	switch {
+	case e.unauthorized && !m.usageRejectionExpiredLocked(prov, e, now):
+		// A rejected key is sticky: the turn learns of it without another
+		// request, until a login, a config change or a manual refresh.
+		u := m.usageDeliverableLocked(e, now)
+		deliverNow = &u
 	case e.inflight != nil:
 		// The running fetch delivers to every session that joined it; the
 		// current snapshot, when there is one, goes out right away.

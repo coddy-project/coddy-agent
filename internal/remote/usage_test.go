@@ -130,10 +130,10 @@ func TestRemoteUsageCachesUnsupportedUntilARefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	u, err := h.ProviderUsage(context.Background(), "stub", false)
-	if err != nil || u == nil || !u.Unsupported || stand.calls.Load() != 1 {
+	if err != nil || u == nil || !u.Unsupported || u.ProviderType != "openai" || stand.calls.Load() != 1 {
 		t.Fatalf("first: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
 	}
-	if u, err = h.ProviderUsage(context.Background(), "stub", false); err != nil || !u.Unsupported || stand.calls.Load() != 1 {
+	if u, err = h.ProviderUsage(context.Background(), "stub", false); err != nil || !u.Unsupported || u.ProviderType != "openai" || stand.calls.Load() != 1 {
 		t.Fatalf("cached: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
 	}
 	stand.answers <- usageAnswer(5, false, 0)
@@ -150,7 +150,7 @@ func TestRemoteUsageCachesUnsupportedUntilARefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.usageMu.Lock()
-	h.usageUnsupported["stub"] = time.Now().Add(-time.Second)
+	h.usageUnsupported["stub"] = usageUnsupportedMark{until: time.Now().Add(-time.Second), providerType: "openai"}
 	h.usageMu.Unlock()
 	stand.answers <- usageAnswer(7, false, 0)
 	if u, err = h.ProviderUsage(context.Background(), "stub", false); err != nil || u.Unsupported || stand.calls.Load() != 5 {

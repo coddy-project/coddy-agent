@@ -2,8 +2,8 @@ package session
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -535,6 +535,83 @@ func TestProviderUsageBackoffIsCappedAndPacingSurvivesAConfigSwap(t *testing.T) 
 	m.pauseProviderUsage()
 	if u, _ = m.ProviderUsage(ctx, "neuraldeep", true); stand.calls.Load() != 3 || !u.RefreshPending {
 		t.Fatalf("after a config swap the floor still holds: calls=%d update=%+v", stand.calls.Load(), u)
+	}
+}
+
+func TestProviderUsageConfigSwapKeepsADeferredRefresh(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	if _, err := m.ProviderUsageForSession(context.Background(), "s1", "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(5 * time.Second)
+	if u, _ := m.ProviderUsageForSession(context.Background(), "s1", "neuraldeep", true); !u.RefreshPending {
+		t.Fatalf("expected a deferred refresh: %+v", u)
+	}
+	// A settings save in between: the promise survives it.
+	m.pauseProviderUsage()
+	stand.set(http.StatusOK, usageFixture(321), nil)
+	clock.advance(11 * time.Second)
+	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	updates, ids := sender.snapshot()
+	if len(updates) != 1 || ids[0] != "s1" || *findWindow(updates[0], "session").Used != 321 {
+		t.Fatalf("deferred refresh after a config swap: updates=%+v ids=%v", updates, ids)
+	}
+}
+
+func TestProviderUsageTurnsAfterARejectedKeyMakeNoRequest(t *testing.T) {
+	stand := newUsageStand(t)
+	stand.set(http.StatusUnauthorized, `{"detail":"unknown key"}`, nil)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	id := newUsageSession(t, m, "")
+	for i := 0; i < 3; i++ {
+		if err := usagePrompt(t, m, id, sender, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		clock.advance(30 * time.Second)
+	}
+	updates, _ := sender.snapshot()
+	if stand.calls.Load() != 1 || len(updates) != 3 {
+		t.Fatalf("calls=%d updates=%d, want one request and a delivery per turn", stand.calls.Load(), len(updates))
+	}
+	for _, u := range updates {
+		if u.Error != "unauthorized" {
+			t.Fatalf("turn delivery = %+v, want the sticky rejection", u)
+		}
+	}
+}
+
+func TestProviderUsageCommandBackedRowRetriesARejectionAfterAWhile(t *testing.T) {
+	stand := newUsageStand(t)
+	stand.set(http.StatusUnauthorized, `{"detail":"unknown key"}`, nil)
+	m := newUsageManager(t, stand, &usageCapture{}, nil)
+	cfg := m.activeCfg()
+	cfg.Providers[0].APIKeyCommand = "echo sk-from-helper-0123456789abcdef"
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if u, _ := m.ProviderUsage(ctx, "neuraldeep", false); u.Error != "unauthorized" || stand.calls.Load() != 1 {
+		t.Fatalf("first: %+v calls=%d", u, stand.calls.Load())
+	}
+	clock.advance(30 * time.Second)
+	if _, _ = m.ProviderUsage(ctx, "neuraldeep", false); stand.calls.Load() != 1 {
+		t.Fatalf("inside the retry window the rejection sticks: calls=%d", stand.calls.Load())
+	}
+	stand.set(http.StatusOK, usageFixture(11), nil)
+	clock.advance(time.Minute)
+	if u, _ := m.ProviderUsage(ctx, "neuraldeep", false); stand.calls.Load() != 2 || u.Error != "" {
+		t.Fatalf("after the retry window the helper is asked again: calls=%d update=%+v", stand.calls.Load(), u)
 	}
 }
 

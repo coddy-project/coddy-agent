@@ -25,12 +25,22 @@ import (
 // no usage source is taken at its word before it is asked again.
 const usageUnsupportedTTL = 5 * time.Minute
 
-// providerUsageAnswer is the REST envelope of the usage route.
+// providerUsageAnswer is the REST envelope of the usage route. Provider and
+// ProviderType name the row on the unsupported answer, which carries no
+// snapshot.
 type providerUsageAnswer struct {
-	OK          bool                     `json:"ok"`
-	Unsupported bool                     `json:"unsupported"`
-	Error       string                   `json:"error"`
-	Usage       *acp.ProviderUsageUpdate `json:"usage"`
+	OK           bool                     `json:"ok"`
+	Unsupported  bool                     `json:"unsupported"`
+	Provider     string                   `json:"provider"`
+	ProviderType string                   `json:"providerType"`
+	Error        string                   `json:"error"`
+	Usage        *acp.ProviderUsageUpdate `json:"usage"`
+}
+
+// usageUnsupportedMark remembers an unsupported row until it expires.
+type usageUnsupportedMark struct {
+	until        time.Time
+	providerType string
 }
 
 // usageState is the per-handler cache of unsupported providers, the closed
@@ -38,7 +48,7 @@ type providerUsageAnswer struct {
 // in flight.
 type usageState struct {
 	usageMu          sync.Mutex
-	usageUnsupported map[string]time.Time
+	usageUnsupported map[string]usageUnsupportedMark
 	usageClosed      bool
 	usageWG          sync.WaitGroup
 }
@@ -68,9 +78,9 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 		return nil, fmt.Errorf("remote: provider usage needs a provider name")
 	}
 	h.usageMu.Lock()
-	if until, ok := h.usageUnsupported[name]; ok && !refresh && time.Now().Before(until) {
+	if mark, ok := h.usageUnsupported[name]; ok && !refresh && time.Now().Before(mark.until) {
 		h.usageMu.Unlock()
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, Unsupported: true}, nil
+		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: mark.providerType, Unsupported: true}, nil
 	}
 	h.usageMu.Unlock()
 
@@ -85,15 +95,15 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 	h.usageMu.Lock()
 	if answer.Unsupported {
 		if h.usageUnsupported == nil {
-			h.usageUnsupported = make(map[string]time.Time)
+			h.usageUnsupported = make(map[string]usageUnsupportedMark)
 		}
-		h.usageUnsupported[name] = time.Now().Add(usageUnsupportedTTL)
+		h.usageUnsupported[name] = usageUnsupportedMark{until: time.Now().Add(usageUnsupportedTTL), providerType: answer.ProviderType}
 	} else {
 		delete(h.usageUnsupported, name)
 	}
 	h.usageMu.Unlock()
 	if answer.Unsupported {
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, Unsupported: true}, nil
+		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: answer.ProviderType, Unsupported: true}, nil
 	}
 	if answer.Usage == nil {
 		if answer.Error != "" {
