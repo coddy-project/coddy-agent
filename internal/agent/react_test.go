@@ -1555,6 +1555,11 @@ func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
 		return provider, nil
 	}
 
+	// Every persisted bundle carries the arguments the prompt showed; a
+	// resume without them fails closed before the mode check.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_ask_hidden", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
 	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
 		Outcome:  "allow",
 		OptionID: "allow_always",
@@ -1725,9 +1730,9 @@ func TestResumeAfterPermissionRunsWhenTheSameHookAnswersAgain(t *testing.T) {
 	}
 }
 
-// A bundle without persisted arguments predates them: the prompt showed the
-// model's own arguments, so those run.
-func TestResumeAfterPermissionWithoutPersistedArgumentsRunsTheHistory(t *testing.T) {
+// A bundle without persisted arguments has nothing the approval can bind to:
+// the resume fails instead of running the history's arguments.
+func TestResumeAfterPermissionFailsClosedWithoutPersistedArguments(t *testing.T) {
 	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
 	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
 		t.Fatal(err)
@@ -1735,11 +1740,40 @@ func TestResumeAfterPermissionWithoutPersistedArgumentsRunsTheHistory(t *testing
 	if err := os.Remove(toolCallArgsPath(t, st.SessionDir)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("a resume without persisted arguments must fail, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run without persisted arguments, got %q", result)
+	}
+}
+
+// A refusal needs nothing from the bundle: it is recorded and the gate is
+// cleared even when the persisted arguments cannot be read.
+func TestResumeAfterPermissionRejectsWithoutReadingTheArguments(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := session.WritePendingPermission(st.SessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_rewrite", Status: "pending"},
+	}, "run_command", ""); err != nil {
 		t.Fatal(err)
 	}
-	if result := resumedToolResult(st); !strings.Contains(result, "original-arguments") {
-		t.Fatalf("without persisted arguments the history's arguments run, got %q", result)
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}); err != nil {
+		t.Fatalf("a refusal must not depend on the arguments file: %v", err)
+	}
+	if result := resumedToolResult(st); result != "permission denied by user" {
+		t.Fatalf("the refusal must be recorded, got %q", result)
+	}
+	if session.PendingPermissionHeld(st.SessionDir) {
+		t.Fatal("the refused gate must be cleared")
 	}
 }
 
@@ -1789,5 +1823,27 @@ func TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt(t *testing
 	}
 	if sender.prompted {
 		t.Fatal("the prompt must not be issued for arguments that were not persisted")
+	}
+}
+
+// The comparison behind the resume check keeps number literals verbatim: a
+// float64 decode would read two integers past 2^53 as the same arguments.
+func TestSameToolArgsKeepsLargeIntegersApart(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b string
+		same bool
+	}{
+		{"formatting", `{"command":"echo x","n":1}`, "{\n  \"n\": 1,\n  \"command\": \"echo x\"\n}\n", true},
+		{"large integers", `{"n":9007199254740992}`, `{"n":9007199254740993}`, false},
+		{"float literal", `{"n":1.0}`, `{"n":1}`, false},
+		{"different values", `{"command":"echo a"}`, `{"command":"echo b"}`, false},
+		{"invalid", `{not json`, `{not json`, true},
+		{"one invalid", `{"n":1}`, `{n:1}`, false},
+	}
+	for _, c := range cases {
+		if got := sameToolArgs(c.a, c.b); got != c.same {
+			t.Errorf("%s: sameToolArgs(%q, %q) = %v, want %v", c.name, c.a, c.b, got, c.same)
+		}
 	}
 }

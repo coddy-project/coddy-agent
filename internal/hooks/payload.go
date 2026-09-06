@@ -1,6 +1,9 @@
 package hooks
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Session is what every hook learns about the session it runs for; the
 // runner puts these fields at the top of every payload.
@@ -50,7 +53,11 @@ func ToolEvent(name, tool string, input map[string]interface{}, callID string) E
 // that are not a JSON object travel under a "raw" key rather than being lost.
 func ToolInput(argsJSON string) map[string]interface{} {
 	var input map[string]interface{}
-	if err := json.Unmarshal([]byte(argsJSON), &input); err != nil || input == nil {
+	// Number literals stay verbatim, so a hook reads the integer the model
+	// wrote and not a float64 rounding of it.
+	dec := json.NewDecoder(strings.NewReader(argsJSON))
+	dec.UseNumber()
+	if err := dec.Decode(&input); err != nil || input == nil {
 		return map[string]interface{}{"raw": argsJSON}
 	}
 	return input

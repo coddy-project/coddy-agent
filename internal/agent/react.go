@@ -934,9 +934,13 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		sessionDir = strings.TrimSpace(st.GetPersistedSessionDir())
 	}
 
+	// The persisted arguments are what a permission answered later resumes
+	// on, so a write that fails is remembered and cancels the call before
+	// any prompt instead of leaving a resume nothing trustworthy to run.
+	var argsPersistErr error
 	if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
 		_ = session.MarkToolCallStarted(sessionDir, tc.ID, tc.Name, toolKind(tc.Name), "in_progress")
-		_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+		argsPersistErr = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
 	}
 
 	// Mark as in_progress, include raw InputJSON so connected clients can show args.
@@ -975,7 +979,6 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// original arguments, so a rewrite must be applied again to what runs);
 	// there allow and ask are moot, because the user already answered.
 	var hookRes preToolUseOutcome
-	var argsPersistErr error
 	{
 		original := tc.InputJSON
 		var ran bool
@@ -1098,7 +1101,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 				"changes committed after that snapshot leave the active file."
 		}
 		if argsPersistErr != nil {
-			result := "cancelled: the arguments rewritten by a hook could not be persisted before the permission prompt: " + argsPersistErr.Error()
+			result := "cancelled: the arguments could not be persisted before the permission prompt: " + argsPersistErr.Error()
 			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
 			return result, nil
 		}

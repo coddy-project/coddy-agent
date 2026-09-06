@@ -580,11 +580,29 @@ Codex, third iteration, two more, both confirmed and fixed:
    and a resume fell back to the history on every read error. The write now
    happens before the prompt and a failure cancels the call
    (`TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt`); the
-   resume runs the history's arguments only when no file exists (a bundle
-   that predates them, or a call without arguments:
-   `TestResumeAfterPermissionWithoutPersistedArgumentsRunsTheHistory`) and
-   fails with the pending gate kept on any other read error
+   resume fails with the pending gate kept when the file cannot be read
    (`TestResumeAfterPermissionFailsClosedWhenTheApprovedArgumentsCannotBeRead`).
+
+Codex, fourth iteration, three more, all confirmed and fixed:
+
+1. A missing arguments file was still read as "legacy" and ran the
+   history's arguments, the very fail-open the previous round meant to
+   close. The bundle always carries the file (written when the call starts
+   and again after a rewrite), so a resume without it fails closed now, and
+   the initial write failing is remembered like the rewrite's: no prompt is
+   issued for a call whose arguments are not on disk. Tests
+   `TestResumeAfterPermissionFailsClosedWithoutPersistedArguments`,
+   `TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt`.
+2. The canonical comparison decoded numbers as float64, so integers past
+   2^53 compared equal, and `WriteToolCallArgs` rounded them the same way on
+   its round trip through `interface{}`. Both keep the literals now
+   (`UseNumber` on the decode, `json.Indent` on the raw bytes), and so do the
+   payload a hook reads and the answer it returns; tests
+   `TestSameToolArgsKeepsLargeIntegersApart`,
+   `TestWriteToolCallArgsKeepsLargeIntegers`.
+3. A refusal read the arguments first, so an unreadable file left a refused
+   call pending. The refusal is processed before anything is read; test
+   `TestResumeAfterPermissionRejectsWithoutReadingTheArguments`.
 
 Coddy (`neuraldeep/qwen3.8-27b`) answered only once the model entry carried
 `stream: false`: the endpoint drops streamed answers to long prompts, the

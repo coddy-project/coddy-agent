@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -371,8 +372,17 @@ func looksJSON(s string) bool {
 
 func parseOutput(s string) (hookOutput, error) {
 	var o hookOutput
-	err := json.Unmarshal([]byte(s), &o)
-	return o, err
+	// Number literals stay verbatim: decoded as float64, an integer past
+	// 2^53 in updatedInput would reach the tool rounded.
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	if err := dec.Decode(&o); err != nil {
+		return o, err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return o, fmt.Errorf("trailing data after the JSON answer")
+	}
+	return o, nil
 }
 
 // merge folds one handler's result into the outcome following the exit-code

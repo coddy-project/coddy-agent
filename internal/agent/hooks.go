@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -440,9 +441,29 @@ func sameToolArgs(a, b string) bool {
 	if a == b {
 		return true
 	}
-	var av, bv any
-	if json.Unmarshal([]byte(a), &av) != nil || json.Unmarshal([]byte(b), &bv) != nil {
+	av, ok := decodeToolArgs(a)
+	if !ok {
+		return false
+	}
+	bv, ok := decodeToolArgs(b)
+	if !ok {
 		return false
 	}
 	return reflect.DeepEqual(av, bv)
+}
+
+// decodeToolArgs decodes one JSON document with its number literals kept
+// verbatim: decoded as float64, integers past 2^53 would compare equal and a
+// rewrite of one into another would pass as no change.
+func decodeToolArgs(s string) (any, bool) {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, false
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, false
+	}
+	return v, true
 }

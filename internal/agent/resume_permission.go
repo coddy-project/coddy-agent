@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -33,38 +31,14 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	}
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
-	// The history holds the arguments the model produced; the bundle holds
-	// the arguments the prompt showed, after any PreToolUse rewrite. The
-	// approval binds to the latter, so those are what runs and what an
-	// allow-always grant is recorded against.
-	if sd != "" {
-		shown, err := session.ReadToolCallArgs(sd, tc.ID)
-		switch {
-		case err == nil && strings.TrimSpace(shown) != "":
-			tc.InputJSON = shown
-		case err == nil || errors.Is(err, fs.ErrNotExist):
-			// No persisted arguments: the bundle predates them or the call
-			// carries none. A rewrite is persisted before the prompt or the
-			// call is cancelled, so the prompt showed the model's own
-			// arguments, which the history holds.
-		default:
-			// Anything else fails closed: the history's arguments may not be
-			// what the user approved, and the pending gate stays for a retry.
-			return "", fmt.Errorf("resume tool call %s: the approved arguments could not be read: %w", tc.ID, err)
-		}
-	}
 	toolEnv := a.buildToolEnv(mode, sd)
-	// A call the current mode refuses (a pending agent-mode write approved
-	// after switching to ask) must not leave an "allow always" grant behind:
-	// the grant would outlive the refusal and apply once the mode changes back.
-	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
-	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
-		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
-	}
-	if sd != "" {
-		_ = session.ClearPendingPermission(sd)
-	}
 	if !permission.Approved(perm) {
+		// A refusal needs nothing from the bundle: the gate is cleared and
+		// the denial recorded before anything is read, so an unreadable
+		// arguments file cannot keep a refused call pending.
+		if sd != "" {
+			_ = session.ClearPendingPermission(sd)
+		}
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
 			Content:    "permission denied by user",
@@ -76,6 +50,33 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
 		}
 		return a.continueReAct(ctx, mode, toolEnv)
+	}
+	// The history holds the arguments the model produced; the bundle holds
+	// the arguments the prompt showed, after any PreToolUse rewrite (it is
+	// written when the call starts and again after a rewrite, or the call is
+	// cancelled before the prompt). The approval binds to the latter, so
+	// those are what runs and what an allow-always grant is recorded
+	// against; a bundle that cannot produce them fails closed, and the gate
+	// stays for a retry.
+	if sd != "" {
+		shown, err := session.ReadToolCallArgs(sd, tc.ID)
+		if err != nil {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments could not be read: %w", tc.ID, err)
+		}
+		if strings.TrimSpace(shown) == "" && strings.TrimSpace(tc.InputJSON) != "" {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments are missing from the bundle", tc.ID)
+		}
+		tc.InputJSON = shown
+	}
+	// A call the current mode refuses (a pending agent-mode write approved
+	// after switching to ask) must not leave an "allow always" grant behind:
+	// the grant would outlive the refusal and apply once the mode changes back.
+	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
+		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if sd != "" {
+		_ = session.ClearPendingPermission(sd)
 	}
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true)
 	var toolResultMsg llm.Message
