@@ -24,6 +24,9 @@ const (
 	// AgentDefaultLoopNudgeMax is how many times a turn may be nudged back on track
 	// before the loop guard stops it.
 	AgentDefaultLoopNudgeMax = 2
+	// AgentDefaultWaitForLimitResetMaxMS bounds the opt-in wait for a hit
+	// usage limit: four hours, one NeuralDeep session window and change.
+	AgentDefaultWaitForLimitResetMaxMS = 4 * 60 * 60 * 1000
 )
 
 // Agent is the YAML agent section (key agent) for ReAct loop settings.
@@ -58,6 +61,16 @@ type Agent struct {
 	// guard stops it with a notice. A nil pointer means the default (2); an explicit 0
 	// stops the turn on the first detected loop.
 	LoopNudgeMax *int `yaml:"loop_nudge_max"`
+	// WaitForLimitReset makes a top-level turn wait for a hit usage limit to
+	// lift (a provider pause beyond the retry budget, llm.QuotaResetError)
+	// and then re-issue the call, instead of ending the turn with the error.
+	// Off by default: the turn lock and the client stream stay open for the
+	// wait.
+	WaitForLimitReset bool `yaml:"wait_for_limit_reset"`
+	// WaitForLimitResetMaxMS bounds that wait in milliseconds. A nil pointer
+	// means the default (four hours); a pause longer than this ends the turn
+	// at once, and an explicit 0 never waits.
+	WaitForLimitResetMaxMS *int `yaml:"wait_for_limit_reset_max_ms"`
 }
 
 // EffectiveLLMRetryMax returns llm_retry_max with the default applied.
@@ -107,6 +120,15 @@ func (c *Agent) EffectiveLoopNudgeMax() int {
 	return *c.LoopNudgeMax
 }
 
+// EffectiveWaitForLimitResetMax returns wait_for_limit_reset_max_ms as a
+// duration with the default applied. An explicit 0 means no wait at all.
+func (c *Agent) EffectiveWaitForLimitResetMax() time.Duration {
+	if c.WaitForLimitResetMaxMS == nil {
+		return AgentDefaultWaitForLimitResetMaxMS * time.Millisecond
+	}
+	return time.Duration(*c.WaitForLimitResetMaxMS) * time.Millisecond
+}
+
 // ApplyDefaults sets MaxTurns and MaxTokensPerTurn when they are zero.
 func (c *Agent) ApplyDefaults() {
 	if c.MaxTurns == 0 {
@@ -124,6 +146,9 @@ func (c *Agent) ApplyDefaults() {
 func (c *Agent) Validate() error {
 	if c.MaxTurns < 0 {
 		return fmt.Errorf("agent.max_turns: must be >= 0")
+	}
+	if c.WaitForLimitResetMaxMS != nil && *c.WaitForLimitResetMaxMS < 0 {
+		return fmt.Errorf("agent.wait_for_limit_reset_max_ms: must be >= 0")
 	}
 	if c.MaxTokensPerTurn < 0 {
 		return fmt.Errorf("agent.max_tokens_per_turn: must be >= 0")

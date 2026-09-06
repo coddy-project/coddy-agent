@@ -473,6 +473,12 @@ type ProviderUsageUpdate struct {
 	// when it fires, so a client can schedule one follow-up read.
 	RefreshPending bool `json:"refreshPending,omitempty"`
 	RefreshInSec   int  `json:"refreshInSec,omitempty"`
+	// Resuming marks the update the agent sends while a turn waits for a hit
+	// limit to lift (agent.wait_for_limit_reset): Blocked with RetryAt from
+	// the provider's own pause, re-sent every 20 s so the countdown stays
+	// visible. It comes from the turn, not from the usage source, and the
+	// next turn-end read replaces it.
+	Resuming bool `json:"resuming,omitempty"`
 }
 
 // UsageWindow is one metered volume window of a ProviderUsageUpdate. The

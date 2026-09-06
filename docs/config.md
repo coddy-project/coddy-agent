@@ -118,6 +118,8 @@ agent:
                                # capped at 60s
   llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
   llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
+  wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
+  wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
   loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
   loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
   loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)

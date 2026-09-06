@@ -497,3 +497,79 @@ func TestFooterShowsUsageOnlyForTheActiveProvider(t *testing.T) {
 		t.Fatalf("unlimited model must read ∞: %q", lines)
 	}
 }
+
+// A resuming update (the agent waiting for a hit limit to lift) drives the
+// live status row and leaves the footer's hub snapshot, the notices and the
+// reset timer alone: it is the turn talking, not the usage source.
+func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
+	a := &App{updatesCh: make(chan updateMsg, 8)}
+	a.foot = newFooter(newTheme("dark"), ".")
+	a.chat = &tui.Container{}
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	a.sessionID = "s1"
+	armed := 0
+	var fire func()
+	a.usageAfterFn = func(_ time.Duration, fn func()) func() bool {
+		armed++
+		fire = fn
+		return func() bool { return true }
+	}
+	resuming := acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage,
+		Provider:      "neuraldeep",
+		ProviderType:  "neuraldeep",
+		Blocked:       true,
+		Resuming:      true,
+		RetryAt:       "2026-09-06T17:59:59Z",
+		RetryInSec:    767,
+	}
+	a.applyProviderUsage(resuming)
+	status := a.statusMessage()
+	want := "Usage limit reached · resuming at " + formatResetTime(parseUsageTime(resuming.RetryAt), a.usageNow())
+	if status != want {
+		t.Fatalf("status row = %q, want %q (no running counter)", status, want)
+	}
+	if a.foot.Usage() != nil {
+		t.Fatal("a resuming update must not replace the footer's hub snapshot")
+	}
+	// One timer only: the note that brings the row back to the model at
+	// the reset; the footer's own reset timer is untouched.
+	if armed != 1 {
+		t.Fatalf("a resuming update armed %d timers, want the one resume note", armed)
+	}
+	if a.usageResume == nil || a.usageTimer != nil {
+		t.Fatal("the resume note must have its own handle, apart from the footer's reset timer")
+	}
+	if len(a.chat.Children()) != 0 {
+		t.Fatalf("a resuming update posted %d transcript rows, want none", len(a.chat.Children()))
+	}
+	// The countdown is re-sent every 20 s with the same reset time: the
+	// status keeps its start time rather than restarting.
+	started := a.stepStatus.startedAt
+	resuming.RetryInSec = 747
+	a.applyProviderUsage(resuming)
+	if a.stepStatus.startedAt != started {
+		t.Fatal("a re-sent countdown must not restart the status clock")
+	}
+	// The reset passes while the turn is still on: the row goes back to
+	// waiting for the model until the re-issued call streams.
+	a.turnActive = true
+	fire()
+	msg := <-a.updatesCh
+	if _, ok := msg.update.(usageResumeDue); !ok {
+		t.Fatalf("the resume note must reach the loop, got %+v", msg.update)
+	}
+	a.applyLoopMessage(msg)
+	if got := a.statusMessage(); !strings.HasPrefix(got, statusWaitingModel) {
+		t.Fatalf("after the reset the row reads %q, want %q with its counter", got, statusWaitingModel)
+	}
+	// A turn end drops a note that has not fired yet.
+	a.applyProviderUsage(resuming)
+	a.turnSessionID = "s1"
+	a.status = &tui.Container{}
+	a.plain = true
+	a.applyLoopMessage(updateMsg{update: turnDone{sessionID: "s1"}})
+	if a.usageResume != nil {
+		t.Fatal("the turn's end must drop the pending resume note")
+	}
+}

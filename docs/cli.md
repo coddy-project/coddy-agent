@@ -81,7 +81,12 @@ Top to bottom:
   windows with `limit reached (resets 20:59)` in the error colour (`rate
   limited (retry in 42s)` for a per-minute block, `key blocked`, `wallet
   empty` or `account blocked` for the ones no clock lifts) and posts `Usage
-  limit reached` once. A model on the provider's unlimited option (Qwen ∞)
+  limit reached` once. With `agent.wait_for_limit_reset` on, a turn that
+  hits a limit the retries could never cover (a `429` naming a reset far
+  ahead) waits for it instead of failing: the live status row reads `Usage
+  limit reached · resuming at 20:59` without a running counter, the footer
+  keeps the hub's numbers, and the same call runs again when the limit
+  lifts (Esc stops the wait like any turn). A model on the provider's unlimited option (Qwen ∞)
   reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
   coddy providers login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the
@@ -351,10 +356,12 @@ terminal emulator.
 `examples/cli/capture.py`, which drives the shared e2e driver and renders each
 state from the pyte buffer as `.txt`, styled `.html`, and `.png`. Those are
 regression references for colors and cell layout, not marketing images;
-regenerate them when the transcript chrome changes. The three usage states
-(`09-usage-footer`, `10-usage-warning`, `11-usage-blocked`) come from
-`examples/cli/capture_usage.py`, which stands a fake hub `GET /limits` behind
-`CODDY_NEURALDEEP_BASE_URL` so no real key and no model call is needed.
+regenerate them when the transcript chrome changes. The four usage states
+(`09-usage-footer`, `10-usage-warning`, `12-usage-resuming`,
+`11-usage-blocked`) come from `examples/cli/capture_usage.py`, which stands
+a fake hub `GET /limits` behind `CODDY_NEURALDEEP_BASE_URL`, plus one chat
+completion that answers a `429` naming a reset far ahead for the waiting
+turn, so no real key is needed.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.

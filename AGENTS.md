@@ -7,7 +7,7 @@ Short map for automation-friendly contributors.
 | Area | Responsibility |
 |------|------------------|
 | `cmd/coddy` | CLI entry (bare `coddy` console, `cli`, `acp`, `http`, `gateway`, `sessions`, `skills`, `plugin`, `mcp`, `codex login`, `rules list`, `update`). |
-| `internal/agent` | ReAct orchestration, MCP/tool wiring. |
+| `internal/agent` | ReAct orchestration, MCP/tool wiring, and the opt-in wait for a hit usage limit (**`limit_wait.go`**: a **`llm.QuotaResetError`** from the resilient wrapper makes a top-level turn wait for the reset under **`agent.wait_for_limit_reset`**, sending **`provider_usage`** updates with **`resuming`** every 20 s, then re-issue the same call). |
 | `internal/mcp` | MCP transports, merged server list, and the **workspace trust gate** for project-local **`.coddy/mcp.json`** (**`trust.go`**, **`gate.go`**; policy **`mcp.project_trust`**, approvals in **`<home>/mcp-trust.json`**). Guide: **`docs/mcp-integration.md`**. |
 | `internal/remote` | Go client for a remote `coddy http` server: SSE frames back into ACP updates, `/coddy` REST, permission/question answers. Powers `--remote` on the console and `coddy acp`. Guide: **`docs/cli.md`** (Remote mode), **`docs/remote-control.md`**. |
 | `internal/bgtask` | Background task pool for detached shell commands (**`run_command`** **`background: true`** plus the **`background_*`** tools, the Tasks drawer, and **`/coddy/sessions/{id}/background-tasks`**) and for subagent runs started by **`spawn_agent`** (**`Pool.Launch`**, kind **`agent`**, **`Agent {name, session_id}`** on the row). **`Pool.Adopt`** takes over a foreground command that outlived its timeout instead of killing it. Guide: **`docs/background-tasks.md`**. |

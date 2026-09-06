@@ -812,6 +812,28 @@ func TestSkillsAutoDiscoveryDefaultsTrue(t *testing.T) {
 	}
 }
 
+func TestAgentWaitForLimitResetJSONRoundTrip(t *testing.T) {
+	// The Settings UI saves the whole config through the JSON DTO: an opt-in
+	// set in YAML must survive an unrelated save, pointer semantics included.
+	custom := 90_000
+	c := &config.Config{Agent: config.Agent{Model: "m", WaitForLimitReset: true, WaitForLimitResetMaxMS: &custom}}
+	dto := config.ConfigToJSONDTO(c)
+	if !dto.Agent.WaitForLimitReset || dto.Agent.WaitForLimitResetMaxMS == nil || *dto.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("DTO lost the wait settings: %+v", dto.Agent)
+	}
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if !back.Agent.WaitForLimitReset || back.Agent.WaitForLimitResetMaxMS == nil || *back.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("round-trip lost the wait settings: %+v", back.Agent)
+	}
+	plain := config.JSONDTOToConfig(config.ConfigToJSONDTO(&config.Config{Agent: config.Agent{Model: "m"}}), config.Paths{})
+	if plain.Agent.WaitForLimitReset || plain.Agent.WaitForLimitResetMaxMS != nil {
+		t.Fatalf("an unset maximum must stay nil (the default), got %+v", plain.Agent)
+	}
+	if ex := config.SchemaExampleConfigJSON(); ex.Agent.WaitForLimitResetMaxMS == nil || *ex.Agent.WaitForLimitResetMaxMS != config.AgentDefaultWaitForLimitResetMaxMS {
+		t.Fatalf("the schema example must carry the default maximum, got %+v", ex.Agent.WaitForLimitResetMaxMS)
+	}
+}
+
 func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
 	f := false
 	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
@@ -1172,5 +1194,28 @@ func TestProviderAuthPathByType(t *testing.T) {
 	}
 	if got := config.NeuralDeepAuthPath("", "nd"); got != "" {
 		t.Fatalf("empty home must yield empty path, got %q", got)
+	}
+}
+
+func TestAgentWaitForLimitResetDefaults(t *testing.T) {
+	var a config.Agent
+	if a.WaitForLimitReset {
+		t.Fatal("wait_for_limit_reset must be off by default")
+	}
+	if got := a.EffectiveWaitForLimitResetMax(); got != config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond {
+		t.Fatalf("default maximum wait = %v, want %v", got, config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond)
+	}
+	if config.AgentDefaultWaitForLimitResetMaxMS != 4*60*60*1000 {
+		t.Fatalf("default maximum wait is %d ms, want four hours", config.AgentDefaultWaitForLimitResetMaxMS)
+	}
+	custom := 90_000
+	a.WaitForLimitResetMaxMS = &custom
+	if got := a.EffectiveWaitForLimitResetMax(); got != 90*time.Second {
+		t.Fatalf("custom maximum wait = %v, want 90s", got)
+	}
+	zero := 0
+	a.WaitForLimitResetMaxMS = &zero
+	if got := a.EffectiveWaitForLimitResetMax(); got != 0 {
+		t.Fatalf("an explicit 0 must mean no wait at all, got %v", got)
 	}
 }

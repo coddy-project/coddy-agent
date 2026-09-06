@@ -1339,3 +1339,58 @@ func TestProviderUsageForSessionReportsADeferredReadToTheSession(t *testing.T) {
 		t.Fatalf("pending timers = %d", clock.pending())
 	}
 }
+
+// The update a waiting turn sends (resuming) travels through the turn's
+// sender only: the manager's cache, its observers and its REST answers keep
+// the hub's own snapshot.
+func TestProviderUsageResumingUpdateNeverEntersTheCache(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	runner := func(_ context.Context, st *State, _ []acp.ContentBlock, s acp.UpdateSender) (string, error) {
+		_ = s.SendSessionUpdate(st.GetID(), acp.ProviderUsageUpdate{
+			SessionUpdate: acp.UpdateTypeProviderUsage, Provider: "neuraldeep", ProviderType: "neuraldeep",
+			Blocked: true, Resuming: true, RetryAt: "2026-09-06T20:59:59Z", RetryInSec: 767,
+		})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	m := newUsageManager(t, stand, sender, runner)
+	var observed []acp.ProviderUsageUpdate
+	var obsMu sync.Mutex
+	remove := m.AddUsageObserver(func(_ string, u acp.ProviderUsageUpdate) {
+		obsMu.Lock()
+		observed = append(observed, u)
+		obsMu.Unlock()
+	})
+	defer remove()
+	id := newUsageSession(t, m, "")
+	if err := usagePrompt(t, m, id, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	u, err := m.ProviderUsage(context.Background(), "neuraldeep", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Resuming || u.Blocked || *findWindow(*u, "session").Used != 407 {
+		t.Fatalf("the cache must hold the hub snapshot, got %+v", u)
+	}
+	obsMu.Lock()
+	defer obsMu.Unlock()
+	for _, o := range observed {
+		if o.Resuming {
+			t.Fatalf("an observer saw the turn's own update: %+v", o)
+		}
+	}
+	updates, _ := sender.snapshot()
+	seen := 0
+	for _, s := range updates {
+		if s.Resuming {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("the turn's sender must carry the update exactly once, saw %d", seen)
+	}
+}

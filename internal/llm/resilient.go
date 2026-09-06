@@ -32,6 +32,21 @@ type ResilientOptions struct {
 	RetryBase     time.Duration
 	RetryMaxDelay time.Duration
 	MinInterval   time.Duration
+	// CallBudget bounds one call: the time this call may spend, its sleeps
+	// on a limit included, before the caller's own timer would cut it (the
+	// agent's first-token timer). A pause that would not fit fails fast as
+	// a QuotaResetError. Zero means no such bound.
+	CallBudget time.Duration
+	// RetryBudget bounds the caller's unit of work (the agent's user turn):
+	// what the Ledger already holds plus this call's own time, sleeps on a
+	// limit included. Unset (RetryBudgetSet false) means the ladder alone;
+	// set to zero it means no sleep on a limit at all, so every named
+	// pause is reported and an unnamed 429 ends the call at once.
+	RetryBudget    time.Duration
+	RetryBudgetSet bool
+	// Ledger, when set, receives every sleep taken after a 429 and its
+	// total counts against RetryBudget.
+	Ledger LimitLedger
 }
 
 func (o ResilientOptions) withDefaults() ResilientOptions {
@@ -92,6 +107,11 @@ func (p *resilientProvider) Stream(ctx context.Context, messages []Message, tool
 
 func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.Context) (*Response, error)) (*Response, error) {
 	var lastErr error
+	start := time.Now()
+	// What the caller's unit of work had spent on limits before this call:
+	// this call's own sleeps are in the elapsed time already, so counting
+	// the live ledger would book them twice.
+	spentBefore := p.ledgerSpent()
 	for attempt := 0; attempt <= p.opts.RetryMax; attempt++ {
 		// Inside the loop so llm_min_interval_ms paces retry attempts too, not
 		// only fresh calls: the pause stacks with the retry delay below, and
@@ -108,22 +128,131 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return resp, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !isRetryableLLMError(err) || attempt >= p.opts.RetryMax {
+		if ctx.Err() != nil || !isRetryableLLMError(err) {
+			return resp, err
+		}
+		// After the retryable gate, so a 429 that arrived mid-stream (never
+		// retryable once text was emitted) is never re-issued; before the
+		// attempt gate, so retries disabled still fail typed.
+		elapsed := time.Since(start)
+		if reset := p.quotaReset(err, attempt, elapsed, spentBefore); reset != nil {
+			return nil, reset
+		}
+		if attempt >= p.opts.RetryMax {
 			return resp, err
 		}
 		delay := retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
 		if delay <= 0 {
 			delay = p.opts.RetryBase
 		}
+		onLimit := httpStatusFromError(err) == 429
+		bounded := p.opts.RetryBudgetSet || p.opts.CallBudget > 0
+		if onLimit && bounded && delay > p.retryBudget(attempt, elapsed, spentBefore) {
+			// A 429 that named no pause takes the ordinary backoff only
+			// while the caller's bounds allow, the call's own as much as
+			// the unit of work's; past them the call ends with the
+			// provider's own error rather than sleeping into the caller's
+			// timer. No reset is invented for it: the typed error, and the
+			// countdown built on it, stand for a moment the provider named.
+			return resp, err
+		}
+		sleepStart := time.Now()
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			p.chargeLimitSleep(onLimit, time.Since(sleepStart))
 			return resp, ctx.Err()
 		case <-timer.C:
+			p.chargeLimitSleep(onLimit, time.Since(sleepStart))
 		}
 	}
 	return nil, lastErr
+}
+
+// ledgerSpent is what the caller's unit of work already spent on limits.
+func (p *resilientProvider) ledgerSpent() time.Duration {
+	if p.opts.Ledger == nil {
+		return 0
+	}
+	return p.opts.Ledger.Spent()
+}
+
+// chargeLimitSleep books a sleep taken after a 429 to the caller's ledger.
+func (p *resilientProvider) chargeLimitSleep(onLimit bool, d time.Duration) {
+	if onLimit && p.opts.Ledger != nil && d > 0 {
+		p.opts.Ledger.Charge(d)
+	}
+}
+
+// quotaReset turns a 429 whose server-named pause (Retry-After, "Limit
+// resets at", "retry in Ns") exceeds what the remaining retries could wait
+// into a QuotaResetError. The loop still has RetryMax-attempt waits of at
+// most RetryMaxDelay each (none with retries disabled), and the caller may
+// cap the total with RetryBudget (the agent passes its first-token timeout,
+// which would cut a longer sleep anyway, and the wait's maximum when the
+// wait is on, an explicit zero meaning no sleep on a limit at all): a pause
+// inside that is retried as usual, a longer one could only end in the same
+// 429 after the budget was burnt, so the caller learns of the reset at
+// once, after this one request. A 429 that names no pause is never turned
+// into a reset: its backoff is bounded by the budget in callWithRetry and
+// the call ends with the provider's own error.
+func (p *resilientProvider) quotaReset(err error, attempt int, elapsed, spentBefore time.Duration) *QuotaResetError {
+	if httpStatusFromError(err) != 429 {
+		return nil
+	}
+	d, named := serverRetryDelay(err)
+	if !named || d <= p.retryBudget(attempt, elapsed, spentBefore) {
+		return nil
+	}
+	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Cause: err}
+}
+
+// retryBudgetHeadroom is what a retried request keeps of the caller's
+// budget for itself: a pause that ate the whole remainder would send the
+// request out with nothing left for its first token.
+const retryBudgetHeadroom = 5 * time.Second
+
+// retryBudget is the longest server-requested pause the loop honours by
+// waiting at the given attempt: the ladder's remaining waits, bounded by
+// what is left of the call's own budget (elapsed is the time this call has
+// taken, its sleeps included) and of the unit of work's budget (spentBefore
+// is what the ledger held before this call). Each bound keeps headroom for
+// the request after the pause (a quarter of a small budget, five seconds
+// of a large one), so that request is not cut by the caller's timer.
+func (p *resilientProvider) retryBudget(attempt int, elapsed, spentBefore time.Duration) time.Duration {
+	waits := p.opts.RetryMax - attempt
+	if waits < 0 {
+		waits = 0
+	}
+	budget := p.opts.RetryMaxDelay * time.Duration(waits)
+	if p.opts.CallBudget > 0 {
+		if left := p.opts.CallBudget - elapsed - budgetHeadroom(p.opts.CallBudget); left < budget {
+			budget = left
+		}
+	}
+	if p.opts.RetryBudgetSet {
+		if left := p.opts.RetryBudget - spentBefore - elapsed - budgetHeadroom(p.opts.RetryBudget); left < budget {
+			budget = left
+		}
+	}
+	return budget
+}
+
+func budgetHeadroom(budget time.Duration) time.Duration {
+	headroom := budget / 4
+	if headroom > retryBudgetHeadroom {
+		headroom = retryBudgetHeadroom
+	}
+	return headroom
+}
+
+// WrapResilient applies the retry, pacing and quota-reset rules to any
+// provider, for harnesses that drive the agent over a fake provider and
+// still want the wrapper's own verdicts on its errors. NewProvider applies
+// the same wrapper to the real ones.
+func WrapResilient(inner Provider, opts ResilientOptions) Provider {
+	return wrapResilient(inner, opts)
 }
 
 func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
@@ -289,6 +418,11 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	var reset *QuotaResetError
+	if errors.As(err, &reset) {
+		// The pause behind it is beyond the budget by definition.
+		return false
+	}
 	var trunc *streamTruncatedError
 	if errors.As(err, &trunc) {
 		// A truncated stream is a transient transport failure worth the
@@ -385,10 +519,14 @@ func WithAgentResilience(in ProviderInput, retryMax, retryBaseMS, minIntervalMS 
 
 func applyResilientWrap(p Provider, in ProviderInput) Provider {
 	return wrapResilient(p, ResilientOptions{
-		RetryMax:      in.RetryMax,
-		RetryDisabled: in.RetryDisabled,
-		RetryBase:     in.RetryBase,
-		RetryMaxDelay: in.RetryMaxDelay,
-		MinInterval:   in.MinInterval,
+		RetryMax:       in.RetryMax,
+		RetryDisabled:  in.RetryDisabled,
+		RetryBase:      in.RetryBase,
+		RetryMaxDelay:  in.RetryMaxDelay,
+		MinInterval:    in.MinInterval,
+		CallBudget:     in.CallBudget,
+		RetryBudget:    in.RetryBudget,
+		RetryBudgetSet: in.RetryBudgetSet,
+		Ledger:         in.LimitLedger,
 	}.withDefaults())
 }
