@@ -32,6 +32,10 @@ type ResilientOptions struct {
 	RetryBase     time.Duration
 	RetryMaxDelay time.Duration
 	MinInterval   time.Duration
+	// RetryBudget caps the total server-requested pause the wrapper honours
+	// by waiting, on top of the RetryMaxDelay-per-wait ladder; a longer
+	// pause fails fast as a QuotaResetError. Zero means the ladder alone.
+	RetryBudget time.Duration
 }
 
 func (o ResilientOptions) withDefaults() ResilientOptions {
@@ -108,7 +112,16 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 			return resp, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !isRetryableLLMError(err) || attempt >= p.opts.RetryMax {
+		if ctx.Err() != nil || !isRetryableLLMError(err) {
+			return resp, err
+		}
+		// After the retryable gate, so a 429 that arrived mid-stream (never
+		// retryable once text was emitted) is never re-issued; before the
+		// attempt gate, so retries disabled still fail typed.
+		if reset := p.quotaReset(err, attempt); reset != nil {
+			return nil, reset
+		}
+		if attempt >= p.opts.RetryMax {
 			return resp, err
 		}
 		delay := retryDelayForError(err, attempt, p.opts.RetryBase, p.opts.RetryMaxDelay)
@@ -124,6 +137,42 @@ func (p *resilientProvider) callWithRetry(ctx context.Context, fn func(context.C
 		}
 	}
 	return nil, lastErr
+}
+
+// quotaReset turns a 429 whose server-requested pause exceeds what the
+// remaining retries could wait into a QuotaResetError. The loop still has
+// RetryMax-attempt waits of at most RetryMaxDelay each (none with retries
+// disabled), and the caller may cap the total with RetryBudget (the agent
+// passes its first-token timeout, which would cut a longer sleep anyway):
+// a pause inside that is retried as usual, a longer one could only end in
+// the same 429 after the budget was burnt, so the caller learns of the
+// reset at once, after this one request.
+func (p *resilientProvider) quotaReset(err error, attempt int) *QuotaResetError {
+	if httpStatusFromError(err) != 429 {
+		return nil
+	}
+	d, ok := serverRetryDelay(err)
+	if !ok {
+		return nil
+	}
+	if d <= p.retryBudget(attempt) {
+		return nil
+	}
+	return &QuotaResetError{ResetAt: time.Now().Add(d), Delay: d, Cause: err}
+}
+
+// retryBudget is the longest server-requested pause the loop honours by
+// waiting at the given attempt.
+func (p *resilientProvider) retryBudget(attempt int) time.Duration {
+	waits := p.opts.RetryMax - attempt
+	if waits < 0 {
+		waits = 0
+	}
+	budget := p.opts.RetryMaxDelay * time.Duration(waits)
+	if p.opts.RetryBudget > 0 && p.opts.RetryBudget < budget {
+		budget = p.opts.RetryBudget
+	}
+	return budget
 }
 
 func (p *resilientProvider) waitMinInterval(ctx context.Context) error {
@@ -289,6 +338,11 @@ func isRetryableLLMError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	var reset *QuotaResetError
+	if errors.As(err, &reset) {
+		// The pause behind it is beyond the budget by definition.
+		return false
+	}
 	var trunc *streamTruncatedError
 	if errors.As(err, &trunc) {
 		// A truncated stream is a transient transport failure worth the
@@ -390,5 +444,6 @@ func applyResilientWrap(p Provider, in ProviderInput) Provider {
 		RetryBase:     in.RetryBase,
 		RetryMaxDelay: in.RetryMaxDelay,
 		MinInterval:   in.MinInterval,
+		RetryBudget:   in.RetryBudget,
 	}.withDefaults())
 }

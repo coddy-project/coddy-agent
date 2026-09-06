@@ -497,3 +497,50 @@ func TestFooterShowsUsageOnlyForTheActiveProvider(t *testing.T) {
 		t.Fatalf("unlimited model must read ∞: %q", lines)
 	}
 }
+
+// A resuming update (the agent waiting for a hit limit to lift) drives the
+// live status row and leaves the footer's hub snapshot, the notices and the
+// reset timer alone: it is the turn talking, not the usage source.
+func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
+	a := &App{updatesCh: make(chan updateMsg, 8)}
+	a.foot = newFooter(newTheme("dark"), ".")
+	a.chat = &tui.Container{}
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	a.sessionID = "s1"
+	armed := 0
+	a.usageAfterFn = func(_ time.Duration, _ func()) func() bool {
+		armed++
+		return func() bool { return true }
+	}
+	resuming := acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage,
+		Provider:      "neuraldeep",
+		ProviderType:  "neuraldeep",
+		Blocked:       true,
+		Resuming:      true,
+		RetryAt:       "2026-09-06T17:59:59Z",
+		RetryInSec:    767,
+	}
+	a.applyProviderUsage(resuming)
+	status := a.statusMessage()
+	if !strings.HasPrefix(status, "Usage limit reached · resuming at ") {
+		t.Fatalf("status row = %q, want the resuming line", status)
+	}
+	if a.foot.Usage() != nil {
+		t.Fatal("a resuming update must not replace the footer's hub snapshot")
+	}
+	if armed != 0 {
+		t.Fatalf("a resuming update armed %d reset timers, want none", armed)
+	}
+	if len(a.chat.Children()) != 0 {
+		t.Fatalf("a resuming update posted %d transcript rows, want none", len(a.chat.Children()))
+	}
+	// The countdown is re-sent every 20 s with the same reset time: the
+	// status keeps its start time rather than restarting.
+	started := a.stepStatus.startedAt
+	resuming.RetryInSec = 747
+	a.applyProviderUsage(resuming)
+	if a.stepStatus.startedAt != started {
+		t.Fatal("a re-sent countdown must not restart the status clock")
+	}
+}

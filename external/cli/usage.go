@@ -499,6 +499,17 @@ func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 	if u.Unsupported {
 		return
 	}
+	if u.Resuming {
+		// The turn is waiting for the limit to lift: the live status row
+		// shows the countdown, without a running counter; the footer keeps
+		// the hub's own snapshot and the notices stay quiet.
+		text := "Usage limit reached"
+		if at := parseUsageTime(u.RetryAt); !at.IsZero() {
+			text += " · resuming at " + formatResetTime(at, a.usageNow())
+		}
+		a.setStatus(liveStatus{verb: text, startedAt: time.Now()})
+		return
+	}
 	snapshot := u
 	// Every provider keeps its latest snapshot on the footer; only the
 	// active model's renders, so a foreign row's update never blanks the

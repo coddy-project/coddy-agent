@@ -2437,6 +2437,7 @@ func openAPISpec() map[string]interface{} {
 						"unsupported":     map[string]interface{}{"type": "boolean"},
 						"refreshPending":  map[string]interface{}{"type": "boolean"},
 						"refreshInSec":    map[string]interface{}{"type": "integer"},
+						"resuming":        map[string]interface{}{"type": "boolean", "description": "Sent by the agent on the turn stream while it waits for a hit limit to lift (agent.wait_for_limit_reset); the next turn-end read replaces it."},
 					},
 				},
 				"UsageWindow": map[string]interface{}{

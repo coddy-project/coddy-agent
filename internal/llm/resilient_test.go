@@ -387,3 +387,79 @@ func TestStreamTruncationRetryClassification(t *testing.T) {
 		t.Fatal("IsStreamTruncated must not match by message text")
 	}
 }
+
+// A server-requested pause the remaining retries could never cover fails
+// fast as a typed quota reset error after one call; a pause inside the
+// budget is retried as before. The budget is RetryMaxDelay per wait still
+// available (RetryMax - attempt), capped by RetryBudget when set; retries
+// disabled have no waits, so every named pause is a reset.
+func TestResilientProviderFailsFastPastTheRetryBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		retryMax  int
+		disabled  bool
+		budget    time.Duration
+		pauseMS   string
+		wantCalls int32
+		wantReset bool
+		wantDelay time.Duration
+	}{
+		{name: "past the budget", retryMax: 3, pauseMS: "500", wantCalls: 1, wantReset: true, wantDelay: 500 * time.Millisecond},
+		{name: "inside the budget", retryMax: 3, pauseMS: "150", wantCalls: 2},
+		{name: "retries disabled have no budget", disabled: true, pauseMS: "150", wantCalls: 1, wantReset: true, wantDelay: 150 * time.Millisecond},
+		{name: "the caller's budget caps the ladder", retryMax: 3, budget: 120 * time.Millisecond, pauseMS: "150", wantCalls: 1, wantReset: true, wantDelay: 150 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls atomic.Int32
+			cause := retryHTTPError(t, "openai", 429, map[string]string{"Retry-After-Ms": tc.pauseMS})
+			inner := &stubProvider{
+				streamFn: func(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+					if calls.Add(1) == 1 {
+						return nil, cause
+					}
+					return &Response{Content: "done", StopReason: "end_turn"}, nil
+				},
+			}
+			p := wrapResilient(inner, ResilientOptions{
+				RetryMax:      tc.retryMax,
+				RetryDisabled: tc.disabled,
+				RetryBase:     5 * time.Millisecond,
+				RetryMaxDelay: 100 * time.Millisecond,
+				RetryBudget:   tc.budget,
+			})
+			before := time.Now()
+			_, err := p.Stream(context.Background(), nil, nil, nil)
+			if calls.Load() != tc.wantCalls {
+				t.Fatalf("calls=%d want %d (err %v)", calls.Load(), tc.wantCalls, err)
+			}
+			var reset *QuotaResetError
+			if got := errors.As(err, &reset); got != tc.wantReset {
+				t.Fatalf("QuotaResetError=%v want %v (err %v)", got, tc.wantReset, err)
+			}
+			if !tc.wantReset {
+				if err != nil {
+					t.Fatalf("Stream: %v", err)
+				}
+				return
+			}
+			if reset.Delay != tc.wantDelay {
+				t.Fatalf("Delay=%v want %v", reset.Delay, tc.wantDelay)
+			}
+			if reset.ResetAt.Before(before.Add(tc.wantDelay - 50*time.Millisecond)) {
+				t.Fatalf("ResetAt=%v is earlier than the pause implies", reset.ResetAt)
+			}
+			if !errors.Is(err, cause) {
+				t.Fatalf("the cause must stay reachable through errors.Is: %v", err)
+			}
+			if isRetryableLLMError(err) {
+				t.Fatal("a quota reset error must not be retryable itself")
+			}
+			if time.Since(before) > 80*time.Millisecond {
+				t.Fatalf("the wrapper waited %v instead of failing fast", time.Since(before))
+			}
+			if !strings.Contains(err.Error(), "resets") {
+				t.Fatalf("error text should name the reset: %q", err.Error())
+			}
+		})
+	}
+}

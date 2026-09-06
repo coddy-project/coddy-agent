@@ -501,7 +501,11 @@ define; a client that ignores unknown kinds keeps working.
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential
   ever appear. HTTP clients read the same shape from
-  `GET /coddy/providers/{name}/usage` (see `docs/http-api.md`).
+  `GET /coddy/providers/{name}/usage` (see `docs/http-api.md`). With
+  `agent.wait_for_limit_reset` on, a turn that hits a limit the retries
+  could never cover sends the same update itself every 20 s while it waits,
+  with `blocked`, `retryAt`, `retryInSec` and `resuming: true`; it then
+  re-issues the call, and the next turn-end snapshot replaces the update.
 
 ```json
 {

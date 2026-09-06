@@ -579,6 +579,50 @@ must beat common 60 s idle proxies (cursor 10).
   `docs/config-reference.md`, `config.example.yaml`, `UISchemaMap`,
   `configure-coddy` skill). Its design gets its own review before it is built.
 
+`[rev4]` Build notes, reviewed before the code:
+
+- The wrapper's threshold is what the retries still available could wait:
+  `RetryMaxDelay * (RetryMax - attempt)`, 180 s by default before the first
+  retry, nothing with retries disabled (so every named pause is a reset
+  then), capped by the caller's `RetryBudget`, which the agent sets to its
+  first-token timeout for streamed transports since that timer would cut a
+  longer sleep anyway (`[rev5]` fresh reviewer 1, 2). `serverRetryDelay`
+  already yields the pause; the check runs after the retryable gate (a 429
+  that arrived mid-stream is never re-issued) and before the attempt gate,
+  so no request is repeated once the pause is known to exceed the budget.
+  `QuotaResetError` wraps the cause (`errors.Is` / `errors.As` on the
+  original keep working) and is never retryable itself.
+- While it waits the agent sends the `provider_usage` update with a new
+  `resuming: true` field next to `blocked: true`, `retryAt` and `retryInSec`
+  from the error, and the row's `provider` / `providerType` resolved from
+  the session's model. It goes through the turn sender only (ACP, the
+  console, the SSE turn stream), never into the manager's cache, so the
+  next turn-end refresh replaces it with the hub's numbers. The console
+  routes a `resuming` update to its live status row before the footer,
+  the notices and the reset timer see it (`[rev5]` fresh reviewer 4).
+- Only a top-level turn waits (`subagentDepth() == 0`; `RunPlan` runs at
+  depth 0 and waits the same way). A subagent's turn fails fast with the
+  error and the parent reads the report as today; the memory copilot,
+  compaction and the HTTP helpers never see the option.
+- The wait is bounded by `wait_for_limit_reset_max_ms` (default 4 h, an
+  explicit 0 never waits, a negative value is rejected by validation): a
+  longer pause fails fast with the error, before any sleep. The turn
+  context bounds it too: a user Stop ends the turn as cancelled, any other
+  cancellation ends it with the error. The loop re-runs the same iteration
+  with the same messages (`turn--; continue`) and does not consume a
+  `max_turns` slot; the failed call persisted nothing, so nothing is
+  duplicated.
+- Surfaces: the console's live status row reads `Usage limit reached ·
+  resuming at 20:59` while the footer keeps the hub snapshot; the SPA banner
+  reads `Usage limit reached · Auto-resuming at 20:59` in the warning tone
+  when the turn stream's frame carries the flag (the banner of sub-feature
+  3 reads it; the events stream never carries it).
+- Tests: `features/llm_retry_after.feature` gains the threshold scenario
+  (a 600 s pause fails after one request as a quota reset error); the agent
+  loop's happy path is a godog scenario over a fake provider whose first
+  call fails with a one-second reset and whose second answers; the config
+  helpers, the console status and the SPA banner have unit tests.
+
 ### 4.8 Security and privacy
 
 - The key never leaves `internal/llm`: not in updates, not in logs, not in

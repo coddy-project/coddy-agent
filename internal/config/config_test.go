@@ -1174,3 +1174,26 @@ func TestProviderAuthPathByType(t *testing.T) {
 		t.Fatalf("empty home must yield empty path, got %q", got)
 	}
 }
+
+func TestAgentWaitForLimitResetDefaults(t *testing.T) {
+	var a config.Agent
+	if a.WaitForLimitReset {
+		t.Fatal("wait_for_limit_reset must be off by default")
+	}
+	if got := a.EffectiveWaitForLimitResetMax(); got != config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond {
+		t.Fatalf("default maximum wait = %v, want %v", got, config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond)
+	}
+	if config.AgentDefaultWaitForLimitResetMaxMS != 4*60*60*1000 {
+		t.Fatalf("default maximum wait is %d ms, want four hours", config.AgentDefaultWaitForLimitResetMaxMS)
+	}
+	custom := 90_000
+	a.WaitForLimitResetMaxMS = &custom
+	if got := a.EffectiveWaitForLimitResetMax(); got != 90*time.Second {
+		t.Fatalf("custom maximum wait = %v, want 90s", got)
+	}
+	zero := 0
+	a.WaitForLimitResetMaxMS = &zero
+	if got := a.EffectiveWaitForLimitResetMax(); got != 0 {
+		t.Fatalf("an explicit 0 must mean no wait at all, got %v", got)
+	}
+}

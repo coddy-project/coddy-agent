@@ -81,7 +81,12 @@ Top to bottom:
   windows with `limit reached (resets 20:59)` in the error colour (`rate
   limited (retry in 42s)` for a per-minute block, `key blocked`, `wallet
   empty` or `account blocked` for the ones no clock lifts) and posts `Usage
-  limit reached` once. A model on the provider's unlimited option (Qwen ∞)
+  limit reached` once. With `agent.wait_for_limit_reset` on, a turn that
+  hits a limit the retries could never cover (a `429` naming a reset far
+  ahead) waits for it instead of failing: the live status row reads `Usage
+  limit reached · resuming at 20:59` without a running counter, the footer
+  keeps the hub's numbers, and the same call runs again when the limit
+  lifts (Esc stops the wait like any turn). A model on the provider's unlimited option (Qwen ∞)
   reads `∞ volume`. A rejected key reads `neuraldeep: key rejected, run
   coddy providers login neuraldeep`; when the hub cannot be reached the last
   numbers stay with `(stale)`. On narrow terminals the wallet, the day, the

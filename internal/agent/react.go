@@ -552,6 +552,21 @@ func (a *Agent) runReActLoop(
 		}
 
 		if streamErr != nil {
+			// The provider named the moment its limit lifts and the operator
+			// asked the turn to wait for it: the countdown reaches the client,
+			// then the same call runs again (nothing was persisted for the
+			// failed one, so nothing repeats). A cancel during the wait ends
+			// the turn as a stop. The iteration is repeated, not counted.
+			if reset, ok := a.limitResetToWaitFor(streamErr, response, reasoningBuf.String()); ok {
+				if err := a.waitForLimitReset(ctx, sessionID, reset); err != nil {
+					if a.state.IsUserCancelledTurn() {
+						return string(acp.StopReasonCancelled), nil
+					}
+					return string(acp.StopReasonRefused), fmt.Errorf("LLM error: %w", reset)
+				}
+				turn--
+				continue
+			}
 			// A mid-generation truncation keeps its partial answer like a user
 			// stop: the user already watched the text stream in, so it must
 			// survive in the transcript next to the honest error below.
@@ -1462,7 +1477,7 @@ func (a *Agent) getProvider(mode string) (llmTransport, error) {
 }
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
-	return llm.WithAgentResilience(llm.ProviderInput{
+	in := llm.WithAgentResilience(llm.ProviderInput{
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
@@ -1474,6 +1489,15 @@ func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 		DisableStream: !rm.Stream,
 		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
 	}, a.cfg.Agent.EffectiveLLMRetryMax(), a.cfg.Agent.LLMRetryBaseMS, a.cfg.Agent.LLMMinIntervalMS)
+	// The first-token timer cuts a streamed call that stays silent, retry
+	// waits included: a server-requested pause the timer would cut anyway
+	// is reported as a quota reset instead of being slept through in vain.
+	if rm.Stream {
+		if timeout := a.cfg.Agent.EffectiveLLMFirstTokenTimeout(); timeout > 0 {
+			in.RetryBudget = timeout
+		}
+	}
+	return in
 }
 
 // contentBlocksToText converts ACP content blocks to a plain text string.

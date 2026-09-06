@@ -179,6 +179,17 @@
           "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
           "default": 2,
           "minimum": 0
+        },
+        "wait_for_limit_reset": {
+          "type": "boolean",
+          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",
+          "default": false
+        },
+        "wait_for_limit_reset_max_ms": {
+          "type": "integer",
+          "description": "Longest pause the turn waits for, in milliseconds; a longer one ends the turn at once with the error. An explicit 0 never waits.",
+          "default": 14400000,
+          "minimum": 0
         }
       }
     },

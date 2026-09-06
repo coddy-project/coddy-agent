@@ -148,6 +148,10 @@ type ProviderInput struct {
 	RetryBase time.Duration
 	// RetryMaxDelay caps retry backoff (default 60s).
 	RetryMaxDelay time.Duration
+	// RetryBudget caps the total server-requested pause the wrapper honours
+	// by waiting; a longer pause fails fast as a QuotaResetError. Zero means
+	// the RetryMaxDelay ladder alone (see ResilientOptions.RetryBudget).
+	RetryBudget time.Duration
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
 	// DisableStream turns off the streaming transport (models[].stream: false):
