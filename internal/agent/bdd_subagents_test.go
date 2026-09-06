@@ -373,6 +373,7 @@ func (s *subagentsFeatureState) buildConfig() *config.Config {
 	cfg.Subagents.ProjectTrust = s.trustPolicy
 	cfg.Subagents.MaxConcurrent = s.maxConcurrent
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
 	cfg.Prompts.ApplyDefaults()
 	return cfg
 }

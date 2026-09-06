@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -81,6 +82,7 @@ type Agent struct {
 	// use from the definition files (hooks.go). hookStopReason carries a
 	// continue:false answered by a hook to the loop, which ends the turn.
 	hooks          *hooks.Runner
+	hooksMu        sync.Mutex
 	hooksLoaded    bool
 	hookStopReason string
 	// turnHookContext is what UserPromptSubmit hooks handed over for this
@@ -1069,6 +1071,9 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 			promptBody += "\n\nRestores the pre-commit snapshot (config.yaml.prev) over the active configuration; " +
 				"changes committed after that snapshot leave the active file."
 		}
+		// Notification hooks learn that a prompt is about to wait for the
+		// operator (a chat ping, a desktop notification); they cannot answer it.
+		a.runNotificationHooks(ctx, mode, hookNotificationPermissionPrompt, tc, promptBody)
 		permResult, err := a.server.RequestPermission(ctx, acp.PermissionRequestParams{
 			SessionID: sessionID,
 			ToolCall: acp.PermissionToolCall{

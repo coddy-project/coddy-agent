@@ -116,3 +116,40 @@ func CompactEvent(name, trigger string, fields map[string]interface{}) Event {
 	}
 	return ev
 }
+
+// SubagentStartEvent builds the SubagentStart event fired in the parent
+// before a child's turn; the matcher is compared with the agent name.
+func SubagentStartEvent(name, childSessionID, prompt string, background bool) Event {
+	return Event{Name: EventSubagentStart, Subject: name, Fields: map[string]interface{}{
+		"agent_name":       name,
+		"agent_session_id": childSessionID,
+		"prompt":           prompt,
+		"background":       background,
+	}}
+}
+
+// SubagentStopEvent builds the SubagentStop event fired in the parent after a
+// child's turn ended; the matcher is compared with the agent name.
+func SubagentStopEvent(name, childSessionID, taskID, status, report string, turns int) Event {
+	return Event{Name: EventSubagentStop, Subject: name, Fields: map[string]interface{}{
+		"agent_name":       name,
+		"agent_session_id": childSessionID,
+		"task_id":          taskID,
+		"status":           status,
+		"report":           report,
+		"turns":            turns,
+	}}
+}
+
+// NotificationEvent builds a Notification event; kind (permission_prompt) is
+// what the matcher is compared with.
+func NotificationEvent(kind, message string, fields map[string]interface{}) Event {
+	ev := Event{Name: EventNotification, Subject: kind, Fields: map[string]interface{}{
+		"notification_type": kind,
+		"message":           message,
+	}}
+	for k, v := range fields {
+		ev.Fields[k] = v
+	}
+	return ev
+}

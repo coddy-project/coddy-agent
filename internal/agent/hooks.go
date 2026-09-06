@@ -95,8 +95,12 @@ func (a *Agent) noteHookFiles(sources []*hooks.Source) {
 }
 
 // hooksFor returns the turn's runner, building it on first use: the HTTP
-// permission resume enters executeToolCall without passing through Run.
+// permission resume enters executeToolCall without passing through Run. The
+// lock covers a background child that finishes while the parent's turn is
+// still running its own tool calls.
 func (a *Agent) hooksFor(mode string) *hooks.Runner {
+	a.hooksMu.Lock()
+	defer a.hooksMu.Unlock()
 	if !a.hooksLoaded {
 		a.hooks = a.buildHookRunner(mode)
 		a.hooksLoaded = true
@@ -106,6 +110,8 @@ func (a *Agent) hooksFor(mode string) *hooks.Runner {
 
 // resetHooks drops the cached runner so the next use re-reads the files.
 func (a *Agent) resetHooks() {
+	a.hooksMu.Lock()
+	defer a.hooksMu.Unlock()
 	a.hooks = nil
 	a.hooksLoaded = false
 }
@@ -226,6 +232,10 @@ func (a *Agent) reportHookOutcome(event string, out hooks.Outcome) {
 	}
 }
 
+// hookNotificationPermissionPrompt is the Notification kind for a pending
+// permission prompt.
+const hookNotificationPermissionPrompt = "permission_prompt"
+
 // stopHookPrefix marks the follow-up a Stop hook submits as the next user
 // message, so the transcript says where it came from.
 const stopHookPrefix = "[Stop hook] "
@@ -336,4 +346,58 @@ func reasonOr(reason, fallback string) string {
 		return fallback
 	}
 	return reason
+}
+
+// subagentReportMax bounds the report handed to SubagentStop hooks.
+const subagentReportMax = 4000
+
+// runSubagentStartHooks fires SubagentStart in the parent before a child's
+// turn. A block refuses the spawn with its reason; context is returned for
+// the child's task prompt.
+func (a *Agent) runSubagentStartHooks(ctx context.Context, mode, name, childID, prompt string, background bool) (reason, contextText string, blocked bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventSubagentStart) {
+		return "", "", false
+	}
+	out := r.Run(ctx, hooks.SubagentStartEvent(name, childID, prompt, background))
+	a.reportHookOutcome(hooks.EventSubagentStart, out)
+	switch {
+	case out.Stop:
+		return stopReasonOr(out.StopReason), "", true
+	case out.Blocked():
+		return reasonOr(out.Reason, "refused by a hook"), "", true
+	}
+	if len(out.Context) > 0 {
+		return "", hookContextText(out.Context), false
+	}
+	return "", "", false
+}
+
+// runSubagentStopHooks fires SubagentStop in the parent after a child's turn
+// ended; the outcome is observational.
+func (a *Agent) runSubagentStopHooks(ctx context.Context, mode, name, childID, taskID, status, report string, turns int) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventSubagentStop) {
+		return
+	}
+	if len(report) > subagentReportMax {
+		report = report[:subagentReportMax]
+	}
+	out := r.Run(ctx, hooks.SubagentStopEvent(name, childID, taskID, status, report, turns))
+	a.reportHookOutcome(hooks.EventSubagentStop, out)
+}
+
+// runNotificationHooks fires Notification when a permission prompt is about
+// to be sent to the client; the outcome is observational.
+func (a *Agent) runNotificationHooks(ctx context.Context, mode, kind string, tc llm.ToolCall, message string) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventNotification) {
+		return
+	}
+	out := r.Run(ctx, hooks.NotificationEvent(kind, message, map[string]interface{}{
+		"tool_name":   tc.Name,
+		"tool_input":  hooks.ToolInput(tc.InputJSON),
+		"tool_use_id": tc.ID,
+	}))
+	a.reportHookOutcome(hooks.EventNotification, out)
 }

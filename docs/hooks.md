@@ -84,8 +84,11 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 | `Stop` | when the ReAct loop is about to end the turn with `end_turn` (not on cancel, an error, or the turn cap) | none | yes: the agent is sent back to work |
 | `PreCompact` | before `/compact` (`manual`) or an automatic compaction (`auto`) | trigger | yes: the compaction is vetoed |
 | `PostCompact` | after a compaction | trigger | no |
+| `SubagentStart` | in the parent, when `spawn_agent` is about to start a child, after the definition and its trust were resolved | subagent name | yes: the spawn is refused |
+| `SubagentStop` | in the parent, when the child's turn ended, before its report reaches the parent | subagent name | no |
+| `Notification` | when a permission prompt is about to be sent to the client | notification type (`permission_prompt`) | no |
 
-`SubagentStart`, `SubagentStop` and `Notification` are delivered in the last sub-feature of `docs/plans/hooks.md` and are listed here as they land. Tool events already fire inside a child session (the payload carries the `subagent` block).
+Every event also fires inside a child session for the child's own turn (tool calls, prompt, stop, compaction), with the `subagent` block in the payload naming the child; `SubagentStart` and `SubagentStop` fire in the parent's session.
 
 ## What a hook receives
 
@@ -127,6 +130,9 @@ One JSON object on stdin. The session fields come first, the event fields after 
 | `stop_hook_active`, `last_assistant_message` | `Stop`: whether a Stop hook already sent the agent back to work in this turn, and the assistant's final text |
 | `trigger`, `custom_instructions` | `PreCompact`: `manual` or `auto`, and the text after `/compact` |
 | `trigger`, `summary` | `PostCompact`: the trigger and the generated summary (cut at 4,000 characters) |
+| `agent_name`, `agent_session_id`, `prompt`, `background` | `SubagentStart`: the definition name, the child session id, the task prompt and whether the run is detached |
+| `agent_name`, `agent_session_id`, `task_id`, `status`, `report`, `turns` | `SubagentStop`: the child's outcome (`end_turn`, `cancelled`, `failed`, ...), its final report (cut at 4,000 characters) and its assistant rounds |
+| `notification_type`, `message`, `tool_name`, `tool_input`, `tool_use_id` | `Notification`: `permission_prompt` with the prompt body and the call waiting for an answer |
 
 The process also gets `CODDY_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` (the session cwd), `CODDY_SESSION_ID`, `CODDY_HOOK_EVENT` and `CODDY_HOME` in its environment, on top of Coddy's own environment.
 
@@ -167,6 +173,8 @@ JSON fields:
 - `Stop`: `decision: "block"` with `reason` (or exit 2) sends the agent back to work. The reason, plus any `additionalContext`, is submitted as the next user message, persisted with the prefix `[Stop hook] ` so the transcript explains the continuation, and the loop continues in the same turn; the hook sees `stop_hook_active: true` on the next stop. At most `hooks.stop_loop_limit` continuations per turn (5), then the turn ends; the ReAct turn cap still applies.
 - `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text. `systemMessage` becomes a notice row.
 - `PreCompact`: `decision: "block"` with `reason` (or exit 2) vetoes the compaction: `/compact` fails with `compaction blocked by hook: <reason>`, an automatic compaction is skipped for that check and the turn continues uncompacted.
+- `SubagentStart`: `decision: "block"` with `reason` (or exit 2) refuses the spawn; the `spawn_agent` tool result reads `spawn of subagent "<name>" blocked by hook: <reason>` and no child session is created. `additionalContext` is prepended to the child's task prompt as `Hook context: ...`.
+- `SubagentStop` and `Notification` are observational: `systemMessage` and errors are reported, decisions are ignored. A hook that pings a chat or raises a desktop notification should carry `"async": true` so the permission prompt is not delayed by it.
 
 The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 
@@ -299,3 +307,9 @@ Shell-form commands go through the shell `run_command` detected (pwsh, PowerShel
 - Matching hooks run sequentially rather than in parallel, so `updatedInput` chains deterministically.
 - A `PreToolUse` `allow` skips Coddy's permission prompt; there are no deny rules it could be subordinate to.
 - Project files are approved out of band by a digest-bound receipt, never by an in-chat prompt.
+
+## Testing
+
+- Executable specs in `features/`: `hooks_tool_calls.feature` (tool events, the payload, the exit-code contract, Claude Code aliases), `hooks_project_trust.feature` (held and approved project files, the policies, the notice row, the HTTP catalog and approval routes), `hooks_turn_lifecycle.feature` (prompt rejection and context, the stop loop, session-start context, compaction veto and summary), `hooks_subagents.feature` (hooks inside a child, `SubagentStart` / `SubagentStop`, the permission-prompt notification). The godog harnesses live in `internal/agent/bdd_hooks_test.go`, `bdd_hooks_subagents_test.go` and `external/httpserver/bdd_hooks_test.go`; the hook process is the test binary itself re-executed through `internal/hooks/hooktest`, so no shell scripts are involved and the runner is covered on Windows too (`internal/hooks` is in the Windows CI job).
+- Unit tests: `internal/hooks/hooks_test.go` (file shape, matchers, loader scopes, runner contract), `internal/hooks/trust_test.go` (receipts, catalog), `internal/config/hooks_test.go`, `cmd/coddy/hooks_test.go`.
+- End-to-end against a real model: `examples/acp/acp_e2e_hooks.py`, wired into `examples/acp/test_acp.sh`. It records every `PreToolUse` and `PostToolUse` payload of a real `run_command` through user-scope hooks, checks that a project-scope hook stays held and is listed as `needs_approval`, approves it with `coddy hooks trust .coddy/hooks.json` and checks that the next turn of the same session runs it.

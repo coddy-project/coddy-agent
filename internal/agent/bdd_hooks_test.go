@@ -792,6 +792,52 @@ func TestHooksTurnFeature(t *testing.T) {
 	}
 }
 
+func (s *hooksFeatureState) payloadNamesEventWithType(event, kind string) error {
+	payload, err := s.recordedPayload()
+	if err != nil {
+		return err
+	}
+	if payload["hook_event_name"] != event || payload["notification_type"] != kind {
+		return fmt.Errorf("payload event %v type %v, want %s %s", payload["hook_event_name"], payload["notification_type"], event, kind)
+	}
+	return nil
+}
+
+func initializeHooksNotificationScenario(sc *godog.ScenarioContext) {
+	s := &hooksFeatureState{}
+	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		return ctx, s.reset()
+	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		s.close()
+		return ctx, nil
+	})
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook for "([^"]*)" that records its stdin$`, s.hookRecords)
+	sc.Step(`^an agent session in permission mode "([^"]*)"$`, s.agentSessionWithPermission)
+	sc.Step(`^the client answers permission requests with "([^"]*)"$`, s.clientAnswers)
+	sc.Step(`^the model runs the command "([^"]*)"$`, s.modelRunsCommand)
+	sc.Step(`^the recorded payload names the event "([^"]*)" with the type "([^"]*)"$`, s.payloadNamesEventWithType)
+	sc.Step(`^the recorded payload carries the command "([^"]*)" as the tool input$`, s.payloadCarriesCommand)
+	sc.Step(`^the tool result contains "([^"]*)"$`, s.resultContains)
+}
+
+func TestHooksNotificationFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "hooks-notification",
+		ScenarioInitializer: initializeHooksNotificationScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/hooks_subagents.feature"},
+			Tags:     "@notification",
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("hooks notification feature suite failed")
+	}
+}
+
 func TestHooksFeature(t *testing.T) {
 	suite := godog.TestSuite{
 		Name:                "hooks",

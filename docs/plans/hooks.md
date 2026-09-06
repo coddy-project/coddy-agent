@@ -1,9 +1,9 @@
 # Plan: hooks (operator commands at lifecycle points of a session)
 
-Status: design record written 2026-09-06 on branch `claude/hooks`, implemented
-sub-feature by sub-feature on that branch (section 6). Reference for the
-shipped behaviour is `docs/hooks.md`; deviations found while implementing are
-recorded in section 8.
+Status: design record written 2026-09-06 on branch `claude/hooks` and
+implemented the same day, sub-feature by sub-feature on that branch (section
+6, five commits). Reference for the shipped behaviour is `docs/hooks.md`;
+deviations found while implementing are recorded in section 8.
 
 ## 1. What
 
@@ -498,3 +498,11 @@ shipped behaviour.
   reloaded transcript still explains the continuation.
 - `PreCompact` vetoes report `compaction blocked by hook: <reason>` from
   `/compact` and are logged at info level for automatic compaction.
+- `SubagentStart` can refuse a spawn (Cursor's `subagentStart` deny), not
+  only add context; the refusal is the `spawn_agent` tool result.
+  `SubagentStop` stays observational: a block would need a second child turn,
+  which the runtime does not offer. Both fire in the parent, inside the
+  spawning turn, so a background child that finishes later still reports to
+  the parent's runner (guarded by a mutex).
+- `Notification` covers `permission_prompt` only; the `question` tool's
+  prompt is a follow-up.
