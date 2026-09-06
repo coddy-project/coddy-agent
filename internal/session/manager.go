@@ -345,6 +345,8 @@ func (m *Manager) HandleSessionNew(ctx context.Context, params acp.SessionNewPar
 	m.sessions[id] = state
 	m.mu.Unlock()
 
+	m.runSessionStartHooks(ctx, state, hookSourceStartup)
+
 	if m.store != nil {
 		if err := m.store.Save(state); err != nil {
 			m.log.Warn("initial session save", "error", err)
@@ -451,6 +453,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 		})
 	}
 	st.SetTitlePinnedWithoutPersist(snap.Meta.TitlePinned)
+	st.RestoreHookContextWithoutPersist(snap.Meta.HookContext)
 	st.ReplaceMessagesWithoutPersist(snap.Messages)
 	st.SetPlanWithoutPersist(snap.Plan)
 	st.RestorePermissionGrantsWithoutPersist(snap.PermissionCommands, snap.PermissionWriteKeys)
@@ -467,6 +470,7 @@ func (m *Manager) loadSessionFromDisk(ctx context.Context, params acp.SessionLoa
 	st.ReplaceRulesCatalog(DiscoverRules(m.activeCfg(), cwd))
 
 	st.SetPersistHook(m.makePersist(st))
+	m.runSessionStartHooks(ctx, st, hookSourceResume)
 
 	m.connectConfiguredMCPServers(ctx, st)
 

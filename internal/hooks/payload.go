@@ -81,3 +81,38 @@ func (s Session) payload(event string, fields map[string]interface{}) map[string
 	}
 	return p
 }
+
+// PromptEvent builds the UserPromptSubmit event for a prompt text.
+func PromptEvent(prompt string) Event {
+	return Event{Name: EventUserPromptSubmit, Fields: map[string]interface{}{"prompt": prompt}}
+}
+
+// StopEvent builds the Stop event. active reports that a stop hook already
+// sent the agent back to work in this turn; last is the assistant's final
+// text.
+func StopEvent(active bool, last string) Event {
+	return Event{Name: EventStop, Fields: map[string]interface{}{
+		"stop_hook_active":       active,
+		"last_assistant_message": last,
+	}}
+}
+
+// SessionStartEvent builds the SessionStart event; source is startup or
+// resume and is what the matcher is compared with.
+func SessionStartEvent(source, model string) Event {
+	return Event{Name: EventSessionStart, Subject: source, Fields: map[string]interface{}{
+		"source": source,
+		"model":  model,
+	}}
+}
+
+// CompactEvent builds PreCompact or PostCompact; trigger is manual or auto
+// and is what the matcher is compared with. PreCompact carries the operator's
+// custom_instructions, PostCompact the summary.
+func CompactEvent(name, trigger string, fields map[string]interface{}) Event {
+	ev := Event{Name: name, Subject: trigger, Fields: map[string]interface{}{"trigger": trigger}}
+	for k, v := range fields {
+		ev.Fields[k] = v
+	}
+	return ev
+}

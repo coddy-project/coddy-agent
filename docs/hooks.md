@@ -76,11 +76,16 @@ Tool events compare the matcher with the tool name. Coddy's own names are the on
 
 | Event | Fires | Matcher subject | Can block |
 |---|---|---|---|
+| `SessionStart` | `session/new` (`startup`) and `session/load` or a reopen (`resume`), synchronously, before the session is returned | source | no; context only |
+| `UserPromptSubmit` | when the user submits a prompt, after the built-in `/compact` and `/plugin` commands are recognised and before the prompt becomes a message | none | yes: the prompt is rejected |
 | `PreToolUse` | before a tool call runs, after the mode and subagent checks and before the permission prompt, whatever the permission mode | tool name | yes: deny, or force or skip the prompt |
 | `PostToolUse` | after a tool returned without error | tool name | no; feedback and context only |
 | `PostToolUseFailure` | after a tool returned an error (not after a permission denial or a hook denial) | tool name | no; context only |
+| `Stop` | when the ReAct loop is about to end the turn with `end_turn` (not on cancel, an error, or the turn cap) | none | yes: the agent is sent back to work |
+| `PreCompact` | before `/compact` (`manual`) or an automatic compaction (`auto`) | trigger | yes: the compaction is vetoed |
+| `PostCompact` | after a compaction | trigger | no |
 
-The remaining events of the design (`UserPromptSubmit`, `Stop`, `SessionStart`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, `Notification`) are delivered in the follow-up sub-features of `docs/plans/hooks.md` and are listed here as they land.
+`SubagentStart`, `SubagentStop` and `Notification` are delivered in the last sub-feature of `docs/plans/hooks.md` and are listed here as they land. Tool events already fire inside a child session (the payload carries the `subagent` block).
 
 ## What a hook receives
 
@@ -117,6 +122,11 @@ One JSON object on stdin. The session fields come first, the event fields after 
 | `tool_response` | `PostToolUse`: the text the model receives |
 | `error` | `PostToolUseFailure`: the error text |
 | `duration_ms` | `PostToolUse` and `PostToolUseFailure`: how long the tool took |
+| `source` | `SessionStart`: `startup` or `resume` |
+| `prompt` | `UserPromptSubmit`: the prompt text |
+| `stop_hook_active`, `last_assistant_message` | `Stop`: whether a Stop hook already sent the agent back to work in this turn, and the assistant's final text |
+| `trigger`, `custom_instructions` | `PreCompact`: `manual` or `auto`, and the text after `/compact` |
+| `trigger`, `summary` | `PostCompact`: the trigger and the generated summary (cut at 4,000 characters) |
 
 The process also gets `CODDY_PROJECT_DIR` and `CLAUDE_PROJECT_DIR` (the session cwd), `CODDY_SESSION_ID`, `CODDY_HOOK_EVENT` and `CODDY_HOME` in its environment, on top of Coddy's own environment.
 
@@ -149,10 +159,16 @@ JSON fields:
 }
 ```
 
-- `continue: false` ends the turn after the current tool batch; `stopReason` is shown to the user. On `PreToolUse` the call is denied as well.
+- `continue: false` ends the turn after the current tool batch; `stopReason` is shown to the user. On `PreToolUse` the call is denied as well; on `UserPromptSubmit` the prompt is rejected; on `PreCompact` the compaction is vetoed; on `Stop` the turn simply ends.
 - `PreToolUse`: `permissionDecision` is `deny` (the call is not executed; the reason goes to the model as the tool result `blocked by hook: <reason>`), `allow` (the permission prompt is skipped) or `ask` (the prompt is forced, even in a mode that would auto-approve). `updatedInput` replaces the whole argument object before the call runs; the tool call card shows the rewritten arguments. A top-level `decision: "block"` (or `"deny"`) with `reason` is the legacy spelling of deny.
 - `PostToolUse`: `decision: "block"` with `reason` appends `Hook feedback: <reason>` to the tool result; the tool already ran, nothing is undone.
-- `additionalContext` is appended to the tool result as `Hook context: ...` on all three events.
+- `additionalContext` is appended to the tool result as `Hook context: ...` on the three tool events.
+- `UserPromptSubmit`: `decision: "block"` with `reason` (or exit 2) rejects the prompt: it is not added to the transcript, the model is not called, and the turn ends with `prompt rejected by hook: <reason>`, which the SPA shows as an error row. `additionalContext` and plain stdout become the turn's part of the **hook context block** (below).
+- `Stop`: `decision: "block"` with `reason` (or exit 2) sends the agent back to work. The reason, plus any `additionalContext`, is submitted as the next user message, persisted with the prefix `[Stop hook] ` so the transcript explains the continuation, and the loop continues in the same turn; the hook sees `stop_hook_active: true` on the next stop. At most `hooks.stop_loop_limit` continuations per turn (5), then the turn ends; the ReAct turn cap still applies.
+- `SessionStart`: `additionalContext` and plain stdout are stored on the session (`hookContext` in `session.json`) and rendered in the hook context block of every system prompt of that session; a resume re-runs the hooks and replaces the stored text. `systemMessage` becomes a notice row.
+- `PreCompact`: `decision: "block"` with `reason` (or exit 2) vetoes the compaction: `/compact` fails with `compaction blocked by hook: <reason>`, an automatic compaction is skipped for that check and the turn continues uncompacted.
+
+The **hook context block** is a `## Hook context` section appended to the system prompt after the environment block (so a custom `prompts.dir` template carries it too): first the session-level text from `SessionStart`, then the turn-level text from `UserPromptSubmit`. The turn-level part is not persisted; the session-level part is.
 
 Several matching hooks run one after another, in catalog order; each sees the input as rewritten by the previous one, and all of them run even after a deny, so an audit hook sees every call. Decisions merge with the most restrictive winning (`deny` > `ask` > `allow`); every `additionalContext` is kept in order. Texts a hook hands over are capped at `hooks.max_output_chars` (10,000) and truncated with a marker past it.
 

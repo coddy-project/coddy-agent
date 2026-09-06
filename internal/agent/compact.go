@@ -21,6 +21,15 @@ import (
 // fold away before the keep-recent boundary.
 var ErrNothingToCompact = errors.New("nothing to compact")
 
+// ErrCompactionBlocked wraps the reason a PreCompact hook vetoed a compaction.
+var ErrCompactionBlocked = errors.New("compaction blocked by hook")
+
+// Triggers of the compaction hooks: what the matcher is compared with.
+const (
+	compactTriggerManual = "manual"
+	compactTriggerAuto   = "auto"
+)
+
 // ErrCompactionDisabled is returned when compaction.enabled is false.
 var ErrCompactionDisabled = errors.New("compaction is disabled (compaction.enabled)")
 
@@ -61,6 +70,16 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
+	// PreCompact hooks see the trigger and may veto; the manual command
+	// reports the veto, auto-compaction skips this check silently.
+	trigger := compactTriggerAuto
+	if force {
+		trigger = compactTriggerManual
+	}
+	mode := a.state.GetMode()
+	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
+		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
+	}
 
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
@@ -100,6 +119,7 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
 	a.refreshConversationContextUsage(true)
+	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
 	return &CompactionResult{
 		Summary:           summary,
@@ -205,7 +225,11 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	}
 	res, err := a.CompactSession(ctx, "", false)
 	if err != nil {
-		if !errors.Is(err, ErrNothingToCompact) {
+		switch {
+		case errors.Is(err, ErrNothingToCompact):
+		case errors.Is(err, ErrCompactionBlocked):
+			a.log.Info("auto-compaction vetoed by a hook; continuing uncompacted", "error", err)
+		default:
 			a.log.Warn("auto-compaction failed; continuing uncompacted", "error", err)
 		}
 		return false

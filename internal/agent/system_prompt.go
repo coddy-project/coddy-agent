@@ -113,6 +113,9 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
+	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
+	// like the environment block so a custom template carries it too.
+	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
 	// Applied last so it also covers a user's own prompts.dir template and the
 	// render fallback, and before the context breakdown so the estimate counts
 	// what is actually sent. See internal/prompts/identity.go.

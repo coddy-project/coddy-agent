@@ -477,3 +477,24 @@ harness, implementation, `make test`, docs, `make lint`, commit.
 
 Recorded while implementing; the code and `docs/hooks.md` describe the
 shipped behaviour.
+
+- `UserPromptSubmit` context is not appended to the user message (which the
+  transcript would show as if the user had typed it); it goes into the
+  `## Hook context` block of the turn's system prompt, next to the persisted
+  `SessionStart` context. The turn-level part is not persisted.
+- A hook that stalls past its timeout is a non-blocking error, as planned;
+  stdout that starts with `{` but does not parse is an error too (Codex's
+  reading), not plain text (Claude Code's), so a hook that meant to print JSON
+  is never silently ignored.
+- Trust is per file, and the CLI and HTTP routes name a file by the
+  workspace-relative path (`.coddy/hooks.json`) rather than by a source id.
+- The held-file notice is a `notice`-level UI log row, a new level next to
+  `error`; the SPA renders it without the retry control.
+- `SessionStart` runs synchronously inside `session/new` and `session/load`,
+  so session creation waits for the hooks (bounded by their timeouts); the
+  manager owns that call, not the agent.
+- The `Stop` follow-up is persisted as a user message prefixed `[Stop hook] `
+  (Cursor's `followup_message` model) rather than as an ephemeral nudge, so a
+  reloaded transcript still explains the continuation.
+- `PreCompact` vetoes report `compaction blocked by hook: <reason>` from
+  `/compact` and are logged at info level for automatic compaction.

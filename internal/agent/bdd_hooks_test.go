@@ -46,10 +46,13 @@ type hooksFeatureState struct {
 	provider        *scriptedProvider
 	permMode        string
 	trustPolicy     string
+	stopLoopLimit   int
 	entries         []hooktest.Entry
 	recordFile      string
 	results         map[string]string
 	lastResult      string
+	turnErr         error
+	stopReason      string
 }
 
 func (s *hooksFeatureState) reset() error {
@@ -68,6 +71,9 @@ func (s *hooksFeatureState) reset() error {
 	}
 	s.permMode = config.PermModeBypass
 	s.trustPolicy = ""
+	s.stopLoopLimit = 0
+	s.turnErr = nil
+	s.stopReason = ""
 	s.entries = nil
 	s.recordFile = filepath.Join(root, "payload.json")
 	s.results = map[string]string{}
@@ -130,6 +136,7 @@ func (s *hooksFeatureState) buildConfig() *config.Config {
 	}
 	cfg.Tools.PermissionMode = s.permMode
 	cfg.Hooks.ProjectTrust = s.trustPolicy
+	cfg.Hooks.StopLoopLimit = s.stopLoopLimit
 	cfg.Hooks.ApplyDefaults(cfg.Paths)
 	cfg.Subagents.ApplyDefaults(cfg.Paths)
 	cfg.Prompts.ApplyDefaults()
@@ -506,6 +513,282 @@ func TestHooksTrustFeature(t *testing.T) {
 	}
 	if suite.Run() != 0 {
 		t.Fatal("hooks trust feature suite failed")
+	}
+}
+
+// ---- turn and session events (features/hooks_turn_lifecycle.feature) ----
+
+func (s *hooksFeatureState) hookBlocks(event, reason string) error {
+	return s.addHook(event, "", hooktest.Handler("block", reason))
+}
+
+func (s *hooksFeatureState) hookBlocksOnce(event, reason string) error {
+	return s.addHook(event, "", hooktest.Handler("block-once", reason))
+}
+
+func (s *hooksFeatureState) hookAddsContextAny(event, text string) error {
+	return s.addHook(event, "", hooktest.Handler("context", text))
+}
+
+func (s *hooksFeatureState) hookRecordsAny(event string) error {
+	return s.addHook(event, "", hooktest.Handler("record", s.recordFile))
+}
+
+func (s *hooksFeatureState) stopLoopLimitIs(n int) error {
+	s.stopLoopLimit = n
+	return nil
+}
+
+// runPrompt drives one turn with the given prompt text and model script,
+// keeping the turn's error and stop reason for the assertions instead of
+// failing the step: a refused prompt is an expected outcome here.
+func (s *hooksFeatureState) runPrompt(prompt string, steps ...scriptStep) error {
+	if s.sess == nil {
+		return fmt.Errorf("no session: add the 'an agent session' step first")
+	}
+	s.provider.mu.Lock()
+	s.provider.steps = steps
+	s.provider.calls = 0
+	s.provider.requests = nil
+	s.provider.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
+		SessionID: s.sess.ID,
+		Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: prompt}},
+	}, s.client, nil)
+	s.turnErr = err
+	s.stopReason = ""
+	if res != nil {
+		s.stopReason = string(res.StopReason)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) userSendsPrompt(prompt string) error {
+	return s.runPrompt(prompt, answerStep("ok"))
+}
+
+func (s *hooksFeatureState) turnRefusedWith(fragment string) error {
+	if s.turnErr == nil || !strings.Contains(s.turnErr.Error(), fragment) {
+		return fmt.Errorf("turn error %v does not mention %q", s.turnErr, fragment)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) modelCalls() int {
+	s.provider.mu.Lock()
+	defer s.provider.mu.Unlock()
+	return s.provider.calls
+}
+
+func (s *hooksFeatureState) modelNeverCalled() error {
+	if n := s.modelCalls(); n != 0 {
+		return fmt.Errorf("model was called %d time(s)", n)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) modelCalledTimes(n int) error {
+	if got := s.modelCalls(); got != n {
+		return fmt.Errorf("model was called %d time(s), want %d", got, n)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) userMessages() []string {
+	var out []string
+	for _, m := range s.sess.GetMessages() {
+		if m.Role == llm.RoleUser {
+			out = append(out, m.Content)
+		}
+	}
+	return out
+}
+
+func (s *hooksFeatureState) transcriptHoldsNoUser(text string) error {
+	for _, c := range s.userMessages() {
+		if strings.Contains(c, text) {
+			return fmt.Errorf("transcript holds a user message with %q", text)
+		}
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) transcriptHoldsUser(text string) error {
+	for _, c := range s.userMessages() {
+		if c == text {
+			return nil
+		}
+	}
+	return fmt.Errorf("transcript holds no user message %q among %q", text, s.userMessages())
+}
+
+func (s *hooksFeatureState) systemPromptContains(text string) error {
+	s.provider.mu.Lock()
+	reqs := append([][]llm.Message(nil), s.provider.requests...)
+	s.provider.mu.Unlock()
+	if len(reqs) == 0 {
+		return fmt.Errorf("the model was never called")
+	}
+	last := reqs[len(reqs)-1]
+	if len(last) == 0 || last[0].Role != llm.RoleSystem {
+		return fmt.Errorf("the last request has no system message")
+	}
+	if !strings.Contains(last[0].Content, text) {
+		return fmt.Errorf("system prompt lacks %q", text)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) modelAnswersThenAnswers(first, second string) error {
+	return s.runPrompt("go", answerStep(first), answerStep(second))
+}
+
+func (s *hooksFeatureState) modelKeepsAnswering(text string) error {
+	if text != "done" {
+		return fmt.Errorf("the scripted provider only repeats %q", "done")
+	}
+	return s.runPrompt("go")
+}
+
+func (s *hooksFeatureState) transcriptEndsWithAssistant(text string) error {
+	msgs := s.sess.GetMessages()
+	if len(msgs) == 0 {
+		return fmt.Errorf("empty transcript")
+	}
+	last := msgs[len(msgs)-1]
+	if last.Role != llm.RoleAssistant || strings.TrimSpace(last.Content) != text {
+		return fmt.Errorf("transcript ends with %s %q, want assistant %q", last.Role, last.Content, text)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) turnEndedWith(reason string) error {
+	if s.turnErr != nil {
+		return fmt.Errorf("turn failed: %v", s.turnErr)
+	}
+	if s.stopReason != reason {
+		return fmt.Errorf("stop reason %q, want %q", s.stopReason, reason)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) bundleRecordsHookContext(text string) error {
+	snap, err := s.store.ReadSnapshot(s.sess.ID)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(snap.Meta.HookContext, text) {
+		return fmt.Errorf("session.json hookContext %q lacks %q", snap.Meta.HookContext, text)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) sessionWithLongTranscript() error {
+	if err := s.agentSession(); err != nil {
+		return err
+	}
+	for i := 1; i <= 3; i++ {
+		s.sess.AddMessage(llm.Message{Role: llm.RoleUser, Content: fmt.Sprintf("question %d", i), CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+		s.sess.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: fmt.Sprintf("answer %d", i), CreatedAt: time.Now().UTC().Format(time.RFC3339)})
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) userRunsCompact() error {
+	return s.runPrompt("/compact", answerStep("SUMMARY"))
+}
+
+func (s *hooksFeatureState) userRunsCompactWithSummary(text string) error {
+	return s.runPrompt("/compact", answerStep(text))
+}
+
+func (s *hooksFeatureState) transcriptNotCompacted() error {
+	for _, m := range s.sess.GetMessages() {
+		if m.CompactionSummary {
+			return fmt.Errorf("transcript holds a compaction summary")
+		}
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) payloadNamesEventWithTrigger(event, trigger string) error {
+	payload, err := s.recordedPayload()
+	if err != nil {
+		return err
+	}
+	if payload["hook_event_name"] != event || payload["trigger"] != trigger {
+		return fmt.Errorf("payload event %v trigger %v, want %s %s", payload["hook_event_name"], payload["trigger"], event, trigger)
+	}
+	return nil
+}
+
+func (s *hooksFeatureState) payloadCarriesSummary(fragment string) error {
+	payload, err := s.recordedPayload()
+	if err != nil {
+		return err
+	}
+	summary, _ := payload["summary"].(string)
+	if !strings.Contains(summary, fragment) {
+		return fmt.Errorf("payload summary %q lacks %q", summary, fragment)
+	}
+	return nil
+}
+
+func initializeHooksTurnScenario(sc *godog.ScenarioContext) {
+	s := &hooksFeatureState{}
+	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
+		return ctx, s.reset()
+	})
+	sc.After(func(ctx context.Context, _ *godog.Scenario, _ error) (context.Context, error) {
+		s.close()
+		return ctx, nil
+	})
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook that blocks with the reason "([^"]*)"$`, s.hookBlocks)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook that always blocks with the reason "([^"]*)"$`, s.hookBlocks)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook that blocks with the reason "([^"]*)" unless the stop hook is already active$`, s.hookBlocksOnce)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook that adds the context "([^"]*)"$`, s.hookAddsContextAny)
+	sc.Step(`^the operator's hooks\.json has a (\w+) hook that records its stdin$`, s.hookRecordsAny)
+	sc.Step(`^the hooks stop loop limit is (\d+)$`, s.stopLoopLimitIs)
+	sc.Step(`^an agent session$`, s.agentSession)
+	sc.Step(`^an agent session with a long transcript$`, s.sessionWithLongTranscript)
+
+	sc.Step(`^the user sends the prompt "([^"]*)"$`, s.userSendsPrompt)
+	sc.Step(`^the model answers "([^"]*)" and, after the follow-up, answers "([^"]*)"$`, s.modelAnswersThenAnswers)
+	sc.Step(`^the model keeps answering "([^"]*)"$`, s.modelKeepsAnswering)
+	sc.Step(`^the user runs /compact$`, s.userRunsCompact)
+	sc.Step(`^the user runs /compact and the model summarises with "([^"]*)"$`, s.userRunsCompactWithSummary)
+
+	sc.Step(`^the turn is refused with an error mentioning "([^"]*)"$`, s.turnRefusedWith)
+	sc.Step(`^the compaction is refused with an error mentioning "([^"]*)"$`, s.turnRefusedWith)
+	sc.Step(`^the model was never called$`, s.modelNeverCalled)
+	sc.Step(`^the model was called (\d+) times$`, s.modelCalledTimes)
+	sc.Step(`^the transcript holds no user message "([^"]*)"$`, s.transcriptHoldsNoUser)
+	sc.Step(`^the transcript holds the user message "([^"]*)" unchanged$`, s.transcriptHoldsUser)
+	sc.Step(`^the transcript holds a user message "([^"]*)"$`, s.transcriptHoldsUser)
+	sc.Step(`^the transcript ends with the assistant answer "([^"]*)"$`, s.transcriptEndsWithAssistant)
+	sc.Step(`^the model's system prompt contains "([^"]*)"$`, s.systemPromptContains)
+	sc.Step(`^the turn ended with the stop reason "([^"]*)"$`, s.turnEndedWith)
+	sc.Step(`^the session bundle records the hook context "([^"]*)"$`, s.bundleRecordsHookContext)
+	sc.Step(`^the transcript was not compacted$`, s.transcriptNotCompacted)
+	sc.Step(`^the recorded payload names the event "([^"]*)" with the trigger "([^"]*)"$`, s.payloadNamesEventWithTrigger)
+	sc.Step(`^the recorded payload carries a summary mentioning "([^"]*)"$`, s.payloadCarriesSummary)
+}
+
+func TestHooksTurnFeature(t *testing.T) {
+	suite := godog.TestSuite{
+		Name:                "hooks-turn",
+		ScenarioInitializer: initializeHooksTurnScenario,
+		Options: &godog.Options{
+			Format:   "pretty",
+			Paths:    []string{"../../features/hooks_turn_lifecycle.feature"},
+			TestingT: t,
+			Strict:   true,
+		},
+	}
+	if suite.Run() != 0 {
+		t.Fatal("hooks turn feature suite failed")
 	}
 }
 

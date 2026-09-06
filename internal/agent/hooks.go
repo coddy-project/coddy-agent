@@ -225,3 +225,115 @@ func (a *Agent) reportHookOutcome(event string, out hooks.Outcome) {
 		a.log.Warn("hook error", "event", event, "error", e)
 	}
 }
+
+// stopHookPrefix marks the follow-up a Stop hook submits as the next user
+// message, so the transcript says where it came from.
+const stopHookPrefix = "[Stop hook] "
+
+// runUserPromptHooks fires UserPromptSubmit before the prompt becomes a
+// message. A rejected prompt is reported with its reason; context the hooks
+// hand over is kept for this turn's system prompt.
+func (a *Agent) runUserPromptHooks(ctx context.Context, mode, prompt string) (reason string, rejected bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventUserPromptSubmit) {
+		return "", false
+	}
+	// The prompt is not a message yet; the payload counts it as the turn
+	// it is about to start.
+	r.Session.Turn = session.CountUserTurns(a.state.GetMessages()) + 1
+	out := r.Run(ctx, hooks.PromptEvent(prompt))
+	a.reportHookOutcome(hooks.EventUserPromptSubmit, out)
+	switch {
+	case out.Stop:
+		return stopReasonOr(out.StopReason), true
+	case out.Blocked():
+		return reasonOr(out.Reason, "rejected by a hook"), true
+	}
+	a.turnHookContext = strings.Join(out.Context, "\n")
+	return "", false
+}
+
+// runStopHooks fires Stop when the loop is about to end the turn. It returns
+// the follow-up a hook wants submitted as the next user message; continue:
+// false lets the turn end as it was going to.
+func (a *Agent) runStopHooks(ctx context.Context, mode, lastAssistant string, active bool) (followUp string, again bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventStop) {
+		return "", false
+	}
+	out := r.Run(ctx, hooks.StopEvent(active, lastAssistant))
+	a.reportHookOutcome(hooks.EventStop, out)
+	if out.Stop || !out.Blocked() {
+		return "", false
+	}
+	text := reasonOr(out.Reason, "continue")
+	if len(out.Context) > 0 {
+		text += "\n\n" + hookContextText(out.Context)
+	}
+	return text, true
+}
+
+// runPreCompactHooks fires PreCompact and returns the veto reason when a hook
+// blocked the compaction.
+func (a *Agent) runPreCompactHooks(ctx context.Context, mode, trigger, instructions string) (string, bool) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventPreCompact) {
+		return "", false
+	}
+	out := r.Run(ctx, hooks.CompactEvent(hooks.EventPreCompact, trigger, map[string]interface{}{
+		"custom_instructions": instructions,
+	}))
+	a.reportHookOutcome(hooks.EventPreCompact, out)
+	if out.Stop {
+		return stopReasonOr(out.StopReason), true
+	}
+	if out.Blocked() {
+		return reasonOr(out.Reason, "vetoed by a hook"), true
+	}
+	return "", false
+}
+
+// postCompactSummaryMax bounds the summary handed to PostCompact hooks.
+const postCompactSummaryMax = 4000
+
+// runPostCompactHooks fires PostCompact after a compaction; the outcome is
+// observational.
+func (a *Agent) runPostCompactHooks(ctx context.Context, mode, trigger, summary string) {
+	r := a.hooksFor(mode)
+	if r == nil || !r.HasHandlers(hooks.EventPostCompact) {
+		return
+	}
+	if len(summary) > postCompactSummaryMax {
+		summary = summary[:postCompactSummaryMax]
+	}
+	out := r.Run(ctx, hooks.CompactEvent(hooks.EventPostCompact, trigger, map[string]interface{}{
+		"summary": summary,
+	}))
+	a.reportHookOutcome(hooks.EventPostCompact, out)
+}
+
+// hookContextBlock renders the context hooks handed over for the system
+// prompt: the session-level part from SessionStart (persisted with the
+// session) and the turn-level part from UserPromptSubmit.
+func (a *Agent) hookContextBlock() string {
+	var parts []string
+	if st := sessionStatePtr(a.state); st != nil {
+		if c := strings.TrimSpace(st.GetHookContext()); c != "" {
+			parts = append(parts, c)
+		}
+	}
+	if c := strings.TrimSpace(a.turnHookContext); c != "" {
+		parts = append(parts, c)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "## Hook context\n\nThe operator's hooks handed over the following context.\n\n" + strings.Join(parts, "\n\n")
+}
+
+func reasonOr(reason, fallback string) string {
+	if strings.TrimSpace(reason) == "" {
+		return fallback
+	}
+	return reason
+}

@@ -527,3 +527,41 @@ func TestRunnerShellFormGoesThroughTheHostShell(t *testing.T) {
 		t.Fatalf("shell form must run the helper, got %+v", out)
 	}
 }
+
+func TestTurnEventBuildersCarrySubjectsAndFields(t *testing.T) {
+	prompt := hooks.PromptEvent("hello")
+	if prompt.Name != hooks.EventUserPromptSubmit || prompt.Fields["prompt"] != "hello" {
+		t.Fatalf("prompt event = %+v", prompt)
+	}
+	stop := hooks.StopEvent(true, "all done")
+	if stop.Name != hooks.EventStop || stop.Fields["stop_hook_active"] != true || stop.Fields["last_assistant_message"] != "all done" {
+		t.Fatalf("stop event = %+v", stop)
+	}
+	start := hooks.SessionStartEvent("resume", "fake/model")
+	if start.Subject != "resume" || start.Fields["source"] != "resume" || start.Fields["model"] != "fake/model" {
+		t.Fatalf("session start event = %+v", start)
+	}
+	pre := hooks.CompactEvent(hooks.EventPreCompact, "manual", map[string]interface{}{"custom_instructions": "keep the todo list"})
+	if pre.Subject != "manual" || pre.Fields["trigger"] != "manual" || pre.Fields["custom_instructions"] != "keep the todo list" {
+		t.Fatalf("pre-compact event = %+v", pre)
+	}
+}
+
+func TestRunnerMatchesLifecycleSubjects(t *testing.T) {
+	r := newRunner(t, userSource(
+		hooktest.Entry{Event: hooks.EventSessionStart, Matcher: "startup", Handlers: []hooks.Handler{hooktest.Handler("context", "on startup")}},
+		hooktest.Entry{Event: hooks.EventPreCompact, Matcher: "auto", Handlers: []hooks.Handler{hooktest.Handler("block", "never on auto")}},
+	))
+	if out := r.Run(context.Background(), hooks.SessionStartEvent("startup", "m")); strings.Join(out.Context, "|") != "on startup" {
+		t.Fatalf("startup source must match, got %+v", out)
+	}
+	if out := r.Run(context.Background(), hooks.SessionStartEvent("resume", "m")); out.Ran != 0 {
+		t.Fatalf("resume source must not match a startup matcher, got %+v", out)
+	}
+	if out := r.Run(context.Background(), hooks.CompactEvent(hooks.EventPreCompact, "manual", nil)); out.Ran != 0 || out.Blocked() {
+		t.Fatalf("manual trigger must not match an auto matcher, got %+v", out)
+	}
+	if out := r.Run(context.Background(), hooks.CompactEvent(hooks.EventPreCompact, "auto", nil)); !out.Blocked() || out.Reason != "never on auto" {
+		t.Fatalf("auto trigger must match and block, got %+v", out)
+	}
+}

@@ -83,6 +83,9 @@ type Agent struct {
 	hooks          *hooks.Runner
 	hooksLoaded    bool
 	hookStopReason string
+	// turnHookContext is what UserPromptSubmit hooks handed over for this
+	// turn's system prompt (hooks.go).
+	turnHookContext string
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -128,6 +131,7 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 	// Hook definitions are re-read for every turn.
 	a.resetHooks()
 	a.hookStopReason = ""
+	a.turnHookContext = ""
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -150,6 +154,11 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 			return a.runPluginCommand(ctx, args, userText)
 		}
 	}
+	// UserPromptSubmit hooks see the prompt before it becomes a message: a
+	// rejected prompt is never added, and the turn ends with the reason.
+	if reason, rejected := a.runUserPromptHooks(ctx, mode, userText); rejected {
+		return string(acp.StopReasonRefused), fmt.Errorf("prompt rejected by hook: %s", reason)
+	}
 	imageParts := a.state.TakePendingImageParts()
 	messageContent := userText
 	if note := filePathsNote(imageParts); note != "" {
@@ -161,6 +170,9 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 		ImageParts: imageParts,
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
+	if a.hooks != nil {
+		a.hooks.Session.Turn = session.CountUserTurns(a.state.GetMessages())
+	}
 	a.runMemoryBeforeTurn(ctx, userText, mode)
 
 	// Collect context files from the prompt for skill filtering.
@@ -336,6 +348,12 @@ func (a *Agent) runReActLoop(
 		loopNudgeBudget = a.cfg.Agent.EffectiveLoopNudgeMax()
 	}
 	loopNudges := 0
+
+	// Stop hooks may send the agent back to work; stopBlocks counts those
+	// continuations against hooks.stop_loop_limit and stopHookActive tells
+	// the hook that it already did so in this turn.
+	stopHookActive := false
+	stopBlocks := 0
 
 	for turn := 0; turn < maxTurns; turn++ {
 		if ctx.Err() != nil {
@@ -680,6 +698,27 @@ func (a *Agent) runReActLoop(
 			// harmony endpoints that route the tool call through the reasoning channel.
 			if strings.TrimSpace(response.Content) == "" && !turnHadVisibleText {
 				return string(acp.StopReasonRefused), fmt.Errorf("model produced no reply: only internal reasoning, with no answer text or tool call")
+			}
+			// A Stop hook may send the agent back to work with a follow-up that
+			// is submitted as the next user message (persisted, so the transcript
+			// explains the continuation), bounded by hooks.stop_loop_limit.
+			if followUp, again := a.runStopHooks(ctx, mode, response.Content, stopHookActive); again {
+				limit := a.cfg.Hooks.EffectiveStopLoopLimit()
+				if stopBlocks >= limit {
+					a.log.Warn("stop hook loop limit reached; ending the turn", "limit", limit)
+					return string(acp.StopReasonEndTurn), nil
+				}
+				stopBlocks++
+				stopHookActive = true
+				follow := llm.Message{
+					Role:      llm.RoleUser,
+					Content:   stopHookPrefix + followUp,
+					CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				}
+				messages = append(messages, follow)
+				a.state.AddMessage(follow)
+				a.refreshConversationContextUsage(true)
+				continue
 			}
 			return string(acp.StopReasonEndTurn), nil
 		}

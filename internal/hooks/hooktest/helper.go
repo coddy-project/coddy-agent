@@ -104,6 +104,12 @@ func Main(args []string) bool {
 		os.Exit(0)
 	case "block":
 		emit(map[string]interface{}{"decision": "block", "reason": param(0)})
+	case "block-once":
+		// Block unless the payload says a stop hook already continued the turn.
+		if active, _ := payload["stop_hook_active"].(bool); active {
+			os.Exit(0)
+		}
+		emit(map[string]interface{}{"decision": "block", "reason": param(0)})
 	case "continue-false":
 		emit(map[string]interface{}{"continue": false, "stopReason": param(0)})
 	case "system-message":
