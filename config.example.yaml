@@ -285,6 +285,26 @@ tools:
 #   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
 #   max_turns: 0                    # 0 follows agent.max_turns
 
+# Hooks: your own commands run at lifecycle points of a session (before and after a tool
+# call today; prompt, stop, session-start, compaction and subagent events follow). A hook reads
+# one JSON document on stdin and answers with an exit code plus optional JSON on stdout: it can
+# deny a call, approve it past the permission prompt, rewrite its arguments or add context.
+# Definitions use Claude Code's file shape. Files inside the workspace travel with the checkout,
+# so "ask" lists them but runs nothing until you approve that file for that workspace on the
+# machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust`).
+# See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files:
+#     - "${CODDY_HOME}/hooks.json"                # your own file (user scope)
+#     - "${CWD}/.claude/settings.json"            # project scope, Claude Code compatible (hooks key only)
+#     - "${CWD}/.claude/settings.local.json"      # project scope, same
+#     - "${CWD}/.coddy/hooks.json"                # project scope
+#   project_trust: ask              # ask | allow | deny
+#   default_timeout_seconds: 60     # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5              # how many times per turn a Stop hook may keep the agent working
+#   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
+
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:
 #   host: "127.0.0.1"

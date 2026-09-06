@@ -16,6 +16,7 @@ type Config struct {
 	MCP          MCP               `yaml:"mcp"`
 	Tools        Tools             `yaml:"tools"`
 	Subagents    Subagents         `yaml:"subagents"`
+	Hooks        Hooks             `yaml:"hooks"`
 	Logger       Logger            `yaml:"logger"`
 	Sessions     Sessions          `yaml:"sessions"`
 	Compaction   Compaction        `yaml:"compaction"`

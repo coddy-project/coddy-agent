@@ -16,6 +16,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
@@ -75,6 +76,13 @@ type Agent struct {
 	// currentToolCallID is the tool call being executed, so a spawn can link
 	// its task to the transcript row.
 	currentToolCallID string
+
+	// hooks is the operator hook runner of the current turn, built on first
+	// use from the definition files (hooks.go). hookStopReason carries a
+	// continue:false answered by a hook to the loop, which ends the turn.
+	hooks          *hooks.Runner
+	hooksLoaded    bool
+	hookStopReason string
 }
 
 // NewAgent creates an Agent for a prompt turn.
@@ -117,6 +125,9 @@ func (a *Agent) SetConfigReloader(reload func(context.Context) ([]string, error)
 // Run executes the ReAct loop and returns the stop reason.
 func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, error) {
 	mode := a.state.GetMode()
+	// Hook definitions are re-read for every turn.
+	a.resetHooks()
+	a.hookStopReason = ""
 
 	// Build the user message from prompt content blocks.
 	a.state.ClearMemoryCopilotBlock()
@@ -719,6 +730,15 @@ func (a *Agent) runReActLoop(
 			messages = append(messages, toolResultMsg)
 			a.state.AddMessage(toolResultMsg)
 			a.refreshConversationContextUsage(true)
+
+			// A hook answered continue: false. The remaining calls of the batch
+			// still get a result, because OpenAI-compatible endpoints reject the
+			// next request otherwise; then the turn ends with the hook's reason.
+			if reason := a.hookStopReason; reason != "" {
+				a.hookStopReason = ""
+				a.recordSkippedToolCalls(&messages, response.ToolCalls[i+1:], "not executed: a hook stopped the turn")
+				return string(acp.StopReasonRefused), fmt.Errorf("stopped by hook: %s", reason)
+			}
 		}
 		if toolEnv.ConfigReloaded {
 			activeSkills = FilterSkillsForContext(a.state.GetSkills(), contextFiles)
@@ -900,6 +920,39 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		return refusal, nil
 	}
 
+	// Operator hooks see the call before the permission gate, whatever the
+	// permission mode: a hook can deny it, approve it past the prompt, force
+	// the prompt, rewrite its arguments or add context to its result. The
+	// permission resume path skips them, because they already ran before the
+	// prompt the user just answered.
+	var hookRes preToolUseOutcome
+	if !skipPermission {
+		original := tc.InputJSON
+		var ran bool
+		hookRes, ran = a.runPreToolUseHooks(ctx, &tc, mode)
+		if ran && hookRes.blocked {
+			result := "blocked by hook: " + hookRes.reason
+			a.finishToolCall(sessionDir, sessionID, tc, result, nil, "cancelled")
+			return result, nil
+		}
+		if ran && tc.InputJSON != original {
+			// The rewritten arguments are what runs and what the operator must
+			// see on the tool call card; the model's own message keeps the
+			// original call, as it must for the transcript to replay.
+			if sessionDir != "" && strings.TrimSpace(tc.ID) != "" {
+				_ = session.WriteToolCallArgs(sessionDir, tc.ID, tc.InputJSON)
+			}
+			_ = a.server.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+				SessionUpdate: acp.UpdateTypeToolCallUpdate,
+				ToolCallID:    tc.ID,
+				Status:        "in_progress",
+				Content: []acp.ToolCallResultItem{
+					{Type: "content", Content: acp.ContentBlock{Type: "text", Text: tc.InputJSON}},
+				},
+			})
+		}
+	}
+
 	// Check if tool requires permission.
 	tool, ok := a.registry.Get(tc.Name)
 	requiresPerm := ok && tool.RequiresPermission
@@ -954,6 +1007,15 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 	}
 
+	// A hook's allow skips the prompt; its ask forces one even in a mode that
+	// would auto-approve.
+	if hookRes.allow {
+		requiresPerm = false
+	}
+	if hookRes.ask {
+		requiresPerm = true
+	}
+
 	if requiresPerm && !skipPermission {
 		promptBody := permission.PromptBody(tc.Name, tc.InputJSON)
 		if tc.Name == "config_commit" {
@@ -998,6 +1060,7 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 	// Execute the tool.
 	var result string
 	var execErr error
+	started := time.Now()
 
 	// Check if it's an MCP tool (name contains __).
 	if idx := strings.Index(tc.Name, "__"); idx >= 0 {
@@ -1013,6 +1076,25 @@ func (a *Agent) executeToolCall(ctx context.Context, tc llm.ToolCall, env *tools
 		}
 	} else {
 		result, execErr = a.registry.Execute(ctx, tc.Name, tc.InputJSON, env)
+	}
+
+	// PostToolUse (or PostToolUseFailure) feedback and the PreToolUse
+	// context travel with the result, so the model reads them next to the
+	// output they refer to.
+	if feedback := a.runPostToolUseHooks(ctx, tc, result, execErr, time.Since(started), mode); feedback != "" {
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, feedback)
+		} else {
+			result = joinHookText(result, feedback)
+		}
+	}
+	if len(hookRes.context) > 0 {
+		text := hookContextText(hookRes.context)
+		if execErr != nil {
+			execErr = fmt.Errorf("%w\n\n%s", execErr, text)
+		} else {
+			result = joinHookText(result, text)
+		}
 	}
 
 	status := "completed"

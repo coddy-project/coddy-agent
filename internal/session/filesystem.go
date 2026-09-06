@@ -16,9 +16,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
