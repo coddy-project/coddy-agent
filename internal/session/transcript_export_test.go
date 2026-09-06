@@ -151,6 +151,67 @@ func TestResolveExportTarget(t *testing.T) {
 	}
 }
 
+func TestPrepareExportOutput(t *testing.T) {
+	cwd := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, "existing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		out        string
+		wantRoot   string
+		wantTarget string
+	}{
+		{"empty", "", cwd, ""},
+		{"file in cwd", "chat.md", cwd, "chat.md"},
+		{"nested file in cwd", "exports/chat.json", cwd, filepath.Join("exports", "chat.json")},
+		{"directory in cwd", "exports/", cwd, "exports/"},
+		{"existing directory in cwd", "existing", cwd, "existing"},
+		{"absolute inside cwd", filepath.Join(cwd, "abs.md"), cwd, "abs.md"},
+		{"absolute file elsewhere", filepath.Join(elsewhere, "reports", "chat.html"), filepath.Join(elsewhere, "reports"), "chat.html"},
+		{"absolute directory elsewhere", filepath.Join(elsewhere, "dump") + string(filepath.Separator), filepath.Join(elsewhere, "dump"), ""},
+		{"parent escape", filepath.Join("..", "up.md"), filepath.Dir(cwd), "up.md"},
+	}
+	for _, tc := range tests {
+		root, target, err := PrepareExportOutput(cwd, tc.out)
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if root != tc.wantRoot || target != tc.wantTarget {
+			t.Errorf("%s: got (%q, %q), want (%q, %q)", tc.name, root, target, tc.wantRoot, tc.wantTarget)
+			continue
+		}
+		if st, err := os.Stat(root); err != nil || !st.IsDir() {
+			t.Errorf("%s: root %q must exist as a directory: %v", tc.name, root, err)
+		}
+	}
+}
+
+func TestExportSessionHonorsOutputRoot(t *testing.T) {
+	in := exportFixture("/some/workspace")
+	in.OutputRoot = t.TempDir()
+	res, err := ExportSession(in, ExportRequest{Format: "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(res.Target.Path) != in.OutputRoot {
+		t.Fatalf("export landed in %q, want %q", res.Target.Path, in.OutputRoot)
+	}
+	b, err := os.ReadFile(res.Target.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back ExportDocument
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Session.CWD != "/some/workspace" {
+		t.Fatalf("session cwd in the document = %q, must stay the session workspace", back.Session.CWD)
+	}
+}
+
 func TestWriteExportFileCreatesParentAndWrites(t *testing.T) {
 	cwd := t.TempDir()
 	target, err := ResolveExportTarget(cwd, "notes/deep/chat.md", ExportFormatMarkdown, time.Now())

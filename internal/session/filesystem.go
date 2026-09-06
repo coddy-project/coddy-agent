@@ -75,6 +75,51 @@ func (f *FileStore) HasPersistedSnapshot(sessionID string) bool {
 	return err == nil && !fi.IsDir()
 }
 
+// ResolveSessionID returns the stored session whose folder id is idOrPrefix,
+// or the single stored session whose id starts with it. Folders without a
+// session.json are not sessions.
+func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
+	q := strings.TrimSpace(idOrPrefix)
+	if q == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	if f == nil || f.Root == "" {
+		return "", fmt.Errorf("session store not available")
+	}
+	if err := ValidateFolderSessionID(q); err != nil {
+		return "", err
+	}
+	if f.HasPersistedSnapshot(q) {
+		return q, nil
+	}
+	de, err := os.ReadDir(f.Root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("session not found: %s", q)
+		}
+		return "", err
+	}
+	var matches []string
+	for _, ent := range de {
+		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), q) || !f.HasPersistedSnapshot(ent.Name()) {
+			continue
+		}
+		matches = append(matches, ent.Name())
+	}
+	sort.Strings(matches)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("session not found: %s", q)
+	case 1:
+		return matches[0], nil
+	}
+	shown := matches
+	if len(shown) > 5 {
+		shown = shown[:5]
+	}
+	return "", fmt.Errorf("session id prefix %q is ambiguous (%d matches: %s)", q, len(matches), strings.Join(shown, ", "))
+}
+
 // ActiveTodoPath is the markdown file for the current todo list.
 func ActiveTodoPath(sessionDir string) string {
 	return filepath.Join(sessionDir, todosDirName, activeTodoFile)

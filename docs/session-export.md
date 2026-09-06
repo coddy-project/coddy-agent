@@ -84,6 +84,20 @@ Empty fields are omitted, with one exception: `tool_calls[].result` is present a
 
 **JSON Lines** (`jsonl`): the first line is the header, `{"type":"session","version":1,...}` with the same fields as `session` above; every following line is one entry.
 
+## From the shell: `coddy sessions export`
+
+The same export is available without a running agent, the way `coddy plugin` twins `/plugin`:
+
+```bash
+coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] [--no-tools] [--no-thinking] [--sessions-dir <path>]
+```
+
+- `<session-id>` is a folder id from `coddy sessions list`, or a prefix that matches exactly one stored session; an ambiguous prefix lists the candidates.
+- The file lands in the current directory by default. `--out` names a file or a directory anywhere (absolute paths included); missing directories are created. The format follows `--format`, else the `--out` extension, else markdown, with the same rules as the chat command.
+- `--no-tools` and `--no-thinking` trim the document exactly like the chat options. `--sessions-dir` points at another sessions root.
+- The command prints `Session exported to <format>: <full path> (<n> transcript entries)` and exits non-zero on an unknown session, a bad format, or a write failure. Flags may come before or after the id.
+- The document is the same as the chat export: the title, model and git branch come from the stored `session.json` and the workspace it names, the token totals from its `stats.json`.
+
 ## Where the command is listed
 
 `skills.BuiltinCommands` publishes `export` next to `compact` and `plugin`, so it reaches the ACP `available_commands_update` catalog, `GET /coddy/commands`, the composer's **Commands** group, and a console in `--remote` mode without further wiring.
@@ -98,4 +112,5 @@ Empty fields are omitted, with one exception: `tool_calls[].result` is present a
 
 - `internal/session/transcript_export.go`: the document (`BuildExportDocument`), the renderers (`RenderExport`), target resolution (`ResolveExportRequest`, `ResolveExportTarget`), and the guarded write (`WriteExportFile`, `ExportSession`).
 - `internal/agent/export_command.go`: parsing and the reply; `Agent.Run` dispatches the command before the ReAct loop.
+- `cmd/coddy/sessions.go`: the `coddy sessions export` subcommand (`PrepareExportOutput` maps `--out` onto an output root, `FileStore.ResolveSessionID` accepts a unique id prefix); spec `features/session_export_cli.feature`, harness `cmd/coddy/bdd_sessions_export_test.go`.
 - `features/session_export.feature`: the happy-path specification, driven over `POST /v1/responses` by `external/httpserver/bdd_session_export_test.go` (runs under `-tags http`); escapes, symlinks, unknown formats and options are covered by the unit tests next to the code.

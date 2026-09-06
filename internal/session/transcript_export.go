@@ -262,6 +262,45 @@ func ResolveExportTarget(cwd, target string, f ExportFormat, at time.Time) (Expo
 	return t, nil
 }
 
+// PrepareExportOutput maps the --out argument of the CLI onto an output root
+// and a target relative to it, creating the root when it is missing. A path
+// inside cwd keeps cwd as the root (parents are created on write); a path
+// elsewhere makes its directory the root, so the containment of the write
+// applies to the directory the operator named. A trailing separator or an
+// existing directory means the generated file name.
+func PrepareExportOutput(cwd, out string) (root, target string, err error) {
+	root, err = filepath.Abs(filepath.Clean(strings.TrimSpace(cwd)))
+	if err != nil {
+		return "", "", err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return root, "", os.MkdirAll(root, 0o755)
+	}
+	abs := filepath.FromSlash(out)
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, abs)
+	}
+	abs = filepath.Clean(abs)
+	if pathWithin(root, abs) {
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			return "", "", err
+		}
+		if rel == "." {
+			rel = ""
+		} else if targetWantsDirectory(out) {
+			rel += string(filepath.Separator)
+		}
+		return root, rel, os.MkdirAll(root, 0o755)
+	}
+	if targetWantsDirectory(out) || isExistingDir(abs) {
+		return abs, "", os.MkdirAll(abs, 0o755)
+	}
+	dir := filepath.Dir(abs)
+	return dir, filepath.Base(abs), os.MkdirAll(dir, 0o755)
+}
+
 // pathWithin reports whether p equals root or sits below it. Both paths must
 // be absolute and clean.
 func pathWithin(root, p string) bool {
@@ -457,6 +496,10 @@ type ExportInput struct {
 	ExportedAt time.Time
 	// Options trims the document (tool calls, reasoning).
 	Options ExportOptions
+	// OutputRoot is the directory the file is written under; empty means CWD.
+	// The chat command exports into the session workspace, the CLI into the
+	// shell directory or wherever --out points.
+	OutputRoot string
 }
 
 // ExportTokenUsage mirrors the session token counters.
@@ -788,7 +831,11 @@ func ExportSession(in ExportInput, req ExportRequest) (*ExportResult, error) {
 	if in.ExportedAt.IsZero() {
 		in.ExportedAt = time.Now().UTC()
 	}
-	f, t, err := ResolveExportRequest(in.CWD, req, in.ExportedAt)
+	root := strings.TrimSpace(in.OutputRoot)
+	if root == "" {
+		root = in.CWD
+	}
+	f, t, err := ResolveExportRequest(root, req, in.ExportedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -798,7 +845,7 @@ func ExportSession(in ExportInput, req ExportRequest) (*ExportResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	written, err := WriteExportFile(in.CWD, t, data)
+	written, err := WriteExportFile(root, t, data)
 	if err != nil {
 		return nil, err
 	}
