@@ -163,3 +163,19 @@ test("the reader's language names the windows in the tooltip and the banner", ()
     setLocale("en");
   }
 });
+
+test("the banner says the turn resumes by itself while the agent waits for the reset", () => {
+  const waiting: ProviderUsage = {
+    ...fixture(),
+    blocked: true,
+    resuming: true,
+    retryAt: "2026-09-06T17:59:59Z",
+    retryInSec: 767,
+  };
+  const { container } = render(
+    <UsageBanner usage={waiting} modelId="neuraldeep/qwen3.8-27b" now={now} />,
+  );
+  const banner = container.querySelector("[data-testid=usage-banner]") as HTMLElement;
+  expect(banner.getAttribute("data-tone")).toBe("warn");
+  expect(banner.textContent).toContain("Auto-resuming at");
+});

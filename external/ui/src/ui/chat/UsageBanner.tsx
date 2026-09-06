@@ -35,7 +35,13 @@ export function UsageBanner(props: {
   const brand = u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;
   let text = "";
   let tone: "warn" | "error" = "warn";
-  if (summary.kind === "blocked") {
+  if (summary.kind === "blocked" && u.resuming) {
+    // The turn is waiting for the reset and resumes by itself: a calmer
+    // notice than a block the user has to act on.
+    text = u.retryAt
+      ? t("usage.bannerResumingAt", { time: formatResetTime(u.retryAt, now, locale) })
+      : t("usage.bannerResuming");
+  } else if (summary.kind === "blocked") {
     tone = "error";
     switch (summary.block) {
       case "rate":

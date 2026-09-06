@@ -831,6 +831,8 @@ export const messagesRu: Record<string, string> = {
   "usage.bannerWalletEmpty": "Кошелёк пуст, пополните его, чтобы продолжить",
   "usage.bannerAccountBlocked": "Аккаунт заблокирован на хабе",
   "usage.showDetails": "Показать детали использования",
+  "usage.bannerResumingAt": "Лимит использования исчерпан · Продолжим автоматически в {time}",
+  "usage.bannerResuming": "Лимит использования исчерпан · Продолжим автоматически после сброса",
   "composer.contextTipInput": "Ввод {count}",
   "composer.contextTipOutput": "Вывод {count}",
   "composer.contextTipTotal": "Всего {count}",

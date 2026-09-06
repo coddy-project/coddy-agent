@@ -42,6 +42,8 @@ export type ProviderUsage = {
   unsupported?: boolean;
   refreshPending?: boolean;
   refreshInSec?: number;
+  /** The agent is waiting for the limit to lift and will re-issue the call (agent.wait_for_limit_reset). */
+  resuming?: boolean;
 };
 
 /** Where a window's segment turns to the warning tone and the banner appears. */

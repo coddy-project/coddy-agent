@@ -821,6 +821,8 @@ export const messagesEn: Record<string, string> = {
   "usage.bannerWalletEmpty": "The wallet is empty: top it up to keep going",
   "usage.bannerAccountBlocked": "The account is blocked on the hub",
   "usage.showDetails": "Show usage details",
+  "usage.bannerResumingAt": "Usage limit reached · Auto-resuming at {time}",
+  "usage.bannerResuming": "Usage limit reached · Auto-resuming when it resets",
   "composer.composerOptions": "Composer options",
   "composer.skillsTitle": "Skills",
   "composer.loading": "Loading…",
