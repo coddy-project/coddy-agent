@@ -364,15 +364,15 @@ func (m *Manager) usageDeferLocked(name string, e *providerUsageEntry, sessionID
 	if e.pendingStop != nil {
 		return
 	}
-	// The floor's end, or the backoff's end when the hub asked for a pause.
-	at := e.lastAttempt.Add(providerUsageFloor)
-	if e.backoffUntil.After(at) {
-		at = e.backoffUntil
-	}
-	m.usageArmPendingLocked(name, e, at, e.pendingSessions)
+	m.usageArmPendingLocked(name, e, m.usageNextAttemptLocked(e), e.pendingSessions)
 }
 
-// usageDeferredFire runs the deferred refresh when its timer fires.
+// usageDeferredFire runs a deferred refresh. The account behind the row is
+// resolved again: a settings save may have swapped the credential while the
+// timer ran, and the sessions that were promised the result move with it. A
+// fetch that a save cancelled and re-armed at once still honours the floor
+// and the hub's pause, since the request may have reached the hub before the
+// cancel and so counts as an attempt.
 func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	m.usage.mu.Lock()
 	defer m.usage.mu.Unlock()
@@ -384,9 +384,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	e.pendingStop, e.pendingAt, e.pendingSessions = nil, time.Time{}, nil
 	if e.inflight != nil {
 		// A fetch is already running: the deferred sessions join it.
-		for _, id := range sessions {
-			e.waiters = appendSession(e.waiters, id)
-		}
+		e.waiters = appendSessions(e.waiters, sessions)
 		return
 	}
 	cfg := m.activeCfg()
@@ -394,8 +392,30 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	if prov == nil || !providerUsageSource(prov.Type) {
 		return
 	}
-	m.usageStartFetchLocked(prov, config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type), e, "")
+	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
+	fingerprint := llm.NeuralDeepUsageFingerprint(*prov, authPath)
+	if e.fingerprint != fingerprint {
+		// The credential changed while the refresh waited: the entry and its
+		// numbers describe another account, so the fetch goes into a fresh
+		// one, which has no pacing history and starts at once.
+		e = m.usageEntryLocked(prov.Name, fingerprint)
+	} else if at := m.usageNextAttemptLocked(e); at.After(m.usageNow()) {
+		m.usageArmPendingLocked(name, e, at, sessions)
+		return
+	}
+	m.usageStartFetchLocked(prov, authPath, e, "")
 	e.waiters = appendSessions(e.waiters, sessions)
+}
+
+// usageNextAttemptLocked is the earliest time the account may be asked
+// again: the floor after the last attempt, or the end of a pause the hub
+// asked for, whichever is later.
+func (m *Manager) usageNextAttemptLocked(e *providerUsageEntry) time.Time {
+	at := e.lastAttempt.Add(providerUsageFloor)
+	if e.backoffUntil.After(at) {
+		at = e.backoffUntil
+	}
+	return at
 }
 
 // appendSessions adds every id once.
@@ -583,8 +603,9 @@ func (m *Manager) pauseProviderUsage() {
 		pendingAt, sessions := e.pendingAt, e.pendingSessions
 		hadPending := e.pendingStop != nil
 		// The sessions waiting on the cancelled fetch are owed a result: they
-		// join the re-armed refresh, which fires at once when nothing was
-		// pending.
+		// join the re-armed refresh. With nothing pending it fires at once,
+		// and the firing decides between a fresh account, which is read
+		// immediately, and the same one, which keeps its floor.
 		waiters := e.waiters
 		hadInflight := e.inflight != nil
 		m.usageInvalidateLocked(e)

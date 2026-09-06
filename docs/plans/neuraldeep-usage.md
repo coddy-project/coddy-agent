@@ -812,9 +812,9 @@ change there knows what breaks.
   `(RetryMax - attempt) * RetryMaxDelay`, computed per attempt; the boundary
   is pinned by a test. `[rev4]` 4.7.
 
-## 11. Addressed concerns (code review rounds 1-3)
+## 11. Addressed concerns (code review rounds)
 
-Codex (three iterations of the plugin's code phase), Cursor, coddy and a fresh
+Codex (six iterations of the plugin's code phase), Cursor, coddy and a fresh
 Claude reviewer reviewed the implementation of layers 1 and 2. What changed
 against sections 4.3 and 4.4 above, which describe the plan before the code:
 
@@ -843,3 +843,10 @@ against sections 4.3 and 4.4 above, which describe the plan before the code:
   switch; the passed-reset follow-up competes with the other deadlines.
 - The turn stream's `provider_usage` event is reserved (nothing emits it
   today); REST answers carry `detail` next to a non-kind `error`.
+- A deferred refresh resolves the account again when it fires: a settings
+  save that swapped the credential while the timer ran sends the fetch into
+  a fresh entry (the old numbers never describe the new key, and switching
+  back never serves the other account from the cache), and the sessions
+  the refresh owes move with it. A fetch that a save cancelled counts as an
+  attempt, since the request may have reached the hub: its replacement
+  waits for the floor and the hub's pause instead of doubling the read.

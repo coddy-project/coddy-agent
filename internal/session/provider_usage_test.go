@@ -532,7 +532,7 @@ func TestProviderUsageBackoffIsCappedAndPacingSurvivesAConfigSwap(t *testing.T) 
 	}
 	// A config swap keeps the floor: a refresh right after it is deferred.
 	clock.advance(time.Second)
-	m.pauseProviderUsage()
+	m.ReplaceConfig(usageConfigClone(m.activeCfg()))
 	if u, _ = m.ProviderUsage(ctx, "neuraldeep", true); stand.calls.Load() != 3 || !u.RefreshPending {
 		t.Fatalf("after a config swap the floor still holds: calls=%d update=%+v", stand.calls.Load(), u)
 	}
@@ -552,7 +552,7 @@ func TestProviderUsageConfigSwapKeepsADeferredRefresh(t *testing.T) {
 		t.Fatalf("expected a deferred refresh: %+v", u)
 	}
 	// A settings save in between: the promise survives it.
-	m.pauseProviderUsage()
+	m.ReplaceConfig(usageConfigClone(m.activeCfg()))
 	stand.set(http.StatusOK, usageFixture(321), nil)
 	clock.advance(11 * time.Second)
 	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
@@ -615,35 +615,113 @@ func TestProviderUsageCommandBackedRowRetriesARejectionAfterAWhile(t *testing.T)
 	}
 }
 
-func TestProviderUsageConfigSwapDuringAFetchStillAnswersTheWaiter(t *testing.T) {
+func TestProviderUsageConfigSwapDuringAFetchAnswersTheWaiterAfterTheFloor(t *testing.T) {
 	stand, gate := gatedUsageStand(t)
 	sender := &usageCapture{}
 	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
 	id := newUsageSession(t, m, "")
 	if err := usagePrompt(t, m, id, sender, nil); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for stand.calls.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	waitUsageCalls(t, stand, 1)
 	// The settings save lands while the turn-end fetch is blocked upstream.
-	m.pauseProviderUsage()
+	// The request may have reached the hub, so it counts as an attempt: the
+	// replacement waits for the floor instead of doubling the read.
+	m.ReplaceConfig(usageConfigClone(m.activeCfg()))
 	close(gate)
-	deadline = time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if updates, _ := sender.snapshot(); len(updates) >= 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	clock.advance(time.Second)
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
 	}
+	if updates, _ := sender.snapshot(); stand.calls.Load() != 1 || len(updates) != 0 {
+		t.Fatalf("inside the floor after the swap: calls=%d updates=%d", stand.calls.Load(), len(updates))
+	}
+	clock.advance(14 * time.Second)
 	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
 		t.Fatal(err)
 	}
 	updates, ids := sender.snapshot()
-	if len(updates) != 1 || ids[0] != id || updates[0].Plan != "pro" {
-		t.Fatalf("waiter after a config swap: %d updates to %v (calls %d)", len(updates), ids, stand.calls.Load())
+	if stand.calls.Load() != 2 || len(updates) != 1 || ids[0] != id || updates[0].Plan != "pro" {
+		t.Fatalf("waiter after a config swap: calls=%d, %d updates to %v", stand.calls.Load(), len(updates), ids)
 	}
+}
+
+func TestProviderUsageCredentialChangeDuringADeferredRefreshIsolatesAccounts(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	m := newUsageManager(t, stand, sender, nil)
+	clock := newFakeUsageClock()
+	m.SetProviderUsageClock(clock.Now, clock.After)
+	ctx := context.Background()
+	if _, err := m.ProviderUsage(ctx, "neuraldeep", false); err != nil {
+		t.Fatal(err)
+	}
+	clock.advance(5 * time.Second)
+	if u, _ := m.ProviderUsageForSession(ctx, "s1", "neuraldeep", true); !u.RefreshPending {
+		t.Fatalf("expected a deferred refresh: %+v", u)
+	}
+	// The operator pastes another key while the refresh waits: the fetch
+	// must describe the new account and reach the session that asked.
+	first := m.activeCfg()
+	m.ReplaceConfig(usageConfigWithKey(first, "sk-other-account"))
+	stand.set(http.StatusOK, usageFixture(999), nil)
+	clock.advance(11 * time.Second)
+	if err := m.WaitProviderUsageIdle(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if stand.calls.Load() != 2 || stand.lastAuth() != "Bearer sk-other-account" {
+		t.Fatalf("the deferred refresh must ask for the new account: calls=%d auth=%q", stand.calls.Load(), stand.lastAuth())
+	}
+	updates, ids := sender.snapshot()
+	if len(updates) != 1 || ids[0] != "s1" || *findWindow(updates[0], "session").Used != 999 {
+		t.Fatalf("s1 was promised the refresh: %+v %v", updates, ids)
+	}
+	// Back to the first key: its numbers come from the hub, never from the
+	// other account's fetch.
+	m.ReplaceConfig(first)
+	stand.set(http.StatusOK, usageFixture(407), nil)
+	clock.advance(time.Second)
+	u, err := m.ProviderUsage(ctx, "neuraldeep", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stand.calls.Load() != 3 || *findWindow(*u, "session").Used != 407 {
+		t.Fatalf("the first account must be read afresh: calls=%d used=%d", stand.calls.Load(), *findWindow(*u, "session").Used)
+	}
+}
+
+// waitUsageCalls blocks until the stand saw n requests or two seconds passed.
+func waitUsageCalls(t *testing.T, stand *usageStand, n int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for stand.calls.Load() < n && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if stand.calls.Load() < n {
+		t.Fatalf("the hub saw %d requests, want %d", stand.calls.Load(), n)
+	}
+}
+
+// usageConfigClone copies cfg with its own provider slice, so a test can
+// hand ReplaceConfig a distinct value with or without a changed row.
+func usageConfigClone(cfg *config.Config) *config.Config {
+	next := *cfg
+	next.Providers = append([]config.ProviderConfig(nil), cfg.Providers...)
+	return &next
+}
+
+// usageConfigWithKey clones cfg with a literal key on the neuraldeep row: a
+// different account behind the same provider name.
+func usageConfigWithKey(cfg *config.Config, key string) *config.Config {
+	next := usageConfigClone(cfg)
+	for i := range next.Providers {
+		if next.Providers[i].Name == "neuraldeep" {
+			next.Providers[i].APIKey = key
+		}
+	}
+	return next
 }
 
 func TestProviderUsageLiteralKeyKeepsARejectionStickyDespiteACommand(t *testing.T) {
