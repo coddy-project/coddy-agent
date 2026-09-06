@@ -128,6 +128,20 @@ func TestBlockedSegmentCopyPerBlocker(t *testing.T) {
 	}
 }
 
+func TestBlockedNoticeWording(t *testing.T) {
+	cases := map[string]string{
+		"limit reached (resets 17:59)": "Usage limit reached (resets 17:59)",
+		"rate limited (retry in 42s)":  "Rate limited (retry in 42s)",
+		"key blocked":                  "Key blocked",
+		"":                             "Usage blocked",
+	}
+	for in, want := range cases {
+		if got := blockedNotice(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestUsageFooterUnlimitedModelAndKey(t *testing.T) {
 	th := newTheme("dark")
 	u := usageFixtureUpdate()
@@ -360,7 +374,7 @@ func TestUsageNoticesOncePerWindowAndBlock(t *testing.T) {
 	blocked.Blocked, blocked.Blockers, blocked.RetryAt, blocked.RetryInSec = true, []string{"session_exhausted"}, "2026-09-06T17:59:59Z", 767
 	a.applyProviderUsage(*blocked)
 	a.applyProviderUsage(*blocked)
-	if got = rows(); len(got) != 3 || got[2] != "Usage limit reached: limit reached (resets 17:59)" {
+	if got = rows(); len(got) != 3 || got[2] != "Usage limit reached (resets 17:59)" {
 		t.Fatalf("blocked notice = %q", got)
 	}
 	// A foreign provider's update adds no notice.

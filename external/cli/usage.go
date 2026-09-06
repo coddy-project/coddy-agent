@@ -518,7 +518,7 @@ func (a *App) noticeUsage(u *acp.ProviderUsageUpdate) {
 		key := "blocked@" + u.RetryAt + "@" + strings.Join(u.Blockers, ",")
 		if !a.usageNotified[key] {
 			a.usageNotified[key] = true
-			a.appendStatus(roleError, "Usage limit reached: "+seg.text)
+			a.appendStatus(roleError, blockedNotice(seg.text))
 		}
 		return
 	}
@@ -545,6 +545,19 @@ func (a *App) noticeUsage(u *acp.ProviderUsageUpdate) {
 		}
 		a.appendStatus(roleWarning, msg)
 	}
+}
+
+// blockedNotice words the transcript notice of a block: "Usage limit
+// reached (resets 20:59)" for a window, the reason with a capital for the
+// rest ("Rate limited (retry in 42s)", "Key blocked").
+func blockedNotice(segment string) string {
+	if strings.HasPrefix(segment, "limit reached") {
+		return "Usage " + segment
+	}
+	if segment == "" {
+		return "Usage blocked"
+	}
+	return strings.ToUpper(segment[:1]) + segment[1:]
 }
 
 // armUsageTimer schedules the refresh for the first reset in the update,

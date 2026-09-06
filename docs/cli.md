@@ -348,7 +348,10 @@ terminal emulator.
 `examples/cli/capture.py`, which drives the shared e2e driver and renders each
 state from the pyte buffer as `.txt`, styled `.html`, and `.png`. Those are
 regression references for colors and cell layout, not marketing images;
-regenerate them when the transcript chrome changes.
+regenerate them when the transcript chrome changes. The three usage states
+(`09-usage-footer`, `10-usage-warning`, `11-usage-blocked`) come from
+`examples/cli/capture_usage.py`, which stands a fake hub `GET /limits` behind
+`CODDY_NEURALDEEP_BASE_URL` so no real key and no model call is needed.
 
 `docs/assets/pi-tui-reference/` holds captures of the pi original for
 comparison, as described under **Visual model**.

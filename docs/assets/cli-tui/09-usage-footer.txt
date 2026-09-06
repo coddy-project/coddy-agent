@@ -1,0 +1,35 @@
+
+ coddy v1.0.4
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ctrl+o more
+
+ Coddy drives this workspace with the same agent as ACP and HTTP. Ask it anything about the code.
+
+[Context]
+  AGENTS.md
+
+[Skills]
+  generate-rules, configure-coddy, brainstorming, dispatching-parallel-agents, executing-plans,
+  find-skills, finishing-a-development-branch, receiving-code-review, requesting-code-review,
+  subagent-driven-development, systematic-debugging, test-driven-development, tg-send,
+  using-git-worktrees, using-superpowers, verification-before-completion, writing-plans,
+  writing-skills
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+/home/pasha/demo/coddy-agent (main)
+                                                                            (neuraldeep) qwen3.8-27b
+pro • 3h 3% (resets 23:40) • week 27% (resets Wed 02:49) • wallet 1 250 ₽
+
+
+
+
+
+
+
+
+
+
+
+
+
+
