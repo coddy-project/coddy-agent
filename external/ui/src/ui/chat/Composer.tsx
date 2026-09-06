@@ -771,6 +771,14 @@ export function Composer(props: {
     setAtRangeFile(null);
   }, []);
 
+  // A session switch changes the workspace behind every path: drop the loaded
+  // preview and any read still in flight, so the panel never shows another
+  // session's file. The next keystroke in the suffix fetches afresh.
+  useEffect(() => {
+    closeAtRangePicker();
+    setAtRangeSuppressed(null);
+  }, [props.sessionId, closeAtRangePicker]);
+
   /**
    * Loads the mentioned file once per path. A path that does not resolve simply
    * leaves the panel closed - `@user:1-2` in prose must not pop an empty panel -

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -632,15 +631,45 @@ func stripCoddySessionAssetsXML(s string) string {
 	return s
 }
 
-// coddyAttachmentBlockRe matches one hydrated <coddy_attachment ...>...</coddy_attachment>
-// block, including the file body in its CDATA section. Unlike the session-assets
-// annotation the opening tag carries attributes, so a plain index scan will not do.
-var coddyAttachmentBlockRe = regexp.MustCompile(`(?is)<coddy_attachment\b[^>]*>.*?</coddy_attachment\s*>`)
-
 // stripCoddyAttachmentXML removes hydrated @mention attachment blocks from s.
-// Transcripts keep them - only derived titles drop them.
+// Transcripts keep them - only derived titles drop them. The file body sits in
+// CDATA sections (internal/agent wrapXMLCDATA splits an embedded "]]>" across
+// two of them), so the closing tag is looked for outside those sections only:
+// a file that itself contains "</coddy_attachment>" must not leak past it.
 func stripCoddyAttachmentXML(s string) string {
-	return coddyAttachmentBlockRe.ReplaceAllString(s, "")
+	const openTag, closeTag, cdataOpen, cdataClose = "<coddy_attachment", "</coddy_attachment>", "<![CDATA[", "]]>"
+	var b strings.Builder
+	for {
+		start := strings.Index(s, openTag)
+		if start < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:start])
+		rest := s[start:]
+		end := -1
+		for pos := len(openTag); pos < len(rest); {
+			if strings.HasPrefix(rest[pos:], cdataOpen) {
+				n := strings.Index(rest[pos+len(cdataOpen):], cdataClose)
+				if n < 0 {
+					break
+				}
+				pos += len(cdataOpen) + n + len(cdataClose)
+				continue
+			}
+			if strings.HasPrefix(rest[pos:], closeTag) {
+				end = pos + len(closeTag)
+				break
+			}
+			pos++
+		}
+		if end < 0 {
+			// An unterminated block: keep the text as it is rather than eat it.
+			b.WriteString(rest)
+			return b.String()
+		}
+		s = rest[end:]
+	}
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.

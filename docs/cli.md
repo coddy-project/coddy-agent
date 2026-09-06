@@ -64,6 +64,9 @@ Top to bottom:
   content shows `─── ↑ N more ───` borders. Autocomplete: `/` commands on the
   first line, `@` file mentions (workspace walk capped at 50k entries;
   hidden directories, `node_modules`, and `.coddy` are skipped), `tab` forces file completion.
+  A mention may narrow a file to a 1-based inclusive line range, `@Dockerfile:21-31`:
+  the prompt is hydrated by the same `HydratePromptContentBlocks` path as ACP, so only
+  those lines reach the model (see `docs/ui.md`, **Line ranges**).
 - **Footer**: dim `cwd (git-branch) • title [• plan]`, then
   `↑in ↓out  N.N%/ctx (auto)` left and `(provider) model [• reasoning]` right.
 

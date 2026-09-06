@@ -75,3 +75,10 @@ test("plain and ranged mentions of the same path are distinct", () => {
     'see @f.go:1-2\n<coddy_attachment path="f.go" name="f.go">\n<![CDATA[x]]>\n</coddy_attachment>';
   expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("see @f.go:1-2\n@f.go");
 });
+
+test("a malformed lines attribute falls back to the plain @path", () => {
+  for (const bad of ["9-2", "0-3"]) {
+    const raw = `look\n<coddy_attachment path="f.go" name="f.go" lines="${bad}">\n<![CDATA[x]]>\n</coddy_attachment>`;
+    expect(stripCoddyAttachmentsForUserDisplay(raw)).toBe("look\n@f.go");
+  }
+});

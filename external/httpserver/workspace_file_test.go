@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
@@ -143,5 +144,21 @@ func TestCoddyWorkspaceFileGetRejects(t *testing.T) {
 				t.Fatalf("status %d, want %d", status, c.want)
 			}
 		})
+	}
+}
+
+// An I/O failure that is not the caller's doing (here: a file the server
+// cannot open) is a 500, matching the served OpenAPI, not a 400.
+func TestCoddyWorkspaceFileGetUnreadableIs500(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("relies on POSIX permission bits blocking the read")
+	}
+	ts, wd := newWorkspaceFileTestServer(t, map[string]string{"locked.txt": "x\n"})
+	if err := os.Chmod(filepath.Join(wd, "locked.txt"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	status, _ := getWorkspaceFile(t, ts, "path_rel=locked.txt")
+	if status != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", status)
 	}
 }

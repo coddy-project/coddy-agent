@@ -2484,7 +2484,8 @@ func openAPISpec() map[string]interface{} {
 							"type": "object",
 							"description": "How the attachment body is sourced. **`literal`** supplies it directly; **`start`**/**`end`** are byte offsets into the decoded file; " +
 								"**`startLine`**/**`endLine`** are a 1-based inclusive line range, which is what a ranged mention (**`@path:21-31`**) sends. " +
-								"Byte offsets win over the line range, and a line range also labels the attachment so the model sees **`lines=\"21-31\"`**.",
+								"A literal wins over byte offsets, which win over the line range; only a body that really is the line slice is labelled, so the model sees **`lines=\"21-31\"`** for a sliced file and no label for a literal or byte-offset body. " +
+								"A range the file cannot honour (zero, inverted, or starting past the last line) is answered with **400**; an end past the last line clamps.",
 							"properties": map[string]interface{}{
 								"literal":   map[string]string{"type": "string"},
 								"start":     map[string]string{"type": "integer"},

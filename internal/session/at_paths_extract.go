@@ -1,7 +1,6 @@
 package session
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -239,7 +238,8 @@ func ExtractAtFileRefsFromText(text string) []AtFileRef {
 		if strings.HasSuffix(filepath.ToSlash(raw), "/") {
 			continue
 		}
-		key := fmt.Sprintf("%s#L%d-%d", filepath.ToSlash(raw), startLine, endLine)
+		// The same key shape the resource URI gets: a plain path, or path#Lstart-end.
+		key := lineRangeURI(filepath.ToSlash(raw), startLine, endLine)
 		if _, dup := seen[key]; dup {
 			continue
 		}

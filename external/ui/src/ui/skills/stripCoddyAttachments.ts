@@ -111,8 +111,13 @@ export function stripCoddyAttachmentsForUserDisplay(raw: string): string {
     const path = decodeXmlAttrValue(pathEnc).trim();
     // The lines attribute lives in the opening tag only — never scan the body.
     const openTag = m[0].slice(0, m[0].indexOf(">") + 1);
-    const lm = /\blines="(\d+)-(\d+)"/.exec(openTag);
-    const lines = lm ? { start: Number(lm[1]), end: Number(lm[2]) } : null;
+    // Same bounds as the mention grammar: a malformed label (zero, inverted)
+    // never becomes a ranged mention, the block falls back to the plain path.
+    const lm = /\blines="(\d{1,9})-(\d{1,9})"/.exec(openTag);
+    const lines =
+      lm && Number(lm[1]) >= 1 && Number(lm[2]) >= Number(lm[1])
+        ? { start: Number(lm[1]), end: Number(lm[2]) }
+        : null;
     if (path !== "" && userBubbleAlreadyShowsAtPath(rebuilt, path, lines)) {
       rebuilt += "";
     } else if (path !== "") {

@@ -1603,3 +1603,52 @@ test("a backwards drag normalizes the range", async () => {
   restoreLayout();
   vi.unstubAllGlobals();
 });
+
+// The loaded preview is keyed by path only, so a session switch must discard it.
+test("switching sessions closes the range picker and refetches on the next digit", async () => {
+  stubShell(true);
+  const fetchMock = stubWorkspaceFileFetch(["one", "two"]);
+  function SessionHarness(props: { sessionId: string }) {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        sessionId={props.sessionId}
+      />
+    );
+  }
+  const { rerender } = render(<SessionHarness sessionId="sess_a" />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  const before = fetchMock.mock.calls.length;
+
+  rerender(<SessionHarness sessionId="sess_b" />);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1", selectionStart: 8, selectionEnd: 8 },
+  });
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
+  });
+  const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+  expect(String(lastCall?.[0]).startsWith("/coddy/workspace/file?")).toBe(true);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  vi.unstubAllGlobals();
+});

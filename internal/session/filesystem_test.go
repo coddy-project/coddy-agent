@@ -529,3 +529,33 @@ func TestFileStoreResolveSessionID(t *testing.T) {
 		t.Fatal("blank id must fail")
 	}
 }
+
+func TestStripCoddyAttachmentXML(t *testing.T) {
+	raw := "@Dockerfile:21-31 why slow?\n\n<coddy_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n<![CDATA[FROM x]]>\n</coddy_attachment>"
+	if got := stripCoddyAttachmentXML(raw); got != "@Dockerfile:21-31 why slow?\n\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStripCoddyAttachmentXMLMultipleBlocks(t *testing.T) {
+	raw := "a<coddy_attachment path=\"x\">\n<![CDATA[1]]>\n</coddy_attachment>b<coddy_attachment path=\"y\">\n<![CDATA[2]]>\n</coddy_attachment>c"
+	if got := stripCoddyAttachmentXML(raw); got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// The file body sits in CDATA, so a closing tag or a "]]>" inside the file must
+// not end the block early and leak the rest into a title.
+func TestStripCoddyAttachmentXMLIgnoresTagsInsideCDATA(t *testing.T) {
+	// What internal/agent wrapXMLCDATA renders for a body holding "]]>" and the closing tag.
+	raw := "ask\n\n<coddy_attachment path=\"trap.txt\" name=\"trap.txt\">\n" +
+		"<![CDATA[first ]]]]><![CDATA[> then </coddy_attachment> SECRET]]>\n</coddy_attachment>\ntail"
+	if got := stripCoddyAttachmentXML(raw); got != "ask\n\n\ntail" {
+		t.Fatalf("got %q", got)
+	}
+	// An unterminated block is left alone rather than eaten.
+	open := "ask <coddy_attachment path=\"x\">\n<![CDATA[body]]>"
+	if got := stripCoddyAttachmentXML(open); got != open {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -9,6 +9,7 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -80,8 +81,13 @@ func (s *Server) coddyWorkspaceFileGet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":{"message":"path is a directory"}}`, http.StatusBadRequest)
 		case errors.Is(err, session.ErrNotDecodableText):
 			http.Error(w, `{"error":{"message":"file is not decodable text"}}`, http.StatusBadRequest)
+		case strings.Contains(err.Error(), "file too large"), strings.Contains(err.Error(), "empty path"):
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
 		default:
-			http.Error(w, `{"error":{"message":"failed to read workspace file"}}`, http.StatusBadRequest)
+			// Anything else is the server's problem (an unreadable file, an I/O
+			// error), not a bad request.
+			s.log.Error("workspace file read", "path_rel", pathRel, "error", err)
+			http.Error(w, `{"error":{"message":"failed to read workspace file"}}`, http.StatusInternalServerError)
 		}
 		return
 	}

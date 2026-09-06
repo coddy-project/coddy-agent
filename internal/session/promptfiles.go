@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -24,9 +25,13 @@ type PromptFileAttachment struct {
 }
 
 // PromptFileAttachmentSourceField selects how attachment body is sourced.
-// Start/End are byte offsets into the decoded file; StartLine/EndLine are a
-// 1-based inclusive line range, which is what a ranged mention ("@f.go:21-31")
-// sends. Byte offsets win when both are present.
+// Literal, byte offsets (Start/End into the decoded file) and a 1-based
+// inclusive line range (StartLine/EndLine, what a ranged mention "@f.go:21-31"
+// sends) are three source modes: literal wins, then byte offsets, then lines.
+// The range labels the attachment (the "lines" attribute the model sees) only
+// when the body really is that slice of the file; a literal or byte-offset body
+// is sent without the label. A range the file cannot honour (zero, inverted, or
+// starting past the last line) is rejected with ErrLineRange.
 type PromptFileAttachmentSourceField struct {
 	Literal   string `json:"literal,omitempty"`
 	Start     int    `json:"start,omitempty"`
@@ -44,25 +49,44 @@ func lineRangeURI(rel string, startLine, endLine int) string {
 	return fmt.Sprintf("%s#L%d-%d", rel, startLine, endLine)
 }
 
-// splitLineRangeURI strips a "#L<start>-<end>" fragment from a resource URI.
-func splitLineRangeURI(uri string) (base string, startLine, endLine int) {
-	h := strings.LastIndex(uri, "#L")
-	if h < 0 {
+// lineRangeFragmentRe matches the "#L<start>-<end>" fragment only as the whole
+// tail of a URI, so "notes#L1-2.go" stays a file name.
+var lineRangeFragmentRe = regexp.MustCompile(`^(.*)#L([0-9]{1,9})-([0-9]{1,9})$`)
+
+// SplitLineRangeURI strips a "#L<start>-<end>" fragment from a resource URI and
+// returns the base URI with the 1-based inclusive range; a URI without a
+// well-formed fragment (1 <= start <= end, nothing after the digits) comes back
+// unchanged with zero lines. It is the single parser of the fragment that
+// lineRangeURI writes: prompt hydration and the attachment XML both use it.
+func SplitLineRangeURI(uri string) (base string, startLine, endLine int) {
+	m := lineRangeFragmentRe.FindStringSubmatch(uri)
+	if m == nil {
 		return uri, 0, 0
 	}
-	var s, e int
-	if n, err := fmt.Sscanf(uri[h:], "#L%d-%d", &s, &e); err != nil || n != 2 || s < 1 || e < s {
+	s := atoiDigits(m[2])
+	e := atoiDigits(m[3])
+	if s < 1 || e < s {
 		return uri, 0, 0
 	}
-	return uri[:h], s, e
+	return m[1], s, e
 }
 
-// sliceLines returns the 1-based inclusive line range of text. EndLine past the
-// last line clamps; StartLine past the last line falls back to the whole text.
-// Lines split on "\n" so CRLF content keeps its "\r" intact mid-range.
-func sliceLines(text string, startLine, endLine int) string {
+// ErrLineRange marks a line range an attachment cannot honour: zero or inverted
+// bounds, or a start past the last line of the file. The range never widens
+// into the whole file, since the label would then describe lines the body does
+// not hold.
+var ErrLineRange = errors.New("invalid attachment line range")
+
+// sliceLines returns the 1-based inclusive line range of text. No range (both
+// bounds zero) returns the text untouched; EndLine past the last line clamps;
+// anything else the file cannot honour is ErrLineRange. Lines split on "\n" so
+// CRLF content keeps its "\r" intact mid-range.
+func sliceLines(text string, startLine, endLine int) (string, error) {
+	if startLine == 0 && endLine == 0 {
+		return text, nil
+	}
 	if startLine < 1 || endLine < startLine {
-		return text
+		return "", fmt.Errorf("%w %d-%d", ErrLineRange, startLine, endLine)
 	}
 	lines := strings.Split(text, "\n")
 	// A trailing newline yields an empty last element; it is not a line.
@@ -70,13 +94,13 @@ func sliceLines(text string, startLine, endLine int) string {
 		lines = lines[:len(lines)-1]
 	}
 	if startLine > len(lines) {
-		return text
+		return "", fmt.Errorf("%w %d-%d: the file has %d lines", ErrLineRange, startLine, endLine, len(lines))
 	}
 	if endLine > len(lines) {
 		endLine = len(lines)
 	}
 	out := strings.Join(lines[startLine-1:endLine], "\n")
-	return strings.TrimSuffix(out, "\r")
+	return strings.TrimSuffix(out, "\r"), nil
 }
 
 // ErrFolderAttach means a path refers to a directory; only file content may be attached.
@@ -145,14 +169,12 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 			return nil, ErrFolderAttach
 		}
 		uri := filepath.ToSlash(strings.TrimSpace(rel))
-		if a.Source != nil {
-			uri = lineRangeURI(uri, a.Source.StartLine, a.Source.EndLine)
-		}
 		if a.Source != nil && strings.TrimSpace(a.Source.Literal) != "" {
 			text := a.Source.Literal
 			if !utf8.ValidString(text) {
 				return nil, fmt.Errorf("literal attachment is not valid UTF-8")
 			}
+			// The body is whatever the client sent, so no line label is claimed for it.
 			out = append(out, acp.ContentBlock{
 				Type: "resource",
 				Resource: &acp.Resource{
@@ -174,7 +196,13 @@ func BuildHydratedComposerPrompt(cwdAbs, input string, attachments []PromptFileA
 			}
 			text = text[start:end]
 		} else if a.Source != nil {
-			text = sliceLines(text, a.Source.StartLine, a.Source.EndLine)
+			// Only a body that really is the slice carries the "#L" label.
+			sliced, err := sliceLines(text, a.Source.StartLine, a.Source.EndLine)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", uri, err)
+			}
+			text = sliced
+			uri = lineRangeURI(uri, a.Source.StartLine, a.Source.EndLine)
 		}
 		out = append(out, acp.ContentBlock{
 			Type: "resource",
@@ -204,7 +232,7 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		if strings.TrimSpace(res.Text) != "" {
 			continue
 		}
-		baseURI, startLine, endLine := splitLineRangeURI(res.URI)
+		baseURI, startLine, endLine := SplitLineRangeURI(res.URI)
 		rel, err := resourceURIWorkspaceRel(cwdAbs, baseURI)
 		if err != nil {
 			return nil, err
@@ -219,10 +247,17 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 		if err != nil {
 			return nil, err
 		}
+		// A client that asks for lines the file does not have gets the same
+		// answer as one that asks for a file that is not there: an error, not a
+		// silently widened attachment.
+		sliced, err := sliceLines(text, startLine, endLine)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", res.URI, err)
+		}
 		out[i].Resource = &acp.Resource{
 			URI:      res.URI,
 			MimeType: mime,
-			Text:     sliceLines(text, startLine, endLine),
+			Text:     sliced,
 		}
 	}
 
@@ -264,12 +299,19 @@ func HydratePromptContentBlocks(cwdAbs string, blocks []acp.ContentBlock) ([]acp
 				}
 				return nil, err
 			}
+			sliced, err := sliceLines(textContent, ref.StartLine, ref.EndLine)
+			if err != nil {
+				// A typed range past the end of the file is as heuristic as the
+				// token itself: it stays prose, and the model can still read the
+				// file with its tools.
+				continue
+			}
 			rebuilt = append(rebuilt, acp.ContentBlock{
 				Type: "resource",
 				Resource: &acp.Resource{
 					URI:      key,
 					MimeType: mime,
-					Text:     sliceLines(textContent, ref.StartLine, ref.EndLine),
+					Text:     sliced,
 				},
 			})
 		}
@@ -282,7 +324,7 @@ func normalizedResourceRelativeKey(cwdAbs, uri string) (string, error) {
 	if uri == "" {
 		return "", nil
 	}
-	base, startLine, endLine := splitLineRangeURI(uri)
+	base, startLine, endLine := SplitLineRangeURI(uri)
 	rel, err := resourceURIWorkspaceRel(cwdAbs, base)
 	if err != nil {
 		return "", err
