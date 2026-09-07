@@ -410,6 +410,41 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
 | `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
 
+## `swarm`
+
+Stateless relay that nodes register into and that chains into other relays (`config.SwarmConfig`, `internal/config/swarm.go`; `swarm` build tag for the server side, though `swarm.join` is honoured by `coddy http` too). See [swarm.md](swarm.md).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `host` | string | no | `""` → `0.0.0.0` | Bind address for `coddy swarm` when the CLI does not pass `-H/--host`. |
+| `port` | int | no | `0` → `12346` | Listen port for `coddy swarm`. Range 0–65535. |
+| `name` | string | no | `""` | Label for this relay in topology views and in a child's node path. |
+| `auth_token` | string | no | `""` | Bearer credential clients present. A relay reaches every node with that node's own credential, so binding off loopback without one refuses to start unless `allow_insecure` is set. Never returned by config reads. |
+| `pairing_tokens` | []string | no | `[]` | Credentials a node must present to register. Empty closes registration unless `insecure_open_registration`. Never returned by config reads. |
+| `allow_insecure` | bool | no | `false` | Permit binding off loopback without a client token. |
+| `insecure_open_registration` | bool | no | `false` | Let any caller register a node without a pairing token. Development only. |
+| `allow_private_upstreams` | []string | no | `[]` | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
+| `cors.enabled` | bool | no | `false` | Handle CORS preflight. The SPA is cross-origin to a relay by construction, so this usually has to be on. |
+| `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the relay. `*` allows any; bearer auth still applies. |
+| `tls.cert_file` | string | no | `""` | PEM certificate chain. Set with `key_file` or neither. Minimum TLS 1.2; rotating certificates needs a restart. |
+| `tls.key_file` | string | no | `""` | PEM private key. |
+| `lease_ttl_seconds` | int | no | `0` → `90` | How long a registration survives without a heartbeat. Nodes refresh at a third of it. |
+| `fanout_timeout_seconds` | int | no | `0` → `3` | Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. |
+| `upstreams[].name` | string | yes* | - | Node name for a node configured by hand (*required per entry). Becomes a URL path segment: letters, digits, underscore and hyphen only. |
+| `upstreams[].url` | string | yes* | - | Origin the relay dials to reach it. |
+| `upstreams[].kind` | string | no | `agent` | `agent` or `relay`. |
+| `upstreams[].token` | string | no | `""` | Credential the relay presents to this node. Never returned by config reads. |
+| `upstreams[].dial.proxy` | string | no | `""` | Route the connection through `http`, `https`, `socks5` or `socks5h`. Empty falls back to the standard environment variables. |
+| `upstreams[].dial.ca_file` | string | no | `""` | Authority for a peer whose certificate is signed privately. |
+| `upstreams[].dial.insecure_skip_verify` | bool | no | `false` | Accept any certificate. For a lab only; every use is logged. |
+| `join[].url` | string | yes* | - | Parent relay this process registers into (*required per entry). |
+| `join[].name` | string | no | host name | Name to claim in that relay. |
+| `join[].pairing_token` | string | no | `""` | Credential authorising the registration. Never returned by config reads. |
+| `join[].advertise_url` | string | no | `""` | Where the relay can reach this process. **Leave empty to dial out instead**, which is the only way in when the network accepts no inbound connections. |
+| `join[].token` | string | no | `""` | This process's own credential, handed to the relay so it can authenticate when it proxies. Prefer one minted for the relay alone. Never returned by config reads. |
+| `join[].labels` | map | no | `{}` | Free-form tags shown in topology views. |
+| `join[].dial.*` | object | no | - | Proxy and TLS settings for reaching the parent, same shape as `upstreams[].dial`. |
+
 ## `ui`
 
 Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful with `-tags http,ui`).
@@ -457,5 +492,7 @@ These control config discovery itself, not individual fields (see [config.md](co
 | `CODDY_HOME` | `--home` | Agent state directory (default `~/.coddy`). |
 | `CODDY_CWD` | `--cwd` | Default session working directory. |
 | `CODDY_CONFIG` | `--config` | Explicit path to `config.yaml`. |
+| `CODDY_SWARM_TOKEN` | `--auth-token` (swarm) | Client credential for `coddy swarm` (see [`swarm`](#swarm)). |
+| `CODDY_SWARM_PAIRING_TOKEN` | `--pairing-token` | Registration credential for `coddy swarm` (see [`swarm`](#swarm)). |
 | `NAME_API_KEY` | — | Per-provider API key fallback (see [`providers`](#providers)). |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token fallback (see [`gateways.telegram`](#gatewaystelegram)). |

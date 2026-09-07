@@ -19,6 +19,7 @@ Short map for automation-friendly contributors.
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
 | `external/cli` | Interactive console TUI (**`-tags cli`**): bare **`coddy`** on a terminal, pi-style rendering in **`external/cli/tui`**. Guide: **`docs/cli.md`**. |
+| `external/swarm` | **`coddy swarm`** when built with **`tags=swarm`**: the stateless relay - lease registry, per-node mount, aggregated sessions, ring-aware topology, and the reverse HTTP/2 tunnel for nodes that can only dial out. Shared vocabulary and the join client live untagged in **`internal/swarm`**, so **`coddy http`** can join a relay without the tag. Guide: **`docs/swarm.md`**. |
 | `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
 
 ## Builds

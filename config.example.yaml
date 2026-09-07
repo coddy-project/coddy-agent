@@ -408,3 +408,49 @@ logger:
   rotation:
     max_size_mb: 0
     max_files: 0
+
+# ----------------------------------------------------------------------------
+# swarm - a relay that nodes register into, and that chains into other relays.
+# Server side needs -tags swarm; the join list below is honoured by coddy http
+# too, which is what lets an ordinary agent be reached through a relay.
+# Full reference: docs/swarm.md
+# ----------------------------------------------------------------------------
+# swarm:
+#   name: "outer"
+#   host: "0.0.0.0"
+#   port: 12346
+#   # A relay reaches every node with that node's own credential, so an open one
+#   # hands its whole fleet to anybody who can reach it. Binding off loopback
+#   # without this refuses to start.
+#   auth_token: "${CODDY_SWARM_TOKEN}"
+#   # What a node must present to join. Empty closes registration.
+#   pairing_tokens:
+#     - "${CODDY_SWARM_PAIRING_TOKEN}"
+#   cors:
+#     enabled: true
+#     allowed_origins: ["http://localhost:5173"]
+#   tls:
+#     cert_file: "/etc/coddy/relay.crt"
+#     key_file: "/etc/coddy/relay.key"
+#   # Nodes listed by hand, for one that cannot run the join loop.
+#   upstreams:
+#     - name: "nas02"
+#       url: "https://nas02:12345"
+#       kind: "agent"          # agent (default) or relay
+#       token: "${NAS02_TOKEN}"
+#   # Relays this process registers into. Both coddy http and coddy swarm honour
+#   # it, which is the whole of relay chaining.
+#   join:
+#     - url: "https://relay.example"
+#       name: "nas02"
+#       pairing_token: "${CODDY_SWARM_PAIRING_TOKEN}"
+#       # Where the relay can reach this process. Leave it out and this process
+#       # dials the relay instead, which is the only way in from a network that
+#       # accepts no inbound connections.
+#       advertise_url: "https://nas02:12345"
+#       token: "${NODE_OWN_TOKEN}"
+#       labels:
+#         role: "builder"
+#       dial:
+#         proxy: "socks5://127.0.0.1:1080"
+#         ca_file: "/etc/coddy/internal-ca.pem"

@@ -63,6 +63,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
 - `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
+- `swarm` - relay that nodes register into and that chains into other relays: bind address, client and pairing tokens, TLS, upstreams, and the `join` list this process registers itself into (tag `swarm`; `join` is honoured by `coddy http` too);
 - `scheduler` - cron scheduler (tag `scheduler`);
 - `gateways` - messenger bots such as Telegram (tag `gateway`).
 
