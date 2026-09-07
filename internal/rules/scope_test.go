@@ -57,7 +57,11 @@ func TestMatchAutoScopedAgentsRule(t *testing.T) {
 	}
 }
 
-func TestMatchScopedIgnoresUnscopedRules(t *testing.T) {
+// TestMatchScopedGlobRules: a tool call that targets a file matching a rule's
+// globs activates it, the way Claude Code loads a paths rule when a matching
+// file is read. Rules with neither a scope nor globs are ignored on purpose:
+// they are on from the first turn and re-matching them per tool call is noise.
+func TestMatchScopedGlobRules(t *testing.T) {
 	always := &rules.Rule{
 		ID: "coddy:always", Name: "always",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "always body",
@@ -65,15 +69,31 @@ func TestMatchScopedIgnoresUnscopedRules(t *testing.T) {
 	globbed := &rules.Rule{
 		ID: "cursor:go", Name: "go",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
-		Globs:       []string{"**/*.go"},
+		Globs:       []string{"internal/**/*.go"},
+		Root:        filepath.Join("/proj"),
 		Content:     "glob body",
 	}
-	catalog := []*rules.Rule{always, globbed}
-	if got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "main.go")}); len(got) != 0 {
-		t.Fatalf("MatchScoped must ignore unscoped rules, got %d", len(got))
+	mention := &rules.Rule{
+		ID: "cursor:manual", Name: "manual",
+		AlwaysApply: false, ApplyMode: rules.ApplyMention,
+		Globs:       []string{"**/*.go"},
+		Content:     "manual body",
 	}
-	// MatchAuto keeps its existing semantics for both.
-	if got := rules.MatchAuto(catalog, []string{filepath.Join("/proj", "main.go")}); len(got) != 2 {
+	catalog := []*rules.Rule{always, globbed, mention}
+
+	got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "internal", "agent", "react.go")})
+	if len(got) != 1 || got[0].ID != "cursor:go" {
+		t.Fatalf("MatchScoped must return exactly the glob rule the path matches, got %+v", got)
+	}
+	if got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "docs", "x.md")}); len(got) != 0 {
+		t.Fatalf("a path outside every glob must activate nothing, got %d", len(got))
+	}
+	if got := rules.MatchScoped(catalog, nil); len(got) != 0 {
+		t.Fatalf("no paths must activate nothing, got %d", len(got))
+	}
+	// MatchAuto keeps its semantics: the always-on rule matches on any turn,
+	// the glob rule on a matching context file, the mention rule never.
+	if got := rules.MatchAuto(catalog, []string{filepath.Join("/proj", "internal", "x.go")}); len(got) != 2 {
 		t.Fatalf("MatchAuto = %d, want 2", len(got))
 	}
 }

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,13 @@ import (
 
 // ListCatalog prints discovered rules for CLI.
 func ListCatalog(cwd string, f *Factory, systems []Source) error {
+	return RenderCatalog(os.Stdout, cwd, f, systems)
+}
+
+// RenderCatalog writes the discovered rules as the table `coddy rules list`
+// prints: one row per rule with its source folder, the dialect its extension
+// selected, the activation mode and what activates it.
+func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error {
 	if f == nil {
 		f = DefaultFactory()
 	}
@@ -20,12 +28,12 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 		return err
 	}
 	if len(rules) == 0 {
-		fmt.Println("No rules found.")
-		return nil
+		_, err := fmt.Fprintln(w, "No rules found.")
+		return err
 	}
 	t := table.NewWriter()
-	t.SetOutputMirror(os.Stdout)
-	t.AppendHeader(table.Row{"SOURCE", "NAME", "APPLY", "ALWAYS", "ACTIVATES ON", "DESCRIPTION"})
+	t.SetOutputMirror(w)
+	t.AppendHeader(table.Row{"SOURCE", "FORMAT", "NAME", "APPLY", "ALWAYS", "ACTIVATES ON", "DESCRIPTION"})
 	for _, r := range rules {
 		// A directory-scoped rule (nested AGENTS.md) has no globs: what gates it
 		// is its own subtree, so show that instead of an empty column.
@@ -42,6 +50,7 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 		}
 		t.AppendRow(table.Row{
 			string(r.Source),
+			string(r.Format),
 			r.CanonicalName(),
 			string(r.ApplyMode),
 			fmt.Sprintf("%v", r.AlwaysApply),
@@ -53,8 +62,8 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 	style.Format.Header = text.FormatUpper
 	t.SetStyle(style)
 	t.Render()
-	fmt.Printf("\n%d rule(s) under %s\n", len(rules), cwd)
-	return nil
+	_, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), cwd)
+	return err
 }
 
 // scopeDirLabel renders a rule's ScopeDir relative to cwd, slash-separated.

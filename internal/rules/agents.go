@@ -74,6 +74,7 @@ func (p *AgentsProvider) Load(root string) ([]*Rule, error) {
 			Name:        filepath.ToSlash(rel),
 			FilePath:    path,
 			Source:      SourceAgents,
+			Format:      FormatAgentsMD,
 			AlwaysApply: true,
 			ApplyMode:   ApplyAuto,
 			Content:     content,
