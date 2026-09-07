@@ -5,6 +5,7 @@ package httpserver
 import (
 	"context"
 	"log/slog"
+	"net/http"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/swarm"
@@ -14,8 +15,8 @@ import (
 //
 // It exists only under the swarm build tag; the stub beside it does nothing, so
 // a plain http build starts no goroutine and opens no connection.
-func startSwarmJoins(ctx context.Context, cfg *config.Config, home string, log *slog.Logger) func() {
-	set, err := swarm.StartJoins(ctx, cfg, swarm.KindAgent, home, log)
+func startSwarmJoins(ctx context.Context, cfg *config.Config, home string, handler http.Handler, log *slog.Logger) func() {
+	set, err := swarm.StartJoins(ctx, cfg, swarm.KindAgent, home, handler, log)
 	if err != nil {
 		log.Error("swarm: could not start joining relays", "error", err)
 		return func() {}

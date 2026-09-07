@@ -83,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /swarm/register", s.handleRegister)
 	s.mux.HandleFunc("DELETE /swarm/nodes/{node}", s.handleUnregister)
 	s.registerSessionRoutes()
+	s.registerTunnelRoutes()
 	s.registerMountRoutes()
 }
 
@@ -213,7 +214,11 @@ func isPublicSwarmPattern(pattern string) bool {
 func (s *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, pattern := s.mux.Handler(r)
-		if isPublicSwarmPattern(pattern) || pattern == "POST /swarm/register" {
+		// Registration and tunnel establishment carry their own credentials -
+		// a pairing token and a lease secret - and belong to a different trust
+		// domain than the client token. Requiring both would mean every node
+		// had to hold the fleet-wide client credential as well.
+		if isPublicSwarmPattern(pattern) || pattern == "POST /swarm/register" || pattern == "POST "+swarmdto.TunnelPath {
 			next.ServeHTTP(w, r)
 			return
 		}

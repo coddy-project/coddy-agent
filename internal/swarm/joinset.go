@@ -3,6 +3,7 @@ package swarm
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -24,7 +25,7 @@ type JoinSet struct {
 // Both `coddy http` and `coddy swarm` call it: an agent joins a relay, and a
 // relay joins another relay exactly the same way. That symmetry is what makes a
 // chain of relays work without a second mechanism.
-func StartJoins(ctx context.Context, cfg *config.Config, kind, home string, log *slog.Logger) (*JoinSet, error) {
+func StartJoins(ctx context.Context, cfg *config.Config, kind, home string, handler http.Handler, log *slog.Logger) (*JoinSet, error) {
 	if cfg == nil || len(cfg.Swarm.Join) == 0 {
 		return &JoinSet{}, nil
 	}
@@ -52,6 +53,7 @@ func StartJoins(ctx context.Context, cfg *config.Config, kind, home string, log 
 				CAFile:             j.Dial.CAFile,
 				InsecureSkipVerify: j.Dial.InsecureSkipVerify,
 			},
+			Handler: handler,
 			Secrets: store,
 			Log:     log,
 		})

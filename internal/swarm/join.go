@@ -62,6 +62,10 @@ type JoinOptions struct {
 	InstanceUUID string
 	// Dial carries proxy and TLS settings for reaching the relay.
 	Dial netx.Options
+	// Handler is this node's own HTTP surface. It is required for the tunnel
+	// transport, where the relay drives this node over the connection this
+	// process opened.
+	Handler http.Handler
 	// Secrets persists the lease secret across restarts.
 	Secrets SecretStore
 	// Log receives diagnostics.
@@ -225,6 +229,20 @@ func (c *Client) Register(ctx context.Context) error {
 	return nil
 }
 
+// serveTunnel opens the dial-out connection and serves this node's API over it.
+func (c *Client) serveTunnel(ctx context.Context) error {
+	if c.opts.Handler == nil {
+		return fmt.Errorf("swarm tunnel: this node has no handler to serve")
+	}
+	return DialTunnel(ctx, TunnelOptions{
+		RelayURL:    c.opts.RelayURL,
+		Node:        c.opts.Name,
+		LeaseSecret: c.LeaseSecret(),
+		Handler:     c.opts.Handler,
+		Dial:        c.opts.Dial,
+	})
+}
+
 func (c *Client) markOffline() {
 	c.mu.Lock()
 	c.online = false
@@ -262,6 +280,15 @@ func (c *Client) Run(ctx context.Context) error {
 		}
 		var wait time.Duration
 		switch {
+		case err == nil && c.Transport() == TransportTunnel:
+			backoff = initialBackoff
+			// The connection is the registration: it stays open, carrying the
+			// relay's requests, and this call only returns when it ends.
+			if terr := c.serveTunnel(ctx); terr != nil && ctx.Err() == nil {
+				c.log.Warn("swarm tunnel ended", "relay", c.opts.RelayURL, "node", c.opts.Name, "error", terr)
+			}
+			c.markOffline()
+			wait = initialBackoff
 		case err == nil:
 			backoff = initialBackoff
 			wait = c.heartbeatInterval()
