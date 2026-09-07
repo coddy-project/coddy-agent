@@ -12,7 +12,9 @@ import {
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
 import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
+import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
 import { DiffView } from "./DiffView";
+import { SpawnAgentCard } from "./SpawnAgentCard";
 
 function safePrettyJSON(text: string): string {
   try {
@@ -119,6 +121,13 @@ export function ToolCallMessage(props: {
     (props.kind || "").toLowerCase() === "question";
 
   const isPatchTool = rawName.toLowerCase() === "apply_patch";
+  const isSpawnAgentTool =
+    rawName.toLowerCase() === "spawn_agent" ||
+    (props.kind || "").trim().toLowerCase() === "spawn_agent";
+  const spawnAgent = useMemo(
+    () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
+    [isSpawnAgentTool, props.argsText],
+  );
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -214,18 +223,30 @@ export function ToolCallMessage(props: {
     setLoadingFull(false);
   }, [props.toolCallId]);
 
-  // Auto-fetch full args for patch tools. argsPreview from the sessions list is truncated
-  // (200 chars) which makes the JSON unparseable; we need the full args to render the diff.
+  // History previews may truncate JSON; structured cards need the full arguments.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
   useEffect(() => {
-    if (!isPatchTool || !fetchFn || patchContent || fetchAttemptedRef.current) return;
+    const needsArgs =
+      (isPatchTool && !patchContent) ||
+      (isSpawnAgentTool && !spawnAgent && !pendingLike);
+    if (!needsArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
-    void fetchFn(props.toolCallId);
-  }, [isPatchTool, patchContent, props.toolCallId, fetchFn]);
+    void fetchFn(props.toolCallId).catch(() => {
+      // Keep the readable preview when history is temporarily unavailable.
+    });
+  }, [
+    isPatchTool,
+    patchContent,
+    isSpawnAgentTool,
+    spawnAgent,
+    pendingLike,
+    props.toolCallId,
+    fetchFn,
+  ]);
 
   const canExpand =
     !isQuestionTool &&
@@ -291,7 +312,7 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool;
+  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool && !spawnAgent;
   const showDiffView = isPatchTool && !!patchContent;
   const showPatchResult =
     isPatchTool &&
@@ -300,6 +321,7 @@ export function ToolCallMessage(props: {
   const showJsonResult =
     !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
   const hasBody =
+    !!spawnAgent ||
     isQuestionTool ||
     showJsonArgs ||
     showDiffView ||
@@ -352,6 +374,7 @@ export function ToolCallMessage(props: {
                 {args}
               </pre>
             ) : null}
+            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
             {showDiffView && patchContent ? (
               <DiffView patch={patchContent} filePath={args} />
             ) : null}

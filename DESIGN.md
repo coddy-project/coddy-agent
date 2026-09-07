@@ -243,6 +243,8 @@ Implementation lives in **`external/ui/src/ui/messages/ToolCallMessage.tsx`**.
 - **Controls** - **Load more results** (**`data-testid="tool-result-more-link"`** ) and **Hide** (**`data-testid="tool-result-hide-link"`** ) are styled as text links (**`tool-result-text-link`**), in **`tool-result-toggle-row`**, under the result panel.
 - **Full body** - The SPA obtains the saved full string only via **GET `/coddy/sessions/{sessionId}/tool-calls/{toolCallId}`** (JSON **`result`** ). **`App.tsx`** wires **`onFetchToolCallFull`** to that endpoint and merges **`fullResultText`** into transcript state (**`external/ui/src/ui/App.tsx`** ).
 
+- **Spawn agent arguments** - `spawn_agent` uses `SpawnAgentCard` inside the existing disclosure body instead of JSON when `agent` and `prompt` are available. The header pairs a small outlined robot icon in an accent-tinted tile with the agent name and optional description. A clock badge on the right labels the supplied positive `timeout_seconds` as `Timeout Ns`; it is separate from elapsed execution time in the disclosure summary and wraps below the identity on narrow widths. The prompt occupies an inset rounded panel, preserving line breaks and wrapping long words as plain text. Both themes use semantic foreground and surface tokens. Results and their Load more / Hide controls retain the standard tool behavior. Truncated history arguments are fetched once for completed calls; unavailable or malformed arguments keep the readable argument fallback.
+
 Tool call history is persisted per session under `tool_calls/` so it can be restored after restart.
 
 ### Transcript message types (technical)

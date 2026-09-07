@@ -280,6 +280,10 @@ The chat transcript renders a flat list of UI message blocks. Each block has a `
 
 ## Tool call card (bundled SPA, current)
 
+`spawn_agent` has a dedicated argument card: agent icon and name, optional description, a labelled timeout badge, and an inset panel for the full multiline prompt. The timeout is the supplied execution limit in seconds, separate from the elapsed duration beside the tool title. The layout wraps on narrow screens and follows the active light/dark theme. Completed calls with truncated history arguments load the full arguments once; malformed arguments or failed fetches retain the plain argument preview. Result output and Load more / Hide behave as for other tools.
+
+The happy path is in `features/spawn_agent_card.feature`, run by the `http,ui` godog harness through the React DOM test in `SpawnAgentCard.test.tsx`. Edge cases cover invalid arguments, absent/invalid timeouts, escaped prompt text, and history fetch failure.
+
 Authoritative behaviour matches **`DESIGN.md`** tool timeline plus this checklist.
 
 | Concern | Current behaviour |
