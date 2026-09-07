@@ -36,6 +36,8 @@ func TestEscapeYAMLDollarRoundTrip(t *testing.T) {
 		"socks5h://user:p$$w0rd@127.0.0.1:1080",
 		"no-dollars-here",
 		"$1$2$3",
+		"${CWD}/skills",
+		"a${CWD}b$c$${CWD}",
 	} {
 		if got := expandEnvEscaped(escapeYAMLDollar(s)); got != s {
 			t.Errorf("round-trip for %q = %q", s, got)
@@ -58,5 +60,16 @@ func TestExpandEnvEscapedKeepsSessionCWDPlaceholder(t *testing.T) {
 	// ordinary environment reference, as it always was.
 	if got := expandEnvEscaped("$CWD/x"); got != "/decoy/x" {
 		t.Fatalf("bare $CWD must keep expanding from the environment, got %q", got)
+	}
+	// The "$$" escape keeps its contract next to the placeholder.
+	for in, want := range map[string]string{
+		"$${CWD}/x":   "${CWD}/x",
+		"$$$CWD":      "$/decoy",
+		"$$$${CWD}":   "$${CWD}",
+		"a$$b${CWD}c": "a$b${CWD}c",
+	} {
+		if got := expandEnvEscaped(in); got != want {
+			t.Errorf("expandEnvEscaped(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -12,27 +12,27 @@ import (
 // empty environment variables. Values are written to disk with "$" doubled to "$$"
 // (see escapeYAMLDollar) and read back here as a single literal "$".
 func expandEnvEscaped(s string) string {
+	// "$$" is the documented escape for a literal "$". It is resolved first,
+	// pairing left to right exactly as os.Expand would, so that "$${CWD}"
+	// still yields the literal "${CWD}" and escapeYAMLDollar stays an inverse.
+	s = strings.ReplaceAll(s, "$$", escapedDollarSentinel)
 	// ${CWD} is the session placeholder, not an environment reference: it is
 	// hidden from os.Expand and restored afterwards, so it stays in the
 	// document for whoever resolves it against a session working directory,
 	// even when the environment has a CWD variable. Only the braced spelling
 	// is the placeholder; a bare $CWD is an ordinary reference as before.
 	s = strings.ReplaceAll(s, sessionCWDPlaceholder, sessionCWDSentinel)
-	s = os.Expand(s, func(name string) string {
-		// os.Expand yields name == "$" for the "$$" sequence (via isShellSpecialVar).
-		if name == "$" {
-			return "$"
-		}
-		return os.Getenv(name)
-	})
-	return strings.ReplaceAll(s, sessionCWDSentinel, sessionCWDPlaceholder)
+	s = os.Expand(s, os.Getenv)
+	s = strings.ReplaceAll(s, sessionCWDSentinel, sessionCWDPlaceholder)
+	return strings.ReplaceAll(s, escapedDollarSentinel, "$")
 }
 
+// The sentinels stand in for "$$" and "${CWD}" while the environment is
+// expanded; neither carries a "$", so os.Expand passes them through.
 const (
 	sessionCWDPlaceholder = "${CWD}"
-	// sessionCWDSentinel stands in for the placeholder while the environment
-	// is expanded; it carries no "$", so os.Expand passes it through.
-	sessionCWDSentinel = "\x00coddy-session-cwd\x00"
+	sessionCWDSentinel    = "\x00coddy-session-cwd\x00"
+	escapedDollarSentinel = "\x00coddy-escaped-dollar\x00"
 )
 
 // expandConfigBody prepares raw config.yaml text for parsing: ${CODDY_HOME} is
