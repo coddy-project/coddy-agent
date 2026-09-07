@@ -109,8 +109,12 @@ test("themeLabel resolves every known theme id", () => {
   setLocale("en");
   expect(themeLabel("dark")).toBe("Dark");
   expect(themeLabel("rose-pine")).toBe("Rosé Pine");
+  // Theme names are product names and stay English in every locale (the ru
+  // dictionary keeps them verbatim since 3a5e873), so a locale switch must
+  // not change them.
   setLocale("ru");
-  expect(themeLabel("dark")).toBe("Тёмная");
+  expect(themeLabel("dark")).toBe("Dark");
+  expect(themeLabel("rose-pine")).toBe("Rosé Pine");
 });
 
 test("themeLabel returns the id itself for unknown themes", () => {
