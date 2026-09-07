@@ -138,7 +138,12 @@ func Run(args []string, deps CommandDeps) error {
 	// A relay joins its own parents exactly the way an agent joins a relay.
 	// That symmetry is the whole of relay chaining: nothing here knows or cares
 	// how deep the chain goes.
-	joins, err := swarmdto.StartJoins(context.Background(), cfg, swarmdto.KindRelay, paths.Home, srv.Handler(), log)
+	joins, err := swarmdto.StartJoins(context.Background(), cfg, swarmdto.StartJoinsOptions{
+		Kind: swarmdto.KindRelay, Home: paths.Home, Handler: srv.Handler(),
+		// A relay registers under the identity it reports on /swarm/info, so a
+		// parent's view of the topology joins up with this relay's own.
+		InstanceUUID: srv.UUID(), Log: log,
+	})
 	if err != nil {
 		return err
 	}

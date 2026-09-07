@@ -25,7 +25,25 @@ type JoinSet struct {
 // Both `coddy http` and `coddy swarm` call it: an agent joins a relay, and a
 // relay joins another relay exactly the same way. That symmetry is what makes a
 // chain of relays work without a second mechanism.
-func StartJoins(ctx context.Context, cfg *config.Config, kind, home string, handler http.Handler, log *slog.Logger) (*JoinSet, error) {
+// StartJoinsOptions carries what every join in this process has in common.
+type StartJoinsOptions struct {
+	// Kind is what this process registers as: agent or relay.
+	Kind string
+	// Home is where lease secrets are persisted; empty keeps them in memory.
+	Home string
+	// Handler is this process's own HTTP surface, needed by the tunnel.
+	Handler http.Handler
+	// InstanceUUID is this process's identity. A relay must pass the same one
+	// it reports on /swarm/info, or a parent's picture of the topology will
+	// point at an identity nothing else recognises and everything past this
+	// process will look unreachable even while it answers normally.
+	InstanceUUID string
+	// Log receives diagnostics.
+	Log *slog.Logger
+}
+
+func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions) (*JoinSet, error) {
+	kind, home, handler, log := opts.Kind, opts.Home, opts.Handler, opts.Log
 	if cfg == nil || len(cfg.Swarm.Join) == 0 {
 		return &JoinSet{}, nil
 	}
@@ -53,9 +71,10 @@ func StartJoins(ctx context.Context, cfg *config.Config, kind, home string, hand
 				CAFile:             j.Dial.CAFile,
 				InsecureSkipVerify: j.Dial.InsecureSkipVerify,
 			},
-			Handler: handler,
-			Secrets: store,
-			Log:     log,
+			InstanceUUID: opts.InstanceUUID,
+			Handler:      handler,
+			Secrets:      store,
+			Log:          log,
 		})
 		if err != nil {
 			set.Stop()

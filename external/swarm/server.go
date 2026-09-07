@@ -84,6 +84,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /swarm/nodes/{node}", s.handleUnregister)
 	s.registerSessionRoutes()
 	s.registerTunnelRoutes()
+	s.registerTopologyRoutes()
 	s.registerMountRoutes()
 }
 

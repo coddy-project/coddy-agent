@@ -341,6 +341,11 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^a warning names the node "([^"]*)"$`, st.warningNamesNode)
 			ctx.Step(`^the session "([^"]*)" is reachable through the path "([^"]*)"$`, st.reachableThroughPath)
 			ctx.Step(`^the answer is empty and warns about the loop$`, st.emptyWithLoopWarning)
+			ctx.Step(`^I read the swarm topology with the client token$`, st.readTopology)
+			ctx.Step(`^the topology names this relay as its root$`, st.topologyRootIsThisRelay)
+			ctx.Step(`^the topology holds the node "([^"]*)"$`, st.topologyHoldsNode)
+			ctx.Step(`^the topology has a route to "([^"]*)"$`, st.topologyHasRouteTo)
+			ctx.Step(`^the route to "([^"]*)" is "([^"]*)"$`, st.routeIs)
 			ctx.After(func(ctx context.Context, sc *godog.Scenario, err error) (context.Context, error) {
 				st.reset()
 				return ctx, nil
@@ -348,7 +353,7 @@ func TestSwarmSessionsFeature(t *testing.T) {
 		},
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"../../features/swarm_sessions.feature"},
+			Paths:    []string{"../../features/swarm_sessions.feature", "../../features/swarm_topology.feature"},
 			TestingT: t,
 			Output:   os.Stdout,
 		},
@@ -356,4 +361,82 @@ func TestSwarmSessionsFeature(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("swarm sessions feature failed")
 	}
+}
+
+// ---- topology steps ----
+
+type topologyView struct {
+	Root   TopologyNode     `json:"root"`
+	Nodes  []TopologyNode   `json:"nodes"`
+	Routes map[string]Route `json:"routes"`
+}
+
+func (s *sessionsFeatureState) readTopology() error {
+	return s.get("/swarm/topology", nil)
+}
+
+func (s *sessionsFeatureState) decodeTopology() (topologyView, error) {
+	var out topologyView
+	if err := json.Unmarshal(s.body, &out); err != nil {
+		return out, fmt.Errorf("decode topology: %w (%s)", err, s.body)
+	}
+	return out, nil
+}
+
+func (s *sessionsFeatureState) topologyRootIsThisRelay() error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	if out.Root.UUID != s.srv.UUID() {
+		return fmt.Errorf("root uuid = %q, want this relay's own %q", out.Root.UUID, s.srv.UUID())
+	}
+	return nil
+}
+
+func (s *sessionsFeatureState) topologyHoldsNode(name string) error {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return err
+	}
+	for _, n := range out.Nodes {
+		if n.Name == name {
+			return nil
+		}
+	}
+	return fmt.Errorf("no node %q in the topology: %s", name, s.body)
+}
+
+func (s *sessionsFeatureState) topologyHasRouteTo(name string) error {
+	_, err := s.routeTo(name)
+	return err
+}
+
+func (s *sessionsFeatureState) routeIs(name, want string) error {
+	got, err := s.routeTo(name)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("route to %q is %q, want %q", name, got, want)
+	}
+	return nil
+}
+
+func (s *sessionsFeatureState) routeTo(name string) (string, error) {
+	out, err := s.decodeTopology()
+	if err != nil {
+		return "", err
+	}
+	for _, n := range out.Nodes {
+		if n.Name != name {
+			continue
+		}
+		route, ok := out.Routes[n.UUID]
+		if !ok {
+			return "", fmt.Errorf("node %q has no route: %s", name, s.body)
+		}
+		return strings.Join(route.Path, "/"), nil
+	}
+	return "", fmt.Errorf("no node %q in the topology: %s", name, s.body)
 }

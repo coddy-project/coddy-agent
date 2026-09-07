@@ -16,7 +16,9 @@ import (
 // It exists only under the swarm build tag; the stub beside it does nothing, so
 // a plain http build starts no goroutine and opens no connection.
 func startSwarmJoins(ctx context.Context, cfg *config.Config, home string, handler http.Handler, log *slog.Logger) func() {
-	set, err := swarm.StartJoins(ctx, cfg, swarm.KindAgent, home, handler, log)
+	set, err := swarm.StartJoins(ctx, cfg, swarm.StartJoinsOptions{
+		Kind: swarm.KindAgent, Home: home, Handler: handler, Log: log,
+	})
 	if err != nil {
 		log.Error("swarm: could not start joining relays", "error", err)
 		return func() {}
