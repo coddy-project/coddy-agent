@@ -1219,3 +1219,110 @@ func TestAgentWaitForLimitResetDefaults(t *testing.T) {
 		t.Fatalf("an explicit 0 must mean no wait at all, got %v", got)
 	}
 }
+
+// Regression for coddy-project/coddy-agent#146: ${CWD} is a session placeholder.
+// A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
+// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// resolves it against its own workspace, while the process-scoped directories
+// (sessions, scheduler, memory, log file) still resolve it against the default
+// working directory at load time. An environment variable that happens to be
+// named CWD must not be mistaken for the placeholder either.
+func TestLoadFromYAML_SessionCWDPlaceholderSurvivesLoad(t *testing.T) {
+	t.Setenv("CWD", filepath.Join("decoy", "env"))
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+    - "${CODDY_HOME}/skills"
+
+subagents:
+  dirs:
+    - "${CWD}/.coddy/agents"
+
+hooks:
+  files:
+    - "${CWD}/.coddy/hooks.json"
+
+prompts:
+  dir: "${CWD}/prompts"
+
+mcp_servers:
+  - name: fs
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+    env:
+      - name: PROJECT
+        value: "${CWD}"
+
+sessions:
+  dir: "${CWD}/sessions"
+
+scheduler:
+  dir: "${CWD}/.scheduler"
+
+memory:
+  dir: "${CWD}/memory"
+
+logger:
+  file: "${CWD}/coddy.log"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+
+	perSession := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.coddy/agents"},
+		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.coddy/hooks.json"},
+		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
+		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
+		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
+	}
+	for _, tc := range perSession {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+
+	processScoped := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
+		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
+		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
+		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
+	}
+	for _, tc := range processScoped {
+		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}

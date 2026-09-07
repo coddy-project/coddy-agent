@@ -42,3 +42,16 @@ func TestEscapeYAMLDollarRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// TestExpandEnvEscapedKeepsSessionCWDPlaceholder pins that ${CWD} is not an
+// environment reference: it stays in the document for per-session expansion
+// even when the process environment carries a variable of that name.
+func TestExpandEnvEscapedKeepsSessionCWDPlaceholder(t *testing.T) {
+	t.Setenv("CWD", "/decoy")
+	t.Setenv("CODDY_EXPAND_TEST", "value")
+	in := "${CWD}/.agents/skills ${CODDY_EXPAND_TEST} $$"
+	want := "${CWD}/.agents/skills value $"
+	if got := expandEnvEscaped(in); got != want {
+		t.Fatalf("expandEnvEscaped(%q) = %q, want %q", in, got, want)
+	}
+}

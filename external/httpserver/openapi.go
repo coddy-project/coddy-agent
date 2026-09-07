@@ -1361,9 +1361,17 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/skills": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List skills",
-					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`).",
+					"summary": "List skills",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`). " +
+						"When **X-Coddy-Session-ID** is set (existing session), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default session cwd applies.",
 					"operationId": "listSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Optional session whose cwd scopes skill path expansion.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Skill list",
@@ -1375,6 +1383,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},

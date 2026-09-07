@@ -144,11 +144,14 @@ func Resolve(cli CLIPaths) (Paths, error) {
 }
 
 // ExpandPathVars substitutes ${CODDY_HOME} and ${CWD}, then expands ~.
-// Use for config file body and paths that intentionally bake in the process working directory.
-// Substituted paths use forward slashes: the result is spliced into raw YAML, where
-// backslashes inside double-quoted scalars (Windows paths like C:\Users\...) would be
-// parsed as escape sequences and break the document. Forward-slash paths remain valid
-// for os and filepath functions on Windows.
+// Use for process-scoped path fields (sessions.dir, scheduler.dir, memory.dir,
+// logger.file) whose ${CWD} means the default working directory. The raw config
+// body goes through expandConfigBody instead, which keeps ${CWD} in place for
+// the per-session consumers (skills, subagents, hooks, prompts, MCP servers).
+// Substituted paths use forward slashes so the result can also be spliced into
+// raw YAML, where backslashes inside double-quoted scalars (Windows paths like
+// C:\Users\...) would be parsed as escape sequences and break the document.
+// Forward-slash paths remain valid for os and filepath functions on Windows.
 func ExpandPathVars(s string, p Paths) string {
 	s = strings.ReplaceAll(s, "${CODDY_HOME}", yamlSafePath(p.Home))
 	s = strings.ReplaceAll(s, "${CWD}", yamlSafePath(p.CWD))

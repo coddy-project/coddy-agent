@@ -3462,3 +3462,59 @@ func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
 		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
 	}
 }
+
+// GET /coddy/skills accepts the optional X-Coddy-Session-ID header the way
+// /coddy/slash-commands does: a malformed id is a 400, an unknown session a
+// 404, and the header-less call keeps listing the server default workspace.
+func TestCoddySkillsListSessionHeaderErrors(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{"${CWD}/.agents/skills"}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(header string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/coddy/skills", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header != "" {
+			req.Header.Set("X-Coddy-Session-ID", header)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(b)
+	}
+	if code, body := get("../escape"); code != http.StatusBadRequest {
+		t.Fatalf("malformed session id: status %d body %s", code, body)
+	}
+	if code, body := get("sess_0123456789abcdef"); code != http.StatusNotFound {
+		t.Fatalf("unknown session: status %d body %s", code, body)
+	}
+	if code, body := get(""); code != http.StatusOK {
+		t.Fatalf("no header: status %d body %s", code, body)
+	}
+}
