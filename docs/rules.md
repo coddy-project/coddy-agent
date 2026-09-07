@@ -34,7 +34,7 @@ This is what keeps a repo with vendored sibling checkouts usable — 45 nested f
 
 The **root** `AGENTS.md` is not part of this set — it already enters the prompt unconditionally as a project docs preamble (below).
 
-CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode and what activates it.
+CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`).
 
 ## Rule file formats
 
@@ -75,7 +75,16 @@ The two headers above mean the same thing in `http-layer.mdc` and `http-layer.md
 
 ### Glob patterns
 
-Patterns follow Cursor and Claude Code: `*` matches within one path segment, `**` any number of directories, `{a,b}` alternatives, `[abc]` character classes. They are anchored at the project root (the session cwd), so `internal/**/*.go` matches `internal/agent/react.go` but not `external/x.go`, and `*.md` names markdown files in the root only; use `**/*.md` for any depth. In `.mdc` files several patterns are separated by commas (`docs/**/*.md, README.md`); a comma inside braces (`*.{ts,tsx}`) does not split.
+Patterns follow Cursor and Claude Code: `*` matches within one path segment, `**` any number of directories, `{a,b}` alternatives, `[abc]` character classes. They are anchored at the project root (the session cwd): a file is matched by its path relative to the root, so `internal/**/*.go` matches `internal/agent/react.go` but not `external/x.go`, `*.md` names markdown files in the root only (use `**/*.md` for any depth), and a file outside the workspace, such as a sibling checkout or a module cache, never matches anything. In `.mdc` files several patterns are separated by commas (`docs/**/*.md, README.md`); a comma inside braces (`*.{ts,tsx}`) does not split.
+
+### Upgrading from earlier releases
+
+Rule files already on disk may change mode after this release; `coddy rules list` shows the result.
+
+- `alwaysApply: false` together with `globs` is auto-attached once a matching file is attached or read. Earlier releases kept such a rule mention-only. Drop the `globs` to keep a rule manual.
+- `.md` rules without `alwaysApply` follow Claude Code: unconditional without `paths`, path-gated with them. Earlier releases treated them as mention-only. Write `alwaysApply: false` to keep a `.md` rule manual.
+- A directory-less pattern such as `*.go` matches files in the project root only. Earlier releases matched it against the file name at any depth; write `**/*.go` for that.
+- Cursor headers that are not valid YAML (`globs: **/*.go`) are now read. Earlier releases dropped the whole header, so those rules were always on with no globs; they now honour their `alwaysApply` and wait for their globs like any other rule.
 
 ## Activation
 

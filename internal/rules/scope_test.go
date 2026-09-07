@@ -62,6 +62,10 @@ func TestMatchAutoScopedAgentsRule(t *testing.T) {
 // file is read. Rules with neither a scope nor globs are ignored on purpose:
 // they are on from the first turn and re-matching them per tool call is noise.
 func TestMatchScopedGlobRules(t *testing.T) {
+	root, err := filepath.Abs(filepath.FromSlash("/proj"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	always := &rules.Rule{
 		ID: "coddy:always", Name: "always",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto, Content: "always body",
@@ -70,22 +74,23 @@ func TestMatchScopedGlobRules(t *testing.T) {
 		ID: "cursor:go", Name: "go",
 		AlwaysApply: true, ApplyMode: rules.ApplyAuto,
 		Globs:       []string{"internal/**/*.go"},
-		Root:        filepath.Join("/proj"),
+		Root:        root,
 		Content:     "glob body",
 	}
 	mention := &rules.Rule{
 		ID: "cursor:manual", Name: "manual",
 		AlwaysApply: false, ApplyMode: rules.ApplyMention,
 		Globs:       []string{"**/*.go"},
+		Root:        root,
 		Content:     "manual body",
 	}
 	catalog := []*rules.Rule{always, globbed, mention}
 
-	got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "internal", "agent", "react.go")})
+	got := rules.MatchScoped(catalog, []string{filepath.Join(root, "internal", "agent", "react.go")})
 	if len(got) != 1 || got[0].ID != "cursor:go" {
 		t.Fatalf("MatchScoped must return exactly the glob rule the path matches, got %+v", got)
 	}
-	if got := rules.MatchScoped(catalog, []string{filepath.Join("/proj", "docs", "x.md")}); len(got) != 0 {
+	if got := rules.MatchScoped(catalog, []string{filepath.Join(root, "docs", "x.md")}); len(got) != 0 {
 		t.Fatalf("a path outside every glob must activate nothing, got %d", len(got))
 	}
 	if got := rules.MatchScoped(catalog, nil); len(got) != 0 {
@@ -93,7 +98,7 @@ func TestMatchScopedGlobRules(t *testing.T) {
 	}
 	// MatchAuto keeps its semantics: the always-on rule matches on any turn,
 	// the glob rule on a matching context file, the mention rule never.
-	if got := rules.MatchAuto(catalog, []string{filepath.Join("/proj", "internal", "x.go")}); len(got) != 2 {
+	if got := rules.MatchAuto(catalog, []string{filepath.Join(root, "internal", "x.go")}); len(got) != 2 {
 		t.Fatalf("MatchAuto = %d, want 2", len(got))
 	}
 }

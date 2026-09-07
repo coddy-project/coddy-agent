@@ -331,33 +331,28 @@ func loadMarkdownRulesFromRoot(root string, src Source) ([]*Rule, error) {
 }
 
 // MatchGlob reports whether file matches pattern. Patterns use doublestar
-// syntax (**, {a,b}, [abc]) and are anchored at the project root: context
-// files arrive as absolute paths, so the file is tried relative to root as
-// well as as given. As in Cursor and Claude Code, a pattern without a
-// directory part ("*.md") names files in the root only; "**/*.md" reaches
-// every depth.
+// syntax (**, {a,b}, [abc]) and are anchored at the project root: an absolute
+// file is matched by its path relative to root, a relative file is taken as
+// already root-relative, and a file outside the root (or on another volume)
+// matches nothing, so neither the host path above the workspace nor a
+// sibling checkout can activate a rule. Without a root the file is matched as
+// given. As in Cursor and Claude Code, a pattern without a directory part
+// ("*.md") names files in the root only; "**/*.md" reaches every depth.
 func MatchGlob(pattern, root, file string) bool {
 	pattern = strings.TrimPrefix(strings.TrimSpace(filepath.ToSlash(pattern)), "./")
 	file = strings.TrimSpace(file)
 	if pattern == "" || file == "" {
 		return false
 	}
-	slashFile := filepath.ToSlash(filepath.Clean(file))
-	candidates := []string{slashFile}
-	if rootless := strings.TrimLeft(strings.TrimPrefix(slashFile, filepath.ToSlash(filepath.VolumeName(file))), "/"); rootless != slashFile {
-		candidates = append(candidates, rootless)
-	}
-	if root != "" {
-		if rel, err := filepath.Rel(root, file); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			candidates = append(candidates, filepath.ToSlash(rel))
+	candidate := filepath.Clean(file)
+	if root != "" && filepath.IsAbs(candidate) {
+		rel, err := filepath.Rel(root, candidate)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return false
 		}
+		candidate = rel
 	}
-	for _, c := range candidates {
-		if globMatch(pattern, c) {
-			return true
-		}
-	}
-	return false
+	return globMatch(pattern, filepath.ToSlash(candidate))
 }
 
 func globMatch(pattern, candidate string) bool {
@@ -366,17 +361,6 @@ func globMatch(pattern, candidate string) bool {
 	}
 	ok, err := doublestar.Match(pattern, candidate)
 	return err == nil && ok
-}
-
-// MatchesAny reports whether any context file matches a glob pattern. The
-// files are matched as given; MatchGlob adds the project-relative form.
-func MatchesAny(pattern string, files []string) bool {
-	for _, f := range files {
-		if MatchGlob(pattern, "", f) {
-			return true
-		}
-	}
-	return false
 }
 
 func matchesRuleGlobs(r *Rule, contextFiles []string) bool {

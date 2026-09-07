@@ -18,7 +18,8 @@ func ListCatalog(cwd string, f *Factory, systems []Source) error {
 
 // RenderCatalog writes the discovered rules as the table `coddy rules list`
 // prints: one row per rule with its source folder, the dialect its extension
-// selected, the activation mode and what activates it.
+// selected, the activation mode, whether it is in every prompt (ALWAYS: an
+// auto rule with no patterns and no directory scope) and what activates it.
 func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error {
 	if f == nil {
 		f = DefaultFactory()
@@ -48,12 +49,15 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 		if len(desc) > 50 {
 			desc = desc[:47] + "..."
 		}
+		// ALWAYS answers "is this rule in every prompt?": a gated rule is an
+		// auto rule too, but it waits for a matching path.
+		alwaysOn := r.ApplyMode == ApplyAuto && len(r.Globs) == 0 && r.ScopeDir == ""
 		t.AppendRow(table.Row{
 			string(r.Source),
 			string(r.Format),
 			r.CanonicalName(),
 			string(r.ApplyMode),
-			fmt.Sprintf("%v", r.AlwaysApply),
+			fmt.Sprintf("%v", alwaysOn),
 			activates,
 			desc,
 		})

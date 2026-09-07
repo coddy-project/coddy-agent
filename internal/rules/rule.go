@@ -67,6 +67,11 @@ type Rule struct {
 	Format      Format
 	Description string
 	Globs       []string
+	// AlwaysApply reports whether the rule is an auto rule: Cursor's
+	// alwaysApply: true, or its equivalents (patterns that gate the rule, a
+	// Claude Code rule without paths, a file without frontmatter). It mirrors
+	// ApplyMode == ApplyAuto rather than the literal frontmatter key; a rule
+	// with Globs or a ScopeDir is auto but still waits for a matching path.
 	AlwaysApply bool
 	ApplyMode   ApplyMode
 	Content     string

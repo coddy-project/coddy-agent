@@ -64,7 +64,8 @@ jobs:
   # packages own the behaviour that differs by platform - the process group
   # probe, the console shell, the background task pool that starts real
   # processes through it, the self-update helper that replaces a running
-  # coddy.exe - and their Windows-only tests have no other place to run. The
+  # coddy.exe, the rule glob matcher that anchors drive-letter paths at the
+  # workspace - and their Windows-only tests have no other place to run. The
   # scope is deliberately narrow; widen it as the rest of the tree is shown to
   # hold on Windows.
   test-windows:
@@ -82,7 +83,7 @@ jobs:
           cache: true
 
       - name: Run platform tests
-        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/...
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
 
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...

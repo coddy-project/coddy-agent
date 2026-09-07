@@ -3,6 +3,7 @@ package rules_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -276,6 +277,14 @@ func TestParseRuleFileCursorDialect(t *testing.T) {
 			wantAlways: false,
 		},
 		{
+			// Unknown keys alone still make a header: Cursor's alwaysApply
+			// defaults to false, whether the YAML parses or not.
+			name:       "unknown keys only is a manual rule",
+			content:    "---\ntitle: Notes\nauthor: Team: Core\n---\nBODY",
+			wantMode:   rules.ApplyMention,
+			wantAlways: false,
+		},
+		{
 			name:        "no frontmatter is on immediately",
 			content:     "BODY only",
 			wantMode:    rules.ApplyAuto,
@@ -355,6 +364,12 @@ func TestParseRuleFileClaudeDialect(t *testing.T) {
 		{
 			name:       "empty frontmatter is loaded unconditionally",
 			content:    "---\n---\nBODY",
+			wantMode:   rules.ApplyAuto,
+			wantAlways: true,
+		},
+		{
+			name:       "unknown keys only is loaded unconditionally",
+			content:    "---\ntitle: Notes\nauthor: Team: Core\n---\nBODY",
 			wantMode:   rules.ApplyAuto,
 			wantAlways: true,
 		},
@@ -440,42 +455,96 @@ func TestParseRuleFileRejectsUnknownExtension(t *testing.T) {
 
 // --- glob matching -------------------------------------------------------------
 
+// absPath builds an absolute path from a slash-separated one on every OS:
+// "/proj" stays "/proj" on POSIX and gains the current drive on Windows, so
+// the anchoring logic under test sees a truly absolute root and file.
+func absPath(t *testing.T, slashPath string) string {
+	t.Helper()
+	abs, err := filepath.Abs(filepath.FromSlash(slashPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
 // TestMatchGlob pins the matcher both dialects rely on: doublestar syntax
 // (**, {a,b}) against the project-relative path, since context files arrive
-// as absolute paths, plus the file-name leniency of a directory-less pattern.
+// as absolute paths, with the root as a hard boundary.
 func TestMatchGlob(t *testing.T) {
-	root := filepath.Join("/proj")
+	root := absPath(t, "/proj")
 	cases := []struct {
 		name    string
 		pattern string
+		root    string
 		file    string
 		want    bool
 	}{
-		{"any depth go file", "**/*.go", filepath.Join(root, "internal", "agent", "react.go"), true},
-		{"root go file through **", "**/*.go", filepath.Join(root, "main.go"), true},
-		{"directory prefix", "internal/**/*.go", filepath.Join(root, "internal", "agent", "react.go"), true},
-		{"directory prefix, direct child", "internal/**/*.go", filepath.Join(root, "internal", "x.go"), true},
-		{"directory prefix does not leak to siblings", "internal/**/*.go", filepath.Join(root, "external", "x.go"), false},
-		{"deep prefix", "external/httpserver/**/*.go", filepath.Join(root, "external", "httpserver", "server.go"), true},
-		{"brace group", "src/**/*.{ts,tsx}", filepath.Join(root, "src", "ui", "App.tsx"), true},
-		{"brace group other alternative", "src/**/*.{ts,tsx}", filepath.Join(root, "src", "ui", "app.ts"), true},
-		{"brace group rejects others", "src/**/*.{ts,tsx}", filepath.Join(root, "src", "ui", "app.css"), false},
-		{"everything under a dir", "docs/**", filepath.Join(root, "docs", "a", "b.md"), true},
-		{"single file", "README.md", filepath.Join(root, "README.md"), true},
-		{"single file elsewhere", "README.md", filepath.Join(root, "docs", "README.md"), false},
-		{"directory-less pattern is root only", "*.md", filepath.Join(root, "docs", "guide.md"), false},
-		{"directory-less pattern matches in the root", "*.md", filepath.Join(root, "README.md"), true},
-		{"any depth through **", "**/*.md", filepath.Join(root, "docs", "guide.md"), true},
-		{"leading ./ is ignored", "./internal/**/*.go", filepath.Join(root, "internal", "x.go"), true},
-		{"relative context path", "internal/**/*.go", filepath.Join("internal", "x.go"), true},
-		{"file outside the project only matches unanchored patterns", "**/*.go", filepath.Join("/other", "x.go"), true},
-		{"anchored pattern never matches outside the project", "internal/**/*.go", filepath.Join("/other", "internal", "x.go"), false},
-		{"blank pattern", "   ", filepath.Join(root, "x.go"), false},
+		{"any depth go file", "**/*.go", root, filepath.Join(root, "internal", "agent", "react.go"), true},
+		{"root go file through **", "**/*.go", root, filepath.Join(root, "main.go"), true},
+		{"directory prefix", "internal/**/*.go", root, filepath.Join(root, "internal", "agent", "react.go"), true},
+		{"directory prefix, direct child", "internal/**/*.go", root, filepath.Join(root, "internal", "x.go"), true},
+		{"directory prefix does not leak to siblings", "internal/**/*.go", root, filepath.Join(root, "external", "x.go"), false},
+		{"deep prefix", "external/httpserver/**/*.go", root, filepath.Join(root, "external", "httpserver", "server.go"), true},
+		{"brace group", "src/**/*.{ts,tsx}", root, filepath.Join(root, "src", "ui", "App.tsx"), true},
+		{"brace group other alternative", "src/**/*.{ts,tsx}", root, filepath.Join(root, "src", "ui", "app.ts"), true},
+		{"brace group rejects others", "src/**/*.{ts,tsx}", root, filepath.Join(root, "src", "ui", "app.css"), false},
+		{"everything under a dir", "docs/**", root, filepath.Join(root, "docs", "a", "b.md"), true},
+		{"single file", "README.md", root, filepath.Join(root, "README.md"), true},
+		{"single file elsewhere", "README.md", root, filepath.Join(root, "docs", "README.md"), false},
+		{"directory-less pattern is root only", "*.md", root, filepath.Join(root, "docs", "guide.md"), false},
+		{"directory-less pattern matches in the root", "*.md", root, filepath.Join(root, "README.md"), true},
+		{"any depth through **", "**/*.md", root, filepath.Join(root, "docs", "guide.md"), true},
+		{"leading ./ is ignored", "./internal/**/*.go", root, filepath.Join(root, "internal", "x.go"), true},
+		{"relative context path is taken as root-relative", "internal/**/*.go", root, filepath.Join("internal", "x.go"), true},
+		{"unclean path is cleaned first", "internal/**/*.go", root, filepath.Join(root, "docs", "..", "internal", "x.go"), true},
+		{"a file outside the project matches nothing", "**/*.go", root, absPath(t, "/other/x.go"), false},
+		{"anchored pattern never matches outside the project", "internal/**/*.go", root, absPath(t, "/other/internal/x.go"), false},
+		{"the parent of the root is outside", "**/*.go", root, absPath(t, "/x.go"), false},
+		// The host path above the workspace must never leak into the match:
+		// with root /tmp/proj, "tmp/**/*.go" is about a tmp/ directory inside
+		// the project, not about where the checkout happens to live.
+		{"host prefix never leaks into the match", "tmp/**/*.go", absPath(t, "/tmp/proj"), absPath(t, "/tmp/proj/internal/x.go"), false},
+		{"a child directory starting with two dots is inside", "**/*.go", root, filepath.Join(root, "..cache", "x.go"), true},
+		{"a child directory starting with two dots keeps its prefix", "..cache/**/*.go", root, filepath.Join(root, "..cache", "x.go"), true},
+		{"without a root the file is matched as given", "**/*.go", "", absPath(t, "/other/x.go"), true},
+		{"without a root an anchored pattern sees the whole path", "internal/**/*.go", "", filepath.Join(root, "internal", "x.go"), false},
+		{"blank pattern", "   ", root, filepath.Join(root, "x.go"), false},
+		{"blank file", "**/*.go", root, "  ", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := rules.MatchGlob(tc.pattern, root, tc.file); got != tc.want {
-				t.Fatalf("MatchGlob(%q, %q, %q) = %v, want %v", tc.pattern, root, tc.file, got, tc.want)
+			if got := rules.MatchGlob(tc.pattern, tc.root, tc.file); got != tc.want {
+				t.Fatalf("MatchGlob(%q, %q, %q) = %v, want %v", tc.pattern, tc.root, tc.file, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestMatchGlobWindowsPaths covers what only a Windows host can exercise:
+// drive letters, case folding and mixed separators. CI runs this package on
+// windows-latest; elsewhere the test is skipped.
+func TestMatchGlobWindowsPaths(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows path semantics")
+	}
+	cases := []struct {
+		name    string
+		pattern string
+		root    string
+		file    string
+		want    bool
+	}{
+		{"drive letter root", "internal/**/*.go", `C:\proj`, `C:\proj\internal\agent\react.go`, true},
+		{"case folds on the drive and the path", "internal/**/*.go", `C:\Proj`, `c:\proj\Internal\x.go`, true},
+		{"mixed separators", "internal/**/*.go", `C:\proj`, `C:/proj/internal\x.go`, true},
+		{"another volume is outside", "**/*.go", `C:\proj`, `D:\proj\internal\x.go`, false},
+		{"sibling directory is outside", "**/*.go", `C:\proj`, `C:\other\x.go`, false},
+		{"host prefix never leaks into the match", "proj/**/*.go", `C:\proj`, `C:\proj\proj\..\internal\x.go`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rules.MatchGlob(tc.pattern, tc.root, tc.file); got != tc.want {
+				t.Fatalf("MatchGlob(%q, %q, %q) = %v, want %v", tc.pattern, tc.root, tc.file, got, tc.want)
 			}
 		})
 	}
@@ -633,6 +702,7 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(tmp, ".agents", "rules", "go.mdc"), []byte("---\ndescription: Go\nglobs: **/*.go\nalwaysApply: false\n---\nGO"), 0o644)
 	_ = os.WriteFile(filepath.Join(tmp, ".agents", "rules", "api.md"), []byte("---\npaths: [\"internal/**/*.go\"]\n---\nAPI"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmp, ".agents", "rules", "style.md"), []byte("---\ndescription: House style\n---\nSTYLE"), 0o644)
 	_ = os.WriteFile(filepath.Join(tmp, "pkg", "AGENTS.md"), []byte("nested"), 0o644)
 
 	var buf strings.Builder
@@ -643,6 +713,9 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 	if !strings.Contains(out, "FORMAT") {
 		t.Fatalf("header lacks FORMAT column:\n%s", out)
 	}
+	// Columns: SOURCE, FORMAT, NAME, APPLY, ALWAYS, ACTIVATES ON, DESCRIPTION.
+	// Empty cells are dropped by the split below, so only the leading five
+	// (never empty) are addressed by index.
 	rows := map[string][]string{}
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, "│") {
@@ -654,20 +727,25 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 				cells = append(cells, s)
 			}
 		}
-		if len(cells) >= 3 {
+		if len(cells) >= 5 {
 			rows[cells[2]] = cells
 		}
 	}
-	if r := rows["go"]; len(r) < 3 || r[0] != "agents-dir" || r[1] != "cursor" {
+	// ALWAYS answers "in every prompt?": gated rules say false even when
+	// they are auto rules, an unconditional Claude rule says true.
+	if r := rows["go"]; len(r) < 5 || r[0] != "agents-dir" || r[1] != "cursor" || r[3] != "auto" || r[4] != "false" {
 		t.Fatalf("go row = %v", r)
 	}
-	if r := rows["api"]; len(r) < 3 || r[0] != "agents-dir" || r[1] != "claude" {
+	if r := rows["api"]; len(r) < 5 || r[0] != "agents-dir" || r[1] != "claude" || r[3] != "auto" || r[4] != "false" {
 		t.Fatalf("api row = %v", r)
 	}
-	if r := rows["pkg/AGENTS.md"]; len(r) < 3 || r[0] != "agents" || r[1] != "agents.md" {
+	if r := rows["style"]; len(r) < 5 || r[0] != "agents-dir" || r[1] != "claude" || r[3] != "auto" || r[4] != "true" {
+		t.Fatalf("style row = %v", r)
+	}
+	if r := rows["pkg/AGENTS.md"]; len(r) < 5 || r[0] != "agents" || r[1] != "agents.md" || r[4] != "false" {
 		t.Fatalf("AGENTS.md row = %v", r)
 	}
-	if !strings.Contains(out, "3 rule(s) under") {
+	if !strings.Contains(out, "4 rule(s) under") {
 		t.Fatalf("summary line missing:\n%s", out)
 	}
 }
