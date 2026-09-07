@@ -1,0 +1,93 @@
+.spawn-agent-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 12px;
+  background: var(--coddy-surface-inset);
+  color: var(--coddy-surface-code-fg);
+}
+
+.spawn-agent-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.spawn-agent-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.spawn-agent-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.spawn-agent-identity {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.spawn-agent-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.spawn-agent-description {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.spawn-agent-timeout {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--coddy-blend-base));
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.spawn-agent-timeout svg {
+  width: 14px;
+  height: 14px;
+}
+
+.spawn-agent-prompt {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--text) 8%, var(--coddy-blend-base));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.coddy-tool-call-body--connected-result > .spawn-agent-card {
+  border-radius: 12px 12px 0 0;
+}
+
+.coddy-tool-call-body--connected-result
+  > .spawn-agent-card
+  + .tool-call-result-card {
+  margin-top: -8px;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}

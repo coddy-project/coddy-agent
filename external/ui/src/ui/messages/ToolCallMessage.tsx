@@ -18,6 +18,8 @@ import type { BackgroundTask } from "../tasks/types";
 import { buildToolCallPreview } from "../chat/permissionToolPreview";
 import type { TodoPlanEntry } from "../chat/todoToolPreview";
 import { useT } from "../i18n/I18nProvider";
+import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
+import { SpawnAgentCard } from "./SpawnAgentCard";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -140,6 +142,11 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
 
   const rawNameLower = rawName.toLowerCase();
   const kindLower = (props.kind || "").trim().toLowerCase();
+  const isSpawnAgentTool = rawNameLower === "spawn_agent" || kindLower === "spawn_agent";
+  const spawnAgent = useMemo(
+    () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
+    [isSpawnAgentTool, props.argsText],
+  );
   const isPatchTool = rawNameLower === "apply_patch";
   const isWriteTool =
     !isPatchTool &&
@@ -257,7 +264,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   }, [props.toolCallId]);
 
   // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
-  // leaves a patch, write, or edit payload unparseable, so restored cards match live SSE
+  // leaves a patch, write, edit, or spawn_agent payload unparseable, so restored cards match live SSE
   // instead of rendering an empty preview. Any status qualifies: a session restored while
   // its tool was still in_progress carries the same truncated preview.
   const fetchFn = props.onFetchToolCallFull;
@@ -273,18 +280,21 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
   useEffect(() => {
     const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      ((isWriteTool || isEditTool) &&
+      ((isWriteTool || isEditTool || isSpawnAgentTool) &&
         !!props.argsText &&
         !argsTextIsCompleteJSON);
     if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
-    void fetchFn(props.toolCallId);
+    void fetchFn(props.toolCallId).catch(() => {
+      // Preserve the readable preview if the saved arguments cannot be loaded.
+    });
   }, [
     argsTextIsCompleteJSON,
     fetchFn,
     isEditTool,
     isPatchTool,
     isWriteTool,
+    isSpawnAgentTool,
     patchContent,
     props.argsText,
     props.toolCallId,
@@ -364,7 +374,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
         toolPreview.destinationPath.trim() !== ""));
   const backgroundTask = props.backgroundTask;
   const backgroundNowMs = props.backgroundNowMs ?? nowMs;
-  const showToolPreview = !isQuestionTool && toolPreviewHasContent;
+  const showToolPreview = !isQuestionTool && !spawnAgent && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
@@ -377,8 +387,9 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
       (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
     ) &&
     !!(resultBody && resultBody.length > 0);
-  const hasConnectedResult = showToolPreview && (showPatchResult || showResult);
+  const hasConnectedResult = (showToolPreview || !!spawnAgent) && (showPatchResult || showResult);
   const hasBody =
+    !!spawnAgent ||
     isQuestionTool ||
     showToolPreview ||
     showPatchResult ||
@@ -457,6 +468,7 @@ export const ToolCallMessage = memo(function ToolCallMessage(props: {
                 toolStatus={status}
               />
             ) : null}
+            {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
             {showPatchResult || showResult ? (
               <div
                 className={[
