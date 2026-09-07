@@ -109,14 +109,23 @@ The v2.1 two-milestone split survives, with federation and the tunnel moved forw
 | Group | Content | Enables |
 |---|---|---|
 | G1 | hardened listener, `swarm:` config, registry with leases, `coddy swarm`, `/swarm/info`, `/swarm/nodes` | anything |
-| G2 | outbound join from a node (register + heartbeat + lease secret) | auto-registration |
-| G3 | per-node mount `/swarm/nodes/{node}/…`, **direct** transport | drive one node through a relay |
-| G4 | **tunnel** transport (reverse HTTP/2, dial-out nodes) | closed contours |
-| G5 | `/swarm/sessions` aggregation, search, warnings | one pane of glass |
-| G6 | **multi-hop**: relay-in-relay, path chaining, loop guard, `/swarm/topology` | §0.1 |
-| G7 | console/ACP swarm mode | `--remote <relay>` |
-| G8 | SPA swarm mode: node groups, search, badges, node picker, topology graph | UI |
-| G9 | live e2e stack, screenshots, video, subagent demo across relays | proof |
+| G2 | outbound join from a node (register + heartbeat + lease secret), TLS and proxy legs | auto-registration |
+| G3 | per-node mount `/swarm/nodes/{node}/…`, **direct** transport, control-plane isolation | drive one node through a relay |
+| G4 | `/swarm/sessions` aggregation, node labels, warnings | one pane of glass |
+| G5 | search across nodes (node name, title, cwd) | finding work |
+| G6 | **multi-hop**: relay-in-relay, chaining, peer channel, loop guard | §0.1 |
+| G7 | **tunnel** transport (reverse HTTP/2, dial-out nodes) | closed contours |
+| G8 | topology graph, ring discovery, shortest-route BFS, `/swarm/topology` | rings |
+| G9 | console/ACP swarm mode | `--remote <relay>` |
+| G10 | SPA transport routing (`apiPathFor`, composite identity) | correctness |
+| G11 | SPA swarm UI: node groups, filter, search, badges, node picker | UI |
+| G12 | SPA topology view | graph |
+| G13 | live e2e stack, screenshots, video, subagent demo across relays | proof |
+
+Both round-4 reviewers judged the original nine groups too coarse to review safely, so
+aggregation is split from search, the SPA work is split into transport, list, and graph, and
+a minimal multi-hop slice lands before the tunnel rather than after it — the tunnel is the
+highest production risk and benefits from arriving once routing is already proven.
 
 Non-goals unchanged: no relay-side persistence, no session moves, no load balancing, no
 OAuth, no per-node client ACLs (the blast radius of one relay token is documented, §6),
@@ -132,6 +141,20 @@ no aggregated "create session anywhere".
   command `coddy swarm`, config block `swarm:`, API prefix `/swarm/`, docs `docs/swarm.md`.
   "Relay" stays a role in prose only — the repo already has two other "relay"s
   (the deferred WS hub; the in-process `composerStreamRelay`).
+- **The whole feature switches off with its build tag**, the way `ui` and `cli` do, and a
+  binary built without it is exactly today's binary:
+  - `coddy swarm` exists only under the tag; without it the command prints the same
+    "built without support" message the other optional commands use (`cmd/coddy/swarm.go`
+    plus `swarm_stub.go`);
+  - the agent-side join loop lives behind `//go:build http && swarm` with an `http && !swarm`
+    stub that registers nothing, so a plain `http` build starts no goroutine, opens no
+    connection, and serves no swarm route;
+  - `internal/swarm` stays untagged but is deliberately inert — pure types, validation and a
+    client that only runs when something calls it — so it costs a tagless build nothing but
+    a few kilobytes of unreferenced code;
+  - the SPA's swarm mode is dead code unless a swarm environment is selected, and the config
+    block simply sits unused, exactly like `gateways:` in a binary built without gateways.
+  - a CI row builds and tests **without** the tag to keep that promise honest.
 - Matrix rows land with the group that introduces them: `swarm` (G1), `http,swarm` (G2 — the
   BDD harness boots in-process `coddy http` agents), `cli,http,swarm` (G7).
 
@@ -185,33 +208,78 @@ Handshake, two plain steps so both transports share one registration path:
 2. `POST /swarm/tunnel` with the lease secret → relay validates, replies `200`, hijacks, and
    both sides switch to prior-knowledge HTTP/2 with roles inverted.
 
-Reconnect: the node redials with exponential backoff + jitter, presenting the same lease
-secret; the registry swaps the transport in place and bumps the lease generation, so
-in-flight requests fail cleanly rather than being routed to a dead conn.
+Lifecycle details the spike does **not** prove and which therefore have to be specified and
+tested rather than assumed (round-4, both reviewers):
+
+- **Buffered bytes at the hijack.** `Hijack()` hands back a `bufio.ReadWriter` that may
+  already hold bytes the peer sent after its request. Those bytes are the start of the HTTP/2
+  preface, and dropping them corrupts the connection. The relay must splice anything already
+  buffered ahead of the raw conn. The spike is silent on this because its client waited for
+  the response before speaking; a real client will not. **This is a known bug to fix, not a
+  detail to remember.**
+- **Reconnect.** Exponential backoff with jitter, so a relay restart does not draw a
+  synchronised reconnect storm from every node at once; the relay may answer `Retry-After`
+  and bound admissions.
+- **Connection replacement.** A new connection is accepted only after authentication, then
+  swapped atomically with a generation bump; the old one is closed rather than left
+  half-open. In-flight streams on the old connection fail loudly.
+- **No transparent replay.** A request whose response never arrived is reported as
+  indeterminate, never re-sent: replaying a partially transmitted turn or a permission answer
+  would duplicate an irreversible action.
+- **Liveness.** HTTP/2 PING with a bounded round-trip plus a read-idle timeout detects a
+  half-open connection instead of waiting for TCP to notice.
+- **One connection is one failure and flow-control domain.** Explicit
+  `MaxConcurrentStreams` and window sizes, and a test proving a bulk response does not starve
+  a live SSE stream on the same tunnel.
+- **Deployment constraint.** The upgrade needs an end-to-end raw connection (see §3.6.2).
+
+Reconnect leaves the lease intact; the registry swaps the transport in place, so a client
+sees a short failure rather than a vanished node.
 
 A node chooses its transport by config: `advertise_url` set ⇒ direct; omitted ⇒ tunnel.
 
-### 3.4 The mount (per-node transparent proxy)
+### 3.4 The mount (per-node proxy)
 
-`/swarm/nodes/{node}/…` reverse-proxies the node's **entire** surface — no route allowlist,
-so new node routes (subagents, hooks, workspace/file, usage) work the day they ship.
+`/swarm/nodes/{node}/…` reverse-proxies a node under a **prefix allowlist**, not a route
+allowlist: `/v1/*`, `/coddy/*`, the read-only swarm routes (`/swarm/info`, `/swarm/nodes`,
+`/swarm/sessions`, `/swarm/topology`), and nested `/swarm/nodes/*` for chaining. New node
+routes under those prefixes work the day they ship; the **control plane never proxies**.
+
+Control-plane isolation is the first thing both round-4 reviewers demanded, and for the same
+reason: the proxy replaces the caller's credential with the node's own, so any route reachable
+through a mount is a route the relay authorises on the caller's behalf. `POST /swarm/register`,
+`POST /swarm/tunnel`, and `DELETE /swarm/nodes/{node}` are therefore refused at the mount —
+otherwise a client could register a node, or evict one, inside a relay it merely reads from.
 
 Contract:
 
-- unknown or offline `{node}` ⇒ 502 with a JSON error naming the node and its lease state;
-- **`Authorization` is replaced, never forwarded** — the client authenticates to the relay,
-  the relay injects the node's own credential; cookies and hop-by-hop headers are stripped;
+- unknown or offline `{node}` ⇒ a structured JSON error naming **the failing hop**, its lease
+  state, and the remaining path, so a client three hops away learns which node broke rather
+  than reading an opaque 502;
+- **`Authorization` is replaced, never forwarded**; cookies, hop-by-hop headers, inbound
+  `Forwarded` / `X-Forwarded-*` / `X-Real-ID` and any inbound `X-Coddy-Swarm-*` are stripped;
   `Last-Event-ID`, `X-Coddy-Session-ID`, `Accept`, `Content-Type` pass through;
 - relay auth accepts `?access_token=` on mounted SSE GET patterns (EventSource cannot set
   headers) and **strips the parameter** before proxying, so the relay's client token never
   lands in node logs;
-- SSE passes through with immediate flush and **no total request deadline** on streaming
-  routes (a permission prompt can block for minutes); header/idle limits still apply;
-  non-streaming routes get body caps;
+- **no wall-clock deadline on a proxied response.** Streaming routes flush immediately, the
+  relay sets no `WriteTimeout` and no client `Timeout`, and cancellation propagates from the
+  client down every hop. A turn or a permission prompt that blocks for minutes is the normal
+  case, not the exception — this is the single most likely way to ship a broken relay;
+- **failures split at the header boundary**: before headers, a hop failure becomes a
+  structured error response; after headers, the stream is already committed, so the relay
+  closes it and the outcome is reported as indeterminate. Non-idempotent requests are never
+  transparently retried — a duplicated turn or a duplicated permission answer is worse than a
+  visible failure;
+- **path handling is canonical, not textual**: the mount matches on decoded segments but
+  forwards `RawPath`, rejects encoded separators and dot segments before routing, preserves
+  the target's own base path and query, and rewrites a same-target `Location` back under the
+  mount rather than following it;
 - **relay CORS is its own config** (`swarm.cors`) because the SPA is cross-origin to the
   relay by construction, and its `Allow-Headers` **includes `Last-Event-ID`** (`coddy http`'s
-  list gains it in the same group) or composer-stream reattach fails preflight;
-- redirects from nodes are not followed.
+  list gains it in the same group) or composer-stream reattach fails preflight; the relay
+  owns the CORS headers rather than passing a node's through;
+- request and response body caps on non-streaming routes; per-node concurrency limits.
 
 Compatibility guarantee: `--remote https://relay/swarm/nodes/nas02` drives one node with
 **today's** client, unchanged — `Resolve` already keeps a path-bearing base. Aggregated UX is
@@ -221,12 +289,19 @@ an explicit client mode on top (§3.7, §3.8), never a mutation of the global ba
 
 `GET /swarm/sessions?node=&q=&limit=&include_activity=&include_scheduler=&include_subagents=`
 
-- fan-out to online children with bounded concurrency and a per-node deadline (3 s);
+- fan-out to online children with bounded concurrency and a per-node deadline (3 s), under a
+  **decreasing end-to-end budget** carried down the chain, so a deep topology cannot multiply
+  one client's request into an unbounded wave of work; visited relays and total nodes are
+  capped, and nested warnings are prefixed with the hop that produced them;
+- **each child is asked for at least the caller's `limit`**, otherwise a top-N merge over
+  short pages silently drops rows that belonged in the answer;
 - **no cross-node cursor in v1**: each node returns its first page, the relay merges by
   `updatedAt` desc (tie-break node name, then id), truncates to `limit`, and reports per-node
   `hasMore` plus a `warnings` array for nodes that failed or timed out — partial results beat
   a 502. Deep history for one node is the mount's own native pagination (drill-down);
-- rows gain `node_path`, `nodeName`, `nodeUrl`, `kind`, and carry through `subagent`;
+- rows gain `agent_uuid` (identity), `node_path` and `alternate_paths` (routes), `nodeName`,
+  `nodeUrl`, `kind`, and carry through `subagent`; every returned path segment is validated
+  before it is trusted as a route;
 - **search**: a node whose *name or URL* matches `q` is queried **without** `q` (all its
   sessions match by node); other nodes get `q` pushed down. To make "search by task" cover
   cwd honestly, the **node-side matcher is extended to cwd** in the same group (one predicate
@@ -248,17 +323,77 @@ A relay joins a parent exactly like an agent, with `kind: relay` and either tran
   talks to its direct children, at any depth.
 - **Contours work in both directions.** An inner relay that cannot be reached dials out
   (tunnel transport); an outer relay that is reachable is dialed. A chain may mix them.
+- **Identity and route are different things** (round-4 Codex): a session's identity is
+  `(terminal agent instance_uuid, session_id)` — stable across renames, failover and relay
+  restarts — while `node_path` is merely *a* route to it, which can change or be one of
+  several. Rows carry both; clients cache by identity and re-resolve the route.
 - **Loop and amplification guard on every hop** — mount, aggregation, and topology alike:
-  each relay appends its `instance_uuid` to an internal `X-Coddy-Swarm-Path` header that is
-  **stripped from inbound client requests** (untrusted values discarded), size-bounded, depth
-  capped at 4. Seeing its own uuid ⇒ 508 + warning, never an infinite proxy chain.
-- **Diamonds are DAGs, not cycles** (A→B, A→C, B→D, C→D): aggregation dedupes rows by
-  `(terminal agent instance_uuid, session_id)` — the identity of the *leaf that owns the
-  session*, never a relay's — and topology dedupes nodes by `instance_uuid`, keeping the
-  first path and listing alternates as extra edges.
-- `GET /swarm/topology` returns the tree plus flat edges (`{name, kind, uuid, online,
-  transport, children}`), built from live children under the same deadline discipline, so the
-  UI can draw the graph the operator asked for.
+  each relay appends its `instance_uuid` to an internal `X-Coddy-Swarm-Path` header. The
+  header is **accepted only on peer-authenticated traffic** (a request arriving with a
+  child's own peer credential), and **stripped from every client request**, which is what
+  makes it both unforgeable and preservable — a distinction the first draft got wrong, since
+  a header cannot be simultaneously trusted and discarded unless the two sources are
+  distinguishable. Size-bounded, depth capped, own-uuid ⇒ refuse rather than loop.
+
+#### 3.6.1 Rings, and choosing the shortest route
+
+Relays are not required to form a tree. Three relays may each join the other two, or a chain
+may be closed into a ring for redundancy, and then a node is reachable by more than one
+route — possibly by a very long one.
+
+- **Topology discovery tolerates cycles.** Each relay walks its children keeping a visited
+  set keyed by `instance_uuid`, so a ring is traversed once and reported as a graph
+  (`nodes` + `edges`), never as an infinite tree. This is discovery, where a cycle is normal
+  and expected — distinct from the per-request guard above, where a cycle is a fault.
+- **Routes come from a breadth-first search over that graph.** Because BFS visits by
+  increasing hop count, the first route it finds to a node is a shortest one. The relay
+  publishes, per node, the shortest route as `node_path` plus any equal-or-longer
+  `alternate_paths`, so a client that finds one hop down can fail over without re-deriving
+  the topology itself.
+- **Ties break deterministically** (lexicographically by the hop names), so two clients
+  asking the same relay get the same route and a cached route stays valid.
+- **Aggregation dedupes by identity, keeps the shortest route.** A ring delivers the same
+  agent through several children; rows collapse on `(agent instance_uuid, session_id)` and
+  retain the shortest `node_path`, with the alternates attached rather than discarded.
+- Route computation is a pure function over the discovered graph, so it is unit-tested
+  directly with ring, diamond, and disconnected fixtures instead of through live relays.
+
+`GET /swarm/topology` returns that graph — `nodes` (`{name, kind, uuid, online, transport}`),
+`edges` (`{from_uuid, to_uuid}`), and `routes` (`{uuid: {path, alternates}}`) — built from
+live children under the same deadline discipline, so the UI can draw the operator's graph and
+the console can resolve a route without guessing.
+
+### 3.6.2 Encryption and proxies between relays
+
+Relays are expected to sit in different networks, so the link between them is rarely a bare
+LAN socket. Both directions have to survive TLS and an intervening proxy.
+
+- **Serving TLS.** `swarm.tls.{cert_file,key_file}` makes the relay serve HTTPS; either both
+  or neither, one alone is a startup error. Minimum TLS 1.2. Certificates are startup state
+  and a rotation needs a restart in v1. A relay behind somebody else's terminator sets
+  nothing and stays plain, with the same insecure-bind rules as everywhere else.
+- **Dialling TLS.** A node joining an `https://` relay verifies the chain normally; a
+  private CA goes in `ca_file`, and `insecure_skip_verify` exists but is an explicit,
+  logged opt-in rather than a quiet fallback.
+- **Proxies both ways.** Every outbound leg — a relay dialling a direct node, a node dialling
+  out to open a tunnel, a relay joining a parent — honours a `proxy` setting supporting
+  `http`, `https`, `socks5` and `socks5h`, plus the standard environment variables when no
+  explicit proxy is configured. The repository already has this logic in
+  `external/gateway/proxyutil`, but it is locked behind the gateway build tags; it moves to a
+  neutral, untagged package (`internal/netx`) and the gateway keeps working through it, which
+  is the extraction `docs/remote-control.md` §6.7 anticipated.
+- **The tunnel composes with both.** Opening a tunnel through a proxy to a TLS relay is:
+  dial the proxy, `CONNECT` to the relay, wrap the resulting stream in TLS, send the upgrade
+  request, then invert roles on the same stream. Nothing in the HTTP/2 layer above cares that
+  the byte stream came from a proxy or a TLS session.
+- **ALPN.** The tunnel dial advertises `http/1.1`, because the upgrade it performs is an
+  HTTP/1.1 mechanism; the connection is only repurposed for HTTP/2 *after* the upgrade
+  succeeds, by prior knowledge rather than by negotiation.
+- **Known incompatibility, stated rather than discovered.** The upgrade needs an end-to-end
+  raw connection. A layer-7 proxy that re-frames requests, or an HTTP/2-only terminator in
+  front of the relay, will break the tunnel while leaving the direct transport untouched.
+  `docs/swarm.md` says so, the handshake fails with an error that names this cause, and the
+  live e2e covers the proxy topologies that do work.
 
 ### 3.7 Console and ACP swarm mode
 
@@ -299,6 +434,17 @@ A relay joins a parent exactly like an agent, with `kind: relay` and either tran
 - i18n keys land in en and ru together (parity test); DESIGN.md and docs/ui.md updated;
   screenshots of every changed surface at 390 and 1280, light and dark.
 
+## 3.9 Review record
+
+Round 4 reviewed v3 against the merged `main`: Cursor APPROVE_WITH_CHANGES, Codex REWORK,
+coddy pending. Their two shared blockers — proxying the control plane, and wall-clock
+deadlines killing long streams — are folded into §3.4, and the rest of both lists into §3.3,
+§3.5, §3.6 and §4. Full texts in `swarm-review/round4-*.md`. The architecture survived
+review; what changed is that a set of "obvious later" details are now specified, most
+importantly that identity and route are different things, that the loop header needs an
+authenticated peer channel to be both unforgeable and preservable, and that the hijack must
+splice already-buffered bytes.
+
 ## 4. Security
 
 - **Client auth required off-loopback**: binding beyond loopback without `swarm.auth_token`
@@ -318,6 +464,20 @@ A relay joins a parent exactly like an agent, with `kind: relay` and either tran
 - **Hardened listener introduced** (`internal/httpx` helper: `ReadHeaderTimeout`,
   `IdleTimeout`, `MaxHeaderBytes`, streaming routes exempt from write deadlines), adopted by
   both `coddy swarm` and `coddy http` in G1.
+- **Egress policy, not just URL validation** (round-4 Codex): the direct transport dials
+  through a custom dialer that connects only to IPs validated against an allow/deny CIDR
+  policy — refusing loopback, link-local, metadata and, by default, private ranges — keeps
+  TLS hostname verification intact, ignores environment proxies unless one is configured
+  explicitly, and re-validates on every dial rather than only at registration, so DNS
+  rebinding between check and connect has nothing to exploit.
+- **TLS** on both legs (§3.6.2), with a private CA option and an explicit, logged
+  `insecure_skip_verify` rather than a silent fallback.
+- **A client credential is generated by default even on loopback** rather than left empty:
+  every local process would otherwise inherit the relay's transitive authority over the whole
+  fleet.
+- **Protocol version negotiation at registration**: peers exchange a swarm protocol major
+  version and capability set, and an incompatible peer is refused before it is published,
+  so a rolling upgrade cannot silently break aggregation or identity.
 - Structured logs carry node name, generation, transport, request class, durations, and
   disconnect reasons — never tokens, prompts, or full query strings.
 

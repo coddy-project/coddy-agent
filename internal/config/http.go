@@ -46,10 +46,16 @@ type HTTPRemote struct {
 // CORSAllowOrigin returns the Access-Control-Allow-Origin value for origin and whether it is
 // allowed. It returns "*" only when configured; otherwise it echoes the matched origin.
 func (h *HTTPServerConfig) CORSAllowOrigin(origin string) (string, bool) {
-	if !h.CORS.Enabled || strings.TrimSpace(origin) == "" {
+	return h.CORS.AllowOrigin(origin)
+}
+
+// AllowOrigin answers the same question for any surface holding this policy,
+// which the swarm relay needs because it carries its own CORS settings.
+func (c HTTPCORSConfig) AllowOrigin(origin string) (string, bool) {
+	if !c.Enabled || strings.TrimSpace(origin) == "" {
 		return "", false
 	}
-	for _, o := range h.CORS.AllowedOrigins {
+	for _, o := range c.AllowedOrigins {
 		o = strings.TrimSpace(o)
 		if o == "*" {
 			return "*", true

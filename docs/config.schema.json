@@ -898,6 +898,235 @@
         }
       }
     },
+    "swarm": {
+      "type": "object",
+      "title": "Swarm relay",
+      "description": "Stateless relay that nodes register into and that chains into other relays (used only by binaries built with -tags swarm for the server side; the join list is honoured by coddy http too). See docs/swarm.md.",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Bind address for coddy swarm when the CLI does not pass -H/--host. Empty falls back to 0.0.0.0.",
+          "default": ""
+        },
+        "port": {
+          "type": "integer",
+          "description": "Listen port for coddy swarm. 0 falls back to 12346.",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "name": {
+          "type": "string",
+          "description": "Label for this relay in topology views and in a child's node path.",
+          "default": ""
+        },
+        "auth_token": {
+          "type": "string",
+          "description": "Bearer credential clients present to this relay. A relay reaches every node with that node's own credential, so an unauthenticated relay bound off loopback is a fleet-wide open door and the server refuses to start unless allow_insecure is set. Never echoed back.",
+          "default": ""
+        },
+        "pairing_tokens": {
+          "type": "array",
+          "description": "Credentials a node must present to register. Empty closes registration unless insecure_open_registration is set. Never echoed back.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "allow_insecure": {
+          "type": "boolean",
+          "description": "Permit binding off loopback without a client token.",
+          "default": false
+        },
+        "insecure_open_registration": {
+          "type": "boolean",
+          "description": "Let any caller register a node without a pairing token. Development only.",
+          "default": false
+        },
+        "allow_private_upstreams": {
+          "type": "array",
+          "description": "Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network.",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "cors": {
+          "type": "object",
+          "title": "CORS",
+          "description": "Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
+              "default": false
+            },
+            "allowed_origins": {
+              "type": "array",
+              "description": "Exact origins permitted to call the API, e.g. \"http://localhost:5173\". A single \"*\" allows any origin.",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "title": "Relay TLS",
+          "description": "Serve the relay over HTTPS. Set both files or neither. Minimum TLS 1.2; certificates are startup state, so rotating them needs a restart.",
+          "additionalProperties": false,
+          "properties": {
+            "cert_file": {
+              "type": "string",
+              "description": "PEM certificate chain.",
+              "default": ""
+            },
+            "key_file": {
+              "type": "string",
+              "description": "PEM private key.",
+              "default": ""
+            }
+          }
+        },
+        "lease_ttl_seconds": {
+          "type": "integer",
+          "description": "How long a registration survives without a heartbeat. 0 falls back to 90; nodes refresh at a third of it.",
+          "default": 0,
+          "minimum": 0
+        },
+        "fanout_timeout_seconds": {
+          "type": "integer",
+          "description": "Per-node deadline for an aggregated call. A slower node degrades into a warning rather than stalling the answer. 0 falls back to 3.",
+          "default": 0,
+          "minimum": 0
+        },
+        "upstreams": {
+          "type": "array",
+          "description": "Nodes configured by hand rather than registered, for an agent that cannot run the join loop.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Node name; becomes a URL path segment, so letters, digits, underscore and hyphen only."
+              },
+              "url": {
+                "type": "string",
+                "description": "Origin the relay dials to reach the node."
+              },
+              "kind": {
+                "type": "string",
+                "description": "agent (default) or relay.",
+                "enum": [
+                  "",
+                  "agent",
+                  "relay"
+                ],
+                "default": ""
+              },
+              "token": {
+                "type": "string",
+                "description": "Bearer credential the relay presents to this node. Never echoed back.",
+                "default": ""
+              },
+              "dial": {
+                "type": "object",
+                "title": "Dial settings",
+                "description": "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here.",
+                "additionalProperties": false,
+                "properties": {
+                  "proxy": {
+                    "type": "string",
+                    "description": "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back.",
+                    "default": ""
+                  },
+                  "ca_file": {
+                    "type": "string",
+                    "description": "Certificate authority used to verify a peer whose certificate is signed privately.",
+                    "default": ""
+                  },
+                  "insecure_skip_verify": {
+                    "type": "boolean",
+                    "description": "Accept any certificate. For a lab only; every use is logged.",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "default": []
+        },
+        "join": {
+          "type": "array",
+          "description": "Parent relays this process registers into on startup. Honoured by coddy http and coddy swarm alike, which is what lets relays chain.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Parent relay origin."
+              },
+              "name": {
+                "type": "string",
+                "description": "Name to claim in that relay. Empty falls back to the host name.",
+                "default": ""
+              },
+              "pairing_token": {
+                "type": "string",
+                "description": "Credential authorising the registration. Never echoed back.",
+                "default": ""
+              },
+              "advertise_url": {
+                "type": "string",
+                "description": "Where the relay can reach this process. Leave empty to select the tunnel transport: this process dials out and serves its API back over that connection, which is the only way in when the network accepts no inbound connections.",
+                "default": ""
+              },
+              "token": {
+                "type": "string",
+                "description": "This process's own bearer credential, handed to the relay so it can authenticate when it proxies. Prefer a credential minted for the relay alone. Never echoed back.",
+                "default": ""
+              },
+              "labels": {
+                "type": "object",
+                "description": "Free-form tags shown in topology views.",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "dial": {
+                "type": "object",
+                "title": "Dial settings",
+                "description": "How this leg reaches the other side. Relays are expected to live in different networks, so a proxy hop and a private certificate authority are ordinary here.",
+                "additionalProperties": false,
+                "properties": {
+                  "proxy": {
+                    "type": "string",
+                    "description": "Route the connection through a proxy: http, https, socks5 or socks5h. Empty falls back to the standard environment variables. Never echoed back.",
+                    "default": ""
+                  },
+                  "ca_file": {
+                    "type": "string",
+                    "description": "Certificate authority used to verify a peer whose certificate is signed privately.",
+                    "default": ""
+                  },
+                  "insecure_skip_verify": {
+                    "type": "boolean",
+                    "description": "Accept any certificate. For a lab only; every use is logged.",
+                    "default": false
+                  }
+                }
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
     "ui": {
       "type": "object",
       "title": "Embedded web UI",
