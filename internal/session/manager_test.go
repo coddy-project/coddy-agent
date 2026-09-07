@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
 type noopSender struct{}
@@ -809,5 +810,77 @@ func TestStateMCPToolFilter(t *testing.T) {
 	allowed := st.GetMCPToolFilter()
 	if !allowed("srv", "echo") || allowed("srv", "write") {
 		t.Error("factory-built filter must be used when set")
+	}
+}
+
+// Regression for coddy-project/coddy-agent#146: a skills.dirs entry written with
+// ${CWD} in config.yaml must follow the workspace of each session, not the
+// directory the process was started from.
+func TestSessionSkillsFollowSessionCWDWithConfiguredDirs(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	launch := filepath.Join(root, "launch")
+	project := filepath.Join(root, "project")
+	skillDir := filepath.Join(project, ".agents", "skills", "proj-skill")
+	for _, d := range []string{home, launch, skillDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skillMD := "---\nname: proj-skill\ndescription: Project-local skill\n---\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+providers:
+  - name: p1
+    type: openai
+    api_key: k
+models:
+  - model: p1/gpt-4o
+agent:
+  model: p1/gpt-4o
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), launch, nil)
+
+	names := func(cwd string) []string {
+		res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+		if err != nil {
+			t.Fatalf("session/new %s: %v", cwd, err)
+		}
+		st := m.SessionByID(res.SessionID)
+		if st == nil {
+			t.Fatalf("session %s not registered", res.SessionID)
+		}
+		var out []string
+		for _, sum := range skills.ListSkills(st.GetSkills()) {
+			out = append(out, sum.Name)
+		}
+		return out
+	}
+	has := func(list []string, name string) bool {
+		for _, n := range list {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if got := names(project); !has(got, "proj-skill") {
+		t.Fatalf("session rooted at the project must load its local skill, got %v", got)
+	}
+	if got := names(launch); has(got, "proj-skill") {
+		t.Fatalf("session rooted at the launch directory must not see the project skill, got %v", got)
 	}
 }

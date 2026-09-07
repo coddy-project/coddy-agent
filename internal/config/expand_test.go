@@ -36,9 +36,53 @@ func TestEscapeYAMLDollarRoundTrip(t *testing.T) {
 		"socks5h://user:p$$w0rd@127.0.0.1:1080",
 		"no-dollars-here",
 		"$1$2$3",
+		"${CWD}/skills",
+		"a${CWD}b$c$${CWD}",
 	} {
 		if got := expandEnvEscaped(escapeYAMLDollar(s)); got != s {
 			t.Errorf("round-trip for %q = %q", s, got)
 		}
+	}
+}
+
+// TestExpandEnvEscapedKeepsSessionCWDPlaceholder pins that ${CWD} is not an
+// environment reference: it stays in the document for per-session expansion
+// even when the process environment carries a variable of that name.
+func TestExpandEnvEscapedKeepsSessionCWDPlaceholder(t *testing.T) {
+	t.Setenv("CWD", "/decoy")
+	t.Setenv("CODDY_EXPAND_TEST", "value")
+	in := "${CWD}/.agents/skills ${CODDY_EXPAND_TEST} $$"
+	want := "${CWD}/.agents/skills value $"
+	if got := expandEnvEscaped(in); got != want {
+		t.Fatalf("expandEnvEscaped(%q) = %q, want %q", in, got, want)
+	}
+	// Only the braced spelling is the placeholder; a bare $CWD is still an
+	// ordinary environment reference, as it always was.
+	if got := expandEnvEscaped("$CWD/x"); got != "/decoy/x" {
+		t.Fatalf("bare $CWD must keep expanding from the environment, got %q", got)
+	}
+	// The "$$" escape keeps its contract next to the placeholder.
+	for in, want := range map[string]string{
+		"$${CWD}/x":   "${CWD}/x",
+		"$$$CWD":      "$/decoy",
+		"$$$${CWD}":   "$${CWD}",
+		"a$$b${CWD}c": "a$b${CWD}c",
+	} {
+		if got := expandEnvEscaped(in); got != want {
+			t.Errorf("expandEnvEscaped(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestExpandConfigBodyKeepsEscapedPlaceholders pins the body-level contract:
+// ${CODDY_HOME} is substituted, ${CWD} survives for the session, and the "$$"
+// escape protects either placeholder as a literal.
+func TestExpandConfigBodyKeepsEscapedPlaceholders(t *testing.T) {
+	t.Setenv("CWD", "/decoy")
+	p := Paths{Home: "/home/dev/.coddy", CWD: "/launch"}
+	in := "a: $${CODDY_HOME}/x\nb: ${CODDY_HOME}/y\nc: $${CWD}\nd: ${CWD}/z\n"
+	want := "a: ${CODDY_HOME}/x\nb: /home/dev/.coddy/y\nc: ${CWD}\nd: ${CWD}/z\n"
+	if got := expandConfigBody(in, p); got != want {
+		t.Fatalf("expandConfigBody(%q) = %q, want %q", in, got, want)
 	}
 }

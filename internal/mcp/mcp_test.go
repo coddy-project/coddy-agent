@@ -1022,3 +1022,25 @@ func TestGlobalServerMutationSerializesWithConfigTransactions(t *testing.T) {
 		t.Fatal("mutation was not mirrored back into the caller's config object")
 	}
 }
+
+// A project-local stdio server follows the session workspace: ${CWD} in the
+// command resolves like it does in the arguments and the environment
+// (coddy-project/coddy-agent#146 kept the placeholder in the loaded config).
+func TestStdioSpecResolvesPlaceholdersAgainstSessionCWD(t *testing.T) {
+	srv := config.MCPServerConfig{
+		Name:    "local",
+		Command: "${CWD}/bin/mcp-server",
+		Args:    []string{"--root", "${CWD}", "--flag"},
+		Env:     []config.EnvVarConfig{{Name: "PROJECT", Value: "${CWD}/src"}},
+	}
+	command, args, env := stdioSpec(srv, "/work/app")
+	if command != "/work/app/bin/mcp-server" {
+		t.Fatalf("command = %q", command)
+	}
+	if len(args) != 3 || args[0] != "--root" || args[1] != "/work/app" || args[2] != "--flag" {
+		t.Fatalf("args = %v", args)
+	}
+	if len(env) != 1 || env[0] != "PROJECT=/work/app/src" {
+		t.Fatalf("env = %v", env)
+	}
+}

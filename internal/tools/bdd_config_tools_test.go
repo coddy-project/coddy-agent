@@ -270,9 +270,9 @@ func (s *configToolsFeatureState) reloadedTimes(want int) error {
 	return nil
 }
 
-func (s *configToolsFeatureState) reloadedOnce() error   { return s.reloadedTimes(1) }
-func (s *configToolsFeatureState) reloadedTwice() error  { return s.reloadedTimes(2) }
-func (s *configToolsFeatureState) notReloaded() error    { return s.reloadedTimes(0) }
+func (s *configToolsFeatureState) reloadedOnce() error  { return s.reloadedTimes(1) }
+func (s *configToolsFeatureState) reloadedTwice() error { return s.reloadedTimes(2) }
+func (s *configToolsFeatureState) notReloaded() error   { return s.reloadedTimes(0) }
 
 func (s *configToolsFeatureState) configPathEquals(path, want string) error {
 	if err := s.readConfigPath(path); err != nil {
@@ -289,6 +289,20 @@ func (s *configToolsFeatureState) configPathAbsent(path string) error {
 		return fmt.Errorf("config path %q still exists with value %#v", path, s.read.Value)
 	}
 	return nil
+}
+
+// reloadedKeepsSkillsDir pins that a ${CWD} entry reaches the running config
+// untouched: the session, not the process, resolves it.
+func (s *configToolsFeatureState) reloadedKeepsSkillsDir(entry string) error {
+	if s.reloaded == nil {
+		return fmt.Errorf("runtime did not receive reloaded config")
+	}
+	for _, d := range s.reloaded.Skills.Dirs {
+		if d == entry {
+			return nil
+		}
+	}
+	return fmt.Errorf("reloaded skills.dirs %v do not keep %q", s.reloaded.Skills.Dirs, entry)
 }
 
 func (s *configToolsFeatureState) reloadedMaxTurns(want int) error {
@@ -341,6 +355,7 @@ func initializeConfigToolsScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^config path "([^"]+)" equals "([^"]*)"$`, s.configPathEquals)
 	sc.Step(`^config path "([^"]+)" is absent$`, s.configPathAbsent)
 	sc.Step(`^the reloaded config still limits the agent to (\d+) turns$`, s.reloadedMaxTurns)
+	sc.Step(`^the reloaded config keeps the skills directory "([^"]+)" for the session$`, s.reloadedKeepsSkillsDir)
 	sc.Step(`^a pre-commit snapshot sits next to the active file$`, s.preCommitSnapshotExists)
 }
 

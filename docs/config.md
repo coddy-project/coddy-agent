@@ -441,12 +441,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
-Special variables in YAML (before parse) and in path strings:
+Two placeholders are not environment variables:
 
-- **`${CODDY_HOME}`** - resolved `CODDY_HOME` directory
-- **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
+- **`${CODDY_HOME}`** - the resolved `CODDY_HOME` directory, substituted when the file is read.
+- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server command, arguments, URL, environment and headers. One **`coddy http`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.coddy/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`CODDY_CWD`**) at load time, since no session owns them.
 
-Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expanded using the process **`CODDY_CWD`** and **`CODDY_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
+An environment variable named **`CWD`** does not replace the placeholder (a bare **`$CWD`** without braces is still an ordinary environment reference, as before), and **`GET /coddy/config`**, the Settings UI, and **`config_get`** report the entry exactly as written. The placeholder is honoured only in the fields listed above; in any other string value it stays as written (prompt templates use **`{{.CWD}}`** instead). Releases up to 1.0.5 substituted **`${CWD}`** with the process directory when the file was read, so a Settings save made in that version may have stored an absolute path such as **`/home/you/.agents/skills`** where you wrote **`${CWD}/.agents/skills`**; put the placeholder back by hand to get per-session resolution.
 
 ## Model Provider Reference
 

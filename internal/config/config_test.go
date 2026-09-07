@@ -1219,3 +1219,177 @@ func TestAgentWaitForLimitResetDefaults(t *testing.T) {
 		t.Fatalf("an explicit 0 must mean no wait at all, got %v", got)
 	}
 }
+
+// Regression for coddy-project/coddy-agent#146: ${CWD} is a session placeholder.
+// A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
+// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// resolves it against its own workspace, while the process-scoped directories
+// (sessions, scheduler, memory, log file) still resolve it against the default
+// working directory at load time. An environment variable that happens to be
+// named CWD must not be mistaken for the placeholder either.
+func TestLoadFromYAML_SessionCWDPlaceholderSurvivesLoad(t *testing.T) {
+	t.Setenv("CWD", filepath.Join("decoy", "env"))
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+    - "${CODDY_HOME}/skills"
+
+subagents:
+  dirs:
+    - "${CWD}/.coddy/agents"
+
+hooks:
+  files:
+    - "${CWD}/.coddy/hooks.json"
+
+prompts:
+  dir: "${CWD}/prompts"
+
+mcp_servers:
+  - name: fs
+    command: "${CWD}/bin/mcp-fs"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+    env:
+      - name: PROJECT
+        value: "${CWD}"
+  - name: docs
+    type: http
+    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
+    headers:
+      - name: X-Workspace
+        value: "${CWD}"
+
+sessions:
+  dir: "${CWD}/sessions"
+
+scheduler:
+  dir: "${CWD}/.scheduler"
+
+memory:
+  dir: "${CWD}/memory"
+
+logger:
+  file: "${CWD}/coddy.log"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+
+	perSession := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.coddy/agents"},
+		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.coddy/hooks.json"},
+		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
+		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
+		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
+		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
+		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
+		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
+	}
+	for _, tc := range perSession {
+		// ${CODDY_HOME} is substituted with forward slashes; compare slash-normalised.
+		if filepath.ToSlash(tc.got) != filepath.ToSlash(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+
+	// The consumers resolve the placeholder against the session that asks.
+	sessionCWD := filepath.Join(dir, "project")
+	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
+		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
+	}
+	// internal/mcp resolves command, args, env, url and headers with the same
+	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
+	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
+		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
+	}
+	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
+		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
+	}
+
+	processScoped := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
+		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
+		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
+		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
+	}
+	for _, tc := range processScoped {
+		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// The Settings UI reads the configuration as JSON and writes it back as YAML.
+// A skills.dirs entry with ${CWD} must survive that round trip verbatim on
+// both legs: GET reports the placeholder, PUT stores it, and the next load
+// still leaves it to the session (coddy-project/coddy-agent#146).
+func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	paths := config.Paths{Home: home, CWD: launch, ConfigPath: path}
+	body := `{"providers":[{"name":"local","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"local/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"local/gpt-4o"},` +
+		`"skills":{"dirs":["${CWD}/.agents/skills","${CODDY_HOME}/skills"]}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if got := next.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("PUT lost the placeholder before writing: %q", got)
+	}
+	if got := config.ConfigToJSONDTO(next).Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("GET must report the placeholder verbatim, got %q", got)
+	}
+	yb, err := config.MarshalConfigYAML(next)
+	if err != nil {
+		t.Fatalf("marshal yaml: %v", err)
+	}
+	if err := os.WriteFile(path, yb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("reload after PUT baked the placeholder: %q", got)
+	}
+	if got, want := filepath.ToSlash(reloaded.Skills.Dirs[1]), filepath.ToSlash(filepath.Join(home, "skills")); got != want {
+		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
+	}
+}

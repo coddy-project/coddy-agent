@@ -368,7 +368,7 @@ func applyUCICommandsToBytes(paths Paths, base []byte, cmds []UCICommand) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("serialize config: %w", err)
 	}
-	expanded := expandEnvEscaped(ExpandPathVars(string(updated), paths))
+	expanded := expandConfigBody(string(updated), paths)
 	if _, err := parseValidateYAMLBytes(expanded, paths); err != nil {
 		return nil, fmt.Errorf("resulting config is invalid: %w", err)
 	}
@@ -618,7 +618,7 @@ func rollbackConfigFromSnapshotLocked(paths Paths) (*ConfigRollbackResult, error
 	if !currentExists {
 		current = []byte{}
 	}
-	expanded := expandEnvEscaped(ExpandPathVars(string(snapshot), paths))
+	expanded := expandConfigBody(string(snapshot), paths)
 	if _, err := parseValidateYAMLBytes(expanded, paths); err != nil {
 		return nil, fmt.Errorf("pre-commit snapshot %s is invalid: %w", snapshotPath, err)
 	}

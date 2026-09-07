@@ -120,7 +120,7 @@ func tryRecoverFromBackup(paths Paths) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	expanded := expandEnvEscaped(ExpandPathVars(string(raw), paths))
+	expanded := expandConfigBody(string(raw), paths)
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
 		return nil, err

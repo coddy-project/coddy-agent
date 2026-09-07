@@ -65,7 +65,7 @@ func (s *Server) coddyWorkspaceContextGet(w http.ResponseWriter, r *http.Request
 		}
 		cwd = abs
 	} else {
-		resolved, ok := s.resolveSlashListCWD(w, r)
+		resolved, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
@@ -129,7 +129,7 @@ func (s *Server) coddyWorkspaceFoldersGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if dir == "" {
-		cwd, ok := s.resolveSlashListCWD(w, r)
+		cwd, ok := s.resolveSessionCWD(w, r)
 		if !ok {
 			return
 		}
