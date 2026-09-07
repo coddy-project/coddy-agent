@@ -159,6 +159,9 @@ export function isApiPath(path: string): boolean {
   return (
     path.startsWith("/v1/") ||
     path.startsWith("/coddy/") ||
+    // A relay answers under /swarm/ and mounts each node beneath it, so these
+    // have to reach the selected environment like any other API call.
+    path.startsWith("/swarm/") ||
     path.startsWith("/openapi")
   );
 }

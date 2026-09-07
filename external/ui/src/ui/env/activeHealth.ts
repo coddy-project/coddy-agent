@@ -23,13 +23,36 @@ function set(h: EnvHealth): void {
   }
 }
 
-/** probeEnvHealth resolves "up" when the environment answers `GET /v1/models` (authorized), else
- * "down" (offline, DNS/TLS, refused, CORS-blocked, or 401/403). Local is always "up". */
+/** probeEnvHealth resolves "up" when the environment answers, else "down"
+ * (offline, DNS/TLS, refused, CORS-blocked, or 401/403). Local is always "up".
+ *
+ * An agent is asked for its model catalog. A relay has none - it serves no
+ * models of its own, only the nodes it reaches - so a catalog probe would
+ * report a perfectly healthy relay as unreachable. When the catalog is missing
+ * the probe asks whether this is a swarm instead. */
 export async function probeEnvHealth(env: CoddyEnv): Promise<EnvHealth> {
   if (env.mode !== "remote") return "up";
+  const headers = env.token ? { Authorization: "Bearer " + env.token } : {};
   try {
     const res = await localFetch(env.baseUrl + "/v1/models", {
-      headers: env.token ? { Authorization: "Bearer " + env.token } : {},
+      headers,
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      return "up";
+    }
+    // A 401 means something is there and refusing us, which is a credential
+    // problem rather than an unreachable host; only a missing catalog is worth
+    // a second question.
+    if (res.status !== 404) {
+      return "down";
+    }
+  } catch {
+    return "down";
+  }
+  try {
+    const res = await localFetch(env.baseUrl + "/swarm/info", {
+      headers,
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     return res.ok ? "up" : "down";

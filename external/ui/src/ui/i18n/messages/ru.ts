@@ -714,6 +714,7 @@ export const messagesRu: Record<string, string> = {
   "nav.wideSidebarTooltip": "Широкая панель",
   "nav.history": "История",
   "nav.scheduler": "Планировщик",
+  "nav.swarm": "Рой",
   "nav.schedulerAriaLabel": "Задачи планировщика",
   "nav.settings": "Настройки",
 
@@ -805,7 +806,8 @@ export const messagesRu: Record<string, string> = {
   "usage.resets": "сброс {time}",
   "usage.resumingAt": "Продолжим автоматически в {time}",
   "usage.resuming": "Продолжим автоматически после сброса лимита",
-  "usage.keyRejected": "Ключ {provider} отклонён: войдите заново (Настройки или coddy providers login {provider})",
+  "usage.keyRejected":
+    "Ключ {provider} отклонён: войдите заново (Настройки или coddy providers login {provider})",
   "usage.unlimitedModel": "Эта модель идёт мимо окон сессии и недели",
   "usage.rateLimited": "Лимит запросов, повтор через {retry}",
   "usage.keyBlocked": "Ключ заблокирован на хабе",
@@ -817,7 +819,8 @@ export const messagesRu: Record<string, string> = {
   "usage.wallet": "Кошелёк {balance} (за 30 дней потрачено {spent})",
   "usage.bannerUsed": "Использовано {percent}% лимита {brand} ({window})",
   "usage.bannerLimitReached": "Лимит использования исчерпан",
-  "usage.bannerLimitReachedResets": "Лимит использования исчерпан · Сброс {time}",
+  "usage.bannerLimitReachedResets":
+    "Лимит использования исчерпан · Сброс {time}",
   "usage.bannerDismiss": "Скрыть",
   "usage.window.week": "неделя",
   "usage.window.day": "день",
@@ -825,8 +828,10 @@ export const messagesRu: Record<string, string> = {
   "usage.bannerKeyBlocked": "Ключ заблокирован на хабе",
   "usage.bannerWalletEmpty": "Кошелёк пуст, пополните его, чтобы продолжить",
   "usage.bannerAccountBlocked": "Аккаунт заблокирован на хабе",
-  "usage.bannerResumingAt": "Лимит использования исчерпан · Продолжим автоматически в {time}",
-  "usage.bannerResuming": "Лимит использования исчерпан · Продолжим автоматически после сброса",
+  "usage.bannerResumingAt":
+    "Лимит использования исчерпан · Продолжим автоматически в {time}",
+  "usage.bannerResuming":
+    "Лимит использования исчерпан · Продолжим автоматически после сброса",
   "composer.contextTipInput": "Ввод {count}",
   "composer.contextTipOutput": "Вывод {count}",
   "composer.contextTipTotal": "Всего {count}",

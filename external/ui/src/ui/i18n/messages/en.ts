@@ -699,6 +699,7 @@ export const messagesEn: Record<string, string> = {
   "nav.wideSidebarTooltip": "Wide sidebar",
   "nav.history": "History",
   "nav.scheduler": "Scheduler",
+  "nav.swarm": "Swarm",
   "nav.schedulerAriaLabel": "Scheduler jobs",
   "nav.settings": "Settings",
 
@@ -795,7 +796,8 @@ export const messagesEn: Record<string, string> = {
   "usage.resets": "resets {time}",
   "usage.resumingAt": "Auto-resuming at {time}",
   "usage.resuming": "Auto-resuming when the limit resets",
-  "usage.keyRejected": "The {provider} key was rejected: sign in again (Settings, or coddy providers login {provider})",
+  "usage.keyRejected":
+    "The {provider} key was rejected: sign in again (Settings, or coddy providers login {provider})",
   "usage.unlimitedModel": "This model bypasses the session and week windows",
   "usage.rateLimited": "Rate limited, retry in {retry}",
   "usage.keyBlocked": "The key is blocked on the hub",

@@ -90,6 +90,8 @@ import {
 } from "./chat/branchInject";
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
+import { SwarmView } from "./swarm/SwarmView";
+import { probeSwarm } from "./swarm/api";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -144,6 +146,7 @@ import {
   setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
+  appNavHrefSwarm,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
@@ -914,6 +917,10 @@ export function App() {
   >(null);
   const [schedulerOpen, setSchedulerOpen] = useState(false);
   const [settingsRoute, setSettingsRoute] = useState(false);
+  const [swarmRoute, setSwarmRoute] = useState(false);
+  // The Swarm entry only appears when the environment answers as a relay: on a
+  // plain agent there is no swarm to show.
+  const [isSwarmEnv, setIsSwarmEnv] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
@@ -1463,6 +1470,17 @@ export function App() {
       setTasksSelectedId(null);
       return;
     }
+    if (p.branch === "swarm") {
+      setSwarmRoute(true);
+      setSettingsRoute(false);
+      setSchedulerOpen(false);
+      setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
+      setSessionsOpen(false);
+      return;
+    }
+    setSwarmRoute(false);
     if (p.branch === "settings") {
       setSettingsRoute(true);
       setSettingsSection(p.section);
@@ -3804,6 +3822,22 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    const ac = new AbortController();
+    void probeSwarm(ac.signal).then((info) => setIsSwarmEnv(!!info));
+    return () => ac.abort();
+  }, []);
+
+  const openSwarmFromNav = useCallback(() => {
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    setSessionsOpen(false);
+    setSettingsRoute(false);
+    window.location.hash = appNavHrefSwarm();
+  }, []);
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
@@ -3851,7 +3885,8 @@ export function App() {
   const shellBackdropOpen =
     sessionsOpen ||
     (schedulerOpen && schedulerHttpLinked === true) ||
-    settingsRoute;
+    settingsRoute ||
+    swarmRoute;
 
   const filteredSchedulerJobs = useMemo(() => {
     const q = schedulerFilterQ.trim().toLowerCase();
@@ -3976,6 +4011,9 @@ export function App() {
         showScheduler={schedulerHttpLinked === true}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
+        showSwarm={isSwarmEnv}
+        onOpenSwarm={openSwarmFromNav}
+        swarmOpen={swarmRoute}
         settingsOpen={settingsRoute}
         onOpenSettings={openSettingsFromNav}
         canWidenRail={viewportXL}
@@ -4073,6 +4111,11 @@ export function App() {
           </div>
         ) : null}
 
+        {swarmRoute ? (
+          <div className="swarm-dock-cluster">
+            <SwarmView />
+          </div>
+        ) : null}
         {settingsRoute ? (
           <div className="settings-dock-cluster">
             <Settings

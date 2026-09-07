@@ -9796,3 +9796,337 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     min-height: 36px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Swarm: one screen for every node a relay can reach.
+
+   Colours come from the shared tokens, so the screen follows whichever theme is
+   active without a palette of its own.
+   --------------------------------------------------------------------------- */
+
+/* Docked like Settings: a fixed panel right of the rail with its own scroll, so
+   the chat underneath keeps its scroll position instead of the page growing. */
+.swarm-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  z-index: 50;
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+@media (max-width: 1199px) {
+  .swarm-dock-cluster {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+    bottom: 8px;
+  }
+}
+
+.swarm-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--text);
+}
+
+.swarm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.swarm-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.swarm-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.swarm-graph-toggle {
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.swarm-graph-toggle:hover {
+  background: var(--coddy-surface-raised);
+}
+
+/* The graph can outgrow a narrow shell, so it scrolls inside its own box
+   rather than pushing the page sideways. */
+.swarm-graph-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius);
+  background: var(--coddy-surface-subtle);
+  padding: 8px;
+}
+
+.swarm-graph {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  height: auto;
+}
+
+.swarm-edge {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+
+/* A way round a ring that the relay would not take: drawn, but not as the
+   route in use. */
+.swarm-edge-alternate {
+  stroke-dasharray: 5 4;
+  opacity: 0.4;
+}
+
+.swarm-edge-label {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.swarm-node rect,
+.swarm-node circle {
+  fill: var(--coddy-surface-raised);
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.swarm-node.is-online rect,
+.swarm-node.is-online circle {
+  stroke: var(--accent);
+}
+
+.swarm-node.is-offline rect,
+.swarm-node.is-offline circle {
+  stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+
+.swarm-node.is-selected rect,
+.swarm-node.is-selected circle {
+  fill: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.swarm-node[role="button"] {
+  cursor: pointer;
+}
+
+.swarm-node-label {
+  fill: var(--text);
+  font-size: 11px;
+}
+
+.swarm-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.swarm-search {
+  width: 100%;
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.swarm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.swarm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.swarm-chip.is-active {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border-color: var(--accent);
+}
+
+.swarm-chip.is-offline {
+  opacity: 0.6;
+}
+
+.swarm-chip-transport {
+  color: var(--muted);
+}
+
+.swarm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.swarm-dot.is-online {
+  background: var(--coddy-todo-completed);
+}
+
+.swarm-warnings {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.swarm-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.swarm-group {
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 12px;
+  background: var(--coddy-surface-subtle);
+  overflow: hidden;
+}
+
+.swarm-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  padding: 10px 14px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+}
+
+.swarm-group-header:hover {
+  background: var(--coddy-surface-muted);
+}
+
+.swarm-group-name {
+  font-weight: 600;
+}
+
+.swarm-group-route {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swarm-group-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.swarm-session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+}
+
+.swarm-session-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  padding: 8px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.swarm-session-hit:hover {
+  background: var(--coddy-surface-muted);
+}
+
+.swarm-session-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swarm-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.swarm-badge {
+  background: var(--coddy-surface-raised);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.swarm-session-cwd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swarm-session-active {
+  color: var(--accent);
+}
+
+.swarm-session-waiting {
+  color: var(--coddy-todo-completed);
+}
+
+.swarm-empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 12px 2px;
+}
+
+@media (max-width: 700px) {
+  .swarm-view {
+    padding: 14px 12px 24px;
+  }
+}
