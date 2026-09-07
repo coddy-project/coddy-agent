@@ -241,7 +241,8 @@ func listItem(line string) (string, bool) {
 	return stripComment(t[1:]), true
 }
 
-// stripComment drops a trailing " # comment" and surrounding space.
+// stripComment drops a trailing " # comment" and surrounding space. As in
+// YAML, a "#" glued to the value ("**/*.go#note") is part of the value.
 func stripComment(s string) string {
 	t := strings.TrimSpace(s)
 	if strings.HasPrefix(t, "#") {
@@ -345,12 +346,20 @@ func MatchGlob(pattern, root, file string) bool {
 		return false
 	}
 	candidate := filepath.Clean(file)
-	if root != "" && filepath.IsAbs(candidate) {
-		rel, err := filepath.Rel(root, candidate)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if root != "" {
+		if filepath.IsAbs(candidate) {
+			rel, err := filepath.Rel(root, candidate)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				return false
+			}
+			candidate = rel
+		} else if !filepath.IsLocal(candidate) {
+			// A relative path is taken as root-relative, so one that climbs
+			// out of the root ("../sibling/x.go") or, on Windows, is
+			// drive-relative or rooted without a drive, is outside it.
+			// IsLocal keeps a child such as "..cache/x.go".
 			return false
 		}
-		candidate = rel
 	}
 	return globMatch(pattern, filepath.ToSlash(candidate))
 }

@@ -497,6 +497,12 @@ func TestMatchGlob(t *testing.T) {
 		{"leading ./ is ignored", "./internal/**/*.go", root, filepath.Join(root, "internal", "x.go"), true},
 		{"relative context path is taken as root-relative", "internal/**/*.go", root, filepath.Join("internal", "x.go"), true},
 		{"unclean path is cleaned first", "internal/**/*.go", root, filepath.Join(root, "docs", "..", "internal", "x.go"), true},
+		{"unclean relative path is cleaned first", "docs/**", root, filepath.Join("internal", "..", "docs", "x.md"), true},
+		// A relative path that climbs out of the root is outside it, the same
+		// way an absolute one above the root is.
+		{"relative escape is outside", "**/*.go", root, filepath.Join("..", "outside", "x.go"), false},
+		{"relative escape through a child is outside", "**/*.go", root, filepath.Join("internal", "..", "..", "outside", "x.go"), false},
+		{"the parent itself is outside", "**", root, "..", false},
 		{"a file outside the project matches nothing", "**/*.go", root, absPath(t, "/other/x.go"), false},
 		{"anchored pattern never matches outside the project", "internal/**/*.go", root, absPath(t, "/other/internal/x.go"), false},
 		{"the parent of the root is outside", "**/*.go", root, absPath(t, "/x.go"), false},
@@ -540,6 +546,10 @@ func TestMatchGlobWindowsPaths(t *testing.T) {
 		{"another volume is outside", "**/*.go", `C:\proj`, `D:\proj\internal\x.go`, false},
 		{"sibling directory is outside", "**/*.go", `C:\proj`, `C:\other\x.go`, false},
 		{"host prefix never leaks into the match", "proj/**/*.go", `C:\proj`, `C:\proj\proj\..\internal\x.go`, false},
+		{"drive-relative path is outside", "**/*.go", `C:\proj`, `C:internal\x.go`, false},
+		{"rooted path without a drive is outside", "**/*.go", `C:\proj`, `\proj\internal\x.go`, false},
+		{"relative escape is outside", "**/*.go", `C:\proj`, `..\other\x.go`, false},
+		{"relative child is inside", "internal/**/*.go", `C:\proj`, `internal\x.go`, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
