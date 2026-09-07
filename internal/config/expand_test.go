@@ -73,3 +73,16 @@ func TestExpandEnvEscapedKeepsSessionCWDPlaceholder(t *testing.T) {
 		}
 	}
 }
+
+// TestExpandConfigBodyKeepsEscapedPlaceholders pins the body-level contract:
+// ${CODDY_HOME} is substituted, ${CWD} survives for the session, and the "$$"
+// escape protects either placeholder as a literal.
+func TestExpandConfigBodyKeepsEscapedPlaceholders(t *testing.T) {
+	t.Setenv("CWD", "/decoy")
+	p := Paths{Home: "/home/dev/.coddy", CWD: "/launch"}
+	in := "a: $${CODDY_HOME}/x\nb: ${CODDY_HOME}/y\nc: $${CWD}\nd: ${CWD}/z\n"
+	want := "a: ${CODDY_HOME}/x\nb: /home/dev/.coddy/y\nc: ${CWD}\nd: ${CWD}/z\n"
+	if got := expandConfigBody(in, p); got != want {
+		t.Fatalf("expandConfigBody(%q) = %q, want %q", in, got, want)
+	}
+}

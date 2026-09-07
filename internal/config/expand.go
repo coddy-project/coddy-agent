@@ -44,6 +44,9 @@ const (
 // a value is left to those consumers as well, as it always was: the previous
 // body-level pass only looked at the first byte of the whole document.
 func expandConfigBody(s string, p Paths) string {
+	// "$$" is resolved before ${CODDY_HOME} is substituted so that
+	// "$${CODDY_HOME}" keeps a literal placeholder, like "$${CWD}" does.
+	s = strings.ReplaceAll(s, "$$", escapedDollarSentinel)
 	s = strings.ReplaceAll(s, "${CODDY_HOME}", yamlSafePath(p.Home))
 	return expandEnvEscaped(s)
 }
