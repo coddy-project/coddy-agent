@@ -559,3 +559,49 @@ func TestStripCoddyAttachmentXMLIgnoresTagsInsideCDATA(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A session is often remembered by the checkout it was about rather than by
+// whatever it ended up being called, so the working directory is searchable too.
+func TestFilterSnapshotListForSearchMatchesCWD(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+
+	makeSess := func(id, title, cwd string) error {
+		dir, err := fs.EnsureLayout(id)
+		if err != nil {
+			return err
+		}
+		st := &State{ID: id, CWD: cwd, Mode: ModeAgent, SessionDir: dir}
+		st.SetTitlePinned(title)
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "nothing to see here"})
+		return fs.Save(st)
+	}
+
+	if err := makeSess("sess_a", "Alpha", "/storage/Repository/coddy/coddy-agent"); err != nil {
+		t.Fatal(err)
+	}
+	if err := makeSess("sess_b", "Beta", "/home/pasha/other-project"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := fs.ListSnapshots("", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered, err := fs.FilterSnapshotListForSearch(rows, "coddy-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].SessionID != "sess_a" {
+		t.Fatalf("searching by working directory should find sess_a alone, got %+v", filtered)
+	}
+
+	// The match is case-insensitive like the others.
+	filtered, err = fs.FilterSnapshotListForSearch(rows, "OTHER-PROJECT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 || filtered[0].SessionID != "sess_b" {
+		t.Fatalf("case-insensitive cwd search should find sess_b alone, got %+v", filtered)
+	}
+}
