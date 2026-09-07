@@ -5,7 +5,9 @@ Feature: NeuralDeep account usage on every surface
   so the operator sees the limit coming instead of learning about it from a
   429 in the middle of a turn. The manager owns one cache and one schedule, so
   the console footer, the remote console, the SPA and scripts all read the
-  same numbers.
+  same numbers. A row can switch the panel off (providers[].usage_limits_panel:
+  false); Coddy then never reads the hub for that row and every surface stays
+  quiet about it.
 
   @http
   Scenario: The account usage of a NeuralDeep provider is readable over REST
@@ -28,3 +30,12 @@ Feature: NeuralDeep account usage on every surface
     Given a coddy HTTP server with a neuraldeep provider, a stored hub login and a stand-in limits API
     When I read the usage of the "stub" provider over REST
     Then the usage answer marks the provider as unsupported
+
+  @http
+  Scenario: A provider whose usage limits panel is switched off is left alone
+    Given a coddy HTTP server with a neuraldeep provider whose usage limits panel is switched off, a stored hub login and a stand-in limits API
+    When I read the neuraldeep provider usage over REST
+    Then the usage answer marks the provider as unsupported because its usage limits panel is switched off
+    When a prompt turn finishes on the server
+    Then the stand-in limits API was never asked
+    And the server-wide events stream announces no usage

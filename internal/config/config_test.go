@@ -1393,3 +1393,123 @@ func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
 		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
 	}
 }
+
+// TestProviderUsageLimitsPanelYAMLDTOAndSchema pins providers[].usage_limits_panel:
+// an omitted key reads as on, an explicit false parses, the Settings DTO keeps
+// the operator's choice without materialising the omitted key, and the UI
+// schema draws the switch on by default.
+func TestProviderUsageLimitsPanelYAMLDTOAndSchema(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: nd
+    type: neuraldeep
+    api_key: "sk-test"
+  - name: nd-quiet
+    type: neuraldeep
+    api_key: "sk-test"
+    usage_limits_panel: false
+  - name: nd-loud
+    type: neuraldeep
+    api_key: "sk-test"
+    usage_limits_panel: true
+
+models:
+  - model: "nd/qwen"
+
+agent:
+  model: "nd/qwen"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Config: path})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		wantOn  bool
+		wantSet bool
+	}{
+		{"nd", true, false},
+		{"nd-quiet", false, true},
+		{"nd-loud", true, true},
+	} {
+		p := cfg.FindProvider(tc.name)
+		if p == nil {
+			t.Fatalf("provider %q missing from config", tc.name)
+		}
+		if got := p.EffectiveUsageLimitsPanel(); got != tc.wantOn {
+			t.Fatalf("%s: EffectiveUsageLimitsPanel() = %v, want %v", tc.name, got, tc.wantOn)
+		}
+		if (p.UsageLimitsPanel != nil) != tc.wantSet {
+			t.Fatalf("%s: key set = %v, want %v", tc.name, p.UsageLimitsPanel != nil, tc.wantSet)
+		}
+	}
+	var none *config.ProviderConfig
+	if !none.EffectiveUsageLimitsPanel() {
+		t.Fatal("a nil provider must read as on")
+	}
+
+	// Opening and saving Settings must not turn an omitted key into an
+	// explicit value, and must keep an explicit false.
+	dto := config.ConfigToJSONDTO(cfg)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	if got := strings.Count(string(raw), `"usage_limits_panel"`); got != 2 {
+		t.Fatalf("the DTO carries the key %d times, want 2 (the two explicit rows): %s", got, raw)
+	}
+	if dto.Providers[1].UsageLimitsPanel == cfg.Providers[1].UsageLimitsPanel {
+		t.Fatal("the DTO must own a copy of the pointer field, not alias the live config")
+	}
+	back, err := config.ParseAndValidateConfigJSON(raw, cfg.Paths)
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	if p := back.FindProvider("nd"); p == nil || p.UsageLimitsPanel != nil {
+		t.Fatalf("round trip materialised the omitted key: %+v", p)
+	}
+	if p := back.FindProvider("nd-quiet"); p == nil || p.UsageLimitsPanel == nil || *p.UsageLimitsPanel || p.EffectiveUsageLimitsPanel() {
+		t.Fatalf("round trip lost usage_limits_panel: false: %+v", p)
+	}
+	if p := back.FindProvider("nd-loud"); p == nil || p.UsageLimitsPanel == nil || !*p.UsageLimitsPanel {
+		t.Fatalf("round trip lost an explicit usage_limits_panel: true: %+v", p)
+	}
+
+	// The Settings form seeds new rows from the schema default and renders
+	// an unset switch from it, so the schema has to say the default is on.
+	schema := config.UISchemaMap()
+	providers, ok := schema["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	if !ok {
+		t.Fatal("providers section missing from the UI schema")
+	}
+	items := providers["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+	field, ok := props["usage_limits_panel"].(map[string]interface{})
+	if !ok {
+		t.Fatal("providers[].usage_limits_panel missing from the UI schema")
+	}
+	if field["type"] != "boolean" {
+		t.Fatalf("providers[].usage_limits_panel type = %v, want boolean", field["type"])
+	}
+	if def, ok := field["default"].(bool); !ok || !def {
+		t.Fatalf("providers[].usage_limits_panel default = %v, want true", field["default"])
+	}
+	order, _ := items["x-coddy-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "usage_limits_panel" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("usage_limits_panel missing from the providers field order: %v", order)
+	}
+}

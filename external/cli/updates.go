@@ -54,6 +54,10 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 		}
 		a.refreshFooterModel()
 		a.populateHeader()
+		// The reload may have switched the active row's usage limits panel
+		// (providers[].usage_limits_panel): a cache read brings the line up
+		// or takes it down without waiting for the next turn.
+		a.refreshUsage(usageProviderOf(a.modelID), false)
 		return
 	case sessionSwitched:
 		a.switching = false

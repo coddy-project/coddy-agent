@@ -77,6 +77,7 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 | `timeout_ms` | int | no | `0` | — | Bound on each LLM HTTP request to this provider, including the streamed body read. `0` sets no client timeout, so slow prompt processing on large contexts is never cut short; the turn context stays the only bound. A client timeout is not retried. |
+| `usage_limits_panel` | bool | no | `true` | — | Shows the row's account usage panel (the console footer line and `/usage`, the usage section and banner in the web UI) and enables the reads behind it (the hub's `GET /v1/limits` for `type: neuraldeep`). `false` hides the panel on every surface and stops those reads for this row: `GET /coddy/providers/{name}/usage` answers `unsupported` with `disabled: true`, and nothing is published at session start or after a turn. Omitted means on. Only rows whose type has a usage source are affected; the key is accepted on any row. Settings → LLM Providers shows it as the **Usage limits panel** switch. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -92,6 +93,7 @@ providers:
   - name: neuraldeep
     type: neuraldeep
     api_key: "${NEURALDEEP_API_KEY}"
+    # usage_limits_panel: false  # hide the account usage panel for this row
   - name: codex
     type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```

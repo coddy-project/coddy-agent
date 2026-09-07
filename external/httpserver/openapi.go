@@ -1544,7 +1544,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/usage": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get provider account usage",
-					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source; `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source, plus `disabled:true` when the row's usage limits panel is switched off (`providers[].usage_limits_panel: false`, nothing is read for that row); `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
 					"operationId": "getProviderUsage",
 					"parameters": []interface{}{
 						codexProviderNameParameter(),
@@ -2413,7 +2413,8 @@ func openAPISpec() map[string]interface{} {
 					"type": "object",
 					"properties": map[string]interface{}{
 						"ok":           map[string]interface{}{"type": "boolean"},
-						"unsupported":  map[string]interface{}{"type": "boolean", "description": "The provider type has no usage source."},
+						"unsupported":  map[string]interface{}{"type": "boolean", "description": "The provider type has no usage source, or the row's usage limits panel is switched off (then disabled is set too)."},
+						"disabled":     map[string]interface{}{"type": "boolean", "description": "The row's usage limits panel is switched off in config (providers[].usage_limits_panel: false); nothing is read for it. Always paired with unsupported."},
 						"provider":     map[string]interface{}{"type": "string", "description": "Provider row name, on the unsupported answer."},
 						"providerType": map[string]interface{}{"type": "string", "description": "Provider wire type, on the unsupported answer."},
 						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
@@ -2445,6 +2446,7 @@ func openAPISpec() map[string]interface{} {
 						"stale":           map[string]interface{}{"type": "boolean"},
 						"error":           map[string]interface{}{"type": "string"},
 						"unsupported":     map[string]interface{}{"type": "boolean"},
+						"disabled":        map[string]interface{}{"type": "boolean", "description": "The row's usage limits panel is switched off (providers[].usage_limits_panel: false); paired with unsupported."},
 						"refreshPending":  map[string]interface{}{"type": "boolean"},
 						"refreshInSec":    map[string]interface{}{"type": "integer"},
 						"resuming":        map[string]interface{}{"type": "boolean", "description": "Sent by the agent on the turn stream while it waits for a hit limit to lift (agent.wait_for_limit_reset); the next turn-end read replaces it."},

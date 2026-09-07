@@ -514,6 +514,15 @@ func (a *App) usageActive(u *acp.ProviderUsageUpdate) bool {
 // notices, the reset timer.
 func (a *App) applyProviderUsage(u acp.ProviderUsageUpdate) {
 	if u.Unsupported {
+		// The row has no usage now: no source, or its panel switched off
+		// (providers[].usage_limits_panel: false). A stale line must not
+		// outlive that answer, nor may its reset timer ask again.
+		if u.Provider != "" && a.foot != nil {
+			a.foot.DropUsage(u.Provider)
+		}
+		if a.usageActive(&u) {
+			a.stopUsageTimer()
+		}
 		return
 	}
 	if u.Resuming {
@@ -677,9 +686,11 @@ func (a *App) refreshUsage(provider string, refresh bool) {
 		ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 		defer cancel()
 		u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, refresh)
-		if err != nil || u == nil || u.Unsupported {
+		if err != nil || u == nil {
 			return
 		}
+		// An unsupported answer travels too: it takes a stale line down when
+		// the row's panel was switched off since the last snapshot.
 		_ = a.Sender().SendSessionUpdate(sessionID, *u)
 	}()
 }
@@ -709,7 +720,12 @@ func (a *App) applyUsageReport(r usageReport) {
 		a.appendStatus(roleError, "usage: "+tui.SanitizeText(r.err.Error()))
 	case r.update == nil:
 		a.appendStatus(roleError, "usage: no answer")
+	case r.update.Disabled:
+		// The type has a source, the operator switched this row's panel off.
+		a.applyProviderUsage(*r.update)
+		a.appendStatus(roleDim, tui.SanitizeText(r.provider)+": usage limits panel is switched off in config (providers[].usage_limits_panel: false)")
 	case r.update.Unsupported:
+		a.applyProviderUsage(*r.update)
 		a.appendStatus(roleDim, tui.SanitizeText(r.provider)+" reports no account usage (provider type "+tui.SanitizeText(r.update.ProviderType)+")")
 	default:
 		a.applyProviderUsage(*r.update)

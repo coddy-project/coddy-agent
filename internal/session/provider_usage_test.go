@@ -136,6 +136,13 @@ const usageKey = "sk-usage-test-key-0123456789abcdef"
 // usage source.
 func newUsageManager(t *testing.T, stand *usageStand, sender acp.UpdateSender, runner AgentRunner) *Manager {
 	t.Helper()
+	return newUsageManagerWith(t, stand, sender, runner, nil)
+}
+
+// newUsageManagerWith is newUsageManager with a hook that edits the config
+// before the manager is built.
+func newUsageManagerWith(t *testing.T, stand *usageStand, sender acp.UpdateSender, runner AgentRunner, edit func(*config.Config)) *Manager {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv(llm.EnvNeuralDeepBaseURL, stand.srv.URL)
 	t.Setenv("NEURALDEEP_API_KEY", "")
@@ -161,6 +168,9 @@ func newUsageManager(t *testing.T, stand *usageStand, sender acp.UpdateSender, r
 		runner = func(context.Context, *State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
 			return string(acp.StopReasonEndTurn), nil
 		}
+	}
+	if edit != nil {
+		edit(cfg)
 	}
 	return NewManager(cfg, sender, runner, slog.New(slog.DiscardHandler), cfg.Paths.CWD, nil)
 }
@@ -1392,5 +1402,46 @@ func TestProviderUsageResumingUpdateNeverEntersTheCache(t *testing.T) {
 	}
 	if seen != 1 {
 		t.Fatalf("the turn's sender must carry the update exactly once, saw %d", seen)
+	}
+}
+
+// A neuraldeep row whose usage limits panel is switched off
+// (providers[].usage_limits_panel: false) is left alone: a read answers
+// unsupported with the disabled flag and no request goes out, and neither
+// session ready nor a finished turn publishes anything. The switch is per
+// row: another row of the same type keeps its source.
+func TestProviderUsageSwitchedOffPanelIsNeverRead(t *testing.T) {
+	stand := newUsageStand(t)
+	sender := &usageCapture{}
+	off := false
+	m := newUsageManagerWith(t, stand, sender, nil, func(cfg *config.Config) {
+		cfg.Providers[0].UsageLimitsPanel = &off
+		cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "nd-loud", Type: "neuraldeep", APIKey: "sk-loud"})
+	})
+	u, err := m.ProviderUsage(context.Background(), "neuraldeep", true)
+	if err != nil || u == nil || !u.Unsupported || !u.Disabled || u.Provider != "neuraldeep" || u.ProviderType != "neuraldeep" {
+		t.Fatalf("switched-off row: err=%v update=%+v", err, u)
+	}
+	if u, err = m.ProviderUsageForSession(context.Background(), "s1", "neuraldeep", false); err != nil || u == nil || !u.Unsupported || !u.Disabled {
+		t.Fatalf("switched-off row for a session: err=%v update=%+v", err, u)
+	}
+	id := newUsageSession(t, m, "")
+	m.HandleSessionReady(id)
+	if err := usagePrompt(t, m, id, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if updates, _ := sender.snapshot(); len(updates) != 0 || stand.calls.Load() != 0 {
+		t.Fatalf("no publish and no request expected: updates=%+v calls=%d", updates, stand.calls.Load())
+	}
+	// The other row keeps its panel: it is read (and answers with its own
+	// numbers), so the switch never leaks across rows of one type.
+	if u, err = m.ProviderUsage(context.Background(), "nd-loud", false); err != nil || u == nil || u.Unsupported || u.Disabled {
+		t.Fatalf("the other row must keep its source: err=%v update=%+v", err, u)
+	}
+	if stand.calls.Load() != 1 {
+		t.Fatalf("the other row's read must reach the hub once, got %d", stand.calls.Load())
 	}
 }

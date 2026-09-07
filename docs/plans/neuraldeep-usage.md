@@ -508,8 +508,10 @@ pro • 3h 3% (resets 20:59) • week 7% (resets Mon 03:00) • wallet -1 229 �
   zero and `none` otherwise (cursor 11).
 
 - `[rev]` The wallet stays on the footer on purpose: the issue asks for it
-  there, and the footer is the operator's own terminal (claude 13). A later
-  `providers[].usage` switch can hide it if anyone shares screens.
+  there, and the footer is the operator's own terminal (claude 13). `[rev12]`
+  The switch shipped as `providers[].usage_limits_panel` (default `true`):
+  off, the row is never read, reads answer `unsupported` with `disabled`, and
+  every surface stays quiet, so a shared screen shows nothing.
 
 The console has no i18n; strings are English literals like the rest of
 `footer.go`.
