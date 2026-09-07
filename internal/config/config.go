@@ -145,7 +145,7 @@ func applyDefaults(cfg *Config) {
 	// working directory (per-session placeholders are left alone by the body
 	// expansion, see expandConfigBody).
 	if f := strings.TrimSpace(cfg.Logger.File); f != "" {
-		cfg.Logger.File = ExpandPathVars(f, p)
+		cfg.Logger.File = filepath.Clean(ExpandPathVars(f, p))
 	}
 
 	if d := strings.TrimSpace(cfg.Sessions.Dir); d != "" {

@@ -4,7 +4,9 @@
 The console runs from a workdir that also carries ``.coddy/skills/coddy_project_demo``
 (``examples/skills_fixture/coddy_project_demo``), so the ``${CWD}/.coddy/skills`` entry of
 the demo config must list that project-local skill in the header ``[Skills]`` section
-next to the home-installed ``coddy_slash_demo`` (coddy-project/coddy-agent#146).
+next to the home-installed ``coddy_slash_demo``. On the console the process cwd is the
+session workspace, so this only covers the entry on that surface; the server-started-
+elsewhere case of coddy-project/coddy-agent#146 is exercised by the HTTP and ACP twins.
 """
 
 from __future__ import annotations

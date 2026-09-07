@@ -54,4 +54,9 @@ func TestExpandEnvEscapedKeepsSessionCWDPlaceholder(t *testing.T) {
 	if got := expandEnvEscaped(in); got != want {
 		t.Fatalf("expandEnvEscaped(%q) = %q, want %q", in, got, want)
 	}
+	// Only the braced spelling is the placeholder; a bare $CWD is still an
+	// ordinary environment reference, as it always was.
+	if got := expandEnvEscaped("$CWD/x"); got != "/decoy/x" {
+		t.Fatalf("bare $CWD must keep expanding from the environment, got %q", got)
+	}
 }

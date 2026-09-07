@@ -222,11 +222,11 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 |---|---|---|---|---|
 | `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
-| `command` | string | stdio only | — | Executable for stdio transport. |
+| `command` | string | stdio only | — | Executable for stdio transport. `${CWD}` expands to the session cwd. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
-| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
+| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. `${CWD}` in a value expands to the session cwd. |
 | `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
-| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). `${CWD}` in a value expands to the session cwd. |
 | `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
 | `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 

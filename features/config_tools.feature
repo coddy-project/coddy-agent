@@ -94,6 +94,7 @@ Feature: Agent-managed Coddy configuration
       """
     And the agent commits the staged config
     Then the commit succeeds and reports the applied commands
+    And config path "skills.dirs.0" equals "/opt/coddy/skills"
     And config path "skills.dirs.1" equals "${CWD}/.agents/skills"
     And the reloaded config keeps the skills directory "${CWD}/.agents/skills" for the session
 

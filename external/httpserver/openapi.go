@@ -317,7 +317,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-Coddy-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -1363,7 +1363,7 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List skills",
 					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`). " +
-						"When **X-Coddy-Session-ID** is set (existing session), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default session cwd applies.",
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default session cwd applies.",
 					"operationId": "listSkills",
 					"parameters": []interface{}{
 						map[string]interface{}{

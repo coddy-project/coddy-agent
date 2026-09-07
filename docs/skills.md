@@ -160,7 +160,7 @@ skills:
     - "~/my-team-skills"
 ```
 
-`${CODDY_HOME}` and `${CWD}` expand at runtime (per-session cwd for `${CWD}`).
+`${CODDY_HOME}` expands when the config file is loaded; `${CWD}` stays in the entry and expands per session, against the workspace of the session that loads its skills.
 
 `${CWD}` is resolved by the session, not by the process. A `coddy http` server started from any directory (a user service started from `$HOME`, say) serves project-local skills to every session whose workspace is that project: pick the folder when the session is created (the composer's workspace picker, `POST /coddy/sessions/{id}/workspace`, or ACP `session/new` with `cwd`). The workspace is fixed once the conversation has messages, so a running chat keeps the skills of the folder it started in. `GET /coddy/slash-commands` and `GET /coddy/skills` take the session through **`X-Coddy-Session-ID`**; without the header they describe the server default workspace, which is also what `coddy skills list` prints for the directory it runs in.
 
