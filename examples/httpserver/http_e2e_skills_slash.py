@@ -3,8 +3,8 @@
 
 ACP twin: ``examples/acp/acp_e2e_skills_slash.py``.
 
-Needs a running ``coddy http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.install_dir``
-and ``skills.dirs`` set to ``${CODDY_HOME}/skills_fixture``. The full HTTP harness copies ``examples/skills_fixture/`` there (``examples/httpserver/test_httpserver.sh``).
+Needs a running ``coddy http`` built with **http** (and **scheduler** if you use the default examples binary), using ``examples/config.demo.yaml`` with ``skills.dirs``
+listing ``${CODDY_HOME}/skills_fixture`` and ``${CWD}/.coddy/skills``. The full HTTP harness copies ``examples/skills_fixture/coddy_slash_demo`` there (``examples/httpserver/test_httpserver.sh``).
 
 Calls a real configured LLM via ``POST /v1/responses`` (``model``: ``agent`` or ``plan``).
 
