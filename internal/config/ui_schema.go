@@ -248,17 +248,17 @@ func UISchemaMap() map[string]interface{} {
 	mcpProps := map[string]interface{}{
 		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
-		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
+		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd."),
 		"args": map[string]interface{}{
 			"type":        "array",
 			"title":       "Arguments",
-			"description": "Argv passed after command for stdio MCP servers.",
+			"description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
 			"items":       map[string]interface{}{"type": "string"},
 		},
 		"env": map[string]interface{}{
 			"type":        "array",
 			"title":       "Environment",
-			"description": "Extra environment variables for the stdio child process.",
+			"description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           envProps,
@@ -266,11 +266,11 @@ func UISchemaMap() map[string]interface{} {
 				"additionalProperties": false,
 			},
 		},
-		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server."),
+		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd."),
 		"headers": map[string]interface{}{
 			"type":        "array",
 			"title":       "HTTP headers",
-			"description": "Optional headers sent with MCP HTTP requests.",
+			"description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           headerProps,
