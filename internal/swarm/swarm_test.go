@@ -1,8 +1,19 @@
 package swarm
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestValidateNodeName(t *testing.T) {
@@ -194,4 +205,336 @@ func TestRegisterRequestValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---- join client ----
+
+// fakeRelay stands in for the registration half of a relay.
+type fakeRelay struct {
+	mu       sync.Mutex
+	pairing  string
+	leases   map[string]string
+	requests []RegisterRequest
+	status   int
+	ts       *httptest.Server
+}
+
+func newFakeRelay(t *testing.T, pairing string) *fakeRelay {
+	t.Helper()
+	f := &fakeRelay{pairing: pairing, leases: map[string]string{}}
+	f.ts = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.ts.Close)
+	return f
+}
+
+func (f *fakeRelay) serve(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/swarm/register" {
+		http.NotFound(w, r)
+		return
+	}
+	if got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); got != f.pairing {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	forced := f.status
+	held, exists := f.leases[req.Name]
+	if !exists {
+		held = "lease-" + req.Name
+		f.leases[req.Name] = held
+	}
+	generation := uint64(len(f.requests))
+	f.mu.Unlock()
+
+	if forced != 0 {
+		w.WriteHeader(forced)
+		return
+	}
+	if exists && req.LeaseSecret != held {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(RegisterResponse{
+		NodeID: req.Name, LeaseSecret: held, TTLSeconds: 90, Generation: generation,
+	})
+}
+
+func (f *fakeRelay) seen() []RegisterRequest {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]RegisterRequest(nil), f.requests...)
+}
+
+func (f *fakeRelay) forceStatus(code int) {
+	f.mu.Lock()
+	f.status = code
+	f.mu.Unlock()
+}
+
+func TestJoinClientRegistersAndRemembersItsLease(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	store := &MemorySecretStore{}
+	c, err := NewClient(JoinOptions{
+		RelayURL:     relay.ts.URL,
+		Name:         "nas02",
+		PairingToken: "pair",
+		AdvertiseURL: "http://nas02:12345",
+		NodeToken:    "node-token",
+		Secrets:      store,
+		Log:          quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Register(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Online() {
+		t.Fatal("a successful registration should read as online")
+	}
+	if c.LeaseSecret() != "lease-nas02" {
+		t.Fatalf("lease secret = %q", c.LeaseSecret())
+	}
+	if got, ok := store.Load(relay.ts.URL, "nas02"); !ok || got != "lease-nas02" {
+		t.Fatalf("the lease secret was not persisted: %q %v", got, ok)
+	}
+
+	// A heartbeat presents the secret, which is what keeps the name.
+	if err := c.Register(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	seen := relay.seen()
+	if len(seen) != 2 {
+		t.Fatalf("relay saw %d registrations", len(seen))
+	}
+	if seen[0].LeaseSecret != "" {
+		t.Fatal("the first registration should claim the name without a secret")
+	}
+	if seen[1].LeaseSecret != "lease-nas02" {
+		t.Fatalf("the heartbeat should present the secret, got %q", seen[1].LeaseSecret)
+	}
+}
+
+// A node that restarts must re-claim its own name at once, not wait out the
+// lease it left behind.
+func TestJoinClientReusesAStoredLeaseAcrossRestarts(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	store := &MemorySecretStore{}
+	opts := JoinOptions{
+		RelayURL: relay.ts.URL, Name: "nas02", PairingToken: "pair",
+		AdvertiseURL: "http://nas02:12345", Secrets: store, Log: quietLogger(),
+	}
+	first, err := NewClient(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Register(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := NewClient(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restarted.LeaseSecret() != "lease-nas02" {
+		t.Fatal("a restarted node should load the secret it stored")
+	}
+	if err := restarted.Register(context.Background()); err != nil {
+		t.Fatalf("a restarted node should re-claim its own name: %v", err)
+	}
+}
+
+func TestJoinClientReportsANameConflictDistinctly(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	c, err := NewClient(JoinOptions{
+		RelayURL: relay.ts.URL, Name: "nas02", PairingToken: "pair",
+		AdvertiseURL: "http://nas02:12345", Log: quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay.forceStatus(http.StatusConflict)
+	err = c.Register(context.Background())
+	if !errors.Is(err, ErrNameConflict) {
+		t.Fatalf("err = %v, want ErrNameConflict", err)
+	}
+	if c.Online() {
+		t.Fatal("a refused node must not read as online")
+	}
+}
+
+func TestJoinClientRejectsABadPairingToken(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	c, err := NewClient(JoinOptions{
+		RelayURL: relay.ts.URL, Name: "nas02", PairingToken: "wrong",
+		AdvertiseURL: "http://nas02:12345", Log: quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Register(context.Background()); err == nil {
+		t.Fatal("a wrong pairing token should not register")
+	}
+}
+
+// Leaving the advertised URL out is how a node says it cannot be dialled and
+// will open the connection itself.
+func TestJoinClientPicksTheTransportFromTheAdvertisedURL(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	direct, err := NewClient(JoinOptions{RelayURL: relay.ts.URL, Name: "a", AdvertiseURL: "http://a:1", Log: quietLogger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if direct.Transport() != TransportDirect {
+		t.Fatalf("transport = %q, want direct", direct.Transport())
+	}
+	tunnel, err := NewClient(JoinOptions{RelayURL: relay.ts.URL, Name: "b", Log: quietLogger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tunnel.Transport() != TransportTunnel {
+		t.Fatalf("transport = %q, want tunnel", tunnel.Transport())
+	}
+}
+
+func TestNewClientValidates(t *testing.T) {
+	if _, err := NewClient(JoinOptions{Name: "a"}); err == nil {
+		t.Fatal("a client without a relay url should not be built")
+	}
+	if _, err := NewClient(JoinOptions{RelayURL: "http://r", Name: "bad name"}); err == nil {
+		t.Fatal("an invalid node name should not be accepted")
+	}
+}
+
+// Run keeps the node registered; cancelling stops it promptly.
+func TestJoinClientRunHeartbeatsUntilCancelled(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	c, err := NewClient(JoinOptions{
+		RelayURL: relay.ts.URL, Name: "nas02", PairingToken: "pair",
+		AdvertiseURL: "http://nas02:12345", Log: quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	deadline := time.After(3 * time.Second)
+	for len(relay.seen()) == 0 || !c.Online() {
+		select {
+		case <-deadline:
+			t.Fatal("the client never registered")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run returned %v, want context.Canceled", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not stop when its context was cancelled")
+	}
+}
+
+// A relay restart wakes every node it served at the same moment, so retries
+// must not line up.
+func TestJitterSpreadsRetries(t *testing.T) {
+	const nominal = time.Second
+	seen := map[time.Duration]int{}
+	for i := 0; i < 200; i++ {
+		d := jitter(nominal)
+		if d < nominal/2 || d > nominal {
+			t.Fatalf("jitter(%v) = %v, outside [50%%, 100%%]", nominal, d)
+		}
+		seen[d]++
+	}
+	if len(seen) < 50 {
+		t.Fatalf("jitter produced only %d distinct waits out of 200; retries would still cluster", len(seen))
+	}
+	if jitter(0) != 0 {
+		t.Fatal("jitter(0) should stay 0")
+	}
+}
+
+func TestBackoffGrowsAndIsCapped(t *testing.T) {
+	d := initialBackoff
+	for i := 0; i < 20; i++ {
+		next := nextBackoff(d)
+		if next < d {
+			t.Fatalf("backoff went backwards: %v -> %v", d, next)
+		}
+		d = next
+	}
+	if d != maxBackoff {
+		t.Fatalf("backoff settled at %v, want the %v cap", d, maxBackoff)
+	}
+}
+
+func TestSanitiseNodeNameMakesAHostNameRoutable(t *testing.T) {
+	cases := map[string]string{
+		"nas02.local":  "nas02-local",
+		"GPU_03":       "GPU_03",
+		"héllo.host":   "hllo-host",
+		"weird!!@name": "weirdname",
+	}
+	for in, want := range cases {
+		if got := sanitiseNodeName(in); got != want {
+			t.Fatalf("sanitiseNodeName(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if err := ValidateNodeName(sanitiseNodeName("nas02.local")); err != nil {
+		t.Fatalf("a sanitised host name should be a valid node name: %v", err)
+	}
+}
+
+func TestFileSecretStoreRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFileSecretStore(dir)
+	if _, ok := store.Load("http://relay", "nas02"); ok {
+		t.Fatal("an empty store should hold nothing")
+	}
+	if err := store.Save("http://relay", "nas02", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	reopened := NewFileSecretStore(dir)
+	got, ok := reopened.Load("http://relay", "nas02")
+	if !ok || got != "s3cret" {
+		t.Fatalf("reopened store returned %q %v", got, ok)
+	}
+	// Credentials on disk are owner-only.
+	info, err := os.Stat(filepath.Join(dir, "swarm-leases.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("lease file mode = %o, want 600", perm)
+	}
+}
+
+func TestFileSecretStoreSurvivesACorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "swarm-leases.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewFileSecretStore(dir)
+	if _, ok := store.Load("http://relay", "nas02"); ok {
+		t.Fatal("a corrupt file should read as empty, not as a secret")
+	}
+	if err := store.Save("http://relay", "nas02", "fresh"); err != nil {
+		t.Fatalf("a corrupt file should not block a new secret: %v", err)
+	}
+}
+
+func quietLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

@@ -3,6 +3,7 @@
 package swarm
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/httpx"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
 // TokenEnvVar is where the relay looks for its client credential when no flag
@@ -133,7 +135,16 @@ func Run(args []string, deps CommandDeps) error {
 		log.Warn("swarm: registration is closed, no node can join (set swarm.pairing_tokens or --pairing-token)")
 	}
 
-	log.Info("swarm relay listening", "addr", addr, "uuid", srv.UUID(), "tls", cfg.Swarm.TLS.Enabled(), "nodes", srv.Registry().Len())
+	// A relay joins its own parents exactly the way an agent joins a relay.
+	// That symmetry is the whole of relay chaining: nothing here knows or cares
+	// how deep the chain goes.
+	joins, err := swarmdto.StartJoins(context.Background(), cfg, swarmdto.KindRelay, paths.Home, log)
+	if err != nil {
+		return err
+	}
+	defer joins.Stop()
+
+	log.Info("swarm relay listening", "addr", addr, "uuid", srv.UUID(), "tls", cfg.Swarm.TLS.Enabled(), "nodes", srv.Registry().Len(), "parents", len(cfg.Swarm.Join))
 
 	server := httpx.NewServer(addr, srv.Handler())
 	if cfg.Swarm.TLS.Enabled() {

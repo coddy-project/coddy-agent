@@ -1,0 +1,24 @@
+//go:build http && swarm
+
+package httpserver
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/swarm"
+)
+
+// startSwarmJoins registers this agent into every relay listed in swarm.join.
+//
+// It exists only under the swarm build tag; the stub beside it does nothing, so
+// a plain http build starts no goroutine and opens no connection.
+func startSwarmJoins(ctx context.Context, cfg *config.Config, home string, log *slog.Logger) func() {
+	set, err := swarm.StartJoins(ctx, cfg, swarm.KindAgent, home, log)
+	if err != nil {
+		log.Error("swarm: could not start joining relays", "error", err)
+		return func() {}
+	}
+	return set.Stop
+}

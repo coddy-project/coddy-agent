@@ -180,6 +180,12 @@ func Run(args []string, deps CommandDeps) error {
 			"addr", listenAddr,
 			"hint", "set httpserver.auth_token / --auth-token / CODDY_HTTP_TOKEN, or httpserver.allow_insecure: true to silence")
 	}
+	// Joining a relay is what makes this agent reachable from a swarm. It runs
+	// alongside the listener rather than before it, because the relay may dial
+	// straight back and should find the API already up.
+	stopSwarm := startSwarmJoins(context.Background(), cfg, paths.Home, log)
+	defer stopSwarm()
+
 	log.Info("listening", "addr", listenAddr, "auth", authOn)
 	return ListenAndServe(listenAddr, s)
 }
