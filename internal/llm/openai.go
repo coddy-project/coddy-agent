@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,7 +23,7 @@ type openAIProvider struct {
 }
 
 func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *openAIProvider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMaxRetries(0)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -44,7 +43,7 @@ func newOpenAIProvider(model, apiKey, baseURL string, httpClient *http.Client, m
 }
 
 func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools []ToolDefinition) (*Response, error) {
-	params := p.buildParams(messages, tools)
+	params := p.buildParams(messages, tools, false)
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("openai complete: %w", err)
@@ -52,134 +51,10 @@ func (p *openAIProvider) Complete(ctx context.Context, messages []Message, tools
 	return p.parseCompletion(resp)
 }
 
-func (p *openAIProvider) Stream(ctx context.Context, messages []Message, tools []ToolDefinition, onChunk func(StreamChunk)) (*Response, error) {
-	params := p.buildParams(messages, tools)
-	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
-	defer func() { _ = stream.Close() }()
-
-	var fullContent string
-	var toolCalls []ToolCall
-	var stopReason string
-	var inputTokens, outputTokens int
-
-	// Accumulate tool call deltas by index.
-	type tcBuilder struct {
-		id   string
-		name string
-		args string
-	}
-	builders := make(map[int]*tcBuilder)
-
-	finalizeOpenAIToolBuilders := func() []ToolCall {
-		var out []ToolCall
-		for i := 0; i < len(builders); i++ {
-			b, ok := builders[i]
-			if !ok {
-				continue
-			}
-			out = append(out, ToolCall{ID: b.id, Name: b.name, InputJSON: b.args})
-		}
-		return out
-	}
-
-	for stream.Next() {
-		chunk := stream.Current()
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		choice := chunk.Choices[0]
-
-		if choice.FinishReason != "" {
-			stopReason = mapOpenAIStopReason(string(choice.FinishReason))
-		}
-
-		delta := choice.Delta
-
-		if delta.Content != "" {
-			fullContent += delta.Content
-			onChunk(StreamChunk{TextDelta: delta.Content})
-		}
-
-		raw := delta.RawJSON()
-		if raw != "" {
-			r := gjson.Get(raw, "reasoning_content").String()
-			if r == "" {
-				r = gjson.Get(raw, "thinking").String()
-			}
-			if r != "" {
-				onChunk(StreamChunk{ReasoningDelta: r})
-			}
-		}
-
-		for _, tc := range delta.ToolCalls {
-			idx := int(tc.Index)
-			if _, ok := builders[idx]; !ok {
-				builders[idx] = &tcBuilder{}
-			}
-			b := builders[idx]
-			if tc.ID != "" {
-				b.id = tc.ID
-			}
-			if tc.Function.Name != "" {
-				b.name = tc.Function.Name
-			}
-			b.args += tc.Function.Arguments
-		}
-
-		if chunk.Usage.TotalTokens > 0 {
-			inputTokens = int(chunk.Usage.PromptTokens)
-			outputTokens = int(chunk.Usage.CompletionTokens)
-		}
-	}
-
-	if err := stream.Err(); err != nil {
-		if errors.Is(err, context.Canceled) {
-			toolCalls = finalizeOpenAIToolBuilders()
-			if strings.TrimSpace(fullContent) != "" || len(toolCalls) > 0 {
-				sr := stopReason
-				if sr == "" {
-					if len(toolCalls) > 0 {
-						sr = "tool_use"
-					} else {
-						sr = "end_turn"
-					}
-				}
-				return &Response{
-					Content:      fullContent,
-					ToolCalls:    toolCalls,
-					StopReason:   sr,
-					InputTokens:  inputTokens,
-					OutputTokens: outputTokens,
-				}, fmt.Errorf("openai stream: %w", err)
-			}
-		}
-		return nil, fmt.Errorf("openai stream: %w", err)
-	}
-
-	toolCalls = finalizeOpenAIToolBuilders()
-	for i := range toolCalls {
-		tc := toolCalls[i]
-		onChunk(StreamChunk{ToolCall: &tc})
-	}
-
-	if stopReason == "" {
-		if len(toolCalls) > 0 {
-			stopReason = "tool_use"
-		} else {
-			stopReason = "end_turn"
-		}
-	}
-
-	return &Response{
-		Content:      fullContent,
-		ToolCalls:    toolCalls,
-		StopReason:   stopReason,
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
-	}, nil
-}
-
-func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition) openai.ChatCompletionNewParams {
+// buildParams assembles the chat completion request. streaming selects the
+// stream-only fields: stream_options is rejected outright by OpenAI on a
+// blocking request, so it is set for the streaming path only.
+func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition, streaming bool) openai.ChatCompletionNewParams {
 	oaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 	for _, m := range messages {
 		switch m.Role {
@@ -260,6 +135,14 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		if p.maxTokens > 0 {
 			params.MaxCompletionTokens = openai.Int(int64(p.maxTokens))
 		}
+		// Qwen3-family thinking is a chat-template switch (vLLM/SGLang convention for
+		// open-weight Qwen), not an effort tier: pin it on so the selected effort is
+		// honored even when the serving template defaults thinking off.
+		if isQwenChatTemplateModel(p.model) {
+			params.SetExtraFields(map[string]any{
+				"chat_template_kwargs": map[string]any{"enable_thinking": true},
+			})
+		}
 	} else {
 		if p.maxTokens > 0 {
 			params.MaxTokens = openai.Int(int64(p.maxTokens))
@@ -288,13 +171,22 @@ func (p *openAIProvider) buildParams(messages []Message, tools []ToolDefinition)
 		params.Tools = oaiTools
 	}
 
-	// Request usage statistics in the streaming response.
-	// Without this the usage chunk is omitted and token counts stay at zero.
-	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-		IncludeUsage: openai.Bool(true),
+	if streaming {
+		// Request usage statistics in the streaming response.
+		// Without this the usage chunk is omitted and token counts stay at zero.
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		}
 	}
 
 	return params
+}
+
+// isQwenChatTemplateModel matches Qwen3-family models whose thinking mode is
+// controlled by the chat template (chat_template_kwargs.enable_thinking) rather
+// than reasoning_effort alone. Qwen2.5 has no thinking mode.
+func isQwenChatTemplateModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "qwen3")
 }
 
 func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response, error) {
@@ -306,6 +198,7 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 
 	r := &Response{
 		Content:      msg.Content,
+		Reasoning:    openAIMessageReasoning(msg.RawJSON()),
 		StopReason:   mapOpenAIStopReason(string(choice.FinishReason)),
 		InputTokens:  int(resp.Usage.PromptTokens),
 		OutputTokens: int(resp.Usage.CompletionTokens),
@@ -320,6 +213,20 @@ func (p *openAIProvider) parseCompletion(resp *openai.ChatCompletion) (*Response
 	}
 
 	return r, nil
+}
+
+// openAIMessageReasoning pulls the thinking text out of a non-streamed assistant
+// message. Neither field is part of the OpenAI schema, so they are read off the
+// raw JSON: reasoning_content is what vLLM, SGLang, and llama.cpp emit, thinking
+// is the older spelling. Precedence matches the streaming path.
+func openAIMessageReasoning(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	if r := gjson.Get(raw, "reasoning_content").String(); r != "" {
+		return r
+	}
+	return gjson.Get(raw, "thinking").String()
 }
 
 func mapOpenAIStopReason(reason string) string {

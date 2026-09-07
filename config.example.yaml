@@ -27,6 +27,9 @@ providers:
     # Optional outbound proxy for this provider only (http, https, socks5, socks5h).
     # proxy: "http://127.0.0.1:8888"
     # proxy: "socks5h://127.0.0.1:1080"
+    # Optional bound on each LLM HTTP request, including the streamed body read.
+    # 0 (default) sets no client timeout; raise it only if you want a hard cap.
+    # timeout_ms: 300000
 
   # Local Ollama or llama.cpp server (OpenAI-compatible)
   # - name: local
@@ -39,10 +42,31 @@ providers:
   #   type: anthropic
   #   api_key: "${ANTHROPIC_API_KEY}"
 
-  # NeuralDeep (OpenAI-compatible endpoint is fixed to https://api.neuraldeep.ru/v1)
+  # NeuralDeep serves the same OpenAI-compatible API from two deployments:
+  # https://api.neuraldeep.ru/v1 (Russia, used when api_base is empty) and
+  # https://api.neuraldeep.tech/v1 (the mirror for everywhere else). api_base
+  # picks one - any other value falls back to the first - and the choice also
+  # decides which hub signs you in.
+  # Instead of pasting a key, sign in with your hub account: `coddy providers
+  # login neuraldeep` (browser flow; --device for headless, --api-base to pick
+  # the deployment) or Sign In with NeuralDeep in the bundled web UI. The key
+  # lands under $CODDY_HOME/providers/<name>/neuraldeep-auth.json; an explicit
+  # api_key, api_key_command, or NEURALDEEP_API_KEY env var still wins when set.
   # - name: neuraldeep
   #   type: neuraldeep
+  #   # api_base: "https://api.neuraldeep.tech/v1"  # outside Russia
   #   api_key: "${NEURALDEEP_API_KEY}"
+  #   # The account usage panel (the console footer line and /usage, the usage
+  #   # section and banner in the web UI) is on by default and reads the hub's
+  #   # GET /v1/limits. false hides it and stops those reads for this row.
+  #   # usage_limits_panel: false
+
+  # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
+  # Sign In with ChatGPT. Coddy stores tokens under $CODDY_HOME/providers/codex/
+  # with restrictive file permissions (no api_key or api_base needed). A Codex CLI
+  # login remains a compatibility fallback when no Coddy-managed token exists.
+  # - name: codex
+  #   type: codex
 
   # OpenAI-compatible (DeepSeek, Groq, Together, etc.)
   # Use type openai and include /v1 in api_base.
@@ -59,21 +83,64 @@ models:
 
   # Reasoning models expose a reasoning-level selector in the composer.
   # Levels are auto-detected from the model id (gpt-5* -> minimal,low,medium,high;
-  # o-series and Claude thinking models -> low,medium,high). Override or disable below.
+  # o-series, gpt-oss*, qwen3* — qwen3, qwen3.5, qwen3.6, ... — and Claude thinking
+  # models -> low,medium,high). Override or disable below.
   # - model: "openai/gpt-5"
   #   max_tokens: 8192
   #   reasoning_default: medium       # level pre-selected for new chats (must be a valid level)
-  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector
+  #   # reasoning_levels: [low, high] # optional: override the offered levels; [] hides the selector; omit the key to auto-detect from the model id
 
+  # - model: "codex/gpt-5.6-sol"     # provider name / Codex model slug (fetch after Sign In)
+  #   max_tokens: 8192                 # retained in config; Codex does not accept max_output_tokens
+  #   reasoning_default: medium
+
+  # NeuralDeep examples (reasoning levels auto-detect to low, medium, high).
   # - model: "neuraldeep/gpt-oss-120b"
   #   max_tokens: 8192
   #   temperature: 0.2
   #   multimodal: false
 
+  # - model: "neuraldeep/qwen3.6-35b-a3b"
+  #   max_tokens: 8192               # qwen3 reasoning also pins chat_template_kwargs.enable_thinking
+  #   multimodal: true
+
+  # Servers and proxies that handle SSE badly can be talked to without streaming:
+  # one blocking request, whole answer at once. Nothing appears until the model is
+  # done, and Stop during the call loses the answer. Not available for codex models.
+  # - model: "local/qwen3-30b"
+  #   max_tokens: 8192
+  #   stream: false
+
 agent:
   model: "openai/gpt-4o"
   max_turns: 30
   max_tokens_per_turn: 200000
+  # LLM retry and pacing. A 429/5xx is retried llm_retry_max times; the pause is
+  # the server-provided Retry-After when present, the exponential backoff from
+  # llm_retry_base_ms otherwise. llm_min_interval_ms spaces out ALL calls,
+  # retries included - the working knob on strict free tiers (e.g. 6 req/min).
+  # llm_retry_max: 3              # retries after 429 and similar errors (0 disables retries)
+  # llm_retry_base_ms: 1000       # initial backoff between retries
+  # llm_min_interval_ms: 0        # min gap between LLM calls; e.g. 12000 on strict free tiers
+  # llm_first_token_timeout_ms: 90000  # cancel a silent streamed call after this long (0 disables)
+  # Runaway-loop protection. Cuts a streamed response that degenerates into
+  # repeating the same passage, and blocks a tool requested over and over with
+  # identical arguments. The model is nudged back on track first; only a turn
+  # that keeps looping is stopped with a notice.
+  # loop_guard: true
+  # loop_tool_repeat_limit: 3     # identical tool calls in a row before intervening (0 disables)
+  # loop_stream_repeat_cycles: 5  # identical output cycles in one stream before it is cut (0 disables)
+  # loop_nudge_max: 2             # nudges before the turn is stopped
+  # Auto-continue when a usage limit resets (Claude Desktop style). A provider
+  # pause the retries could never cover (a 429 naming a reset far ahead) ends
+  # the turn with the error by default; with the wait on, a top-level turn
+  # waits for the reset, tells its client "Usage limit reached · resuming at
+  # 20:59" every 20 s, and then re-issues the same call. The turn lock and
+  # the client stream stay open meanwhile, hence off by default.
+  # wait_for_limit_reset: false
+  # wait_for_limit_reset_max_ms: 14400000  # total per turn (4 h), the retry wrapper's sleeps on a limit
+  #                                          # included; under 60 s it also bounds ordinary 429 retries;
+  #                                          # a longer pause ends the turn; 0 never waits
 
 sessions:
   # Directory to store session bundles.
@@ -87,21 +154,33 @@ sessions:
 #   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
+#   # Collapse superseded read/grep results to placeholders in the LLM request
+#   # (the persisted transcript stays complete). Only marked results survive.
+#   result_eviction:
+#     enabled: true          # master switch
+#     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
+#     min_result_bytes: 2000 # results this size or smaller are never evicted
 
 prompts:
   # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).
   # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
   # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/config.md)
+  # Coddy prepends its identity line ("You are Coddy, ...") to any template that does not
+  # already open with it, so gateways can attribute the traffic. See internal/prompts/identity.go
+  # and docs/react-agent.md (Agent identity).
   dir: ""
-  # File names inside prompts.dir (defaults: agent.md, plan.md)
+  # File names inside prompts.dir (defaults: agent.md, plan.md, ask.md)
   # agent_prompt: "agent.md"
   # plan_prompt: "plan.md"
+  # ask_prompt: "ask.md"
 
 skills:
-  # dirs is the list of directories scanned for skills and rules.
-  # Searched in order. When empty, defaults are
-  # ${CODDY_HOME}/skills, ${CWD}/.skills, ~/.cursor/skills, ~/.claude/skills
+  # dirs is the list of directories scanned for skills. Searched in order,
+  # later entries win on name conflicts. When empty, defaults are
+  # ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills.
+  # ${CWD} is the session workspace, resolved when a session loads its
+  # skills, so it is safe to write here even for a shared coddy http server.
   dirs: []
   # sources lists remote skill sources installed on demand with `coddy skills sync`
   # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
@@ -117,12 +196,20 @@ skills:
   # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
   auto_discovery: true
 
+# MCP servers connected for every new session (the "global" scope, together with
+# ~/.coddy/mcp.json - a Cursor-compatible "mcpServers" object like Cursor's
+# ~/.cursor/mcp.json). Project-local servers live in <workspace>/.coddy/mcp.json
+# (the "local" scope). Later levels override same-named servers from earlier ones.
+# Remove the [] below when uncommenting an example entry.
 mcp_servers: []
   # Example: filesystem MCP server
   # - name: "filesystem"
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user/projects"]
   #   env: []
+  #   # Optional switches, also togglable from Settings -> MCP in the web UI:
+  #   disabled: false
+  #   disabled_tools: ["write_file"]
 
   # Example: GitHub MCP server
   # - name: "github"
@@ -131,6 +218,18 @@ mcp_servers: []
   #   env:
   #     - name: "GITHUB_PERSONAL_ACCESS_TOKEN"
   #       value: "${GITHUB_TOKEN}"
+
+# MCP settings that are not tied to a single server entry.
+mcp:
+  # Trust policy for <workspace>/.coddy/mcp.json. That file travels with the
+  # checkout, so the repository - not you - picks the command a session would
+  # start on session/new.
+  # ask:   keep those servers cold until you approve that exact declaration for
+  #        that workspace (`coddy mcp list` / `coddy mcp trust <name>`, the same
+  #        decisions in Settings -> MCP servers). Default.
+  # allow: start them automatically (only for workspaces you already trust)
+  # deny:  never load project-local servers at all
+  project_trust: ask
 
 tools:
   # Controls when the agent asks for user approval before running tools.
@@ -155,6 +254,72 @@ tools:
 
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
+
+  # Per-tool ceilings on how many lines a result or error may add to the LLM
+  # context. Enabled limits also impose a 64 KiB safety ceiling so a huge single
+  # line cannot bypass them. 0 = unlimited. Truncated output ends with a marker.
+  # output_limits:
+  #   read: 1000            # file page / directory listing
+  #   grep: 200             # path:line:content records
+  #   glob: 300             # paths
+  #   print_tree: 400       # directory tree lines
+  #   run_command: 500      # stdout+stderr lines
+  #   ssh_run_command: 500
+  #   webfetch: 800         # page markdown lines
+  #   websearch: 200        # search result lines
+  #   default: 1000         # anything else, incl. MCP tools; 0 = unlimited
+
+  # Commands the agent runs detached in the session background task pool instead
+  # of blocking a turn. run_command gains "background" and "expected_seconds";
+  # background_list / background_output / background_wait / background_stop
+  # collect the result later. The pool dies with the coddy process: metadata and
+  # captured output stay in the session bundle, and a task interrupted by a
+  # restart is reported as orphaned. 0 = use the built-in default.
+  # background:
+  #   enabled: true
+  #   max_concurrent: 5             # concurrent background tasks per session
+  #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
+  #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
+  #   output_buffer_bytes: 262144   # in-memory output window; full log goes to disk
+
+# Subagents: child agents the model can delegate to with spawn_agent. A definition is a
+# markdown file with YAML frontmatter (name, description, model, mode, tools,
+# permission_mode, ...) whose body is the child's role; each run is a background task of
+# the parent session with its own child session and transcript. Definitions found inside
+# the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
+# that file for that workspace on the machine running coddy (`coddy agents trust <name>`
+# there, or `POST /coddy/subagents/{name}/trust`). See docs/subagents.md.
+# subagents:
+#   enabled: true
+#   dirs:
+#     - "${CODDY_HOME}/agents"       # your own definitions (user scope)
+#     - "${CWD}/.claude/agents"      # project scope, Claude Code compatible
+#     - "${CWD}/.coddy/agents"       # project scope
+#   project_trust: ask              # ask | allow | deny
+#   max_concurrent: 4               # subagent runs in flight across the whole process
+#   max_depth: 1                    # 1 = children cannot spawn further; 0 = nobody spawns
+#   default_timeout_seconds: 1800   # hard limit when the definition and the call give none
+#   max_turns: 0                    # 0 follows agent.max_turns
+
+# Hooks: your own commands run at lifecycle points of a session (before and after a tool
+# call today; prompt, stop, session-start, compaction and subagent events follow). A hook reads
+# one JSON document on stdin and answers with an exit code plus optional JSON on stdout: it can
+# deny a call, approve it past the permission prompt, rewrite its arguments or add context.
+# Definitions use Claude Code's file shape. Files inside the workspace travel with the checkout,
+# so "ask" lists them but runs nothing until you approve that file for that workspace on the
+# machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust`).
+# See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files:
+#     - "${CODDY_HOME}/hooks.json"                # your own file (user scope)
+#     - "${CWD}/.claude/settings.json"            # project scope, Claude Code compatible (hooks key only)
+#     - "${CWD}/.claude/settings.local.json"      # project scope, same
+#     - "${CWD}/.coddy/hooks.json"                # project scope
+#   project_trust: ask              # ask | allow | deny
+#   default_timeout_seconds: 60     # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5              # how many times per turn a Stop hook may keep the agent working
+#   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
 # httpserver:

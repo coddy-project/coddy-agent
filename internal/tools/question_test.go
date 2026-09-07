@@ -74,3 +74,43 @@ func TestPlanExitToolCallsSetMode(t *testing.T) {
 		t.Fatalf("mode=%q", mode)
 	}
 }
+
+func TestQuestionToolAcceptsASingleObjectInsteadOfAnArray(t *testing.T) {
+	s := &fakeSender{}
+	env := &apptools.Env{SessionID: "sess-q", Sender: s}
+	args := `{"questions":{"question":"Solo","options":[{"label":"A"}]}}`
+	r := apptools.NewRegistry()
+	if _, err := r.Execute(context.Background(), "question", args, env); err != nil {
+		t.Fatalf("single object form must be accepted: %v", err)
+	}
+	if s.got == nil || len(s.got.Questions) != 1 || s.got.Questions[0].Question != "Solo" {
+		t.Fatalf("asked %#v", s.got)
+	}
+}
+
+func TestQuestionToolAcceptsAStringEncodedSingleObject(t *testing.T) {
+	s := &fakeSender{}
+	env := &apptools.Env{SessionID: "sess-q", Sender: s}
+	args := `{"questions":"{\"question\":\"Wrapped\",\"options\":[{\"label\":\"A\"}]}"}`
+	r := apptools.NewRegistry()
+	if _, err := r.Execute(context.Background(), "question", args, env); err != nil {
+		t.Fatalf("string-encoded object form must be accepted: %v", err)
+	}
+	if s.got == nil || len(s.got.Questions) != 1 || s.got.Questions[0].Question != "Wrapped" {
+		t.Fatalf("asked %#v", s.got)
+	}
+}
+
+func TestQuestionToolRejectsGarbageQuestionsPayloads(t *testing.T) {
+	env := &apptools.Env{SessionID: "sess-q", Sender: &fakeSender{}}
+	r := apptools.NewRegistry()
+	for _, args := range []string{
+		`{"questions":42}`,
+		`{"questions":"not json at all"}`,
+		`{"questions":"\"deeply nested string\""}`,
+	} {
+		if _, err := r.Execute(context.Background(), "question", args, env); err == nil {
+			t.Fatalf("args %s must be rejected", args)
+		}
+	}
+}

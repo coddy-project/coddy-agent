@@ -2,6 +2,9 @@ package session
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -116,6 +119,36 @@ func TestActiveTodoPersistence(t *testing.T) {
 	}
 	if len(snap.Plan) != 2 {
 		t.Fatalf("plan len=%d", len(snap.Plan))
+	}
+}
+
+func TestListSnapshotsOrdersSameSecondSessionsByRecency(t *testing.T) {
+	root := t.TempDir()
+	fs := &FileStore{Root: root}
+	// The older session deliberately gets the lexicographically smaller id:
+	// with second-granularity timestamps the tie-break would list it first,
+	// which is exactly the -c/--continue bug this guards against.
+	for attempt := range 3 {
+		older := fmt.Sprintf("sess_a%d", attempt)
+		newer := fmt.Sprintf("sess_z%d", attempt)
+		for _, id := range []string{older, newer} {
+			dir, err := fs.EnsureLayout(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			st := &State{ID: id, CWD: "/tmp/order", Mode: ModeAgent, SessionDir: dir}
+			if err := fs.Save(st); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		rows, err := fs.ListSnapshots("/tmp/order", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 0 || rows[0].SessionID != newer {
+			t.Fatalf("attempt %d: newest session %q is not first: %+v", attempt, newer, rows)
+		}
 	}
 }
 
@@ -446,5 +479,83 @@ func TestConcurrentPatchSessionMetaActivitySync(t *testing.T) {
 	}
 	if snap.Meta.ActivitySeq < 10 {
 		t.Fatalf("activitySeq=%d", snap.Meta.ActivitySeq)
+	}
+}
+
+// A hydrated @mention turn carries the file body as <coddy_attachment> XML; the
+// derived title must show only what the user typed.
+func TestDeriveSessionTitleStripsAttachmentBlocks(t *testing.T) {
+	st := &State{ID: "sess_title_att", CWD: "/tmp", Mode: ModeAgent}
+	st.AddMessage(llm.Message{
+		Role: llm.RoleUser,
+		Content: "@Dockerfile:21-31 почему медленно?\n\n" +
+			"<coddy_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n" +
+			"<![CDATA[RUN go mod download]]>\n</coddy_attachment>",
+	})
+	if got := deriveSessionTitle(st); got != "@Dockerfile:21-31 почему медленно?" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestFileStoreResolveSessionID(t *testing.T) {
+	root := t.TempDir()
+	store := &FileStore{Root: root}
+	for _, id := range []string{"sess_alpha_one", "sess_alpha_two", "sess_beta"} {
+		if _, err := store.EnsureLayout(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A folder without session.json is not a session.
+	if err := os.MkdirAll(filepath.Join(root, "sess_gamma_stray"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := store.ResolveSessionID("sess_beta"); err != nil || got != "sess_beta" {
+		t.Fatalf("exact: %q, %v", got, err)
+	}
+	if got, err := store.ResolveSessionID("sess_b"); err != nil || got != "sess_beta" {
+		t.Fatalf("unique prefix: %q, %v", got, err)
+	}
+	if got, err := store.ResolveSessionID("sess_alpha_o"); err != nil || got != "sess_alpha_one" {
+		t.Fatalf("longer unique prefix: %q, %v", got, err)
+	}
+	if _, err := store.ResolveSessionID("sess_alpha"); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("ambiguous prefix: %v", err)
+	}
+	if _, err := store.ResolveSessionID("sess_gamma"); err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("stray folder must not resolve: %v", err)
+	}
+	if _, err := store.ResolveSessionID("  "); err == nil {
+		t.Fatal("blank id must fail")
+	}
+}
+
+func TestStripCoddyAttachmentXML(t *testing.T) {
+	raw := "@Dockerfile:21-31 why slow?\n\n<coddy_attachment path=\"Dockerfile\" name=\"Dockerfile\" lines=\"21-31\">\n<![CDATA[FROM x]]>\n</coddy_attachment>"
+	if got := stripCoddyAttachmentXML(raw); got != "@Dockerfile:21-31 why slow?\n\n" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStripCoddyAttachmentXMLMultipleBlocks(t *testing.T) {
+	raw := "a<coddy_attachment path=\"x\">\n<![CDATA[1]]>\n</coddy_attachment>b<coddy_attachment path=\"y\">\n<![CDATA[2]]>\n</coddy_attachment>c"
+	if got := stripCoddyAttachmentXML(raw); got != "abc" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// The file body sits in CDATA, so a closing tag or a "]]>" inside the file must
+// not end the block early and leak the rest into a title.
+func TestStripCoddyAttachmentXMLIgnoresTagsInsideCDATA(t *testing.T) {
+	// What internal/agent wrapXMLCDATA renders for a body holding "]]>" and the closing tag.
+	raw := "ask\n\n<coddy_attachment path=\"trap.txt\" name=\"trap.txt\">\n" +
+		"<![CDATA[first ]]]]><![CDATA[> then </coddy_attachment> SECRET]]>\n</coddy_attachment>\ntail"
+	if got := stripCoddyAttachmentXML(raw); got != "ask\n\n\ntail" {
+		t.Fatalf("got %q", got)
+	}
+	// An unterminated block is left alone rather than eaten.
+	open := "ask <coddy_attachment path=\"x\">\n<![CDATA[body]]>"
+	if got := stripCoddyAttachmentXML(open); got != open {
+		t.Fatalf("got %q", got)
 	}
 }

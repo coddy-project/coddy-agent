@@ -1,6 +1,7 @@
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
+import { ConfirmProvider } from "../components/useConfirm";
 import { SchedulerJobEditorSheet } from "./SchedulerJobEditorSheet";
 
 const schedulerPatchJob = vi.fn();
@@ -41,17 +42,19 @@ test("edit mode can rename job_id via PATCH", async () => {
   });
   const onSaved = vi.fn();
   render(
-    <SchedulerJobEditorSheet
-      open
-      mode="edit"
-      jobId="old-id"
-      availableModels={[]}
-      defaultModel=""
-      currentCwd="/tmp"
-      onClose={() => {}}
-      onSaved={onSaved}
-      onDeleted={() => {}}
-    />,
+    <ConfirmProvider>
+      <SchedulerJobEditorSheet
+        open
+        mode="edit"
+        jobId="old-id"
+        availableModels={[]}
+        defaultModel=""
+        currentCwd="/tmp"
+        onClose={() => {}}
+        onSaved={onSaved}
+        onDeleted={() => {}}
+      />
+    </ConfirmProvider>,
   );
   await waitFor(() => {
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();

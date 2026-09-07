@@ -39,7 +39,7 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 	st.SetCWD(abs)
 
 	cfg := m.activeCfg()
-	loadedSkills, err := m.skillsLoad.LoadAll(abs, cfg.Paths.Home, cfg.Skills.ManagedDir(cfg.Paths.Home))
+	loadedSkills, err := m.loadSkills(abs, cfg)
 	if err != nil {
 		m.log.Warn("failed to load skills on workspace switch", "error", err)
 	}

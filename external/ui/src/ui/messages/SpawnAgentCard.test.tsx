@@ -1,8 +1,12 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { ToolCallMessage } from "./ToolCallMessage";
+import { initLocale } from "../i18n/i18n";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  initLocale("en");
+});
 
 const args = JSON.stringify({
   agent: "explore",
@@ -29,7 +33,7 @@ test("spawn_agent displays agent identity, description, prompt and timeout", () 
     JSON.parse(args).prompt,
   );
   expect(screen.getByText("Timeout 120s")).toBeInTheDocument();
-  expect(screen.queryByLabelText("Tool arguments")).toBeNull();
+  expect(screen.queryByTestId("permission-preview-viewport")).toBeNull();
   expect(screen.getByLabelText("Tool result")).toHaveTextContent(
     "Found 12 tests.",
   );
@@ -47,7 +51,7 @@ test("restored truncated spawn args are fetched once and replaced with the card"
     />,
   );
   await waitFor(() => expect(fetchFull).toHaveBeenCalledOnce());
-  expect(screen.getByLabelText("Tool arguments")).toBeInTheDocument();
+  expect(screen.getByTestId("permission-preview-viewport")).toBeInTheDocument();
   rerender(
     <ToolCallMessage
       toolCallId="spawn-2"
@@ -73,7 +77,9 @@ test.each(["null", "[]", "{", '{"agent":123,"prompt":{}}'])(
       />,
     );
     expect(screen.queryByLabelText("Agent details")).toBeNull();
-    expect(screen.getByLabelText("Tool arguments")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("permission-preview-viewport"),
+    ).toBeInTheDocument();
   },
 );
 
@@ -114,7 +120,27 @@ test("failed automatic argument fetch preserves the fallback", async () => {
     />,
   );
   await waitFor(() => expect(fetchFull).toHaveBeenCalledOnce());
-  expect(screen.getByLabelText("Tool arguments")).toHaveTextContent(
+  expect(screen.getByTestId("permission-preview-viewport")).toHaveTextContent(
     "truncated...",
+  );
+});
+
+test("spawn agent labels follow the Russian locale", () => {
+  initLocale("ru");
+  render(
+    <ToolCallMessage
+      toolCallId="ru"
+      title="spawn_agent"
+      status="completed"
+      argsText={args}
+    />,
+  );
+  expect(screen.getByLabelText("Сведения об агенте")).toBeInTheDocument();
+  expect(screen.getByLabelText("Промпт агента")).toHaveTextContent(
+    "Inspect the project.",
+  );
+  expect(screen.getByText("Таймаут 120 с")).toHaveAttribute(
+    "title",
+    "Максимальное время работы агента",
   );
 });

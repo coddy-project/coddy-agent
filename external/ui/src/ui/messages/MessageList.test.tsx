@@ -1,8 +1,17 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, expect, test, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { MessageList } from "./MessageList";
 import type { TranscriptItem } from "../chat/types";
+import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
+
+vi.mock("../skills/stripCoddyAttachments", { spy: true });
 
 afterEach(() => cleanup());
 
@@ -46,6 +55,115 @@ test("renders user, assistant, and tool call items", () => {
   expect(screen.getByText("Hi")).toBeInTheDocument();
   expect(screen.getByText("read_file")).toBeInTheDocument();
   expect(screen.getByLabelText("Tool summary")).toBeInTheDocument();
+});
+
+test("permission preview uses the matching tool call arguments", () => {
+  const patch = [
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1,2 +1,2 @@",
+    "-oldValue();",
+    "+newValue();",
+    " keep();",
+  ].join("\n");
+  const permissionPayload = {
+    sessionId: "sess_x",
+    toolCall: {
+      toolCallId: "call_patch",
+      title: "Run: apply_patch",
+      kind: "write",
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: "Update the requested component" },
+        },
+      ],
+    },
+    options: [
+      { optionId: "allow", name: "Allow", kind: "allow_once" },
+      { optionId: "allow_always", name: "Allow always", kind: "allow_always" },
+      { optionId: "reject", name: "Reject", kind: "reject_once" },
+    ],
+  };
+  const items: TranscriptItem[] = [
+    {
+      id: "tool_patch",
+      type: "tool_call",
+      toolCallId: "call_patch",
+      title: "apply_patch",
+      kind: "write",
+      status: "in_progress",
+      argsText: JSON.stringify({ path: "src/app.ts", patch }),
+    },
+    {
+      id: "permission_patch",
+      type: "permission_prompt",
+      payload: permissionPayload,
+    },
+  ];
+
+  render(<MessageList items={items} />);
+
+  expect(screen.getByText("Apply this patch?")).toBeTruthy();
+  const approvalDiff = within(
+    screen.getByTestId("permission-prompt-card"),
+  ).getByLabelText("Patch preview");
+  expect(within(approvalDiff).getByText("oldValue();")).toBeTruthy();
+  expect(within(approvalDiff).getByText("newValue();")).toBeTruthy();
+  expect(screen.queryByText("Update the requested component")).toBeNull();
+});
+
+test("plan document forwards Run plan and Discard to the transcript handlers", () => {
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+  const onRun = vi.fn();
+  const onDiscard = vi.fn();
+
+  render(
+    <MessageList
+      items={items}
+      sessionId="sess_1"
+      onPlanDocumentRun={onRun}
+      onPlanDocumentDiscard={onDiscard}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /run plan/i }));
+  fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+  expect(onRun).toHaveBeenCalledWith("demo-plan");
+  expect(onDiscard).toHaveBeenCalledWith("p1", "demo-plan");
+});
+
+test("plan document on a read-only transcript renders without Run plan and Discard", () => {
+  // A subagent child transcript passes neither handler (like onEdit), so the
+  // card must not show controls that would do nothing.
+  const items: TranscriptItem[] = [
+    {
+      id: "p1",
+      type: "plan_document",
+      slug: "demo-plan",
+      name: "Demo plan",
+      overview: "Short overview",
+      content: "# Hello\n\nSteps",
+      expanded: true,
+    },
+  ];
+
+  render(<MessageList items={items} sessionId="sub_0a1b2c" />);
+
+  expect(screen.getByText("Demo plan")).toBeInTheDocument();
+  expect(document.querySelector(".plan-document-card--readonly")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /run plan/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
 });
 
 test("renders memory copilot foldout", () => {
@@ -130,6 +248,29 @@ test("no retry button when onRetryLast is not provided", () => {
   ];
   render(<MessageList items={items} />);
   expect(screen.queryByTestId("system-message-retry")).toBeNull();
+});
+
+test("untouched memoized rows skip re-render when another item streams", () => {
+  const onEdit = vi.fn();
+  const items: TranscriptItem[] = [
+    { id: "u1", type: "user_message", content: "Hello" },
+    { id: "a1", type: "assistant_message", content: "strea", streaming: true },
+  ];
+  const { rerender } = render(<MessageList items={items} onEdit={onEdit} />);
+  const userRenders = vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls
+    .length;
+  expect(userRenders).toBeGreaterThan(0);
+
+  // Streaming delta: only the assistant item gets a new object reference.
+  const next: TranscriptItem[] = [
+    items[0]!,
+    { id: "a1", type: "assistant_message", content: "streaming", streaming: true },
+  ];
+  rerender(<MessageList items={next} onEdit={onEdit} />);
+  expect(
+    vi.mocked(stripCoddyAttachmentsForUserDisplay).mock.calls.length,
+  ).toBe(userRenders);
+  expect(screen.getByText("streaming")).toBeInTheDocument();
 });
 
 test("compaction summary renders as a foldout, not a user bubble", () => {

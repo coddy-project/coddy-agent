@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../i18n/I18nProvider";
 
 export function ChatHeader(props: {
   title: string;
   editable?: boolean;
   onTitleSave?: (title: string) => void;
 }) {
+  const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(props.title || "");
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -59,9 +61,9 @@ export function ChatHeader(props: {
                 setEditing(true);
               }
             }}
-            aria-label="Chat title"
+            aria-label={t("chat.chatTitleAriaLabel")}
           >
-            {props.title || "New chat"}
+            {props.title || t("chat.newChat")}
           </button>
         )}
       </div>

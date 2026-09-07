@@ -7,12 +7,19 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { HeroAccentVerb } from "./heroTitleWords";
+import { useT } from "../i18n/I18nProvider";
 import type { PermissionResolvedState } from "./permissionTypes";
 import type { QuestionResolvedState } from "./questionTypes";
 import type { TokenUsage, TranscriptItem } from "./types";
+import { UsageBanner } from "./UsageBanner";
+import type { ProviderUsage } from "./providerUsage";
 import { ChatHeader } from "./ChatHeader";
 import { Composer } from "./Composer";
 import { MessageList } from "../messages/MessageList";
+import type { BackgroundTask } from "../tasks/types";
+import { BackgroundTasksChip } from "../tasks/BackgroundTasksChip";
+import { SubagentReadOnlyNotice } from "./SubagentReadOnlyNotice";
+import type { SubagentTranscriptMeta } from "./subagentTranscript";
 import {
   subscribeShellStack,
   snapshotShellStack,
@@ -31,9 +38,14 @@ export function ChatScreen(props: {
   items: TranscriptItem[];
   draft: string;
   tokenUsage: TokenUsage | null;
+  /** Account usage behind the selected model's provider: the pill and the banner. */
+  providerUsage?: ProviderUsage | null;
+  usageBannerDismissedKey?: string;
+  onUsageBannerDismiss?: (key: string) => void;
   contextPct?: number;
   maxContextTokens?: number;
-  contextBreakdown?: import("./ContextBreakdownPopover").ContextBreakdown | null;
+  contextBreakdown?:
+    import("./ContextBreakdownPopover").ContextBreakdown | null;
   mode: string;
   modes: string[];
   llmModels?: string[];
@@ -74,6 +86,14 @@ export function ChatScreen(props: {
   sessionLoading?: boolean;
   sessionFadingOut?: boolean;
   knownSkillNames?: Set<string>;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  /** Every background task of this chat, for the opener under the transcript. */
+  backgroundTasks?: BackgroundTask[];
+  onOpenBackgroundTasks?: () => void;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
   /** Workspace context chips (folder / branch / worktree) above the composer field. */
   workspaceCtx?: import("./workspaceContext").WorkspaceContext | null;
   worktreePref?: boolean;
@@ -82,7 +102,12 @@ export function ChatScreen(props: {
   onWorkspacePickFolder?: (path: string) => void;
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
+  /** Set when this session is a subagent's transcript: the composer gives way to a read-only notice. */
+  subagentTranscript?: SubagentTranscriptMeta | null;
+  /** Opens another session in this tab (the parent chat from the notice). */
+  onOpenSession?: (sessionId: string) => void;
 }) {
+  const { t } = useT();
   const messagesRef = useRef<HTMLDivElement | null>(null);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = props.items.length === 0;
@@ -90,6 +115,8 @@ export function ChatScreen(props: {
   const stickToBottomRef = useRef(true);
   const prevItemsForScrollRef = useRef<TranscriptItem[]>([]);
   const [composerReserve, setComposerReserve] = useState(200);
+  // Shared by hero and docked composers so disabled files survive the first text turn.
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const mobileDocScroll = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -158,113 +185,191 @@ export function ChatScreen(props: {
     return () => el?.removeEventListener("scroll", onScroll);
   }, [isEmpty, mobileDocScroll]);
 
+  // A child session is read-only on the server (409 on any prompt), so the
+  // notice takes the composer's slot in both the hero and the docked layout.
+  const readOnlyNotice = props.subagentTranscript ? (
+    <SubagentReadOnlyNotice
+      meta={props.subagentTranscript}
+      {...(props.onOpenSession ? { onOpenSession: props.onOpenSession } : {})}
+    />
+  ) : null;
+
   const mainClassName = [
     "main",
     isEmpty && !showSkeleton ? "is-empty" : "",
     props.sessionFadingOut ? "session-fading-out" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <main className={mainClassName}>
       {showSkeleton ? (
         <div className="chat-skeleton" aria-hidden="true">
           <div className="chat-skeleton-header">
-            <div className="chat-skeleton-bar" style={{ width: "180px", height: "18px", borderRadius: "6px" }} />
+            <div
+              className="chat-skeleton-bar"
+              style={{ width: "180px", height: "18px", borderRadius: "6px" }}
+            />
           </div>
           <div className="chat-skeleton-messages">
             <div className="chat-skeleton-row chat-skeleton-row--user">
-              <div className="chat-skeleton-bar" style={{ width: "220px", height: "38px", borderRadius: "12px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "220px", height: "38px", borderRadius: "12px" }}
+              />
             </div>
             <div className="chat-skeleton-row">
-              <div className="chat-skeleton-bar" style={{ width: "78%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "62%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "70%", height: "14px", borderRadius: "6px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "78%", height: "14px", borderRadius: "6px" }}
+              />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "62%", height: "14px", borderRadius: "6px" }}
+              />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "70%", height: "14px", borderRadius: "6px" }}
+              />
             </div>
             <div className="chat-skeleton-row chat-skeleton-row--user">
-              <div className="chat-skeleton-bar" style={{ width: "160px", height: "38px", borderRadius: "12px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "160px", height: "38px", borderRadius: "12px" }}
+              />
             </div>
             <div className="chat-skeleton-row">
-              <div className="chat-skeleton-bar" style={{ width: "72%", height: "14px", borderRadius: "6px" }} />
-              <div className="chat-skeleton-bar" style={{ width: "50%", height: "14px", borderRadius: "6px" }} />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "72%", height: "14px", borderRadius: "6px" }}
+              />
+              <div
+                className="chat-skeleton-bar"
+                style={{ width: "50%", height: "14px", borderRadius: "6px" }}
+              />
             </div>
           </div>
         </div>
       ) : isEmpty ? (
         <div className="hero" id="hero">
           <h1 className="hero-title">
-            <span className="hero-title-muted">
-              What do you want to{" "}
-              <span
-                className="hero-title-accent"
-                data-testid="hero-title-accent"
-              >
-                {props.heroAccentVerb}
-              </span>
-              ?
-            </span>
+            {(() => {
+              const verb = t(`chat.heroVerb.${props.heroAccentVerb}`);
+              // A sentinel that cannot occur in translated copy, so the split finds the
+              // {verb} slot itself rather than the first space of the sentence.
+              const marker = "\u0000";
+              const full = t("chat.heroTitle", { verb: marker });
+              const i = full.indexOf(marker);
+              const before = i >= 0 ? full.slice(0, i) : full;
+              const after = i >= 0 ? full.slice(i + marker.length) : "";
+              return (
+                <span className="hero-title-muted">
+                  {before}
+                  <span
+                    className="hero-title-accent"
+                    data-testid="hero-title-accent"
+                  >
+                    {verb}
+                  </span>
+                  {after}
+                </span>
+              );
+            })()}
           </h1>
           <div className="hero-composer">
-            <Composer
-              value={props.draft}
-              isEmpty={true}
-              focusEpoch={props.heroComposerFocusEpoch}
-              sessionId={props.sessionId}
-              contextIdle={!props.sessionId}
-              mode={props.mode}
-              modes={props.modes}
-              tokenUsage={props.tokenUsage}
-              {...(props.contextPct !== undefined
-                ? { contextPct: props.contextPct }
-                : {})}
-              {...(props.maxContextTokens !== undefined
-                ? { maxContextTokens: props.maxContextTokens }
-                : {})}
-              {...(props.contextBreakdown !== undefined
-                ? { contextBreakdown: props.contextBreakdown }
-                : {})}
-              {...(props.llmModels !== undefined &&
-              props.llmModels.length > 0 &&
-              props.onLlmModelChange !== undefined
-                ? {
-                    llmModels: props.llmModels,
-                    llmModel: props.llmModel,
-                    onLlmModelChange: props.onLlmModelChange,
-                    llmModelMultimodal: props.llmModelMultimodal,
-                    ...(props.llmReasoningLevels !== undefined &&
-                    props.llmReasoningLevels.length > 0 &&
-                    props.onLlmReasoningChange !== undefined
-                      ? {
-                          llmReasoningLevels: props.llmReasoningLevels,
-                          llmReasoning: props.llmReasoning,
-                          onLlmReasoningChange: props.onLlmReasoningChange,
-                        }
-                      : {}),
-                  }
-                : {})}
-              onModeChange={props.onModeChange}
-              onChange={props.onDraftChange}
-              onSend={props.onSend}
-              {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
-              {...(props.generating === true && props.onStop !== undefined
-                ? { generating: true, onStop: props.onStop }
-                : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-              {...(props.onWorkspacePickFolder
-                ? {
-                    workspaceCtx: props.workspaceCtx ?? null,
-                    worktreePref: props.worktreePref ?? false,
-                    workspaceLocked: props.workspaceLocked ?? false,
-                    onWorkspacePickFolder: props.onWorkspacePickFolder,
-                    onWorkspacePickBranch: props.onWorkspacePickBranch,
-                    onWorktreeToggle: props.onWorktreeToggle,
-                  }
-                : {})}
-            />
+            {readOnlyNotice ? null : (
+              <UsageBanner
+                usage={props.providerUsage}
+                modelId={props.llmModel ?? ""}
+                {...(props.usageBannerDismissedKey
+                  ? { dismissedKey: props.usageBannerDismissedKey }
+                  : {})}
+                {...(props.onUsageBannerDismiss
+                  ? { onDismiss: props.onUsageBannerDismiss }
+                  : {})}
+              />
+            )}
+            {readOnlyNotice ?? (
+              <Composer
+                value={props.draft}
+                isEmpty={true}
+                providerUsage={props.providerUsage ?? null}
+                attachedFiles={attachedFiles}
+                onAttachedFilesChange={setAttachedFiles}
+                focusEpoch={props.heroComposerFocusEpoch}
+                sessionId={props.sessionId}
+                contextIdle={!props.sessionId}
+                mode={props.mode}
+                modes={props.modes}
+                tokenUsage={props.tokenUsage}
+                {...(props.contextPct !== undefined
+                  ? { contextPct: props.contextPct }
+                  : {})}
+                {...(props.maxContextTokens !== undefined
+                  ? { maxContextTokens: props.maxContextTokens }
+                  : {})}
+                {...(props.contextBreakdown !== undefined
+                  ? { contextBreakdown: props.contextBreakdown }
+                  : {})}
+                {...(props.llmModels !== undefined &&
+                props.llmModels.length > 0 &&
+                props.onLlmModelChange !== undefined
+                  ? {
+                      llmModels: props.llmModels,
+                      llmModel: props.llmModel,
+                      onLlmModelChange: props.onLlmModelChange,
+                      llmModelMultimodal: props.llmModelMultimodal,
+                      ...(props.llmReasoningLevels !== undefined &&
+                      props.llmReasoningLevels.length > 0 &&
+                      props.onLlmReasoningChange !== undefined
+                        ? {
+                            llmReasoningLevels: props.llmReasoningLevels,
+                            llmReasoning: props.llmReasoning,
+                            onLlmReasoningChange: props.onLlmReasoningChange,
+                          }
+                        : {}),
+                    }
+                  : {})}
+                onModeChange={props.onModeChange}
+                onChange={props.onDraftChange}
+                onSend={props.onSend}
+                {...(props.onContextRingOpen
+                  ? { onContextRingOpen: props.onContextRingOpen }
+                  : {})}
+                {...(props.generating === true && props.onStop !== undefined
+                  ? { generating: true, onStop: props.onStop }
+                  : {})}
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
+                  : {})}
+                {...(props.onWorkspacePickFolder
+                  ? {
+                      workspaceCtx: props.workspaceCtx ?? null,
+                      worktreePref: props.worktreePref ?? false,
+                      workspaceLocked: props.workspaceLocked ?? false,
+                      onWorkspacePickFolder: props.onWorkspacePickFolder,
+                      onWorkspacePickBranch: props.onWorkspacePickBranch,
+                      onWorktreeToggle: props.onWorktreeToggle,
+                    }
+                  : {})}
+              />
+            )}
           </div>
           <div className="hero-footer">
-            <a href="https://github.com/coddy-project/coddy-agent" target="_blank" rel="noopener">GitHub</a>
-            <span className="hero-footer-sep" aria-hidden>|</span>
-            <a href="/docs/" target="_blank" rel="noopener">API docs</a>
+            <a
+              href="https://github.com/coddy-project/coddy-agent"
+              target="_blank"
+              rel="noopener"
+            >
+              GitHub
+            </a>
+            <span className="hero-footer-sep" aria-hidden>
+              |
+            </span>
+            <a href="/docs/" target="_blank" rel="noopener">
+              API docs
+            </a>
           </div>
         </div>
       ) : (
@@ -324,72 +429,116 @@ export function ChatScreen(props: {
                 {...(props.onBranchSwitch
                   ? { onBranchSwitch: props.onBranchSwitch }
                   : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+                {...(props.knownSkillNames
+                  ? { knownSkillNames: props.knownSkillNames }
+                  : {})}
+                {...(props.backgroundTasksByToolCallId
+                  ? {
+                      backgroundTasksByToolCallId:
+                        props.backgroundTasksByToolCallId,
+                    }
+                  : {})}
+                {...(props.backgroundNowMs !== undefined
+                  ? { backgroundNowMs: props.backgroundNowMs }
+                  : {})}
+                {...(props.onOpenBackgroundTask
+                  ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+                  : {})}
+                {...(props.onStopBackgroundTask
+                  ? { onStopBackgroundTask: props.onStopBackgroundTask }
+                  : {})}
               />
+              {props.backgroundTasks && props.onOpenBackgroundTasks ? (
+                <BackgroundTasksChip
+                  tasks={props.backgroundTasks}
+                  onOpen={props.onOpenBackgroundTasks}
+                />
+              ) : null}
             </div>
             <div className="chat-scroll-tail" aria-hidden />
           </div>
 
           <div className="chat-bottom">
             <div className="chat-bottom-inner" ref={composerHostRef}>
-              <Composer
-                value={props.draft}
-                isEmpty={false}
-                sessionId={props.sessionId}
-                contextIdle={false}
-                mode={props.mode}
-                modes={props.modes}
-                tokenUsage={props.tokenUsage}
-                {...(props.contextPct !== undefined
-                  ? { contextPct: props.contextPct }
-                  : {})}
-              {...(props.maxContextTokens !== undefined
-                ? { maxContextTokens: props.maxContextTokens }
-                : {})}
-              {...(props.contextBreakdown !== undefined
-                ? { contextBreakdown: props.contextBreakdown }
-                : {})}
-              {...(props.llmModels !== undefined &&
-                props.llmModels.length > 0 &&
-                props.onLlmModelChange !== undefined
-                  ? {
-                      llmModels: props.llmModels,
-                      llmModel: props.llmModel,
-                      onLlmModelChange: props.onLlmModelChange,
-                      llmModelMultimodal: props.llmModelMultimodal,
-                      ...(props.llmReasoningLevels !== undefined &&
-                      props.llmReasoningLevels.length > 0 &&
-                      props.onLlmReasoningChange !== undefined
-                        ? {
-                            llmReasoningLevels: props.llmReasoningLevels,
-                            llmReasoning: props.llmReasoning,
-                            onLlmReasoningChange: props.onLlmReasoningChange,
-                          }
-                        : {}),
-                    }
-                  : {})}
-                onModeChange={props.onModeChange}
-                onChange={props.onDraftChange}
-                onSend={props.onSend}
-                {...(props.onContextRingOpen ? { onContextRingOpen: props.onContextRingOpen } : {})}
-                {...(props.generating === true && props.onStop !== undefined
-                  ? { generating: true, onStop: props.onStop }
-                  : {})}
-                {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
-                {...(props.editingFiles && props.editingFiles.length > 0
-                  ? { editingFiles: props.editingFiles }
-                  : {})}
-                {...(props.onWorkspacePickFolder
-                  ? {
-                      workspaceCtx: props.workspaceCtx ?? null,
-                      worktreePref: props.worktreePref ?? false,
-                      workspaceLocked: props.workspaceLocked ?? false,
-                      onWorkspacePickFolder: props.onWorkspacePickFolder,
-                      onWorkspacePickBranch: props.onWorkspacePickBranch,
-                      onWorktreeToggle: props.onWorktreeToggle,
-                    }
-                  : {})}
-              />
+              {readOnlyNotice ? null : (
+                <UsageBanner
+                  usage={props.providerUsage}
+                  modelId={props.llmModel ?? ""}
+                  {...(props.usageBannerDismissedKey
+                    ? { dismissedKey: props.usageBannerDismissedKey }
+                    : {})}
+                  {...(props.onUsageBannerDismiss
+                    ? { onDismiss: props.onUsageBannerDismiss }
+                    : {})}
+                />
+              )}
+              {readOnlyNotice ?? (
+                <Composer
+                  value={props.draft}
+                  isEmpty={false}
+                  providerUsage={props.providerUsage ?? null}
+                  attachedFiles={attachedFiles}
+                  onAttachedFilesChange={setAttachedFiles}
+                  sessionId={props.sessionId}
+                  contextIdle={false}
+                  mode={props.mode}
+                  modes={props.modes}
+                  tokenUsage={props.tokenUsage}
+                  {...(props.contextPct !== undefined
+                    ? { contextPct: props.contextPct }
+                    : {})}
+                  {...(props.maxContextTokens !== undefined
+                    ? { maxContextTokens: props.maxContextTokens }
+                    : {})}
+                  {...(props.contextBreakdown !== undefined
+                    ? { contextBreakdown: props.contextBreakdown }
+                    : {})}
+                  {...(props.llmModels !== undefined &&
+                  props.llmModels.length > 0 &&
+                  props.onLlmModelChange !== undefined
+                    ? {
+                        llmModels: props.llmModels,
+                        llmModel: props.llmModel,
+                        onLlmModelChange: props.onLlmModelChange,
+                        llmModelMultimodal: props.llmModelMultimodal,
+                        ...(props.llmReasoningLevels !== undefined &&
+                        props.llmReasoningLevels.length > 0 &&
+                        props.onLlmReasoningChange !== undefined
+                          ? {
+                              llmReasoningLevels: props.llmReasoningLevels,
+                              llmReasoning: props.llmReasoning,
+                              onLlmReasoningChange: props.onLlmReasoningChange,
+                            }
+                          : {}),
+                      }
+                    : {})}
+                  onModeChange={props.onModeChange}
+                  onChange={props.onDraftChange}
+                  onSend={props.onSend}
+                  {...(props.onContextRingOpen
+                    ? { onContextRingOpen: props.onContextRingOpen }
+                    : {})}
+                  {...(props.generating === true && props.onStop !== undefined
+                    ? { generating: true, onStop: props.onStop }
+                    : {})}
+                  {...(props.knownSkillNames
+                    ? { knownSkillNames: props.knownSkillNames }
+                    : {})}
+                  {...(props.editingFiles && props.editingFiles.length > 0
+                    ? { editingFiles: props.editingFiles }
+                    : {})}
+                  {...(props.onWorkspacePickFolder
+                    ? {
+                        workspaceCtx: props.workspaceCtx ?? null,
+                        worktreePref: props.worktreePref ?? false,
+                        workspaceLocked: props.workspaceLocked ?? false,
+                        onWorkspacePickFolder: props.onWorkspacePickFolder,
+                        onWorkspacePickBranch: props.onWorkspacePickBranch,
+                        onWorktreeToggle: props.onWorktreeToggle,
+                      }
+                    : {})}
+                />
+              )}
             </div>
           </div>
         </div>

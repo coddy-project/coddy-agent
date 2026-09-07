@@ -688,3 +688,38 @@ func TestPrintTreeRendersDepthLimitedTree(t *testing.T) {
 		t.Errorf("expected tree branch glyphs:\n%s", out)
 	}
 }
+
+// --- keep_result.go: selector validation, no filesystem access -------------
+
+func TestKeepResultRequiresSelector(t *testing.T) {
+	t.Parallel()
+	if _, err := executeKeepResult(context.Background(), `{}`, &tooling.Env{}); err == nil {
+		t.Fatal("expected error when neither path nor pattern is provided")
+	}
+}
+
+func TestKeepResultConfirmsSelectors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args string
+		want string
+	}{
+		{"whole file", `{"path":"big.go"}`, "big.go (whole file)"},
+		{"line range", `{"path":"big.go","offset":1,"limit":500}`, "big.go lines 1-500"},
+		{"from line", `{"path":"big.go","offset":10}`, "big.go from line 10"},
+		{"grep pattern", `{"pattern":"handleFoo"}`, `grep "handleFoo"`},
+		{"grep with path", `{"pattern":"handleFoo","path":"internal"}`, `grep "handleFoo" in internal`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := executeKeepResult(context.Background(), tc.args, &tooling.Env{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("keep_result(%s) = %q, want substring %q", tc.args, got, tc.want)
+			}
+		})
+	}
+}

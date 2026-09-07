@@ -5,7 +5,7 @@
 Coddy is modeled as **harness plus execution engine**. This document specifies that engine -
 
 - the **ReAct loop** in `internal/agent` that turns prompts and tools into streamed turns,
-- default **coding-agent** behavior - tool registry, `agent` and `plan` modes, permission gates.
+- default **coding-agent** behavior - tool registry, `agent`, `plan`, and `ask` modes, permission gates.
 
 The same harness may use a narrower tool surface or different clients (automation, not only IDEs).
 
@@ -24,11 +24,12 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`** and **`plan.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
 
 Rendered order matches the markdown files roughly as follows:
 
 ```
+[Identity line — see "Agent identity" below; absent when the template opens with it]
 [Intro + Mode + How to work / How to plan]
 Working directory: {{.CWD}}
 
@@ -63,6 +64,25 @@ Working directory: {{.CWD}}
 The **`TodoList`** body is markdown from **`internal/tools/todo.FormatPlanMarkdown`** applied to **`session.Plan`**. It is injected **only when** at least one entry exists. Embedded templates treat an empty **`TodoList`** as false for **`{{if .TodoList}}`**. The environment block is appended outside the configurable template so OS and shell facts cannot be accidentally omitted by a custom prompt.
 
 Immediately before **each** provider **`Stream`** call within a single **`session/prompt`**, Coddy reapplies **`Render`** so the **`system`** message reflects todo changes from tools executed earlier in that same episode. **`UTCNow`** is set to **`time.Now().UTC()`** formatted as RFC3339 on each render so the footer clock advances across ReAct iterations.
+
+### Agent identity
+
+**Every system prompt Coddy sends opens by naming the product.** The sentence lives in **`internal/prompts/identity.go`** as **`prompts.Identity`** (**`"You are Coddy, an AI coding agent."`**), and **`prompts.WithIdentity`** is what puts it there.
+
+Why it exists: an LLM gateway cannot tell one OpenAI-compatible client from another by the wire protocol, so gateways attribute traffic by matching the **opening of the system prompt** against a table of known products (**`"You are Claude Code…"`**, **`"You are Cline…"`**). Coddy used to open with a generic sentence and was therefore invisible in that kind of analytics. Treat **`prompts.Identity`** as a published contract: gateways key on the **`you are coddy`** substring, and rewording it silently drops Coddy out of their reports until they catch up.
+
+Where it is applied:
+
+- **`buildSystemPrompt`** (`internal/agent/system_prompt.go`), last step before the context breakdown — covers agent, plan, and ask modes, a user's own **`prompts.dir`** template, and the render fallback;
+- **`buildCompactionRequest`** (`internal/agent/compact.go`) — the summarizer is its own request with its own system prompt;
+- the auxiliary HTTP prompts: chat-title generation (`external/httpserver/coddy_coddy.go`), prompt enhancement (`external/httpserver/enhance_prompt.go`) and the memory copilot (`external/memory/copilot.go`).
+
+Two properties the tests lock (`internal/prompts/identity_test.go`, `internal/agent/identity_prompt_test.go`):
+
+1. the marker lands within the **first 220 characters**, because that is the prefix a gateway inspects — a long **`{{.CWD}}`** must not push it out;
+2. the line appears **exactly once**. The built-in templates already open with **`You are Coddy, …`**, so **`WithIdentity`** detects the marker and returns them untouched instead of stacking a second identity line on top.
+
+A custom **`prompts.dir`** template does **not** need to name Coddy: the line is prepended for it automatically.
 
 ### Tool Calling via Function Calling API
 
@@ -125,6 +145,15 @@ messages: [
    - If turn_count >= max_turns -> DONE (stopReason: max_turns)
    - Otherwise -> back to step 2
 
+   Loop guard (**`agent.loop_guard`**, default on) can end the turn earlier:
+   - A streamed response repeating the same passage **`loop_stream_repeat_cycles`** times
+     in a row (answer text or reasoning) has its stream cancelled. The repeated run is
+     stripped from the stored message, so it is never replayed to the model.
+   - A tool call repeated **`loop_tool_repeat_limit`** times with identical canonical
+     arguments is not executed; the model gets a result explaining why.
+   - Either case first nudges the model to change course, up to **`loop_nudge_max`**
+     times, then -> DONE (stopReason: agent_refused) with a notice.
+
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```
@@ -155,6 +184,10 @@ Representative builtins exposed to the LLM (registry allowlist):
 - `run_command`
 
 Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation work, prompts instruct switching the client to **`agent`** mode.
+
+### Ask Mode
+
+Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 

@@ -31,7 +31,7 @@ func PlanReplaceTool() *tooling.Tool {
 				"required": []string{"markdown"},
 			},
 		},
-		Execute:           execPlanReplace,
+		Execute: execPlanReplace,
 	}
 }
 

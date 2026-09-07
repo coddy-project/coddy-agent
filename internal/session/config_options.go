@@ -15,13 +15,14 @@ func BuildACPConfigOptions(cfg *config.Config, state *State) []acp.ConfigOption 
 	modeOpt := acp.ConfigOption{
 		ID:           "mode",
 		Name:         "Session mode",
-		Description:  "Agent runs tools; Plan focuses on design without execution.",
+		Description:  "Agent runs tools; Plan focuses on design without execution; Ask answers with read-only research tools.",
 		Category:     "mode",
 		Type:         "select",
 		CurrentValue: mode,
 		Options: []acp.ConfigOptionValue{
 			{Value: string(ModeAgent), Name: "Agent", Description: "Execute tasks with full tool access"},
 			{Value: string(ModePlan), Name: "Plan", Description: "Plan and design without code execution"},
+			{Value: string(ModeAsk), Name: "Ask", Description: "Answer questions with read-only research tools"},
 		},
 	}
 

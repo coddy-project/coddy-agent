@@ -25,17 +25,6 @@ export const UI_THEME_IDS: UiThemeMode[] = [
 /** Whether a theme is light (color-scheme: light). All others are dark. */
 export const LIGHT_THEMES = new Set<UiThemeMode>(["light"]);
 
-/** Human-readable label for each theme. */
-export const UI_THEME_LABELS: Record<UiThemeMode, string> = {
-  dark: "Dark",
-  light: "Light",
-  midnight: "Midnight",
-  "solarized-dark": "Solarized Dark",
-  monokai: "Monokai",
-  nord: "Nord",
-  "rose-pine": "Rosé Pine",
-};
-
 function isValidTheme(v: string): v is UiThemeMode {
   return (UI_THEME_IDS as string[]).includes(v);
 }

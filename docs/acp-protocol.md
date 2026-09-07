@@ -243,6 +243,11 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
         "id": "plan",
         "name": "Plan",
         "description": "Plan and design without code execution"
+      },
+      {
+        "id": "ask",
+        "name": "Ask",
+        "description": "Answer questions from the repository without changing anything"
       }
     ]
   }
@@ -253,7 +258,9 @@ The `model` option is present only when the `models` list in the agent config is
 
 ### `session/load`
 
-Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, sends `available_commands_update`, replays prior user and assistant turns (and tool call summaries) via `session/update`, and sends a `plan` update if `todos/active.md` exists.
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire.
+
+The replay precedes the response here, as ACP requires, and that is safe because the client named the session itself. Reopening a bundle through **`session/new`** (`coddy acp --session-id <id>`) is the other way round: the client only learns the id from the response, so the replay waits for it. Anything written earlier would arrive for a session the client has not registered.
 
 **Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
 
@@ -306,7 +313,7 @@ After **`plan_write`**, Coddy publishes:
 }
 ```
 
-Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan.
+Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan. In **ask** mode the hook is refused with an error and a `@plans/<slug>.plan.md` mention is only inlined as reading material: switch the mode first, then run.
 
 2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
 
@@ -340,6 +347,12 @@ Send a user message, starts the ReAct loop.
 ```
 
 Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cancelled`
+
+### Subagent runs and child sessions (Coddy-specific)
+
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+
+Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
 
 ### `session/cancel`
 
@@ -417,7 +430,7 @@ All sent via `session/update` method with a `sessionUpdate` discriminator field.
 
 ### `available_commands_update` - Slash commands from skills
 
-After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The built-in commands lead the list (**`compact`** while compaction is enabled, **`export`**, **`plugin`**; the same rows as **`GET /coddy/commands`**), followed by the skills. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
 
 ```json
 {
@@ -470,6 +483,72 @@ After **`session/new`** and **`session/load`**, Coddy derives slash commands fro
 
 Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
 
+### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
+
+Coddy sends three `session/update` kinds the ACP specification does not
+define; a client that ignores unknown kinds keeps working.
+
+- **`token_usage`** after every completed model call: `inputTokens`,
+  `outputTokens` of that call and `totalTokens` accumulated over the turn.
+- **`usage_update`** when the context window occupancy changes (a model call,
+  manual or automatic compaction): `used` and `size` in tokens.
+- **`provider_usage`**: the account quota behind the session's model
+  provider, so a client can draw a status bar like the console's third footer
+  line. Sent at session ready and after every turn (never for a subagent
+  child), once the provider has a usage source and the row's panel is on
+  (`providers[].usage_limits_panel`, default true); today only `neuraldeep`
+  has a source (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
+  and cached by the manager (20 s, a 15 s floor between reads); relative
+  durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
+  the snapshot's age when it is delivered. No dollar figure and no credential
+  ever appear. HTTP clients read the same shape from
+  `GET /coddy/providers/{name}/usage` (see `docs/http-api.md`). With
+  `agent.wait_for_limit_reset` on, a turn that hits a limit the retries
+  could never cover sends the same update itself every 20 s while it waits,
+  with `blocked`, `retryAt`, `retryInSec` and `resuming: true`; it then
+  re-issues the call, and the next turn-end snapshot replaces the update:
+  `{"sessionUpdate": "provider_usage", "provider": "neuraldeep",
+  "providerType": "neuraldeep", "blocked": true, "retryAt":
+  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`.
+
+```json
+{
+  "sessionUpdate": "provider_usage",
+  "provider": "neuraldeep",
+  "providerType": "neuraldeep",
+  "observedAt": "2026-09-06T17:47:02Z",
+  "fetchedAt": "2026-09-06T17:47:10Z",
+  "plan": "pro",
+  "keyName": "coddy",
+  "windows": [
+    {"id": "session", "label": "3h", "used": 407, "limit": 15000, "remaining": 14593,
+     "usedPercent": 2.71, "resetsAt": "2026-09-06T17:59:59Z", "resetInSec": 777},
+    {"id": "week", "label": "week", "used": 9981, "limit": 150000, "remaining": 140019,
+     "usedPercent": 6.65, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378},
+    {"id": "day", "label": "day", "usedPercent": 0, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378}
+  ],
+  "rate": {"used": 2, "limit": 120, "remaining": 118, "resetInSec": 58},
+  "wallet": {"balanceRub": -1229.24, "spentRub30d": 2000.74},
+  "blocked": false,
+  "unlimitedModels": ["qwen3.6-35b-a3b"]
+}
+```
+
+`blocked: true` comes with `blockers` (`session_exhausted`, `week_exhausted`,
+`rpm_exhausted`, `session_cooldown`, `abuse_cooldown`,
+`daily_capacity_exhausted`, `key_blocked`, `key_cap_blocked`, `wallet_empty`,
+`user_blocked`) and, for the timed ones, `retryAt` / `retryInSec`.
+`unlimited: true` marks a key without volume windows; `unlimitedModels` lists
+upstream model ids that bypass them on a metered key (a client compares the
+part of the model selector after the first `/`). A failed read keeps the
+previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
+except a rejected key: `error: unauthorized` comes without windows, since
+numbers read with a key the hub no longer honours are not the account's
+numbers any more. `unsupported: true` is answered by the REST route for a
+provider type without a source, and together with `disabled: true` for a row
+whose usage limits panel is switched off (`providers[].usage_limits_panel:
+false`); such a row is never read and the update is never sent for it.
+
 ### `memory_phase` - Memory copilot phase boundary
 
 When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
@@ -509,7 +588,7 @@ See `external/memory/README.md` (including **Related work** and the link to [Mem
 ```json
 {
   "sessionUpdate": "current_mode_update",
-  "modeId": "agent"
+  "currentModeId": "agent"
 }
 ```
 
@@ -579,17 +658,19 @@ These requests are sent only when `permission_mode` is `ask` (commands and write
 }
 ```
 
-**Response:**
+**Response:** the protocol nests the outcome in its own object, which is what editors such as Zed send:
+
 ```json
 {
   "jsonrpc": "2.0",
   "id": 10,
   "result": {
-    "outcome": "allow",
-    "optionId": "allow"
+    "outcome": { "outcome": "selected", "optionId": "allow" }
   }
 }
 ```
+
+A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. Coddy also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
 
 ## Question Requests (Agent -> Client, expects response)
 

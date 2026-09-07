@@ -1,3 +1,5 @@
+import { translate } from "../i18n/i18n";
+
 const PROVIDER_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
 /** Mirrors internal/config.ProviderAPIKeyEnvVarName for UI placeholder text. */
@@ -14,16 +16,10 @@ export function providerApiKeyFieldPlaceholder(providerName: string): string {
   const env = providerAPIKeyEnvVarName(providerName);
   if (env) {
     // Build "${ENV}" with string concat so minifiers never treat "${...}" as a template slot.
-    return (
-      "If empty, reads from $" +
-      "{" +
-      env +
-      "} at run time, or set a literal key (YAML may use $" +
-      "{VAR} at load)"
-    );
+    return translate("settings.field.apiKeyPlaceholder", {
+      env: "$" + "{" + env + "}",
+      varToken: "$" + "{" + "VAR" + "}",
+    });
   }
-  return (
-    "Provider id must start with a letter. When the id is valid, leave empty " +
-    "to read the NAME_API_KEY variable (NAME is uppercase, hyphens become underscores)."
-  );
+  return translate("settings.field.apiKeyPlaceholderInvalid");
 }

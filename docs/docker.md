@@ -212,7 +212,7 @@ Typical first-time flow in the UI:
 
 1. Confirm the page loads (static assets from **`go:embed`**).
 2. In the composer toolbar, select a **backend model** (rows with **`owned_by`** other than **`coddy`** come from your YAML **`models`** list).
-3. Switch **agent** vs **plan** mode if needed (session operating profiles).
+3. Switch between **agent**, **plan**, and **ask** mode if needed (session operating profiles; **ask** is read-only).
 4. Type a message and send. The UI calls **`POST /v1/responses`** with **`stream: true`** and shows streaming assistant output.
 5. Files created or edited by tools land under the mounted workspace (**host `./workspace`** → container **`/workspace`**, **`CODDY_CWD`**).
 

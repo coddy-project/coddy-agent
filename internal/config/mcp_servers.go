@@ -9,6 +9,10 @@ type MCPServerConfig struct {
 	Env     []EnvVarConfig     `yaml:"env"`
 	URL     string             `yaml:"url"`
 	Headers []HTTPHeaderConfig `yaml:"headers"`
+	// Disabled skips connecting this server without removing its definition.
+	Disabled bool `yaml:"disabled"`
+	// DisabledTools hides individual tools of this server from the agent.
+	DisabledTools []string `yaml:"disabled_tools"`
 }
 
 // EnvVarConfig is a name-value environment variable.

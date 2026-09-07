@@ -16,7 +16,7 @@ func TestParsePluginCommand(t *testing.T) {
 		{"/plugin marketplace list", []string{"marketplace", "list"}, true},
 		{"/plugin   install   owner/repo", []string{"install", "owner/repo"}, true},
 		{"/plugin\tmarketplace\tadd x", []string{"marketplace", "add", "x"}, true},
-		{"/plugincast", nil, false},   // must not match a longer word
+		{"/plugincast", nil, false},       // must not match a longer word
 		{"say /plugin later", nil, false}, // only when it leads the message
 		{"hello world", nil, false},
 	}

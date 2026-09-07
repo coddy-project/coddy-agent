@@ -19,6 +19,43 @@ const (
 	defaultConfigName  = "config.yaml"
 )
 
+// CodexAuthPath returns the Coddy-managed OAuth credential path for one Codex
+// provider. Provider names are validated before this path is used by HTTP
+// handlers or loaded configuration.
+func CodexAuthPath(home, providerName string) string {
+	return providerAuthFile(home, providerName, "codex-auth.json")
+}
+
+// NeuralDeepAuthPath returns the Coddy-managed hub credential path for one
+// neuraldeep provider (the key obtained via `coddy providers login`).
+func NeuralDeepAuthPath(home, providerName string) string {
+	return providerAuthFile(home, providerName, "neuraldeep-auth.json")
+}
+
+// ProviderAuthPath resolves the managed credential path for a provider by its
+// type. Providers that authenticate with a plain api_key have no managed
+// credential and get "". Every ProviderInput construction site must use this
+// helper so all surfaces agree on where a login is stored.
+func ProviderAuthPath(home, providerName, providerType string) string {
+	switch strings.TrimSpace(providerType) {
+	case "codex":
+		return CodexAuthPath(home, providerName)
+	case "neuraldeep":
+		return NeuralDeepAuthPath(home, providerName)
+	default:
+		return ""
+	}
+}
+
+func providerAuthFile(home, providerName, leaf string) string {
+	home = strings.TrimSpace(home)
+	providerName = strings.TrimSpace(providerName)
+	if home == "" || !validProviderName.MatchString(providerName) {
+		return ""
+	}
+	return filepath.Join(home, "providers", providerName, leaf)
+}
+
 // Paths holds resolved CODDY_HOME, process working directory (CODDY_CWD), and config file path.
 type Paths struct {
 	// Home is the agent state directory (default ~/.coddy). Holds config.yaml, sessions, skills, logs.
@@ -107,11 +144,14 @@ func Resolve(cli CLIPaths) (Paths, error) {
 }
 
 // ExpandPathVars substitutes ${CODDY_HOME} and ${CWD}, then expands ~.
-// Use for config file body and paths that intentionally bake in the process working directory.
-// Substituted paths use forward slashes: the result is spliced into raw YAML, where
-// backslashes inside double-quoted scalars (Windows paths like C:\Users\...) would be
-// parsed as escape sequences and break the document. Forward-slash paths remain valid
-// for os and filepath functions on Windows.
+// Use for process-scoped path fields (sessions.dir, scheduler.dir, memory.dir,
+// logger.file) whose ${CWD} means the default working directory. The raw config
+// body goes through expandConfigBody instead, which keeps ${CWD} in place for
+// the per-session consumers (skills, subagents, hooks, prompts, MCP servers).
+// Substituted paths use forward slashes so the result can also be spliced into
+// raw YAML, where backslashes inside double-quoted scalars (Windows paths like
+// C:\Users\...) would be parsed as escape sequences and break the document.
+// Forward-slash paths remain valid for os and filepath functions on Windows.
 func ExpandPathVars(s string, p Paths) string {
 	s = strings.ReplaceAll(s, "${CODDY_HOME}", yamlSafePath(p.Home))
 	s = strings.ReplaceAll(s, "${CWD}", yamlSafePath(p.CWD))

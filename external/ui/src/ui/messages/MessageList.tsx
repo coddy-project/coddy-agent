@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
 import { permissionPendingToolCallIds } from "../chat/permissionPendingToolCalls";
+import { deriveLiveStatus, truncateStatusTarget } from "../chat/liveStatus";
 import { BranchNavigator } from "../chat/BranchNavigator";
 import { PlanDocumentSection } from "../chat/PlanDocumentSection";
 import { PermissionPromptSection } from "../chat/PermissionPromptSection";
@@ -14,6 +15,7 @@ import { SystemNoticeMessage } from "./SystemNoticeMessage";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { CompactionMessage } from "./CompactionMessage";
 import { ToolCallMessage } from "./ToolCallMessage";
+import type { BackgroundTask } from "../tasks/types";
 import { TypingDotsMessage } from "./TypingDotsMessage";
 import { UserMessage } from "./UserMessage";
 
@@ -59,11 +61,26 @@ export function MessageList(props: {
   onBranchSwitch?: (sessionId: string) => void;
   /** Re-run the last turn; shown as a refresh button on the last system_notice. */
   onRetryLast?: () => void;
+  /** Background tasks of this session keyed by the tool call that started them. */
+  backgroundTasksByToolCallId?: Map<string, BackgroundTask>;
+  backgroundNowMs?: number;
+  onOpenBackgroundTask?: (taskId: string) => void;
+  onStopBackgroundTask?: (taskId: string) => void;
 }) {
   const permissionWaitingToolCallIds = useMemo(
     () => permissionPendingToolCallIds(props.items),
     [props.items],
   );
+  const toolCallsById = useMemo(() => {
+    const byId = new Map<
+      string,
+      Extract<TranscriptItem, { type: "tool_call" }>
+    >();
+    for (const item of props.items) {
+      if (item.type === "tool_call") byId.set(item.toolCallId, item);
+    }
+    return byId;
+  }, [props.items]);
 
   const userMsgIndices = useMemo(() => {
     const m = new Map<string, number>();
@@ -76,6 +93,12 @@ export function MessageList(props: {
     return m;
   }, [props.items]);
 
+  // What the running turn is doing right now, for the label next to the typing dots.
+  const liveStatus = useMemo(
+    () => (props.generating === true ? deriveLiveStatus(props.items) : null),
+    [props.generating, props.items],
+  );
+
   return (
     <>
       {props.items.map((it, idx) => {
@@ -86,9 +109,11 @@ export function MessageList(props: {
               key={it.id}
               content={it.content}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(props.knownSkillNames ? { knownSkillNames: props.knownSkillNames } : {})}
+              {...(props.knownSkillNames
+                ? { knownSkillNames: props.knownSkillNames }
+                : {})}
               {...(props.onEdit
-                ? { onEdit: (c) => props.onEdit!(c, myIdx) }
+                ? { onEdit: props.onEdit, userMsgIndex: myIdx }
                 : {})}
               {...(it.files && it.files.length > 0 ? { files: it.files } : {})}
             />
@@ -195,7 +220,7 @@ export function MessageList(props: {
               level={it.level}
               message={it.message}
               {...(it.createdAtUtc ? { createdAtUtc: it.createdAtUtc } : {})}
-              {...(isLast && props.onRetryLast
+              {...(isLast && it.level === "error" && props.onRetryLast
                 ? { onRetry: props.onRetryLast }
                 : {})}
             />
@@ -203,6 +228,11 @@ export function MessageList(props: {
         }
         if (it.type === "plan_document") {
           const sid = (props.sessionId || "").trim();
+          // A read-only transcript (a subagent child session) passes neither
+          // handler; the card then renders without Run plan / Discard and its
+          // editor is read-only, instead of showing controls that do nothing.
+          const onPlanRun = props.onPlanDocumentRun;
+          const onPlanDiscard = props.onPlanDocumentDiscard;
           return (
             <div key={it.id} className="message-row-plan">
               <PlanDocumentSection
@@ -211,17 +241,17 @@ export function MessageList(props: {
                 name={it.name}
                 overview={it.overview}
                 content={it.content}
-                {...it.body !== undefined ? { body: it.body } : {}}
-                {...it.path ? { path: it.path } : {}}
+                {...(it.body !== undefined ? { body: it.body } : {})}
+                {...(it.path ? { path: it.path } : {})}
                 discarded={it.discarded === true}
                 expanded={it.expanded}
                 onExpandedChange={(ex) =>
                   props.onPlanDocumentExpanded?.(it.id, ex)
                 }
-                onRunPlan={() => props.onPlanDocumentRun?.(it.slug)}
-                onDiscard={() =>
-                  props.onPlanDocumentDiscard?.(it.id, it.slug)
-                }
+                {...(onPlanRun ? { onRunPlan: () => onPlanRun(it.slug) } : {})}
+                {...(onPlanDiscard
+                  ? { onDiscard: () => onPlanDiscard(it.id, it.slug) }
+                  : {})}
               />
             </div>
           );
@@ -232,6 +262,7 @@ export function MessageList(props: {
               <PermissionPromptSection
                 itemId={it.id}
                 payload={it.payload}
+                toolCall={toolCallsById.get(it.payload.toolCall.toolCallId)}
                 resolved={it.resolved}
                 onResolved={(state) =>
                   props.onPermissionPromptResolved?.(
@@ -262,11 +293,26 @@ export function MessageList(props: {
             </div>
           );
         }
+        const rowBackgroundTask = props.backgroundTasksByToolCallId?.get(
+          it.toolCallId,
+        );
         return (
           <ToolCallMessage
             key={it.id}
             toolCallId={it.toolCallId}
             status={it.status}
+            {...(rowBackgroundTask
+              ? { backgroundTask: rowBackgroundTask }
+              : {})}
+            {...(rowBackgroundTask && props.backgroundNowMs !== undefined
+              ? { backgroundNowMs: props.backgroundNowMs }
+              : {})}
+            {...(props.onOpenBackgroundTask
+              ? { onOpenBackgroundTask: props.onOpenBackgroundTask }
+              : {})}
+            {...(props.onStopBackgroundTask
+              ? { onStopBackgroundTask: props.onStopBackgroundTask }
+              : {})}
             {...(it.title !== undefined ? { title: it.title } : {})}
             {...(it.kind !== undefined ? { kind: it.kind } : {})}
             {...(it.argsText !== undefined ? { argsText: it.argsText } : {})}
@@ -279,6 +325,7 @@ export function MessageList(props: {
             {...(it.resultWasTruncated === true
               ? { resultWasTruncated: true }
               : {})}
+            {...(it.todoPlan !== undefined ? { todoPlan: it.todoPlan } : {})}
             {...(typeof it.durationMs === "number"
               ? { durationMs: it.durationMs }
               : {})}
@@ -295,7 +342,20 @@ export function MessageList(props: {
         );
       })}
       {props.generating === true && !hasStreamingAssistant(props.items) ? (
-        <TypingDotsMessage />
+        <TypingDotsMessage
+          {...(liveStatus
+            ? { statusKind: liveStatus.kind, statusKey: liveStatus.key }
+            : {})}
+          {...(liveStatus && liveStatus.target
+            ? {
+                statusTarget: truncateStatusTarget(liveStatus.target),
+                statusTargetFull: liveStatus.target,
+              }
+            : {})}
+          {...(typeof liveStatus?.startedAtMs === "number"
+            ? { startedAtMs: liveStatus.startedAtMs }
+            : {})}
+        />
       ) : null}
     </>
   );

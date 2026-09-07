@@ -1,4 +1,5 @@
 import type { SessionRow } from "./types";
+import { t } from "../i18n/i18n";
 
 const STORAGE_KEY = "coddy_draft_sessions_v1";
 const DRAFT_ID_PREFIX = "draft_";
@@ -22,9 +23,9 @@ export function draftSessionTitle(draftText: string): string {
   const first = draftText.trim().split(/\r?\n/)[0]?.trim() || "";
   const preview = first.slice(0, 48);
   if (!preview) {
-    return "Draft: New chat";
+    return t("sessions.draftEmpty");
   }
-  return `Draft: ${preview}`;
+  return t("sessions.draftPrefix", { title: preview });
 }
 
 export function readClientDraftSessions(): ClientDraftSession[] {
@@ -40,14 +41,15 @@ export function readClientDraftSessions(): ClientDraftSession[] {
     for (const row of parsed) {
       if (!row || typeof row !== "object") continue;
       const r = row as Record<string, unknown>;
-      const localId =
-        typeof r.localId === "string" ? r.localId.trim() : "";
-      const draftText =
-        typeof r.draftText === "string" ? r.draftText : "";
-      const updatedAt =
-        typeof r.updatedAt === "string" ? r.updatedAt : "";
+      const localId = typeof r.localId === "string" ? r.localId.trim() : "";
+      const draftText = typeof r.draftText === "string" ? r.draftText : "";
+      const updatedAt = typeof r.updatedAt === "string" ? r.updatedAt : "";
       if (!localId || !isClientDraftSessionId(localId)) continue;
-      out.push({ localId, draftText, updatedAt: updatedAt || new Date().toISOString() });
+      out.push({
+        localId,
+        draftText,
+        updatedAt: updatedAt || new Date().toISOString(),
+      });
     }
     return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch {
@@ -77,7 +79,9 @@ export function upsertClientDraftSession(
   return rows;
 }
 
-export function removeClientDraftSession(localId: string): ClientDraftSession[] {
+export function removeClientDraftSession(
+  localId: string,
+): ClientDraftSession[] {
   const rows = readClientDraftSessions().filter((r) => r.localId !== localId);
   writeClientDraftSessions(rows);
   return rows;

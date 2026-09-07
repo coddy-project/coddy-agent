@@ -8,7 +8,7 @@ Phase 1 (manual): seeds three short real-LLM exchanges, sends the built-in
 
 - ``messages.json`` gains a row with ``compaction_summary: true``;
 - every seeded exchange stays in the transcript (nothing is deleted);
-- the ``/compact`` command text itself is not persisted;
+- the ``/compact`` command text itself is persisted as a ``user`` row;
 - an assistant confirmation row mentions the compaction;
 - a follow-up prompt still works (the session continues from the summary).
 
@@ -209,8 +209,11 @@ def run_manual_phase(binary: str, cfg: str, session_root: str, session_id: str) 
             if p not in joined:
                 print(f"FAIL: seeded prompt lost from transcript: {p!r}", file=sys.stderr)
                 rc = rc or 13
-        if "/compact" in joined:
-            print("FAIL: /compact command leaked into transcript", file=sys.stderr)
+        if not any(
+            m.get("role") == "user" and str(m.get("content", "")).strip() == "/compact"
+            for m in msgs
+        ):
+            print("FAIL: /compact command missing from transcript", file=sys.stderr)
             rc = rc or 14
         if not any(
             m.get("role") == "assistant" and "compact" in str(m.get("content", "")).lower()

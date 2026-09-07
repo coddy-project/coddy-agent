@@ -13,7 +13,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	msgs := []Message{{Role: RoleUser, Content: "hi"}}
 
 	p := newOpenAIProvider("gpt-5", "", "", nil, 1024, 0.5, "high")
-	params := p.buildParams(msgs, nil)
+	params := p.buildParams(msgs, nil, true)
 	if params.ReasoningEffort != openai.ReasoningEffort("high") {
 		t.Errorf("reasoning_effort = %q, want high", params.ReasoningEffort)
 	}
@@ -30,7 +30,7 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 
 	// Empty reasoning effort is omitted; non-reasoning models keep max_tokens + temperature.
 	none := newOpenAIProvider("gpt-4o", "", "", nil, 1024, 0.5, "")
-	npar := none.buildParams(msgs, nil)
+	npar := none.buildParams(msgs, nil, true)
 	if npar.ReasoningEffort != "" {
 		t.Errorf("reasoning_effort = %q, want empty", npar.ReasoningEffort)
 	}
@@ -42,6 +42,61 @@ func TestOpenAIBuildParamsReasoningEffort(t *testing.T) {
 	}
 	if !npar.Temperature.Valid() {
 		t.Error("expected temperature for non-reasoning model")
+	}
+}
+
+// TestOpenAIBuildParamsQwenChatTemplateKwargs pins the Qwen3-family reasoning
+// mapping: reasoning_effort plus chat_template_kwargs.enable_thinking, because
+// Qwen thinking is a chat-template switch on OpenAI-compatible servers (vLLM,
+// SGLang) and must be pinned on for the effort to take effect.
+func TestOpenAIBuildParamsQwenChatTemplateKwargs(t *testing.T) {
+	msgs := []Message{{Role: RoleUser, Content: "hi"}}
+
+	qwen := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "medium")
+	qpar := qwen.buildParams(msgs, nil, true)
+	if qpar.ReasoningEffort != openai.ReasoningEffort("medium") {
+		t.Errorf("reasoning_effort = %q, want medium", qpar.ReasoningEffort)
+	}
+	if !qpar.MaxCompletionTokens.Valid() {
+		t.Error("expected max_completion_tokens for reasoning model")
+	}
+	qb, err := json.Marshal(qpar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(qb), `"chat_template_kwargs":{"enable_thinking":true}`) {
+		t.Errorf("qwen reasoning request must pin enable_thinking on: %s", qb)
+	}
+
+	// gpt-oss maps to reasoning_effort only; chat_template_kwargs is a Qwen
+	// chat-template switch and must not leak to other model families.
+	oss := newOpenAIProvider("gpt-oss-120b", "", "", nil, 1024, 0.5, "high")
+	obar, err := json.Marshal(oss.buildParams(msgs, nil, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(obar), `"reasoning_effort":"high"`) {
+		t.Errorf("gpt-oss reasoning_effort missing: %s", obar)
+	}
+	if strings.Contains(string(obar), "chat_template_kwargs") {
+		t.Errorf("chat_template_kwargs must not be set for non-qwen models: %s", obar)
+	}
+
+	// Qwen without a reasoning level keeps the plain chat path (no effort, no kwargs).
+	plain := newOpenAIProvider("qwen3.6-35b-a3b", "", "", nil, 1024, 0.5, "")
+	ppar := plain.buildParams(msgs, nil, true)
+	if ppar.ReasoningEffort != "" {
+		t.Errorf("reasoning_effort = %q, want empty", ppar.ReasoningEffort)
+	}
+	if !ppar.MaxTokens.Valid() {
+		t.Error("expected max_tokens for no-level qwen request")
+	}
+	pb, err := json.Marshal(ppar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(pb), "chat_template_kwargs") {
+		t.Errorf("no-level qwen request must stay plain: %s", pb)
 	}
 }
 

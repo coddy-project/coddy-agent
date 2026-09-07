@@ -33,7 +33,7 @@ func (m *MemoryConfig) Normalize(p Paths) {
 	m.Model = strings.TrimSpace(m.Model)
 	m.Dir = strings.TrimSpace(m.Dir)
 	if m.Dir != "" {
-		m.Dir = filepath.Clean(ExpandCODDYHomeOnly(m.Dir, p))
+		m.Dir = filepath.Clean(ExpandPathVars(m.Dir, p))
 	}
 }
 

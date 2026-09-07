@@ -3,9 +3,14 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,6 +28,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
+	"golang.org/x/text/encoding/charmap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -79,6 +85,7 @@ func TestGETModelsMergedOrderAndOwnedBy(t *testing.T) {
 	}{
 		{id: string(session.ModeAgent), ownedBy: ownedByCoddySession},
 		{id: string(session.ModePlan), ownedBy: ownedByCoddySession},
+		{id: string(session.ModeAsk), ownedBy: ownedByCoddySession},
 		{id: "openai/gpt-4o", ownedBy: "openai"},
 	}
 	if body.Object != "list" || len(body.Data) != len(want) {
@@ -137,6 +144,7 @@ func TestGETModelsMultimodalField(t *testing.T) {
 	wantRows := []want{
 		{id: string(session.ModeAgent)},
 		{id: string(session.ModePlan)},
+		{id: string(session.ModeAsk)},
 		{id: "openai/gpt-4o", multimodal: false},
 		{id: "openai/gpt-4o-vision", multimodal: true},
 	}
@@ -170,9 +178,25 @@ func TestOpenAPISpecPathsAndVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("missing paths map")
 	}
-	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/providers/{name}/models", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/composer-stream", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace"} {
+	for _, must := range []string{"/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/responses/{id}", "/coddy/sessions", "/coddy/describe", "/coddy/enhance-prompt", "/coddy/slash-commands", "/coddy/workspace/files", "/coddy/workspace/context", "/coddy/workspace/folders", "/coddy/config/schema", "/coddy/config", "/coddy/config/validate", "/coddy/config/reasoning-levels", "/coddy/providers/{name}/models", "/coddy/providers/{name}/codex-auth", "/coddy/providers/{name}/codex-auth/device", "/coddy/providers/{name}/codex-auth/device/{loginID}", "/coddy/sessions/{id}/messages", "/coddy/sessions/{id}/assets/{name}/thumbnail", "/coddy/sessions/{id}/composer-stream", "/coddy/events", "/coddy/sessions/{id}/question", "/coddy/sessions/{id}/permission", "/coddy/sessions/{id}/cancel", "/coddy/sessions/{id}/workspace", "/coddy/sessions/{id}/branches", "/coddy/subagents", "/coddy/subagents/{name}/trust", "/coddy/subagents/{name}/untrust"} {
 		if _, ok := paths[must]; !ok {
 			t.Fatalf("paths missing key %s", must)
+		}
+	}
+	// A registered route with no operation in the spec is the same drift as a
+	// missing path: generated clients never learn the endpoint exists.
+	for path, ops := range map[string][]string{
+		"/coddy/sessions/{id}":          {"patch", "delete"},
+		"/coddy/sessions/{id}/branches": {"get", "post"},
+	} {
+		entry, ok := paths[path].(map[string]interface{})
+		if !ok {
+			t.Fatalf("paths missing key %s", path)
+		}
+		for _, op := range ops {
+			if _, ok := entry[op]; !ok {
+				t.Errorf("%s: spec has no %s operation", path, op)
+			}
 		}
 	}
 }
@@ -435,15 +459,6 @@ func TestRedirectDocsToTrailingSlash(t *testing.T) {
 
 func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 	t.Helper()
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	sessRoot := filepath.Join(root, "sessions")
-	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		var sb strings.Builder
 		for _, b := range prompt {
@@ -454,6 +469,22 @@ func testHTTPServerPersist(t *testing.T) (*session.Manager, *Server, string) {
 		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: strings.TrimSpace(sb.String())})
 		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "stub"})
 		return string(acp.StopReasonEndTurn), nil
+	}
+	return testHTTPServerPersistWithRunner(t, runner)
+}
+
+// testHTTPServerPersistWithRunner is testHTTPServerPersist with a caller-supplied agent
+// runner, for tests that need a turn to block or to push updates through the sender.
+func testHTTPServerPersistWithRunner(t *testing.T, runner session.AgentRunner) (*session.Manager, *Server, string) {
+	t.Helper()
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(filepath.Join(home, "memory"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: "/tmp"},
@@ -1506,7 +1537,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = r1.Body.Close()
-	if r1.StatusCode != http.StatusOK || page1.Total != 3 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
+	if r1.StatusCode != http.StatusOK || page1.Total != 4 || !page1.HasMore || len(page1.Items) != 1 || page1.Items[0]["name"] != "apples" {
 		t.Fatalf("page1: status=%d %+v", r1.StatusCode, page1)
 	}
 
@@ -1528,7 +1559,7 @@ func TestCoddySlashCommandsGetPagingAndPrefix(t *testing.T) {
 }
 
 // TestCoddyCommandsEndpoint verifies /coddy/commands surfaces the built-in
-// deterministic commands (compact + plugin) for the composer's "Commands" group.
+// deterministic commands (compact, export, plugin) for the composer's "Commands" group.
 func TestCoddyCommandsEndpoint(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")
@@ -1573,8 +1604,8 @@ func TestCoddyCommandsEndpoint(t *testing.T) {
 	if code != http.StatusOK || obj != "coddy.commands" {
 		t.Fatalf("status=%d object=%q", code, obj)
 	}
-	if len(items) != 2 || items[0]["name"] != "compact" || items[1]["name"] != "plugin" {
-		t.Fatalf("commands = %+v, want compact then plugin", items)
+	if len(items) != 3 || items[0]["name"] != "compact" || items[1]["name"] != "export" || items[2]["name"] != "plugin" {
+		t.Fatalf("commands = %+v, want compact, export, plugin", items)
 	}
 	for _, it := range items {
 		if strings.TrimSpace(it["description"]) == "" {
@@ -1766,6 +1797,87 @@ func TestResponsesAgentWithAttachmentsHydrate(t *testing.T) {
 	}
 }
 
+// TestResponsesAttachmentEncodings covers the two ends of attachment decoding
+// over HTTP: a Windows-1251 file is transcoded and reaches the runner as
+// readable text, while a binary file is refused with 400 rather than 500.
+func TestResponsesAttachmentEncodings(t *testing.T) {
+	const russian = "Первая строка заметки в кодировке Windows-1251.\n" +
+		"Вторая строка нужна, чтобы кодировка определялась уверенно.\n" +
+		"Третья строка завершает пример русского текста.\n"
+
+	var mu sync.Mutex
+	var captured []acp.ContentBlock
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	wd := filepath.Join(root, "wd")
+	sessRoot := filepath.Join(root, "sessions")
+	for _, d := range []string{filepath.Join(home, "memory"), sessRoot, wd} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cp1251, err := charmap.Windows1251.NewEncoder().Bytes([]byte(russian))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "note.txt"), cp1251, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blob := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 32)...)
+	if err := os.WriteFile(filepath.Join(wd, "logo.png"), blob, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := func(_ context.Context, st *session.State, prompt []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		mu.Lock()
+		captured = append([]acp.ContentBlock(nil), prompt...)
+		mu.Unlock()
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: wd},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), wd, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), wd)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	post := func(sid, payload string) int {
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Coddy-Session-ID", sid)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ioReadAllClose(res.Body)
+		return res.StatusCode
+	}
+
+	code := post("sess_http_attach_cp1251", `{"model":"agent","input":"read @note.txt","stream":false,"attachments":[{"path":"note.txt"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("windows-1251 attachment status %d, want 200", code)
+	}
+	mu.Lock()
+	blocks := append([]acp.ContentBlock(nil), captured...)
+	mu.Unlock()
+	if len(blocks) < 2 || blocks[1].Type != "resource" || blocks[1].Resource == nil {
+		t.Fatalf("blocks %+v", blocks)
+	}
+	if blocks[1].Resource.Text != russian {
+		t.Fatalf("resource text %q, want %q", blocks[1].Resource.Text, russian)
+	}
+
+	code = post("sess_http_attach_binary", `{"model":"agent","input":"read @logo.png","stream":false,"attachments":[{"path":"logo.png"}]}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("binary attachment status %d, want 400", code)
+	}
+}
+
 func TestCoddyConfigSchemaValidateAndPut(t *testing.T) {
 	home := t.TempDir()
 	cfgPath := filepath.Join(home, "config.yaml")
@@ -1813,6 +1925,13 @@ agent:
 	if sch["type"] != "object" {
 		t.Fatalf("schema root type %v", sch["type"])
 	}
+	providers := sch["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	items := providers["items"].(map[string]interface{})
+	properties := items["properties"].(map[string]interface{})
+	providerName := properties["name"].(map[string]interface{})
+	if got, want := providerName["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
+		t.Fatalf("provider name pattern: got %v want %v", got, want)
+	}
 
 	jbody := `{"providers":[{"name":"openai","type":"openai","api_key":"k"}],"models":[{"model":"openai/gpt-4o","max_tokens":4096,"temperature":0.1}],"agent":{"model":"openai/gpt-4o","max_turns":12}}`
 	vreq, _ := http.NewRequest(http.MethodPost, ts.URL+"/coddy/config/validate", strings.NewReader(jbody))
@@ -1849,6 +1968,7 @@ agent:
 func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	cp := &capturingHTTPProvider{reply: "ok"}
 	_, srv, _ := testHTTPServerPersist(t)
+	srv.activeCfg().Models[0].Multimodal = true
 	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
@@ -1887,10 +2007,166 @@ func TestResponsesInlineFilesDirectModel(t *testing.T) {
 	}
 }
 
+func TestResponsesInlineFilesOmittedForNonMultimodalDirectModel(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	const sid = "sess_non_multimodal_direct"
+	payload := `{"model":"openai/gpt-4o","input":"hello","stream":true,` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	var userMsg *llm.Message
+	for i := range cp.seen {
+		if cp.seen[i].Role == llm.RoleUser {
+			userMsg = &cp.seen[i]
+		}
+	}
+	if userMsg == nil {
+		t.Fatal("no user message found")
+	}
+	if len(userMsg.ImageParts) != 0 {
+		t.Fatalf("non-multimodal provider received %d image parts", len(userMsg.ImageParts))
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 0 {
+		t.Fatalf("non-multimodal history retained image parts: %+v", snap.Messages)
+	}
+}
+
+func TestResponsesInlineFilesPersistThumbnailInSessionHistory(t *testing.T) {
+	cp := &capturingHTTPProvider{reply: "ok"}
+	_, srv, sessRoot := testHTTPServerPersist(t)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return cp, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	src := image.NewRGBA(image.Rect(0, 0, 320, 80))
+	for y := 0; y < 80; y++ {
+		for x := 0; x < 320; x++ {
+			src.Set(x, y, color.RGBA{R: 40, G: uint8(y), B: uint8(x % 255), A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, src); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(encoded.Bytes())
+	payload, err := json.Marshal(map[string]interface{}{
+		"model":  "openai/gpt-4o",
+		"input":  "describe",
+		"stream": false,
+		"inline_files": []map[string]string{{
+			"name":     "wide.png",
+			"data_url": dataURL,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := "sess_persisted_thumbnail"
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/responses", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Coddy-Session-ID", sid)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+
+	store := &session.FileStore{Root: sessRoot}
+	snap, err := store.ReadSnapshot(sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Messages) == 0 || len(snap.Messages[0].ImageParts) != 1 {
+		t.Fatalf("persisted messages missing image part: %+v", snap.Messages)
+	}
+	if snap.Messages[0].ImageParts[0].ThumbnailPath == "" {
+		t.Fatal("persisted image part is missing ThumbnailPath")
+	}
+
+	msgRes, err := http.Get(ts.URL + "/coddy/sessions/" + sid + "/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var history struct {
+		Messages []struct {
+			Files []struct {
+				Name       string `json:"name"`
+				MimeType   string `json:"mime_type"`
+				PreviewURL string `json:"preview_url"`
+			} `json:"files"`
+		} `json:"messages"`
+	}
+	if err := json.NewDecoder(msgRes.Body).Decode(&history); err != nil {
+		msgRes.Body.Close()
+		t.Fatal(err)
+	}
+	msgRes.Body.Close()
+	if msgRes.StatusCode != http.StatusOK {
+		t.Fatalf("messages status %d", msgRes.StatusCode)
+	}
+	if len(history.Messages) == 0 || len(history.Messages[0].Files) != 1 {
+		t.Fatalf("history missing file metadata: %+v", history.Messages)
+	}
+	file := history.Messages[0].Files[0]
+	if file.Name != "wide.png" || file.MimeType != "image/png" || file.PreviewURL == "" {
+		t.Fatalf("unexpected file metadata: %+v", file)
+	}
+
+	thumbRes, err := http.Get(ts.URL + file.PreviewURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer thumbRes.Body.Close()
+	if thumbRes.StatusCode != http.StatusOK {
+		t.Fatalf("thumbnail status %d", thumbRes.StatusCode)
+	}
+	if got := thumbRes.Header.Get("Content-Type"); got != "image/png" {
+		t.Fatalf("thumbnail Content-Type = %q", got)
+	}
+	cfg, err := png.DecodeConfig(thumbRes.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Width != 160 || cfg.Height != 40 {
+		t.Fatalf("thumbnail size = %dx%d, want 160x40", cfg.Width, cfg.Height)
+	}
+}
+
 // TestResponsesInlineFilesAcceptedForAgent verifies that inline_files are
 // accepted in agent/plan mode (images are forwarded to the LLM as ImageParts).
 func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
-	_, srv, _ := testHTTPServerPersist(t)
+	var imageParts []llm.ImagePart
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		imageParts = st.TakePendingImageParts()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	srv.activeCfg().Models[0].Multimodal = true
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
@@ -1900,10 +2176,42 @@ func TestResponsesInlineFilesAcceptedForAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = ioReadAllClose(res.Body)
-	// inline_files are now accepted for agent/plan mode; any non-4xx response is fine.
-	if res.StatusCode == http.StatusBadRequest {
-		t.Fatalf("inline_files should be accepted for agent mode, got 400")
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+	if len(imageParts) != 1 || imageParts[0].Name != "img.png" {
+		t.Fatalf("agent runner image parts = %+v, want img.png", imageParts)
+	}
+}
+
+func TestResponsesInlineFilesOmittedForNonMultimodalAgentModel(t *testing.T) {
+	var imageParts []llm.ImagePart
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		imageParts = st.TakePendingImageParts()
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	srv.activeCfg().Models[0].Multimodal = true
+	srv.activeCfg().Models = append(srv.activeCfg().Models, config.ModelEntry{
+		Model: "openai/text-only", MaxTokens: 100, Temperature: 0.2,
+	})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	payload := `{"model":"agent","input":"hi","stream":false,` +
+		`"metadata":{"model":"openai/text-only"},` +
+		`"inline_files":[{"name":"img.png","data_url":"data:image/png;base64,abc"}]}`
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", res.StatusCode, b)
+	}
+	if len(imageParts) != 0 {
+		t.Fatalf("non-multimodal agent runner received %d image parts", len(imageParts))
 	}
 }
 
@@ -2643,5 +2951,570 @@ func TestCoddySkillsDeleteAnyAndReadonly(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(skillsDir, "local")); !os.IsNotExist(err) {
 		t.Errorf("local skill dir should be gone: %v", err)
+	}
+}
+
+// TestCoddyMCPRoutesEdgeCases covers error paths of the /coddy/mcp surface;
+// the happy path lives in features/mcp_management.feature.
+func TestCoddyMCPRoutesEdgeCases(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODDY_HOME", home)
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+mcp_servers:
+  - name: broken
+    command: /nonexistent-mcp-binary
+  - name: remote
+    type: websocket
+    url: https://example.com/ws
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), home, nil)
+	srv := New(cfg, mgr, slog.Default(), home)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	do := func(method, path string, body string) (int, []byte) {
+		t.Helper()
+		var rdr io.Reader
+		if body != "" {
+			rdr = strings.NewReader(body)
+		}
+		req, err := http.NewRequest(method, ts.URL+path, rdr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, b
+	}
+
+	// The list reports both servers: broken stdio probes to an error status,
+	// the http entry is unsupported without probing. Config.yaml entries are
+	// global-scoped, config-owned, and read-only for edit/delete.
+	status, b := do(http.MethodGet, "/coddy/mcp", "")
+	if status != http.StatusOK {
+		t.Fatalf("GET /coddy/mcp status %d %s", status, b)
+	}
+	var list struct {
+		Items []struct {
+			Name     string `json:"name"`
+			Source   string `json:"source"`
+			Origin   string `json:"origin"`
+			Readonly bool   `json:"readonly"`
+			Status   string `json:"status"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	if len(list.Items) != 2 {
+		t.Fatalf("items = %+v, want 2", list.Items)
+	}
+	byName := map[string]string{}
+	for _, it := range list.Items {
+		if it.Source != "global" || it.Origin != "config" || !it.Readonly {
+			t.Errorf("server %q = %s/%s readonly=%v, want global/config readonly", it.Name, it.Source, it.Origin, it.Readonly)
+		}
+		byName[it.Name] = it.Status
+	}
+	if byName["broken"] != "error" {
+		t.Errorf("broken status = %q, want error", byName["broken"])
+	}
+	if byName["remote"] != "unsupported" {
+		t.Errorf("remote status = %q, want unsupported", byName["remote"])
+	}
+
+	// Toggling an unknown server or tool fails with 400.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable unknown server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/tools/echo/disable", ""); status != http.StatusBadRequest {
+		t.Errorf("disable tool of unknown server status %d, want 400", status)
+	}
+
+	// PUT rejects names that break the __ namespace, bad bodies, entries with
+	// neither command nor url, and unknown scopes.
+	if status, _ := do(http.MethodPut, "/coddy/mcp/bad__name", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT bad name status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{broken`); status != http.StatusBadRequest {
+		t.Errorf("PUT invalid body status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname", `{}`); status != http.StatusBadRequest {
+		t.Errorf("PUT empty entry status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPut, "/coddy/mcp/okname?scope=nope", `{"command":"x"}`); status != http.StatusBadRequest {
+		t.Errorf("PUT unknown scope status %d, want 400", status)
+	}
+
+	// PUT with scope=global lands in <home>/mcp.json and lists as global/home.
+	if status, body := do(http.MethodPut, "/coddy/mcp/homer?scope=global", `{"command":"home-mcp"}`); status != http.StatusOK {
+		t.Fatalf("PUT scope=global status %d %s", status, body)
+	}
+	entries, err := config.ReadMCPJSONFile(config.GlobalMCPJSONPath(home))
+	if err != nil || entries["homer"].Command != "home-mcp" {
+		t.Errorf("global mcp.json entries = %+v err=%v, want homer", entries, err)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if err := json.Unmarshal(b, &list); err != nil {
+		t.Fatalf("list body %s: %v", b, err)
+	}
+	foundHomer := false
+	for _, it := range list.Items {
+		if it.Name == "homer" {
+			foundHomer = true
+			if it.Source != "global" || it.Origin != "home" || it.Readonly {
+				t.Errorf("homer = %s/%s readonly=%v, want global/home editable", it.Source, it.Origin, it.Readonly)
+			}
+		}
+	}
+	if !foundHomer {
+		t.Error("homer missing from list after scope=global PUT")
+	}
+
+	// Config-defined servers cannot be deleted over the API; mcp.json ones can.
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/broken", ""); status != http.StatusBadRequest {
+		t.Errorf("DELETE config-sourced status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodDelete, "/coddy/mcp/homer", ""); status != http.StatusOK {
+		t.Errorf("DELETE home-sourced status %d, want 200", status)
+	}
+
+	// Trust applies to project entries only: config.yaml servers are the
+	// operator's own, so approving one is refused rather than silently stored.
+	if status, _ := do(http.MethodPost, "/coddy/mcp/broken/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust a config.yaml server status %d, want 400", status)
+	}
+	if status, _ := do(http.MethodPost, "/coddy/mcp/ghost/trust", ""); status != http.StatusBadRequest {
+		t.Errorf("trust unknown server status %d, want 400", status)
+	}
+	// Withdrawing an approval that was never granted is a no-op, not an error.
+	status, b = do(http.MethodPost, "/coddy/mcp/broken/untrust", "")
+	if status != http.StatusOK || !strings.Contains(string(b), `"removed":false`) {
+		t.Errorf("untrust without an approval = %d %s, want 200 removed:false", status, b)
+	}
+
+	// The project-trust policy is set through this surface (the MCP tab owns
+	// it) and rejects values the loader would not accept.
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"nonsense"}`); status != http.StatusBadRequest {
+		t.Errorf("unknown policy status %d %s, want 400", status, body)
+	}
+	if status, body := do(http.MethodPost, "/coddy/mcp/project-trust", `{"policy":"deny"}`); status != http.StatusOK {
+		t.Fatalf("set policy status %d %s", status, body)
+	}
+	reloaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if got := reloaded.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Errorf("config.yaml project_trust = %q, want %q", got, config.ProjectTrustDeny)
+	}
+	_, b = do(http.MethodGet, "/coddy/mcp", "")
+	if !strings.Contains(string(b), `"project_trust":"deny"`) {
+		t.Errorf("list does not report the new policy: %s", b)
+	}
+}
+
+// subagentChildFixture creates a parent session and a child spawned by it on a
+// persisted test server, the way the runtime does inside the pool's launch
+// callback, and returns both ids.
+func subagentChildFixture(t *testing.T, mgr *session.Manager, cwd string) (parentID, childID string) {
+	t.Helper()
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID = "sub_unit_child"
+	if _, err := mgr.CreateSubagentSession(context.Background(), session.SubagentSpec{
+		ID:              childID,
+		ParentSessionID: res.SessionID,
+		Name:            "explore",
+		TaskID:          "bg_7",
+		CWD:             cwd,
+		Mode:            "agent",
+		Depth:           1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return res.SessionID, childID
+}
+
+// httpJSON issues one request and decodes a JSON object body when there is one.
+func httpJSON(t *testing.T, ts *httptest.Server, method, path, body string, headers map[string]string) (int, map[string]interface{}) {
+	t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, ts.URL+path, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var parsed map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&parsed)
+	return res.StatusCode, parsed
+}
+
+func TestSubagentSessionRoutesAnswerReadOnlyConflict(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	parentID, childID := subagentChildFixture(t, mgr, "/tmp")
+
+	wantConflict := func(name string, status int, body map[string]interface{}) {
+		t.Helper()
+		if status != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409 (%v)", name, status, body)
+		}
+		errObj, _ := body["error"].(map[string]interface{})
+		msg, _ := errObj["message"].(string)
+		if !strings.Contains(msg, "read-only") || !strings.Contains(msg, parentID) {
+			t.Fatalf("%s: message %q does not say read-only and name the parent %s", name, msg, parentID)
+		}
+	}
+	childHeader := map[string]string{"X-Coddy-Session-ID": childID}
+	cases := []struct {
+		name, method, path, body string
+		headers                  map[string]string
+	}{
+		{"responses", http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, childHeader},
+		{"responses stream", http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello","stream":true}`, childHeader},
+		{"chat completions", http.MethodPost, "/v1/chat/completions", `{"model":"agent","messages":[{"role":"user","content":"hello"}]}`, childHeader},
+		{"direct completion", http.MethodPost, "/v1/chat/completions", `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hello"}]}`, childHeader},
+		{"compact", http.MethodPost, "/coddy/sessions/" + childID + "/compact", `{}`, nil},
+		{"plan run", http.MethodPatch, "/coddy/sessions/" + childID + "/plans/demo", `{"runPlan":true}`, nil},
+		{"workspace", http.MethodPost, "/coddy/sessions/" + childID + "/workspace", `{"path":"/tmp"}`, nil},
+		{"permission", http.MethodPost, "/coddy/sessions/" + childID + "/permission", `{"toolCallId":"tc_1","optionId":"allow"}`, nil},
+	}
+	for _, tc := range cases {
+		status, body := httpJSON(t, ts, tc.method, tc.path, tc.body, tc.headers)
+		wantConflict(tc.name, status, body)
+	}
+
+	// The transcript itself stays readable and tells the client it is a child.
+	status, body := httpJSON(t, ts, http.MethodGet, "/coddy/sessions/"+childID+"/messages", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("messages: status %d (%v)", status, body)
+	}
+	if body["readOnly"] != true {
+		t.Fatalf("messages: readOnly missing: %v", body)
+	}
+	link, _ := body["subagent"].(map[string]interface{})
+	if link["parentSessionId"] != parentID || link["name"] != "explore" || link["taskId"] != "bg_7" {
+		t.Fatalf("messages: subagent link %v", link)
+	}
+
+	// A retired child is served from its bundle and refuses the same way.
+	mgr.RetireSubagentSession(childID)
+	status, body = httpJSON(t, ts, http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, childHeader)
+	wantConflict("responses after retire", status, body)
+	status, body = httpJSON(t, ts, http.MethodGet, "/coddy/sessions/"+childID+"/messages", "", nil)
+	if status != http.StatusOK || body["readOnly"] != true {
+		t.Fatalf("messages after retire: status %d body %v", status, body)
+	}
+
+	// The parent is an ordinary session and still takes prompts.
+	status, body = httpJSON(t, ts, http.MethodPost, "/v1/responses", `{"model":"agent","input":"hello"}`, map[string]string{"X-Coddy-Session-ID": parentID})
+	if status != http.StatusOK {
+		t.Fatalf("parent prompt: status %d (%v)", status, body)
+	}
+}
+
+func TestCoddySessionDeleteRemovesRetiredChildAndToleratesMissing(t *testing.T) {
+	mgr, srv, sessRoot := testHTTPServerPersist(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	parentID, childID := subagentChildFixture(t, mgr, "/tmp")
+	mgr.RetireSubagentSession(childID)
+
+	status, body := httpJSON(t, ts, http.MethodDelete, "/coddy/sessions/"+parentID, "", nil)
+	if status != http.StatusOK || body["object"] != "coddy.session_deleted" || body["id"] != parentID {
+		t.Fatalf("delete parent: status %d body %v", status, body)
+	}
+	for _, id := range []string{parentID, childID} {
+		if _, err := os.Stat(filepath.Join(sessRoot, id)); !os.IsNotExist(err) {
+			t.Fatalf("bundle %s still exists (err %v)", id, err)
+		}
+	}
+
+	status, body = httpJSON(t, ts, http.MethodDelete, "/coddy/sessions/never_existed", "", nil)
+	if status != http.StatusOK || body["object"] != "coddy.session_deleted" {
+		t.Fatalf("delete missing: status %d body %v", status, body)
+	}
+}
+
+func TestCoddySubagentsCatalogAndTrustRoutes(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	sessRoot := filepath.Join(root, "sessions")
+	ws := filepath.Join(root, "ws")
+	other := filepath.Join(root, "other")
+	for _, dir := range []string{filepath.Join(home, "agents"), sessRoot, filepath.Join(ws, ".coddy", "agents"), filepath.Join(other, ".coddy", "agents")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	definition := func(name string) []byte {
+		return []byte("---\nname: " + name + "\ndescription: unit helper " + name + "\n---\nYou are " + name + ".\n")
+	}
+	if err := os.WriteFile(filepath.Join(home, "agents", "helper.md"), definition("helper"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{ws, other} {
+		if err := os.WriteFile(filepath.Join(dir, ".coddy", "agents", "reviewer.md"), definition("reviewer"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return string(acp.StopReasonEndTurn), nil
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: ws},
+		Models:    []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:     config.Agent{Model: "openai/gpt-4o"},
+		Subagents: config.Subagents{Dirs: config.DefaultSubagentDirs()},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), ws, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), ws)
+	t.Cleanup(srv.Drain)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	item := func(body map[string]interface{}, name string) map[string]interface{} {
+		t.Helper()
+		items, _ := body["items"].([]interface{})
+		for _, raw := range items {
+			row, _ := raw.(map[string]interface{})
+			if row["name"] == name {
+				return row
+			}
+		}
+		t.Fatalf("catalog does not list %q: %v", name, body)
+		return nil
+	}
+
+	status, body := httpJSON(t, ts, http.MethodGet, "/coddy/subagents", "", nil)
+	if status != http.StatusOK || body["object"] != "coddy.subagent_list" || body["policy"] != "ask" {
+		t.Fatalf("catalog: status %d body %v", status, body)
+	}
+	if ws, _ := body["workspace"].(string); !filepath.IsAbs(ws) || filepath.Base(ws) != "ws" {
+		t.Fatalf("catalog workspace %q is not the canonical server workspace", ws)
+	}
+	if row := item(body, "general"); row["scope"] != "builtin" || row["builtin"] != true || row["trusted"] != true {
+		t.Fatalf("general: %v", row)
+	}
+	if row := item(body, "helper"); row["scope"] != "user" || row["trusted"] != true {
+		t.Fatalf("helper: %v", row)
+	}
+	if row := item(body, "reviewer"); row["scope"] != "project" || row["needs_approval"] != true || row["trust"] != "needs_approval" || row["digest"] == "" {
+		t.Fatalf("reviewer: %v", row)
+	}
+
+	if status, _ := httpJSON(t, ts, http.MethodGet, "/coddy/subagents?cwd=relative/path", "", nil); status != http.StatusBadRequest {
+		t.Fatalf("relative cwd: status %d, want 400", status)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/coddy/subagents/nope/trust", `{}`, nil); status != http.StatusNotFound {
+		t.Fatalf("unknown name: status %d, want 404", status)
+	}
+	if status, body := httpJSON(t, ts, http.MethodPost, "/coddy/subagents/explore/trust", "", nil); status != http.StatusBadRequest {
+		t.Fatalf("built-in trust: status %d, want 400 (%v)", status, body)
+	}
+	if status, body := httpJSON(t, ts, http.MethodPost, "/coddy/subagents/helper/trust", `{}`, nil); status != http.StatusBadRequest {
+		t.Fatalf("user-scope trust: status %d, want 400 (%v)", status, body)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/coddy/subagents/reviewer/trust", `{"cwd":`, nil); status != http.StatusBadRequest {
+		t.Fatalf("malformed body: status %d, want 400", status)
+	}
+	if status, _ := httpJSON(t, ts, http.MethodPost, "/coddy/subagents/reviewer/trust", `{"cwd":"rel"}`, nil); status != http.StatusBadRequest {
+		t.Fatalf("relative body cwd: status %d, want 400", status)
+	}
+
+	status, body = httpJSON(t, ts, http.MethodPost, "/coddy/subagents/reviewer/trust", fmt.Sprintf(`{"cwd":%q}`, ws), nil)
+	if status != http.StatusOK || body["object"] != "coddy.subagent" {
+		t.Fatalf("trust: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["trusted"] != true || row["trust"] != "trusted" {
+		t.Fatalf("trust item: %v", body["item"])
+	}
+	if _, err := os.Stat(filepath.Join(home, "subagents-trust.json")); err != nil {
+		t.Fatalf("receipt file: %v", err)
+	}
+	// Receipts are keyed by workspace: the same file in another checkout is
+	// still unapproved.
+	status, body = httpJSON(t, ts, http.MethodGet, "/coddy/subagents?cwd="+url.QueryEscape(other), "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("other catalog: status %d", status)
+	}
+	if row := item(body, "reviewer"); row["needs_approval"] != true {
+		t.Fatalf("other workspace reviewer: %v", row)
+	}
+
+	status, body = httpJSON(t, ts, http.MethodPost, "/coddy/subagents/reviewer/untrust", `{}`, nil)
+	if status != http.StatusOK {
+		t.Fatalf("untrust: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["needs_approval"] != true {
+		t.Fatalf("untrust item: %v", body["item"])
+	}
+	status, body = httpJSON(t, ts, http.MethodPost, "/coddy/subagents/explore/untrust", "", nil)
+	if status != http.StatusOK {
+		t.Fatalf("untrust built-in: status %d body %v", status, body)
+	}
+	if row, _ := body["item"].(map[string]interface{}); row["trusted"] != true {
+		t.Fatalf("untrust built-in item: %v", body["item"])
+	}
+}
+
+// The ask pseudo-model runs the session as an ask turn, the same way agent and
+// plan select their profile.
+func TestResponsesAskProfileRunsSessionInAskMode(t *testing.T) {
+	var seenMode string
+	runner := func(_ context.Context, st *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		seenMode = st.GetMode()
+		st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "ask reply"})
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/v1/responses", "application/json",
+		strings.NewReader(`{"model":"ask","input":"hi","stream":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status %d: %s", res.StatusCode, body)
+	}
+	if seenMode != string(session.ModeAsk) {
+		t.Fatalf("runner saw mode %q, want ask", seenMode)
+	}
+	if !strings.Contains(string(body), `"model":"ask"`) {
+		t.Fatalf("response does not echo the ask profile: %s", body)
+	}
+}
+
+// Pairing the read-only ask profile with runPlanSlug is refused before the
+// turn lock, the relay, or SSE headers, so streaming and non-streaming callers
+// both get a plain 409 instead of a 500 (or a committed 200) from the manager.
+func TestAskProfileRefusesRunPlanSlugBeforeTurn(t *testing.T) {
+	runs := 0
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		runs++
+		return string(acp.StopReasonEndTurn), nil
+	}
+	_, srv, _ := testHTTPServerPersistWithRunner(t, runner)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	cases := []struct {
+		name, path, payload string
+	}{
+		{"responses non-stream", "/v1/responses", `{"model":"ask","input":"go","stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+		{"responses stream", "/v1/responses", `{"model":"ask","input":"go","stream":true,"metadata":{"runPlanSlug":"demo"}}`},
+		{"chat completions", "/v1/chat/completions", `{"model":"ask","messages":[{"role":"user","content":"go"}],"stream":false,"metadata":{"runPlanSlug":"demo"}}`},
+	}
+	for _, tc := range cases {
+		res, err := http.Post(ts.URL+tc.path, "application/json", strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		body, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: status %d, want 409: %s", tc.name, res.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "ask mode") {
+			t.Fatalf("%s: error does not explain the refusal: %s", tc.name, body)
+		}
+		if ct := res.Header.Get("Content-Type"); strings.Contains(ct, "text/event-stream") {
+			t.Fatalf("%s: refusal was streamed as SSE", tc.name)
+		}
+	}
+	if runs != 0 {
+		t.Fatalf("a turn ran %d time(s) despite the refusal", runs)
+	}
+}
+
+// GET /coddy/skills accepts the optional X-Coddy-Session-ID header the way
+// /coddy/slash-commands does: a malformed id is a 400, an unknown session a
+// 404, and the header-less call keeps listing the server default workspace.
+func TestCoddySkillsListSessionHeaderErrors(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	defaultCWD := filepath.Join(root, "cwd")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(defaultCWD, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := func(context.Context, *session.State, []acp.ContentBlock, acp.UpdateSender) (string, error) {
+		return "", nil
+	}
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: defaultCWD},
+		Skills: config.Skills{Dirs: []string{"${CWD}/.agents/skills"}},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), defaultCWD, nil)
+	srv := New(cfg, mgr, slog.Default(), defaultCWD)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	get := func(header string) (int, string) {
+		req, err := http.NewRequest(http.MethodGet, ts.URL+"/coddy/skills", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if header != "" {
+			req.Header.Set("X-Coddy-Session-ID", header)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := ioReadAllClose(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode, string(b)
+	}
+	if code, body := get("../escape"); code != http.StatusBadRequest {
+		t.Fatalf("malformed session id: status %d body %s", code, body)
+	}
+	if code, body := get("sess_0123456789abcdef"); code != http.StatusNotFound {
+		t.Fatalf("unknown session: status %d body %s", code, body)
+	}
+	if code, body := get(""); code != http.StatusOK {
+		t.Fatalf("no header: status %d body %s", code, body)
 	}
 }

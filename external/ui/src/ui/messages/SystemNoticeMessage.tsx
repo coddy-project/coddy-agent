@@ -1,17 +1,22 @@
+import { memo } from "react";
+
 import {
   formatUtcToLocalFullDetail,
   formatUtcToLocalHM,
 } from "./formatMessageTime";
+import { useT } from "../i18n/I18nProvider";
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { MessageRetryIconButton } from "./MessageRetryIconButton";
 
-export function SystemNoticeMessage(props: {
-  level: "error";
+export const SystemNoticeMessage = memo(function SystemNoticeMessage(props: {
+  /** error: a failed request or turn; notice: information the operator should see once. */
+  level: "error" | "notice";
   message: string;
   createdAtUtc?: string;
   /** When provided, a refresh button re-runs the last turn (e.g. after a no-response error). */
   onRetry?: () => void;
 }) {
+  const { t } = useT();
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
     : "";
@@ -20,23 +25,26 @@ export function SystemNoticeMessage(props: {
       ? formatUtcToLocalFullDetail(props.createdAtUtc)
       : "";
   return (
-    <div className="msg-system-stack">
-      <div className={`msg msg-system msg-system-${props.level}`} role="alert">
-        <div className="msg-system-label">System</div>
+    <div className={`msg-system-stack msg-system-stack-${props.level}`}>
+      <div
+        className={`msg msg-system msg-system-${props.level}`}
+        role={props.level === "error" ? "alert" : "status"}
+      >
+        <div className="msg-system-label">{t("messages.systemLabel")}</div>
         <pre className="msg-system-body">{props.message}</pre>
       </div>
       <div className="msg-system-foot">
         <MessageCopyIconButton
           textToCopy={props.message}
-          tooltip="Copy message"
-          ariaLabel="Copy error message"
+          tooltip={t("messages.copyMessage")}
+          ariaLabel={t("messages.copyErrorMessage")}
           dataTestId="system-message-copy"
         />
-        {props.onRetry ? (
+        {props.level === "error" && props.onRetry ? (
           <MessageRetryIconButton
             onRetry={props.onRetry}
-            tooltip="Refresh"
-            ariaLabel="Retry the last message"
+            tooltip={t("messages.refresh")}
+            ariaLabel={t("messages.retryLastMessage")}
             dataTestId="system-message-retry"
           />
         ) : null}
@@ -52,4 +60,4 @@ export function SystemNoticeMessage(props: {
       </div>
     </div>
   );
-}
+});

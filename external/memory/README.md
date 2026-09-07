@@ -14,7 +14,7 @@ See root **README** and **[docs/build.md](../../docs/build.md)**.
 
 ## Behaviour
 
-In the LLM sense, "memory" is whatever is injected into the context. Short-term memory is the chat history. **Long-term** memory here means markdown files on disk that are turned into a short block **before** the main model answers, merged into the same template slot as session notes (`{{.Memory}}` in **`agent.md`** / **`plan.md`**).
+In the LLM sense, "memory" is whatever is injected into the context. Short-term memory is the chat history. **Long-term** memory here means markdown files on disk that are turned into a short block **before** the main model answers, merged into the same template slot as session notes (`{{.Memory}}` in **`agent.md`** / **`plan.md`** / **`ask.md`**). In **ask** mode the pass is recall-only: the copilot gets the search, list, and read tools and never saves, creates, or deletes a memory.
 
 When **`memory.enabled`** is true and the binary was built with **`memory`**, Coddy runs **one** memory copilot pass per user message **before** the main ReAct agent. That pass chooses either **RECALL** (read-only tools only) or **PERSIST** (may call mkdir/save/delete after reading), never both in the same turn. The final plain text from that pass is merged into **`{{.Memory}}`**; the main agent then answers with that context.
 

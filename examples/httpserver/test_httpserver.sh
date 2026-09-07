@@ -69,11 +69,23 @@ python3 "$HTTP_DIR/http_e2e_todo.py"
 python3 "$HTTP_DIR/http_e2e_memory.py"
 python3 "$HTTP_DIR/http_e2e_skills_slash.py"
 python3 "$HTTP_DIR/http_e2e_rules.py"
+# Ranged @mentions: picker read, attachments[].source lines, typed grammar, 400 past EOF.
+python3 "$HTTP_DIR/http_e2e_mentions.py"
+python3 "$HTTP_DIR/http_e2e_background.py"
+python3 "$HTTP_DIR/http_e2e_subagents.py"
+python3 "$HTTP_DIR/http_e2e_hooks.py"
 python3 "$HTTP_DIR/http_e2e_toolcalls_persist.py"
 python3 "$HTTP_DIR/http_e2e_compact.py"
 python3 "$HTTP_DIR/http_e2e_scheduler_agent.py"
 python3 "$HTTP_DIR/http_e2e_plan_files.py"
+# Ask profile reads but never writes; agent on the same session still writes.
+python3 "$HTTP_DIR/http_e2e_ask_mode.py"
+# Stages, commits, and rolls back a config edit; leaves the server config unchanged.
+python3 "$HTTP_DIR/http_e2e_config.py"
 # Self-contained: boots its own authenticated + local coddy http instances.
 python3 "$HTTP_DIR/http_e2e_remote.py"
+# Self-contained: boots its own coddy, kills it mid-task, and makes a fresh one
+# reap what the killed run left behind.
+python3 "$HTTP_DIR/http_e2e_background_reap.py"
 
 echo "ok httpserver tests"

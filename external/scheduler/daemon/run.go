@@ -56,9 +56,10 @@ func parseSessionMode(s string) session.Mode {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "", "agent":
 		return session.ModeAgent
-	case "plan":
-		return session.ModePlan
 	default:
+		if norm := strings.ToLower(strings.TrimSpace(s)); session.IsValidMode(norm) {
+			return session.Mode(norm)
+		}
 		return session.ModeAgent
 	}
 }

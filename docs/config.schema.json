@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json",
   "title": "Coddy config.yaml",
-  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}; ${CODDY_HOME} and ${CWD} are expanded by the loader.",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -21,20 +21,21 @@
           "name": {
             "type": "string",
             "description": "Logical id used as the first segment of models[].model. ASCII letters, digits, hyphen, underscore; must start with a letter.",
-            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_\\-]*$"
           },
           "type": {
             "type": "string",
-            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, or \"neuraldeep\" for NeuralDeep's fixed OpenAI-compatible endpoint.",
+            "description": "Wire protocol for this provider. Use \"openai\" for configurable OpenAI-compatible endpoints (OpenAI, DeepSeek, Groq, Ollama, llama.cpp, LM Studio), \"anthropic\" for Anthropic, \"neuraldeep\" for NeuralDeep's OpenAI-compatible API at one of its two official deployments (selected with api_base), or \"codex\" for ChatGPT OAuth against the official Codex backend (Responses API).",
             "enum": [
               "openai",
               "anthropic",
-              "neuraldeep"
+              "neuraldeep",
+              "codex"
             ]
           },
           "api_base": {
             "type": "string",
-            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). Ignored for type \"neuraldeep\", which always uses https://api.neuraldeep.ru/v1."
+            "description": "Optional base URL override. For type \"openai\" include /v1 (e.g. http://localhost:11434/v1); for type \"anthropic\" an Anthropic-compatible gateway (default https://api.anthropic.com). For type \"neuraldeep\" it selects the deployment: https://api.neuraldeep.ru/v1 (Russia, the default) or https://api.neuraldeep.tech/v1 (the international mirror); any other value falls back to the default. Ignored for type \"codex\", which always uses a fixed official endpoint."
           },
           "api_key": {
             "type": "string",
@@ -47,6 +48,17 @@
           "proxy": {
             "type": "string",
             "description": "Optional per-provider outbound proxy URL: http://, https://, socks5://, or socks5h:// (socks5h resolves hostnames via the proxy)."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
+            "default": 0,
+            "minimum": 0
+          },
+          "usage_limits_panel": {
+            "type": "boolean",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "default": true
           }
         }
       }
@@ -69,7 +81,7 @@
           },
           "max_tokens": {
             "type": "integer",
-            "description": "Upper bound on completion tokens per assistant message."
+            "description": "Upper bound on completion tokens per assistant message. Ignored by Codex because its backend does not accept max_output_tokens."
           },
           "temperature": {
             "type": "number",
@@ -87,7 +99,7 @@
           },
           "reasoning_levels": {
             "type": "array",
-            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; o-series and Claude thinking models -> low,medium,high). An explicit empty list hides the selector.",
+            "description": "Override the reasoning levels offered for this model. Omit to auto-detect from the model id (gpt-5* -> minimal,low,medium,high; OpenAI o-series, gpt-oss*, qwen3*, and Claude extended-thinking models -> low,medium,high). An explicit empty list hides the selector. Settings fills this field from GET /coddy/config/reasoning-levels behind its Fetch reasoning levels button.",
             "items": {
               "type": "string"
             }
@@ -95,6 +107,11 @@
           "reasoning_default": {
             "type": "string",
             "description": "Reasoning level pre-selected for new chats; must be one of the resolved levels, otherwise ignored."
+          },
+          "stream": {
+            "type": "boolean",
+            "description": "Transport used to talk to this model. Omit (or true) to stream over SSE. false issues one blocking completion request and delivers the whole answer at once, for servers or proxies that handle event streams badly. Rejected for providers of type codex, whose backend is streaming-only.",
+            "default": true
           }
         }
       }
@@ -123,20 +140,60 @@
         },
         "llm_retry_max": {
           "type": "integer",
-          "description": "Retries after retryable LLM errors such as HTTP 429.",
+          "description": "Retries after retryable LLM errors such as HTTP 429. An explicit 0 disables retries.",
           "default": 3,
           "minimum": 0
         },
         "llm_retry_base_ms": {
           "type": "integer",
-          "description": "Initial backoff between LLM retries, in milliseconds.",
+          "description": "Initial backoff between LLM retries, in milliseconds. A server-provided pause (Retry-After-Ms / Retry-After headers, \"Limit resets at\" / \"retry in Ns\" body phrases) overrides the exponential backoff, capped at 60s.",
           "default": 1000,
           "minimum": 0
         },
         "llm_min_interval_ms": {
           "type": "integer",
-          "description": "Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing; e.g. 12000 on strict free tiers).",
+          "description": "Minimum gap between consecutive LLM calls in milliseconds, retry attempts included (0 disables pacing; e.g. 12000 on strict free tiers).",
           "default": 0,
+          "minimum": 0
+        },
+        "llm_first_token_timeout_ms": {
+          "type": "integer",
+          "description": "How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit 0 disables the guard; blocking (stream: false) transports are never guarded.",
+          "default": 90000,
+          "minimum": 0
+        },
+        "loop_guard": {
+          "type": "boolean",
+          "description": "Runaway-loop protection: cut a streamed response that degenerates into repeating itself, and block a tool called over and over with identical arguments.",
+          "default": true
+        },
+        "loop_tool_repeat_limit": {
+          "type": "integer",
+          "description": "Consecutive identical tool calls (same name, same canonical arguments) before the loop guard steps in. 0 disables the tool-repeat check.",
+          "default": 3,
+          "minimum": 0
+        },
+        "loop_stream_repeat_cycles": {
+          "type": "integer",
+          "description": "Identical back-to-back output cycles inside one streamed response before the stream is cut. 0 disables the stream check.",
+          "default": 5,
+          "minimum": 0
+        },
+        "loop_nudge_max": {
+          "type": "integer",
+          "description": "How many times one turn may be nudged back on track before the loop guard stops it with a notice.",
+          "default": 2,
+          "minimum": 0
+        },
+        "wait_for_limit_reset": {
+          "type": "boolean",
+          "description": "Wait for a hit usage limit to lift and re-issue the call, instead of ending the turn with the provider's error. Applies to a top-level turn whose provider names a pause beyond the retry budget (a 429 with Retry-After or \"Limit resets at\"); the turn lock and the client stream stay open while it waits, so it is off by default.",
+          "default": false
+        },
+        "wait_for_limit_reset_max_ms": {
+          "type": "integer",
+          "description": "Longest time one turn spends waiting for limits in total, in milliseconds, the retry wrapper's own sleeps on a limit included; a pause that would exceed it ends the turn at once with the error. An explicit 0 never waits.",
+          "default": 14400000,
           "minimum": 0
         }
       }
@@ -161,6 +218,11 @@
           "type": "string",
           "description": "File name inside prompts.dir for plan mode.",
           "default": "plan.md"
+        },
+        "ask_prompt": {
+          "type": "string",
+          "description": "File name inside prompts.dir for ask mode.",
+          "default": "ask.md"
         }
       }
     },
@@ -190,7 +252,7 @@
       "properties": {
         "dirs": {
           "type": "array",
-          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} and ${CWD} expand at runtime.",
+          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
           "default": [
             "~/.agents/skills",
             "${CODDY_HOME}/skills",
@@ -218,7 +280,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .coddy/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD. See docs/rules.md.",
+      "description": "Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See docs/rules.md.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -228,7 +290,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: coddy, cursor, claude, codex. Empty means all.",
+          "description": "Restrict which rule systems are loaded: coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
           "default": [],
           "items": {
             "type": "string"
@@ -249,10 +311,11 @@
         "properties": {
           "type": {
             "type": "string",
-            "description": "Transport. \"stdio\" (default when empty) runs a local command; \"http\" connects to a remote endpoint via url/headers.",
+            "description": "Transport. \"stdio\" (default when empty; url-only entries default to \"http\") runs a local command; \"http\" speaks streamable HTTP to url (with automatic legacy-SSE fallback); \"sse\" forces the legacy HTTP+SSE transport.",
             "enum": [
               "stdio",
-              "http"
+              "http",
+              "sse"
             ]
           },
           "name": {
@@ -261,7 +324,7 @@
           },
           "command": {
             "type": "string",
-            "description": "Executable for stdio transport (leave empty when using an http url)."
+            "description": "Executable for stdio transport (leave empty when using an http url). ${CWD} expands to the session cwd."
           },
           "args": {
             "type": "array",
@@ -294,11 +357,11 @@
           },
           "url": {
             "type": "string",
-            "description": "HTTP(S) endpoint when type is \"http\"."
+            "description": "HTTP(S) endpoint when type is \"http\". ${CWD} expands to the session cwd."
           },
           "headers": {
             "type": "array",
-            "description": "Optional headers sent with MCP HTTP requests.",
+            "description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -317,7 +380,36 @@
                 }
               }
             }
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "Skip connecting this server without removing its definition."
+          },
+          "disabled_tools": {
+            "type": "array",
+            "description": "Tool names of this server hidden from the agent.",
+            "items": {
+              "type": "string"
+            }
           }
+        }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "title": "MCP discovery",
+      "description": "MCP settings that are not tied to a single server entry.",
+      "additionalProperties": false,
+      "properties": {
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for the project-local <cwd>/.coddy/mcp.json, which travels with the checkout: \"ask\" keeps its servers cold until the operator approves that exact declaration for that workspace; \"allow\" starts them automatically (trusted workspaces only); \"deny\" never loads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
         }
       }
     },
@@ -348,6 +440,207 @@
           "type": "integer",
           "description": "TCP dial timeout for SSH connections (ssh_run_command tool), in seconds.",
           "default": 30
+        },
+        "output_limits": {
+          "type": "object",
+          "title": "Tool output limits",
+          "description": "Maximum lines each tool result or error may return into the LLM context. Every enabled limit also applies a 64 KiB per-call byte safety ceiling so a huge single line cannot bypass it. 0 disables both limits for that tool. Unset fields fall back to the built-in defaults.",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "type": "integer",
+              "description": "Max lines for a read file page or directory listing.",
+              "default": 1000,
+              "minimum": 0
+            },
+            "grep": {
+              "type": "integer",
+              "description": "Max path:line:content records returned by grep.",
+              "default": 200,
+              "minimum": 0
+            },
+            "glob": {
+              "type": "integer",
+              "description": "Max paths returned by glob.",
+              "default": 300,
+              "minimum": 0
+            },
+            "print_tree": {
+              "type": "integer",
+              "description": "Max lines of a directory tree.",
+              "default": 400,
+              "minimum": 0
+            },
+            "run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a shell command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "ssh_run_command": {
+              "type": "integer",
+              "description": "Max combined stdout+stderr lines of a remote SSH command.",
+              "default": 500,
+              "minimum": 0
+            },
+            "webfetch": {
+              "type": "integer",
+              "description": "Max lines of fetched page markdown.",
+              "default": 800,
+              "minimum": 0
+            },
+            "websearch": {
+              "type": "integer",
+              "description": "Max lines of search results.",
+              "default": 200,
+              "minimum": 0
+            },
+            "default": {
+              "type": "integer",
+              "description": "Applies to any tool not named above, including MCP tools. 0 means unlimited.",
+              "default": 1000,
+              "minimum": 0
+            }
+          }
+        },
+        "background": {
+          "type": "object",
+          "title": "Background tasks",
+          "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the coddy process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Offer the background option on run_command and expose the background task tools.",
+              "default": true
+            },
+            "max_concurrent": {
+              "type": "integer",
+              "description": "How many background tasks one session may run at once. 0 uses the default.",
+              "default": 5
+            },
+            "default_timeout_seconds": {
+              "type": "integer",
+              "description": "Hard limit for a task started without an explicit timeout and without a duration estimate. 0 uses the default.",
+              "default": 900
+            },
+            "max_timeout_seconds": {
+              "type": "integer",
+              "description": "Ceiling applied to any requested or estimate-derived timeout. 0 uses the default.",
+              "default": 3600
+            },
+            "output_buffer_bytes": {
+              "type": "integer",
+              "description": "How much of each task's output stays in memory for the status ticker. The full log is still written to the session bundle. 0 uses the default.",
+              "default": 262144
+            }
+          }
+        }
+      }
+    },
+    "subagents": {
+      "type": "object",
+      "title": "Subagents",
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Register the spawn_agent tool and list the subagent catalog in the system prompt.",
+          "default": true
+        },
+        "dirs": {
+          "type": "array",
+          "description": "Definition directories, lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow project_trust.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${CODDY_HOME}/agents",
+            "${CWD}/.claude/agents",
+            "${CWD}/.coddy/agents"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for definitions found inside the workspace, which travel with the checkout: \"ask\" loads them but refuses to spawn one until the operator approved that exact file for that workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust with the session workspace as cwd); \"allow\" treats them like the operator's own files; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "description": "How many subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued. 0 uses the default.",
+          "default": 4
+        },
+        "max_depth": {
+          "type": "integer",
+          "description": "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further; 0 forbids spawning everywhere. Omit for the default.",
+          "default": 1
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one run whose definition and call give no timeout. Capped by tools.background.max_timeout_seconds. 0 uses the default.",
+          "default": 1800
+        },
+        "max_turns": {
+          "type": "integer",
+          "description": "ReAct rounds a child may take. 0 follows agent.max_turns.",
+          "default": 0
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "title": "Hooks",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Load and run hooks at all.",
+          "default": true
+        },
+        "files": {
+          "type": "array",
+          "description": "Definition files, lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand; a relative entry resolves against the session cwd. Files inside the workspace are project scope and follow project_trust; only the hooks key of a Claude Code settings file is read.",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "${CODDY_HOME}/hooks.json",
+            "${CWD}/.claude/settings.json",
+            "${CWD}/.claude/settings.local.json",
+            "${CWD}/.coddy/hooks.json"
+          ]
+        },
+        "project_trust": {
+          "type": "string",
+          "description": "Trust policy for hook files found inside the workspace, which travel with the checkout: \"ask\" lists them but runs nothing until the operator approved that exact file for that workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust with the session workspace as cwd); \"allow\" treats them like the operator's own file; \"deny\" never reads them.",
+          "default": "ask",
+          "enum": [
+            "ask",
+            "allow",
+            "deny"
+          ]
+        },
+        "default_timeout_seconds": {
+          "type": "integer",
+          "description": "Hard limit for one hook process whose definition gives no timeout. 0 uses the default.",
+          "default": 60
+        },
+        "stop_loop_limit": {
+          "type": "integer",
+          "description": "How many times per turn a Stop hook may send the agent back to work. 0 uses the default.",
+          "default": 5
+        },
+        "max_output_chars": {
+          "type": "integer",
+          "description": "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. 0 uses the default.",
+          "default": 10000
         }
       }
     },
@@ -459,6 +752,31 @@
           "type": "string",
           "description": "Optional models[].model used for the summarization call. Empty uses the session's effective model.",
           "default": ""
+        },
+        "result_eviction": {
+          "type": "object",
+          "title": "Read/grep result eviction",
+          "description": "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it.",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Master switch for read/grep result eviction. Defaults to true.",
+              "default": true
+            },
+            "keep_recent": {
+              "type": "integer",
+              "description": "How many most recent evictable results (read pages, grep dumps) stay intact as a working window. 0 keeps none. The default of 2 keeps a read and a grep live at the same time; with 1, a model comparing two results keeps re-fetching whichever the other evicted.",
+              "default": 2,
+              "minimum": 0
+            },
+            "min_result_bytes": {
+              "type": "integer",
+              "description": "Results at or below this size are never evicted (too small to be worth a placeholder). 0 makes every result a candidate.",
+              "default": 2000,
+              "minimum": 0
+            }
+          }
         }
       }
     },

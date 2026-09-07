@@ -95,7 +95,7 @@ func applySessionReasoning(cfg *config.Config, st *session.State, level string) 
 	if ent == nil {
 		return ErrUnknownReasoningLevel
 	}
-	for _, lv := range ent.ResolvedReasoningLevels() {
+	for _, lv := range cfg.ReasoningLevelsFor(ent) {
 		if lv == level {
 			st.SetSelectedReasoning(level)
 			return nil
@@ -142,6 +142,16 @@ func effectiveYAMLModel(cfg *config.Config, st *session.State) string {
 	return st.EffectiveModelID(cfg)
 }
 
+// configuredModelMultimodal reports whether the selected YAML model explicitly
+// opts in to image/file inputs. Missing and unknown entries fail closed.
+func configuredModelMultimodal(cfg *config.Config, modelID string) bool {
+	if cfg == nil {
+		return false
+	}
+	entry := cfg.FindModelEntry(modelID)
+	return entry != nil && entry.Multimodal
+}
+
 // applySessionYAMLModel sets or clears the session YAML model override (persists when hooked).
 func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string) error {
 	modelID = strings.TrimSpace(modelID)
@@ -157,6 +167,14 @@ func applySessionYAMLModel(cfg *config.Config, st *session.State, modelID string
 }
 
 // sessionPromptMetaFromHTTP maps HTTP metadata extensions to ACP session/prompt _meta.
+// runPlanRefusedInAskMode reports whether the request pairs the read-only ask
+// profile with a runPlanSlug. The session manager refuses that combination
+// too, but only once the turn has started, when a streamed response has
+// already committed 200; the handlers answer 409 up front instead.
+func runPlanRefusedInAskMode(model string, raw json.RawMessage) bool {
+	return model == string(session.ModeAsk) && session.RunPlanSlugFromPromptMeta(sessionPromptMetaFromHTTP(raw)) != ""
+}
+
 func sessionPromptMetaFromHTTP(raw json.RawMessage) map[string]interface{} {
 	if len(raw) == 0 {
 		return nil

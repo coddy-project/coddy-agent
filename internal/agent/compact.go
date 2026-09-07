@@ -13,12 +13,22 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // ErrNothingToCompact is returned when the history has no full user turn to
 // fold away before the keep-recent boundary.
 var ErrNothingToCompact = errors.New("nothing to compact")
+
+// ErrCompactionBlocked wraps the reason a PreCompact hook vetoed a compaction.
+var ErrCompactionBlocked = errors.New("compaction blocked by hook")
+
+// Triggers of the compaction hooks: what the matcher is compared with.
+const (
+	compactTriggerManual = "manual"
+	compactTriggerAuto   = "auto"
+)
 
 // ErrCompactionDisabled is returned when compaction.enabled is false.
 var ErrCompactionDisabled = errors.New("compaction is disabled (compaction.enabled)")
@@ -60,6 +70,16 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !a.cfg.Compaction.IsEnabled() {
 		return nil, ErrCompactionDisabled
 	}
+	// PreCompact hooks see the trigger and may veto: the manual command
+	// reports the veto, an automatic compaction is skipped for this check.
+	trigger := compactTriggerAuto
+	if force {
+		trigger = compactTriggerManual
+	}
+	mode := a.state.GetMode()
+	if reason, vetoed := a.runPreCompactHooks(ctx, mode, trigger, instructions); vetoed {
+		return nil, fmt.Errorf("%w: %s", ErrCompactionBlocked, reason)
+	}
 
 	msgs := a.state.GetMessages()
 	keep := a.cfg.Compaction.EffectiveKeepRecentTurns()
@@ -72,7 +92,16 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	if !ok {
 		return nil, ErrNothingToCompact
 	}
-	head := session.MessagesForLLM(msgs[:splitIdx])
+	visible := session.MessagesForLLM(msgs)
+	visibleStart := len(msgs) - len(visible)
+	if splitIdx < visibleStart || splitIdx > len(msgs) {
+		return nil, fmt.Errorf("invalid compaction boundary %d for visible window %d..%d", splitIdx, visibleStart, len(msgs))
+	}
+	// Analyze the full visible window before selecting the compacted head: pins
+	// and writes in the kept tail can change whether an older result is useful or
+	// stale, even though the tail itself is not sent to the summarizer.
+	projected := a.prunedForLLM(visible)
+	head := projected[:splitIdx-visibleStart]
 
 	provider, modelID, err := a.compactionProvider()
 	if err != nil {
@@ -89,6 +118,8 @@ func (a *Agent) CompactSession(ctx context.Context, instructions string, force b
 	}
 
 	a.state.InsertCompactionSummary(splitIdx, session.NewCompactionSummaryMessage(summary, modelID))
+	a.refreshConversationContextUsage(true)
+	a.runPostCompactHooks(ctx, mode, trigger, summary)
 
 	return &CompactionResult{
 		Summary:           summary,
@@ -151,11 +182,12 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 		Model:     a.state.EffectiveModelID(a.cfg),
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 	})
+	a.refreshConversationContextUsage(true)
 	return string(acp.StopReasonEndTurn), nil
 }
 
 // addUserCommandMessage persists the raw text of a built-in slash command
-// (/compact, /plugin) as a user message so it appears in the transcript like any
+// (/compact, /plugin, /export) as a user message so it appears in the transcript like any
 // other user input, instead of vanishing when the client reconciles with the
 // server snapshot.
 func (a *Agent) addUserCommandMessage(text string) {
@@ -193,7 +225,11 @@ func (a *Agent) maybeAutoCompact(ctx context.Context) bool {
 	}
 	res, err := a.CompactSession(ctx, "", false)
 	if err != nil {
-		if !errors.Is(err, ErrNothingToCompact) {
+		switch {
+		case errors.Is(err, ErrNothingToCompact):
+		case errors.Is(err, ErrCompactionBlocked):
+			a.log.Info("auto-compaction vetoed by a hook; continuing uncompacted", "error", err)
+		default:
 			a.log.Warn("auto-compaction failed; continuing uncompacted", "error", err)
 		}
 		return false
@@ -262,7 +298,7 @@ func buildCompactionRequest(head []llm.Message, instructions string) []llm.Messa
 		b.WriteString(s)
 	}
 	return []llm.Message{
-		{Role: llm.RoleSystem, Content: compactionSystemPrompt},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(compactionSystemPrompt)},
 		{Role: llm.RoleUser, Content: b.String()},
 	}
 }

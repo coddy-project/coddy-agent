@@ -673,34 +673,43 @@ func AddSource(cfg *config.Config, source string) (bool, error) {
 // from the current on-disk sources, persists only when it changed, and mirrors
 // the result back into cfg. Callers hold sourceMu.
 func applySourceChange(cfg *config.Config, mutate func(current []string) (next []string, changed bool, err error)) (bool, error) {
-	fresh := cfg
-	if strings.TrimSpace(cfg.Paths.ConfigPath) != "" {
-		reloaded, err := config.LoadWithPaths(cfg.Paths)
-		switch {
-		case err == nil && reloaded != nil:
-			fresh = reloaded
-		case errors.Is(err, os.ErrNotExist):
-			// No config file on disk yet — it will be created from cfg below.
-		default:
-			// A real read/parse error: fail loudly rather than persist the
-			// (possibly stale) caller config over whatever is on disk.
-			return false, fmt.Errorf("reload config before source change: %w", err)
+	changed := false
+	// The read-mutate-persist cycle runs under the process-wide config file
+	// lock shared with the staged config_commit / config_rollback transactions
+	// and the HTTP PUT handler, so it can neither interleave with them nor
+	// persist a base that another writer replaced mid-cycle.
+	err := config.WithConfigFileLock(func() error {
+		fresh := cfg
+		if strings.TrimSpace(cfg.Paths.ConfigPath) != "" {
+			reloaded, err := config.LoadWithPaths(cfg.Paths)
+			switch {
+			case err == nil && reloaded != nil:
+				fresh = reloaded
+			case errors.Is(err, os.ErrNotExist):
+				// No config file on disk yet — it will be created from cfg below.
+			default:
+				// A real read/parse error: fail loudly rather than persist the
+				// (possibly stale) caller config over whatever is on disk.
+				return fmt.Errorf("reload config before source change: %w", err)
+			}
 		}
-	}
-	next, changed, err := mutate(fresh.Skills.Sources)
-	if err != nil {
-		return false, err
-	}
-	if !changed {
-		cfg.Skills.Sources = append([]string(nil), fresh.Skills.Sources...)
-		return false, nil
-	}
-	fresh.Skills.Sources = next
-	if err := persistConfig(fresh); err != nil {
-		return false, err
-	}
-	cfg.Skills.Sources = append([]string(nil), next...)
-	return true, nil
+		next, mutated, err := mutate(fresh.Skills.Sources)
+		if err != nil {
+			return err
+		}
+		if !mutated {
+			cfg.Skills.Sources = append([]string(nil), fresh.Skills.Sources...)
+			return nil
+		}
+		fresh.Skills.Sources = next
+		if err := persistConfig(fresh); err != nil {
+			return err
+		}
+		cfg.Skills.Sources = append([]string(nil), next...)
+		changed = true
+		return nil
+	})
+	return changed, err
 }
 
 // RemoveRemote deletes an installed remote skill directory and its lock entry.

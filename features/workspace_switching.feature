@@ -64,6 +64,17 @@ Feature: Workspace switching
     When I browse workspace folders under "parent"
     Then the folder listing contains "one, two"
 
+  Scenario: Browse the machine drives for the workspace picker
+    Given the host reports drives "X:\, Y:\"
+    When I browse the workspace drive list
+    Then the folder listing contains "X:, Y:"
+    And the folder listing has no folder above it
+
+  Scenario: Walk up from a filesystem root to the drive list
+    Given the host reports drives "X:\, Y:\"
+    When I browse workspace folders under the filesystem root
+    Then the folder listing offers the drive list above it
+
   Scenario: Reject switching to a missing folder
     Given a workspace folder "plain" without git
     And a session rooted at folder "plain"

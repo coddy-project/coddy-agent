@@ -7,9 +7,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import type { TokenUsage } from "./types";
 import { WorkspaceChips } from "./WorkspaceChips";
+import { useT } from "../i18n/I18nProvider";
 import { EnvironmentChip } from "./EnvironmentChip";
 import type { WorkspaceContext } from "./workspaceContext";
 import {
@@ -17,10 +19,17 @@ import {
   type ContextBreakdown,
 } from "./ContextBreakdownPopover";
 import { ContextUsageRing } from "./ContextUsageRing";
+import type { ProviderUsage } from "./providerUsage";
 import {
   draftExtendsFailedAtPrefix,
   atMenuDraftAtCaret,
 } from "../skills/draftAt";
+import {
+  atRangeDraftAtCaret,
+  highlightedRange,
+  replaceAtRangeSuffix,
+  type AtRangeDraft,
+} from "../skills/draftAtRange";
 import {
   draftExtendsFailedSlashPrefix,
   slashMenuDraftAtCaret,
@@ -49,10 +58,15 @@ import {
 } from "./llmModelMenu";
 import { fileTypeIcon } from "../messages/fileTypeIcon";
 
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (n < 1024) return t("composer.bytesB", { n });
+  if (n < 1024 * 1024) {
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  }
+  return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
 function clamp01(x: number): number {
@@ -68,13 +82,139 @@ function fmtInt(n: number | undefined): string {
 }
 
 /** Short label for **`models[].model`** ids (Coddy profile IDs use displayMode elsewhere). */
-function displayLlmId(id: string): string {
+function displayLlmId(id: string, fallback: string = "Model"): string {
   const m = id || "";
   const i = m.lastIndexOf("/");
   if (i >= 0 && i < m.length - 1) {
     return m.slice(i + 1);
   }
-  return m || "Model";
+  return m || fallback;
+}
+
+/** File extension for an image MIME type ("image/svg+xml" -> "svg"). */
+function imageExtFromMime(mime: string): string {
+  const wellKnown: Record<string, string> = {
+    png: "png",
+    jpeg: "jpg",
+    gif: "gif",
+    webp: "webp",
+    "svg+xml": "svg",
+    bmp: "bmp",
+  };
+  const sub = (mime.split("/")[1] || "").toLowerCase();
+  return wellKnown[sub] || sub.replace(/[^a-z0-9]/g, "") || "png";
+}
+
+/** Image files carried by a clipboard **`DataTransfer`** (`kind === "file"` + `image/*` MIME). */
+function clipboardImageFiles(data: DataTransfer | null | undefined): File[] {
+  if (!data || !data.items) return [];
+  const out: File[] = [];
+  for (const item of Array.from(data.items)) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const f = item.getAsFile();
+    if (f) out.push(f);
+  }
+  return out;
+}
+
+/**
+ * Browsers name every clipboard image "image.png"; give pasted files
+ * deterministic per-composer names so chips and session history stay unambiguous.
+ */
+function renamePastedImages(
+  files: File[],
+  seqRef: { current: number },
+): File[] {
+  return files.map((f) => {
+    seqRef.current += 1;
+    const name = `pasted-${seqRef.current}.${imageExtFromMime(f.type)}`;
+    return new File([f], name, {
+      type: f.type || "image/png",
+      lastModified: f.lastModified,
+    });
+  });
+}
+
+/** Local preview URL for an attached image; revoked when the file changes or the chip unmounts. */
+function useImageObjectUrl(file: File): string | null {
+  const url = useMemo(() => {
+    if (!file.type.startsWith("image/")) return null;
+    if (
+      typeof URL === "undefined" ||
+      typeof URL.createObjectURL !== "function"
+    ) {
+      return null;
+    }
+    return URL.createObjectURL(file);
+  }, [file]);
+  useEffect(() => {
+    if (!url) return;
+    return () => {
+      if (
+        typeof URL !== "undefined" &&
+        typeof URL.revokeObjectURL === "function"
+      ) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [url]);
+  return url;
+}
+
+/** Live attachment chip; image files render a thumbnail instead of the generic icon. */
+function AttachedFileChip({
+  file,
+  disabled,
+  onRemove,
+}: {
+  file: File;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  const { t } = useT();
+  const { svg, label } = fileTypeIcon(file.type, file.name);
+  const thumbUrl = useImageObjectUrl(file);
+  const tip = t("composer.attachmentTooltip", {
+    fileName: file.name,
+    label,
+    size: fmtBytes(file.size, t),
+  });
+  return (
+    <span
+      className={[
+        "composer-attachment-chip",
+        thumbUrl ? "composer-attachment-chip--image" : "",
+        disabled ? "composer-attachment-chip--disabled" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      title={tip}
+      aria-disabled={disabled ? "true" : undefined}
+      data-testid="composer-attachment-chip"
+    >
+      <span className="composer-attachment-chip-icon" aria-hidden="true">
+        {thumbUrl ? (
+          <img
+            className="composer-attachment-thumb"
+            src={thumbUrl}
+            alt=""
+            data-testid="composer-attachment-thumb"
+          />
+        ) : (
+          svg
+        )}
+      </span>
+      <span className="composer-attachment-chip-name">{file.name}</span>
+      <button
+        type="button"
+        className="composer-attachment-chip-remove"
+        aria-label={t("composer.removeAttachment", { fileName: file.name })}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
+  );
 }
 
 type SlashRow = { name: string; description: string };
@@ -87,6 +227,14 @@ type PickerFloatRect = {
   width: number;
   bottom: number;
   maxH: number;
+};
+
+// Outline treatment per session mode (styles.css .composer-tab.mode-*); anything
+// unknown falls back to the agent look.
+const MODE_TAB_CLASS: Record<string, string> = {
+  agent: "mode-agent",
+  plan: "mode-plan",
+  ask: "mode-ask",
 };
 
 export function Composer(props: {
@@ -105,6 +253,9 @@ export function Composer(props: {
   onLlmModelChange?: (modelId: string) => void;
   /** Whether the currently selected model accepts image/file inputs. */
   llmModelMultimodal?: boolean;
+  /** Optional shared attachment state for composer layout transitions. */
+  attachedFiles?: File[];
+  onAttachedFilesChange?: Dispatch<SetStateAction<File[]>>;
   /** Reasoning levels offered by the current model; empty/omitted hides the selector. */
   llmReasoningLevels?: string[];
   /** Selected reasoning level (`metadata.reasoning`). */
@@ -115,6 +266,8 @@ export function Composer(props: {
   /** Pristine home (no session). Ring stays empty; tooltip does not imply usage. */
   contextIdle?: boolean;
   tokenUsage?: TokenUsage | null;
+  /** Account usage behind the selected model's provider (the usage section of the context popover). */
+  providerUsage?: ProviderUsage | null;
   contextPct?: number;
   maxContextTokens?: number;
   contextBreakdown?: ContextBreakdown | null;
@@ -137,7 +290,7 @@ export function Composer(props: {
   onWorkspacePickBranch?: (branch: string, worktree: boolean) => void;
   onWorktreeToggle?: () => void;
 }) {
-  const idleSendDisabled = props.value.trim() === "";
+  const { t } = useT();
   const isMobileShell = useSyncExternalStore(
     subscribeShellStack,
     snapshotShellStack,
@@ -161,8 +314,46 @@ export function Composer(props: {
   const composerCardRef = useRef<HTMLDivElement | null>(null);
   const contextHostRef = useRef<HTMLDivElement | null>(null);
   const mirrorInnerRef = useRef<HTMLDivElement | null>(null);
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [localAttachedFiles, setLocalAttachedFiles] = useState<File[]>([]);
+  const attachedFiles = props.attachedFiles ?? localAttachedFiles;
+  const setAttachedFiles = props.onAttachedFilesChange ?? setLocalAttachedFiles;
+  /** Transient reason a paste/drop was rejected (non-multimodal model); auto-clears. */
+  const [attachHint, setAttachHint] = useState<string | null>(null);
+  /** Files are being dragged over the composer card (drop-target affordance). */
+  const [dragOverCard, setDragOverCard] = useState(false);
+  const attachHintTimerRef = useRef<number | null>(null);
+  /** Names pasted images deterministically ("pasted-1.png"); clipboard files are all "image.png". */
+  const pastedSeqRef = useRef(0);
+  const attachmentSendingEnabled = props.llmModelMultimodal === true;
+  const sendableAttachedFiles = attachmentSendingEnabled ? attachedFiles : [];
+  /** Attachment-only send is valid only while the selected model accepts it. */
+  const idleSendDisabled =
+    props.value.trim() === "" && sendableAttachedFiles.length === 0;
+  const showAttachHint = useCallback(() => {
+    setAttachHint(t("composer.attachUnsupportedModel"));
+    if (attachHintTimerRef.current !== null) {
+      window.clearTimeout(attachHintTimerRef.current);
+    }
+    attachHintTimerRef.current = window.setTimeout(() => {
+      setAttachHint(null);
+      attachHintTimerRef.current = null;
+    }, 4000);
+  }, [t]);
+  useEffect(
+    () => () => {
+      if (attachHintTimerRef.current !== null) {
+        window.clearTimeout(attachHintTimerRef.current);
+      }
+    },
+    [],
+  );
   const [composerScrollTop, setComposerScrollTop] = useState(0);
+  /** True while the prompt-improvement request is in flight. */
+  const [enhancing, setEnhancing] = useState(false);
+  /** Request failure shown without changing the user's draft. */
+  const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
+  /** Draft saved just before improving it so Ctrl+Z can restore it once. */
+  const preEnhanceRef = useRef<string | null>(null);
   /** Bump when the slash draft changes or is dismissed so stale list responses are ignored. */
   const slashFetchGenRef = useRef(0);
   const [slashItems, setSlashItems] = useState<SlashRow[]>([]);
@@ -212,6 +403,32 @@ export function Composer(props: {
     atIdx: number;
     prefix: string;
   } | null>(null);
+  /**
+   * Line-range picker for `@path:N-M`. The colon closes the file picker on its own,
+   * and this panel takes its place: it previews the file so the typed digits show
+   * what they select, and on desktop the rows are clickable. The composer text
+   * stays the only input - the panel writes the suffix back into it.
+   */
+  const [atRangeDraft, setAtRangeDraft] = useState<AtRangeDraft>({
+    open: false,
+  });
+  const [atRangeFile, setAtRangeFile] = useState<{
+    pathRel: string;
+    lines: string[];
+    totalLines: number;
+    truncated: boolean;
+  } | null>(null);
+  /** Path whose fetch already settled (loaded or failed), so typing digits refetches nothing. */
+  const atRangeLoadedPathRef = useRef<string | null>(null);
+  const atRangeFetchGenRef = useRef(0);
+  /** Row the pointer went down on, while a drag selection is in flight. */
+  const atRangeDragAnchorRef = useRef<number | null>(null);
+  /** Mention the user dismissed with Escape; suppressed until the draft moves on. */
+  const [atRangeSuppressed, setAtRangeSuppressed] = useState<{
+    atIdx: number;
+    path: string;
+  } | null>(null);
+  const atRangeListRef = useRef<HTMLDivElement>(null);
   const [caretPos, setCaretPos] = useState(0);
   /** Stacked-shell viewports (`max-width`) use a bottom sheet so the picker is not clipped off-screen. */
   const [pickerUseSheet, setPickerUseSheet] = useState(() => {
@@ -258,7 +475,14 @@ export function Composer(props: {
     el.focus();
   }, [props.isEmpty, props.sessionId]);
 
-  const pickerOpen = slashOpen || atOpen;
+  // The range panel only counts as open once its file loaded, so a colon typed in
+  // prose ("см. 10:30-11:00") never flashes an empty panel.
+  const atRangeOpen =
+    atRangeDraft.open &&
+    atRangeFile != null &&
+    atRangeFile.pathRel === atRangeDraft.path;
+  const atRangeHighlight = highlightedRange(atRangeDraft);
+  const pickerOpen = slashOpen || atOpen || atRangeOpen;
   const sheetOverlayOpen = pickerOpen || contextPopoverOpen;
 
   const measureSheetBottom = useCallback(() => {
@@ -447,6 +671,15 @@ export function Composer(props: {
     bumpAtFetchGen();
     setAtLoading(false);
     setAtErr(null);
+
+    // Remember the dismissed mention so the next digit does not reopen the panel.
+    if (atRangeDraft.open) {
+      setAtRangeSuppressed({
+        atIdx: atRangeDraft.atIdx,
+        path: atRangeDraft.path,
+      });
+    }
+    closeAtRangePicker();
   }
 
   const fetchSlashPage = useCallback(
@@ -531,6 +764,127 @@ export function Composer(props: {
     },
     [props.sessionId],
   );
+
+  /** Clears the range panel; the composer text is left exactly as typed. */
+  const closeAtRangePicker = useCallback(() => {
+    atRangeFetchGenRef.current++;
+    atRangeDragAnchorRef.current = null;
+    atRangeLoadedPathRef.current = null;
+    setAtRangeDraft({ open: false });
+    setAtRangeFile(null);
+  }, []);
+
+  // A session switch changes the workspace behind every path: drop the loaded
+  // preview and any read still in flight, so the panel never shows another
+  // session's file. The next keystroke in the suffix fetches afresh.
+  useEffect(() => {
+    closeAtRangePicker();
+    setAtRangeSuppressed(null);
+  }, [props.sessionId, closeAtRangePicker]);
+
+  /**
+   * Loads the mentioned file once per path. A path that does not resolve simply
+   * leaves the panel closed - `@user:1-2` in prose must not pop an empty panel -
+   * and is remembered so the next digit does not refetch it.
+   */
+  const loadAtRangeFile = useCallback(
+    async (pathRel: string) => {
+      if (atRangeLoadedPathRef.current === pathRel) {
+        return;
+      }
+      atRangeLoadedPathRef.current = pathRel;
+      const gen = ++atRangeFetchGenRef.current;
+      try {
+        const sp = new URLSearchParams({ path_rel: pathRel });
+        const headers: Record<string, string> = {};
+        const sid = (props.sessionId || "").trim();
+        if (sid) {
+          headers["X-Coddy-Session-ID"] = sid;
+        }
+        const res = await fetch(`/coddy/workspace/file?${sp.toString()}`, {
+          headers,
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const body = (await res.json()) as {
+          lines?: string[];
+          total_lines?: number;
+          truncated?: boolean;
+        };
+        if (gen !== atRangeFetchGenRef.current) {
+          return;
+        }
+        setAtRangeFile({
+          pathRel,
+          lines: body.lines || [],
+          totalLines: body.total_lines ?? (body.lines || []).length,
+          truncated: body.truncated === true,
+        });
+      } catch {
+        if (gen === atRangeFetchGenRef.current) {
+          setAtRangeFile(null);
+        }
+      }
+    },
+    [props.sessionId],
+  );
+
+  const enhancePrompt = useCallback(async () => {
+    if (enhancing || props.generating) {
+      return;
+    }
+    const draft = props.value.trim();
+    if (!draft) {
+      return;
+    }
+    preEnhanceRef.current = props.value;
+    setEnhancing(true);
+    setEnhanceErr(null);
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      const sessionID = (props.sessionId || "").trim();
+      if (sessionID) {
+        headers["X-Coddy-Session-ID"] = sessionID;
+      }
+      const response = await fetch("/coddy/enhance-prompt", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ text: draft }),
+      });
+      if (!response.ok) {
+        setEnhanceErr(
+          response.status === 503
+            ? t("composer.enhanceNoModel")
+            : t("composer.enhanceFailed"),
+        );
+        preEnhanceRef.current = null;
+        return;
+      }
+      const body = (await response.json()) as { text?: string };
+      const enhanced = (body.text || "").trim();
+      if (enhanced) {
+        props.onChange(enhanced);
+      } else {
+        preEnhanceRef.current = null;
+      }
+    } catch {
+      preEnhanceRef.current = null;
+      setEnhanceErr(t("composer.enhanceFailed"));
+    } finally {
+      setEnhancing(false);
+      requestAnimationFrame(() => taRef.current?.focus());
+    }
+  }, [
+    enhancing,
+    props.generating,
+    props.value,
+    props.sessionId,
+    props.onChange,
+    t,
+  ]);
 
   const updateSlashMenu = useCallback(
     (value: string, caret: number) => {
@@ -621,7 +975,9 @@ export function Composer(props: {
           if (gen !== slashFetchGenRef.current) {
             return;
           }
-          setSlashErr(e instanceof Error ? e.message : "request failed");
+          setSlashErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setSlashItems([]);
           setSlashHasMore(false);
           setSlashNoMatch(null);
@@ -632,7 +988,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchSlashPage, slashNoMatch],
+    [fetchSlashPage, slashNoMatch, t],
   );
 
   const updateAtMenu = useCallback(
@@ -724,7 +1080,9 @@ export function Composer(props: {
           if (gen !== atFetchGenRef.current) {
             return;
           }
-          setAtErr(e instanceof Error ? e.message : "request failed");
+          setAtErr(
+            e instanceof Error ? e.message : t("composer.requestFailed"),
+          );
           setAtItems([]);
           setAtHasMore(false);
           setAtNoMatch(null);
@@ -735,7 +1093,7 @@ export function Composer(props: {
         }
       })();
     },
-    [fetchAtPage, atNoMatch, props.sessionId],
+    [fetchAtPage, atNoMatch, props.sessionId, t],
   );
 
   const updatePickerMenus = useCallback(
@@ -745,6 +1103,35 @@ export function Composer(props: {
         deferAtDraftPickerTicksRef.current -= 1;
         deferAtDraft = true;
       }
+      // A ":" after a mention closes the file picker (":" is no MENU_PATH_CHAR);
+      // the range panel takes over from there.
+      const rd = atRangeDraftAtCaret(value, caret);
+      if (rd.open) {
+        setAtRangeDraft(rd);
+        if (
+          atRangeSuppressed == null ||
+          atRangeSuppressed.atIdx !== rd.atIdx ||
+          atRangeSuppressed.path !== rd.path
+        ) {
+          void loadAtRangeFile(rd.path);
+        }
+        bumpSlashFetchGen();
+        setSlashOpen(false);
+        setSlashReplace(null);
+        setSlashNoMatch(null);
+        setSlashLoading(false);
+        bumpAtFetchGen();
+        setAtOpen(false);
+        setAtReplace(null);
+        setAtNoMatch(null);
+        setAtLoading(false);
+        return;
+      }
+      if (atRangeDraft.open) {
+        closeAtRangePicker();
+        setAtRangeSuppressed(null);
+      }
+
       const ad = atMenuDraftAtCaret(value, caret);
       if (ad.open && !deferAtDraft) {
         bumpSlashFetchGen();
@@ -762,7 +1149,14 @@ export function Composer(props: {
       setAtLoading(false);
       updateSlashMenu(value, caret);
     },
-    [updateAtMenu, updateSlashMenu],
+    [
+      updateAtMenu,
+      updateSlashMenu,
+      loadAtRangeFile,
+      closeAtRangePicker,
+      atRangeDraft.open,
+      atRangeSuppressed,
+    ],
   );
 
   const maskComposerText = props.value.length > 0;
@@ -891,6 +1285,71 @@ export function Composer(props: {
     });
   };
 
+  /**
+   * Writes a line range picked in the panel back into the composer text, then
+   * re-derives the draft so the next drag step measures against the new suffix.
+   */
+  const applyAtRangeSelection = useCallback(
+    (startLine: number, endLine: number) => {
+      if (!atRangeDraft.open) {
+        return;
+      }
+      const next = replaceAtRangeSuffix(
+        props.value,
+        atRangeDraft,
+        startLine,
+        endLine,
+      );
+      props.onChange(next.text);
+      setAtRangeDraft(atRangeDraftAtCaret(next.text, next.caret));
+      requestAnimationFrame(() => {
+        const el = taRef.current;
+        if (!el) {
+          return;
+        }
+        el.focus();
+        el.setSelectionRange(next.caret, next.caret);
+      });
+    },
+    [atRangeDraft, props.value, props.onChange],
+  );
+
+  // A drag may end anywhere, so the anchor is cleared from the window, not the row.
+  useEffect(() => {
+    if (!atRangeOpen) {
+      return;
+    }
+    const onUp = () => {
+      atRangeDragAnchorRef.current = null;
+    };
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, [atRangeOpen]);
+
+  const atRangeHighlightStart = atRangeHighlight?.start ?? 0;
+  const atRangeHighlightEnd = atRangeHighlight?.end ?? 0;
+  // Keep the typed range in view: digits can point far outside the shown window.
+  // Start first, then end, so a range that fits shows from its top while a longer
+  // one settles on the edge the user is still typing.
+  useEffect(() => {
+    if (!atRangeOpen || atRangeHighlightStart < 1) {
+      return;
+    }
+    const host = atRangeListRef.current;
+    if (!host) {
+      return;
+    }
+    for (const line of [atRangeHighlightStart, atRangeHighlightEnd]) {
+      const row = host.querySelector(`[data-line="${line}"]`);
+      if (
+        row instanceof HTMLElement &&
+        typeof row.scrollIntoView === "function"
+      ) {
+        row.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }, [atRangeOpen, atRangeHighlightStart, atRangeHighlightEnd]);
+
   const loadMoreSlash = () => {
     if (!slashOpen || slashLoading || !slashHasMore) {
       return;
@@ -909,7 +1368,9 @@ export function Composer(props: {
         setSlashPage(nextPage);
         setSlashHasMore(!!body.has_more);
       } catch (e) {
-        setSlashErr(e instanceof Error ? e.message : "request failed");
+        setSlashErr(
+          e instanceof Error ? e.message : t("composer.requestFailed"),
+        );
       } finally {
         setSlashLoading(false);
       }
@@ -934,7 +1395,7 @@ export function Composer(props: {
         setAtPage(nextPage);
         setAtHasMore(!!body.has_more);
       } catch (e) {
-        setAtErr(e instanceof Error ? e.message : "request failed");
+        setAtErr(e instanceof Error ? e.message : t("composer.requestFailed"));
       } finally {
         setAtLoading(false);
       }
@@ -969,7 +1430,7 @@ export function Composer(props: {
           closeMenu();
         }}
       >
-        {displayLlmId(mid)}
+        {displayLlmId(mid, t("composer.model"))}
       </button>
     );
   }
@@ -980,12 +1441,18 @@ export function Composer(props: {
   const reasoningVal = (props.llmReasoning || "").trim();
   const reasoningLabel = reasoningVal
     ? reasoningVal.slice(0, 1).toUpperCase() + reasoningVal.slice(1)
-    : "Reasoning";
+    : t("composer.reasoning");
 
   function displayMode(id: string): string {
     const m = id || "agent";
-    if (m === "plan" || m === "agent") {
-      return m.slice(0, 1).toUpperCase() + m.slice(1);
+    if (m === "plan") {
+      return t("composer.modePlan");
+    }
+    if (m === "agent") {
+      return t("composer.modeAgent");
+    }
+    if (m === "ask") {
+      return t("composer.modeAsk");
     }
     const i = m.lastIndexOf("/");
     if (i >= 0 && i < m.length - 1) {
@@ -994,7 +1461,9 @@ export function Composer(props: {
     return m;
   }
   const modeLabel = displayMode(props.mode || "agent");
-  const llmLabel = llmVal ? displayLlmId(llmVal) : "Model";
+  const llmLabel = llmVal
+    ? displayLlmId(llmVal, t("composer.model"))
+    : t("composer.model");
   const contextIdle = props.contextIdle === true;
   const maxCtx =
     typeof props.maxContextTokens === "number" && props.maxContextTokens > 0
@@ -1036,13 +1505,28 @@ export function Composer(props: {
     }
   }
   const tip = contextIdle
-    ? ["No context usage yet", `Max context ${fmtInt(maxCtx)}`].join("\n")
+    ? [
+        t("composer.contextTipIdle"),
+        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
+      ].join("\n")
     : [
-        `${typeof pct === "number" ? pct.toFixed(1) : "0.0"}% context used`,
+        t("composer.contextTipUsed", {
+          percent: typeof pct === "number" ? pct.toFixed(1) : "0.0",
+        }),
         usage
-          ? `Input ${fmtInt(usage.inputTokens)}\nOutput ${fmtInt(usage.outputTokens)}\nTotal ${fmtInt(usage.totalTokens)}`
+          ? [
+              t("composer.contextTipInput", {
+                count: fmtInt(usage.inputTokens),
+              }),
+              t("composer.contextTipOutput", {
+                count: fmtInt(usage.outputTokens),
+              }),
+              t("composer.contextTipTotal", {
+                count: fmtInt(usage.totalTokens),
+              }),
+            ].join("\n")
           : "",
-        `Max context ${fmtInt(maxCtx)}`,
+        t("composer.contextTipMaxContext", { count: fmtInt(maxCtx) }),
       ]
         .filter(Boolean)
         .join("\n");
@@ -1082,13 +1566,15 @@ export function Composer(props: {
       >
         {showSkillsSection ? (
           <>
-            <div className="slash-menu-title">Skills</div>
+            <div className="slash-menu-title">{t("composer.skillsTitle")}</div>
             {slashLoading && slashItems.length === 0 ? (
-              <div className="slash-muted">Loading…</div>
+              <div className="slash-muted">{t("composer.loading")}</div>
             ) : null}
             {slashErr ? <div className="slash-err">{slashErr}</div> : null}
             {!slashLoading && slashItems.length === 0 && !slashErr ? (
-              <div className="slash-muted">No matching skills</div>
+              <div className="slash-muted">
+                {t("composer.noMatchingSkills")}
+              </div>
             ) : null}
             <ul className="slash-rows">
               {slashItems.map((row, idx) => (
@@ -1129,14 +1615,16 @@ export function Composer(props: {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => loadMoreSlash()}
               >
-                {slashLoading ? "Loading…" : "More"}
+                {slashLoading ? t("composer.loading") : t("composer.more")}
               </button>
             ) : null}
           </>
         ) : null}
         {commandMatches.length > 0 ? (
           <>
-            <div className="slash-menu-title">Commands</div>
+            <div className="slash-menu-title">
+              {t("composer.commandsTitle")}
+            </div>
             <ul className="slash-rows">
               {commandMatches.map((row, idx) => {
                 const gidx = slashItems.length + idx;
@@ -1183,19 +1671,21 @@ export function Composer(props: {
         className="slash-menu-scroll"
         style={{ maxHeight: pickerFloatRect?.maxH }}
       >
-        <div className="slash-menu-title">Workspace files</div>
+        <div className="slash-menu-title">
+          {t("composer.workspaceFilesTitle")}
+        </div>
         {atPrefix.trim() === "" && atItems.length === 0 ? (
-          <div className="slash-muted">Type after @ to search</div>
+          <div className="slash-muted">{t("composer.typeAfterAt")}</div>
         ) : null}
         {atLoading && atItems.length === 0 && atPrefix.trim() !== "" ? (
-          <div className="slash-muted">Loading…</div>
+          <div className="slash-muted">{t("composer.loading")}</div>
         ) : null}
         {atErr ? <div className="slash-err">{atErr}</div> : null}
         {!atLoading &&
         atItems.length === 0 &&
         !atErr &&
         atPrefix.trim() !== "" ? (
-          <div className="slash-muted">No files</div>
+          <div className="slash-muted">{t("composer.noFiles")}</div>
         ) : null}
         <ul className="slash-rows">
           {atItems.map((row) => (
@@ -1227,12 +1717,122 @@ export function Composer(props: {
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => loadMoreAt()}
           >
-            {atLoading ? "Loading…" : "More"}
+            {atLoading ? t("composer.loading") : t("composer.more")}
           </button>
+        ) : null}
+        {atItems.length > 0 ? (
+          <div className="slash-muted at-range-menu-hint">
+            {t("composer.atRangeMenuHint")}
+          </div>
         ) : null}
       </div>
     </>
   );
+
+  const atRangeChrome = (
+    <>
+      <div className="slash-menu-surface" aria-hidden />
+      <div
+        className="slash-menu-scroll"
+        style={{ maxHeight: pickerFloatRect?.maxH }}
+      >
+        <div className="slash-menu-title">
+          {t("composer.atRangeTitle")}
+          <span className="at-range-title-path">{atRangeFile?.pathRel}</span>
+          {atRangeHighlight ? (
+            <span
+              className="at-range-title-range"
+              data-testid="at-range-current"
+            >
+              {atRangeHighlight.start}-{atRangeHighlight.end}
+            </span>
+          ) : null}
+        </div>
+        <div className="slash-muted at-range-hint">
+          {isMobileShell
+            ? t("composer.atRangeHintMobile")
+            : t("composer.atRangeHint")}
+        </div>
+        <div
+          className="at-range-lines"
+          data-testid="at-range-lines"
+          ref={atRangeListRef}
+        >
+          {(atRangeFile?.lines ?? []).map((line, idx) => {
+            const no = idx + 1;
+            const selected =
+              atRangeHighlight != null &&
+              no >= atRangeHighlight.start &&
+              no <= atRangeHighlight.end;
+            const cls = `at-range-line${selected ? " at-range-line--sel" : ""}`;
+            const body = (
+              <>
+                <span className="at-range-line-no">{no}</span>
+                <span className="at-range-line-code">
+                  {line === "" ? " " : line}
+                </span>
+              </>
+            );
+            // Mobile shells have no mouse to select with: rows are display only
+            // and the range is typed as digits.
+            return isMobileShell ? (
+              <div key={no} className={cls} data-line={no}>
+                {body}
+              </div>
+            ) : (
+              <button
+                key={no}
+                type="button"
+                className={cls}
+                data-line={no}
+                data-testid={`at-range-line-${no}`}
+                aria-pressed={selected}
+                onMouseDown={(e) => {
+                  // Never take focus from the textarea - it holds the draft.
+                  e.preventDefault();
+                  atRangeDragAnchorRef.current = no;
+                  applyAtRangeSelection(no, no);
+                }}
+                onMouseEnter={() => {
+                  const anchor = atRangeDragAnchorRef.current;
+                  if (anchor != null) {
+                    applyAtRangeSelection(anchor, no);
+                  }
+                }}
+              >
+                {body}
+              </button>
+            );
+          })}
+        </div>
+        {atRangeFile?.truncated ? (
+          <div className="slash-muted">
+            {t("composer.atRangeTruncated", {
+              shown: atRangeFile.lines.length,
+              total: atRangeFile.totalLines,
+            })}
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+
+  const pickerChrome = atRangeOpen
+    ? atRangeChrome
+    : atOpen
+      ? atMenuChrome
+      : slashMenuChrome;
+  const pickerTestId = atRangeOpen
+    ? "at-range-picker"
+    : atOpen
+      ? "workspace-files-menu"
+      : "slash-command-menu";
+  const pickerAriaLabel = atRangeOpen
+    ? t("composer.atRangeAriaLabel")
+    : atOpen
+      ? t("composer.workspaceFilesAriaLabel")
+      : t("composer.slashCommandsAriaLabel");
+  const pickerRole = atRangeOpen ? "group" : "listbox";
 
   return (
     <>
@@ -1248,9 +1848,42 @@ export function Composer(props: {
           .join(" ")}
       >
         <label className="sr-only" htmlFor="composer">
-          Message
+          {t("composer.messageLabel")}
         </label>
-        <div className="composer-card" ref={composerCardRef}>
+        <div
+          className={`composer-card${dragOverCard ? " composer-card--dragover" : ""}`}
+          ref={composerCardRef}
+          onDragOver={(ev) => {
+            const dt = ev.dataTransfer;
+            if (!dt || !Array.from(dt.types || []).includes("Files")) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(true);
+          }}
+          onDragLeave={(ev) => {
+            const to = ev.relatedTarget;
+            if (to instanceof Node && ev.currentTarget.contains(to)) {
+              return;
+            }
+            setDragOverCard(false);
+          }}
+          onDrop={(ev) => {
+            const files = ev.dataTransfer
+              ? Array.from(ev.dataTransfer.files || [])
+              : [];
+            if (files.length === 0) {
+              return;
+            }
+            ev.preventDefault();
+            setDragOverCard(false);
+            if (!props.llmModelMultimodal) {
+              showAttachHint();
+              return;
+            }
+            setAttachedFiles((prev) => [...prev, ...files]);
+          }}
+        >
           <div className="composer-context-row">
             <EnvironmentChip />
             {props.workspaceCtx !== undefined && props.onWorkspacePickFolder ? (
@@ -1264,10 +1897,37 @@ export function Composer(props: {
                 locked={props.workspaceLocked ?? false}
               />
             ) : null}
+            <button
+              type="button"
+              className="composer-enhance-btn"
+              aria-label={t("composer.enhance")}
+              title={t("composer.enhance")}
+              data-testid="composer-enhance-btn"
+              disabled={enhancing || props.generating || idleSendDisabled}
+              onClick={() => void enhancePrompt()}
+            >
+              <svg
+                className={
+                  enhancing
+                    ? "composer-enhance-icon is-spinning"
+                    : "composer-enhance-icon"
+                }
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                width="12"
+                height="12"
+                aria-hidden="true"
+              >
+                <path d="M9.5 1l.7 1.8L12 3.5l-1.8.7L9.5 6l-.7-1.8L7 3.5l1.8-.7L9.5 1zM3.2 5.6l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.5 7.3l1.2-.5.5-1.2zM8.9 6.6a1 1 0 011.5 0l.9.9a1 1 0 010 1.5l-5.3 5.3a1 1 0 01-1.5 0l-.9-.9a1 1 0 010-1.5l5.3-5.3zm.8 1.5l-4.6 4.6.5.5 4.6-4.6-.5-.5z" />
+              </svg>
+            </button>
           </div>
           {(props.editingFiles && props.editingFiles.length > 0) ||
           attachedFiles.length > 0 ? (
-            <div className="composer-attachments" aria-label="Attached files">
+            <div
+              className="composer-attachments"
+              aria-label={t("composer.attachedFilesAriaLabel")}
+            >
               {(props.editingFiles || []).map((f, idx) => {
                 const { svg } = fileTypeIcon(f.mimeType, f.name);
                 return (
@@ -1288,39 +1948,25 @@ export function Composer(props: {
                   </span>
                 );
               })}
-              {attachedFiles.map((f, idx) => {
-                const { svg, label } = fileTypeIcon(f.type, f.name);
-                const tip = `${f.name}\n${label} · ${fmtBytes(f.size)}`;
-                return (
-                  <span
-                    key={idx}
-                    className="composer-attachment-chip"
-                    title={tip}
-                  >
-                    <span
-                      className="composer-attachment-chip-icon"
-                      aria-hidden="true"
-                    >
-                      {svg}
-                    </span>
-                    <span className="composer-attachment-chip-name">
-                      {f.name}
-                    </span>
-                    <button
-                      type="button"
-                      className="composer-attachment-chip-remove"
-                      aria-label={`Remove ${f.name}`}
-                      onClick={() =>
-                        setAttachedFiles((prev) =>
-                          prev.filter((_, i) => i !== idx),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  </span>
-                );
-              })}
+              {attachedFiles.map((f, idx) => (
+                <AttachedFileChip
+                  key={idx}
+                  file={f}
+                  disabled={!attachmentSendingEnabled}
+                  onRemove={() =>
+                    setAttachedFiles((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+          {attachHint ? (
+            <div
+              className="composer-attach-hint"
+              role="status"
+              data-testid="composer-attach-hint"
+            >
+              {attachHint}
             </div>
           ) : null}
           <div className="composer-field-wrap" ref={composerFieldWrapRef}>
@@ -1365,8 +2011,8 @@ export function Composer(props: {
                 rows={props.isEmpty ? 5 : 2}
                 placeholder={
                   props.isEmpty
-                    ? "Plan, Build, / for skills, @ for files"
-                    : "Add a follow-up"
+                    ? t("composer.placeholderEmpty")
+                    : t("composer.placeholderFollowUp")
                 }
                 autoComplete="off"
                 value={props.value}
@@ -1374,6 +2020,8 @@ export function Composer(props: {
                   const v = ev.target.value;
                   const caret = ev.target.selectionStart ?? v.length;
                   setCaretPos(caret);
+                  preEnhanceRef.current = null;
+                  setEnhanceErr(null);
                   props.onChange(v);
                   updatePickerMenus(v, caret);
                 }}
@@ -1409,13 +2057,43 @@ export function Composer(props: {
                     syncComposerScroll();
                   }
                 }}
+                onPaste={(ev) => {
+                  const images = clipboardImageFiles(ev.clipboardData);
+                  if (images.length === 0) {
+                    return; // plain-text paste: keep the browser default
+                  }
+                  ev.preventDefault();
+                  if (!props.llmModelMultimodal) {
+                    showAttachHint();
+                    return;
+                  }
+                  setAttachedFiles((prev) => [
+                    ...prev,
+                    ...renamePastedImages(images, pastedSeqRef),
+                  ]);
+                }}
                 onKeyDown={(ev) => {
+                  if (
+                    ev.key === "z" &&
+                    (ev.metaKey || ev.ctrlKey) &&
+                    !ev.shiftKey &&
+                    preEnhanceRef.current !== null
+                  ) {
+                    ev.preventDefault();
+                    const restored = preEnhanceRef.current;
+                    preEnhanceRef.current = null;
+                    props.onChange(restored);
+                    return;
+                  }
                   if (ev.key === "Escape" && contextPopoverOpen) {
                     ev.preventDefault();
                     closeContextPopover();
                     return;
                   }
-                  if (ev.key === "Escape" && (slashOpen || atOpen)) {
+                  if (
+                    ev.key === "Escape" &&
+                    (slashOpen || atOpen || atRangeOpen)
+                  ) {
                     ev.preventDefault();
                     dismissSlashAtPickers();
                     return;
@@ -1506,11 +2184,11 @@ export function Composer(props: {
                       return;
                     }
                     const txt = props.value.trim();
-                    if (!txt) {
+                    if (!txt && sendableAttachedFiles.length === 0) {
                       return;
                     }
-                    if (attachedFiles.length > 0) {
-                      const files = [...attachedFiles];
+                    if (sendableAttachedFiles.length > 0) {
+                      const files = [...sendableAttachedFiles];
                       setAttachedFiles([]);
                       props.onSend(txt, files);
                     } else {
@@ -1522,8 +2200,21 @@ export function Composer(props: {
             </div>
           </div>
 
+          {enhanceErr ? (
+            <div
+              className="composer-enhance-err"
+              role="status"
+              data-testid="composer-enhance-err"
+            >
+              {enhanceErr}
+            </div>
+          ) : null}
+
           <div className="composer-bar">
-            <div className="composer-tabs" aria-label="Composer options">
+            <div
+              className="composer-tabs"
+              aria-label={t("composer.composerOptions")}
+            >
               {props.llmModelMultimodal ? (
                 <>
                   <input
@@ -1547,8 +2238,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab composer-attach-btn"
-                    aria-label="Attach file"
-                    title="Attach file"
+                    aria-label={t("composer.attachFile")}
+                    title={t("composer.attachFile")}
                     data-testid="composer-attach-btn"
                     onClick={() => fileInputRef.current?.click()}
                   >
@@ -1573,9 +2264,9 @@ export function Composer(props: {
               <div className="mode">
                 <button
                   type="button"
-                  className={`composer-tab mode-btn ${props.mode === "plan" ? "mode-plan" : "mode-agent"}`}
-                  aria-label="Mode"
-                  title="Mode"
+                  className={`composer-tab mode-btn ${MODE_TAB_CLASS[props.mode || "agent"] ?? "mode-agent"}`}
+                  aria-label={t("composer.mode")}
+                  title={t("composer.mode")}
                   aria-haspopup="menu"
                   aria-expanded={menuOpen === "mode"}
                   onClick={(e) => toggleMenu("mode", e.currentTarget)}
@@ -1589,8 +2280,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab mode-btn mode-llm"
-                    aria-label="Model"
-                    title="YAML backend (metadata.model)"
+                    aria-label={t("composer.model")}
+                    title={t("composer.modelTitle")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "llm"}
                     onClick={(e) => toggleMenu("llm", e.currentTarget)}
@@ -1605,8 +2296,8 @@ export function Composer(props: {
                   <button
                     type="button"
                     className="composer-tab mode-btn mode-reasoning"
-                    aria-label="Reasoning level"
-                    title="Reasoning level (metadata.reasoning)"
+                    aria-label={t("composer.reasoningLevel")}
+                    title={t("composer.reasoningLevelTitle")}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === "reasoning"}
                     onClick={(e) => toggleMenu("reasoning", e.currentTarget)}
@@ -1627,7 +2318,7 @@ export function Composer(props: {
                   .join(" ")}
                 ref={contextHostRef}
                 tabIndex={0}
-                aria-label="Context usage"
+                aria-label={t("composer.contextUsage")}
                 aria-expanded={contextPopoverOpen}
                 data-testid="composer-context-ring-host"
                 onMouseLeave={() => setContextTipSuppressed(false)}
@@ -1670,7 +2361,11 @@ export function Composer(props: {
                     : "composer-send-play composer-run-icon--play",
                 ].join(" ")}
                 id="btn-send"
-                aria-label={props.generating ? "Stop generation" : "Send"}
+                aria-label={
+                  props.generating
+                    ? t("composer.stopGeneration")
+                    : t("composer.send")
+                }
                 disabled={!props.generating && idleSendDisabled}
                 onClick={() => {
                   if (props.generating) {
@@ -1678,11 +2373,11 @@ export function Composer(props: {
                     return;
                   }
                   const txt = props.value.trim();
-                  if (!txt) {
+                  if (!txt && sendableAttachedFiles.length === 0) {
                     return;
                   }
-                  if (attachedFiles.length > 0) {
-                    const files = [...attachedFiles];
+                  if (sendableAttachedFiles.length > 0) {
+                    const files = [...sendableAttachedFiles];
                     setAttachedFiles([]);
                     props.onSend(txt, files);
                   } else {
@@ -1723,6 +2418,8 @@ export function Composer(props: {
           contextPct={pct}
           maxContextTokens={maxCtx}
           breakdown={props.contextBreakdown}
+          usage={props.providerUsage ?? null}
+          modelId={llmVal || ""}
         />
       ) : null}
       {menuOpen && (menuUseSheet || menuAnchorRect)
@@ -1779,8 +2476,8 @@ export function Composer(props: {
                         type="text"
                         className="mode-menu-filter"
                         data-testid="model-menu-filter"
-                        aria-label="Filter models"
-                        placeholder="Filter models…"
+                        aria-label={t("composer.filterModels")}
+                        placeholder={t("composer.filterModelsPlaceholder")}
                         autoFocus
                         value={llmQuery}
                         onChange={(e) => setLlmQuery(e.target.value)}
@@ -1807,7 +2504,9 @@ export function Composer(props: {
                           className="mode-menu-empty"
                           data-testid="model-menu-empty"
                         >
-                          No models match “{llmQuery.trim()}”
+                          {t("composer.noModelsMatch", {
+                            query: llmQuery.trim(),
+                          })}
                         </div>
                       ) : llmGrouped ? (
                         llmGroups.map((g) => (
@@ -1816,7 +2515,7 @@ export function Composer(props: {
                             className="mode-menu-group"
                           >
                             <div className="mode-menu-group-label">
-                              {g.vendor || "Other"}
+                              {g.vendor || t("composer.vendorOther")}
                             </div>
                             {g.models.map((mid) => renderLlmItem(mid))}
                           </div>
@@ -1856,7 +2555,7 @@ export function Composer(props: {
                 <button
                   type="button"
                   className="slash-sheet-backdrop"
-                  aria-label="Close picker"
+                  aria-label={t("composer.closePicker")}
                   tabIndex={-1}
                   onMouseDown={(e) => {
                     e.preventDefault();
@@ -1870,11 +2569,9 @@ export function Composer(props: {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  data-testid={
-                    atOpen ? "workspace-files-menu" : "slash-command-menu"
-                  }
-                  role="listbox"
-                  aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                  data-testid={pickerTestId}
+                  role={pickerRole}
+                  aria-label={pickerAriaLabel}
                   style={
                     !props.isEmpty && sheetBottomPx != null
                       ? {
@@ -1884,24 +2581,22 @@ export function Composer(props: {
                       : undefined
                   }
                 >
-                  {atOpen ? atMenuChrome : slashMenuChrome}
+                  {pickerChrome}
                 </div>
               </>
             ) : pickerFloatRect ? (
               <div
                 className="slash-menu slash-menu--portal"
-                data-testid={
-                  atOpen ? "workspace-files-menu" : "slash-command-menu"
-                }
-                role="listbox"
-                aria-label={atOpen ? "Workspace files" : "Slash commands"}
+                data-testid={pickerTestId}
+                role={pickerRole}
+                aria-label={pickerAriaLabel}
                 style={{
                   left: pickerFloatRect.left,
                   width: pickerFloatRect.width,
                   bottom: pickerFloatRect.bottom,
                 }}
               >
-                {atOpen ? atMenuChrome : slashMenuChrome}
+                {pickerChrome}
               </div>
             ) : null,
             document.body,

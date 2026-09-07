@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -37,18 +38,32 @@ func (p *bddCompactionProvider) Stream(_ context.Context, messages []llm.Message
 	return &llm.Response{Content: "post-compaction answer", StopReason: "end_turn"}, nil
 }
 
+type compactionUsageSender struct {
+	resumePermissionSender
+	updates []interface{}
+}
+
+func (s *compactionUsageSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.updates = append(s.updates, update)
+	return nil
+}
+
 type compactionFeatureState struct {
-	tmpDirs  []string
-	st       *session.State
-	ag       *Agent
-	provider *bddCompactionProvider
-	exchanges int
+	tmpDirs    []string
+	st         *session.State
+	ag         *Agent
+	provider   *bddCompactionProvider
+	sender     *compactionUsageSender
+	exchanges  int
+	beforeUsed int
 }
 
 func (s *compactionFeatureState) reset() error {
 	s.close()
 	s.provider = &bddCompactionProvider{}
+	s.sender = &compactionUsageSender{}
 	s.exchanges = 0
+	s.beforeUsed = 0
 	return nil
 }
 
@@ -94,13 +109,13 @@ func (s *compactionFeatureState) sessionWithExchanges(n int) error {
 	keep := 2
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
-		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100, MaxContextTokens: 128000}},
 		Agent:     config.Agent{Model: "fake/model"},
 		Compaction: config.Compaction{
 			KeepRecentTurns: &keep,
 		},
 	}
-	s.ag = NewAgent(cfg, s.st, resumePermissionSender{}, nil)
+	s.ag = NewAgent(cfg, s.st, s.sender, nil)
 	s.ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
 		return s.provider, nil
 	}
@@ -233,6 +248,72 @@ func (s *compactionFeatureState) agentRepliesSuccessfully() error {
 	return nil
 }
 
+func (s *compactionFeatureState) clientObservedContextUsageBeforeCompaction() error {
+	b := &session.ContextBreakdown{
+		SystemPrompt: 100,
+		Conversation: 10000,
+	}
+	b.Sum()
+	s.beforeUsed = b.EstimatedTotal
+	s.st.SetLastContextBreakdown(b)
+	s.sender.updates = nil
+	return nil
+}
+
+func (s *compactionFeatureState) lastACPUsageUpdate() (used, size int, err error) {
+	for i := len(s.sender.updates) - 1; i >= 0; i-- {
+		raw, marshalErr := json.Marshal(s.sender.updates[i])
+		if marshalErr != nil {
+			return 0, 0, marshalErr
+		}
+		var update struct {
+			SessionUpdate string `json:"sessionUpdate"`
+			Used          int    `json:"used"`
+			Size          int    `json:"size"`
+		}
+		if unmarshalErr := json.Unmarshal(raw, &update); unmarshalErr != nil {
+			return 0, 0, unmarshalErr
+		}
+		if update.SessionUpdate == "usage_update" {
+			return update.Used, update.Size, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("ACP client received no usage_update: %#v", s.sender.updates)
+}
+
+func (s *compactionFeatureState) clientReceivesSmallerContextUsage() error {
+	used, size, err := s.lastACPUsageUpdate()
+	if err != nil {
+		return err
+	}
+	if used >= s.beforeUsed {
+		return fmt.Errorf("compacted usage = %d, want less than %d", used, s.beforeUsed)
+	}
+	if size != 128000 {
+		return fmt.Errorf("context size = %d, want 128000", size)
+	}
+	return nil
+}
+
+func (s *compactionFeatureState) reportedACPUsageMatchesContext() error {
+	used, _, err := s.lastACPUsageUpdate()
+	if err != nil {
+		return err
+	}
+	b := s.st.GetLastContextBreakdown()
+	if b == nil {
+		return fmt.Errorf("session has no context breakdown after compaction")
+	}
+	wantConversation := session.EstimateTokens(conversationText(session.MessagesForLLM(s.st.GetMessages())))
+	if b.Conversation != wantConversation {
+		return fmt.Errorf("conversation tokens = %d, want %d", b.Conversation, wantConversation)
+	}
+	if used != b.EstimatedTotal {
+		return fmt.Errorf("ACP used = %d, context breakdown total = %d", used, b.EstimatedTotal)
+	}
+	return nil
+}
+
 func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	s := &compactionFeatureState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -253,6 +334,9 @@ func initializeCompactionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the user sends a new prompt$`, s.userSendsNewPrompt)
 	sc.Step(`^the agent replies successfully$`, s.agentRepliesSuccessfully)
 	sc.Step(`^the LLM request for that reply starts from the summary$`, s.nextRequestStartsFromSummary)
+	sc.Step(`^the ACP client has observed the context usage before compaction$`, s.clientObservedContextUsageBeforeCompaction)
+	sc.Step(`^the ACP client receives a smaller context usage update$`, s.clientReceivesSmallerContextUsage)
+	sc.Step(`^the reported ACP usage matches the compacted LLM context$`, s.reportedACPUsageMatchesContext)
 }
 
 func TestContextCompactionFeature(t *testing.T) {

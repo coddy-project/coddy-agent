@@ -9,6 +9,9 @@ const (
 	ReasoningLow     = "low"
 	ReasoningMedium  = "medium"
 	ReasoningHigh    = "high"
+	// ReasoningNone is the lowest tier of the Codex backend, which serves gpt-5*
+	// ids but rejects the "minimal" name for the same idea.
+	ReasoningNone = "none"
 )
 
 // reasoningWithMinimal is the level set for models that support a minimal tier (OpenAI gpt-5 family).
@@ -19,16 +22,16 @@ var reasoningWithMinimal = []string{ReasoningMinimal, ReasoningLow, ReasoningMed
 var reasoningStandard = []string{ReasoningLow, ReasoningMedium, ReasoningHigh}
 
 // ResolvedReasoningLevels returns the reasoning levels offered for this model.
-// An explicit ReasoningLevels (including an empty slice) overrides auto-detection;
+// An explicit ReasoningLevels (including an empty list) overrides auto-detection;
 // otherwise levels are inferred from the API model id. Returns nil when the model
 // has no reasoning support.
 func (m *ModelEntry) ResolvedReasoningLevels() []string {
 	if m.ReasoningLevels != nil {
-		if len(m.ReasoningLevels) == 0 {
+		if len(*m.ReasoningLevels) == 0 {
 			return nil
 		}
-		out := make([]string, len(m.ReasoningLevels))
-		copy(out, m.ReasoningLevels)
+		out := make([]string, len(*m.ReasoningLevels))
+		copy(out, *m.ReasoningLevels)
 		return out
 	}
 	return detectReasoningLevels(m.APIModel())
@@ -48,15 +51,90 @@ func (m *ModelEntry) DefaultReasoningLevel() string {
 	return ""
 }
 
+// ReasoningLevelsFor returns the levels offered for one model entry, adjusted for
+// the provider that serves it. Level detection is model-id based, which is right
+// for OpenAI and Anthropic but wrong for Codex: it serves gpt-5* ids yet accepts
+// only none/low/medium/high/xhigh, so "minimal" becomes "none" there.
+func (c *Config) ReasoningLevelsFor(ent *ModelEntry) []string {
+	if ent == nil {
+		return nil
+	}
+	providerType := ""
+	if c != nil {
+		if prov := c.FindProvider(ent.ProviderName()); prov != nil {
+			providerType = prov.Type
+		}
+	}
+	return ReasoningLevelsForProviderType(ent, providerType)
+}
+
+// ReasoningLevelsForProviderType is ReasoningLevelsFor with the provider type
+// supplied by the caller instead of looked up in the saved config. The settings
+// form needs that while a provider row is still being edited: the type the
+// operator has picked, not the one on disk, decides whether the Codex remap
+// applies. An empty or non-codex type leaves the detected list untouched.
+func ReasoningLevelsForProviderType(ent *ModelEntry, providerType string) []string {
+	if ent == nil {
+		return nil
+	}
+	levels := ent.ResolvedReasoningLevels()
+	if len(levels) == 0 || providerType != "codex" {
+		return levels
+	}
+	return remapMinimalToNone(levels)
+}
+
+// DefaultReasoningLevelFor returns the pre-selected level for one model entry
+// under the same provider-aware remap as ReasoningLevelsFor.
+func (c *Config) DefaultReasoningLevelFor(ent *ModelEntry) string {
+	if ent == nil {
+		return ""
+	}
+	def := ent.DefaultReasoningLevel()
+	if def == "" || c == nil || !c.providerTypeFor(ent) {
+		return def
+	}
+	if def == ReasoningMinimal {
+		return ReasoningNone
+	}
+	return def
+}
+
+// providerTypeFor reports whether this entry is served by a codex provider.
+func (c *Config) providerTypeFor(ent *ModelEntry) bool {
+	prov := c.FindProvider(ent.ProviderName())
+	return prov != nil && prov.Type == "codex"
+}
+
+// remapMinimalToNone swaps the "minimal" tier for "none", keeping order and
+// dropping a duplicate when both names are configured.
+func remapMinimalToNone(levels []string) []string {
+	out := make([]string, 0, len(levels))
+	seen := make(map[string]struct{}, len(levels))
+	for _, lv := range levels {
+		if lv == ReasoningMinimal {
+			lv = ReasoningNone
+		}
+		if _, dup := seen[lv]; dup {
+			continue
+		}
+		seen[lv] = struct{}{}
+		out = append(out, lv)
+	}
+	return out
+}
+
 // detectReasoningLevels infers reasoning levels from a provider API model id.
 func detectReasoningLevels(apiModel string) []string {
 	id := strings.ToLower(strings.TrimSpace(apiModel))
 	switch {
 	case strings.HasPrefix(id, "gpt-5"):
 		return append([]string(nil), reasoningWithMinimal...)
-	case isOpenAIOSeries(id):
+	case isOpenAIOSeries(id), strings.HasPrefix(id, "gpt-oss"):
 		return append([]string(nil), reasoningStandard...)
 	case isAnthropicThinking(id):
+		return append([]string(nil), reasoningStandard...)
+	case isQwenThinking(id):
 		return append([]string(nil), reasoningStandard...)
 	default:
 		return nil
@@ -81,4 +159,10 @@ func isAnthropicThinking(id string) bool {
 		}
 	}
 	return false
+}
+
+// isQwenThinking matches Qwen3-family hybrid thinking models (qwen3, qwen3.5,
+// qwen3.6, qwen3.8, qwen3-vl, ...). Qwen2.5 has no thinking mode.
+func isQwenThinking(id string) bool {
+	return strings.HasPrefix(id, "qwen3")
 }

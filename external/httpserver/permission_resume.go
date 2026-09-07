@@ -19,21 +19,14 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 	if sessionID == "" || toolCallID == "" || res == nil {
 		return false
 	}
-	st := s.mgr.SessionByID(sessionID)
+	st := s.persistedSessionState(ctx, sessionID)
 	if st == nil {
-		fs := s.mgr.FileStore()
-		if fs == nil || !fs.HasPersistedSnapshot(sessionID) {
-			return false
-		}
-		if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
-			SessionID: sessionID,
-			CWD:       s.defaultCWD,
-		}); err != nil {
-			return false
-		}
-		st = s.mgr.SessionByID(sessionID)
+		return false
 	}
-	if st == nil {
+	// A child session's prompts are relayed to its parent, so it never has a
+	// pending gate of its own; and a resume would run an agent on a read-only
+	// transcript.
+	if st.IsSubagentRun() {
 		return false
 	}
 	sd := strings.TrimSpace(st.GetPersistedSessionDir())
@@ -55,6 +48,30 @@ func (s *Server) tryResumePendingPermission(ctx context.Context, sessionID, tool
 	return true
 }
 
+// persistedSessionState returns the live state for a valid session id, loading
+// the bundle into the manager when only the disk has it. It returns nil when
+// neither exists or the load fails; callers treat that as "nothing to act on".
+func (s *Server) persistedSessionState(ctx context.Context, sessionID string) *session.State {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	if st := s.mgr.SessionByID(sessionID); st != nil {
+		return st
+	}
+	fs := s.mgr.FileStore()
+	if fs == nil || !fs.HasPersistedSnapshot(sessionID) {
+		return nil
+	}
+	if _, err := s.mgr.HandleSessionLoad(ctx, acp.SessionLoadParams{
+		SessionID: sessionID,
+		CWD:       s.defaultCWD,
+	}); err != nil {
+		return nil
+	}
+	return s.mgr.SessionByID(sessionID)
+}
+
 // waitPermissionResumeDrained blocks until in-flight persisted permission resume goroutines finish.
 func (s *Server) waitPermissionResumeDrained() {
 	if s == nil {
@@ -68,21 +85,49 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	if st == nil {
 		return
 	}
-	unlock, err := s.mgr.AcquireComposerTurnLock(sessionID, st)
+	// This turn does not go through HandleSessionPromptWithSender, so it is
+	// admitted through the manager's shared path: the turn lock, the
+	// registration a watching client sees, the cancel a deletion uses, and the
+	// refusal while the session is being deleted.
+	turnCtx, finish, err := s.mgr.BeginTurn(ctx, sessionID, nil)
 	if err != nil {
-		if errors.Is(err, session.ErrSessionTurnBusy) {
+		switch {
+		case errors.Is(err, session.ErrSessionTurnBusy):
 			s.log.Warn("permission resume: session busy", "session", sessionID)
-		} else {
-			s.log.Warn("permission resume: lock", "session", sessionID, "error", err)
+		case errors.Is(err, session.ErrSessionDeleting):
+			s.log.Warn("permission resume: session is being deleted", "session", sessionID)
+		default:
+			s.log.Warn("permission resume: admission", "session", sessionID, "error", err)
 		}
 		return
 	}
-	defer unlock()
+	defer finish()
+	ctx = turnCtx
 
-	bridge := NewSender(s.activeCfg(), nil, false, st.GetMode())
+	// A resumed turn is one somebody is watching by definition - they just answered its
+	// permission prompt - so it publishes like any other composer turn. The sender stays
+	// non-interactive: this turn has no HTTP response of its own for a client to read.
+	rel := s.beginComposerRelay(sessionID)
+	defer s.endComposerRelay(sessionID, rel)
+	bridge := NewRelaySender(s.activeCfg(), rel, st.GetMode())
 	bridge.SetSessionDir(strings.TrimSpace(st.GetPersistedSessionDir()))
+	defer func() { _ = bridge.FinishStream() }()
 	ag := agent.NewAgent(s.activeCfg(), st, bridge, s.log)
+	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
+		if err == nil {
+			s.ReplaceConfig(s.mgr.Cfg())
+			s.invalidateSlashCache()
+		}
+		return warnings, err
+	})
 	ag.SetProviderFactory(s.agentProviderFactory)
+	// A resumed turn keeps running the ReAct loop, so it may spawn subagents
+	// like the turn it continues.
+	ag.SetSubagentRuntime(s.mgr)
+	// The resumed turn calls the model like any other: its release refreshes
+	// the provider usage.
+	session.MarkTurnRan(ctx)
 	if _, err := ag.ResumeAfterPermission(ctx, toolCallID, res); err != nil {
 		s.log.Warn("permission resume failed", "session", sessionID, "toolCallId", toolCallID, "error", err)
 		return

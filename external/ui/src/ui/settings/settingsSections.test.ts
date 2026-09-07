@@ -1,6 +1,11 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { deriveSettingsSections } from "./settingsSections";
 import type { JsonSchema } from "./SchemaForm";
+import { initLocale } from "../i18n/i18n";
+
+afterEach(() => {
+  initLocale("en");
+});
 
 // Mirrors the top-level shape + order produced by Go UISchemaMap().
 const rootSchema: JsonSchema = {
@@ -18,6 +23,9 @@ const rootSchema: JsonSchema = {
     "instructions",
     "logger",
     "sessions",
+    "compaction",
+    "subagents",
+    "hooks",
     "gateways",
   ],
   properties: {
@@ -45,6 +53,13 @@ const rootSchema: JsonSchema = {
     instructions: { type: "object", title: "Instructions", properties: {} },
     logger: { type: "object", title: "Logger", properties: {} },
     sessions: { type: "object", title: "Sessions", properties: {} },
+    compaction: {
+      type: "object",
+      title: "Context compaction",
+      properties: {},
+    },
+    subagents: { type: "object", title: "Subagents", properties: {} },
+    hooks: { type: "object", title: "Hooks", properties: {} },
     gateways: { type: "object", title: "Messenger gateways", properties: {} },
   },
 } as unknown as JsonSchema;
@@ -62,6 +77,9 @@ test("derives tabs in schema order with Appearance first and System group", () =
     "skills",
     "memory",
     "system",
+    "compaction",
+    "subagents",
+    "hooks",
   ]);
 });
 
@@ -73,7 +91,13 @@ test("array sections carry their label field", () => {
   expect(byId.providers.labelField).toBe("name");
   expect(byId.models.kind).toBe("array");
   expect(byId.models.labelField).toBe("model");
-  expect(byId.mcp_servers.labelField).toBe("name");
+});
+
+test("mcp_servers is its own managed tab", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.mcp_servers.kind).toBe("mcp");
 });
 
 test("System group folds the rarely edited tail keys", () => {
@@ -91,13 +115,46 @@ test("System group folds the rarely edited tail keys", () => {
   ]);
 });
 
-test("skills is its own combined tab; labels come from schema titles", () => {
+test("skills is its own combined tab; english labels match schema titles", () => {
   const byId = Object.fromEntries(
     deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
   );
   expect(byId.skills.kind).toBe("skills");
   expect(byId.agent.kind).toBe("object");
   expect(byId.agent.label).toBe("ReAct agent");
+});
+
+test("known section labels and descriptions follow the active locale", () => {
+  initLocale("ru");
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.appearance.label).toBe("Оформление");
+  expect(byId.providers.label).toBe("Провайдеры LLM");
+  expect(byId.tools.label).toBe("Инструменты и разрешения");
+  expect(byId.memory.label).toBe("Долговременная память");
+  expect(byId.compaction.label).toBe("Сжатие контекста");
+  expect(byId.compaction.description).toBe("Сжатие истории диалога");
+  expect(byId.subagents.label).toBe("Субагенты");
+  expect(byId.subagents.description).toBe("Пул делегирования и доверие");
+});
+
+test("the schema-driven subagents tab gets its own label and blurb", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.subagents.kind).toBe("object");
+  expect(byId.subagents.label).toBe("Subagents");
+  expect(byId.subagents.description).toBe("Delegation pool & trust");
+});
+
+test("the schema-driven hooks tab gets its own label and blurb", () => {
+  const byId = Object.fromEntries(
+    deriveSettingsSections(rootSchema).map((s) => [s.id, s]),
+  );
+  expect(byId.hooks.kind).toBe("object");
+  expect(byId.hooks.label).toBe("Hooks");
+  expect(byId.hooks.description).toBe("Lifecycle hooks & trust");
 });
 
 test("Appearance tab is present even without a schema", () => {

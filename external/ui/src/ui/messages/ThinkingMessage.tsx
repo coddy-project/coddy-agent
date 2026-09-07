@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Markdown } from "../markdown/Markdown";
+import { useT } from "../i18n/I18nProvider";
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -11,15 +12,18 @@ function formatDuration(ms: number): string {
   return `${Math.round(ms)}ms`;
 }
 
-export function ThinkingMessage(props: {
+export const ThinkingMessage = memo(function ThinkingMessage(props: {
   status: "in_progress" | "completed";
   content: string;
   durationMs?: number;
   /** Wall clock ms when reasoning started (live elapsed until completed). */
   startedAtMs?: number;
 }) {
+  const { t } = useT();
   const inProgress = props.status === "in_progress";
-  const label = inProgress ? "thinking..." : "thinking";
+  const label = inProgress
+    ? t("messages.thinkingInProgress")
+    : t("messages.thinkingCompleted");
   const text = (props.content || "").trim();
 
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -57,7 +61,7 @@ export function ThinkingMessage(props: {
   return (
     <div className="thinking-row">
       <details className="thinking-details">
-        <summary className="thinking-summary" aria-label="Thinking summary">
+        <summary className="thinking-summary" aria-label={t("messages.thinkingSummaryAriaLabel")}>
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{label}</span>
@@ -67,11 +71,11 @@ export function ThinkingMessage(props: {
           </span>
         </summary>
         {text ? (
-          <div className="thinking-body" aria-label="Thinking content">
+          <div className="thinking-body" aria-label={t("messages.thinkingContentAriaLabel")}>
             <Markdown text={text} />
           </div>
         ) : null}
       </details>
     </div>
   );
-}
+});

@@ -3,7 +3,7 @@
 
 Copies ``examples/rules_fixture/.coddy/rules`` into the session work dir, then:
 
-1. ``available_commands_update`` includes ``generate-rules``.
+1. ``available_commands_update`` (written after the ``session/new`` response) includes ``generate-rules``.
 2. Glob rule activates with a Go file resource block; assistant includes ``RULE_GLOB_TOKEN:e2e-glob``.
 3. Mention-only rule via ``@mention_demo`` includes ``RULE_MENTION_TOKEN:e2e-mention``.
 """
@@ -123,6 +123,37 @@ def collect_assistant_text(backlog: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
+def wait_for_session_update(
+    proc: subprocess.Popen[str],
+    session_update: str,
+    max_lines: int = 64,
+) -> list[dict[str, Any]]:
+    """Read notifications until a ``session/update`` of the given kind arrives.
+
+    Coddy writes ``available_commands_update`` only after the ``session/new`` (or
+    ``session/load``) response is on the wire, so the catalog is never part of that
+    call's backlog (see ``docs/acp-protocol.md``). Returns every line read, the
+    matching notification last, so callers can fold it into the earlier backlog.
+    """
+    assert proc.stdout is not None
+    seen: list[dict[str, Any]] = []
+    for _ in range(max_lines):
+        line = proc.stdout.readline()
+        if not line:
+            raise RuntimeError("unexpected EOF from coddy stdout")
+        line = line.strip()
+        if not line:
+            continue
+        msg = json.loads(line)
+        seen.append(msg)
+        if msg.get("method") != "session/update":
+            continue
+        u = msg.get("params", {}).get("update") or {}
+        if u.get("sessionUpdate") == session_update:
+            return seen
+    raise RuntimeError(f"no {session_update} notification within {max_lines} lines after the response")
+
+
 def slash_command_names(backlog: list[dict[str, Any]]) -> set[str]:
     out: set[str] = set()
     for m in backlog:
@@ -230,6 +261,7 @@ def main() -> int:
             print("missing sessionId", jd(r1), file=sys.stderr)
             return 1
 
+        bl1 += wait_for_session_update(proc, "available_commands_update")
         names = slash_command_names(bl1)
         if BUNDLED_SLASH not in names:
             print("slash catalog missing", BUNDLED_SLASH, "got", sorted(names), file=sys.stderr)

@@ -9,17 +9,29 @@ import (
 //go:embed bundled/generate-rules/SKILL.md
 var bundledGenerateRules []byte
 
+//go:embed bundled/configure-coddy/SKILL.md
+var bundledConfigureCoddy []byte
+
 // Bundled returns built-in skills shipped with the binary (prepended before skills.dirs).
 func Bundled() []*Skill {
-	if len(bundledGenerateRules) == 0 {
-		return nil
+	sources := []struct {
+		path string
+		data []byte
+	}{
+		{filepath.Join("bundled", "generate-rules", "SKILL.md"), bundledGenerateRules},
+		{filepath.Join("bundled", "configure-coddy", "SKILL.md"), bundledConfigureCoddy},
 	}
-	virtual := filepath.Join("bundled", "generate-rules", "SKILL.md")
-	s, err := parseSkillBytes(virtual, bundledGenerateRules)
-	if err != nil {
-		return nil
+	out := make([]*Skill, 0, len(sources))
+	for _, source := range sources {
+		if len(source.data) == 0 {
+			continue
+		}
+		skill, err := parseSkillBytes(source.path, source.data)
+		if err == nil {
+			out = append(out, skill)
+		}
 	}
-	return []*Skill{s}
+	return out
 }
 
 func parseSkillBytes(path string, data []byte) (*Skill, error) {

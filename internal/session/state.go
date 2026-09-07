@@ -22,7 +22,17 @@ type Mode string
 const (
 	ModeAgent Mode = "agent"
 	ModePlan  Mode = "plan"
+	ModeAsk   Mode = "ask"
 )
+
+// IsValidMode reports whether mode names a known session mode.
+func IsValidMode(mode string) bool {
+	switch Mode(mode) {
+	case ModeAgent, ModePlan, ModeAsk:
+		return true
+	}
+	return false
+}
 
 // State holds the complete state of a session.
 type State struct {
@@ -45,14 +55,45 @@ type State struct {
 	// Resolved against the effective model's levels by EffectiveReasoning.
 	SelectedReasoning string
 
+	// HookContext is the context SessionStart hooks handed to the session;
+	// every system prompt of the session carries it (see docs/hooks.md).
+	HookContext string
+
 	// Messages is the conversation history.
 	Messages []llm.Message
 
 	// UILog holds UI-only transcript lines (errors, etc.); excluded from LLM prompts.
 	UILog []UILogEntry
 
-	// MCPClients are connected MCP servers for this session.
-	MCPClients []*mcp.Client
+	// hookNotices remembers which hooks-file notices this live session has
+	// already recorded (see MarkHookNoticeShown); not persisted.
+	hookNotices map[string]bool
+
+	// configuredMCPClients come from config.yaml and are replaced on hot reload.
+	configuredMCPClients []*mcp.Client
+	// sessionMCPClients come from ACP session/new or session/load parameters.
+	sessionMCPClients []*mcp.Client
+	// mcpClosed marks the session as torn down so a concurrent settings reload
+	// closes the servers it just dialed instead of attaching them to a dead session.
+	mcpClosed bool
+	// mcpReloadPending records a configured-MCP reload that arrived while a turn
+	// held the turn lock. Swapping clients mid-turn would strand the tool
+	// definitions the turn already sent to the model, so the reload is parked
+	// here and drained when the turn releases the lock.
+	mcpReloadPending bool
+
+	// pendingReadyNotify holds session updates that must not reach the client
+	// before the response carrying this session id is on the wire. Only
+	// session/new reopening a persisted bundle parks work here: the client
+	// learns the id from that response. A real session/load needs no deferral,
+	// because the client supplied the id and ACP requires the replayed history
+	// to arrive before the response.
+	pendingReadyNotify func()
+
+	// MCPFilterFactory builds a fresh per-turn MCP tool filter (set by the
+	// Manager; may be nil = allow all). Re-reading config and .coddy/mcp.json
+	// on every build lets enable/disable toggles apply to live sessions.
+	MCPFilterFactory func() func(server, tool string) bool
 
 	// Skills are the loaded slash skills.
 	Skills []*skills.Skill
@@ -96,6 +137,15 @@ type State struct {
 	// Empty means use the config default. Values: "ask", "accept_edits", "bypass".
 	PermissionMode string
 
+	// subagent is set for a child session spawned by another session (see
+	// subagent.go); nil for ordinary chats and scheduler runs.
+	subagent *SubagentMeta
+
+	// sessionMCPDecls are the ACP client-supplied MCP declarations this session
+	// dialed, kept so a child session can redial them: they exist nowhere in
+	// the configuration, only on the wire that opened this session.
+	sessionMCPDecls []config.MCPServerConfig
+
 	// PermissionCommandGrants are session-scoped shell commands approved via "allow always" (same matching rules as tools.command_allowlist).
 	PermissionCommandGrants []string
 	// PermissionWriteGrants are keys "toolName|absolutePath" for filesystem tools approved via "allow always".
@@ -133,6 +183,14 @@ func (s *State) SetCWD(dir string) {
 	s.CWD = dir
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// setSessionDir records the bundle directory once it exists (child sessions
+// register before their bundle is laid out).
+func (s *State) setSessionDir(dir string) {
+	s.mu.Lock()
+	s.SessionDir = dir
+	s.mu.Unlock()
 }
 
 // GetPersistedSessionDir returns the filesystem bundle dir if persistence is enabled.
@@ -202,7 +260,192 @@ func (s *State) GetSkills() []*skills.Skill {
 func (s *State) GetMCPClients() []*mcp.Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.MCPClients
+	clients := make([]*mcp.Client, 0, len(s.configuredMCPClients)+len(s.sessionMCPClients))
+	clients = append(clients, s.configuredMCPClients...)
+	clients = append(clients, s.sessionMCPClients...)
+	return clients
+}
+
+func (s *State) addConfiguredMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
+	s.configuredMCPClients = append(s.configuredMCPClients, client)
+	s.mu.Unlock()
+}
+
+// RememberSessionMCPDeclaration records a client-supplied MCP declaration so a
+// child session spawned from this one can redial the same server.
+func (s *State) RememberSessionMCPDeclaration(srv config.MCPServerConfig) {
+	s.mu.Lock()
+	s.sessionMCPDecls = append(s.sessionMCPDecls, srv)
+	s.mu.Unlock()
+}
+
+// SessionMCPDeclarations returns a copy of the client-supplied MCP
+// declarations this session dialed.
+func (s *State) SessionMCPDeclarations() []config.MCPServerConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]config.MCPServerConfig, len(s.sessionMCPDecls))
+	copy(out, s.sessionMCPDecls)
+	return out
+}
+
+// SubagentMeta describes a child session spawned by another session: who
+// spawned it, which pool task represents it, how deep it sits, and what role
+// and tool set the runtime gave it.
+type SubagentMeta struct {
+	// Name is the subagent definition name.
+	Name string
+	// ParentSessionID is the session whose turn spawned this child; the pool
+	// task representing the child lives under that session.
+	ParentSessionID string
+	// TaskID is the background task id of the run.
+	TaskID string
+	// Depth is the nesting level: 1 for a child of an ordinary session.
+	Depth int
+	// MaxTurns caps the child's ReAct rounds; 0 uses the configured default.
+	MaxTurns int
+	// Role is the definition body the child's system prompt carries. Not
+	// persisted: a restored child is a read-only transcript.
+	Role string
+	// Tools is the effective tool set the child may call. Not persisted.
+	Tools []string
+}
+
+// SetSubagentMeta marks the session as a child run. It does not persist by
+// itself: the manager saves the state right after building it.
+func (s *State) SetSubagentMeta(meta SubagentMeta) {
+	meta.Tools = append([]string(nil), meta.Tools...)
+	s.mu.Lock()
+	s.subagent = &meta
+	s.mu.Unlock()
+}
+
+// Subagent returns a copy of the child-run metadata, or nil for an ordinary
+// session.
+func (s *State) Subagent() *SubagentMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.subagent == nil {
+		return nil
+	}
+	out := *s.subagent
+	out.Tools = append([]string(nil), s.subagent.Tools...)
+	return &out
+}
+
+// IsSubagentRun reports whether this session is a child spawned by another
+// session, and therefore a read-only transcript for everyone but its own run.
+func (s *State) IsSubagentRun() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.subagent != nil
+}
+
+// AddSessionMCPClient attaches a client-supplied MCP connection to the session.
+// Unlike the configured ones it survives a settings reload, because only the
+// ACP client that opened the session can recreate it.
+func (s *State) AddSessionMCPClient(client *mcp.Client) {
+	if client == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		_ = client.Close()
+		return
+	}
+	s.sessionMCPClients = append(s.sessionMCPClients, client)
+	s.mu.Unlock()
+}
+
+// replaceConfiguredMCPClients atomically swaps hot-reloaded config clients and
+// closes the previous processes without disturbing ACP session-provided clients.
+// A session torn down while the new servers were still being dialed keeps none
+// of them, so the reload cannot orphan subprocesses.
+func (s *State) replaceConfiguredMCPClients(clients []*mcp.Client) {
+	s.mu.Lock()
+	if s.mcpClosed {
+		s.mu.Unlock()
+		for _, client := range clients {
+			_ = client.Close()
+		}
+		return
+	}
+	previous := s.configuredMCPClients
+	s.configuredMCPClients = append([]*mcp.Client(nil), clients...)
+	s.mu.Unlock()
+	for _, client := range previous {
+		_ = client.Close()
+	}
+}
+
+// markMCPReloadPending parks a configured-MCP reload for a session whose turn
+// lock is currently held. A closed session drops it: there is nothing left to
+// reload.
+func (s *State) markMCPReloadPending() {
+	s.mu.Lock()
+	if !s.mcpClosed {
+		s.mcpReloadPending = true
+	}
+	s.mu.Unlock()
+}
+
+// hasPendingMCPReload reports whether a parked reload is waiting, without
+// clearing it. It lets the turn-lock release skip the lock dance on the common
+// path where nothing is parked.
+func (s *State) hasPendingMCPReload() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mcpReloadPending
+}
+
+// setPendingReadyNotify parks session updates until the response that first
+// tells the client this session id has been written.
+func (s *State) setPendingReadyNotify(notify func()) {
+	s.mu.Lock()
+	s.pendingReadyNotify = notify
+	s.mu.Unlock()
+}
+
+// takePendingReadyNotify atomically clears and returns the parked updates, so
+// they are published exactly once.
+func (s *State) takePendingReadyNotify() func() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	notify := s.pendingReadyNotify
+	s.pendingReadyNotify = nil
+	return notify
+}
+
+// takeMCPReloadPending atomically clears the parked-reload flag and reports
+// whether it was set, so exactly one of several racing drainers applies it.
+func (s *State) takeMCPReloadPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pending := s.mcpReloadPending
+	s.mcpReloadPending = false
+	return pending
+}
+
+// GetMCPToolFilter builds the current MCP tool filter. Without a factory the
+// filter allows everything (ACP-supplied servers, tests).
+func (s *State) GetMCPToolFilter() func(server, tool string) bool {
+	s.mu.RLock()
+	factory := s.MCPFilterFactory
+	s.mu.RUnlock()
+	if factory == nil {
+		return func(string, string) bool { return true }
+	}
+	return factory()
 }
 
 // SetPersistHook registers a callback after state that is written to disk changes.
@@ -266,6 +509,28 @@ func (s *State) SetSelectedModelID(id string) {
 	s.touchPersist()
 }
 
+// GetHookContext returns the context SessionStart hooks handed to the session.
+func (s *State) GetHookContext() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.HookContext
+}
+
+// SetHookContext replaces the SessionStart hook context and persists it.
+func (s *State) SetHookContext(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+	s.touchPersist()
+}
+
+// RestoreHookContextWithoutPersist sets the hook context from disk (session load).
+func (s *State) RestoreHookContextWithoutPersist(text string) {
+	s.mu.Lock()
+	s.HookContext = strings.TrimSpace(text)
+	s.mu.Unlock()
+}
+
 // GetSelectedReasoning returns the session reasoning override, or empty.
 func (s *State) GetSelectedReasoning() string {
 	s.mu.RLock()
@@ -292,7 +557,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 	if ent == nil {
 		return ""
 	}
-	levels := ent.ResolvedReasoningLevels()
+	levels := cfg.ReasoningLevelsFor(ent)
 	if len(levels) == 0 {
 		return ""
 	}
@@ -304,7 +569,7 @@ func (s *State) EffectiveReasoning(cfg *config.Config) string {
 			return sel
 		}
 	}
-	return ent.DefaultReasoningLevel()
+	return cfg.DefaultReasoningLevelFor(ent)
 }
 
 // EffectiveModelID returns the model id used for LLM calls for this session.
@@ -363,6 +628,12 @@ func (s *State) SetAgentMemory(text string) {
 	s.AgentMemory = text
 	s.mu.Unlock()
 	s.touchPersist()
+}
+
+// ConversationTitle returns the pinned title, or the one derived from the
+// first user message (the value session.json records).
+func (s *State) ConversationTitle() string {
+	return persistedConversationTitle(s)
 }
 
 // GetTitlePinned returns the user-pinned session title shown in snapshots, if any.
@@ -700,14 +971,20 @@ func (s *State) Cancel() {
 	}
 }
 
-// CloseAll closes all MCP clients.
+// CloseAll closes all MCP clients. The session is left marked as closed so a
+// settings reload racing this teardown does not reattach fresh servers.
 func (s *State) CloseAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, c := range s.MCPClients {
+	s.mcpClosed = true
+	for _, c := range s.configuredMCPClients {
 		_ = c.Close()
 	}
-	s.MCPClients = nil
+	for _, c := range s.sessionMCPClients {
+		_ = c.Close()
+	}
+	s.configuredMCPClients = nil
+	s.sessionMCPClients = nil
 }
 
 // RestorePermissionGrantsWithoutPersist loads grants from disk snapshot (session/load).

@@ -1,9 +1,14 @@
 import type { SpawnAgentDetails } from "../chat/spawnAgentDisplay";
+import { useT } from "../i18n/I18nProvider";
 import "./SpawnAgentCard.css";
 
 export function SpawnAgentCard({ details }: { details: SpawnAgentDetails }) {
+  const { t } = useT();
   return (
-    <section className="spawn-agent-card" aria-label="Agent details">
+    <section
+      className="spawn-agent-card"
+      aria-label={t("messages.spawnAgentDetails")}
+    >
       <div className="spawn-agent-header">
         <span className="spawn-agent-icon" aria-hidden="true">
           <svg
@@ -28,7 +33,7 @@ export function SpawnAgentCard({ details }: { details: SpawnAgentDetails }) {
         {details.timeoutSeconds !== undefined ? (
           <span
             className="spawn-agent-timeout"
-            title="Maximum agent execution time"
+            title={t("messages.spawnAgentTimeoutHint")}
           >
             <svg
               aria-hidden="true"
@@ -42,11 +47,16 @@ export function SpawnAgentCard({ details }: { details: SpawnAgentDetails }) {
               <circle cx="12" cy="12" r="8" />
               <path d="M12 7v5l3 2" />
             </svg>
-            Timeout {details.timeoutSeconds}s
+            {t("messages.spawnAgentTimeout", {
+              seconds: details.timeoutSeconds,
+            })}
           </span>
         ) : null}
       </div>
-      <div className="spawn-agent-prompt" aria-label="Agent prompt">
+      <div
+        className="spawn-agent-prompt"
+        aria-label={t("messages.spawnAgentPrompt")}
+      >
         {details.prompt}
       </div>
     </section>

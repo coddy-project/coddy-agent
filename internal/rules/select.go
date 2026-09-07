@@ -8,19 +8,25 @@ import (
 var atMentionRE = regexp.MustCompile(`(?:^|[\s(\[{])@([a-zA-Z0-9][a-zA-Z0-9_-]*)`)
 
 // MatchAuto returns rules newly matched this turn (alwaysApply true only).
-// Rules with globs require a context file match; rules without globs match immediately.
+// Directory-scoped rules require a context path inside their subtree; rules with
+// globs require a context file match; rules with neither match immediately.
 func MatchAuto(catalog []*Rule, contextFiles []string) []*Rule {
 	var out []*Rule
 	for _, r := range catalog {
 		if r == nil || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
 			continue
 		}
-		if len(r.Globs) == 0 {
+		switch {
+		case r.ScopeDir != "":
+			if PathsUnderDir(r.ScopeDir, contextFiles) {
+				out = append(out, r)
+			}
+		case len(r.Globs) == 0:
 			out = append(out, r)
-			continue
-		}
-		if matchesRuleGlobs(r, contextFiles) {
-			out = append(out, r)
+		default:
+			if matchesRuleGlobs(r, contextFiles) {
+				out = append(out, r)
+			}
 		}
 	}
 	return out

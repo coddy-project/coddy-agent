@@ -64,3 +64,8 @@ Thumbs.db
 
 # Codex cross-review local state
 .codex-review/
+
+# ZCode local session state (plans, transcripts). Shared, versioned config
+# (.zcode/config.json, .zcode/hooks/) is added to git explicitly.
+.zcode/plans/
+.zcode/sessions/

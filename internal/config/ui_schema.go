@@ -46,6 +46,15 @@ func boolProp(title, description string) map[string]interface{} {
 	}
 }
 
+// boolPropDefault is boolProp for a flag whose absent value is not false. The
+// settings form reads the default both when seeding a new entry and when drawing
+// a switch for a key the configuration never set.
+func boolPropDefault(title, description string, def bool) map[string]interface{} {
+	out := boolProp(title, description)
+	out["default"] = def
+	return out
+}
+
 func objectSchema(title, description string, props map[string]interface{}, order []string, required []string) map[string]interface{} {
 	out := map[string]interface{}{
 		"type":                 "object",
@@ -180,7 +189,9 @@ func ensureObjectMatchesSchema(obj map[string]interface{}, schemaProps map[strin
 func UISchemaMap() map[string]interface{} {
 	providerName := strProp("Provider name",
 		"Logical id used in model ids (provider/model-id). ASCII letters, digits, hyphen, and underscore only; must start with a letter. When api_key is empty, the runtime reads the key from the environment variable NAME_API_KEY (NAME is this field in uppercase with hyphens mapped to underscores).")
-	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_-]*$`
+	// HTML pattern attributes are compiled with the JavaScript RegExp v flag.
+	// Escape the hyphen so the schema can be rendered by modern browsers.
+	providerName["pattern"] = `^[a-zA-Z][a-zA-Z0-9_\-]*$`
 	providerAPIKey := strProp("API key",
 		"You may set a literal key, reference ${ENV} in YAML (expanded when the file is loaded), or leave empty so the process reads the conventional NAME_API_KEY variable derived from the provider name (see provider name description).")
 	providerAPIKey["x-coddy-provider-api-key-env-placeholder"] = true
@@ -190,19 +201,27 @@ func UISchemaMap() map[string]interface{} {
 			"type":        "string",
 			"title":       "Provider type",
 			"description": "Wire protocol for this provider entry.",
-			"enum":        []string{"openai", "anthropic", "neuraldeep"},
+			"enum":        []string{"openai", "anthropic", "neuraldeep", "codex"},
 		},
-		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. Ignored for neuraldeep, which always uses https://api.neuraldeep.ru/v1."),
+		"api_base": strProp("API base URL", "Optional override of the default API base URL for this provider. For neuraldeep it selects the deployment - https://api.neuraldeep.ru/v1 (Russia) or https://api.neuraldeep.tech/v1 (the international mirror) - and any other value falls back to the first; ignored for codex, which uses a fixed official endpoint."),
 		"api_key":  providerAPIKey,
 		"api_key_command": strProp("API key command",
 			"Optional credential-helper command. When api_key is empty it is run via the detected host shell (pwsh, powershell, or cmd on Windows; bash or sh elsewhere) and its trimmed stdout is used as the key (like git/docker credential helpers or AWS credential_process). On failure resolution falls back to the conventional NAME_API_KEY variable."),
 		"proxy": strProp("HTTP or SOCKS proxy",
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
+		"timeout_ms": intProp("Request timeout ms",
+			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
+		// Defaults to true when the key is absent, like models[].stream: the
+		// form seeds new rows from schema defaults and renders an unset switch
+		// from them.
+		"usage_limits_panel": boolPropDefault("Usage limits panel",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			true),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
 		"max_tokens": intProp("Max tokens",
-			"Upper bound on completion tokens the model may emit for one assistant message."),
+			"Upper bound on completion tokens the model may emit for one assistant message. Ignored by Codex because its backend does not accept max_output_tokens."),
 		"temperature": numProp("Temperature",
 			"Sampling temperature for this logical model (0 = deterministic, higher = more random)."),
 		"max_context_tokens": intProp("Max context tokens (UI hint)",
@@ -217,6 +236,12 @@ func UISchemaMap() map[string]interface{} {
 		},
 		"reasoning_default": strProp("Default reasoning level",
 			"Reasoning level pre-selected for new chats with this model. Must be one of the resolved reasoning levels; ignored otherwise."),
+		// The only boolean here that defaults to true when the key is absent, so the
+		// schema has to say so: the form seeds new entries from schema defaults and
+		// renders an unset switch from them.
+		"stream": boolPropDefault("Stream responses",
+			"Leave on to receive the answer token by token over SSE. Turn off to send one blocking request and wait for the whole answer, for servers or proxies that handle event streams badly; the transcript then fills in at once instead of typing out. Not available for codex models, whose backend is streaming-only.",
+			true),
 	}
 	envProps := map[string]interface{}{
 		"name":  strProp("Variable name", "Environment variable name passed to the MCP process."),
@@ -227,19 +252,19 @@ func UISchemaMap() map[string]interface{} {
 		"value": strProp("Header value", "HTTP header value."),
 	}
 	mcpProps := map[string]interface{}{
-		"type":    strProp("Server type", "stdio runs a local command; http connects to a remote MCP endpoint."),
+		"type":    strProp("Server type", "stdio runs a local command; http speaks streamable HTTP to the url (with legacy-SSE fallback); sse forces the legacy HTTP+SSE transport."),
 		"name":    strProp("Server name", "Stable id referenced by the agent; must be unique in this list."),
-		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url)."),
+		"command": strProp("Command", "Executable for stdio transport (leave empty when using http url). ${CWD} expands to the session cwd."),
 		"args": map[string]interface{}{
 			"type":        "array",
 			"title":       "Arguments",
-			"description": "Argv passed after command for stdio MCP servers.",
+			"description": "Argv passed after command for stdio MCP servers. ${CWD} expands to the session cwd.",
 			"items":       map[string]interface{}{"type": "string"},
 		},
 		"env": map[string]interface{}{
 			"type":        "array",
 			"title":       "Environment",
-			"description": "Extra environment variables for the stdio child process.",
+			"description": "Extra environment variables for the stdio child process. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           envProps,
@@ -247,17 +272,24 @@ func UISchemaMap() map[string]interface{} {
 				"additionalProperties": false,
 			},
 		},
-		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server."),
+		"url": strProp("MCP URL", "HTTP(S) endpoint when type selects an HTTP-based MCP server. ${CWD} expands to the session cwd."),
 		"headers": map[string]interface{}{
 			"type":        "array",
 			"title":       "HTTP headers",
-			"description": "Optional headers sent with MCP HTTP requests.",
+			"description": "Optional headers sent with MCP HTTP requests. ${CWD} in a value expands to the session cwd.",
 			"items": map[string]interface{}{
 				"type":                 "object",
 				"properties":           headerProps,
 				"required":             []interface{}{"name", "value"},
 				"additionalProperties": false,
 			},
+		},
+		"disabled": boolProp("Disabled", "Skip connecting this server without removing its definition."),
+		"disabled_tools": map[string]interface{}{
+			"type":        "array",
+			"title":       "Disabled tools",
+			"description": "Tool names of this server hidden from the agent.",
+			"items":       map[string]interface{}{"type": "string"},
 		},
 	}
 
@@ -323,7 +355,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy"},
+				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{
@@ -331,7 +363,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "Logical models",
 			"description": "Named model entries the agent and UI can select; ids reference provider prefixes.",
 			"items": objectSchema("", "", modelProps,
-				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "reasoning_levels", "reasoning_default"},
+				[]string{"model", "max_tokens", "temperature", "max_context_tokens", "multimodal", "stream", "reasoning_levels", "reasoning_default"},
 				[]string{"model"}),
 		},
 		"agent": objectSchema("ReAct agent", "Defaults for the main agent loop (model id and safety caps).",
@@ -342,13 +374,31 @@ func UISchemaMap() map[string]interface{} {
 				"max_tokens_per_turn": intProp("Max tokens per turn",
 					"Upper bound on total tokens (prompt + completion) the model may use in one agent step."),
 				"llm_retry_max": intProp("LLM retry max",
-					"Retries after retryable LLM errors such as HTTP 429 before failing the turn."),
+					"Retries after retryable LLM errors such as HTTP 429 before failing the turn (an explicit 0 disables retries)."),
 				"llm_retry_base_ms": intProp("LLM retry base ms",
-					"Initial backoff between LLM retries in milliseconds."),
+					"Initial backoff between LLM retries in milliseconds; a server-provided pause (Retry-After) overrides it."),
 				"llm_min_interval_ms": intProp("LLM min interval ms",
-					"Minimum gap between consecutive LLM calls in milliseconds (0 disables pacing)."),
+					"Minimum gap between consecutive LLM calls in milliseconds, retries included (0 disables pacing)."),
+				"llm_first_token_timeout_ms": intProp("LLM first token timeout ms",
+					"How long a streamed LLM call may stay silent before the turn cancels it (an explicit 0 disables the guard)."),
+				"loop_guard": boolProp("Loop guard",
+					"Stop a response that degenerates into repeating itself, and block a tool called over and over with identical arguments."),
+				"loop_tool_repeat_limit": intProp("Loop tool repeat limit",
+					"Consecutive identical tool calls before the loop guard steps in (0 disables the check)."),
+				"loop_stream_repeat_cycles": intProp("Loop stream repeat cycles",
+					"Identical back-to-back output cycles inside one streamed response before it is cut (0 disables the check)."),
+				"loop_nudge_max": intProp("Loop nudge max",
+					"How many times one turn may be nudged back on track before the loop guard stops it."),
+				"wait_for_limit_reset": boolProp("Wait for limit reset",
+					"Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error; the turn and the client stream stay open meanwhile."),
+				"wait_for_limit_reset_max_ms": intProp("Wait for limit reset max ms",
+					"Longest time one turn spends waiting for limits in total, in milliseconds (default four hours); a pause that would exceed it ends the turn at once, 0 never waits."),
 			},
-			[]string{"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms"},
+			[]string{
+				"model", "max_turns", "max_tokens_per_turn", "llm_retry_max", "llm_retry_base_ms", "llm_min_interval_ms",
+				"llm_first_token_timeout_ms", "loop_guard", "loop_tool_repeat_limit", "loop_stream_repeat_cycles", "loop_nudge_max",
+				"wait_for_limit_reset", "wait_for_limit_reset_max_ms",
+			},
 			nil),
 		"tools": objectSchema("Tools and permissions", "Filesystem and shell policy for built-in tools.",
 			map[string]interface{}{
@@ -364,23 +414,110 @@ func UISchemaMap() map[string]interface{} {
 					"description": "If non-empty, only these shell command prefixes may run without extra policy.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
+				"output_limits": objectSchema("Tool output limits",
+					"Maximum lines each tool result or error may return into the LLM context. Enabled limits also apply a 64 KiB per-call byte safety ceiling. 0 disables both limits; unset uses the built-in default.",
+					map[string]interface{}{
+						"read":            intProp("read", "Max lines for a read file page or directory listing (default 1000)."),
+						"grep":            intProp("grep", "Max path:line:content records from grep (default 200)."),
+						"glob":            intProp("glob", "Max paths from glob (default 300)."),
+						"print_tree":      intProp("print_tree", "Max lines of a directory tree (default 400)."),
+						"run_command":     intProp("run_command", "Max stdout+stderr lines of a shell command (default 500)."),
+						"ssh_run_command": intProp("ssh_run_command", "Max stdout+stderr lines of a remote SSH command (default 500)."),
+						"webfetch":        intProp("webfetch", "Max lines of fetched page markdown (default 800)."),
+						"websearch":       intProp("websearch", "Max lines of search results (default 200)."),
+						"default":         intProp("default", "Applies to any unlisted tool, including MCP (default 1000; 0 = unlimited)."),
+					},
+					[]string{"read", "grep", "glob", "print_tree", "run_command", "ssh_run_command", "webfetch", "websearch", "default"},
+					nil),
+				"background": objectSchema("Background tasks",
+					"Commands the agent runs detached in the session task pool instead of blocking a turn.",
+					map[string]interface{}{
+						"enabled": map[string]interface{}{
+							"type":        "boolean",
+							"title":       "Enabled",
+							"description": "Offer the background option on run_command and the background task tools (default true).",
+						},
+						"max_concurrent":          intProp("Max concurrent", "How many background tasks one session may run at once (default 5)."),
+						"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for a task started without a timeout or a duration estimate (default 900)."),
+						"max_timeout_seconds":     intProp("Max timeout (s)", "Ceiling applied to any requested or estimated timeout (default 3600)."),
+						"output_buffer_bytes":     intProp("Output buffer (bytes)", "How much of each task's output stays in memory for the ticker; the full log still goes to the session bundle (default 262144)."),
+					},
+					[]string{"enabled", "max_concurrent", "default_timeout_seconds", "max_timeout_seconds", "output_buffer_bytes"},
+					nil),
 			},
-			[]string{"permission_mode", "command_allowlist"},
+			[]string{"permission_mode", "command_allowlist", "output_limits", "background"},
+			nil),
+		"subagents": objectSchema("Subagents",
+			"User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
+				},
+				"dirs": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition directories",
+					"description": "Lowest priority first; later entries override earlier ones by name. ${CODDY_HOME} and ${CWD} expand. Directories inside the workspace are project scope and follow the trust policy.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project definitions",
+					"description": "Definitions found inside the workspace travel with the checkout. \"ask\": load them but refuse to spawn one until it is approved for this workspace on the machine running coddy (coddy agents trust there, or POST /coddy/subagents/{name}/trust). \"allow\": treat them like your own files. \"deny\": never read them.",
+					"enum":        []string{SubagentsProjectTrustAsk, SubagentsProjectTrustAllow, SubagentsProjectTrustDeny},
+				},
+				"max_concurrent":          intProp("Max concurrent", "How many subagent runs the whole process may have in flight at once (default 4). Extra spawns are refused, not queued."),
+				"max_depth":               intProp("Max depth", "How deep spawning may nest: 1 lets a session spawn subagents that cannot spawn further (default), 0 forbids spawning everywhere."),
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one run whose definition and call give no timeout (default 1800); capped by the background max timeout."),
+				"max_turns":               intProp("Max turns", "ReAct rounds a child may take; 0 follows agent.max_turns."),
+			},
+			[]string{"enabled", "dirs", "project_trust", "max_concurrent", "max_depth", "default_timeout_seconds", "max_turns"},
+			nil),
+		"hooks": objectSchema("Hooks",
+			"Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
+			map[string]interface{}{
+				"enabled": map[string]interface{}{
+					"type":        "boolean",
+					"title":       "Enabled",
+					"description": "Load and run hooks at all (default true).",
+				},
+				"files": map[string]interface{}{
+					"type":        "array",
+					"title":       "Definition files",
+					"description": "Lowest priority first; every matching hook runs. ${CODDY_HOME} and ${CWD} expand. Files inside the workspace are project scope and follow the trust policy; only the hooks key of a Claude Code settings file is read.",
+					"items":       map[string]interface{}{"type": "string"},
+				},
+				"project_trust": map[string]interface{}{
+					"type":        "string",
+					"title":       "Project hooks",
+					"description": "Hook files found inside the workspace travel with the checkout. \"ask\": list them but run nothing until the file is approved for this workspace on the machine running coddy (coddy hooks trust there, or POST /coddy/hooks/trust). \"allow\": treat them like your own file. \"deny\": never read them.",
+					"enum":        []string{ProjectTrustAsk, ProjectTrustAllow, ProjectTrustDeny},
+				},
+				"default_timeout_seconds": intProp("Default timeout (s)", "Hard limit for one hook process whose definition gives no timeout (default 60)."),
+				"stop_loop_limit":         intProp("Stop loop limit", "How many times per turn a Stop hook may send the agent back to work (default 5)."),
+				"max_output_chars":        intProp("Max output chars", "Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker (default 10000)."),
+			},
+			[]string{"enabled", "files", "project_trust", "default_timeout_seconds", "stop_loop_limit", "max_output_chars"},
 			nil),
 		"mcp_servers": map[string]interface{}{
 			"type":        "array",
 			"title":       "MCP servers",
 			"description": "Model Context Protocol servers started or contacted for new sessions.",
 			"items": objectSchema("", "", mcpProps,
-				[]string{"type", "name", "command", "args", "env", "url", "headers"},
+				[]string{"type", "name", "command", "args", "env", "url", "headers", "disabled", "disabled_tools"},
 				[]string{"name"}),
 		},
+		// mcp.project_trust is deliberately absent here: it is edited in the
+		// MCP servers tab next to the servers it governs (POST
+		// /coddy/mcp/project-trust), not as a settings-document section. It
+		// still round-trips through GET/PUT /coddy/config like httpserver.
 		"skills": objectSchema("Skills", "Slash commands and skill packs discovered from these directories.",
 			map[string]interface{}{
 				"dirs": map[string]interface{}{
 					"type":        "array",
 					"title":       "Skill directories",
-					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} and ${CWD} expand at runtime.",
+					"description": "Search paths for skills. Defaults: ~/.agents/skills (global, shared with npx skills / npx skillsbd), ${CODDY_HOME}/skills (coddy-specific), ${CWD}/.coddy/skills (project-local). ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 				"sources": map[string]interface{}{
@@ -424,8 +561,9 @@ func UISchemaMap() map[string]interface{} {
 				"dir":          strProp("Prompts directory", "Optional override directory for prompt markdown files."),
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
+				"ask_prompt":   strProp("Ask prompt file", "Filename for ask-mode system prompt."),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{
@@ -484,8 +622,17 @@ func UISchemaMap() map[string]interface{} {
 				"threshold_percent": intProp("Auto threshold (%)", "Auto-compact when the estimated context reaches this percent of the model's max_context_tokens (1..100, default 80). Models without max_context_tokens skip auto-compaction."),
 				"keep_recent_turns": intProp("Keep recent turns", "How many most recent user turns stay verbatim after compaction (default 2; 0 summarizes everything)."),
 				"model":             strProp("Summarizer model", "Optional models[].model for the summarization call; empty uses the session model."),
+				"result_eviction": objectSchema("Read/grep result eviction",
+					"Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",
+					map[string]interface{}{
+						"enabled":          boolProp("Enabled", "Master switch for read/grep result eviction. Defaults to true."),
+						"keep_recent":      intProp("Keep recent results", "How many most recent evictable results stay intact as a working window (default 2 — enough to hold a read and a grep at once; 0 keeps none)."),
+						"min_result_bytes": intProp("Min result bytes", "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate)."),
+					},
+					[]string{"enabled", "keep_recent", "min_result_bytes"},
+					nil),
 			},
-			[]string{"enabled", "threshold_percent", "keep_recent_turns", "model"},
+			[]string{"enabled", "threshold_percent", "keep_recent_turns", "model", "result_eviction"},
 			nil),
 		"gateways": objectSchema("Messenger gateways", "Telegram bot gateway (requires the gateway or gateway.telegram build tag).",
 			map[string]interface{}{
@@ -498,7 +645,7 @@ func UISchemaMap() map[string]interface{} {
 	}
 
 	rootOrder := []string{
-		"providers", "models", "agent", "tools", "mcp_servers", "skills", "memory", "scheduler",
+		"providers", "models", "agent", "tools", "subagents", "hooks", "mcp_servers", "skills", "memory", "scheduler",
 		"prompts", "instructions", "logger", "sessions", "compaction", "gateways",
 	}
 
@@ -524,7 +671,21 @@ func toIfaceOrder(keys []string) []interface{} {
 	return out
 }
 
-// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON except httpserver (hidden from UI).
+// uiHiddenConfigKeys are ConfigJSON keys the Settings form must not render as
+// sections of its own. They still round-trip through GET/PUT /coddy/config,
+// so hiding one here never drops it from the saved document.
+//
+//	httpserver - the surface the UI itself is served from; editing it there
+//	             would let the page cut its own connection.
+//	mcp        - edited in the MCP servers tab (POST /coddy/mcp/project-trust),
+//	             next to the servers the policy governs.
+var uiHiddenConfigKeys = map[string]struct{}{
+	"httpserver": {},
+	"mcp":        {},
+}
+
+// UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON
+// except for uiHiddenConfigKeys.
 func UISchemaCoversConfigJSONFields() error {
 	doc := UISchemaMap()
 	props, ok := doc["properties"].(map[string]interface{})
@@ -539,7 +700,10 @@ func UISchemaCoversConfigJSONFields() error {
 		if c := strings.IndexByte(tag, ','); c >= 0 {
 			name = tag[:c]
 		}
-		if name == "" || name == "-" || name == "httpserver" {
+		if name == "" || name == "-" {
+			continue
+		}
+		if _, hidden := uiHiddenConfigKeys[name]; hidden {
 			continue
 		}
 		want[name] = struct{}{}
@@ -550,8 +714,8 @@ func UISchemaCoversConfigJSONFields() error {
 		}
 	}
 	for k := range props {
-		if k == "httpserver" {
-			return fmt.Errorf("schema must not expose httpserver in UI")
+		if _, hidden := uiHiddenConfigKeys[k]; hidden {
+			return fmt.Errorf("schema must not expose %q in UI", k)
 		}
 		if _, ok := want[k]; !ok {
 			return fmt.Errorf("schema has unknown property %q", k)

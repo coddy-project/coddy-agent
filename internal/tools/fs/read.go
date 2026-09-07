@@ -31,7 +31,7 @@ func ReadTool() *tooling.Tool {
 	return &tooling.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
-			Description: "Read a file as text, or list a directory's entries. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive.",
+			Description: "Read a file as text, or list a directory's entries. For files, optional offset and limit select a 1-based line range (offset defaults to 1). For directories, list immediate children or recurse with recursive. Output is capped by tools.output_limits.read; if it is truncated, page with offset/limit. Read results are ephemeral: once you move on, an unmarked page collapses to a placeholder and is dropped as stale after you write to that file. Set keep:true (or call keep_result) to pin a page whose contents you will need later.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -55,6 +55,10 @@ func ReadTool() *tooling.Tool {
 						"type":        "boolean",
 						"description": "For directories: include dotfiles and dot-directories (default: false)",
 					},
+					"keep": map[string]interface{}{
+						"type":        "boolean",
+						"description": "Pin this page in context: it survives eviction until you write to the file (default: false).",
+					},
 				},
 				"required": []string{"path"},
 			},
@@ -69,6 +73,9 @@ type readArgs struct {
 	Limit      int    `json:"limit"`
 	Recursive  bool   `json:"recursive"`
 	ShowHidden bool   `json:"show_hidden"`
+	// Keep pins this page against context eviction. It is consumed by the agent's
+	// context-projection pass (internal/agent), not by executeRead.
+	Keep bool `json:"keep"`
 }
 
 func executeRead(_ context.Context, argsJSON string, env *tooling.Env) (string, error) {

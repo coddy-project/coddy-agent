@@ -16,9 +16,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
+// MessagesFileName is the transcript file inside a session bundle; hooks
+// receive its path as transcript_path.
+const MessagesFileName = "messages.json"
+
 const (
 	sessionMetaFile      = "session.json"
-	messagesFile         = "messages.json"
+	messagesFile         = MessagesFileName
 	uiLogFile            = "ui_log.json"
 	permissionGrantsFile = "permission_grants.json"
 	todosDirName         = "todos"
@@ -75,6 +79,51 @@ func (f *FileStore) HasPersistedSnapshot(sessionID string) bool {
 	return err == nil && !fi.IsDir()
 }
 
+// ResolveSessionID returns the stored session whose folder id is idOrPrefix,
+// or the single stored session whose id starts with it. Folders without a
+// session.json are not sessions.
+func (f *FileStore) ResolveSessionID(idOrPrefix string) (string, error) {
+	q := strings.TrimSpace(idOrPrefix)
+	if q == "" {
+		return "", fmt.Errorf("session id is empty")
+	}
+	if f == nil || f.Root == "" {
+		return "", fmt.Errorf("session store not available")
+	}
+	if err := ValidateFolderSessionID(q); err != nil {
+		return "", err
+	}
+	if f.HasPersistedSnapshot(q) {
+		return q, nil
+	}
+	de, err := os.ReadDir(f.Root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("session not found: %s", q)
+		}
+		return "", err
+	}
+	var matches []string
+	for _, ent := range de {
+		if !ent.IsDir() || !strings.HasPrefix(ent.Name(), q) || !f.HasPersistedSnapshot(ent.Name()) {
+			continue
+		}
+		matches = append(matches, ent.Name())
+	}
+	sort.Strings(matches)
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("session not found: %s", q)
+	case 1:
+		return matches[0], nil
+	}
+	shown := matches
+	if len(shown) > 5 {
+		shown = shown[:5]
+	}
+	return "", fmt.Errorf("session id prefix %q is ambiguous (%d matches: %s)", q, len(matches), strings.Join(shown, ", "))
+}
+
 // ActiveTodoPath is the markdown file for the current todo list.
 func ActiveTodoPath(sessionDir string) string {
 	return filepath.Join(sessionDir, todosDirName, activeTodoFile)
@@ -85,6 +134,17 @@ func AssetsPath(sessionDir string) string {
 	return filepath.Join(sessionDir, "assets")
 }
 
+// AssetThumbnailsPath is the directory containing bounded PNG previews for
+// image assets. Thumbnail files are UI-only and are not exposed to the agent.
+func AssetThumbnailsPath(sessionDir string) string {
+	return filepath.Join(AssetsPath(sessionDir), "thumbnails")
+}
+
+// AssetThumbnailPath returns the preview path corresponding to one saved asset.
+func AssetThumbnailPath(sessionDir, assetName string) string {
+	return filepath.Join(AssetThumbnailsPath(sessionDir), assetName+".png")
+}
+
 // EnsureLayout creates session.json (if missing), messages.json, assets/, todos/, todos/archive/.
 func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 	dir = f.SessionPath(sessionID)
@@ -92,6 +152,9 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		return "", err
 	}
 	if err := os.MkdirAll(AssetsPath(dir), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(AssetThumbnailsPath(dir), 0o755); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, toolCallsDirName), 0o755); err != nil {
@@ -105,7 +168,7 @@ func (f *FileStore) EnsureLayout(sessionID string) (dir string, err error) {
 		m := SessionMeta{
 			Version:   sessionFileLayout,
 			ID:        sessionID,
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 		}
 		if wErr := writeJSONAtomic(metaPath, m); wErr != nil {
 			return "", wErr
@@ -130,15 +193,25 @@ type SessionMeta struct {
 	SelectedModelID   string `json:"selectedModelId,omitempty"`
 	SelectedReasoning string `json:"selectedReasoning,omitempty"`
 	AgentMemory       string `json:"agentMemory,omitempty"`
-	Title             string `json:"title,omitempty"`
-	TitlePinned       string `json:"titlePinned,omitempty"`
-	UpdatedAt         string `json:"updatedAt,omitempty"`
+	// HookContext is what SessionStart hooks handed to the session.
+	HookContext string `json:"hookContext,omitempty"`
+	Title       string `json:"title,omitempty"`
+	TitlePinned string `json:"titlePinned,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 	// Scheduler-run bundle (cron / manual scheduler); omitted for normal chats.
 	SchedulerRun        bool   `json:"schedulerRun,omitempty"`
 	SchedulerJobID      string `json:"schedulerJobId,omitempty"`
 	SchedulerStartedAt  string `json:"schedulerStartedAt,omitempty"`
 	SchedulerEndedAt    string `json:"schedulerEndedAt,omitempty"`
 	SchedulerStopStatus string `json:"schedulerStopStatus,omitempty"`
+	// Subagent-run bundle: a child session spawned by another session's
+	// spawn_agent call; omitted for normal chats. The pool task that represents
+	// the run lives under ParentSessionID.
+	SubagentRun     bool   `json:"subagentRun,omitempty"`
+	ParentSessionID string `json:"parentSessionId,omitempty"`
+	SubagentName    string `json:"subagentName,omitempty"`
+	SubagentTaskID  string `json:"subagentTaskId,omitempty"`
+	SubagentDepth   int    `json:"subagentDepth,omitempty"`
 	// ActivitySeq increments when an agent turn completes (multi-surface unread indicator).
 	ActivitySeq uint64 `json:"activitySeq,omitempty"`
 	// ReadActivitySeq tracks the last activity generation the user marked as read.
@@ -154,6 +227,16 @@ func (m SessionMeta) ExcludedFromComposerSessionList(sessionFolderName string) b
 	}
 	s := strings.TrimSpace(sessionFolderName)
 	return strings.HasPrefix(s, "sched_")
+}
+
+// IsSubagentRun reports whether this bundle is a child session spawned by
+// another session (by its meta, or by the sub_ folder prefix for a bundle whose
+// meta was never completed).
+func (m SessionMeta) IsSubagentRun(sessionFolderName string) bool {
+	if m.SubagentRun {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(sessionFolderName), subagentSessionPrefix)
 }
 
 type messagesFileData struct {
@@ -187,7 +270,7 @@ type LoadedSnapshot struct {
 func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	dir := f.SessionPath(sessionID)
 	metaPath := filepath.Join(dir, sessionMetaFile)
-	metaBytes, err := os.ReadFile(metaPath)
+	metaBytes, err := readFileWithRetry(metaPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("session not found on disk: %s", sessionID)
@@ -200,7 +283,7 @@ func (f *FileStore) ReadSnapshot(sessionID string) (*LoadedSnapshot, error) {
 	}
 	var msgs []llm.Message
 	msgPath := filepath.Join(dir, messagesFile)
-	if b, readErr := os.ReadFile(msgPath); readErr == nil {
+	if b, readErr := readFileWithRetry(msgPath); readErr == nil {
 		var wrap messagesFileData
 		if jsonErr := json.Unmarshal(b, &wrap); jsonErr == nil {
 			msgs = wrap.Messages
@@ -268,9 +351,26 @@ type SessionListEntry struct {
 	UpdatedAt string
 }
 
+// ListOptions selects which persisted sessions ListSnapshotsWith returns.
+type ListOptions struct {
+	// CWD keeps only sessions saved with this working directory when non-empty.
+	CWD string
+	// IncludeSchedulerRuns adds bundles created by scheduler runs (sched_ ids).
+	IncludeSchedulerRuns bool
+	// IncludeSubagents adds child sessions spawned by spawn_agent (sub_ ids).
+	IncludeSubagents bool
+}
+
 // ListSnapshots scans Root for persisted sessions (requires session.json).
 // When includeSchedulerRuns is false, sessions marked schedulerRun in session.json (or folder id prefix sched_) are omitted (default composer list).
+// Subagent child sessions are always omitted here; use ListSnapshotsWith to include them.
 func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) ([]SessionListEntry, error) {
+	return f.ListSnapshotsWith(ListOptions{CWD: cwdFilter, IncludeSchedulerRuns: includeSchedulerRuns})
+}
+
+// ListSnapshotsWith scans Root for persisted sessions matching opts.
+func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, error) {
+	cwdFilter := opts.CWD
 	var out []SessionListEntry
 	if f.Root == "" {
 		return out, nil
@@ -291,7 +391,10 @@ func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) (
 		if err != nil {
 			continue
 		}
-		if !includeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
+		if !opts.IncludeSchedulerRuns && snap.Meta.ExcludedFromComposerSessionList(id) {
+			continue
+		}
+		if !opts.IncludeSubagents && snap.Meta.IsSubagentRun(id) {
 			continue
 		}
 		if cwdFilter != "" && snap.Meta.CWD != cwdFilter {
@@ -405,7 +508,7 @@ func (f *FileStore) Save(state *State) error {
 		bytes.Equal(oldMsgBytes, newMsgBytes) &&
 		newActivitySeq == prevMeta.ActivitySeq
 
-	updatedAt := time.Now().UTC().Format(time.RFC3339)
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	if preserveUpdatedAt && strings.TrimSpace(prevMeta.UpdatedAt) != "" {
 		updatedAt = prevMeta.UpdatedAt
 	}
@@ -417,6 +520,7 @@ func (f *FileStore) Save(state *State) error {
 		Mode:              state.GetMode(),
 		SelectedModelID:   state.GetSelectedModelID(),
 		SelectedReasoning: state.GetSelectedReasoning(),
+		HookContext:       state.GetHookContext(),
 		AgentMemory:       state.GetAgentMemory(),
 		Title:             title,
 		TitlePinned:       strings.TrimSpace(state.GetTitlePinned()),
@@ -428,6 +532,13 @@ func (f *FileStore) Save(state *State) error {
 		meta.SchedulerStartedAt = strings.TrimSpace(state.GetSchedulerStartedAt())
 		meta.SchedulerEndedAt = strings.TrimSpace(state.GetSchedulerEndedAt())
 		meta.SchedulerStopStatus = strings.TrimSpace(state.GetSchedulerStopStatus())
+	}
+	if sub := state.Subagent(); sub != nil {
+		meta.SubagentRun = true
+		meta.ParentSessionID = strings.TrimSpace(sub.ParentSessionID)
+		meta.SubagentName = strings.TrimSpace(sub.Name)
+		meta.SubagentTaskID = strings.TrimSpace(sub.TaskID)
+		meta.SubagentDepth = sub.Depth
 	}
 	meta.ActivitySeq = newActivitySeq
 	meta.ReadActivitySeq = newReadSeq
@@ -495,6 +606,9 @@ func deriveSessionTitle(s *State) string {
 	for _, msg := range s.GetMessages() {
 		if msg.Role == llm.RoleUser && strings.TrimSpace(msg.Content) != "" {
 			text := stripCoddySessionAssetsXML(strings.TrimSpace(msg.Content))
+			// A hydrated @mention turn also carries <coddy_attachment> file bodies;
+			// a title is the user's own text, never the attachment XML.
+			text = stripCoddyAttachmentXML(text)
 			text = strings.TrimSpace(text)
 			if text == "" {
 				continue
@@ -522,6 +636,47 @@ func stripCoddySessionAssetsXML(s string) string {
 		s = s[:start] + s[start+end+len(close):]
 	}
 	return s
+}
+
+// stripCoddyAttachmentXML removes hydrated @mention attachment blocks from s.
+// Transcripts keep them - only derived titles drop them. The file body sits in
+// CDATA sections (internal/agent wrapXMLCDATA splits an embedded "]]>" across
+// two of them), so the closing tag is looked for outside those sections only:
+// a file that itself contains "</coddy_attachment>" must not leak past it.
+func stripCoddyAttachmentXML(s string) string {
+	const openTag, closeTag, cdataOpen, cdataClose = "<coddy_attachment", "</coddy_attachment>", "<![CDATA[", "]]>"
+	var b strings.Builder
+	for {
+		start := strings.Index(s, openTag)
+		if start < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:start])
+		rest := s[start:]
+		end := -1
+		for pos := len(openTag); pos < len(rest); {
+			if strings.HasPrefix(rest[pos:], cdataOpen) {
+				n := strings.Index(rest[pos+len(cdataOpen):], cdataClose)
+				if n < 0 {
+					break
+				}
+				pos += len(cdataOpen) + n + len(cdataClose)
+				continue
+			}
+			if strings.HasPrefix(rest[pos:], closeTag) {
+				end = pos + len(closeTag)
+				break
+			}
+			pos++
+		}
+		if end < 0 {
+			// An unterminated block: keep the text as it is rather than eat it.
+			b.WriteString(rest)
+			return b.String()
+		}
+		s = rest[end:]
+	}
 }
 
 // persistedConversationTitle selects the snapshot title saved to session.json.
@@ -583,18 +738,38 @@ func writeBytesAtomic(path string, data []byte) error {
 
 // renameWithRetry renames tmpPath over path, retrying briefly on transient
 // Windows sharing errors that occur when another handle holds the destination
-// open. On POSIX isRetryableRenameError is always false, so this is a single
+// open. On POSIX isRetryableFileLockError is always false, so this is a single
 // os.Rename with no behavior change.
 func renameWithRetry(tmpPath, path string) error {
 	const maxAttempts = 20
 	var err error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if err = os.Rename(tmpPath, path); err == nil || !isRetryableRenameError(err) {
+		if err = os.Rename(tmpPath, path); err == nil || !isRetryableFileLockError(err) {
 			return err
 		}
 		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
 	}
 	return err
+}
+
+// readFileWithRetry reads path, retrying briefly on the transient Windows sharing
+// errors that an in-flight atomic write of the same file produces. Readers are not
+// only tests: the session list and activity endpoints read a bundle while its turn
+// keeps persisting. On POSIX isRetryableFileLockError is always false, so this is a
+// single os.ReadFile with no behavior change.
+func readFileWithRetry(path string) ([]byte, error) {
+	const maxAttempts = 20
+	var (
+		b   []byte
+		err error
+	)
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if b, err = os.ReadFile(path); err == nil || !isRetryableFileLockError(err) {
+			return b, err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return b, err
 }
 
 func writeJSONAtomic(path string, v interface{}) error {

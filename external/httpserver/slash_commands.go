@@ -16,6 +16,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+// slashListCacheEntry caches one skill catalog per resolved workspace cwd
+// (not per session): two sessions rooted in the same folder share it, and the
+// signature over the expanded skill directories invalidates it on change.
 type slashListCacheEntry struct {
 	signature string
 	sums      []skills.SkillSummary
@@ -65,7 +68,13 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 	return sums, nil
 }
 
-func (s *Server) resolveSlashListCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
+// resolveSessionCWD picks the workspace a cwd-scoped listing describes (skills,
+// slash commands, workspace context and files): the cwd of the session named
+// by X-Coddy-Session-ID, loading a persisted session on demand, or the server
+// default cwd without the header. A malformed id is answered with 400 and an
+// unknown session with 404; the function writes that response itself and
+// reports false so the handler returns.
+func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
 	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if sid == "" {
 		cwd, err := session.EffectiveSessionCWD("", s.defaultCWD)
@@ -133,7 +142,7 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cwdAbs, ok := s.resolveSlashListCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}
@@ -159,9 +168,10 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // coddyCommandsGet lists the deterministic built-in slash commands (/compact,
-// /plugin) so the composer can surface a "Commands" group alongside skills. These
-// run without an LLM turn and are not part of /coddy/slash-commands (which is
-// skills only). compact appears only while compaction is enabled.
+// /export, /plugin) so the composer can surface a "Commands" group alongside
+// skills. These run without an LLM turn and are not part of
+// /coddy/slash-commands (which is skills only). compact appears only while
+// compaction is enabled.
 func (s *Server) coddyCommandsGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)

@@ -131,6 +131,25 @@ describe("resolveLatestLeaf", () => {
     expect(await resolveLatestLeaf("a", fetch, 10)).toBe("d");
   });
 
+  test("falls back to the previous session when a listed leaf is gone", async () => {
+    const fetch = makeFetch({
+      root: {
+        branchPoints: [
+          {
+            own: true,
+            sessions: [
+              { sessionId: "root", lastUpdatedAt: 100 },
+              // Deleted bundle still listed in a stale branch file: its own
+              // /branches call 404s, so the walk must not land on it.
+              { sessionId: "deleted", lastUpdatedAt: 300 },
+            ],
+          },
+        ],
+      },
+    });
+    expect(await resolveLatestLeaf("root", fetch)).toBe("root");
+  });
+
   test("handles missing own field as undefined (legacy data — treated as not-false)", async () => {
     const fetch = makeFetch({
       root: {

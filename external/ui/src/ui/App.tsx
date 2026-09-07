@@ -8,10 +8,16 @@ import {
 } from "react";
 import type { CSSProperties } from "react";
 import { ChatScreen } from "./chat/ChatScreen";
-import { contextUsagePercent } from "./chat/contextUsage";
+import { useStableHandler } from "./components/useStableHandler";
+import {
+  contextUsagePercent,
+  withContextUsedTokens,
+} from "./chat/contextUsage";
 import { HERO_ACCENT_VERBS, pickHeroAccentVerb } from "./chat/heroTitleWords";
 import { insertNewThinkingBeforeStreamingAssistant } from "./chat/transcriptThinkingPlacement";
 import { openAIStreamErrorMessage } from "./chat/streamError";
+import { optimisticUserFiles } from "./chat/optimisticUserFiles";
+import { sessionMessageFiles } from "./chat/sessionMessageFiles";
 import { getEnv } from "./env/remoteEnv";
 import {
   isAbortError,
@@ -19,8 +25,14 @@ import {
   remoteSendErrorMessage,
 } from "./env/remoteErrors";
 import { EnvHealthBanner } from "./env/EnvHealthBanner";
+import { isNoLiveTurnRelayError } from "./chat/composerStreamError";
+import { subscribeServerEvents } from "./chat/serverEvents";
+import { useProviderUsage } from "./chat/useProviderUsage";
 import { parseSSEBlocks } from "./chat/sse";
-import { consumeComposerSseReader } from "./chat/consumeComposerSse";
+import {
+  consumeComposerSseReader,
+  type ContextUsageUpdate,
+} from "./chat/consumeComposerSse";
 import {
   parseCoddyPermissionPayload,
   type PermissionResolvedState,
@@ -43,8 +55,10 @@ import {
   keepLocalTranscriptIfServerEmpty,
   mergeTranscriptPreferLocalSuffix,
   preserveUserMessageFiles,
+  revokeSupersededUserMessagePreviews,
 } from "./chat/transcriptServerSnapshot";
 import { pickStreamMutationBase } from "./chat/streamMutationBase";
+import { ShadowTranscriptCache } from "./chat/sessionTranscriptCache";
 import {
   mergePermissionPromptsIntoTranscript,
   permissionPendingSessionIdsFromStorage,
@@ -55,6 +69,8 @@ import {
   type ToolsPermissionPolicy,
 } from "./chat/toolsPermissionPolicy";
 import { reattachLocalQuestionPrompts } from "./chat/transcriptQuestionReattach";
+import { pickRicherToolArgs } from "./chat/toolCallArgs";
+import { normalizeTodoPlanSnapshot } from "./chat/todoToolPreview";
 import {
   clearQuestionPromptRecords,
   mergeStoredQuestionPromptsIntoTranscript,
@@ -65,6 +81,7 @@ import {
 import { transcriptHasFilledAssistant } from "./chat/streamSyncLocalAssistant";
 import { stableMemoryCopilotItemId } from "./chat/memoryStableId";
 import type { TokenUsage, TranscriptItem } from "./chat/types";
+import type { ProviderUsage } from "./chat/providerUsage";
 import type { WorkspaceContext } from "./chat/workspaceContext";
 import {
   injectBranchNavItems,
@@ -85,10 +102,8 @@ import {
 } from "./chat/reasoningCookie";
 import { pickReasoningLevel } from "./chat/reasoningSelection";
 import { SessionsSidebar } from "./sessions/SessionsSidebar";
-import {
-  armSessionDeleteBackdropSuppressUntil,
-  shouldSuppressShellBackdropClose,
-} from "./sessions/sessionDeleteBackdropSuppress";
+import { useConfirm } from "./components/useConfirm";
+import { useT } from "./i18n/I18nProvider";
 import type { SessionRow } from "./sessions/types";
 import {
   isClientDraftSessionId,
@@ -126,11 +141,26 @@ import {
   setSchedulerCreateHash,
   setSchedulerJobHash,
   setSchedulerListHash,
+  setSessionTasksHash,
   setSettingsHash,
   stripHistorySidebarFromHash,
 } from "./scheduler/hashRoute";
 import { SchedulerJobEditorSheet } from "./scheduler/SchedulerJobEditorSheet";
 import { SchedulerJobsDrawer } from "./scheduler/SchedulerJobsDrawer";
+import { BackgroundTasksPanel } from "./tasks/BackgroundTasksPanel";
+import {
+  clearFinishedBackgroundTasks,
+  getBackgroundTask,
+  listBackgroundTasks,
+  stopBackgroundTask,
+} from "./tasks/api";
+import { tasksPollIntervalMs } from "./tasks/taskStatus";
+import {
+  isSubagentSessionId,
+  parseSubagentTranscriptMeta,
+  type SubagentTranscriptMeta,
+} from "./chat/subagentTranscript";
+import type { BackgroundTask } from "./tasks/types";
 import type { SchedulerInfo, SchedulerJob } from "./scheduler/types";
 import { Settings } from "./settings/Settings";
 
@@ -191,6 +221,7 @@ type ToolCallListRow = {
   argsPreview?: string;
   resultPreview?: string;
   resultPreviewTruncated?: boolean;
+  planSnapshot?: unknown;
 };
 
 function readMessageCreatedAtUTC(
@@ -257,7 +288,7 @@ type ModelInfo = {
   reasoningDefault?: string;
 };
 
-const PROFILE_MODES = ["agent", "plan"] as const;
+const PROFILE_MODES = ["agent", "plan", "ask"] as const;
 
 type SessionStats = {
   tokenUsageTotal?: {
@@ -602,6 +633,8 @@ function reasoningDurationCacheKey(text: string): string {
 }
 
 export function App() {
+  const { t } = useT();
+  const confirm = useConfirm();
   const [knownSkillNames, setKnownSkillNames] = useState<Set<string>>(
     () => new Set(),
   );
@@ -727,18 +760,41 @@ export function App() {
     output: number;
     total: number;
   }>({ input: 0, output: 0, total: 0 });
-  /** Per-session shadow transcript while that session streams in the background. */
-  const streamShadowBySidRef = useRef<Map<string, TranscriptItem[]>>(new Map());
+  /**
+   * Per-session shadow transcript while that session streams in the
+   * background, kept as a small LRU (see sessionTranscriptCache.ts). Every
+   * write through `set` records recency, so `evictStaleSessionCaches` sees
+   * every entry.
+   */
+  const streamShadowBySidRef = useRef(
+    new ShadowTranscriptCache<TranscriptItem[]>(),
+  );
   const postAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
   const relayAbortBySidRef = useRef<Map<string, AbortController>>(new Map());
+  /** Last composer relay frame id seen per session, so a re-attach can resume from it. */
+  const relayLastEventIdBySidRef = useRef<Map<string, string>>(new Map());
   const streamingAssistantBySidRef = useRef<Map<string, string>>(new Map());
   /** Session ids with an active client-side composer POST or GET relay. */
   const activeComposerSidRef = useRef<Set<string>>(new Set());
   const [composerActivityEpoch, setComposerActivityEpoch] = useState(0);
   /** Session id currently shown in the transcript (updated synchronously on navigation). */
   const viewedSessionIdRef = useRef("");
-  /** Ignore shell backdrop close briefly after session-delete confirm (stray click). */
-  const sessionDeleteBackdropSuppressUntilRef = useRef(0);
+  /** True while GET /coddy/events is connected; gates the fallback sessions poll. */
+  const [serverEventsConnected, setServerEventsConnected] = useState(false);
+  const serverEventHandlersRef = useRef<{
+    turnStarted: (sid: string) => void;
+    turnEnded: (sid: string) => void;
+    providerUsage: (usage: ProviderUsage) => void;
+  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
+  // Provider account usage for the composer pill and banner: read over REST
+  // at session open, model change and after each viewed turn, pushed by the
+  // events stream in between (chat/useProviderUsage.ts).
+  const [providerUsageTurnEpoch, setProviderUsageTurnEpoch] = useState(0);
+  const noteUsageTurnEnded = useCallback((sid: string) => {
+    if (viewedSessionIdRef.current.trim() === sid.trim()) {
+      setProviderUsageTurnEpoch((n) => n + 1);
+    }
+  }, []);
   const bumpComposerActivity = () =>
     setComposerActivityEpoch((n) => (n + 1) % 1_000_000_000);
 
@@ -789,6 +845,26 @@ export function App() {
     });
   }
 
+  /**
+   * Drops least-recently-used shadow transcripts beyond the cache cap so old
+   * dialogs stop accumulating in memory. The session about to be viewed and
+   * any session with a live composer stream are pinned; evicted sessions are
+   * simply re-fetched via loadMessages on the next visit.
+   */
+  function evictStaleSessionCaches(nextViewedSid: string) {
+    const active = new Set<string>(activeComposerSidRef.current);
+    for (const k of postAbortBySidRef.current.keys()) active.add(k);
+    for (const k of relayAbortBySidRef.current.keys()) active.add(k);
+    for (const k of streamingAssistantBySidRef.current.keys()) active.add(k);
+    const victims = streamShadowBySidRef.current.evict({
+      viewedSid: nextViewedSid,
+      activeStreamSids: active,
+    });
+    for (const sid of victims) {
+      relayLastEventIdBySidRef.current.delete(sid);
+    }
+  }
+
   const generating = useMemo(() => {
     const sid = sessionId.trim();
     if (!sid) return false;
@@ -823,7 +899,7 @@ export function App() {
 
   const sessionsForSidebar = useMemo(
     () => mergeSessionsWithDrafts(sessions, clientDraftSessions),
-    [sessions, clientDraftSessions],
+    [sessions, clientDraftSessions, t],
   );
 
   const reasoningDurationMsByContentRef = useRef<Map<string, number>>(
@@ -853,6 +929,20 @@ export function App() {
   const [schedulerFilterDraft, setSchedulerFilterDraft] = useState("");
   const [schedulerFilterQ, setSchedulerFilterQ] = useState("");
   const schedulerDockClusterRef = useRef<HTMLDivElement>(null);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [tasksSelectedId, setTasksSelectedId] = useState<string | null>(null);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [backgroundRunning, setBackgroundRunning] = useState(0);
+  const [backgroundOutput, setBackgroundOutput] = useState("");
+  const [backgroundListError, setBackgroundListError] = useState<string | null>(
+    null,
+  );
+  const [backgroundListLoading, setBackgroundListLoading] = useState(false);
+  /** Ticks once a second so elapsed times advance between polls. */
+  const [backgroundNowMs, setBackgroundNowMs] = useState(() => Date.now());
+  /** Set while the viewed session is a subagent's transcript (read-only, no composer). */
+  const [subagentTranscript, setSubagentTranscript] =
+    useState<SubagentTranscriptMeta | null>(null);
   const [schedDockClusterWidthPx, setSchedDockClusterWidthPx] = useState(0);
   const [sessionFilterDraft, setSessionFilterDraft] = useState("");
   const [sessionFilterQ, setSessionFilterQ] = useState("");
@@ -866,6 +956,11 @@ export function App() {
   const [llmModelIds, setLlmModelIds] = useState<string[]>([]);
   const [defaultAgentYamlModel, setDefaultAgentYamlModel] = useState("");
   const [llmModel, setLlmModel] = useState("");
+  const providerUsageState = useProviderUsage({
+    sessionId,
+    llmModel,
+    turnEpoch: providerUsageTurnEpoch,
+  });
   const [llmReasoning, setLlmReasoning] = useState("");
   /**
    * Raw model/reasoning stored on the opened session. Held until the backends
@@ -1042,7 +1137,7 @@ export function App() {
 
   const currentTitle = useMemo(() => {
     if (!sessionId) {
-      return "New chat";
+      return t("chat.newChat");
     }
     if (describePreview?.sessionId === sessionId) {
       const hint = describePreview.title.trim();
@@ -1051,9 +1146,19 @@ export function App() {
       }
     }
     const row = sessions.find((s) => s.id === sessionId);
-    const t = (row?.title || "").trim();
-    return t || "New chat";
-  }, [sessionId, sessions, describePreview]);
+    const rowTitle = (row?.title || "").trim();
+    if (rowTitle) {
+      return rowTitle;
+    }
+    // A child session has no History row to name it, so name it by its role.
+    if (subagentTranscript) {
+      const name = subagentTranscript.name.trim();
+      return name
+        ? t("chat.subagentTitle", { name })
+        : t("chat.subagentTitleUnnamed");
+    }
+    return t("chat.newChat");
+  }, [sessionId, sessions, describePreview, t, subagentTranscript]);
 
   const currentSessionCwd = useMemo(() => {
     const sid = sessionId.trim();
@@ -1191,6 +1296,76 @@ export function App() {
     }
   }
 
+  const refreshBackgroundTasks = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        setBackgroundTasks([]);
+        setBackgroundRunning(0);
+        return;
+      }
+      const silent = !!opts?.silent;
+      if (!silent) {
+        setBackgroundListLoading(true);
+        setBackgroundListError(null);
+      }
+      const res = await listBackgroundTasks(sid);
+      if (!silent) {
+        setBackgroundListLoading(false);
+      }
+      if (!res.ok) {
+        if (!silent) {
+          setBackgroundListError(res.message);
+          setBackgroundTasks([]);
+          setBackgroundRunning(0);
+        }
+        return;
+      }
+      setBackgroundListError(null);
+      setBackgroundTasks(res.data.data || []);
+      setBackgroundRunning(res.data.running || 0);
+    },
+    [sessionId, t],
+  );
+
+  const refreshBackgroundTaskOutput = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        setBackgroundOutput("");
+        return;
+      }
+      const res = await getBackgroundTask(sid, taskId);
+      setBackgroundOutput(res.ok ? res.data.output || "" : "");
+    },
+    [sessionId],
+  );
+
+  const stopBackgroundTaskById = useCallback(
+    async (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid || !taskId) {
+        return;
+      }
+      const res = await stopBackgroundTask(sid, taskId);
+      if (res.ok) {
+        setBackgroundOutput(res.data.output || "");
+      }
+      void refreshBackgroundTasks({ silent: true });
+    },
+    [sessionId, refreshBackgroundTasks],
+  );
+
+  const clearFinishedTasks = useCallback(async () => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    await clearFinishedBackgroundTasks(sid);
+    setTasksSelectedId(null);
+    void refreshBackgroundTasks({ silent: true });
+  }, [sessionId, refreshBackgroundTasks]);
+
   const refreshSchedulerJobs = useCallback(
     async (opts?: { silent?: boolean }) => {
       const silent = !!opts?.silent;
@@ -1208,8 +1383,7 @@ export function App() {
           setSchedulerHttpLinked(false);
           setSchedulerOpen(false);
           setSchedulerEditor(null);
-          msg =
-            "Scheduler API is not available in this build (rebuild with http,scheduler).";
+          msg = t("scheduler.apiNotAvailable");
           const sid = sessionId.trim();
           if (sid) {
             setSessionHashInLocation(sid);
@@ -1226,8 +1400,7 @@ export function App() {
           return;
         }
         if (res.status === 503) {
-          msg =
-            "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).";
+          msg = t("scheduler.disabled");
           if (!silent) {
             setSchedulerListError(msg);
             setSchedulerJobs([]);
@@ -1245,7 +1418,7 @@ export function App() {
       setSchedulerInfo(res.data.scheduler);
       setSchedulerJobs(res.data.jobs || []);
     },
-    [sessionId],
+    [sessionId, t],
   );
 
   const applyLocationHash = useCallback(() => {
@@ -1259,6 +1432,8 @@ export function App() {
       void markCoddySessionActivityRead(p.sessionId);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(p.tasksOpen);
+      setTasksSelectedId(p.taskId);
       setSessionsOpen(!!p.historyOpen);
       return;
     }
@@ -1266,6 +1441,8 @@ export function App() {
       setSettingsRoute(false);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionId("");
       viewedSessionIdRef.current = "";
       setActiveDraftId(p.draftId.trim());
@@ -1282,6 +1459,8 @@ export function App() {
       setSessionsOpen(true);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       return;
     }
     if (p.branch === "settings") {
@@ -1289,6 +1468,8 @@ export function App() {
       setSettingsSection(p.section);
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSessionsOpen(false);
       return;
     }
@@ -1314,6 +1495,8 @@ export function App() {
       }
       setSchedulerOpen(true);
       setSessionsOpen(false);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       setSchedulerEditor(schedulerEditorFromParsedHash(p));
       return;
     }
@@ -1323,6 +1506,8 @@ export function App() {
     setSettingsRoute(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(!!p.historyOpen);
   }, [schedulerHttpLinked]);
 
@@ -1331,6 +1516,8 @@ export function App() {
       setActiveDraftId("");
       setSchedulerOpen(false);
       setSchedulerEditor(null);
+      setTasksOpen(false);
+      setTasksSelectedId(null);
       viewedSessionIdRef.current = id.trim();
       setSessionHashInLocation(id, opts);
       setSessionId(id);
@@ -1342,6 +1529,8 @@ export function App() {
   const clearSessionRoute = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     viewedSessionIdRef.current = "";
     setSessionHashInLocation("");
     setSessionId("");
@@ -1351,6 +1540,8 @@ export function App() {
   const closeSchedulerDrawer = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (sessionsOpen) {
       setHistoryHash();
       return;
@@ -1371,6 +1562,8 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (parseAppHash().branch === "settings") {
       const sid = sessionId.trim();
       if (sid) {
@@ -1442,6 +1635,57 @@ export function App() {
       }
     })();
   }, []);
+
+  // Background tasks outlive the SSE stream of the turn that started them, so
+  // the drawer and the nav badge are kept honest by polling rather than by the
+  // composer stream. The cadence drops to a slow heartbeat when nothing runs.
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      setBackgroundTasks([]);
+      setBackgroundRunning(0);
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTasks({ silent: !tasksOpen });
+  }, [sessionId, tasksOpen, refreshBackgroundTasks]);
+
+  useEffect(() => {
+    if (!sessionId.trim()) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      void refreshBackgroundTasks({ silent: true });
+      if (tasksOpen && tasksSelectedId) {
+        void refreshBackgroundTaskOutput(tasksSelectedId);
+      }
+    }, tasksPollIntervalMs(backgroundRunning));
+    return () => window.clearInterval(id);
+  }, [
+    sessionId,
+    tasksOpen,
+    tasksSelectedId,
+    backgroundRunning,
+    refreshBackgroundTasks,
+    refreshBackgroundTaskOutput,
+  ]);
+
+  useEffect(() => {
+    if (!tasksOpen || !tasksSelectedId) {
+      setBackgroundOutput("");
+      return;
+    }
+    void refreshBackgroundTaskOutput(tasksSelectedId);
+  }, [tasksOpen, tasksSelectedId, refreshBackgroundTaskOutput]);
+
+  // Elapsed labels must advance between polls, so the clock ticks on its own
+  // while something is actually running.
+  useEffect(() => {
+    if (backgroundRunning <= 0) {
+      return;
+    }
+    const id = window.setInterval(() => setBackgroundNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [backgroundRunning]);
 
   useEffect(() => {
     if (!schedulerOpen || schedulerHttpLinked === false) {
@@ -1675,7 +1919,7 @@ export function App() {
         setSessionsLoadingMore(false);
       }
       if (!res.ok || !res.data) {
-        setSessionsError(`Backend is unavailable (${res.status})`);
+        setSessionsError(t("app.backendUnavailable", { status: res.status }));
         return null;
       }
       setSessionsError(null);
@@ -1695,7 +1939,7 @@ export function App() {
       sessionsHasMoreRef.current = hm;
       return next;
     },
-    [sessionFilterQ, headers],
+    [sessionFilterQ, headers, t],
   );
 
   useEffect(() => {
@@ -1761,14 +2005,63 @@ export function App() {
       (s) => !!s.turnActive && s.id !== sessionId,
     );
     const anyLocalComposer = activeComposerSidRef.current.size > 0;
-    if (!anyLocalComposer && !hasBackgroundTurn) {
+    // With the events stream up, a background turn announces itself, so the poll only
+    // has to keep a local composer's stats and unread flags fresh. When it is down (an
+    // older server, a proxy that eats SSE) the previous behaviour is restored verbatim
+    // rather than leaving the sidebar frozen.
+    const pollForBackground = hasBackgroundTurn && !serverEventsConnected;
+    if (!anyLocalComposer && !pollForBackground) {
       return;
     }
     const timer = window.setInterval(() => {
       void loadSessionsList(true);
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [composerActivityEpoch, sessions, sessionId, loadSessionsList]);
+  }, [
+    composerActivityEpoch,
+    sessions,
+    sessionId,
+    loadSessionsList,
+    serverEventsConnected,
+  ]);
+
+  // Handlers are read through a ref so the subscription below can mount once: it must
+  // survive re-renders, and the callbacks it needs are redefined on every one of them.
+  serverEventHandlersRef.current = {
+    turnStarted: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void (async () => {
+        const loaded = await loadMessages(key, { preserveOnError: true });
+        if (!loaded || activeComposerSidRef.current.has(key)) return;
+        await rejoinComposerLiveStream(key, loaded);
+      })();
+    },
+    turnEnded: (sid: string) => {
+      void loadSessionsList(true);
+      const key = sid.trim();
+      if (!key || key !== viewedSessionIdRef.current.trim()) return;
+      if (activeComposerSidRef.current.has(key)) return;
+      void loadMessages(key, { preserveOnError: true });
+      void refreshSessionStats(key);
+    },
+    providerUsage: providerUsageState.applyPushed,
+  };
+
+  useEffect(() => {
+    const ctl = new AbortController();
+    void subscribeServerEvents({
+      onTurnStarted: (sid) => serverEventHandlersRef.current.turnStarted(sid),
+      onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
+      onProviderUsage: (_sid, usage) =>
+        serverEventHandlersRef.current.providerUsage(usage),
+      onConnectedChange: setServerEventsConnected,
+      signal: ctl.signal,
+    });
+    return () => ctl.abort();
+  }, []);
 
   useEffect(() => {
     if (!sessionsOpen) {
@@ -1790,13 +2083,18 @@ export function App() {
       setItems([]);
       return null;
     }
-    const viewingTrim = viewedSessionIdRef.current.trim();
     const res = await fetchJSON<{
       messages: Array<any>;
       model?: string;
       selectedModelId?: string;
       selectedReasoning?: string;
       memoryTurns?: MemoryTurnApi[];
+      subagent?: {
+        parentSessionId?: string;
+        name?: string;
+        taskId?: string;
+      } | null;
+      readOnly?: boolean;
       uiLog?: Array<{
         id?: string;
         level?: string;
@@ -1807,15 +2105,19 @@ export function App() {
     }>(`/coddy/sessions/${encodeURIComponent(sid)}/messages`, {
       headers: sid === sessionId ? headers : { [HDR]: sid },
     });
+    // Re-read the viewed session after the await: the viewer may have moved
+    // on while the request was in flight, and a stale response must neither
+    // clear the new session's rows nor merge them into this session's shadow.
+    const viewingNow = viewedSessionIdRef.current.trim();
     if (!res.ok || !res.data) {
       if (!opts?.preserveOnError) {
-        if (viewingTrim === sid) {
+        if (viewingNow === sid) {
           setItems([]);
         }
       }
       return null;
     }
-    if (viewingTrim === sid) {
+    if (viewingNow === sid) {
       // Stash the session's saved selection; an effect applies it once the
       // backends list is loaded (the two fetches race on reload). The reasoning
       // level is later validated by the clamp effect against the chosen model.
@@ -1824,6 +2126,8 @@ export function App() {
         model: (res.data.model || res.data.selectedModelId || "").trim(),
         reasoning: (res.data.selectedReasoning || "").trim(),
       });
+      // A child session locks the composer; an ordinary one carries no marker.
+      setSubagentTranscript(parseSubagentTranscriptMeta(res.data));
     }
     type UILogRow = {
       id: string;
@@ -1866,11 +2170,13 @@ export function App() {
     const next: TranscriptItem[] = [];
     const pushUiNoticesForTurn = (turn: number) => {
       for (const row of noticesByTurn.get(turn) || []) {
-        if (row.level !== "error") continue;
+        // Only the two levels the transcript knows how to render; a level a
+        // newer server may add stays invisible rather than mis-rendered.
+        if (row.level !== "error" && row.level !== "notice") continue;
         next.push({
           id: row.id,
           type: "system_notice",
-          level: "error",
+          level: row.level,
           message: row.message,
           createdAtUtc: row.createdAt,
         });
@@ -1912,7 +2218,10 @@ export function App() {
         assistantInTurn = 0;
         const cat = readMessageCreatedAtUTC(m as Record<string, unknown>);
         const rawContent = m.content || "";
-        const parsedAssets = parseSessionAssetFiles(rawContent);
+        const parsedAssets = sessionMessageFiles(
+          (m as Record<string, unknown>).files,
+          rawContent,
+        );
         next.push({
           id: stableUserItemId(userTurnIdx),
           type: "user_message",
@@ -2066,12 +2375,14 @@ export function App() {
           const pickedArgs =
             titleLower === "question"
               ? pickRicherQuestionToolArgs(cur.argsText, row.argsPreview)
-              : row.argsPreview;
+              : pickRicherToolArgs(cur.argsText, row.argsPreview);
           if (pickedArgs) merged.argsText = pickedArgs;
         }
         if (row.resultPreview) merged.resultText = row.resultPreview;
         if (row.resultPreviewTruncated === true)
           merged.resultWasTruncated = true;
+        const todoPlan = normalizeTodoPlanSnapshot(row.planSnapshot);
+        if (todoPlan !== undefined) merged.todoPlan = todoPlan;
         const st = parseRFC3339ms(row.startedAt);
         const fin = parseRFC3339ms(row.finishedAt);
         if (st != null && fin != null && fin >= st) {
@@ -2088,11 +2399,16 @@ export function App() {
         : undefined
       : prevShadow && prevShadow.length > 0
         ? prevShadow
-        : viewingTrim === sid
+        : viewingNow === sid
           ? itemsRef.current
           : undefined;
+    const mergedTranscript = mergeTranscriptPreferLocalSuffix(
+      next,
+      localForMerge,
+    );
+    revokeSupersededUserMessagePreviews(mergedTranscript, localForMerge);
     const mergedBase = preserveUserMessageFiles(
-      mergeTranscriptPreferLocalSuffix(next, localForMerge),
+      mergedTranscript,
       localForMerge,
     );
     let merged = reattachLocalQuestionPrompts(mergedBase, localForMerge);
@@ -2107,7 +2423,7 @@ export function App() {
       keepLocalTranscriptIfServerEmpty({
         serverNext: merged,
         sid,
-        viewingSid: viewingTrim,
+        viewingSid: viewingNow,
         prevShadow,
         prevItems: itemsRef.current,
       }) ?? merged;
@@ -2130,6 +2446,7 @@ export function App() {
     });
     if (opts?.skipSetItems) {
       streamShadowBySidRef.current.set(sid, applied);
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       return applied;
     }
 
@@ -2156,6 +2473,13 @@ export function App() {
     }
 
     streamShadowBySidRef.current.set(sid, withBranches);
+    evictStaleSessionCaches(viewedSessionIdRef.current);
+    // The viewer moved on while this fetch was in flight (the user picked
+    // another session or went home): keep the shadow for the next visit, but
+    // never paint a stale transcript under the current route.
+    if (viewedSessionIdRef.current.trim() !== sid) {
+      return withBranches;
+    }
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2208,6 +2532,7 @@ export function App() {
       const row = readClientDraftSessions().find((r) => r.localId === id);
       setDraft(row?.draftText || "");
       setDraftHashInLocation(id, { historySidebar: sessionsOpen });
+      evictStaleSessionCaches("");
       return;
     }
     setSessionLoading(true);
@@ -2223,6 +2548,8 @@ export function App() {
     } else {
       setItems([]);
     }
+    streamShadowBySidRef.current.touch(id);
+    evictStaleSessionCaches(id);
   }
 
   function goHome() {
@@ -2230,6 +2557,8 @@ export function App() {
     setSessionsOpen(false);
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     if (fadeOutTimerRef.current !== null) {
       clearTimeout(fadeOutTimerRef.current);
       fadeOutTimerRef.current = null;
@@ -2244,6 +2573,7 @@ export function App() {
     setContextBreakdown(null);
     setDescribePreview(null);
     reasoningDurationMsByContentRef.current = new Map();
+    evictStaleSessionCaches("");
     // Drop any stashed session selection so its restore effect cannot reapply
     // the old session's model over the new chat default.
     setOpenSessionSelection(null);
@@ -2260,13 +2590,15 @@ export function App() {
 
   async function deleteSession(id: string) {
     if (isClientDraftSessionId(id)) {
-      const ok = window.confirm("Delete draft");
+      const ok = await confirm({
+        title: t("confirm.session.deleteDraft.title"),
+        message: t("confirm.session.deleteDraft.message"),
+        confirmLabel: t("common.delete"),
+        variant: "danger",
+      });
       if (!ok) {
         return;
       }
-      armSessionDeleteBackdropSuppressUntil(
-        sessionDeleteBackdropSuppressUntilRef,
-      );
       const rows = removeClientDraftSession(id);
       setClientDraftSessions(rows);
       if (id === activeDraftId || id === sidebarActiveId) {
@@ -2275,13 +2607,15 @@ export function App() {
       }
       return;
     }
-    const ok = window.confirm("Delete chat");
+    const ok = await confirm({
+      title: t("confirm.session.deleteChat.title"),
+      message: t("confirm.session.deleteChat.message"),
+      confirmLabel: t("common.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
-    armSessionDeleteBackdropSuppressUntil(
-      sessionDeleteBackdropSuppressUntilRef,
-    );
     clearQuestionPromptRecords(id);
     await fetch(`/coddy/sessions/${encodeURIComponent(id)}`, {
       method: "DELETE",
@@ -2344,7 +2678,7 @@ export function App() {
     }
     const newSid = (data.newSessionId || "").trim();
     if (!newSid) {
-      showBranchError("Branch creation returned no session ID");
+      showBranchError(t("app.branchCreationNoSessionId"));
       return;
     }
     pendingBranchSendRef.current = { text, sid: newSid };
@@ -2355,6 +2689,7 @@ export function App() {
     setEditingUserMsgIdx(null);
     setEditingAssetNote("");
     setEditingFiles([]);
+    setSubagentTranscript(null);
     if (!sessionId) {
       setItems([]);
       setDraft("");
@@ -2438,7 +2773,10 @@ export function App() {
       if (lifecycle.signal.aborted) {
         return;
       }
-      const exists = !!list?.some((s) => s.id === sessionId);
+      // Child sessions are hidden from History, so a `sub_*` id is fetched on
+      // its own: the messages endpoint serves it and marks it read-only.
+      const listed = !!list?.some((s) => s.id === sessionId);
+      const exists = listed || isSubagentSessionId(sessionId);
       if (exists) {
         const sess = list?.find((s) => s.id === sessionId);
         const statsRes = await fetchJSON<{ stats?: SessionStats | null }>(
@@ -2469,6 +2807,16 @@ export function App() {
           const loaded = await loadMessages(undefined, { freshLoad: noShadow });
           if (lifecycle.signal.aborted) {
             return;
+          }
+          if (
+            loaded === null &&
+            !listed &&
+            viewedSessionIdRef.current.trim() === sessionId
+          ) {
+            // A `sub_*` id the server no longer serves: nothing to keep a
+            // skeleton up for, so it lands on the empty state like any
+            // unknown id.
+            setSessionLoading(false);
           }
           if (activeComposerSidRef.current.has(sessionId)) {
             const sh = streamShadowBySidRef.current.get(sessionId);
@@ -2536,6 +2884,7 @@ export function App() {
           it.resultWasTruncated = update.resultWasTruncated;
         if (update.fullResultText !== undefined)
           it.fullResultText = update.fullResultText;
+        if (update.todoPlan !== undefined) it.todoPlan = update.todoPlan;
         if (update.startedAtMs !== undefined)
           it.startedAtMs = update.startedAtMs;
         if (update.finishedAtMs !== undefined)
@@ -2573,6 +2922,7 @@ export function App() {
         merged.resultWasTruncated = update.resultWasTruncated;
       if (update.fullResultText !== undefined)
         merged.fullResultText = update.fullResultText;
+      if (update.todoPlan !== undefined) merged.todoPlan = update.todoPlan;
       next[idx] = merged;
       return next;
     });
@@ -2608,11 +2958,24 @@ export function App() {
         debouncedRefreshSessionStats(key);
       }
     };
+    const branchContextUsage = (u: ContextUsageUpdate) => {
+      if (viewedSessionIdRef.current.trim() === key) {
+        setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+        debouncedRefreshSessionStats(key);
+      }
+    };
 
     try {
+      // Resume after the last frame this tab consumed, so a dropped connection costs
+      // a gap rather than a replay of the whole turn.
+      const resumeFrom = relayLastEventIdBySidRef.current.get(key) ?? "";
+      const headers: Record<string, string> = { [HDR]: key };
+      if (resumeFrom) {
+        headers["Last-Event-ID"] = resumeFrom;
+      }
       const res = await fetch(
         `/coddy/sessions/${encodeURIComponent(key)}/composer-stream`,
-        { headers: { [HDR]: key }, signal: fetchCtl.signal },
+        { headers, signal: fetchCtl.signal },
       );
       if (!res.ok || !res.body) {
         return;
@@ -2622,6 +2985,9 @@ export function App() {
       const carry = { buf: "" };
       const {
         streamErrorMessage,
+        streamErrorCode,
+        lastEventId,
+        desynced,
         flushToolQueue,
         finishThinking,
         ensureAssistant,
@@ -2633,6 +2999,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -2640,6 +3007,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
@@ -2679,6 +3047,38 @@ export function App() {
           return false;
         }
       };
+
+      if (lastEventId) {
+        relayLastEventIdBySidRef.current.set(key, lastEventId);
+      }
+      // The relay had already dropped frames this tab never saw, so the transcript on
+      // screen has a hole in it. The persisted messages are the source of truth.
+      if (desynced) {
+        await loadMessages(key, {
+          skipSetItems: viewedSessionIdRef.current.trim() !== key,
+          preserveOnError: true,
+        });
+      }
+
+      // The relay had nothing to attach to. That is a state, not a failure: the turn
+      // finished while we were reconnecting, or it ran somewhere this process cannot
+      // see. Drop the placeholder bubble and let the finally block reconcile from the
+      // persisted transcript instead of accusing the user of an error.
+      if (isNoLiveTurnRelayError(streamErrorCode, streamErrorMessage)) {
+        flushToolQueue();
+        finishThinking();
+        applyStreamItems((prev) =>
+          prev.filter(
+            (it) =>
+              !(
+                it.type === "assistant_message" &&
+                it.id === lastAssistantId &&
+                !it.content.trim()
+              ),
+          ),
+        );
+        return;
+      }
 
       if (streamErrorMessage) {
         flushToolQueue();
@@ -2733,6 +3133,13 @@ export function App() {
       }
       streamingAssistantBySidRef.current.delete(key);
       removeActiveComposer(key);
+      // A relay this client cut short (its own POST or a newer relay took
+      // over) did not end the turn; only a stream that ran to its end
+      // spent quota.
+      if (!fetchCtl.signal.aborted) noteUsageTurnEnded(key);
+      // The session is no longer pinned; bound the cache now rather than
+      // only after the reconciliation below succeeds.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
       void loadSessionsList(true);
       const viewing = viewedSessionIdRef.current.trim();
       void loadMessages(key, { skipSetItems: viewing !== key });
@@ -2792,6 +3199,12 @@ export function App() {
           debouncedRefreshSessionStats(streamKey);
         }
       };
+      const branchContextUsage = (u: ContextUsageUpdate) => {
+        if (viewedSessionIdRef.current.trim() === streamKey) {
+          setContextBreakdown((prev) => withContextUsedTokens(prev, u.used));
+          debouncedRefreshSessionStats(streamKey);
+        }
+      };
 
       if (isNewChatFirstSend && sessionIdWhenKnown) {
         startSuggestSessionTitle({
@@ -2828,13 +3241,7 @@ export function App() {
         content: text,
         createdAtUtc: new Date().toISOString(),
         ...(opts?.files && opts.files.length > 0
-          ? {
-              files: opts.files.map((f) => ({
-                name: f.name,
-                mimeType: f.type || "application/octet-stream",
-                sizeBytes: f.size,
-              })),
-            }
+          ? { files: optimisticUserFiles(opts.files) }
           : {}),
       };
       const assistantId = newId("a");
@@ -2864,9 +3271,18 @@ export function App() {
         stream: true,
       };
       const atts = extractAtFileAttachments(text);
-      const profileModel = mode === "agent" || mode === "plan";
+      const profileModel = (PROFILE_MODES as readonly string[]).includes(mode);
       if (atts.length > 0 && profileModel) {
-        reqBody.attachments = atts;
+        // A ranged mention (@path:21-31) sends the line range; the backend reads
+        // those lines from the file and labels the attachment with them.
+        reqBody.attachments = atts.map((a) =>
+          a.startLine == null || a.endLine == null
+            ? { path: a.path }
+            : {
+                path: a.path,
+                source: { startLine: a.startLine, endLine: a.endLine },
+              },
+        );
         const wk = sid.trim() || WORKSPACE_AT_RECENTS_NO_SESSION_KEY;
         for (const a of atts) {
           recordWorkspaceAtRecent(wk, { path_rel: a.path, kind: "file" });
@@ -2912,7 +3328,7 @@ export function App() {
       });
 
       if (res.status === 409) {
-        let msg = "This chat is busy in another client. Try again in a moment.";
+        let msg = t("app.chatBusy");
         try {
           const body = (await res.json()) as {
             error?: { message?: string };
@@ -2951,10 +3367,11 @@ export function App() {
         postAbortBySidRef.current.set(postSessionKey, abortCtl);
         relayAbortBySidRef.current.get(oldKey)?.abort();
         relayAbortBySidRef.current.delete(oldKey);
-        const sh = streamShadowBySidRef.current.get(oldKey);
-        streamShadowBySidRef.current.delete(oldKey);
-        if (sh) {
-          streamShadowBySidRef.current.set(postSessionKey, sh);
+        streamShadowBySidRef.current.rename(oldKey, postSessionKey);
+        const relayCursor = relayLastEventIdBySidRef.current.get(oldKey);
+        relayLastEventIdBySidRef.current.delete(oldKey);
+        if (relayCursor !== undefined) {
+          relayLastEventIdBySidRef.current.set(postSessionKey, relayCursor);
         }
         streamingAssistantBySidRef.current.delete(oldKey);
         streamingAssistantBySidRef.current.set(postSessionKey, assistantId);
@@ -2973,7 +3390,7 @@ export function App() {
 
       if (!res.ok || !res.body) {
         const msg = !res.body
-          ? "Empty response body"
+          ? t("app.emptyResponseBody")
           : remoteHttpErrorMessage(res.status, getEnv());
         applyStreamItems((prev) => [
           ...prev,
@@ -3008,6 +3425,7 @@ export function App() {
         assistantId,
         applyStreamItems,
         setTokenUsage: branchTokenUsage,
+        setContextUsage: branchContextUsage,
         tokenBaselineRef,
         reasoningDurationMsByContentRef,
         newId,
@@ -3015,6 +3433,7 @@ export function App() {
         applyMemoryChunkToItems,
         onQuestion: handleComposerSseQuestion,
         onPermission: handleComposerSsePermission,
+        onProviderUsage: providerUsageState.applyPushed,
       });
 
       const syncAssistantFromServer = async () => {
@@ -3153,6 +3572,7 @@ export function App() {
       }
     } finally {
       postAbortBySidRef.current.delete(postSessionKey);
+      noteUsageTurnEnded(postSessionKey);
       if (!completedNormally && assistantStreamId) {
         const aid = assistantStreamId;
         const now = Date.now();
@@ -3189,6 +3609,9 @@ export function App() {
       removeActiveComposer(postSessionKey);
       streamingAssistantBySidRef.current.delete(postSessionKey);
       releaseSessionId?.(sidEffective);
+      // A background stream that just finished on a no-longer-recent session
+      // should release its transcript without waiting for the next navigation.
+      evictStaleSessionCaches(viewedSessionIdRef.current);
     }
   }
 
@@ -3310,14 +3733,82 @@ export function App() {
       return;
     }
     setSessionsOpen(false);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSchedulerOpen(true);
     setSchedulerEditor(null);
     setSchedulerListHash();
   }, [schedulerHttpLinked]);
 
+  const openTasksFromNav = useCallback(() => {
+    const sid = sessionId.trim();
+    if (!sid) {
+      return;
+    }
+    setSessionsOpen(false);
+    setSchedulerOpen(false);
+    setSchedulerEditor(null);
+    setSettingsRoute(false);
+    setTasksOpen(true);
+    setTasksSelectedId(null);
+    setSessionTasksHash(sid);
+  }, [sessionId]);
+
+  const closeTasksDrawer = useCallback(() => {
+    setTasksOpen(false);
+    setTasksSelectedId(null);
+    if (sessionsOpen) {
+      setHistoryHash();
+      return;
+    }
+    const sid = sessionId.trim();
+    if (sid) {
+      setSessionHashInLocation(sid);
+    } else if (window.location.hash) {
+      history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      );
+    }
+  }, [sessionId, sessionsOpen]);
+
+  const openBackgroundTask = useCallback(
+    (taskId: string) => {
+      const sid = sessionId.trim();
+      if (!sid) {
+        return;
+      }
+      setTasksOpen(true);
+      setTasksSelectedId(taskId);
+      setSessionTasksHash(sid, taskId);
+    },
+    [sessionId],
+  );
+
+  const backToBackgroundTaskList = useCallback(() => {
+    const sid = sessionId.trim();
+    setTasksSelectedId(null);
+    if (sid) {
+      setSessionTasksHash(sid);
+    }
+  }, [sessionId]);
+
+  /** Opens a session in this tab: the child transcript behind an agent task,
+   *  or the parent chat from a read-only notice. Same path as a History pick,
+   *  so the panel closes and the hash becomes `#/s/<id>`. */
+  const openSessionInPlace = (targetId: string) => {
+    const id = targetId.trim();
+    if (id) {
+      pickSession(id);
+    }
+  };
+
   const openSettingsFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSessionsOpen(false);
     setSettingsHash();
   }, []);
@@ -3334,10 +3825,28 @@ export function App() {
   const onOpenHistoryFromNav = useCallback(() => {
     setSchedulerOpen(false);
     setSchedulerEditor(null);
+    setTasksOpen(false);
+    setTasksSelectedId(null);
     setSettingsRoute(false);
     setSessionsOpen(true);
     setHistoryHash();
   }, []);
+
+  /** Background tasks indexed by the tool call that started them, so a
+   *  transcript row can keep ticking after the tool itself returned. */
+  const backgroundTasksByToolCallId = useMemo(() => {
+    const byToolCall = new Map<string, BackgroundTask>();
+    for (const t of backgroundTasks) {
+      const tc = (t.tool_call_id || "").trim();
+      if (tc) {
+        byToolCall.set(tc, t);
+      }
+    }
+    return byToolCall;
+  }, [backgroundTasks]);
+
+  // The panel belongs to a chat, so it only exists when one is open.
+  const tasksPanelOpen = tasksOpen && !!sessionId.trim();
 
   const shellBackdropOpen =
     sessionsOpen ||
@@ -3403,6 +3912,53 @@ export function App() {
     });
   };
 
+  // Identity-stable handlers for the React.memo message rows: a shell
+  // re-render (every streamed token) must not invalidate their props.
+  const handleEditUserMessage = useStableHandler(
+    (content: string, userMsgIdx: number) => {
+      const assetNote = extractSessionAssetsXml(content);
+      setDraft(stripCoddyAttachmentsForUserDisplay(content));
+      setEditingUserMsgIdx(userMsgIdx);
+      setEditingAssetNote(assetNote);
+      setEditingFiles(parseSessionAssetFiles(content));
+    },
+  );
+  const handleStopBackgroundTask = useStableHandler((id: string) => {
+    void stopBackgroundTaskById(id);
+  });
+  const handleRetryLast = useStableHandler(
+    () => void streamResponses(lastUserText),
+  );
+  const handleFetchToolCallFull = useStableHandler(
+    async (toolCallId: string) => {
+      if (!sessionId) return;
+      const det = await fetchJSON<{
+        args?: string;
+        result?: string;
+        meta?: {
+          status?: string;
+          kind?: string;
+          name?: string;
+          planSnapshot?: unknown;
+        };
+      }>(
+        `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
+        { headers },
+      );
+      if (!det.ok || !det.data) return;
+      const meta = det.data.meta || {};
+      const patch: Record<string, unknown> = { toolCallId };
+      if (meta.name) patch.title = meta.name;
+      if (meta.kind) patch.kind = meta.kind;
+      if (meta.status) patch.status = meta.status;
+      const todoPlan = normalizeTodoPlanSnapshot(meta.planSnapshot);
+      if (todoPlan !== undefined) patch.todoPlan = todoPlan;
+      if (det.data.args) patch.argsText = det.data.args;
+      if (det.data.result !== undefined) patch.fullResultText = det.data.result;
+      upsertToolCall(patch as any);
+    },
+  );
+
   return (
     <div
       className={[
@@ -3428,7 +3984,11 @@ export function App() {
       />
 
       <div
-        className={["shell-main", sessionsOpen ? "shell-history-open" : ""]
+        className={[
+          "shell-main",
+          sessionsOpen ? "shell-history-open" : "",
+          tasksPanelOpen ? "shell-tasks-open" : "",
+        ]
           .filter(Boolean)
           .join(" ")}
         style={
@@ -3442,13 +4002,6 @@ export function App() {
         <div
           className={`backdrop ${shellBackdropOpen ? "is-open" : ""}`}
           onClick={() => {
-            if (
-              shouldSuppressShellBackdropClose(
-                sessionDeleteBackdropSuppressUntilRef,
-              )
-            ) {
-              return;
-            }
             if (shellBackdropOpen) {
               closeAllShellDrawers();
             }
@@ -3529,9 +4082,39 @@ export function App() {
             />
           </div>
         ) : null}
+        {tasksPanelOpen ? (
+          <BackgroundTasksPanel
+            open
+            selectedTaskId={tasksSelectedId}
+            tasks={backgroundTasks}
+            selectedOutput={backgroundOutput}
+            listError={backgroundListError}
+            loading={backgroundListLoading}
+            nowMs={backgroundNowMs}
+            onClose={closeTasksDrawer}
+            onOpenTask={openBackgroundTask}
+            onBackToList={backToBackgroundTaskList}
+            onStopTask={(id) => {
+              void stopBackgroundTaskById(id);
+            }}
+            onClearFinished={() => {
+              void clearFinishedTasks();
+            }}
+            onOpenSession={openSessionInPlace}
+          />
+        ) : null}
+
         <ChatScreen
           title={currentTitle}
           sessionId={sessionId}
+          backgroundTasks={backgroundTasks}
+          onOpenBackgroundTasks={openTasksFromNav}
+          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+          backgroundNowMs={backgroundNowMs}
+          onOpenBackgroundTask={openBackgroundTask}
+          onStopBackgroundTask={handleStopBackgroundTask}
+          subagentTranscript={subagentTranscript}
+          onOpenSession={openSessionInPlace}
           workspaceCtx={workspaceCtx}
           worktreePref={worktreePref}
           workspaceLocked={items.length > 0}
@@ -3550,6 +4133,9 @@ export function App() {
           items={items}
           draft={draft}
           tokenUsage={tokenUsage}
+          providerUsage={providerUsageState.usage}
+          usageBannerDismissedKey={providerUsageState.dismissedKey}
+          onUsageBannerDismiss={providerUsageState.dismissBanner}
           contextPct={contextPct}
           maxContextTokens={maxContextTokens}
           contextBreakdown={contextBreakdown}
@@ -3573,8 +4159,8 @@ export function App() {
           onModeChange={setMode}
           onDraftChange={setDraft}
           generating={generating}
-          {...(!generating && lastUserText.trim()
-            ? { onRetryLast: () => void streamResponses(lastUserText) }
+          {...(!generating && lastUserText.trim() && !subagentTranscript
+            ? { onRetryLast: handleRetryLast }
             : {})}
           onContextRingOpen={() => {
             const sid = sessionId.trim();
@@ -3594,51 +4180,56 @@ export function App() {
               ),
             );
           }}
-          onPlanDocumentRun={(slug) => {
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            void streamResponses("Implement the plan.", {
-              modeOverride: "agent",
-              runPlanSlug: slug,
-            });
-          }}
-          onPlanDocumentDiscard={async (itemId, slug) => {
-            const sid = sessionId.trim();
-            if (!sid) return;
-            try {
-              await fetch(
-                `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                {
-                  method: "DELETE",
-                  headers,
+          // A subagent transcript is read-only: like onEdit below, Run plan and
+          // Discard are withheld rather than stubbed, so the plan card renders
+          // without its footer and its editor is read-only.
+          {...(subagentTranscript
+            ? {}
+            : {
+                onPlanDocumentRun: (slug: string) => {
+                  if (
+                    sessionId.trim() &&
+                    activeComposerSidRef.current.has(sessionId.trim())
+                  ) {
+                    return;
+                  }
+                  void streamResponses(t("chat.runPlanMessage"), {
+                    modeOverride: "agent",
+                    runPlanSlug: slug,
+                  });
                 },
-              );
-            } catch {
-              return;
-            }
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, discarded: true }
-                  : x,
-              ),
-            );
-          }}
-          onEdit={(content, userMsgIdx) => {
-            const assetNote = extractSessionAssetsXml(content);
-            setDraft(stripCoddyAttachmentsForUserDisplay(content));
-            setEditingUserMsgIdx(userMsgIdx);
-            setEditingAssetNote(assetNote);
-            setEditingFiles(parseSessionAssetFiles(content));
-          }}
+                onPlanDocumentDiscard: async (itemId: string, slug: string) => {
+                  const sid = sessionId.trim();
+                  if (!sid) return;
+                  try {
+                    await fetch(
+                      `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                      {
+                        method: "DELETE",
+                        headers,
+                      },
+                    );
+                  } catch {
+                    return;
+                  }
+                  setItems((prev) =>
+                    prev.map((x) =>
+                      x.id === itemId && x.type === "plan_document"
+                        ? { ...x, discarded: true }
+                        : x,
+                    ),
+                  );
+                },
+              })}
+          {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
           {...(editingFiles.length > 0 ? { editingFiles } : {})}
           onBranchSwitch={(sid) => switchBranch(sid)}
           {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
           onSend={(text: string, files?: File[]) => {
+            // A subagent transcript is read-only: the server answers 409.
+            if (subagentTranscript) {
+              return;
+            }
             if (
               sessionId.trim() &&
               activeComposerSidRef.current.has(sessionId.trim())
@@ -3658,27 +4249,7 @@ export function App() {
               void streamResponses(text, files ? { files } : undefined);
             }
           }}
-          onFetchToolCallFull={async (toolCallId: string) => {
-            if (!sessionId) return;
-            const det = await fetchJSON<{
-              args?: string;
-              result?: string;
-              meta?: { status?: string; kind?: string; name?: string };
-            }>(
-              `/coddy/sessions/${encodeURIComponent(sessionId)}/tool-calls/${encodeURIComponent(toolCallId)}`,
-              { headers },
-            );
-            if (!det.ok || !det.data) return;
-            const meta = det.data.meta || {};
-            const patch: Record<string, unknown> = { toolCallId };
-            if (meta.name) patch.title = meta.name;
-            if (meta.kind) patch.kind = meta.kind;
-            if (meta.status) patch.status = meta.status;
-            if (det.data.args) patch.argsText = det.data.args;
-            if (det.data.result !== undefined)
-              patch.fullResultText = det.data.result;
-            upsertToolCall(patch as any);
-          }}
+          onFetchToolCallFull={handleFetchToolCallFull}
         />
       </div>
     </div>

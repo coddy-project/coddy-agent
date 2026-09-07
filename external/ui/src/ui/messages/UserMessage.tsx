@@ -1,3 +1,6 @@
+import { memo } from "react";
+
+import { useT } from "../i18n/I18nProvider";
 import { stripCoddyAttachmentsForUserDisplay } from "../skills/stripCoddyAttachments";
 import { segmentSlashKnownSpans } from "../skills/segmentComposerSlashSpans";
 import {
@@ -7,22 +10,34 @@ import {
 import { MessageCopyIconButton } from "./MessageCopyIconButton";
 import { fileTypeIcon } from "./fileTypeIcon";
 
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+function fmtBytes(
+  n: number,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (n < 1024) return t("composer.bytesB", { n });
+  if (n < 1024 * 1024)
+    return t("composer.bytesKB", { n: (n / 1024).toFixed(1) });
+  return t("composer.bytesMB", { n: (n / (1024 * 1024)).toFixed(1) });
 }
 
-export function UserMessage(props: {
+export const UserMessage = memo(function UserMessage(props: {
   content: string;
   createdAtUtc?: string;
   /** Known skill names — renders `/name` tokens as chip spans when the name is in the set. */
   knownSkillNames?: Set<string>;
   /** Called when the user clicks the Edit button. */
-  onEdit?: (content: string) => void;
-  /** Files attached to this message. */
-  files?: { name: string; mimeType: string; sizeBytes?: number }[];
+  onEdit?: (content: string, userMsgIndex: number) => void;
+  /** Index of this message among user messages; passed back to onEdit. */
+  userMsgIndex?: number;
+  /** Files attached to this message. `previewUrl` is a client-only blob URL (until reload). */
+  files?: {
+    name: string;
+    mimeType: string;
+    sizeBytes?: number;
+    previewUrl?: string;
+  }[];
 }) {
+  const { t } = useT();
   const display = stripCoddyAttachmentsForUserDisplay(props.content);
   const timeHM = props.createdAtUtc
     ? formatUtcToLocalHM(props.createdAtUtc)
@@ -39,15 +54,34 @@ export function UserMessage(props: {
   return (
     <div className="msg-user-stack">
       {props.files && props.files.length > 0 ? (
-        <div className="msg-user-files" aria-label="Attached files">
+        <div
+          className="msg-user-files"
+          aria-label={t("messages.attachedFiles")}
+        >
           {props.files.map((f, idx) => {
             const { svg, label } = fileTypeIcon(f.mimeType, f.name);
-            const tip = f.sizeBytes != null
-              ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes)}`
-              : `${f.name}\n${label}`;
+            const tip =
+              f.sizeBytes != null
+                ? `${f.name}\n${label} · ${fmtBytes(f.sizeBytes, t)}`
+                : `${f.name}\n${label}`;
             return (
-              <span key={idx} className="msg-user-file-chip" title={tip}>
-                <span className="msg-user-file-chip-icon" aria-hidden="true">{svg}</span>
+              <span
+                key={idx}
+                className={`msg-user-file-chip${f.previewUrl ? " msg-user-file-chip--image" : ""}`}
+                title={tip}
+              >
+                <span className="msg-user-file-chip-icon" aria-hidden="true">
+                  {f.previewUrl ? (
+                    <img
+                      className="msg-user-file-thumb"
+                      src={f.previewUrl}
+                      alt=""
+                      data-testid="msg-user-file-thumb"
+                    />
+                  ) : (
+                    svg
+                  )}
+                </span>
                 <span className="msg-user-file-chip-name">{f.name}</span>
               </span>
             );
@@ -77,10 +111,10 @@ export function UserMessage(props: {
           <button
             type="button"
             className="msg-user-edit"
-            aria-label="Edit message"
-            title="Edit message"
+            aria-label={t("messages.editMessage")}
+            title={t("messages.editMessage")}
             data-testid="user-message-edit"
-            onClick={() => props.onEdit!(props.content)}
+            onClick={() => props.onEdit!(props.content, props.userMsgIndex ?? 0)}
           >
             ✎
           </button>
@@ -89,8 +123,8 @@ export function UserMessage(props: {
       <div className="msg-user-foot">
         <MessageCopyIconButton
           textToCopy={display}
-          tooltip="Copy message"
-          ariaLabel="Copy message"
+          tooltip={t("messages.copyMessage")}
+          ariaLabel={t("messages.copyMessage")}
           dataTestId="user-message-copy"
         />
         {timeHM ? (
@@ -105,4 +139,4 @@ export function UserMessage(props: {
       </div>
     </div>
   );
-}
+});

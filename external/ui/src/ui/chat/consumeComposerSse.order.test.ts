@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import {
   consumeComposerSseReader,
+  minMeasurableThinkingMs,
   type ConsumeComposerSseParams,
 } from "./consumeComposerSse";
 import type { TranscriptItem } from "./types";
@@ -42,6 +43,7 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
       items.push(...next);
     },
     setTokenUsage: () => {},
+    setContextUsage: () => {},
     tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
     reasoningDurationMsByContentRef: { current: new Map() },
     newId: (p) => `${p}-${idc++}`,
@@ -52,6 +54,32 @@ async function drive(sse: string): Promise<TranscriptItem[]> {
   res.flushToolQueue();
   return items;
 }
+
+test("usage_update replaces the displayed current context after compaction", async () => {
+  vi.stubGlobal("requestAnimationFrame", () => 0);
+  const updates: Array<{ used: number; size: number }> = [];
+  const params: ConsumeComposerSseParams = {
+    reader: mockReader(
+      `event: usage_update\ndata: ${JSON.stringify({ sessionUpdate: "usage_update", used: 42000, size: 128000 })}\n\n` +
+        `data: [DONE]\n\n`,
+    ),
+    dec: new TextDecoder(),
+    carry: { buf: "" },
+    assistantId: "a-init",
+    applyStreamItems: () => {},
+    setTokenUsage: () => {},
+    setContextUsage: (u) => updates.push(u),
+    tokenBaselineRef: { current: { input: 0, output: 0, total: 0 } },
+    reasoningDurationMsByContentRef: { current: new Map() },
+    newId: (p) => p,
+    applyMemoryPhaseToItems: (prev) => prev,
+    applyMemoryChunkToItems: (prev) => prev,
+  };
+
+  await consumeComposerSseReader(params);
+
+  expect(updates).toEqual([{ used: 42000, size: 128000 }]);
+});
 
 // Regression for the streaming-order bug: while a turn streams, text emitted
 // AFTER a tool call must render BELOW that tool (interleaved in arrival order),
@@ -74,6 +102,25 @@ test("streaming interleaves text and tool calls in arrival order", async () => {
         : it.type,
   );
   expect(shape).toEqual(["text:Reading files. ", "tool:tc1", "text:All good."]);
+});
+
+test("completed todo calls keep the plan snapshot sent with their status update", async () => {
+  const todoPlan = [
+    { content: "Inspect existing cards", status: "completed" },
+    { content: "Render the preview", status: "in_progress" },
+  ];
+  const sse =
+    `event: tool_call\ndata: ${JSON.stringify({ toolCallId: "todo-1", title: "coddy_todo_item_update", kind: "todo", status: "pending" })}\n\n` +
+    `event: tool_call_update\ndata: ${JSON.stringify({ toolCallId: "todo-1", status: "completed", content: [{ content: { text: "updated item 1" } }], _meta: { coddy: { todoPlan } } })}\n\n` +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const call = items.find(
+    (item): item is Extract<TranscriptItem, { type: "tool_call" }> =>
+      item.type === "tool_call" && item.toolCallId === "todo-1",
+  );
+
+  expect(call?.todoPlan).toEqual(todoPlan);
 });
 
 // Two tool calls with text before, between, and after must all interleave.
@@ -103,4 +150,54 @@ test("streaming interleaves across multiple tool calls", async () => {
     "tool:t2",
     "text:third",
   ]);
+});
+
+// A model configured with stream: false delivers reasoning and answer in the same
+// flush, so the client-side clock measures the gap between two frames, not how long
+// the model thought. The row must report nothing rather than a fabricated duration.
+test("thinking row from a non-streamed response carries no duration", async () => {
+  const sse =
+    `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Deliberating." } }] })}\n\n` +
+    textEvent("Answer after thinking.") +
+    `data: [DONE]\n\n`;
+
+  const items = await drive(sse);
+  const thinking = items.find((it) => it.type === "thinking");
+
+  expect(thinking).toBeDefined();
+  expect(thinking && "status" in thinking ? thinking.status : "").toBe(
+    "completed",
+  );
+  expect(
+    thinking && "durationMs" in thinking ? thinking.durationMs : undefined,
+  ).toBeUndefined();
+});
+
+// A genuinely streamed turn still reports how long the thinking took.
+test("thinking row from a streamed response keeps its measured duration", async () => {
+  vi.useFakeTimers();
+  try {
+    const sse =
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "Deliberating." } }] })}\n\n` +
+      textEvent("Answer after thinking.") +
+      `data: [DONE]\n\n`;
+
+    let now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      const v = now;
+      now += 400; // every reading advances, so the gap clears the floor
+      return v;
+    });
+
+    const items = await drive(sse);
+    const thinking = items.find((it) => it.type === "thinking");
+    const dur =
+      thinking && "durationMs" in thinking ? thinking.durationMs : undefined;
+
+    expect(typeof dur).toBe("number");
+    expect(dur as number).toBeGreaterThanOrEqual(minMeasurableThinkingMs);
+  } finally {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  }
 });

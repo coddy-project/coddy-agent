@@ -15,6 +15,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -51,6 +52,7 @@ func Run(args []string, deps CommandDeps) error {
 	authToken := fs.String("auth-token", "", "bearer token required on /v1/* and /coddy/* routes (else CODDY_HTTP_TOKEN, else httpserver.auth_token). Empty = no auth")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
+	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage of http:\n")
@@ -84,6 +86,9 @@ func Run(args []string, deps CommandDeps) error {
 		cfg.Scheduler.Enabled = true
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
+	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+		return err
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
@@ -101,6 +106,8 @@ func Run(args []string, deps CommandDeps) error {
 	defer func() { _ = logCloser.Close() }()
 
 	log.Info("starting HTTP server", "version", version.Get(), "config", paths.ConfigPath, "workspace", paths.CWD)
+	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
@@ -114,6 +121,7 @@ func Run(args []string, deps CommandDeps) error {
 
 	var srv *acp.Server
 	var mgr *session.Manager
+	var s *Server
 	live := func() *config.Config {
 		if mgr != nil {
 			return mgr.Cfg()
@@ -124,6 +132,17 @@ func Run(args []string, deps CommandDeps) error {
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
 		c := live()
 		loop := agent.NewAgent(c, st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			warnings, err := mgr.ReloadConfigForSession(ctx, st)
+			if err == nil && s != nil {
+				s.ReplaceConfig(mgr.Cfg())
+				s.invalidateSlashCache()
+			}
+			return warnings, err
+		})
+		// The manager owns child sessions; without this hook spawn_agent
+		// answers that subagents are not available in this session.
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
 	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
@@ -141,7 +160,7 @@ func Run(args []string, deps CommandDeps) error {
 		listenAddr = net.JoinHostPort(cfg.HTTPServer.DefaultListenHost(), cfg.HTTPServer.DefaultListenPortString())
 	}
 
-	s := New(cfg, mgr, log, paths.CWD)
+	s = New(cfg, mgr, log, paths.CWD)
 
 	// Out-of-band bearer tokens (--auth-token, then CODDY_HTTP_TOKEN) enable auth without
 	// writing the secret into config.yaml and survive PUT /coddy/config hot reloads.

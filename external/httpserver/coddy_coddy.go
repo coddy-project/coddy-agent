@@ -6,15 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
@@ -118,12 +122,16 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("GET /coddy/workspace/files", s.coddyWorkspaceFilesGet)
 	s.mux.HandleFunc("GET /coddy/workspace/context", s.coddyWorkspaceContextGet)
 	s.mux.HandleFunc("GET /coddy/workspace/folders", s.coddyWorkspaceFoldersGet)
+	s.mux.HandleFunc("GET /coddy/workspace/file", s.coddyWorkspaceFileGet)
 	s.mux.HandleFunc("GET /coddy/slash-commands", s.coddySlashCommandsGet)
 	s.mux.HandleFunc("GET /coddy/commands", s.coddyCommandsGet)
+	s.mux.HandleFunc("GET /coddy/events", s.coddyEventsStream)
 	s.mux.HandleFunc("GET /coddy/sessions", s.coddySessionsList)
 	s.mux.HandleFunc("POST /coddy/describe", s.coddyDescribePost)
+	s.mux.HandleFunc("POST /coddy/enhance-prompt", s.coddyEnhancePromptPost)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/activity", s.coddySessionActivityGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/messages", s.coddySessionMessagesGet)
+	s.mux.HandleFunc("GET /coddy/sessions/{id}/assets/{name}/thumbnail", s.coddySessionAssetThumbnailGet)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/composer-stream", s.coddySessionComposerStream)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls", s.coddyToolCallsList)
 	s.mux.HandleFunc("GET /coddy/sessions/{id}/tool-calls/{toolCallId}", s.coddyToolCallGet)
@@ -140,9 +148,13 @@ func (s *Server) registerCoddyRoutes() {
 	s.mux.HandleFunc("POST /coddy/sessions/{id}/plan/archive", s.coddyPlanArchivePost)
 	s.registerDesignPlanRoutes()
 	s.registerMemoryRoutes()
+	s.registerBackgroundRoutes()
+	s.registerSubagentRoutes()
+	s.registerHookRoutes()
 	s.registerSchedulerRoutes()
 	s.registerBranchRoutes()
 	s.registerSkillsManagementRoutes()
+	s.registerMCPManagementRoutes()
 }
 
 func (s *Server) coddySessionCancelGeneration(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +252,12 @@ func (s *Server) coddySessionPermissionPost(w http.ResponseWriter, r *http.Reque
 	}
 	ok := CompletePermissionAnswer(id, tcid, res)
 	if !ok {
+		// A child session never owns a prompt of its own (its requests are
+		// relayed to the parent chat), and a resume would build an agent on
+		// it; a read-only transcript answers 409 instead of 404.
+		if rejectSubagentTurn(w, s.persistedSessionState(r.Context(), id)) {
+			return
+		}
 		if s.tryResumePendingPermission(r.Context(), id, tcid, res) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -331,10 +349,11 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 	resp, err := provider.Complete(ctx, []llm.Message{
 		{
 			Role: llm.RoleSystem,
-			Content: "You generate short descriptions for chat titles and command labels. " +
-				"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
-				"Match the user's language when possible. " +
-				"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase.",
+			Content: prompts.WithIdentity(
+				"You generate short descriptions for chat titles and command labels. " +
+					"Return exactly one short phrase (3 to 8 words) describing what the user's text is about. " +
+					"Match the user's language when possible. " +
+					"No quotes, no preamble, no headings, no line breaks, no numbering. Output only the phrase."),
 		},
 		{Role: llm.RoleUser, Content: raw},
 	}, nil)
@@ -357,16 +376,17 @@ func (s *Server) coddyDescribePost(w http.ResponseWriter, r *http.Request) {
 }
 
 type coddyToolCallRow struct {
-	ToolCallID             string `json:"toolCallId"`
-	Name                   string `json:"name,omitempty"`
-	Kind                   string `json:"kind,omitempty"`
-	Status                 string `json:"status,omitempty"`
-	StartedAt              string `json:"startedAt,omitempty"`
-	FinishedAt             string `json:"finishedAt,omitempty"`
-	ArgsPreview            string `json:"argsPreview,omitempty"`
-	ResultPreview          string `json:"resultPreview,omitempty"`
-	ResultPreviewTruncated bool   `json:"resultPreviewTruncated,omitempty"`
-	ResultTotalLines       int    `json:"resultTotalLines,omitempty"`
+	ToolCallID             string          `json:"toolCallId"`
+	Name                   string          `json:"name,omitempty"`
+	Kind                   string          `json:"kind,omitempty"`
+	Status                 string          `json:"status,omitempty"`
+	StartedAt              string          `json:"startedAt,omitempty"`
+	FinishedAt             string          `json:"finishedAt,omitempty"`
+	ArgsPreview            string          `json:"argsPreview,omitempty"`
+	ResultPreview          string          `json:"resultPreview,omitempty"`
+	ResultPreviewTruncated bool            `json:"resultPreviewTruncated,omitempty"`
+	ResultTotalLines       int             `json:"resultTotalLines,omitempty"`
+	PlanSnapshot           []acp.PlanEntry `json:"planSnapshot,omitempty"`
 }
 
 func previewText(s string, max int) string {
@@ -528,6 +548,7 @@ func (s *Server) coddyToolCallsList(w http.ResponseWriter, r *http.Request) {
 				}
 				ordered[i].row.StartedAt = meta.StartedAt
 				ordered[i].row.FinishedAt = meta.FinishedAt
+				ordered[i].row.PlanSnapshot = append([]acp.PlanEntry(nil), meta.PlanSnapshot...)
 			}
 			if args, err := session.ReadToolCallArgs(sd, id); err == nil {
 				ordered[i].row.ArgsPreview = previewText(args, 200)
@@ -694,7 +715,11 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
-	rows, err := fs.ListSnapshots("", includeScheduler)
+	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
+	rows, err := fs.ListSnapshotsWith(session.ListOptions{
+		IncludeSchedulerRuns: includeScheduler,
+		IncludeSubagents:     includeSubagents,
+	})
 	if err != nil {
 		s.log.Error("coddy sessions list", "error", err)
 		http.Error(w, `{"error":{"message":"list failed"}}`, http.StatusInternalServerError)
@@ -741,9 +766,14 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 		if row.CWD != "" {
 			ent["cwd"] = row.CWD
 		}
+		if includeSubagents {
+			if link := subagentRowLink(fs, row.SessionID); link != nil {
+				ent["subagent"] = link
+			}
+		}
 		if includeActivity {
 			dir := fs.SessionPath(row.SessionID)
-			turnActive := session.TurnLockHeld(dir)
+			turnActive := s.mgr.SessionTurnActiveInProcess(row.SessionID) || session.TurnLockHeld(dir)
 			actSeq, readSeq, _ := fs.ReadDiskActivity(row.SessionID)
 			ent["turnActive"] = turnActive
 			ent["activitySeq"] = actSeq
@@ -786,7 +816,7 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	dir := fs.SessionPath(id)
-	turnActive := session.TurnLockHeld(dir)
+	turnActive := s.mgr.SessionTurnActiveInProcess(id) || session.TurnLockHeld(dir)
 	actSeq, readSeq, err := fs.ReadDiskActivity(id)
 	if err != nil {
 		s.log.Error("coddy session activity", "error", err)
@@ -806,6 +836,10 @@ func (s *Server) coddySessionActivityGet(w http.ResponseWriter, r *http.Request)
 }
 
 func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
+	return llmMsgsToCoddyOpenAIForSession("", msgs)
+}
+
+func llmMsgsToCoddyOpenAIForSession(sessionID string, msgs []llm.Message) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(msgs))
 	for _, m := range msgs {
 		item := map[string]interface{}{
@@ -844,6 +878,26 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 		if m.CompactionSummary {
 			item["compaction_summary"] = true
 		}
+		if m.Role == llm.RoleUser && len(m.ImageParts) > 0 {
+			files := make([]map[string]interface{}, 0, len(m.ImageParts))
+			for _, part := range m.ImageParts {
+				name := strings.TrimSpace(part.Name)
+				if name == "" && part.FilePath != "" {
+					name = filepath.Base(part.FilePath)
+				}
+				file := map[string]interface{}{
+					"name":      name,
+					"mime_type": imagePartMIMEType(part),
+				}
+				if sessionID != "" && part.FilePath != "" && part.ThumbnailPath != "" {
+					assetName := filepath.Base(part.FilePath)
+					file["preview_url"] = "/coddy/sessions/" + url.PathEscape(sessionID) +
+						"/assets/" + url.PathEscape(assetName) + "/thumbnail"
+				}
+				files = append(files, file)
+			}
+			item["files"] = files
+		}
 		if m.PlanDocument != nil {
 			item["plan_document"] = map[string]interface{}{
 				"slug":      m.PlanDocument.Slug,
@@ -861,6 +915,70 @@ func llmMsgsToCoddyOpenAI(msgs []llm.Message) []map[string]interface{} {
 	return out
 }
 
+func imagePartMIMEType(part llm.ImagePart) string {
+	if strings.HasPrefix(part.DataURL, "data:") {
+		end := strings.IndexAny(part.DataURL[5:], ";,")
+		if end >= 0 {
+			raw := part.DataURL[5 : 5+end]
+			if mediaType, _, err := mime.ParseMediaType(raw); err == nil && mediaType != "" {
+				return mediaType
+			}
+		}
+	}
+	for _, name := range []string{part.Name, part.FilePath} {
+		if mediaType := mime.TypeByExtension(filepath.Ext(name)); mediaType != "" {
+			if base, _, err := mime.ParseMediaType(mediaType); err == nil {
+				return base
+			}
+			return mediaType
+		}
+	}
+	return "application/octet-stream"
+}
+
+func (s *Server) coddySessionAssetThumbnailGet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	st := s.coddyEnsureLoaded(w, r, id)
+	if st == nil {
+		return
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" || name == "." || name == ".." || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
+		http.Error(w, `{"error":{"message":"invalid asset name"}}`, http.StatusBadRequest)
+		return
+	}
+	sessionDir := strings.TrimSpace(st.GetPersistedSessionDir())
+	if sessionDir == "" {
+		http.NotFound(w, r)
+		return
+	}
+	path := session.AssetThumbnailPath(sessionDir, name)
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.log.Error("open session asset thumbnail", "error", err)
+		http.Error(w, `{"error":{"message":"thumbnail unavailable"}}`, http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, name+".png", info.ModTime(), f)
+}
+
 func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
@@ -874,12 +992,19 @@ func (s *Server) coddySessionMessagesGet(w http.ResponseWriter, r *http.Request)
 	out := map[string]interface{}{
 		"object":    "coddy.messages",
 		"sessionId": id,
-		"messages":  llmMsgsToCoddyOpenAI(st.GetMessages()),
+		"messages":  llmMsgsToCoddyOpenAIForSession(id, st.GetMessages()),
+	}
+	// A child session is a read-only transcript: the SPA drops the composer
+	// and links back to the parent chat and to the task in its drawer.
+	if meta := st.Subagent(); meta != nil {
+		out["readOnly"] = true
+		out["subagent"] = subagentLink(meta.ParentSessionID, meta.Name, meta.TaskID)
 	}
 	if s.activeCfg() != nil {
 		out["selectedModelId"] = strings.TrimSpace(st.GetSelectedModelID())
 		out["model"] = effectiveYAMLModel(s.activeCfg(), st)
 		out["selectedReasoning"] = st.EffectiveReasoning(s.activeCfg())
+		out["mode"] = string(st.GetMode())
 	}
 	if u := st.GetUILog(); len(u) > 0 {
 		rows := make([]map[string]interface{}, 0, len(u))
@@ -991,13 +1116,29 @@ func (s *Server) coddySessionDelete(w http.ResponseWriter, r *http.Request) {
 	if fs == nil {
 		return
 	}
-	s.mgr.ForgetLiveSession(id)
-	if err := os.RemoveAll(fs.SessionPath(id)); err != nil {
-		if !os.IsNotExist(err) {
-			s.log.Error("coddy session delete", "error", err)
-			http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+	// Retract the session from the branch file of whatever it forked from, so the
+	// branch navigator stops offering a thread that no longer exists. Read-side
+	// filtering covers the failure case, so a prune error must not block delete.
+	// It reads the session's own branch file, so it runs before the bundle goes.
+	if err := s.mgr.PruneBranchRefs(id); err != nil {
+		s.log.Warn("prune branch refs on delete", "session", id, "error", err)
+	}
+	// The manager removes the whole tree: the tasks representing this session's
+	// subagent runs (and their descendants) are stopped and awaited first, then
+	// every remaining task of every node, then the bundles deepest first, so
+	// nothing writes into a directory that is already gone. An id with no bundle
+	// on disk removes nothing and still answers 200.
+	if err := s.mgr.DeleteSessionTree(id, bgtask.Default()); err != nil {
+		if errors.Is(err, session.ErrTurnNotSettled) || errors.Is(err, session.ErrTreeUnstable) {
+			// A turn of the tree ignored its cancellation, or descendants
+			// kept appearing while the tree was being marked; nothing was
+			// removed, the client may retry once the tree is quiet.
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusConflict)
 			return
 		}
+		s.log.Error("coddy session delete", "error", err)
+		http.Error(w, `{"error":{"message":"delete failed"}}`, http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"object": "coddy.session_deleted", "id": id})

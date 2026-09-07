@@ -9,6 +9,8 @@
 //	{{.Skills}}   - active skills markdown (slash catalog and bodies), built by the agent
 //	{{.Memory}}   - session agent memory notes (may be empty)
 //	{{.TodoList}} - current session todo checklist rendered as markdown (empty until plan tools populate state)
+//	{{.Subagents}} - catalog of subagents the session may spawn (may be empty)
+//	{{.SubagentRole}} - role block when this session is itself a subagent run (may be empty)
 //	{{.UTCNow}}   - current date and time in UTC (RFC3339), set each time the system prompt renders
 //
 // Use {{if .Skills}}...{{end}} (and similarly for .Tools, .Memory, .TodoList) when sections should be omitted when empty.
@@ -28,6 +30,7 @@ import (
 const (
 	fileAgent = "agent.md"
 	filePlan  = "plan.md"
+	fileAsk   = "ask.md"
 )
 
 // TemplateData holds values injected into prompt templates.
@@ -59,6 +62,12 @@ type TemplateData struct {
 	// Instructions is the concatenated content of project instruction files (AGENTS.md etc.), may be empty.
 	Instructions string
 
+	// Subagents is the catalog block a parent that may spawn subagents reads (may be empty).
+	Subagents string
+
+	// SubagentRole is the role block of a child agent run (may be empty).
+	SubagentRole string
+
 	// UTCNow is the wall-clock instant in RFC3339 (UTC) at render time for model grounding.
 	UTCNow string
 }
@@ -71,12 +80,16 @@ var defaultAgentPrompt string
 //go:embed plan.md
 var defaultPlanPrompt string
 
+//go:embed ask.md
+var defaultAskPrompt string
+
 // Render renders the prompt template for the given mode with the provided data.
 // promptsDir must be empty to use built-in templates; otherwise it is a directory that
-// contains the files named agentFile and planFile (for example agent.md and plan.md).
-// mode must be "agent" or "plan". Unknown modes use the agent template file.
-func Render(mode, promptsDir, agentFile, planFile string, data TemplateData) (string, error) {
-	src, err := loadSource(mode, promptsDir, agentFile, planFile)
+// contains the files named agentFile, planFile, and askFile (for example agent.md,
+// plan.md, and ask.md). mode must be "agent", "plan", or "ask". Unknown modes use the
+// agent template file.
+func Render(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) (string, error) {
+	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
 	if err != nil {
 		return "", err
 	}
@@ -95,8 +108,8 @@ func Render(mode, promptsDir, agentFile, planFile string, data TemplateData) (st
 }
 
 // RenderWithFallback renders the prompt and returns a safe default on error.
-func RenderWithFallback(mode, promptsDir, agentFile, planFile string, data TemplateData) string {
-	s, err := Render(mode, promptsDir, agentFile, planFile, data)
+func RenderWithFallback(mode, promptsDir, agentFile, planFile, askFile string, data TemplateData) string {
+	s, err := Render(mode, promptsDir, agentFile, planFile, askFile, data)
 	if err != nil {
 		return fallbackPrompt(mode, data.CWD)
 	}
@@ -109,28 +122,37 @@ func DefaultSource(mode string) string {
 	switch mode {
 	case "plan":
 		return defaultPlanPrompt
+	case "ask":
+		return defaultAskPrompt
 	default:
 		return defaultAgentPrompt
 	}
 }
 
 func fileNameForMode(mode string) string {
-	if mode == "plan" {
+	switch mode {
+	case "plan":
 		return filePlan
+	case "ask":
+		return fileAsk
+	default:
+		return fileAgent
 	}
-	return fileAgent
 }
 
 // loadSource returns the template source: files from promptsDir when set, built-in otherwise.
-func loadSource(mode, promptsDir, agentFile, planFile string) (string, error) {
+func loadSource(mode, promptsDir, agentFile, planFile, askFile string) (string, error) {
 	dir := strings.TrimSpace(promptsDir)
 	if dir == "" {
 		return DefaultSource(mode), nil
 	}
 
 	fn := strings.TrimSpace(agentFile)
-	if mode == "plan" {
+	switch mode {
+	case "plan":
 		fn = strings.TrimSpace(planFile)
+	case "ask":
+		fn = strings.TrimSpace(askFile)
 	}
 	if fn == "" {
 		fn = fileNameForMode(mode)

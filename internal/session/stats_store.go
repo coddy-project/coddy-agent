@@ -69,3 +69,22 @@ func WriteSessionStats(sessionDir string, st SessionStats) error {
 	}
 	return writeJSONAtomic(p, st)
 }
+
+// WriteSessionContextBreakdown updates only the live context estimate while
+// preserving the provider token counters already stored for the session.
+func WriteSessionContextBreakdown(sessionDir string, b *ContextBreakdown) error {
+	if b == nil {
+		return nil
+	}
+	st, err := ReadSessionStats(sessionDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		st = &SessionStats{}
+	}
+	cp := *b
+	st.ContextBreakdown = &cp
+	st.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return WriteSessionStats(sessionDir, *st)
+}

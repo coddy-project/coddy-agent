@@ -17,6 +17,9 @@ function itemAffectsAutoScroll(
   prev: TranscriptItem,
   next: TranscriptItem,
 ): boolean {
+  if (prev === next) {
+    return false;
+  }
   if (prev.type !== next.type || prev.id !== next.id) {
     return true;
   }
@@ -36,6 +39,9 @@ export function transcriptItemsAffectAutoScroll(
 ): boolean {
   if (!prev) {
     return next.length > 0;
+  }
+  if (prev === next) {
+    return false;
   }
   if (prev.length !== next.length) {
     return true;

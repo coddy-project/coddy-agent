@@ -37,7 +37,7 @@ func TestUISchemaProviderNamePatternAndAPIKeyPlaceholderHint(t *testing.T) {
 	items := providers["items"].(map[string]interface{})
 	pprops := items["properties"].(map[string]interface{})
 	name := pprops["name"].(map[string]interface{})
-	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_-]*$`; got != want {
+	if got, want := name["pattern"], `^[a-zA-Z][a-zA-Z0-9_\-]*$`; got != want {
 		t.Fatalf("provider name pattern: got %v want %v", got, want)
 	}
 	apiKey := pprops["api_key"].(map[string]interface{})
@@ -167,5 +167,24 @@ skills:
 	}
 	if len(cfg3.Skills.Sources) != 2 {
 		t.Fatalf("skills.sources lost in yaml round-trip: %v", cfg3.Skills.Sources)
+	}
+}
+
+func TestUISchemaOmitsMCPPolicyFromUI(t *testing.T) {
+	// mcp.project_trust is edited in the MCP servers tab, next to the servers
+	// it governs, so it must not become a settings section of its own.
+	doc := config.UISchemaMap()
+	props, ok := doc["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("properties")
+	}
+	if _, ok := props["mcp"]; ok {
+		t.Fatal("mcp must not be exposed as its own UI section")
+	}
+	// Hiding it must not drop it from the saved document.
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustAllow}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustAllow {
+		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustAllow)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
+	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
 type noopSender struct{}
@@ -116,6 +117,60 @@ func TestManagerSessionNewUsesDefaultCWWhenClientEmpty(t *testing.T) {
 	}
 }
 
+func TestReloadConfigForSessionRefreshesSkillsAndManagerConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	initialSkills := filepath.Join(dir, "initial-skills")
+	if err := os.MkdirAll(initialSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 8\nskills:\n  dirs:\n    - "+initialSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &captureSender{}
+	mgr := session.NewManager(cfg, sender, noopRunner, slog.Default(), dir, nil)
+	created, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := mgr.SessionByID(created.SessionID)
+
+	nextSkills := filepath.Join(dir, "next-skills")
+	skillDir := filepath.Join(nextSkills, "hot-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: hot-skill\ndescription: Loaded after config reload.\n---\n\n# Hot\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("agent:\n  max_turns: 22\nskills:\n  dirs:\n    - "+nextSkills+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	warnings, err := mgr.ReloadConfigForSession(context.Background(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings: %v", warnings)
+	}
+	if mgr.Cfg().Agent.MaxTurns != 22 {
+		t.Fatalf("manager config was not replaced: %d", mgr.Cfg().Agent.MaxTurns)
+	}
+	found := false
+	for _, skill := range st.GetSkills() {
+		if skill.Name == "hot-skill" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("reloaded skill missing: %+v", st.GetSkills())
+	}
+}
+
 func TestManagerSessionNewIncludesConfigOptions(t *testing.T) {
 	cfg := testConfig()
 	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
@@ -199,7 +254,8 @@ func TestManagerSetConfigOptionModel(t *testing.T) {
 
 func TestManagerSetConfigOptionMode(t *testing.T) {
 	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+	sender := &captureSender{}
+	m := session.NewManager(cfg, sender, noopRunner, slog.Default(), "", nil)
 
 	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
@@ -229,6 +285,64 @@ func TestManagerSetConfigOptionMode(t *testing.T) {
 	// No explicit model override: effective model stays agent.model (p1/gpt-4o).
 	if modelCur != "p1/gpt-4o" {
 		t.Fatalf("expected effective model p1/gpt-4o for plan mode without override, got %q", modelCur)
+	}
+	var modeWire map[string]interface{}
+	for _, update := range sender.ups {
+		if _, ok := update.(acp.ModeUpdate); !ok {
+			continue
+		}
+		data, err := json.Marshal(update)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(data, &modeWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if modeWire["currentModeId"] != "plan" {
+		t.Fatalf("currentModeId = %#v, want plan in %#v", modeWire["currentModeId"], modeWire)
+	}
+	if _, ok := modeWire["modeId"]; ok {
+		t.Fatalf("deprecated modeId emitted in %#v", modeWire)
+	}
+}
+
+func TestManagerSetConfigOptionModeAsk(t *testing.T) {
+	cfg := testConfig()
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), "", nil)
+
+	res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatalf("HandleSessionNew: %v", err)
+	}
+
+	out, err := m.HandleSessionSetConfigOption(context.Background(), acp.SessionSetConfigOptionParams{
+		SessionID: res.SessionID,
+		ConfigID:  "mode",
+		Value:     "ask",
+	})
+	if err != nil {
+		t.Fatalf("HandleSessionSetConfigOption: %v", err)
+	}
+	for _, o := range out.ConfigOptions {
+		if o.ID != "mode" {
+			continue
+		}
+		if o.CurrentValue != "ask" {
+			t.Fatalf("expected mode ask, got %q", o.CurrentValue)
+		}
+		found := false
+		for _, v := range o.Options {
+			if v.Value == "ask" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("mode option should advertise ask, got %+v", o.Options)
+		}
+	}
+	if got := m.SessionByID(res.SessionID).GetMode(); got != "ask" {
+		t.Fatalf("session mode = %q, want ask", got)
 	}
 }
 
@@ -427,19 +541,46 @@ func TestHandleSessionCancelEndsBlockedPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testing.T) {
+func TestHandleSessionPromptWithSenderDetachFromRequestSurvivesParentCancel(t *testing.T) {
+	res, perr, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{
+		SkipTurnLock:      true,
+		DetachFromRequest: true,
+	})
+	if perr != nil {
+		t.Fatalf("prompt: %v", perr)
+	}
+	if ctxErr != nil {
+		t.Fatalf("a detached turn must not see its parent's cancellation: %v", ctxErr)
+	}
+	if res == nil || res.StopReason != acp.StopReasonEndTurn {
+		t.Fatalf("unexpected %+v err=%v", res, perr)
+	}
+}
+
+// Holding the turn lock outside the manager says nothing about who owns the turn's
+// lifetime. A caller that only sets SkipTurnLock - a non-streaming composer POST, which
+// can be stopped only by hanging up - keeps request-scoped cancellation.
+func TestHandleSessionPromptWithSenderStaysRequestScopedWithoutDetach(t *testing.T) {
+	_, _, ctxErr := runPromptWithCancelledParent(t, &session.PromptRunOpts{SkipTurnLock: true})
+	if ctxErr == nil {
+		t.Fatal("turn context outlived the cancelled parent without DetachFromRequest")
+	}
+}
+
+// runPromptWithCancelledParent runs one turn whose parent context is cancelled while the
+// runner blocks, and reports what the runner saw of its own context.
+func runPromptWithCancelledParent(t *testing.T, opts *session.PromptRunOpts) (*acp.SessionPromptResult, error, error) {
+	t.Helper()
 	runBlock := make(chan struct{})
 	cont := make(chan struct{})
+	var ctxErr error
 	runner := func(ctx context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
 		close(runBlock)
 		<-cont
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
+		ctxErr = ctx.Err()
 		return string(acp.StopReasonEndTurn), nil
 	}
-	cfg := testConfig()
-	m := session.NewManager(cfg, noopSender{}, runner, slog.Default(), "/tmp", nil)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
 	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
 	if err != nil {
 		t.Fatal(err)
@@ -454,17 +595,54 @@ func TestHandleSessionPromptWithSenderSkipTurnLockSurvivesParentCancel(t *testin
 		res, perr = m.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
 			SessionID: sn.SessionID,
 			Prompt:    []acp.ContentBlock{{Type: "text", Text: "x"}},
-		}, noopSender{}, &session.PromptRunOpts{SkipTurnLock: true})
+		}, noopSender{}, opts)
 	}()
 	<-runBlock
 	cancel()
 	close(cont)
 	wg.Wait()
-	if perr != nil {
-		t.Fatalf("prompt: %v", perr)
+	return res, perr, ctxErr
+}
+
+// A turn running in this process must be reportable even where the flock probe cannot
+// answer (TurnLockHeld is a no-op stub off unix, and a session with no persisted bundle
+// has no lock file at all), so that a second client can tell there is something to watch.
+func TestSessionTurnActiveInProcessDuringTurn(t *testing.T) {
+	runBlock := make(chan struct{})
+	cont := make(chan struct{})
+	runner := func(_ context.Context, _ *session.State, _ []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		close(runBlock)
+		<-cont
+		return string(acp.StopReasonEndTurn), nil
 	}
-	if res == nil || res.StopReason != acp.StopReasonEndTurn {
-		t.Fatalf("unexpected %+v err=%v", res, perr)
+	m := session.NewManager(testConfig(), noopSender{}, runner, slog.Default(), "/tmp", nil)
+	sn, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session reported active before any turn started")
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = m.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sn.SessionID,
+			Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello"}},
+		})
+	}()
+
+	<-runBlock
+	if !m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session not reported active while its turn runs")
+	}
+	close(cont)
+	wg.Wait()
+
+	if m.SessionTurnActiveInProcess(sn.SessionID) {
+		t.Fatal("session still reported active after the turn finished")
 	}
 }
 
@@ -485,7 +663,7 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSessionNew: %v", err)
 	}
-	_ = res
+	m.HandleSessionReady(res.SessionID)
 	var slash *acp.AvailableCommandsUpdate
 	for _, u := range snd.ups {
 		if v, ok := u.(acp.AvailableCommandsUpdate); ok && v.SessionUpdate == acp.UpdateTypeAvailableCommandsUpdate {
@@ -497,17 +675,17 @@ func TestSessionNewSendsAvailableSlashCommandsUpdate(t *testing.T) {
 		t.Fatalf("expected AvailableCommandsUpdate in %#v", snd.ups)
 		return
 	}
-	// Skills plus the built-in commands: compact (while compaction is enabled)
-	// and plugin (always).
-	if len(slash.AvailableCommands) != 4 {
+	// Skills plus the built-in commands: compact (while compaction is enabled),
+	// export and plugin (always).
+	if len(slash.AvailableCommands) != 6 {
 		t.Fatalf("unexpected commands %+v", slash.AvailableCommands)
 	}
 	names := map[string]bool{}
 	for _, c := range slash.AvailableCommands {
 		names[c.Name] = true
 	}
-	if !names["demo"] || !names["generate-rules"] || !names["compact"] || !names["plugin"] {
-		t.Fatalf("expected demo, generate-rules, compact, and plugin, got %+v", slash.AvailableCommands)
+	if !names["demo"] || !names["generate-rules"] || !names["configure-coddy"] || !names["compact"] || !names["export"] || !names["plugin"] {
+		t.Fatalf("expected demo, generate-rules, configure-coddy, compact, export, and plugin, got %+v", slash.AvailableCommands)
 	}
 }
 
@@ -563,5 +741,146 @@ func TestSetSessionWorkspaceSwitchesCwdAndPersists(t *testing.T) {
 	}
 	if got := st.GetCWD(); got != beta {
 		t.Fatalf("cwd changed on failed switch: %q", got)
+	}
+}
+
+func TestEffectiveMCPServersMergesGlobalAndProject(t *testing.T) {
+	home := t.TempDir()
+	cfg := &config.Config{MCPServers: []config.MCPServerConfig{
+		{Name: "cfg-srv", Command: "cfg-mcp"},
+		{Name: "off-srv", Command: "off-mcp", Disabled: true},
+	}}
+	cfg.Paths.Home = home
+	cwd := t.TempDir()
+
+	// Global <home>/mcp.json overrides config.yaml; project overrides both.
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "home-srv", config.MCPJSONServer{Command: "home-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.GlobalMCPJSONPath(home), "cfg-srv", config.MCPJSONServer{Command: "home-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "home-srv", config.MCPJSONServer{Command: "proj-override"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.UpsertMCPJSONServer(config.MCPJSONPath(cwd), "proj-srv", config.MCPJSONServer{Command: "proj-mcp"}); err != nil {
+		t.Fatal(err)
+	}
+
+	servers := session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 4 {
+		t.Fatalf("servers = %+v, want 4", servers)
+	}
+	byName := map[string]config.MCPServerConfig{}
+	for _, s := range servers {
+		byName[s.Name] = s
+	}
+	if byName["cfg-srv"].Command != "home-override" {
+		t.Errorf("cfg-srv command = %q, want global mcp.json override", byName["cfg-srv"].Command)
+	}
+	if byName["home-srv"].Command != "proj-override" {
+		t.Errorf("home-srv command = %q, want project override", byName["home-srv"].Command)
+	}
+	if !byName["off-srv"].Disabled {
+		t.Errorf("off-srv must keep its disabled flag in the effective list")
+	}
+	if _, ok := byName["proj-srv"]; !ok {
+		t.Errorf("proj-srv missing from effective list")
+	}
+
+	// A broken project mcp.json must not fail the session; config.yaml plus
+	// the global file still apply.
+	if err := os.WriteFile(filepath.Join(cwd, ".coddy", "mcp.json"), []byte("{broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers = session.EffectiveMCPServers(cfg, cwd, slog.Default())
+	if len(servers) != 3 {
+		t.Fatalf("servers with broken project mcp.json = %+v, want 3", servers)
+	}
+}
+
+func TestStateMCPToolFilter(t *testing.T) {
+	st := &session.State{ID: "s", CWD: t.TempDir()}
+	if allowed := st.GetMCPToolFilter(); !allowed("any", "tool") {
+		t.Error("nil factory must allow everything")
+	}
+	st.MCPFilterFactory = func() func(server, tool string) bool {
+		return func(server, tool string) bool { return tool == "echo" }
+	}
+	allowed := st.GetMCPToolFilter()
+	if !allowed("srv", "echo") || allowed("srv", "write") {
+		t.Error("factory-built filter must be used when set")
+	}
+}
+
+// Regression for coddy-project/coddy-agent#146: a skills.dirs entry written with
+// ${CWD} in config.yaml must follow the workspace of each session, not the
+// directory the process was started from.
+func TestSessionSkillsFollowSessionCWDWithConfiguredDirs(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	launch := filepath.Join(root, "launch")
+	project := filepath.Join(root, "project")
+	skillDir := filepath.Join(project, ".agents", "skills", "proj-skill")
+	for _, d := range []string{home, launch, skillDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skillMD := "---\nname: proj-skill\ndescription: Project-local skill\n---\n\nBody.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(home, "config.yaml")
+	cfgYAML := `
+providers:
+  - name: p1
+    type: openai
+    api_key: k
+models:
+  - model: p1/gpt-4o
+agent:
+  model: p1/gpt-4o
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: cfgPath})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+	m := session.NewManager(cfg, noopSender{}, noopRunner, slog.Default(), launch, nil)
+
+	names := func(cwd string) []string {
+		res, err := m.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: cwd})
+		if err != nil {
+			t.Fatalf("session/new %s: %v", cwd, err)
+		}
+		st := m.SessionByID(res.SessionID)
+		if st == nil {
+			t.Fatalf("session %s not registered", res.SessionID)
+		}
+		var out []string
+		for _, sum := range skills.ListSkills(st.GetSkills()) {
+			out = append(out, sum.Name)
+		}
+		return out
+	}
+	has := func(list []string, name string) bool {
+		for _, n := range list {
+			if n == name {
+				return true
+			}
+		}
+		return false
+	}
+	if got := names(project); !has(got, "proj-skill") {
+		t.Fatalf("session rooted at the project must load its local skill, got %v", got)
+	}
+	if got := names(launch); has(got, "proj-skill") {
+		t.Fatalf("session rooted at the launch directory must not see the project skill, got %v", got)
 	}
 }

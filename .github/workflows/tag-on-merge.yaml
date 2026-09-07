@@ -51,6 +51,11 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merge_commit_sha || github.ref }}
+          # actions/checkout refuses fork-PR checkouts under pull_request_target by
+          # default (pwn-request guard). Safe to opt in here (see workflow header):
+          # the job runs only on merged==true and never executes the checked-out
+          # tree, it only runs git tag/push against the already-merged commit.
+          allow-unsafe-pr-checkout: true
 
       - name: Fetch all tags
         run: git fetch --tags origin

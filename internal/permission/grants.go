@@ -80,21 +80,53 @@ func writeKeyGranted(grants []string, key string) bool {
 	return false
 }
 
-// RecordAllowAlways persists session grants when the user chose allow_always.
+// RecordAllowAlways persists session grants when the user chose one of the
+// allow-always options. "allow_always" stores the exact command; the
+// program-wide option stores the wider entry that ProgramGrant derived and that
+// the dialog named on its button.
 func RecordAllowAlways(st *session.State, toolName, argsJSON, cwd string, res *acp.PermissionResult) {
-	if st == nil || res == nil || res.OptionID != "allow_always" {
+	if st == nil || res == nil {
+		return
+	}
+	if res.OptionID != OptionAllowAlways && res.OptionID != OptionAllowAlwaysProgram {
 		return
 	}
 	toolName = strings.TrimSpace(toolName)
 	switch toolName {
 	case "run_command":
 		cmd := ExtractRunCommand(argsJSON)
-		if cmd != "" {
-			st.AddCommandGrantIfNew(cmd)
+		if cmd == "" {
+			return
 		}
+		if res.OptionID == OptionAllowAlwaysProgram {
+			if grant, ok := ProgramGrant(cmd); ok {
+				st.AddCommandGrantIfNew(grant)
+			}
+			return
+		}
+		st.AddCommandGrantIfNew(cmd)
 	default:
+		// The program-wide option is only ever offered for run_command, so it
+		// must not widen anything on the filesystem path.
+		if res.OptionID != "allow_always" {
+			return
+		}
 		for _, k := range WriteGrantKeys(toolName, argsJSON, cwd) {
 			st.AddWriteGrantIfNew(k)
 		}
 	}
+}
+
+// Approved reports whether a client's answer to a permission request lets the
+// tool call proceed. A cancelled request and the reject option are the only
+// refusals; every other selected option is an approval, so a client that
+// answers in the protocol's nested shape is honoured like Coddy's own surfaces.
+func Approved(res *acp.PermissionResult) bool {
+	if res == nil {
+		return false
+	}
+	if res.Outcome == OutcomeCancelled {
+		return false
+	}
+	return res.OptionID != OptionReject
 }

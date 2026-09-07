@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm } from "../components/useConfirm";
+import { useT } from "../i18n/I18nProvider";
+import { t as translate } from "../i18n/i18n";
 import {
   schedulerCreateJob,
   schedulerDeleteJob,
@@ -36,19 +39,29 @@ type FieldErrors = Partial<{
 
 const AUTOSAVE_MS = 600;
 
+const JOB_MODES = ["agent", "plan", "ask"] as const;
+type JobMode = (typeof JOB_MODES)[number];
+
+// Frontmatter `mode` values the daemon accepts (external/scheduler/daemon
+// parseSessionMode); anything else falls back to agent the same way it does.
+function normalizeJobMode(raw: string | undefined): JobMode {
+  const v = (raw || "agent").toLowerCase();
+  return (JOB_MODES as readonly string[]).includes(v) ? (v as JobMode) : "agent";
+}
+
 function validateJobId(raw: string): string | null {
   const s = raw.trim();
   if (!s) {
-    return "Required";
+    return translate("scheduler.validation.required");
   }
   if (s.length > 64) {
-    return "Too long";
+    return translate("scheduler.validation.tooLong");
   }
   if (/\s/.test(s)) {
-    return "No spaces - use hyphens (example: daily-report)";
+    return translate("scheduler.validation.noSpaces");
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(s)) {
-    return "Only letters, digits, and hyphens (example: daily-report)";
+    return translate("scheduler.validation.invalidJobId");
   }
   return null;
 }
@@ -79,6 +92,8 @@ export function SchedulerJobEditorSheet(props: {
   onSaved: (createdJobId?: string) => void;
   onDeleted: () => void;
 }) {
+  const { t } = useT();
+  const confirm = useConfirm();
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [fieldErrs, setFieldErrs] = useState<FieldErrors>({});
@@ -164,13 +179,13 @@ export function SchedulerJobEditorSheet(props: {
         }
       }
       if (!desc) {
-        errs.description = "Required";
+        errs.description = translate("scheduler.validation.required");
       }
       if (!sch) {
-        errs.schedule = "Required";
+        errs.schedule = translate("scheduler.validation.required");
       }
       if (!bod.trim()) {
-        errs.body = "Required";
+        errs.body = translate("scheduler.validation.required");
       }
       return errs;
     },
@@ -219,7 +234,9 @@ export function SchedulerJobEditorSheet(props: {
       const outId =
         (res.ok && res.data && typeof res.data.job_id === "string"
           ? res.data.job_id.trim()
-          : "") || nextId || existing;
+          : "") ||
+        nextId ||
+        existing;
       lastCommittedRef.current = JSON.stringify({
         jobId: outId,
         description: f.description.trim(),
@@ -335,9 +352,7 @@ export function SchedulerJobEditorSheet(props: {
       setSchedule(j.schedule || "");
       setCwd(j.cwd || "");
       setModel(j.model || "");
-      setModeField(
-        (j.mode || "agent").toLowerCase() === "plan" ? "plan" : "agent",
-      );
+      setModeField(normalizeJobMode(j.mode));
       setBody(j.body || "");
       setPaused(!!j.paused);
       lastCommittedRef.current = JSON.stringify({
@@ -347,8 +362,7 @@ export function SchedulerJobEditorSheet(props: {
         body: j.body || "",
         cwd: (j.cwd || "").trim(),
         model: (j.model || "").trim(),
-        mode:
-          (j.mode || "agent").toLowerCase() === "plan" ? "plan" : "agent",
+        mode: normalizeJobMode(j.mode),
         paused: !!j.paused,
       });
     })();
@@ -447,7 +461,12 @@ export function SchedulerJobEditorSheet(props: {
     if (!jid) {
       return;
     }
-    const ok = window.confirm(`Delete scheduler job "${jid}"?`);
+    const ok = await confirm({
+      title: t("confirm.scheduler.deleteJob.title", { id: jid }),
+      message: t("confirm.scheduler.deleteJob.message"),
+      confirmLabel: t("common.delete"),
+      variant: "danger",
+    });
     if (!ok) {
       return;
     }
@@ -478,20 +497,24 @@ export function SchedulerJobEditorSheet(props: {
       role="dialog"
       aria-modal={false}
       aria-label={
-        props.mode === "create" ? "New scheduler job" : "Edit scheduler job"
+        props.mode === "create"
+          ? t("scheduler.editorNewAriaLabel")
+          : t("scheduler.editorEditAriaLabel")
       }
       data-testid="scheduler-editor-panel"
     >
       <div className="sessions-head">
         <span>
           {props.mode === "create"
-            ? "New job"
-            : `Job ${jobIdField || props.jobId || ""}`}
+            ? t("scheduler.newJob")
+            : t("scheduler.jobTitle", {
+                jobId: jobIdField || props.jobId || "",
+              })}
         </span>
         <button
           type="button"
           className="sessions-close"
-          aria-label="Close editor"
+          aria-label={t("scheduler.closeEditor")}
           data-testid="scheduler-editor-close"
           onClick={props.onClose}
         >
@@ -502,162 +525,168 @@ export function SchedulerJobEditorSheet(props: {
       <div className="scheduler-editor-scroll">
         <div className="scheduler-editor-scroll-inner">
           {loadErr ? (
-            <div className="sessions-empty" data-testid="scheduler-editor-load-err">
+            <div
+              className="sessions-empty"
+              data-testid="scheduler-editor-load-err"
+            >
               {loadErr}
             </div>
           ) : null}
           {props.mode === "edit" && loading ? (
-            <div className="sessions-empty">Loading…</div>
+            <div className="sessions-empty">{t("scheduler.loading")}</div>
           ) : null}
 
           {!loadErr && (props.mode === "create" || !loading) ? (
             <div className="scheduler-editor-form">
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">job_id</span>
-              <span className="scheduler-field-help">
-                Filename - letters, digits, hyphens (example: daily-report).
-              </span>
-              <input
-                className={[
-                  "scheduler-field-input",
-                  fieldErrs.jobId ? "scheduler-field-input-err" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                value={jobIdField}
-                onChange={(ev) => setJobIdField(ev.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-              />
-              {fieldErrs.jobId ? (
-                <div className="scheduler-field-err">{fieldErrs.jobId}</div>
-              ) : null}
-            </label>
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">description</span>
-              <input
-                className={[
-                  "scheduler-field-input",
-                  fieldErrs.description ? "scheduler-field-input-err" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                value={description}
-                onChange={(ev) => setDescription(ev.target.value)}
-              />
-              {fieldErrs.description ? (
-                <div className="scheduler-field-err">
-                  {fieldErrs.description}
-                </div>
-              ) : null}
-            </label>
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">
-                schedule (UTC, 5 fields)
-              </span>
-              <input
-                className={[
-                  "scheduler-field-input",
-                  "scheduler-field-input-cron",
-                  fieldErrs.schedule ? "scheduler-field-input-err" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                value={schedule}
-                onChange={(ev) => setSchedule(ev.target.value)}
-                spellCheck={false}
-                placeholder="0 * * * *"
-              />
-              {fieldErrs.schedule ? (
-                <div className="scheduler-field-err">{fieldErrs.schedule}</div>
-              ) : null}
-            </label>
-            <div
-              className={
-                cronHint.ok
-                  ? "scheduler-cron-hint"
-                  : "scheduler-cron-hint scheduler-cron-hint-err"
-              }
-              data-testid="scheduler-cron-hint"
-            >
-              {cronHint.ok ? cronHint.text : cronHint.error}
-            </div>
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">cwd (optional)</span>
-              <span className="scheduler-field-help">
-                Defaults to the agent working directory for this instance.
-              </span>
-              <input
-                className="scheduler-field-input"
-                value={cwd}
-                onChange={(ev) => setCwd(ev.target.value)}
-                placeholder={props.currentCwd || ""}
-              />
-            </label>
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">mode</span>
-              <select
-                className="scheduler-field-input"
-                value={modeField}
-                onChange={(ev) => setModeField(ev.target.value)}
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.jobId")}</span>
+                <span className="scheduler-field-help">
+                  {t("scheduler.field.jobIdHelp")}
+                </span>
+                <input
+                  className={[
+                    "scheduler-field-input",
+                    fieldErrs.jobId ? "scheduler-field-input-err" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  value={jobIdField}
+                  onChange={(ev) => setJobIdField(ev.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                {fieldErrs.jobId ? (
+                  <div className="scheduler-field-err">{fieldErrs.jobId}</div>
+                ) : null}
+              </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.description")}</span>
+                <input
+                  className={[
+                    "scheduler-field-input",
+                    fieldErrs.description ? "scheduler-field-input-err" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  value={description}
+                  onChange={(ev) => setDescription(ev.target.value)}
+                />
+                {fieldErrs.description ? (
+                  <div className="scheduler-field-err">
+                    {fieldErrs.description}
+                  </div>
+                ) : null}
+              </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">
+                  {t("scheduler.field.schedule")}
+                </span>
+                <input
+                  className={[
+                    "scheduler-field-input",
+                    "scheduler-field-input-cron",
+                    fieldErrs.schedule ? "scheduler-field-input-err" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  value={schedule}
+                  onChange={(ev) => setSchedule(ev.target.value)}
+                  spellCheck={false}
+                  placeholder={t("scheduler.field.schedulePlaceholder")}
+                />
+                {fieldErrs.schedule ? (
+                  <div className="scheduler-field-err">
+                    {fieldErrs.schedule}
+                  </div>
+                ) : null}
+              </label>
+              <div
+                className={
+                  cronHint.ok
+                    ? "scheduler-cron-hint"
+                    : "scheduler-cron-hint scheduler-cron-hint-err"
+                }
+                data-testid="scheduler-cron-hint"
               >
-                <option value="agent">agent</option>
-                <option value="plan">plan</option>
-              </select>
-            </label>
-            <label className="scheduler-field">
-              <span className="scheduler-field-label">model</span>
-              {props.availableModels.length > 0 ? (
-                <select
-                  className="scheduler-field-input"
-                  value={model}
-                  onChange={(ev) => setModel(ev.target.value)}
-                >
-                  {props.availableModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              ) : (
+                {cronHint.ok ? cronHint.text : cronHint.error}
+              </div>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.cwd")}</span>
+                <span className="scheduler-field-help">
+                  {t("scheduler.field.cwdHelp")}
+                </span>
                 <input
                   className="scheduler-field-input"
-                  value={model}
-                  onChange={(ev) => setModel(ev.target.value)}
-                  spellCheck={false}
-                  placeholder={props.defaultModel || ""}
+                  value={cwd}
+                  onChange={(ev) => setCwd(ev.target.value)}
+                  placeholder={props.currentCwd || ""}
                 />
-              )}
-            </label>
-            <div className="scheduler-field scheduler-field-stack">
-              <span className="scheduler-field-label">body (markdown)</span>
-              <div
-                className={[
-                  "scheduler-body-editor-wrap",
-                  fieldErrs.body ? "scheduler-body-editor-wrap-err" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                <MarkdownLineEditor
-                  value={body}
-                  onChange={setBody}
-                  aria-label="Job body markdown"
-                  placeholder="Instruction for the scheduled run…"
-                />
+              </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.mode")}</span>
+                <select
+                  className="scheduler-field-input"
+                  value={modeField}
+                  onChange={(ev) => setModeField(ev.target.value)}
+                >
+                  <option value="agent">{t("scheduler.mode.agent")}</option>
+                  <option value="plan">{t("scheduler.mode.plan")}</option>
+                  <option value="ask">{t("scheduler.mode.ask")}</option>
+                </select>
+              </label>
+              <label className="scheduler-field">
+                <span className="scheduler-field-label">{t("scheduler.field.model")}</span>
+                {props.availableModels.length > 0 ? (
+                  <select
+                    className="scheduler-field-input"
+                    value={model}
+                    onChange={(ev) => setModel(ev.target.value)}
+                  >
+                    {props.availableModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="scheduler-field-input"
+                    value={model}
+                    onChange={(ev) => setModel(ev.target.value)}
+                    spellCheck={false}
+                    placeholder={props.defaultModel || ""}
+                  />
+                )}
+              </label>
+              <div className="scheduler-field scheduler-field-stack">
+                <span className="scheduler-field-label">{t("scheduler.field.body")}</span>
+                <div
+                  className={[
+                    "scheduler-body-editor-wrap",
+                    fieldErrs.body ? "scheduler-body-editor-wrap-err" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <MarkdownLineEditor
+                    value={body}
+                    onChange={setBody}
+                    aria-label={t("scheduler.bodyAriaLabel")}
+                    placeholder={t("scheduler.bodyPlaceholder")}
+                  />
+                </div>
+                {fieldErrs.body ? (
+                  <div className="scheduler-field-err">{fieldErrs.body}</div>
+                ) : null}
               </div>
-              {fieldErrs.body ? (
-                <div className="scheduler-field-err">{fieldErrs.body}</div>
+              {saveErr ? (
+                <div
+                  className="scheduler-save-err"
+                  data-testid="scheduler-editor-save-err"
+                >
+                  {saveErr}
+                </div>
               ) : null}
-            </div>
-            {saveErr ? (
-              <div
-                className="scheduler-save-err"
-                data-testid="scheduler-editor-save-err"
-              >
-                {saveErr}
-              </div>
-            ) : null}
             </div>
           ) : null}
         </div>
@@ -670,8 +699,8 @@ export function SchedulerJobEditorSheet(props: {
             className="scheduler-btn scheduler-btn-icon-only"
             disabled={saving}
             data-testid="scheduler-editor-pause-toggle"
-            title={paused ? "Resume" : "Pause"}
-            aria-label={paused ? "Resume" : "Pause"}
+            title={paused ? t("scheduler.resume") : t("scheduler.pause")}
+            aria-label={paused ? t("scheduler.resume") : t("scheduler.pause")}
             onClick={() => void onPauseToggle()}
           >
             {paused ? <SchedulerIconResume /> : <SchedulerIconPause />}
@@ -683,8 +712,8 @@ export function SchedulerJobEditorSheet(props: {
             className="scheduler-btn scheduler-btn-danger scheduler-btn-icon-only"
             disabled={saving || loading}
             data-testid="scheduler-editor-delete"
-            title="Delete"
-            aria-label="Delete"
+            title={t("scheduler.delete")}
+            aria-label={t("scheduler.delete")}
             onClick={() => void onDelete()}
           >
             <SchedulerIconTrash />

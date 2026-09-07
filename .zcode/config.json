@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "matcher": "startup|resume|clear|compact",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python \"${ZCODE_PROJECT_DIR}/.zcode/hooks/attach_rules.py\"",
+              "timeout": 10,
+              "statusMessage": "Loading always-on project rules"
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "^(Edit|Write|MultiEdit|ApplyPatch)$",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python \"${ZCODE_PROJECT_DIR}/.zcode/hooks/attach_rules.py\"",
+              "timeout": 10,
+              "statusMessage": "Attaching rules for edited files"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

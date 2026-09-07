@@ -14,6 +14,7 @@ import (
 	memtools "github.com/EvilFreelancer/coddy-agent/external/memory/tools"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/prompts"
 	"github.com/EvilFreelancer/coddy-agent/internal/tooling"
 )
 
@@ -43,6 +44,23 @@ type PersistOutcome struct {
 type RunBeforeTurnOptions struct {
 	OnPhaseStart func()
 	OnStream     func(kind StreamKind, delta string)
+	// ReadOnly restricts the pass to recall: the copilot gets only the search,
+	// list, and read tools, so a read-only session mode (ask) never changes
+	// stored memory.
+	ReadOnly bool
+}
+
+// beforeTurnReadOnlyAddendum tells the copilot why the mutating tools are absent.
+const beforeTurnReadOnlyAddendum = "This turn runs in the read-only ask mode: recall only. " +
+	"Saving, creating, or deleting memories is unavailable; answer from what you find."
+
+// beforeTurnTools picks the copilot tool list: the full persist set, or the
+// recall-only subset when the turn must not change stored memory.
+func beforeTurnTools(store *memstorage.Store, mem *config.MemoryConfig, readOnly bool) []*tooling.Tool {
+	if readOnly {
+		return memtools.RecallTools(store, mem)
+	}
+	return memtools.PersistTools(store, mem)
 }
 
 // StreamKind discriminates streamed memory copilot content.
@@ -62,6 +80,9 @@ func clampProviderMax(rm *config.ResolvedLLM, cap int) {
 	}
 }
 
+// copilotProviderFactory builds the copilot's LLM provider; tests swap in a fake.
+var copilotProviderFactory = newCopilotProvider
+
 func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, error) {
 	ref := strings.TrimSpace(modelRef)
 	if ref == "" {
@@ -74,14 +95,17 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
-		Type:        rm.ProviderType,
-		Model:       rm.Model,
-		APIKey:      rm.APIKey,
-		BaseURL:     rm.BaseURL,
-		ProxyURL:    rm.ProxyURL,
-		MaxTokens:   rm.MaxTokens,
-		Temperature: rm.Temperature,
-	}, cfg.Agent.LLMRetryMax, cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
+		Type:          rm.ProviderType,
+		Model:         rm.Model,
+		APIKey:        rm.APIKey,
+		BaseURL:       rm.BaseURL,
+		ProxyURL:      rm.ProxyURL,
+		AuthPath:      rm.AuthPath,
+		MaxTokens:     rm.MaxTokens,
+		Temperature:   rm.Temperature,
+		DisableStream: !rm.Stream,
+		Timeout:       time.Duration(rm.TimeoutMS) * time.Millisecond,
+	}, cfg.Agent.EffectiveLLMRetryMax(), cfg.Agent.LLMRetryBaseMS, cfg.Agent.LLMMinIntervalMS))
 }
 
 type saveCapture struct {
@@ -134,15 +158,20 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 	if err != nil {
 		return out, 0, err
 	}
-	prov, err := newCopilotProvider(cfg, modelRef)
+	prov, err := copilotProviderFactory(cfg, modelRef)
 	if err != nil {
 		return out, 0, err
 	}
-	memTools := memtools.PersistTools(store, &cfg.Memory)
+	readOnly := opts != nil && opts.ReadOnly
+	memTools := beforeTurnTools(store, &cfg.Memory, readOnly)
 	toolDefs := memtools.ToolDefinitions(memTools)
 	toolEnv := &tooling.Env{CWD: cwd}
+	systemPrompt := beforeTurnSystemPrompt
+	if readOnly {
+		systemPrompt += "\n\n" + beforeTurnReadOnlyAddendum
+	}
 	msgs := []llm.Message{
-		{Role: llm.RoleSystem, Content: strings.TrimSpace(beforeTurnSystemPrompt)},
+		{Role: llm.RoleSystem, Content: prompts.WithIdentity(systemPrompt)},
 		{Role: llm.RoleUser, Content: "User message for this turn:\n" + userQuery},
 	}
 	maxTurns := cfg.Memory.PersistMaxTurns
@@ -195,11 +224,16 @@ func RunBeforeTurn(ctx context.Context, log *slog.Logger, cfg *config.Config, cw
 		}
 		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Content: resp.Content, ToolCalls: resp.ToolCalls})
 		for _, tc := range resp.ToolCalls {
-			switch tc.Name {
-			case memtools.NameSave, memtools.NameMkdir, memtools.NameDelete:
-				mutationSeen = true
-			}
 			res, ex := memtools.Exec(ctx, memTools, tc.Name, tc.InputJSON, toolEnv)
+			// Only a call that actually ran counts as a mutation: in a read-only
+			// pass the mutating tools are absent and Exec rejects them, so the pass
+			// stays a recall pass.
+			if ex == nil {
+				switch tc.Name {
+				case memtools.NameSave, memtools.NameMkdir, memtools.NameDelete:
+					mutationSeen = true
+				}
+			}
 			if tc.Name == memtools.NameRead && ex == nil {
 				var ra struct {
 					Path string `json:"path"`

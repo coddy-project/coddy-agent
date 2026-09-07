@@ -3,6 +3,7 @@ package llm
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -27,6 +28,9 @@ type ImagePart struct {
 	// When set the agent informs the model of this location so it can reference the file
 	// directly without re-reading the base64 payload.
 	FilePath string `json:"file_path,omitempty"`
+	// ThumbnailPath is the absolute path of the persisted, bounded PNG preview
+	// used by transcript clients. Providers never receive this file directly.
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
 }
 
 // Message is a single turn in a conversation.
@@ -122,11 +126,14 @@ type Provider interface {
 
 // ProviderInput selects an LLM backend and connection parameters.
 type ProviderInput struct {
-	Type        string
-	Model       string
-	APIKey      string
-	BaseURL     string
-	ProxyURL    string
+	Type     string
+	Model    string
+	APIKey   string
+	BaseURL  string
+	ProxyURL string
+	// AuthPath is the Coddy-managed OAuth credential file for providers that use
+	// browser sign-in instead of an API key.
+	AuthPath    string
 	MaxTokens   int
 	Temperature float64
 	// ReasoningEffort is the reasoning level name ("minimal"|"low"|"medium"|"high"), or empty.
@@ -134,21 +141,66 @@ type ProviderInput struct {
 	ReasoningEffort string
 	// RetryMax is the number of retries after the first failed attempt (default 3).
 	RetryMax int
+	// RetryDisabled turns retries off entirely (config llm_retry_max: 0). A zero
+	// RetryMax alone still falls back to the default.
+	RetryDisabled bool
 	// RetryBase is the initial backoff between retries (default 1s).
 	RetryBase time.Duration
 	// RetryMaxDelay caps retry backoff (default 60s).
 	RetryMaxDelay time.Duration
+	// CallBudget bounds one call's time, sleeps on a limit included, to
+	// what the caller's own timer allows (the agent's first-token timer);
+	// zero means no such bound (see ResilientOptions.CallBudget).
+	CallBudget time.Duration
+	// RetryBudget caps the total the caller's unit of work spends on limits,
+	// the LimitLedger's total plus this call; a longer pause fails fast as
+	// a QuotaResetError. It counts only with RetryBudgetSet: unset means
+	// the RetryMaxDelay ladder alone, set to zero means no sleep on a limit
+	// at all (see ResilientOptions.RetryBudget).
+	RetryBudget    time.Duration
+	RetryBudgetSet bool
+	// LimitLedger, when set, is charged with every sleep the wrapper takes
+	// after a 429 and its total counts against RetryBudget, so the budget
+	// spans the caller's unit of work (see ResilientOptions.Ledger).
+	LimitLedger LimitLedger
 	// MinInterval enforces a minimum gap between consecutive LLM calls (default 0).
 	MinInterval time.Duration
+	// DisableStream turns off the streaming transport (models[].stream: false):
+	// Stream then issues one blocking request and replays the finished response.
+	DisableStream bool
+	// Timeout, when positive, bounds the entire HTTP request including the
+	// streamed body read (providers[].timeout_ms). Zero means no client
+	// timeout; the turn context stays the only bound.
+	Timeout time.Duration
 }
 
+// neuralDeepBaseURL is the default NeuralDeep deployment; neuralDeepEndpoints
+// holds the full allowlist a provider may select from.
 const neuralDeepBaseURL = "https://api.neuraldeep.ru/v1"
 
 func providerBaseURL(providerType, configured string) string {
 	if providerType == "neuraldeep" {
-		return neuralDeepBaseURL
+		// Pinned to the official deployments: api_base picks between them and
+		// anything else falls back to the default, so a hub-issued key cannot
+		// be aimed at an arbitrary host. CODDY_NEURALDEEP_BASE_URL still
+		// redirects the process as a whole for tests and stands.
+		return neuralDeepAPIBase(configured)
 	}
 	return strings.TrimSpace(configured)
+}
+
+// neuralDeepEffectiveKey resolves the request credential for a neuraldeep
+// provider: an explicit api_key (or command/env, already merged into APIKey)
+// wins; otherwise the key stored by `coddy providers login` is used.
+func neuralDeepEffectiveKey(explicit, authPath string) string {
+	if strings.TrimSpace(explicit) != "" {
+		return explicit
+	}
+	key, err := LoadNeuralDeepKey(authPath)
+	if err != nil {
+		return ""
+	}
+	return key
 }
 
 // NewProvider creates the appropriate Provider from a model definition.
@@ -157,6 +209,12 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.Timeout > 0 {
+		if hc == nil {
+			hc = &http.Client{}
+		}
+		hc.Timeout = p.Timeout
+	}
 	var inner Provider
 	switch p.Type {
 	case "openai":
@@ -164,9 +222,19 @@ func NewProvider(p ProviderInput) (Provider, error) {
 	case "anthropic":
 		inner = newAnthropicProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
 	case "neuraldeep":
-		inner = newOpenAIProvider(p.Model, p.APIKey, providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+		inner = newOpenAIProvider(p.Model, neuralDeepEffectiveKey(p.APIKey, p.AuthPath), providerBaseURL(p.Type, p.BaseURL), hc, p.MaxTokens, p.Temperature, p.ReasoningEffort)
+	case "codex":
+		// Codex uses ChatGPT OAuth credentials. APIKey and the configured BaseURL are
+		// intentionally ignored: OAuth tokens go to the official Codex backend unless
+		// the process itself opts out through CODDY_CODEX_BASE_URL.
+		inner = newCodexProvider(p.Model, p.AuthPath, codexBaseURL(), hc, p.MaxTokens, p.ReasoningEffort)
 	default:
 		return nil, &UnsupportedProviderError{Provider: p.Type}
+	}
+	if p.DisableStream {
+		// Inside the resilient wrap: a retry then re-issues a blocking call that has
+		// emitted nothing yet, instead of replaying deltas a caller already consumed.
+		inner = newBlockingProvider(inner)
 	}
 	return applyResilientWrap(inner, p), nil
 }

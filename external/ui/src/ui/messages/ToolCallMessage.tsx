@@ -1,5 +1,6 @@
 import {
   type ReactElement,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -11,19 +12,14 @@ import {
   parseQuestionToolAnswersFromResult,
   parseQuestionToolQuestionsFromArgs,
 } from "../chat/questionToolDisplay";
-import { toolCallArgsDisplay } from "../chat/toolCallArgsDisplay";
+import { PermissionToolPreview } from "../chat/PermissionPromptPreview";
+import { taskStatusLabel, taskTimingLine, taskTone } from "../tasks/taskStatus";
+import type { BackgroundTask } from "../tasks/types";
+import { buildToolCallPreview } from "../chat/permissionToolPreview";
+import type { TodoPlanEntry } from "../chat/todoToolPreview";
+import { useT } from "../i18n/I18nProvider";
 import { parseSpawnAgentArgs } from "../chat/spawnAgentDisplay";
-import { DiffView } from "./DiffView";
 import { SpawnAgentCard } from "./SpawnAgentCard";
-
-function safePrettyJSON(text: string): string {
-  try {
-    const v = JSON.parse(text);
-    return JSON.stringify(v, null, 2);
-  } catch {
-    return text;
-  }
-}
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "";
@@ -40,6 +36,7 @@ function QuestionToolTimelineReadout(props: {
   resultText: string;
   status: string;
 }) {
+  const { t } = useT();
   const qs = parseQuestionToolQuestionsFromArgs(props.argsText);
   const terminal = ["completed", "failed", "cancelled"].includes(
     (props.status || "").toLowerCase(),
@@ -48,9 +45,11 @@ function QuestionToolTimelineReadout(props: {
 
   if (qs.length === 0) {
     return (
-      <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>
-        Answer using the Questions card in this chat. This row only mirrors the
-        tool state.
+      <p
+        className="muted"
+        style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}
+      >
+        {t("messages.toolQuestionMirrorHint")}
       </p>
     );
   }
@@ -58,7 +57,7 @@ function QuestionToolTimelineReadout(props: {
   return (
     <div
       className="question-prompt-resolved-body"
-      aria-label="Question tool timeline"
+      aria-label={t("messages.toolQuestionTimelineAriaLabel")}
     >
       {qs.map((item, qi) => (
         <div
@@ -73,7 +72,7 @@ function QuestionToolTimelineReadout(props: {
               </div>
             ) : (
               <div className="question-prompt-resolved-a muted">
-                Awaiting answer
+                {t("messages.toolAwaitingAnswer")}
               </div>
             )}
           </div>
@@ -83,7 +82,7 @@ function QuestionToolTimelineReadout(props: {
   );
 }
 
-export function ToolCallMessage(props: {
+export const ToolCallMessage = memo(function ToolCallMessage(props: {
   toolCallId: string;
   title?: string | undefined;
   kind?: string | undefined;
@@ -92,42 +91,80 @@ export function ToolCallMessage(props: {
   resultText?: string | undefined;
   fullResultText?: string | undefined;
   resultWasTruncated?: boolean | undefined;
+  /** Final todo state saved with this call, used by structured todo previews. */
+  todoPlan?: TodoPlanEntry[] | undefined;
   durationMs?: number;
   /** Wall-clock start for live elapsed while pending/in_progress. */
   startedAtMs?: number;
   /** When true, wall-clock label stops (e.g. awaiting permission). */
   permissionWaiting?: boolean;
   onFetchToolCallFull?: (toolCallId: string) => Promise<void>;
+  /** Set when this call started a background task, so the row can keep ticking
+   *  after the tool itself returned. */
+  backgroundTask?: BackgroundTask | undefined;
+  /** Shared clock from the shell so every ticker advances together. */
+  backgroundNowMs?: number | undefined;
+  onOpenBackgroundTask?: ((taskId: string) => void) | undefined;
+  onStopBackgroundTask?: ((taskId: string) => void) | undefined;
 }) {
-  const args = useMemo(
-    () =>
-      toolCallArgsDisplay(props.argsText, {
-        kind: props.kind,
-        title: props.title,
-      }),
-    [props.argsText, props.kind, props.title],
-  );
+  const { t } = useT();
   const preview = useMemo(
     () => (props.resultText ? props.resultText : ""),
     [props.resultText],
   );
   const full = props.fullResultText || "";
-  const rawName = (props.title || props.kind || "tool").trim();
+  const rawName = (
+    props.title ||
+    props.kind ||
+    t("messages.toolDefaultName")
+  ).trim();
+  const toolPreview = useMemo(
+    () =>
+      buildToolCallPreview(
+        {
+          title: props.title,
+          kind: props.kind,
+          argsText: props.argsText,
+          todoPlan: props.todoPlan,
+        },
+        props.argsText || "",
+      ),
+    [props.argsText, props.kind, props.title, props.todoPlan, t],
+  );
   const status = (props.status || "").toLowerCase();
   const pendingLike = status === "pending" || status === "in_progress";
+  const terminalStatus =
+    status === "completed" || status === "failed" || status === "cancelled";
 
   const isQuestionTool =
     rawName.toLowerCase() === "question" ||
     (props.kind || "").toLowerCase() === "question";
 
-  const isPatchTool = rawName.toLowerCase() === "apply_patch";
-  const isSpawnAgentTool =
-    rawName.toLowerCase() === "spawn_agent" ||
-    (props.kind || "").trim().toLowerCase() === "spawn_agent";
+  const rawNameLower = rawName.toLowerCase();
+  const kindLower = (props.kind || "").trim().toLowerCase();
+  const isSpawnAgentTool = rawNameLower === "spawn_agent" || kindLower === "spawn_agent";
   const spawnAgent = useMemo(
     () => (isSpawnAgentTool ? parseSpawnAgentArgs(props.argsText) : null),
     [isSpawnAgentTool, props.argsText],
   );
+  const isPatchTool = rawNameLower === "apply_patch";
+  const isWriteTool =
+    !isPatchTool &&
+    (rawNameLower === "write" ||
+      rawNameLower === "write_file" ||
+      (!props.title && kindLower === "write"));
+  const isEditTool = !isPatchTool && rawNameLower === "edit";
+  /** Tools whose argument preview can be arbitrarily large and needs a capped viewport. */
+  const isLargePreviewTool = isPatchTool || isWriteTool || isEditTool;
+  const argsTextIsCompleteJSON = useMemo(() => {
+    if (!props.argsText) return false;
+    try {
+      JSON.parse(props.argsText);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [props.argsText]);
 
   const patchContent = useMemo(() => {
     if (!isPatchTool || !props.argsText) return null;
@@ -145,10 +182,13 @@ export function ToolCallMessage(props: {
 
   const displayLabel = useMemo(() => {
     if (isQuestionTool) {
-      return "question";
+      return t("messages.toolQuestionLabel");
     }
-    return pendingLike ? `${rawName || "tool"}...` : rawName || "tool";
-  }, [isQuestionTool, pendingLike, rawName]);
+    const fallback = t("messages.toolDefaultName");
+    return pendingLike
+      ? `${rawName || fallback}${t("messages.toolPendingSuffix")}`
+      : rawName || fallback;
+  }, [isQuestionTool, pendingLike, rawName, t]);
 
   const permissionWaiting = props.permissionWaiting === true;
 
@@ -223,35 +263,45 @@ export function ToolCallMessage(props: {
     setLoadingFull(false);
   }, [props.toolCallId]);
 
-  // History previews may truncate JSON; structured cards need the full arguments.
+  // The sessions list caps argsPreview at 200 chars. Fetch the saved full args when that
+  // leaves a patch, write, edit, or spawn_agent payload unparseable, so restored cards match live SSE
+  // instead of rendering an empty preview. Any status qualifies: a session restored while
+  // its tool was still in_progress carries the same truncated preview.
   const fetchFn = props.onFetchToolCallFull;
   const fetchAttemptedRef = useRef(false);
   useEffect(() => {
     fetchAttemptedRef.current = false;
   }, [props.toolCallId]);
+  // Complete args re-arm the fetch: a later transcript reconcile can replace them
+  // with the truncated list preview again, and the card must recover once more.
   useEffect(() => {
-    const needsArgs =
+    if (argsTextIsCompleteJSON) fetchAttemptedRef.current = false;
+  }, [argsTextIsCompleteJSON]);
+  useEffect(() => {
+    const needsFullArgs =
       (isPatchTool && !patchContent) ||
-      (isSpawnAgentTool && !spawnAgent && !pendingLike);
-    if (!needsArgs || !fetchFn || fetchAttemptedRef.current) return;
+      ((isWriteTool || isEditTool || isSpawnAgentTool) &&
+        !!props.argsText &&
+        !argsTextIsCompleteJSON);
+    if (!needsFullArgs || !fetchFn || fetchAttemptedRef.current) return;
     fetchAttemptedRef.current = true;
     void fetchFn(props.toolCallId).catch(() => {
-      // Keep the readable preview when history is temporarily unavailable.
+      // Preserve the readable preview if the saved arguments cannot be loaded.
     });
   }, [
-    isPatchTool,
-    patchContent,
-    isSpawnAgentTool,
-    spawnAgent,
-    pendingLike,
-    props.toolCallId,
+    argsTextIsCompleteJSON,
     fetchFn,
+    isEditTool,
+    isPatchTool,
+    isWriteTool,
+    isSpawnAgentTool,
+    patchContent,
+    props.argsText,
+    props.toolCallId,
   ]);
 
   const canExpand =
-    !isQuestionTool &&
-    props.resultWasTruncated === true &&
-    (status === "completed" || status === "failed" || status === "cancelled");
+    !isQuestionTool && props.resultWasTruncated === true && terminalStatus;
   const fetchFull = props.onFetchToolCallFull;
 
   const onLoadMore = useCallback(async () => {
@@ -276,35 +326,35 @@ export function ToolCallMessage(props: {
     props.resultWasTruncated === true || (showExpanded && full.trim() !== "");
 
   const showToggleRow = canExpand && !!fetchFull && !!(preview || full);
-  let toggleLink: ReactElement | null = null;
+  let toggleButton: ReactElement | null = null;
   if (showToggleRow) {
     if (showExpanded && full) {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-hide-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-less"
           onClick={(e) => {
             e.preventDefault();
             onHide();
           }}
         >
-          Hide
+          {t("messages.toolLess")}
         </button>
       );
     } else {
-      toggleLink = (
+      toggleButton = (
         <button
           type="button"
-          className="tool-result-text-link"
-          data-testid="tool-result-more-link"
+          className="tool-overflow-toggle"
+          data-testid="tool-result-more"
           disabled={loadingFull}
           onClick={(e) => {
             e.preventDefault();
             void onLoadMore();
           }}
         >
-          {loadingFull ? "Loading..." : "Load more results"}
+          {loadingFull ? t("messages.toolLoading") : t("messages.toolMore")}
         </button>
       );
     }
@@ -312,22 +362,40 @@ export function ToolCallMessage(props: {
 
   const viewportMode = showExpanded && full ? "scroll" : "clip";
 
-  const showJsonArgs = !!args && !isQuestionTool && !isPatchTool && !spawnAgent;
-  const showDiffView = isPatchTool && !!patchContent;
+  const toolPreviewHasContent =
+    toolPreview.header.trim() !== "" ||
+    toolPreview.meta.length > 0 ||
+    toolPreview.copyText.trim() !== "" ||
+    (toolPreview.kind === "diff" && toolPreview.lines.length > 0) ||
+    (toolPreview.kind === "todo" && toolPreview.entries.length > 0) ||
+    toolPreview.kind === "plan_exit" ||
+    (toolPreview.kind === "move" &&
+      (toolPreview.sourcePath.trim() !== "" ||
+        toolPreview.destinationPath.trim() !== ""));
+  const backgroundTask = props.backgroundTask;
+  const backgroundNowMs = props.backgroundNowMs ?? nowMs;
+  const showToolPreview = !isQuestionTool && !spawnAgent && toolPreviewHasContent;
   const showPatchResult =
     isPatchTool &&
     !!resultBody &&
     !resultBody.trim().toLowerCase().startsWith("patch applied successfully");
-  const showJsonResult =
-    !isQuestionTool && !isPatchTool && !!(resultBody && resultBody.length > 0);
+  const showResult =
+    !isQuestionTool &&
+    !isPatchTool &&
+    !(
+      status === "completed" &&
+      (toolPreview.kind === "todo" || toolPreview.kind === "plan_exit")
+    ) &&
+    !!(resultBody && resultBody.length > 0);
+  const hasConnectedResult = (showToolPreview || !!spawnAgent) && (showPatchResult || showResult);
   const hasBody =
     !!spawnAgent ||
     isQuestionTool ||
-    showJsonArgs ||
-    showDiffView ||
+    showToolPreview ||
     showPatchResult ||
-    showJsonResult ||
-    !!toggleLink;
+    showResult ||
+    !!toggleButton ||
+    !!backgroundTask;
 
   return (
     <div
@@ -339,7 +407,10 @@ export function ToolCallMessage(props: {
         className="thinking-details coddy-tool-details"
         data-testid={`tool-details-${props.toolCallId}`}
       >
-        <summary className="thinking-summary" aria-label="Tool summary">
+        <summary
+          className="thinking-summary"
+          aria-label={t("messages.toolSummaryAriaLabel")}
+        >
           <span className="thinking-left">
             <span className="thinking-chevron" aria-hidden="true" />
             <span className="thinking-label">{displayLabel}</span>
@@ -348,19 +419,39 @@ export function ToolCallMessage(props: {
                 {durationLabel}
               </span>
             ) : null}
+            {backgroundTask ? (
+              <span
+                className={[
+                  "tool-bgtask-chip",
+                  backgroundTask.running ? "is-running" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                data-testid={`tool-bgtask-chip-${backgroundTask.id}`}
+                title={backgroundTask.command || backgroundTask.label}
+              >
+                <span
+                  className={`bgtask-dot bgtask-dot--${taskTone(backgroundTask.status)}`}
+                  aria-hidden="true"
+                />
+                <span className="tool-bgtask-chip-text">
+                  {taskStatusLabel(backgroundTask.status)} ·{" "}
+                  {taskTimingLine(backgroundTask, backgroundNowMs)}
+                </span>
+              </span>
+            ) : null}
           </span>
         </summary>
         {hasBody ? (
           <div
             className={[
               "thinking-body coddy-tool-call-body",
-              showDiffView && !showJsonArgs && !showJsonResult && !showPatchResult && !isQuestionTool
-                ? "coddy-tool-call-body--diff"
-                : "",
+              isQuestionTool && "coddy-tool-call-body--question",
+              hasConnectedResult && "coddy-tool-call-body--connected-result",
             ]
               .filter(Boolean)
               .join(" ")}
-            aria-label="Tool call details"
+            aria-label={t("messages.toolDetailsAriaLabel")}
           >
             {isQuestionTool ? (
               <QuestionToolTimelineReadout
@@ -369,43 +460,81 @@ export function ToolCallMessage(props: {
                 status={props.status}
               />
             ) : null}
-            {showJsonArgs ? (
-              <pre className="tool-block" aria-label="Tool arguments">
-                {args}
-              </pre>
+            {showToolPreview ? (
+              <PermissionToolPreview
+                preview={toolPreview}
+                interactive={false}
+                overflowControls={isLargePreviewTool}
+                toolStatus={status}
+              />
             ) : null}
             {spawnAgent ? <SpawnAgentCard details={spawnAgent} /> : null}
-            {showDiffView && patchContent ? (
-              <DiffView patch={patchContent} filePath={args} />
-            ) : null}
-            {showPatchResult ? (
-              <div
-                className="tool-block tool-result tool-result-raw"
-                aria-label="Tool result"
-              >
-                <pre className="tool-result-pre">{resultBody}</pre>
-              </div>
-            ) : null}
-            {showJsonResult ? (
+            {showPatchResult || showResult ? (
               <div
                 className={[
-                  "tool-block tool-result tool-result-raw",
-                  useTallViewport &&
-                    `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  "tool-call-result-card",
+                  status === "failed" && "tool-call-result-card--failed",
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                aria-label="Tool result"
+                aria-label={t("messages.toolResultAriaLabel")}
               >
-                <pre className="tool-result-pre">{resultBody}</pre>
+                <div className="tool-call-result-head">
+                  <span className="tool-call-result-dot" aria-hidden />
+                  <span>{t("messages.toolResultSection")}</span>
+                </div>
+                <div
+                  className={[
+                    "tool-call-result-content",
+                    useTallViewport &&
+                      `tool-result-viewport tool-result-viewport--tall tool-result-viewport--${viewportMode}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <pre className="tool-result-pre">{resultBody}</pre>
+                </div>
               </div>
             ) : null}
-            {toggleLink ? (
-              <div className="tool-result-toggle-row">{toggleLink}</div>
+            {backgroundTask ? (
+              <div
+                className="tool-bgtask-actions"
+                data-testid={`tool-bgtask-actions-${backgroundTask.id}`}
+              >
+                {props.onOpenBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-open-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onOpenBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    {t("messages.toolBgTaskOpen")}
+                  </button>
+                ) : null}
+                {backgroundTask.running && props.onStopBackgroundTask ? (
+                  <button
+                    type="button"
+                    className="tool-overflow-toggle"
+                    data-testid={`tool-bgtask-stop-${backgroundTask.id}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      props.onStopBackgroundTask?.(backgroundTask.id);
+                    }}
+                  >
+                    {t("messages.toolBgTaskStop")}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {toggleButton ? (
+              <div className="tool-result-toggle-row">{toggleButton}</div>
             ) : null}
           </div>
         ) : null}
       </details>
     </div>
   );
-}
+});

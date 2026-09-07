@@ -37,7 +37,7 @@ func ItemUpdateTool() *tooling.Tool {
 				"required": []string{"index"},
 			},
 		},
-		Execute:           execItemUpdate,
+		Execute: execItemUpdate,
 	}
 }
 

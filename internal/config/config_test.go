@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
@@ -167,8 +168,8 @@ logger:
 	if cfg.Agent.MaxTurns != 7 {
 		t.Errorf("agent.max_turns: got %d want 7", cfg.Agent.MaxTurns)
 	}
-	if cfg.Agent.LLMRetryMax != config.AgentDefaultLLMRetryMax {
-		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.LLMRetryMax)
+	if cfg.Agent.EffectiveLLMRetryMax() != config.AgentDefaultLLMRetryMax {
+		t.Errorf("agent.llm_retry_max default: got %d", cfg.Agent.EffectiveLLMRetryMax())
 	}
 
 	wantPrompts := filepath.Clean("/tmp/coddy-e2e-prompts")
@@ -372,6 +373,46 @@ agent:
 	}
 	if cfg.Models[0].Model != "openai/gpt-4o" {
 		t.Errorf("model: got %q", cfg.Models[0].Model)
+	}
+}
+
+func TestLoadNeuralDeepProviderWithMirrorAPIBase(t *testing.T) {
+	t.Setenv("NEURALDEEP_API_KEY", "nd-test-key")
+
+	content := `
+providers:
+  - name: neuraldeep
+    type: neuraldeep
+    api_base: "https://api.neuraldeep.tech/v1"
+    api_key: "${NEURALDEEP_API_KEY}"
+
+models:
+  - model: "neuraldeep/default"
+
+agent:
+  model: "neuraldeep/default"
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The mirror is a legitimate NeuralDeep deployment, so the row keeps it and
+	// ResolveLLM carries it to the provider constructor.
+	if got := cfg.Providers[0].APIBase; got != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("api_base = %q, want the mirror", got)
+	}
+	rm, err := cfg.ResolveLLM("neuraldeep/default")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.BaseURL != "https://api.neuraldeep.tech/v1" {
+		t.Fatalf("resolved base URL = %q, want the mirror", rm.BaseURL)
 	}
 }
 
@@ -771,6 +812,28 @@ func TestSkillsAutoDiscoveryDefaultsTrue(t *testing.T) {
 	}
 }
 
+func TestAgentWaitForLimitResetJSONRoundTrip(t *testing.T) {
+	// The Settings UI saves the whole config through the JSON DTO: an opt-in
+	// set in YAML must survive an unrelated save, pointer semantics included.
+	custom := 90_000
+	c := &config.Config{Agent: config.Agent{Model: "m", WaitForLimitReset: true, WaitForLimitResetMaxMS: &custom}}
+	dto := config.ConfigToJSONDTO(c)
+	if !dto.Agent.WaitForLimitReset || dto.Agent.WaitForLimitResetMaxMS == nil || *dto.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("DTO lost the wait settings: %+v", dto.Agent)
+	}
+	back := config.JSONDTOToConfig(dto, config.Paths{})
+	if !back.Agent.WaitForLimitReset || back.Agent.WaitForLimitResetMaxMS == nil || *back.Agent.WaitForLimitResetMaxMS != 90_000 {
+		t.Fatalf("round-trip lost the wait settings: %+v", back.Agent)
+	}
+	plain := config.JSONDTOToConfig(config.ConfigToJSONDTO(&config.Config{Agent: config.Agent{Model: "m"}}), config.Paths{})
+	if plain.Agent.WaitForLimitReset || plain.Agent.WaitForLimitResetMaxMS != nil {
+		t.Fatalf("an unset maximum must stay nil (the default), got %+v", plain.Agent)
+	}
+	if ex := config.SchemaExampleConfigJSON(); ex.Agent.WaitForLimitResetMaxMS == nil || *ex.Agent.WaitForLimitResetMaxMS != config.AgentDefaultWaitForLimitResetMaxMS {
+		t.Fatalf("the schema example must carry the default maximum, got %+v", ex.Agent.WaitForLimitResetMaxMS)
+	}
+}
+
 func TestSkillsAutoDiscoveryJSONRoundTrip(t *testing.T) {
 	f := false
 	c := &config.Config{Skills: config.Skills{AutoDiscovery: &f}}
@@ -813,5 +876,640 @@ func TestApplySkillsAutoDiscoveryFlag(t *testing.T) {
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, v)
 	if cfg.Skills.AutoDiscovery == nil || !cfg.Skills.AutoDiscoveryEnabled() {
 		t.Fatalf("flag=true must explicitly enable auto_discovery")
+	}
+}
+
+func TestMCPProjectTrustDefaultsToAskAndRejectsUnknown(t *testing.T) {
+	// An empty or unrecognised value must never widen the policy.
+	for _, in := range []string{"", "   ", "nonsense"} {
+		var c config.MCP
+		c.ProjectTrust = in
+		if got := c.ResolvedProjectTrust(); got != config.ProjectTrustAsk {
+			t.Errorf("ResolvedProjectTrust(%q) = %q, want %q", in, got, config.ProjectTrustAsk)
+		}
+	}
+
+	var c config.MCP
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAsk {
+		t.Fatalf("empty Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "ALLOW"
+	if err := c.Validate(); err != nil || c.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("case-insensitive Validate = %v, project_trust %q", err, c.ProjectTrust)
+	}
+	c.ProjectTrust = "sometimes"
+	if err := c.Validate(); err == nil {
+		t.Fatal("unknown project_trust must be rejected")
+	}
+}
+
+func TestMCPProjectTrustRoundTripsThroughConfigJSON(t *testing.T) {
+	// The Settings UI PUTs the whole document back; a key missing from the
+	// JSON DTO would silently reset the policy to the default.
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	back := config.JSONDTOToConfig(config.ConfigToJSONDTO(cfg), config.Paths{})
+	if got := back.MCP.ResolvedProjectTrust(); got != config.ProjectTrustDeny {
+		t.Fatalf("project_trust after round trip = %q, want %q", got, config.ProjectTrustDeny)
+	}
+}
+
+func TestApplyProjectTrustFlag(t *testing.T) {
+	newFS := func(args []string) (*flag.FlagSet, *string) {
+		fs := flag.NewFlagSet("test", flag.ContinueOnError)
+		v := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, "")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("parse %v: %v", args, err)
+		}
+		return fs, v
+	}
+
+	// Unset flag must not touch config, or every launch would reset the policy.
+	fs, v := newFS(nil)
+	cfg := &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("unset flag: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustDeny {
+		t.Fatalf("unset flag changed policy to %q", cfg.MCP.ProjectTrust)
+	}
+
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allow"})
+	cfg = &config.Config{MCP: config.MCP{ProjectTrust: config.ProjectTrustDeny}}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err != nil {
+		t.Fatalf("allow: %v", err)
+	}
+	if cfg.MCP.ProjectTrust != config.ProjectTrustAllow {
+		t.Fatalf("flag=allow left policy %q", cfg.MCP.ProjectTrust)
+	}
+
+	// A typo must fail loudly instead of silently falling back to ask.
+	fs, v = newFS([]string{"-" + config.ProjectTrustFlagName + "=allo"})
+	cfg = &config.Config{}
+	if err := config.ApplyProjectTrustFlag(fs, cfg, v); err == nil {
+		t.Fatal("unknown flag value must be rejected")
+	}
+}
+
+// TestModelStreamToggleYAMLAndDTO covers the tri-state of models[].stream: an
+// omitted key means streaming, an explicit false must survive both the YAML load
+// and the Settings JSON round trip without becoming "unset" or vice versa.
+func TestModelStreamToggleYAMLAndDTO(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/streamed"
+  - model: "local/blocking"
+    stream: false
+  - model: "local/explicit-true"
+    stream: true
+
+agent:
+  model: "local/streamed"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Config: path})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+
+	for _, tc := range []struct {
+		ref        string
+		wantStream bool
+		wantSet    bool
+	}{
+		{"local/streamed", true, false},
+		{"local/blocking", false, true},
+		{"local/explicit-true", true, true},
+	} {
+		entry := cfg.FindModelEntry(tc.ref)
+		if entry == nil {
+			t.Fatalf("model %q missing from config", tc.ref)
+		}
+		if got := entry.EffectiveStream(); got != tc.wantStream {
+			t.Fatalf("%s: EffectiveStream() = %v, want %v", tc.ref, got, tc.wantStream)
+		}
+		if (entry.Stream != nil) != tc.wantSet {
+			t.Fatalf("%s: key set = %v, want %v", tc.ref, entry.Stream != nil, tc.wantSet)
+		}
+		rm, err := cfg.ResolveLLM(tc.ref)
+		if err != nil {
+			t.Fatalf("%s: ResolveLLM: %v", tc.ref, err)
+		}
+		if rm.Stream != tc.wantStream {
+			t.Fatalf("%s: ResolvedLLM.Stream = %v, want %v", tc.ref, rm.Stream, tc.wantStream)
+		}
+	}
+
+	// Opening and saving Settings must not turn an omitted key into an explicit false.
+	dto := config.ConfigToJSONDTO(cfg)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	if strings.Contains(string(raw), `"model":"local/streamed","stream"`) {
+		t.Fatalf("the omitted key was materialized in the DTO: %s", raw)
+	}
+	back, err := config.ParseAndValidateConfigJSON(raw, cfg.Paths)
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	if e := back.FindModelEntry("local/streamed"); e == nil || e.Stream != nil {
+		t.Fatalf("round trip materialized stream on an omitted key: %+v", e)
+	}
+	if e := back.FindModelEntry("local/blocking"); e == nil || e.Stream == nil || *e.Stream {
+		t.Fatalf("round trip lost an explicit stream: false: %+v", e)
+	}
+}
+
+// TestCodexRejectsStreamFalse pins the one unsupported combination: the Codex
+// Responses backend is streaming-only, so it cannot honor one blocking request.
+func TestCodexRejectsStreamFalse(t *testing.T) {
+	blocking := false
+	streaming := true
+
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "codex", Type: "codex"}},
+		Models:    []config.ModelEntry{{Model: "codex/gpt-5.5", Stream: &blocking}},
+		Agent:     config.Agent{Model: "codex/gpt-5.5"},
+	}
+	err := cfg.ValidateModelsProvidersAndAgent()
+	if err == nil {
+		t.Fatal("codex with stream: false must be rejected")
+	}
+	if !strings.Contains(err.Error(), "streaming-only") {
+		t.Fatalf("error %q does not explain why", err)
+	}
+
+	// An omitted key and an explicit true stay valid for codex.
+	for name, entry := range map[string]config.ModelEntry{
+		"omitted":  {Model: "codex/gpt-5.5"},
+		"explicit": {Model: "codex/gpt-5.5", Stream: &streaming},
+	} {
+		cfg.Models = []config.ModelEntry{entry}
+		if err := cfg.ValidateModelsProvidersAndAgent(); err != nil {
+			t.Fatalf("%s stream key rejected for codex: %v", name, err)
+		}
+	}
+}
+
+// TestUISchemaModelStreamDefault pins the one boolean in the settings schema whose
+// absence means true. The form seeds a new entry from schema defaults and draws an
+// unset switch from them, so a missing default here would make the UI write and
+// display the opposite of how the agent behaves.
+func TestUISchemaModelStreamDefault(t *testing.T) {
+	schema := config.UISchemaMap()
+	models, ok := schema["properties"].(map[string]interface{})["models"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models section missing from the UI schema")
+	}
+	items := models["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+
+	stream, ok := props["stream"].(map[string]interface{})
+	if !ok {
+		t.Fatal("models[].stream missing from the UI schema")
+	}
+	if def, ok := stream["default"].(bool); !ok || !def {
+		t.Fatalf("models[].stream default = %v, want true", stream["default"])
+	}
+	// Field order drives the rendered form; a field absent from it is not shown.
+	order, _ := items["x-coddy-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "stream" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("stream missing from the models field order: %v", order)
+	}
+}
+
+// TestAgentLLMRetryAndTimeoutKnobs pins the unset/explicit-zero distinction
+// for llm_retry_max and llm_first_token_timeout_ms, and the providers[]
+// timeout_ms plumbing into ResolvedLLM.
+func TestAgentLLMRetryAndTimeoutKnobs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+    timeout_ms: 120000
+
+models:
+  - model: "local/gpt-4o"
+
+agent:
+  model: "local/gpt-4o"
+  llm_retry_max: 0
+  llm_first_token_timeout_ms: 0
+`
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if got := cfg.Agent.EffectiveLLMRetryMax(); got != 0 {
+		t.Errorf("explicit llm_retry_max: 0 resolved to %d, want 0 (retries disabled)", got)
+	}
+	if got := cfg.Agent.EffectiveLLMFirstTokenTimeout(); got != 0 {
+		t.Errorf("explicit llm_first_token_timeout_ms: 0 resolved to %v, want 0 (guard disabled)", got)
+	}
+
+	rm, err := cfg.ResolveLLM("local/gpt-4o")
+	if err != nil {
+		t.Fatalf("ResolveLLM: %v", err)
+	}
+	if rm.TimeoutMS != 120000 {
+		t.Errorf("resolved provider timeout_ms = %d, want 120000", rm.TimeoutMS)
+	}
+
+	unset := config.Agent{}
+	if got := unset.EffectiveLLMRetryMax(); got != config.AgentDefaultLLMRetryMax {
+		t.Errorf("unset llm_retry_max resolved to %d, want default %d", got, config.AgentDefaultLLMRetryMax)
+	}
+	if got := unset.EffectiveLLMFirstTokenTimeout(); got != config.AgentDefaultLLMFirstTokenTimeoutMS*time.Millisecond {
+		t.Errorf("unset llm_first_token_timeout_ms resolved to %v, want 90s", got)
+	}
+}
+
+// TestAgentLLMKnobsValidation rejects negative values for the new knobs.
+func TestAgentLLMKnobsValidation(t *testing.T) {
+	neg := -1
+	a := config.Agent{LLMRetryMax: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_retry_max must fail validation")
+	}
+	a = config.Agent{LLMFirstTokenTimeoutMS: &neg}
+	if err := a.Validate(); err == nil {
+		t.Error("negative llm_first_token_timeout_ms must fail validation")
+	}
+	p := config.ProviderConfig{Name: "x", Type: "openai", TimeoutMS: -5}
+	if err := p.Validate(); err == nil {
+		t.Error("negative providers timeout_ms must fail validation")
+	}
+}
+
+// TestProviderAuthPathByType pins where each provider type keeps its managed
+// credential. Every call site that builds an llm.ProviderInput must resolve the
+// auth file through this one helper: a second hand-rolled path (as the model
+// listing HTTP handler once had) silently splits codex and neuraldeep logins
+// into different files.
+func TestProviderAuthPathByType(t *testing.T) {
+	home := "/tmp/coddy-home"
+	cases := []struct {
+		typ, want string
+	}{
+		{"codex", filepath.Join(home, "providers", "nd", "codex-auth.json")},
+		{"neuraldeep", filepath.Join(home, "providers", "nd", "neuraldeep-auth.json")},
+		{"openai", ""},
+		{"anthropic", ""},
+	}
+	for _, c := range cases {
+		if got := config.ProviderAuthPath(home, "nd", c.typ); got != c.want {
+			t.Fatalf("ProviderAuthPath(%q) = %q, want %q", c.typ, got, c.want)
+		}
+	}
+	if got := config.NeuralDeepAuthPath(home, "bad name!"); got != "" {
+		t.Fatalf("invalid provider name must yield empty path, got %q", got)
+	}
+	if got := config.NeuralDeepAuthPath("", "nd"); got != "" {
+		t.Fatalf("empty home must yield empty path, got %q", got)
+	}
+}
+
+func TestAgentWaitForLimitResetDefaults(t *testing.T) {
+	var a config.Agent
+	if a.WaitForLimitReset {
+		t.Fatal("wait_for_limit_reset must be off by default")
+	}
+	if got := a.EffectiveWaitForLimitResetMax(); got != config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond {
+		t.Fatalf("default maximum wait = %v, want %v", got, config.AgentDefaultWaitForLimitResetMaxMS*time.Millisecond)
+	}
+	if config.AgentDefaultWaitForLimitResetMaxMS != 4*60*60*1000 {
+		t.Fatalf("default maximum wait is %d ms, want four hours", config.AgentDefaultWaitForLimitResetMaxMS)
+	}
+	custom := 90_000
+	a.WaitForLimitResetMaxMS = &custom
+	if got := a.EffectiveWaitForLimitResetMax(); got != 90*time.Second {
+		t.Fatalf("custom maximum wait = %v, want 90s", got)
+	}
+	zero := 0
+	a.WaitForLimitResetMaxMS = &zero
+	if got := a.EffectiveWaitForLimitResetMax(); got != 0 {
+		t.Fatalf("an explicit 0 must mean no wait at all, got %v", got)
+	}
+}
+
+// Regression for coddy-project/coddy-agent#146: ${CWD} is a session placeholder.
+// A config file that spells it out (skills.dirs, subagents.dirs, hooks.files,
+// prompts.dir, mcp_servers) must keep it verbatim through load so every session
+// resolves it against its own workspace, while the process-scoped directories
+// (sessions, scheduler, memory, log file) still resolve it against the default
+// working directory at load time. An environment variable that happens to be
+// named CWD must not be mistaken for the placeholder either.
+func TestLoadFromYAML_SessionCWDPlaceholderSurvivesLoad(t *testing.T) {
+	t.Setenv("CWD", filepath.Join("decoy", "env"))
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	content := `
+providers:
+  - name: local
+    type: openai
+    api_key: "test-key"
+
+models:
+  - model: "local/gpt-4o"
+    max_tokens: 4096
+    temperature: 0.1
+
+agent:
+  model: "local/gpt-4o"
+
+skills:
+  dirs:
+    - "${CWD}/.agents/skills"
+    - "${CODDY_HOME}/skills"
+
+subagents:
+  dirs:
+    - "${CWD}/.coddy/agents"
+
+hooks:
+  files:
+    - "${CWD}/.coddy/hooks.json"
+
+prompts:
+  dir: "${CWD}/prompts"
+
+mcp_servers:
+  - name: fs
+    command: "${CWD}/bin/mcp-fs"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "${CWD}"]
+    env:
+      - name: PROJECT
+        value: "${CWD}"
+  - name: docs
+    type: http
+    url: "http://127.0.0.1:8080/mcp?root=${CWD}"
+    headers:
+      - name: X-Workspace
+        value: "${CWD}"
+
+sessions:
+  dir: "${CWD}/sessions"
+
+scheduler:
+  dir: "${CWD}/.scheduler"
+
+memory:
+  dir: "${CWD}/memory"
+
+logger:
+  file: "${CWD}/coddy.log"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadWithPaths(config.Paths{Home: home, CWD: launch, ConfigPath: path})
+	if err != nil {
+		t.Fatalf("LoadWithPaths: %v", err)
+	}
+
+	perSession := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"skills.dirs[0]", cfg.Skills.Dirs[0], "${CWD}/.agents/skills"},
+		{"skills.dirs[1]", cfg.Skills.Dirs[1], filepath.Join(home, "skills")},
+		{"subagents.dirs[0]", cfg.Subagents.Dirs[0], "${CWD}/.coddy/agents"},
+		{"hooks.files[0]", cfg.Hooks.Files[0], "${CWD}/.coddy/hooks.json"},
+		{"prompts.dir", cfg.Prompts.Dir, "${CWD}/prompts"},
+		{"mcp_servers[0].command", cfg.MCPServers[0].Command, "${CWD}/bin/mcp-fs"},
+		{"mcp_servers[0].args[2]", cfg.MCPServers[0].Args[2], "${CWD}"},
+		{"mcp_servers[0].env[0].value", cfg.MCPServers[0].Env[0].Value, "${CWD}"},
+		{"mcp_servers[1].url", cfg.MCPServers[1].URL, "http://127.0.0.1:8080/mcp?root=${CWD}"},
+		{"mcp_servers[1].headers[0].value", cfg.MCPServers[1].Headers[0].Value, "${CWD}"},
+	}
+	for _, tc := range perSession {
+		// ${CODDY_HOME} is substituted with forward slashes; compare slash-normalised.
+		if filepath.ToSlash(tc.got) != filepath.ToSlash(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+
+	// The consumers resolve the placeholder against the session that asks.
+	sessionCWD := filepath.Join(dir, "project")
+	if got, want := cfg.Prompts.ResolvedDir(sessionCWD), filepath.Join(sessionCWD, "prompts"); got != want {
+		t.Errorf("prompts.ResolvedDir(session): got %q want %q", got, want)
+	}
+	// internal/mcp resolves command, args, env, url and headers with the same
+	// config.ExpandCWD at connect time (see stdioSpec and expandHeaders there).
+	if got, want := config.ExpandCWD(cfg.MCPServers[0].Args[2], sessionCWD), sessionCWD; got != want {
+		t.Errorf("mcp arg ExpandCWD(session): got %q want %q", got, want)
+	}
+	if got, want := config.ExpandCWD(cfg.MCPServers[1].URL, sessionCWD), "http://127.0.0.1:8080/mcp?root="+sessionCWD; got != want {
+		t.Errorf("mcp url ExpandCWD(session): got %q want %q", got, want)
+	}
+
+	processScoped := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"sessions.dir", cfg.Sessions.Dir, filepath.Join(launch, "sessions")},
+		{"scheduler.dir", cfg.Scheduler.Dir, filepath.Join(launch, ".scheduler")},
+		{"memory.dir", cfg.Memory.Dir, filepath.Join(launch, "memory")},
+		{"logger.file", cfg.Logger.File, filepath.Join(launch, "coddy.log")},
+	}
+	for _, tc := range processScoped {
+		if filepath.Clean(tc.got) != filepath.Clean(tc.want) {
+			t.Errorf("%s: got %q want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// The Settings UI reads the configuration as JSON and writes it back as YAML.
+// A skills.dirs entry with ${CWD} must survive that round trip verbatim on
+// both legs: GET reports the placeholder, PUT stores it, and the next load
+// still leaves it to the session (coddy-project/coddy-agent#146).
+func TestConfigJSONRoundTripKeepsSessionCWDPlaceholder(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	launch := filepath.Join(dir, "launch")
+	path := filepath.Join(dir, "config.yaml")
+	paths := config.Paths{Home: home, CWD: launch, ConfigPath: path}
+	body := `{"providers":[{"name":"local","type":"openai","api_key":"k"}],` +
+		`"models":[{"model":"local/gpt-4o","max_tokens":1024,"temperature":0.2}],` +
+		`"agent":{"model":"local/gpt-4o"},` +
+		`"skills":{"dirs":["${CWD}/.agents/skills","${CODDY_HOME}/skills"]}}`
+	next, err := config.ParseConfigJSONPreservingSecrets([]byte(body), paths, nil)
+	if err != nil {
+		t.Fatalf("parse json: %v", err)
+	}
+	if got := next.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("PUT lost the placeholder before writing: %q", got)
+	}
+	if got := config.ConfigToJSONDTO(next).Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("GET must report the placeholder verbatim, got %q", got)
+	}
+	yb, err := config.MarshalConfigYAML(next)
+	if err != nil {
+		t.Fatalf("marshal yaml: %v", err)
+	}
+	if err := os.WriteFile(path, yb, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := config.LoadWithPaths(paths)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.Skills.Dirs[0]; got != "${CWD}/.agents/skills" {
+		t.Fatalf("reload after PUT baked the placeholder: %q", got)
+	}
+	if got, want := filepath.ToSlash(reloaded.Skills.Dirs[1]), filepath.ToSlash(filepath.Join(home, "skills")); got != want {
+		t.Fatalf("reload after PUT: skills.dirs[1] got %q want %q", got, want)
+	}
+}
+
+// TestProviderUsageLimitsPanelYAMLDTOAndSchema pins providers[].usage_limits_panel:
+// an omitted key reads as on, an explicit false parses, the Settings DTO keeps
+// the operator's choice without materialising the omitted key, and the UI
+// schema draws the switch on by default.
+func TestProviderUsageLimitsPanelYAMLDTOAndSchema(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvCODDYHome, home)
+
+	content := `
+providers:
+  - name: nd
+    type: neuraldeep
+    api_key: "sk-test"
+  - name: nd-quiet
+    type: neuraldeep
+    api_key: "sk-test"
+    usage_limits_panel: false
+  - name: nd-loud
+    type: neuraldeep
+    api_key: "sk-test"
+    usage_limits_panel: true
+
+models:
+  - model: "nd/qwen"
+
+agent:
+  model: "nd/qwen"
+`
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Config: path})
+	if err != nil {
+		t.Fatalf("LoadFromCLI: %v", err)
+	}
+	for _, tc := range []struct {
+		name    string
+		wantOn  bool
+		wantSet bool
+	}{
+		{"nd", true, false},
+		{"nd-quiet", false, true},
+		{"nd-loud", true, true},
+	} {
+		p := cfg.FindProvider(tc.name)
+		if p == nil {
+			t.Fatalf("provider %q missing from config", tc.name)
+		}
+		if got := p.EffectiveUsageLimitsPanel(); got != tc.wantOn {
+			t.Fatalf("%s: EffectiveUsageLimitsPanel() = %v, want %v", tc.name, got, tc.wantOn)
+		}
+		if (p.UsageLimitsPanel != nil) != tc.wantSet {
+			t.Fatalf("%s: key set = %v, want %v", tc.name, p.UsageLimitsPanel != nil, tc.wantSet)
+		}
+	}
+	var none *config.ProviderConfig
+	if !none.EffectiveUsageLimitsPanel() {
+		t.Fatal("a nil provider must read as on")
+	}
+
+	// Opening and saving Settings must not turn an omitted key into an
+	// explicit value, and must keep an explicit false.
+	dto := config.ConfigToJSONDTO(cfg)
+	raw, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("marshal DTO: %v", err)
+	}
+	if got := strings.Count(string(raw), `"usage_limits_panel"`); got != 2 {
+		t.Fatalf("the DTO carries the key %d times, want 2 (the two explicit rows): %s", got, raw)
+	}
+	if dto.Providers[1].UsageLimitsPanel == cfg.Providers[1].UsageLimitsPanel {
+		t.Fatal("the DTO must own a copy of the pointer field, not alias the live config")
+	}
+	back, err := config.ParseAndValidateConfigJSON(raw, cfg.Paths)
+	if err != nil {
+		t.Fatalf("ParseAndValidateConfigJSON: %v", err)
+	}
+	if p := back.FindProvider("nd"); p == nil || p.UsageLimitsPanel != nil {
+		t.Fatalf("round trip materialised the omitted key: %+v", p)
+	}
+	if p := back.FindProvider("nd-quiet"); p == nil || p.UsageLimitsPanel == nil || *p.UsageLimitsPanel || p.EffectiveUsageLimitsPanel() {
+		t.Fatalf("round trip lost usage_limits_panel: false: %+v", p)
+	}
+	if p := back.FindProvider("nd-loud"); p == nil || p.UsageLimitsPanel == nil || !*p.UsageLimitsPanel {
+		t.Fatalf("round trip lost an explicit usage_limits_panel: true: %+v", p)
+	}
+
+	// The Settings form seeds new rows from the schema default and renders
+	// an unset switch from it, so the schema has to say the default is on.
+	schema := config.UISchemaMap()
+	providers, ok := schema["properties"].(map[string]interface{})["providers"].(map[string]interface{})
+	if !ok {
+		t.Fatal("providers section missing from the UI schema")
+	}
+	items := providers["items"].(map[string]interface{})
+	props := items["properties"].(map[string]interface{})
+	field, ok := props["usage_limits_panel"].(map[string]interface{})
+	if !ok {
+		t.Fatal("providers[].usage_limits_panel missing from the UI schema")
+	}
+	if field["type"] != "boolean" {
+		t.Fatalf("providers[].usage_limits_panel type = %v, want boolean", field["type"])
+	}
+	if def, ok := field["default"].(bool); !ok || !def {
+		t.Fatalf("providers[].usage_limits_panel default = %v, want true", field["default"])
+	}
+	order, _ := items["x-coddy-property-order"].([]interface{})
+	found := false
+	for _, name := range order {
+		if s, _ := name.(string); s == "usage_limits_panel" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("usage_limits_panel missing from the providers field order: %v", order)
 	}
 }

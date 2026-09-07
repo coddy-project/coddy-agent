@@ -13,14 +13,22 @@ import (
 )
 
 func installFromArchive(data []byte, archiveName, destPath string) error {
+	body, err := executableFromArchive(data, archiveName)
+	if err != nil {
+		return err
+	}
+	return writeExecutable(destPath, body)
+}
+
+func executableFromArchive(data []byte, archiveName string) ([]byte, error) {
 	lower := strings.ToLower(archiveName)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz"):
-		return installFromTarGz(data, BinaryName(runtimeGOOSFromArchive(archiveName)), destPath)
+		return executableFromTarGz(data, BinaryName(runtimeGOOSFromArchive(archiveName)))
 	case strings.HasSuffix(lower, ".zip"):
-		return installFromZip(data, "coddy.exe", destPath)
+		return executableFromZip(data, "coddy.exe")
 	default:
-		return fmt.Errorf("unsupported archive %q", archiveName)
+		return nil, fmt.Errorf("unsupported archive %q", archiveName)
 	}
 }
 
@@ -31,10 +39,10 @@ func runtimeGOOSFromArchive(name string) string {
 	return "linux"
 }
 
-func installFromTarGz(data []byte, binName, destPath string) error {
+func executableFromTarGz(data []byte, binName string) ([]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = zr.Close() }()
 	tr := tar.NewReader(zr)
@@ -44,7 +52,7 @@ func installFromTarGz(data []byte, binName, destPath string) error {
 			break
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			continue
@@ -55,17 +63,17 @@ func installFromTarGz(data []byte, binName, destPath string) error {
 		}
 		body, err := io.ReadAll(io.LimitReader(tr, 128<<20))
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return writeExecutable(destPath, body)
+		return body, nil
 	}
-	return fmt.Errorf("archive missing %q", binName)
+	return nil, fmt.Errorf("archive missing %q", binName)
 }
 
-func installFromZip(data []byte, binName, destPath string) error {
+func executableFromZip(data []byte, binName string) ([]byte, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, f := range zr.File {
 		if filepath.Base(f.Name) != binName {
@@ -73,26 +81,38 @@ func installFromZip(data []byte, binName, destPath string) error {
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body, err := io.ReadAll(io.LimitReader(rc, 128<<20))
 		_ = rc.Close()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return writeExecutable(destPath, body)
+		return body, nil
 	}
-	return fmt.Errorf("archive missing %q", binName)
+	return nil, fmt.Errorf("archive missing %q", binName)
 }
 
 func writeExecutable(dest string, body []byte) error {
+	tmpName, err := stageExecutable(dest, body)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
+}
+
+func stageExecutable(dest string, body []byte) (string, error) {
 	dir := filepath.Dir(dest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+		return "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".coddy-update-*")
 	if err != nil {
-		return err
+		return "", err
 	}
 	tmpName := tmp.Name()
 	cleanup := true
@@ -103,18 +123,15 @@ func writeExecutable(dest string, body []byte) error {
 	}()
 	if _, err := tmp.Write(body); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Chmod(0o755); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpName, dest); err != nil {
-		return err
+		return "", err
 	}
 	cleanup = false
-	return nil
+	return tmpName, nil
 }

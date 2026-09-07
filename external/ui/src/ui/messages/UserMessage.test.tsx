@@ -70,11 +70,11 @@ test("edit button is visible when onEdit is provided", () => {
   expect(screen.getByTestId("user-message-edit")).toBeInTheDocument();
 });
 
-test("edit button calls onEdit with message content", () => {
+test("edit button calls onEdit with message content and index", () => {
   const onEdit = vi.fn();
-  render(<UserMessage content="edit me" onEdit={onEdit} />);
+  render(<UserMessage content="edit me" onEdit={onEdit} userMsgIndex={2} />);
   screen.getByTestId("user-message-edit").click();
-  expect(onEdit).toHaveBeenCalledWith("edit me");
+  expect(onEdit).toHaveBeenCalledWith("edit me", 2);
 });
 
 test("persisted hydrated attachments render as compact @ paths", () => {
@@ -87,4 +87,32 @@ test("persisted hydrated attachments render as compact @ paths", () => {
   expect(screen.getByText(/read this/)).toBeInTheDocument();
   expect(screen.getByText(/@note\.txt/)).toBeInTheDocument();
   expect(screen.queryByText(/secret body/)).toBeNull();
+});
+
+test("image files with previewUrl render a thumbnail chip; others keep the icon", () => {
+  render(
+    <UserMessage
+      content="look at this"
+      files={[
+        {
+          name: "pasted-1.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+          previewUrl: "blob:coddy-user-thumb-1",
+        },
+        { name: "notes.txt", mimeType: "text/plain", sizeBytes: 4 },
+      ]}
+    />,
+  );
+  const thumbs = screen.getAllByTestId("msg-user-file-thumb");
+  expect(thumbs).toHaveLength(1);
+  expect(thumbs[0]).toHaveAttribute("src", "blob:coddy-user-thumb-1");
+  expect(thumbs[0]!.closest(".msg-user-file-chip")).toHaveClass(
+    "msg-user-file-chip--image",
+  );
+  expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  // Metadata-only entry (e.g. after reload) renders no thumbnail element.
+  expect(
+    screen.getByText("notes.txt").closest(".msg-user-file-chip"),
+  ).not.toHaveClass("msg-user-file-chip--image");
 });

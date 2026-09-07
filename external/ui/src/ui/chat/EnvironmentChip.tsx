@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/I18nProvider";
 import {
   connectLocal,
   connectRemote,
@@ -33,6 +34,7 @@ function normUrl(url: string): string {
  * menu shows a reachability dot per remote (green up, red down, yellow while probing).
  */
 export function EnvironmentChip() {
+  const { t } = useT();
   const env = useSyncExternalStore(subscribeEnv, snapshotEnv, snapshotEnv);
   const activeHealth = useActiveEnvHealth();
   const isMobileShell = useSyncExternalStore(
@@ -103,7 +105,9 @@ export function EnvironmentChip() {
   };
 
   const label =
-    env.mode === "local" ? "Local" : env.name || hostLabel(env.baseUrl);
+    env.mode === "local"
+      ? t("composer.env.local")
+      : env.name || hostLabel(env.baseUrl);
   const useSheet = isMobileShell;
 
   const dot = (state: Health | "local") => (
@@ -116,8 +120,8 @@ export function EnvironmentChip() {
         ref={btnRef}
         type="button"
         className="workspace-chip workspace-chip--env"
-        aria-label="Environment"
-        title="Environment (local or remote coddy http)"
+        aria-label={t("composer.env.ariaLabel")}
+        title={t("composer.env.title")}
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid="composer-env-btn"
@@ -167,7 +171,7 @@ export function EnvironmentChip() {
                   }
                 }}
               >
-                <div className="mode-menu-group-label">Environment</div>
+                <div className="mode-menu-group-label">{t("composer.env.groupEnvironment")}</div>
                 <button
                   type="button"
                   role="menuitem"
@@ -176,11 +180,11 @@ export function EnvironmentChip() {
                   onClick={() => connectLocal()}
                 >
                   {dot("local")}
-                  <span className="mode-env-name">Local (this origin)</span>
+                  <span className="mode-env-name">{t("composer.env.localThisOrigin")}</span>
                 </button>
 
                 {remotes.length ? (
-                  <div className="mode-menu-group-label">Remote</div>
+                  <div className="mode-menu-group-label">{t("composer.env.groupRemote")}</div>
                 ) : null}
                 {remotes.map((r) => {
                   const active =
@@ -207,11 +211,11 @@ export function EnvironmentChip() {
 
                 {adding ? (
                   <div className="mode-menu-form">
-                    <div className="mode-menu-form-title">Add a remote</div>
+                    <div className="mode-menu-form-title">{t("composer.env.addFormTitle")}</div>
                     <input
                       className="mode-menu-filter"
                       type="text"
-                      placeholder="name"
+                      placeholder={t("composer.env.namePlaceholder")}
                       value={addName}
                       onChange={(e) => setAddName(e.target.value)}
                     />
@@ -227,7 +231,7 @@ export function EnvironmentChip() {
                       className="mode-menu-filter"
                       type="password"
                       autoComplete="off"
-                      placeholder="bearer token (empty if none)"
+                      placeholder={t("composer.env.tokenPlaceholder")}
                       value={addToken}
                       onChange={(e) => setAddToken(e.target.value)}
                       onKeyDown={(e) => {
@@ -254,14 +258,14 @@ export function EnvironmentChip() {
                           )
                         }
                       >
-                        Connect
+                        {t("composer.env.connect")}
                       </button>
                       <button
                         type="button"
                         className="mode-item"
                         onClick={() => setAdding(false)}
                       >
-                        Cancel
+                        {t("composer.env.cancel")}
                       </button>
                     </div>
                   </div>
@@ -273,7 +277,7 @@ export function EnvironmentChip() {
                     data-testid="composer-env-add"
                     onClick={() => setAdding(true)}
                   >
-                    + Add remote…
+                    {t("composer.env.addRemote")}
                   </button>
                 )}
               </div>

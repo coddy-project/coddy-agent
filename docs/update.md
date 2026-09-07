@@ -2,6 +2,10 @@
 
 Use **`coddy update`** to download official release binaries from [GitHub Releases](https://github.com/coddy-project/coddy-agent/releases) and replace the **`coddy`** executable you are running.
 
+On Windows, Coddy starts a short-lived helper from the system temporary directory. The helper waits for `coddy update` to exit, keeps a backup of the installed executable, replaces it, and starts the updated Coddy again. The helper's status lines continue in the same `cmd.exe` or PowerShell console after the `update` command returns, so `coddy update` reports success once the download is staged, not once the swap has happened.
+
+Every download is checked against the `SHA256SUMS` asset the release publishes before anything is unpacked or installed. A release without that asset is reported and installed anyway.
+
 ## What gets installed
 
 CI publishes one archive per platform on each SemVer tag **`X.Y.Z`**:
@@ -54,6 +58,12 @@ Override the GitHub repository (default **`coddy-project/coddy-agent`**):
 coddy update --repo coddy-project/coddy-agent
 ```
 
+Install on Windows without starting Coddy again afterwards - useful from a script or a CI step, where the restarted process has no console to run in:
+
+```bash
+coddy update -y --no-restart
+```
+
 All flags:
 
 ```bash
@@ -77,6 +87,8 @@ coddy update --help
 ## Limitations
 
 - Only platforms listed in the release table are supported; others get a clear error.
-- On Windows the running process may lock the executable; close other **`coddy`** instances if replace fails.
+- On Windows, Coddy waits up to 30 seconds for another process to release the executable. A permission failure reports much sooner and names the directory: installing into `Program Files` needs an elevated console. If the update cannot be installed, the current executable is left in place; if the updated binary cannot be started, Coddy restores the backup.
+- The Windows helper deletes itself through the Coddy it just installed. Installing a release older than that handoff - `coddy update --version` walking backwards - starts the older build directly instead, and its helper stays in `%TEMP%` until the next `coddy update` sweeps it.
+- Asset downloads resume after a temporary connection failure (up to three attempts). GitHub supports the HTTP range requests Coddy uses to resume; a server that does not support ranges is downloaded again from the beginning, and one that resumes at the wrong offset fails the download rather than installing a spliced archive.
 - **`coddy update`** needs outbound HTTPS to **`api.github.com`** and the asset CDN (GitHub release downloads).
 - Config under **`$CODDY_HOME`** is not modified; only the binary is replaced.

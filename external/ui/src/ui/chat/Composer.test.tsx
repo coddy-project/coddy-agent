@@ -43,6 +43,28 @@ function renderComposerWithLlm(opts: { isEmpty: boolean }) {
   );
 }
 
+test("ask mode renders its own pill class and menu entry", () => {
+  render(
+    <Composer
+      value=""
+      isEmpty={true}
+      mode="ask"
+      modes={["agent", "plan", "ask"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const pill = screen.getByRole("button", { name: "Mode" });
+  expect(pill).toHaveClass("mode-ask");
+  expect(pill).toHaveTextContent("Ask");
+
+  fireEvent.click(pill);
+  const menu = screen.getByRole("menu");
+  expect(menu).toHaveTextContent("Ask");
+});
+
 test("mode menu opens down on start screen", () => {
   renderComposer({ isEmpty: true });
 
@@ -617,6 +639,133 @@ function stubMatchMediaMobile(isMobile: boolean) {
   }));
 }
 
+test("enhance button shares the composer context row with workspace controls", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  const button = screen.getByTestId("composer-enhance-btn");
+  expect(button).toHaveAttribute("title", "Improve prompt");
+  expect(button.closest(".composer-context-row")).not.toBeNull();
+  expect(button.closest(".composer-field-wrap")).toBeNull();
+  expect(button.closest(".composer-bar")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("enhance button posts the draft and replaces it with the result", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      object: "coddy.enhance_prompt",
+      text: "Refactor the memory endpoint and add tests.",
+    }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith(
+      "Refactor the memory endpoint and add tests.",
+    );
+  });
+  const call = fetchMock.mock.calls.find(
+    ([url]) => url === "/coddy/enhance-prompt",
+  );
+  expect(call).toBeDefined();
+  expect(call![0]).toBe("/coddy/enhance-prompt");
+  expect(JSON.parse((call![1] as RequestInit).body as string)).toEqual({
+    text: "fix memory thing",
+  });
+  vi.unstubAllGlobals();
+});
+
+test("enhance request carries the active session id", async () => {
+  stubMatchMediaMobile(false);
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ text: "Better draft." }),
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      sessionId="sess_abc123"
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  const call = fetchMock.mock.calls.find(
+    ([url]) => url === "/coddy/enhance-prompt",
+  );
+  expect(call).toBeDefined();
+  const init = call![1] as RequestInit;
+  expect((init.headers as Record<string, string>)["X-Coddy-Session-ID"]).toBe(
+    "sess_abc123",
+  );
+  vi.unstubAllGlobals();
+});
+
+test("Ctrl+Z restores the draft before prompt enhancement", async () => {
+  stubMatchMediaMobile(false);
+  const onChange = vi.fn();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "Better draft." }),
+    }),
+  );
+  render(
+    <Composer
+      value="fix memory thing"
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={(_mode) => {}}
+      onChange={onChange}
+      onSend={() => {}}
+    />,
+  );
+
+  fireEvent.click(screen.getByTestId("composer-enhance-btn"));
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith("Better draft."));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Message" }), {
+    key: "z",
+    ctrlKey: true,
+  });
+  expect(onChange).toHaveBeenLastCalledWith("fix memory thing");
+  vi.unstubAllGlobals();
+});
+
 test("desktop: Ctrl+Enter calls onSend", () => {
   stubMatchMediaMobile(false);
   const onSend = vi.fn();
@@ -786,6 +935,320 @@ test("send with attached file passes files to onSend", async () => {
   vi.unstubAllGlobals();
 });
 
+/** jsdom has no real clipboard: dispatch a native paste event carrying image items. */
+function pasteWithImages(el: Element, files: File[]) {
+  const ev = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", {
+    value: {
+      items: files.map((f) => ({
+        kind: "file",
+        type: f.type,
+        getAsFile: () => f,
+      })),
+    },
+    configurable: true,
+  });
+  fireEvent(el, ev);
+}
+
+/** jsdom has no DataTransfer: dispatch a native drop event carrying files. */
+function dropFiles(el: Element, files: File[]) {
+  const ev = new Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "dataTransfer", {
+    value: { types: ["Files"], files },
+    configurable: true,
+  });
+  fireEvent(el, ev);
+}
+
+test("pasting an image attaches it under a deterministic pasted-N name", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  expect(screen.getByText("pasted-1.png")).toBeTruthy();
+  pasteWithImages(ta, [new File(["img2"], "image.png", { type: "image/jpeg" })]);
+  expect(screen.getByText("pasted-2.jpg")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("pasting an image when the model is not multimodal shows a hint and no chip", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  expect(screen.getByTestId("composer-attach-hint").textContent).toBe(
+    "Selected model cannot accept attachments",
+  );
+  expect(screen.queryByText("pasted-1.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("plain-text paste attaches nothing and shows no hint", () => {
+  stubMatchMediaMobile(false);
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  const ev = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, "clipboardData", { value: { items: [] } });
+  fireEvent(ta, ev);
+  expect(screen.queryByTestId("composer-attach-hint")).toBeNull();
+  expect(screen.queryByText("pasted-1.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("dropping files on the composer card attaches them", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  dropFiles(card, [new File(["data"], "img.png", { type: "image/png" })]);
+  expect(screen.getByText("img.png")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("dropping files when the model is not multimodal shows a hint", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={false}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  dropFiles(card, [new File(["data"], "img.png", { type: "image/png" })]);
+  expect(screen.getByTestId("composer-attach-hint").textContent).toBe(
+    "Selected model cannot accept attachments",
+  );
+  expect(screen.queryByText("img.png")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("dragging files over the composer card toggles the drop-target affordance", () => {
+  stubMatchMediaMobile(false);
+  const { container } = render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={() => {}}
+    />,
+  );
+  const card = container.querySelector(".composer-card") as HTMLElement;
+  const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+  Object.defineProperty(dragOver, "dataTransfer", {
+    value: { types: ["Files"] },
+  });
+  fireEvent(card, dragOver);
+  expect(card).toHaveClass("composer-card--dragover");
+  const dragLeave = new Event("dragleave", { bubbles: true, cancelable: true });
+  fireEvent(card, dragLeave);
+  expect(card).not.toHaveClass("composer-card--dragover");
+  vi.unstubAllGlobals();
+});
+
+test("image attachments render a thumbnail; non-image ones keep the icon", () => {
+  stubMatchMediaMobile(false);
+  const createObjectURL = vi.fn(() => "blob:coddy-thumb-1");
+  const revokeObjectURL = vi.fn();
+  const urlCtor = URL as unknown as {
+    createObjectURL?: (f: File) => string;
+    revokeObjectURL?: (u: string) => void;
+  };
+  const origCreate = urlCtor.createObjectURL;
+  const origRevoke = urlCtor.revokeObjectURL;
+  urlCtor.createObjectURL = createObjectURL;
+  urlCtor.revokeObjectURL = revokeObjectURL;
+  try {
+    render(
+      <Composer
+        value=""
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        llmModelMultimodal={true}
+        onModeChange={() => {}}
+        onChange={() => {}}
+        onSend={() => {}}
+      />,
+    );
+    const fileInput = screen.getByTestId(
+      "composer-file-input",
+    ) as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: {
+        files: [
+          new File(["data"], "img.png", { type: "image/png" }),
+          new File(["data"], "notes.txt", { type: "text/plain" }),
+        ],
+      },
+    });
+    const thumbs = screen.getAllByTestId("composer-attachment-thumb");
+    expect(thumbs).toHaveLength(1);
+    expect(thumbs[0]?.getAttribute("src")).toBe("blob:coddy-thumb-1");
+    const imgChip = thumbs[0]?.closest(".composer-attachment-chip");
+    expect(imgChip).toHaveClass("composer-attachment-chip--image");
+    expect(screen.getByText("notes.txt")).toBeTruthy();
+  } finally {
+    urlCtor.createObjectURL = origCreate;
+    urlCtor.revokeObjectURL = origRevoke;
+    vi.unstubAllGlobals();
+  }
+});
+
+test("send is enabled by an image alone and sends empty text with the files", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const sendBtn = screen.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+  expect(sendBtn.disabled).toBe(true);
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  await waitFor(() => screen.getByText("pasted-1.png"));
+  expect(sendBtn.disabled).toBe(false);
+  fireEvent.click(sendBtn);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]];
+  expect(sentText).toBe("");
+  expect(sentFiles).toHaveLength(1);
+  expect(sentFiles[0]?.name).toBe("pasted-1.png");
+  vi.unstubAllGlobals();
+});
+
+test("attached images stay visible but are not sent after switching to a non-multimodal model", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  const common = {
+    isEmpty: false,
+    mode: "agent",
+    modes: ["agent", "plan"],
+    onModeChange: () => {},
+    onChange: () => {},
+    onSend,
+  };
+  const { rerender } = render(
+    <Composer {...common} value="" llmModelMultimodal={true} />,
+  );
+  const fileInput = screen.getByTestId(
+    "composer-file-input",
+  ) as HTMLInputElement;
+  fireEvent.change(fileInput, {
+    target: {
+      files: [new File(["img"], "photo.png", { type: "image/png" })],
+    },
+  });
+  await waitFor(() => screen.getByText("photo.png"));
+
+  rerender(<Composer {...common} value="" llmModelMultimodal={false} />);
+  const chip = screen.getByText("photo.png").closest(
+    ".composer-attachment-chip",
+  );
+  expect(chip).toHaveClass("composer-attachment-chip--disabled");
+  expect(chip).toHaveAttribute("aria-disabled", "true");
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  rerender(
+    <Composer
+      {...common}
+      value="send only this text"
+      llmModelMultimodal={false}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(onSend).toHaveBeenCalledWith("send only this text");
+  expect(screen.getByText("photo.png")).toBeTruthy();
+  vi.unstubAllGlobals();
+});
+
+test("Enter sends an image-only message", async () => {
+  stubMatchMediaMobile(false);
+  const onSend = vi.fn();
+  render(
+    <Composer
+      value=""
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      llmModelMultimodal={true}
+      onModeChange={() => {}}
+      onChange={() => {}}
+      onSend={onSend}
+    />,
+  );
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  pasteWithImages(ta, [new File(["img"], "image.png", { type: "image/png" })]);
+  await waitFor(() => screen.getByText("pasted-1.png"));
+  fireEvent.keyDown(ta, { key: "Enter" });
+  expect(onSend).toHaveBeenCalledTimes(1);
+  const [sentText, sentFiles] = onSend.mock.calls[0] as [string, File[]];
+  expect(sentText).toBe("");
+  expect(sentFiles).toHaveLength(1);
+  vi.unstubAllGlobals();
+});
+
 test("arrow keys move the slash highlight and Enter picks the highlighted row", async () => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: true,
@@ -863,4 +1326,329 @@ test("arrow keys move the slash highlight and Enter picks the highlighted row", 
   // Enter picks the highlighted row and appends it to the input.
   fireEvent.keyDown(ta, { key: "Enter" });
   await waitFor(() => expect(onChange).toHaveBeenCalledWith("/compact "));
+});
+
+// --- @path:N-M line-range picker ---
+
+function stubShell(mobile: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: mobile,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+    onchange: null,
+  }));
+}
+
+/** Serves the line-range panel's file read; anything else 404s. */
+function stubWorkspaceFileFetch(lines: string[]) {
+  const fetchMock = vi.fn((input: string) =>
+    Promise.resolve(
+      String(input).startsWith("/coddy/workspace/file?")
+        ? {
+            ok: true,
+            json: async () => ({
+              lines,
+              total_lines: lines.length,
+              truncated: false,
+            }),
+          }
+        : { ok: false, status: 404, json: async () => ({}) },
+    ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function RangeHarness(props: { initial: string; onChange: (v: string) => void }) {
+  const [value, setValue] = useState(props.initial);
+  return (
+    <Composer
+      value={value}
+      isEmpty={false}
+      mode="agent"
+      modes={["agent", "plan"]}
+      onModeChange={() => {}}
+      onChange={(v) => {
+        setValue(v);
+        props.onChange(v);
+      }}
+      onSend={() => {}}
+    />
+  );
+}
+
+test("a colon after a file mention opens the line-range picker", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["alpha", "beta", "gamma"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  expect(screen.getByTestId("at-range-lines")).toHaveTextContent("alpha");
+  // The file picker is gone: the colon handed the draft over.
+  expect(screen.queryByTestId("workspace-files-menu")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+test("typed digits highlight the selected lines", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2-3", selectionStart: 10, selectionEnd: 10 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-3");
+  });
+  const rows = screen
+    .getByTestId("at-range-lines")
+    .querySelectorAll(".at-range-line--sel");
+  expect(Array.from(rows).map((r) => r.getAttribute("data-line"))).toEqual([
+    "2",
+    "3",
+  ]);
+  vi.unstubAllGlobals();
+});
+
+// A half-typed range still shows where it starts.
+test("a start without an end highlights one line", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two", "three"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:2", selectionStart: 8, selectionEnd: 8 },
+  });
+
+  await waitFor(() => {
+    expect(screen.getByTestId("at-range-current")).toHaveTextContent("2-2");
+  });
+  vi.unstubAllGlobals();
+});
+
+test("mobile shells render display-only rows with no mouse selection", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  expect(screen.queryByTestId("at-range-line-1")).toBeNull();
+  expect(
+    screen.getByTestId("at-range-lines").querySelectorAll("button"),
+  ).toHaveLength(0);
+  vi.unstubAllGlobals();
+});
+
+test("the picker closes once the mention token ends", async () => {
+  stubShell(true);
+  stubWorkspaceFileFetch(["one", "two"]);
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2", selectionStart: 10, selectionEnd: 10 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1-2 ", selectionStart: 11, selectionEnd: 11 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+  vi.unstubAllGlobals();
+});
+
+test("prose that never resolves to a file leaves the picker closed", async () => {
+  stubShell(true);
+  // Every read 404s, so nothing should open.
+  stubWorkspaceFileFetch([]);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve({ ok: false, status: 404, json: async () => ({}) })),
+  );
+  render(<RangeHarness initial="" onChange={() => {}} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@nope.txt:1-2", selectionStart: 13, selectionEnd: 13 },
+  });
+
+  await waitFor(() => {
+    expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+  });
+  expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Desktop picker floats next to the field, so it needs a measurable wrapper and a
+ * ResizeObserver; jsdom supplies neither. Returns a restore function.
+ */
+function stubDesktopLayout(): () => void {
+  const realRect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    return {
+      x: 0,
+      y: 100,
+      top: 100,
+      left: 0,
+      right: 400,
+      bottom: 160,
+      width: 400,
+      height: 60,
+      toJSON: () => ({}),
+    } as DOMRect;
+  };
+  const realRO = globalThis.ResizeObserver;
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  return () => {
+    Element.prototype.getBoundingClientRect = realRect;
+    globalThis.ResizeObserver = realRO;
+  };
+}
+
+test("clicking and dragging lines writes the range into the composer", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four", "five"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  // Pressing a row starts the selection at that line.
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-3"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-3");
+  });
+
+  // Dragging over a later row extends it; the anchor stays put.
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-5"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:3-5");
+  });
+
+  // Once the button is released, hovering no longer changes the range.
+  fireEvent.mouseUp(window);
+  onChange.mockClear();
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-1"));
+  expect(onChange).not.toHaveBeenCalled();
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});
+
+// Dragging upwards still yields a forward range.
+test("a backwards drag normalizes the range", async () => {
+  stubShell(false);
+  const restoreLayout = stubDesktopLayout();
+  stubWorkspaceFileFetch(["one", "two", "three", "four"]);
+  const onChange = vi.fn();
+  render(<RangeHarness initial="" onChange={onChange} />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+
+  fireEvent.mouseDown(screen.getByTestId("at-range-line-4"));
+  fireEvent.mouseEnter(screen.getByTestId("at-range-line-2"));
+  await waitFor(() => {
+    expect(onChange).toHaveBeenCalledWith("@f.txt:2-4");
+  });
+
+  restoreLayout();
+  vi.unstubAllGlobals();
+});
+
+// The loaded preview is keyed by path only, so a session switch must discard it.
+test("switching sessions closes the range picker and refetches on the next digit", async () => {
+  stubShell(true);
+  const fetchMock = stubWorkspaceFileFetch(["one", "two"]);
+  function SessionHarness(props: { sessionId: string }) {
+    const [value, setValue] = useState("");
+    return (
+      <Composer
+        value={value}
+        isEmpty={false}
+        mode="agent"
+        modes={["agent", "plan"]}
+        onModeChange={() => {}}
+        onChange={setValue}
+        onSend={() => {}}
+        sessionId={props.sessionId}
+      />
+    );
+  }
+  const { rerender } = render(<SessionHarness sessionId="sess_a" />);
+
+  const ta = screen.getByRole("textbox", { name: "Message" });
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:", selectionStart: 7, selectionEnd: 7 },
+  });
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  const before = fetchMock.mock.calls.length;
+
+  rerender(<SessionHarness sessionId="sess_b" />);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeNull();
+  });
+
+  fireEvent.change(ta, {
+    target: { value: "@f.txt:1", selectionStart: 8, selectionEnd: 8 },
+  });
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(before);
+  });
+  const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];
+  expect(String(lastCall?.[0]).startsWith("/coddy/workspace/file?")).toBe(true);
+  await waitFor(() => {
+    expect(screen.queryByTestId("at-range-picker")).toBeTruthy();
+  });
+  vi.unstubAllGlobals();
 });

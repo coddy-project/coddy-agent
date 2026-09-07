@@ -58,7 +58,7 @@ func readConfigFile(paths Paths, explicitFile bool) (*Config, error) {
 	}
 
 	originalData := append([]byte(nil), data...)
-	expanded := expandEnvEscaped(ExpandPathVars(string(data), paths))
+	expanded := expandConfigBody(string(data), paths)
 
 	cfg, err := parseValidateYAMLBytes(expanded, paths)
 	if err != nil {
@@ -90,6 +90,15 @@ func validateSubconfigs(cfg *Config) error {
 	}
 	if err := cfg.Rules.Validate(); err != nil {
 		return fmt.Errorf("rules: %w", err)
+	}
+	if err := cfg.MCP.Validate(); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+	if err := cfg.Subagents.Validate(); err != nil {
+		return err
+	}
+	if err := cfg.Hooks.Validate(); err != nil {
+		return err
 	}
 	if err := cfg.Tools.Validate(); err != nil {
 		return fmt.Errorf("tools: %w", err)
@@ -132,9 +141,15 @@ func applyDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Logger.File) != "" && len(cfg.Logger.Outputs) == 0 {
 		cfg.Logger.Outputs = []string{LogOutputStderr, LogOutputFile}
 	}
+	// The log file belongs to the process, so ${CWD} in it is the default
+	// working directory (per-session placeholders are left alone by the body
+	// expansion, see expandConfigBody).
+	if f := strings.TrimSpace(cfg.Logger.File); f != "" {
+		cfg.Logger.File = filepath.Clean(ExpandPathVars(f, p))
+	}
 
 	if d := strings.TrimSpace(cfg.Sessions.Dir); d != "" {
-		cfg.Sessions.Dir = filepath.Clean(ExpandCODDYHomeOnly(d, p))
+		cfg.Sessions.Dir = filepath.Clean(ExpandPathVars(d, p))
 	} else {
 		cfg.Sessions.Dir = ""
 	}
@@ -146,6 +161,8 @@ func applyDefaults(cfg *Config) {
 		return ExpandCODDYHomeOnly(s, p)
 	})
 	cfg.Rules.ApplyDefaults()
+	cfg.Subagents.ApplyDefaults(p)
+	cfg.Hooks.ApplyDefaults(p)
 
 	cfg.Memory.Normalize(p)
 	cfg.Memory.ApplyDefaults()

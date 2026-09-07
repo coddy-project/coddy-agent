@@ -32,3 +32,31 @@ func TestLlmMsgsToCoddyOpenAIOmitsEmptyCreatedAt(t *testing.T) {
 		t.Fatalf("expected no created_at, got %#v", out[0])
 	}
 }
+
+func TestLlmMsgsToCoddyOpenAIForSessionIncludesPersistedFilePreview(t *testing.T) {
+	out := llmMsgsToCoddyOpenAIForSession("sess_files", []llm.Message{
+		{
+			Role:    llm.RoleUser,
+			Content: "look",
+			ImageParts: []llm.ImagePart{{
+				DataURL:       "data:image/png;base64,abc",
+				Name:          "photo.png",
+				FilePath:      `/tmp/sessions/sess_files/assets/photo.png`,
+				ThumbnailPath: `/tmp/sessions/sess_files/assets/thumbnails/photo.png.png`,
+			}},
+		},
+	})
+	files, ok := out[0]["files"].([]map[string]interface{})
+	if !ok || len(files) != 1 {
+		t.Fatalf("files: %#v", out[0]["files"])
+	}
+	if got := files[0]["name"]; got != "photo.png" {
+		t.Fatalf("name = %#v", got)
+	}
+	if got := files[0]["mime_type"]; got != "image/png" {
+		t.Fatalf("mime_type = %#v", got)
+	}
+	if got := files[0]["preview_url"]; got != "/coddy/sessions/sess_files/assets/photo.png/thumbnail" {
+		t.Fatalf("preview_url = %#v", got)
+	}
+}

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestListModelsOpenAI(t *testing.T) {
@@ -65,6 +67,41 @@ func TestListModelsAnthropic(t *testing.T) {
 	}
 }
 
+func TestListModelsNeuralDeepUsesTheSelectedEndpoint(t *testing.T) {
+	var gotPath, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"qwen3.8-27b"}]}`))
+	}))
+	defer srv.Close()
+
+	// Stands in for the mirror: api_base is matched against the allowlist, so a
+	// provider can only ever reach a listed deployment.
+	restore := neuralDeepEndpoints
+	neuralDeepEndpoints = []neuralDeepEndpoint{
+		{APIBase: neuralDeepBaseURL, Hub: NeuralDeepHubURL},
+		{APIBase: srv.URL + "/v1", Hub: srv.URL},
+	}
+	t.Cleanup(func() { neuralDeepEndpoints = restore })
+
+	got, err := ListModels(context.Background(), ProviderInput{
+		Type: "neuraldeep", APIKey: "sk-k", BaseURL: srv.URL + "/v1",
+	})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if gotPath != "/v1/models" {
+		t.Errorf("request path = %q, want /v1/models", gotPath)
+	}
+	if gotAuth != "Bearer sk-k" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer sk-k")
+	}
+	if len(got) != 1 || got[0].ID != "qwen3.8-27b" {
+		t.Fatalf("got %+v, want one qwen3.8-27b", got)
+	}
+}
+
 func TestDefaultModelListBaseURLNeuralDeep(t *testing.T) {
 	if got := defaultModelListBaseURL("neuraldeep"); got != neuralDeepBaseURL {
 		t.Fatalf("defaultModelListBaseURL(neuraldeep) = %q, want %q", got, neuralDeepBaseURL)
@@ -99,5 +136,39 @@ func TestListModelsUnsupportedType(t *testing.T) {
 	var ue *UnsupportedProviderError
 	if !errors.As(err, &ue) {
 		t.Fatalf("want UnsupportedProviderError, got %v", err)
+	}
+}
+
+func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
+	authPath := writeCodexAuth(t, t.TempDir(), codexAuthFile{
+		AuthMode: codexAuthModeChatGPT,
+		Tokens: codexTokens{
+			AccessToken: makeJWT(time.Now().Add(time.Hour)),
+			AccountID:   "acct-models",
+		},
+	})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %q, want /models", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("client_version"); got != codexModelsClientVersion {
+			t.Fatalf("client_version = %q, want numeric 0.0.0 fallback", got)
+		}
+		if r.Header.Get("Authorization") == "" || r.Header.Get("chatgpt-account-id") != "acct-models" {
+			t.Fatalf("missing Codex OAuth headers: %v", r.Header)
+		}
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-5-codex","display_name":"GPT-5 Codex"}]}`))
+	}))
+	defer upstream.Close()
+
+	got, err := listCodexModelsOnline(context.Background(), ProviderInput{
+		Type:     "codex",
+		AuthPath: filepath.Clean(authPath),
+	}, upstream.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "gpt-5-codex" || got[0].Name != "GPT-5 Codex" {
+		t.Fatalf("models = %+v", got)
 	}
 }

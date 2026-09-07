@@ -1,3 +1,5 @@
+import { useT } from "../i18n/I18nProvider";
+
 export function BranchNavigator(props: {
   userMessageIndex: number;
   currentIndex: number;
@@ -5,6 +7,7 @@ export function BranchNavigator(props: {
   sessions: Array<{ sessionId: string; preview?: string }>;
   onSwitch: (sessionId: string) => void;
 }) {
+  const { t } = useT();
   const { currentIndex, total, sessions, onSwitch } = props;
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < total - 1;
@@ -15,7 +18,7 @@ export function BranchNavigator(props: {
         type="button"
         className="branch-nav-btn"
         disabled={!hasPrev}
-        aria-label="Previous branch"
+        aria-label={t("chat.branchPrev")}
         data-testid="branch-nav-prev"
         onClick={() => {
           const s = sessions[currentIndex - 1];
@@ -26,7 +29,10 @@ export function BranchNavigator(props: {
       </button>
       <span
         className="branch-nav-label"
-        aria-label={`Branch ${currentIndex + 1} of ${total}`}
+        aria-label={t("chat.branchLabel", {
+          current: currentIndex + 1,
+          total,
+        })}
         data-testid="branch-nav-label"
       >
         {currentIndex + 1}/{total}
@@ -35,7 +41,7 @@ export function BranchNavigator(props: {
         type="button"
         className="branch-nav-btn"
         disabled={!hasNext}
-        aria-label="Next branch"
+        aria-label={t("chat.branchNext")}
         data-testid="branch-nav-next"
         onClick={() => {
           const s = sessions[currentIndex + 1];

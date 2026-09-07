@@ -60,3 +60,37 @@ test("auto-discovery is the first fieldset and toggling flips the config value",
     expect.objectContaining({ auto_discovery: false }),
   );
 });
+
+// The auto-discovery row is the shared SwitchField, so its state label sits
+// level with the switch and its description in the label column, like every
+// other boolean in the settings forms.
+test("auto-discovery toggle is rendered by the shared SwitchField", () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }),
+  );
+  render(
+    <SkillsSection
+      schema={skillsSchema}
+      value={{ auto_discovery: true }}
+      onChange={() => {}}
+    />,
+  );
+  const sw = screen.getByTestId("skills-auto-discovery-toggle");
+  const field = sw.closest(".settings-switch-field");
+  expect(field).not.toBeNull();
+  expect(
+    field!.querySelector(".settings-switch-field-label")?.textContent,
+  ).toBe("Enabled");
+  // The schema description rides in the same grid (label column), not as a
+  // separate paragraph flush with the fieldset edge. Its copy comes from the
+  // i18n dictionary (schemaFieldDesc), so pin the stable opening words.
+  expect(
+    field!.querySelector(".settings-switch-field-desc")?.textContent,
+  ).toMatch(/^Let the agent load a matching skill/);
+  expect(
+    document.querySelectorAll(
+      ".settings-skills-section > fieldset:first-of-type .settings-field-desc",
+    ).length,
+  ).toBe(1);
+});

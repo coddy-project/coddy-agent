@@ -8,6 +8,7 @@ import (
 func RegisterBuiltins(add func(*tooling.Tool)) {
 	for _, ctor := range []func() *tooling.Tool{
 		ReadTool,
+		KeepResultTool,
 		GlobTool,
 		GrepTool,
 		PrintTreeTool,

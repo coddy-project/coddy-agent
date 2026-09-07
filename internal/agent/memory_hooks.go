@@ -62,7 +62,10 @@ func (a *Agent) sendMemoryChunk(rowID, phase, kind, delta string) {
 	})
 }
 
-func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText string) {
+// runMemoryBeforeTurn runs the memory copilot for the turn. mode is the snapshot
+// Run captured, the same one that governs tool definitions and execution, so a
+// concurrent session/set_mode cannot hand the copilot a different tool set.
+func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText, mode string) {
 	if !a.cfg.Memory.Enabled {
 		return
 	}
@@ -83,6 +86,8 @@ func (a *Agent) runMemoryBeforeTurn(ctx context.Context, userText string) {
 	)
 
 	opts := &memory.RunBeforeTurnOptions{
+		// Ask mode must not change stored memory either; recall still runs.
+		ReadOnly: mode == string(session.ModeAsk),
 		OnPhaseStart: func() {
 			a.sendMemoryPhase(rowID, "memory", "started", turn, 0, nil, nil)
 		},

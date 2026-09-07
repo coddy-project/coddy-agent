@@ -1,7 +1,19 @@
 import type { MutableRefObject } from "react";
-import { openAIStreamErrorMessage } from "./streamError";
+import {
+  namedErrorEventMessage,
+  openAIStreamErrorCode,
+  openAIStreamErrorMessage,
+} from "./streamError";
+import { normalizeTodoPlanSnapshot } from "./todoToolPreview";
 import { parseSSEBlocks } from "./sse";
 import type { TokenUsage, TranscriptItem } from "./types";
+import type { ProviderUsage } from "./providerUsage";
+import { t } from "../i18n/i18n";
+
+export type ContextUsageUpdate = {
+  used: number;
+  size: number;
+};
 
 type ToolCallUpdate = {
   toolCallId: string;
@@ -17,6 +29,7 @@ type ToolCallStatusUpdate = {
   _meta?: {
     coddy?: {
       toolResultPreview?: { truncated?: boolean; totalLines?: number };
+      todoPlan?: unknown;
     };
   };
 };
@@ -24,6 +37,10 @@ type ToolCallStatusUpdate = {
 function toolSseShowsTruncatedPreview(u: ToolCallStatusUpdate): boolean {
   const p = u._meta?.coddy?.toolResultPreview;
   return !!(p && p.truncated === true);
+}
+
+function todoPlanFromToolStatus(u: ToolCallStatusUpdate) {
+  return normalizeTodoPlanSnapshot(u._meta?.coddy?.todoPlan);
 }
 
 export type MemoryPhaseEvt = {
@@ -45,6 +62,12 @@ export type MemoryChunkEvt = {
   kind: string;
   delta: string;
 };
+
+/**
+ * Shortest gap between the first reasoning frame and the end of thinking that is
+ * still a measurement rather than one flush of a non-streamed response.
+ */
+export const minMeasurableThinkingMs = 5;
 
 function reasoningDurationCacheKey(text: string): string {
   return text.trim().replace(/\s+/g, " ");
@@ -107,6 +130,7 @@ export type ConsumeComposerSseParams = {
   assistantId: string;
   applyStreamItems: (fn: (prev: TranscriptItem[]) => TranscriptItem[]) => void;
   setTokenUsage: (u: TokenUsage | null) => void;
+  setContextUsage: (u: ContextUsageUpdate) => void;
   tokenBaselineRef: MutableRefObject<{
     input: number;
     output: number;
@@ -126,10 +150,18 @@ export type ConsumeComposerSseParams = {
   onQuestion?: (payload: Record<string, unknown>) => void;
   /** Coddy extension. Fired when a guarded tool blocks for permission (matches session/request_permission payload shape). */
   onPermission?: (payload: Record<string, unknown>) => void;
+  /** Coddy extension. The provider account snapshot when the turn stream carries one (`event: provider_usage`). */
+  onProviderUsage?: (usage: ProviderUsage) => void;
 };
 
 export type ConsumeComposerSseResult = {
   streamErrorMessage: string | null;
+  /** Machine-readable `error.code` of the frame that ended the stream, when it carried one. */
+  streamErrorCode: string | null;
+  /** Sequence of the last relay frame consumed, for resuming after a dropped connection. */
+  lastEventId: string;
+  /** True when the relay reported it had already dropped frames this client never saw. */
+  desynced: boolean;
   flushToolQueue: () => void;
   finishThinking: () => void;
   ensureAssistant: (
@@ -149,6 +181,7 @@ export async function consumeComposerSseReader(
     assistantId,
     applyStreamItems,
     setTokenUsage,
+    setContextUsage,
     tokenBaselineRef,
     reasoningDurationMsByContentRef,
     newId,
@@ -156,6 +189,7 @@ export async function consumeComposerSseReader(
     applyMemoryChunkToItems,
     onQuestion,
     onPermission,
+    onProviderUsage,
   } = p;
 
       // Streaming assistant segmentation. Text before any tool/thinking stays in
@@ -201,6 +235,7 @@ export async function consumeComposerSseReader(
                 it.resultWasTruncated = upd.resultWasTruncated;
               if (upd.fullResultText !== undefined)
                 it.fullResultText = upd.fullResultText;
+              if (upd.todoPlan !== undefined) it.todoPlan = upd.todoPlan;
               if (upd.startedAtMs !== undefined)
                 it.startedAtMs = upd.startedAtMs;
               if (upd.finishedAtMs !== undefined)
@@ -247,6 +282,7 @@ export async function consumeComposerSseReader(
               merged.resultWasTruncated = upd.resultWasTruncated;
             if (upd.fullResultText !== undefined)
               merged.fullResultText = upd.fullResultText;
+            if (upd.todoPlan !== undefined) merged.todoPlan = upd.todoPlan;
             arr[idx] = merged;
             next = arr;
           }
@@ -327,6 +363,11 @@ export async function consumeComposerSseReader(
         if (!activeThinkingId) return;
         const id = activeThinkingId;
         const dur = Math.max(0, Date.now() - activeThinkingStarted);
+        // A model configured with stream: false delivers its reasoning and its answer
+        // in the same flush, so this clock measures the gap between two frames rather
+        // than how long the model thought. Below the floor there is nothing to report:
+        // the row shows "-" instead of a fabricated millisecond.
+        const measured = dur >= minMeasurableThinkingMs;
         applyStreamItems((prev) =>
           prev.map((it) => {
             if (it.type !== "thinking" || it.id !== id) {
@@ -335,10 +376,10 @@ export async function consumeComposerSseReader(
             const nextIt = {
               ...it,
               status: "completed" as const,
-              durationMs: dur,
+              ...(measured ? { durationMs: dur } : {}),
             };
             const dk = reasoningDurationCacheKey(nextIt.content);
-            if (dk.length > 0) {
+            if (measured && dk.length > 0) {
               reasoningDurationMsByContentRef.current.set(dk, dur);
             }
             return nextIt;
@@ -349,6 +390,9 @@ export async function consumeComposerSseReader(
 
       let sawDone = false;
       let streamErrorMessage: string | null = null;
+      let streamErrorCode: string | null = null;
+      let lastEventId = "";
+      let desynced = false;
       let streamHalted = false;
       while (true) {
         const step = await reader.read();
@@ -360,8 +404,39 @@ export async function consumeComposerSseReader(
           carry,
         );
         for (const ev of events) {
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") {
             sawDone = true;
+            break;
+          }
+
+          // The relay trimmed frames this client never received, so what follows would
+          // render with a hole in it. Reporting it lets the caller reload the transcript.
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
+          }
+
+          // A failed turn - and the relay's "there is nothing to watch" answer -
+          // arrives as a NAMED error event, so it never reaches the unnamed-data
+          // branch below. Left unhandled, the reader just keeps looping.
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? t("messages.streamEnded");
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            streamHalted = true;
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
             break;
           }
 
@@ -375,6 +450,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               streamHalted = true;
               try {
                 await reader.cancel();
@@ -442,6 +518,39 @@ export async function consumeComposerSseReader(
             continue;
           }
 
+          if (ev.event === "usage_update") {
+            try {
+              const raw = JSON.parse(ev.data) as ContextUsageUpdate;
+              const used = Number(raw.used);
+              const size = Number(raw.size);
+              if (
+                Number.isFinite(used) &&
+                used >= 0 &&
+                Number.isFinite(size) &&
+                size > 0
+              ) {
+                setContextUsage({ used, size });
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
+          if (ev.event === "provider_usage") {
+            // Reserved on this stream today (the events stream carries the
+            // snapshot between turns); a frame that does arrive is applied.
+            try {
+              const raw = JSON.parse(ev.data) as ProviderUsage;
+              if (raw && typeof raw.provider === "string") {
+                onProviderUsage?.(raw);
+              }
+            } catch {
+              // ignore
+            }
+            continue;
+          }
+
           if (ev.event === "memory_phase") {
             try {
               const raw = JSON.parse(ev.data) as MemoryPhaseEvt;
@@ -560,12 +669,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -612,7 +723,25 @@ export async function consumeComposerSseReader(
       if (carry.buf.trim()) {
         const tailEvents = parseSSEBlocks("\n\n", carry);
         for (const ev of tailEvents) {
+          if (ev.id) {
+            lastEventId = ev.id;
+          }
           if (ev.data === "[DONE]") continue;
+          if (ev.event === "desync") {
+            desynced = true;
+            continue;
+          }
+          if (ev.event === "error") {
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(ev.data);
+            } catch {
+              continue;
+            }
+            streamErrorMessage = namedErrorEventMessage(parsed) ?? t("messages.streamEnded");
+            streamErrorCode = openAIStreamErrorCode(parsed);
+            break;
+          }
           if (!ev.event) {
             let delta: unknown;
             try {
@@ -623,6 +752,7 @@ export async function consumeComposerSseReader(
             const sseErr = openAIStreamErrorMessage(delta);
             if (sseErr) {
               streamErrorMessage = sseErr;
+              streamErrorCode = openAIStreamErrorCode(delta);
               break;
             }
             const d = delta as {
@@ -778,12 +908,14 @@ export async function consumeComposerSseReader(
                 text0
               ) {
                 const trunc = toolSseShowsTruncatedPreview(u);
+                const todoPlan = todoPlanFromToolStatus(u);
                 toolQueue.push({
                   toolCallId: u.toolCallId,
                   status,
                   resultText: text0,
                   finishedAtMs: now,
                   ...(trunc ? { resultWasTruncated: true as const } : {}),
+                  ...(todoPlan !== undefined ? { todoPlan } : {}),
                 });
                 scheduleToolFlush();
               } else {
@@ -816,6 +948,9 @@ export async function consumeComposerSseReader(
 
   return {
     streamErrorMessage,
+    streamErrorCode,
+    lastEventId,
+    desynced,
     flushToolQueue,
     finishThinking,
     ensureAssistant,

@@ -107,3 +107,44 @@ compaction:
 		t.Fatalf("model = %q", cfg.Compaction.Model)
 	}
 }
+
+func TestResultEvictionDefaults(t *testing.T) {
+	var r ResultEviction
+	if !r.IsEnabled() {
+		t.Fatal("result eviction must be enabled by default")
+	}
+	if got := r.EffectiveKeepRecent(); got != ResultEvictionDefaultKeepRecent {
+		t.Fatalf("keep_recent = %d, want %d", got, ResultEvictionDefaultKeepRecent)
+	}
+	if got := r.EffectiveMinResultBytes(); got != ResultEvictionDefaultMinResultBytes {
+		t.Fatalf("min_result_bytes = %d, want %d", got, ResultEvictionDefaultMinResultBytes)
+	}
+}
+
+func TestResultEvictionExplicitValues(t *testing.T) {
+	off := false
+	zero := 0
+	r := ResultEviction{Enabled: &off, KeepRecent: &zero, MinResultBytes: &zero}
+	if r.IsEnabled() {
+		t.Fatal("explicit enabled:false must disable")
+	}
+	if r.EffectiveKeepRecent() != 0 {
+		t.Fatalf("keep_recent = %d, want 0", r.EffectiveKeepRecent())
+	}
+	if r.EffectiveMinResultBytes() != 0 {
+		t.Fatalf("min_result_bytes = %d, want 0", r.EffectiveMinResultBytes())
+	}
+}
+
+func TestResultEvictionValidate(t *testing.T) {
+	neg := -1
+	if err := (&ResultEviction{KeepRecent: &neg}).Validate(); err == nil {
+		t.Fatal("expected error for negative keep_recent")
+	}
+	if err := (&ResultEviction{MinResultBytes: &neg}).Validate(); err == nil {
+		t.Fatal("expected error for negative min_result_bytes")
+	}
+	if err := (&Compaction{ResultEviction: ResultEviction{KeepRecent: &neg}}).Validate(); err == nil {
+		t.Fatal("Compaction.Validate must surface result_eviction errors")
+	}
+}

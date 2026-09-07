@@ -24,6 +24,11 @@ Feature: Remote API parity
     Then the request succeeds
     And the model list includes profiles "agent, plan"
 
+  Scenario: A remote client can improve a draft prompt without creating a turn
+    Given the client presents the token
+    When I enhance the draft prompt "fix memory thing"
+    Then the enhanced prompt is "Refactor the memory endpoint and add tests."
+
   Scenario: A remote client can change the session working directory
     Given the client presents the token
     And a workspace folder "alpha"
@@ -42,6 +47,17 @@ Feature: Remote API parity
     Then the request succeeds
     And the streamed response terminates cleanly
     And the session transcript includes the prompt "hello remote"
+
+  Scenario: A remote client restores a persisted image thumbnail
+    Given the client presents the token
+    And a workspace folder "work"
+    And a session rooted at folder "work"
+    When I send a PNG image to the direct model
+    Then the request succeeds
+    And the session transcript exposes a persisted thumbnail
+    When I request the persisted thumbnail
+    Then the request succeeds
+    And the response is a PNG image
 
   Scenario: A remote client can list persisted sessions
     Given the client presents the token

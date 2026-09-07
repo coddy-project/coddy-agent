@@ -10,7 +10,33 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference.
 
 VS Code (with the YAML extension), IntelliJ, and Zed pick this comment up automatically. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`.
 
-Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` and `${CWD}` are expanded by the loader (see [config.md](config.md#environment-variable-references)).
+Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [config.md](config.md#environment-variable-references)).
+
+## Agent self-configuration
+
+Agent sessions expose a typed configuration tool family with staged, uci-like semantics:
+
+- `config_get` reads a dotted path from the active YAML file. Secret-shaped fields (including `api_key_command`), MCP environment values, and HTTP header values are returned as `<redacted>`.
+- `config_set` **stages** UCI-style commands (`set`, `add_list`, `del_list`, `delete`) without touching the file. Unknown schema paths and commands that would make the config invalid are rejected at staging time. Echoed command lists mask secret-shaped values as `<redacted>`; the staged store keeps the original values.
+- `config_changes` lists the staged commands that a commit would apply (secrets redacted).
+- `config_commit` applies the staged batch: validates, snapshots the previous file to `config.yaml.prev` (an empty document when the config file did not exist yet, so the first commit stays reversible), writes atomically, and hot-reloads skills, rules, built-in tools, and configured MCP servers. Because a commit can start MCP processes and change the permission policy itself, it prompts for tool permission in both `ask` and `accept_edits` modes - only `tools.permission_mode: bypass` skips the dialog - and the prompt lists the staged commands with secrets redacted. The agent is additionally instructed to ask the user to confirm saving first. If runtime reload fails, the file is restored and the staged commands are kept; if even that restore fails, the staged list stays consumed so a blind retry cannot replay it.
+- `config_revert` discards staged commands (all of them, or those under one path).
+- `config_rollback` restores the pre-commit snapshot over the active file (swapping the two, so a second rollback undoes the first) and hot-reloads. It carries the same permission policy as `config_commit`, and the agent warns the user before calling it.
+
+Commands and paths are dotted like OpenWrt's `uci` CLI, with a selector for named sequence entries:
+
+| Command | Meaning |
+|---|---|
+| `set agent.max_turns=40` | Set a mapping field |
+| `set mcp_servers[name=context7]={"command":"npx"}` | Select a sequence object by scalar field; append it when setting if absent |
+| `add_list skills.dirs=/opt/skills` | Append a sequence entry |
+| `del_list skills.dirs=/opt/skills` | Remove a matching sequence entry |
+| `delete mcp_servers[name=context7]` | Delete a field or entry |
+| `skills.dirs.0` (path form) | Sequence index |
+
+The root path (`.` or `/`) is read-only. Values are JSON for objects and arrays; string-typed fields take the literal text. Staged commands persist in the session bundle, so they survive restarts and HTTP permission resumes.
+
+The bundled `/configure-coddy` skill teaches the agent this syntax, the confirm-then-commit workflow, and the safe discovery/install workflow for MCP servers and skills; it also carries the agent-facing catalog of configuration areas and must be updated together with this reference on any schema change. Process-level listener changes may still require restarting the relevant command; the hot reload is specifically guaranteed for the current session's agent configuration, skills, rules, built-in tools, and global MCP clients.
 
 ## Top-level keys
 
@@ -24,7 +50,10 @@ Every field is optional unless marked **required**; an empty `config.yaml` (or n
 | [`skills`](#skills) | object | Skill discovery directories | — |
 | [`rules`](#rules) | object | Project rules discovery | — |
 | [`mcp_servers`](#mcp_servers) | list | MCP servers connected per session | — |
+| [`mcp`](#mcp) | object | Trust policy for project-local MCP declarations | — |
 | [`tools`](#tools) | object | Permission policy for built-in tools | — |
+| [`subagents`](#subagents) | object | Subagent definitions, trust policy and pool bounds | — |
+| [`hooks`](#hooks) | object | Lifecycle hook definition files, trust policy and runner bounds | — |
 | [`logger`](#logger) | object | Log level, outputs, rotation | — |
 | [`sessions`](#sessions) | object | Session bundle storage | — |
 | [`compaction`](#compaction) | object | Context compaction (history summarization) | — |
@@ -42,11 +71,13 @@ List of LLM backends (`[]config.ProviderConfig`, `internal/config/providers.go`)
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
 | `name` | string | **yes** | — | — | Logical id used as the first segment of `models[].model`. Must match `^[a-zA-Z][a-zA-Z0-9_-]*$`. |
-| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, or `neuraldeep`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's fixed OpenAI-compatible endpoint. |
-| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. Ignored for `type: neuraldeep`, which always uses `https://api.neuraldeep.ru/v1`. |
-| `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). |
+| `type` | string | **yes** | — | — | Wire protocol: `openai`, `anthropic`, `neuraldeep`, or `codex`. Use `openai` for configurable OpenAI-compatible endpoints (DeepSeek, Groq, Ollama, llama.cpp, LM Studio); `neuraldeep` uses NeuralDeep's OpenAI-compatible endpoint, selected from its two official deployments with `api_base`; `codex` uses ChatGPT OAuth against the official Codex backend (Responses API). |
+| `api_base` | string | no | provider SDK default | — | Base URL override. For `type: openai` include `/v1` (e.g. `http://localhost:11434/v1`); for `type: anthropic` an Anthropic-compatible gateway. For `type: neuraldeep` it selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, the default) or `https://api.neuraldeep.tech/v1` (the international mirror) - and any other value falls back to the default; the choice also decides which hub `coddy providers login` and the SPA sign-in talk to. Ignored for `type: codex`, which always uses a fixed official endpoint. |
+| `api_key` | string | no | `""` | `NAME_API_KEY` | Literal secret or `"${ENV}"` reference. Empty reads `NAME_API_KEY` at LLM call time (NAME = provider name uppercased, hyphens → underscores; e.g. `deepseek` → `DEEPSEEK_API_KEY`). For `type: neuraldeep`, when the key is empty from all three sources the key stored by `coddy providers login <name>` (`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`) is used - an explicit key always wins over the stored login. |
 | `api_key_command` | string | no | `""` | — | Credential-helper command run via the detected host shell when `api_key` is empty (`pwsh` → `powershell` → `cmd` on Windows; `bash` → `sh` elsewhere); trimmed stdout becomes the key. Falls back to `NAME_API_KEY` on failure. |
 | `proxy` | string | no | direct | — | Per-provider outbound proxy: `http://`, `https://`, `socks5://`, or `socks5h://` URL. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
+| `timeout_ms` | int | no | `0` | — | Bound on each LLM HTTP request to this provider, including the streamed body read. `0` sets no client timeout, so slow prompt processing on large contexts is never cut short; the turn context stays the only bound. A client timeout is not retried. |
+| `usage_limits_panel` | bool | no | `true` | — | Shows the row's account usage panel (the console footer line and `/usage`, the usage section and banner in the web UI) and enables the reads behind it (the hub's `GET /v1/limits` for `type: neuraldeep`). `false` hides the panel on every surface and stops those reads for this row: `GET /coddy/providers/{name}/usage` answers `unsupported` with `disabled: true`, and nothing is published at session start or after a turn. Omitted means on. Only rows whose type has a usage source are affected; the key is accepted on any row. Settings → LLM Providers shows it as the **Usage limits panel** switch. |
 
 Key resolution order: `api_key` → `api_key_command` stdout → `NAME_API_KEY` env var.
 
@@ -62,7 +93,37 @@ providers:
   - name: neuraldeep
     type: neuraldeep
     api_key: "${NEURALDEEP_API_KEY}"
+    # usage_limits_panel: false  # hide the account usage panel for this row
+  - name: codex
+    type: codex # use Sign In with ChatGPT in the bundled web UI; no api_key needed
 ```
+
+### llama.cpp as an OpenAI-compatible provider
+
+`llama-server` works as a `type: openai` provider (`api_base: "http://host:8080/v1"`). Recommended launch flags:
+
+- `--jinja` — enables the model's chat template on the server, which is required for **tool calling**. Without it llama.cpp silently ignores the `tools` parameter and the agent loop degrades to plain text answers.
+- `-c <n>` — set the context window large enough for an agent prompt (system prompt plus tool schemas plus history; 16k is a practical minimum, more is better). When a request exceeds the server context, llama.cpp reports `the request exceeds the available context size` — raise `-c` or trim `max_context_tokens`.
+
+llama.cpp builds through 2025 report mid-stream failures with a non-standard SSE `error:` field; Coddy understands both that dialect and the current `data: {"error": ...}` shape and surfaces the server's message in the error.
+
+For `type: codex`, open **Settings → LLM Providers** in the bundled web UI and select **Sign In with ChatGPT**, or run the terminal equivalent for ACP and headless setups:
+
+```bash
+coddy codex login    # device flow: prints a URL and a one-time code, then waits
+coddy codex status   # shows whether a credential is available and where it came from
+coddy codex logout   # removes the Coddy-managed credential (leaves the Codex CLI login alone)
+```
+
+Both paths use the same storage; `--provider NAME` targets a specific codex provider when `config.yaml` defines several. Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `CODDY_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
+
+Codex is only a model backend: the agent keeps Coddy's own system prompt, tool catalog, permissions, and ReAct loop, and the ChatGPT credential is used solely to authenticate the Responses calls (`features/codex_auth.feature` pins this on both the HTTP and ACP surfaces).
+
+**Token lifetime.** The access token is refreshed transparently shortly before it expires, and the refreshed tokens are written back to the file they came from. When the credential is the Codex CLI login, that file is `~/.codex/auth.json` itself - the same file the `codex` CLI reads, so both tools keep working off one login, and a refresh performed by Coddy is visible to the CLI (and vice versa). A Coddy-managed credential is refreshed in place under `$CODDY_HOME/providers/<name>/` and never touches the CLI login. Signing out (`coddy codex logout`, or **Sign Out** in Settings) removes only the Coddy-managed file.
+
+**Startup report.** When at least one `type: codex` provider is configured, `coddy acp` and `coddy http` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `coddy codex login`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
+
+**Reasoning.** The Codex backend serves `gpt-5*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /coddy/sessions/{id}/messages`.
 
 ## `models`
 
@@ -71,11 +132,12 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `model` | string | **yes** | — | `"provider_name/api_model_id"`. First segment must match a `providers[].name`; the remainder is sent to the API verbatim (may contain slashes). |
-| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. |
+| `max_tokens` | int | no | `0` | Completion-token cap per assistant message. Ignored by `codex`, whose backend rejects `max_output_tokens`. |
 | `temperature` | float | no | `0` | Sampling temperature. |
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; o-series and Claude thinking models → `low,medium,high`). Explicit `[]` hides the selector. |
+| `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /coddy/config/reasoning-levels`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml
@@ -87,7 +149,14 @@ models:
   - model: "openai/gpt-5"
     max_tokens: 8192
     reasoning_default: medium
+  - model: "local/qwen3-30b"
+    max_tokens: 8192
+    stream: false
 ```
+
+**Non-streaming models.** `stream: false` changes one thing: coddy sends a single blocking `POST /chat/completions` instead of asking for SSE, and hands the finished answer to the rest of the runtime in one piece. Everything downstream is unchanged, so the transcript, tool calls, and session bundle look the same; what differs is that nothing appears until the model is done, and the thinking row shows no live duration. Two consequences are worth knowing before turning it on. Pressing **Stop** during a blocking call loses the whole answer, because the server has sent nothing yet, whereas a streamed turn keeps the tokens that already arrived. And a client asking for an SSE stream still gets one - the switch governs the connection to the LLM, not the connection to the client - which is why a streaming HTTP response now carries a keepalive comment every 15 s so proxies do not drop a turn that stays silent for minutes.
+
+The switch is rejected for `type: codex` providers. The Codex Responses backend has no blocking mode, so honoring the key there would mean streaming anyway and only pretending not to.
 
 ## `agent`
 
@@ -98,9 +167,16 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 | `model` | string | required when `models` is non-empty | — | Default `models[].model` id until the client overrides per session. |
 | `max_turns` | int | no | `30` | Max LLM calls per prompt turn. |
 | `max_tokens_per_turn` | int | no | `200000` | Max tokens across all calls in one turn. |
-| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). |
-| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. |
-| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms (e.g. `12000` on strict free tiers). |
+| `llm_retry_max` | int | no | `3` | Retries after retryable LLM errors (e.g. HTTP 429). An explicit `0` disables retries. |
+| `llm_retry_base_ms` | int | no | `1000` | Initial backoff between retries, ms. A server-provided pause (`Retry-After-Ms` / `Retry-After` headers, `Limit resets at` / `retry in Ns` body phrases) overrides the exponential backoff, capped at 60s. |
+| `llm_min_interval_ms` | int | no | `0` | Minimum gap between consecutive LLM calls, ms, retry attempts included (e.g. `12000` on strict free tiers). |
+| `llm_first_token_timeout_ms` | int | no | `90000` | How long a streamed LLM call may stay silent before the turn cancels it (the API hang guard). An explicit `0` disables the guard; blocking (`stream: false`) transports are never guarded. |
+| `loop_guard` | bool | no | `true` | Runaway-loop protection: cut a response that degenerates into repeating itself, block a tool called over and over with identical arguments. |
+| `loop_tool_repeat_limit` | int | no | `3` | Consecutive identical tool calls before the guard steps in; `0` disables the check. |
+| `loop_stream_repeat_cycles` | int | no | `5` | Identical back-to-back output cycles in one streamed response before it is cut; `0` disables the check. |
+| `loop_nudge_max` | int | no | `2` | Nudges the guard sends before it stops the turn with a notice. |
+| `wait_for_limit_reset` | bool | no | `false` | Wait for a hit usage limit to lift and re-issue the call instead of ending the turn with the provider's error (Claude Desktop's "auto-continue when limits reset"). Applies to a top-level turn whose provider names a pause beyond the retry budget (a `429` with `Retry-After` or `Limit resets at`); the console's status row and every client that reads the `provider_usage` update (the web UI's banner with #144) show `Usage limit reached · resuming at 20:59` meanwhile. The turn lock and the client stream stay open while it waits, so it is off by default. |
+| `wait_for_limit_reset_max_ms` | int | no | `14400000` (4 h) | Longest time one turn spends waiting for limits in total, the retry wrapper's own sleeps after a `429` included (also on calls that succeeded afterwards); a pause that would exceed it ends the turn at once with the error. A value under the retry ladder's 60 s cap also bounds the ordinary `429` retries of the turn, a `429` that names no pause included; such a `429` ends the turn with the provider's own error once the budget is spent, never with a countdown (opting in with a small maximum makes the turn stricter than the default). An explicit `0` never waits and, with the wait on, stops the retry wrapper from sleeping on a limit at all; negative values are rejected. |
 
 ## `prompts`
 
@@ -111,6 +187,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 | `dir` | string | no | `""` (embedded templates) | Directory with Go text/template files. Supports `~` and `${CWD}` (session cwd at render time). |
 | `agent_prompt` | string | no | `agent.md` | Template file name for agent mode, inside `dir`. |
 | `plan_prompt` | string | no | `plan.md` | Template file name for plan mode, inside `dir`. |
+| `ask_prompt` | string | no | `ask.md` | Template file name for ask mode, inside `dir`. |
 
 ## `instructions`
 
@@ -136,8 +213,8 @@ Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `auto_discover` | bool | no | `true` | Scan `.coddy/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` under the session CWD. |
-| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `coddy`, `cursor`, `claude`, `codex`. |
+| `auto_discover` | bool | no | `true` | Scan `.coddy/rules`, `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session CWD. `.mdc` files are read as Cursor rules, `.md` files as Claude Code rules. |
+| `systems` | string list | no | `[]` (all) | Restrict which rule systems are loaded: `coddy`, `agents-dir` (`.agents/rules`), `cursor`, `claude`, `codex`, `agents` (nested `AGENTS.md`). |
 
 ## `mcp_servers`
 
@@ -145,20 +222,49 @@ MCP servers connected for every new session (`[]config.MCPServerConfig`, `intern
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | no | `stdio` | Transport: `stdio` (local command) or `http` (remote endpoint). |
+| `type` | string | no | `stdio` | Transport: `stdio` (local command), `http` (streamable HTTP to `url`, with automatic legacy-SSE fallback), or `sse` (legacy HTTP+SSE). Url-only entries default to `http`. |
 | `name` | string | **yes** | — | Stable unique id. |
-| `command` | string | stdio only | — | Executable for stdio transport. |
+| `command` | string | stdio only | — | Executable for stdio transport. `${CWD}` expands to the session cwd. |
 | `args` | string list | no | `[]` | Argv after `command`. `${CWD}` expands to the session cwd. |
-| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. |
-| `url` | string | http only | — | HTTP(S) endpoint for `type: http`. |
-| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). |
+| `env` | list of `{name, value}` | no | `[]` | Extra environment variables for the stdio child process. `${CWD}` in a value expands to the session cwd. |
+| `url` | string | http/sse only | — | HTTP(S) endpoint for `type: http` or `type: sse`. `${CWD}` expands to the session cwd. |
+| `headers` | list of `{name, value}` | no | `[]` | Headers sent with MCP HTTP requests (e.g. `Authorization`). `${CWD}` in a value expands to the session cwd. |
+| `disabled` | bool | no | `false` | Skip connecting this server without removing its definition. |
+| `disabled_tools` | string list | no | `[]` | Tool names of this server hidden from the agent. |
 
 ```yaml
 mcp_servers:
   - name: filesystem
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    disabled_tools: ["write_file"]
 ```
+
+Servers can also be declared in Cursor-compatible mcp.json files: the user-global
+`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
+`mcp_servers` list it forms the "global" scope) and the project-local
+`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
+per-tool switches use `disabledTools`). Later levels override earlier ones by
+name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. Entries from the
+project-local file need a workspace approval before they are started — see
+[`mcp`](#mcp) and `docs/mcp-integration.md`.
+
+## `mcp`
+
+MCP settings that are not tied to a single server entry (`config.MCP`, `internal/config/mcp.go`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.coddy/mcp.json`, which travels with the checkout and therefore picks the command a session would start. `ask` — its servers stay cold until the operator approves that exact declaration for that workspace; `allow` — start them automatically (workspaces you already trust); `deny` — never load them, with no approval path. Overridable per process with `coddy acp --mcp-project-trust <value>` / `coddy http --mcp-project-trust <value>`. |
+
+Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
+Approvals are recorded in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path
+and a digest of the command-bearing declaration (transport, command, args, env, url,
+headers), so rewriting an approved entry asks again. Approve with `coddy mcp trust <name>`,
+`POST /coddy/mcp/{name}/trust`, or the shield button in **Settings → MCP servers**. That tab
+also edits this policy itself (`POST /coddy/mcp/project-trust`), so it is not rendered as a
+separate settings section. See `docs/mcp-integration.md`.
 
 ## `tools`
 
@@ -169,6 +275,67 @@ Permission policy (`config.Tools`, `internal/config/tools.go`).
 | `permission_mode` | string | no | `ask` | `ask` — prompt for commands and file writes; `accept_edits` — auto-approve writes, prompt for commands; `bypass` — never ask (trusted environments only). Overridable per session via ACP `session/set_config_option`. |
 | `command_allowlist` | string list | no | `[]` | Commands that never require permission. Exact or prefix match (prefix + space + args). `"*"` allows everything. |
 | `ssh_connect_timeout` | int | no | `30` | TCP dial timeout in seconds for the `ssh_run_command` tool. |
+| `output_limits` | object | no | — | Per-tool ceilings on how many lines a result or error may contribute to the LLM context, plus a byte safety ceiling while enabled. See below. |
+| `background` | object | no | — | Bounds for commands the agent runs detached in the session background task pool. See below. |
+
+### `tools.output_limits`
+
+Maximum lines a tool result or error may return into the LLM context (`config.ToolOutputLimits`). Every enabled line limit also applies a hard **64 KiB per-call byte ceiling**, preventing a minified file, base64 payload, or one-line MCP response from bypassing the guard. `0` disables both limits for that tool; an unset field falls back to the built-in default. Truncated output ends with a marker telling the model how to fetch the rest (`offset`/`limit` for `read`, a narrower pattern for `grep`, `page` for `websearch`).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `read` | int | no | `1000` | Lines for a `read` file page or directory listing. |
+| `grep` | int | no | `200` | `path:line:content` records from `grep`. |
+| `glob` | int | no | `300` | Paths from `glob`. |
+| `print_tree` | int | no | `400` | Lines of a directory tree. |
+| `run_command` | int | no | `500` | Combined stdout+stderr lines of a shell command. |
+| `ssh_run_command` | int | no | `500` | Combined stdout+stderr lines of a remote SSH command. |
+| `webfetch` | int | no | `800` | Lines of fetched page markdown. |
+| `websearch` | int | no | `200` | Lines of search results. |
+| `default` | int | no | `1000` | Applies to any tool not named above, including MCP tools. `0` means unlimited. |
+
+### `tools.background`
+
+Bounds for background execution (`config.ToolBackground`). A backgrounded `run_command` returns a task id instead of output; `background_list`, `background_output`, `background_wait`, and `background_stop` collect the result later. The pool lives inside the running `coddy` process: each task mirrors its metadata and captured output into the session bundle under `background/<task_id>/`, and a task interrupted by a restart is reported as `orphaned` rather than as still running. `0` on any integer field means "use the default". See `docs/background-tasks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
+| `max_concurrent` | int | no | `5` | Background tasks one session may run at once. Starting past the limit is refused, not queued. |
+| `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
+| `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
+| `output_buffer_bytes` | int | no | `262144` | In-memory output window per task, used by the status ticker and `background_output`. The full log still goes to the session bundle. |
+
+## `subagents`
+
+Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the model delegates to with the `spawn_agent` tool. A definition is a markdown file with YAML frontmatter (`name`, `description`, `model`, `mode`, `tools`, `disallowed_tools`, `permission_mode`, `max_turns`, `timeout_seconds`, `background`, `hidden`) whose body is the child's role. Each run is a background task of the parent session with its own child session and transcript, so `background_list` / `background_output` / `background_wait` / `background_stop`, the Tasks panel and `GET /coddy/sessions/{id}/background-tasks` all see it. `0` on `max_concurrent`, `default_timeout_seconds` and `max_turns` means "use the default"; `max_depth` is the exception, omit it for the default `1`, because an explicit `0` forbids spawning everywhere. See `docs/subagents.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
+| `dirs` | string list | no | `["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]` | Definition directories, lowest priority first; later entries override earlier ones by name. `${CODDY_HOME}` expands at load time, `${CWD}` per session. A directory inside the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. |
+| `project_trust` | string | no | `ask` | Policy for project-scope definitions, which travel with the checkout. `ask` — load them, but refuse to spawn one until the operator approved that exact file for that workspace on the machine running coddy (`coddy agents trust <name>` there, or `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own files; `deny` — never read them. |
+| `max_concurrent` | int | no | `4` | Subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued; the per-session `tools.background.max_concurrent` still applies to the task count. |
+| `max_depth` | int | no | `1` | Nesting: `1` (the value an omitted key gets) lets a session spawn subagents that cannot spawn further; an explicit `0` forbids spawning everywhere, so unlike the other integer keys `0` here is a setting, not the default. |
+| `default_timeout_seconds` | int | no | `1800` | Hard limit for one run whose definition and call give no timeout. Precedence: the call's `timeout_seconds`, the definition's `timeout_seconds`, `expected_seconds × 3` (floored at 60 s), then this default; every value is capped by `tools.background.max_timeout_seconds`. |
+| `max_turns` | int | no | `agent.max_turns` | ReAct rounds a child may take. |
+
+Approvals for project-scope definitions are recorded in `~/.coddy/subagents-trust.json`, keyed by the canonical workspace path, the definition name and a digest of the file, so editing an approved file asks again. `permission_mode`, `tools` and `disallowed_tools` in a definition can only narrow what the parent could do, in every scope.
+
+## `hooks`
+
+Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lifecycle points of a session. A hook reads one JSON document on stdin and answers with an exit code plus optional JSON on stdout; a `PreToolUse` hook can deny a tool call whatever the permission mode, approve it past the prompt, force the prompt, rewrite its arguments or add context, and a `PostToolUse` / `PostToolUseFailure` hook can add feedback. Definitions are JSON files in Claude Code's shape. `0` on every integer key means "use the default". See `docs/hooks.md`.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `files` | string list | no | `["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${CODDY_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
+| `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
+| `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
+| `stop_loop_limit` | int | no | `5` | How many times per turn a `Stop` hook may send the agent back to work. |
+| `max_output_chars` | int | no | `10000` | Cap on the context, messages and reasons one hook may hand to the model or the user; longer values are truncated with a marker. |
+
+Approvals for project-scope files are recorded in `~/.coddy/hooks-trust.json`, keyed by the canonical workspace path, the workspace-relative file path and a digest of the file, so editing an approved file asks again.
 
 ## `logger`
 
@@ -201,6 +368,17 @@ Context compaction (`config.Compaction`, `internal/config/compaction.go`): summa
 | `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
 | `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
 | `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
+| `result_eviction` | object | no | — | Prunes superseded `read`/`grep` results from the LLM projection (the persisted transcript is never rewritten). See below. |
+
+### `compaction.result_eviction`
+
+Collapses unmarked `read`/`grep` tool results to short placeholders when building the LLM request (`config.ResultEviction`), so paging a large file or running a wide search cannot pin dead lines in every later turn. A result survives when the model marks it (the `keep_result` tool, or `keep: true` on the call) or when it is inside the most recent working window; a filesystem write to a file invalidates earlier reads/greps that covered it. The persisted session bundle keeps every result in full.
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `enabled` | bool | no | `true` | Master switch for read/grep result eviction. |
+| `keep_recent` | int | no | `2` | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. `0` keeps none. The default of `2` keeps a read *and* a grep live at once; with `1`, a model comparing two results keeps re-fetching whichever the other evicted. |
+| `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted. `0` makes every result a candidate. |
 
 ## `memory`
 

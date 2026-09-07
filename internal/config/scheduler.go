@@ -41,11 +41,12 @@ func (c *Config) SchedulerScanRoots() []string {
 	return []string{filepath.Clean(d)}
 }
 
-// Normalize trims scheduler paths using CODDY_HOME expansion.
+// Normalize trims scheduler paths; ${CODDY_HOME} and ${CWD} expand against the
+// process (the scheduler store is not owned by any session).
 func (s *SchedulerConfig) Normalize(p Paths) {
 	s.Dir = strings.TrimSpace(s.Dir)
 	if s.Dir != "" {
-		s.Dir = filepath.Clean(ExpandCODDYHomeOnly(s.Dir, p))
+		s.Dir = filepath.Clean(ExpandPathVars(s.Dir, p))
 	}
 	s.Timeout = strings.TrimSpace(s.Timeout)
 }

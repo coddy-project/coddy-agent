@@ -1,8 +1,11 @@
 package session
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 )
 
 func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
@@ -40,5 +43,50 @@ func TestMarkToolCallFinishedPreservesStartedAt(t *testing.T) {
 	}
 	if !st1.After(st0) && !st1.Equal(st0) {
 		t.Fatalf("FinishedAt should be >= StartedAt: %v %v", st0, st1)
+	}
+}
+
+func TestWriteToolCallPlanSnapshotPersistsFinalTodoState(t *testing.T) {
+	t.Parallel()
+	sd := t.TempDir()
+	entries := []acp.PlanEntry{
+		{Content: "Inspect tool cards", Status: "completed"},
+		{Content: "Render todo preview", Status: "in_progress"},
+	}
+	if err := MarkToolCallFinished(sd, "todo-1", "coddy_todo_item_update", "todo", "completed"); err != nil {
+		t.Fatalf("MarkToolCallFinished: %v", err)
+	}
+	if err := WriteToolCallPlanSnapshot(sd, "todo-1", entries); err != nil {
+		t.Fatalf("WriteToolCallPlanSnapshot: %v", err)
+	}
+
+	meta, err := ReadToolCallMeta(sd, "todo-1")
+	if err != nil {
+		t.Fatalf("ReadToolCallMeta: %v", err)
+	}
+	if meta.Status != "completed" || meta.Name != "coddy_todo_item_update" {
+		t.Fatalf("tool metadata was overwritten: %+v", meta)
+	}
+	if len(meta.PlanSnapshot) != len(entries) || meta.PlanSnapshot[1].Status != "in_progress" {
+		t.Fatalf("PlanSnapshot = %+v, want %+v", meta.PlanSnapshot, entries)
+	}
+}
+
+// The persisted arguments keep their number literals: a permission resume
+// binds to this file, so an integer past 2^53 must not come back rounded.
+func TestWriteToolCallArgsKeepsLargeIntegers(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteToolCallArgs(dir, "call_big", `{"n":9007199254740993,"command":"echo x"}`); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadToolCallArgs(dir, "call_big")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "9007199254740993") {
+		t.Fatalf("the persisted arguments must keep the literal, got %q", got)
+	}
+	if !strings.Contains(got, "\n  \"n\": ") {
+		t.Fatalf("the persisted arguments are pretty-printed, got %q", got)
 	}
 }

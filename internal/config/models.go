@@ -17,12 +17,21 @@ type ModelEntry struct {
 	// When true the UI may offer file attachment for messages sent with this model.
 	Multimodal bool `yaml:"multimodal"`
 	// ReasoningLevels optionally overrides the reasoning levels offered for this model.
-	// When nil the levels are auto-detected from the API model id (see ResolvedReasoningLevels).
-	// An explicit empty list disables the reasoning selector even for a reasoning-capable model.
-	ReasoningLevels []string `yaml:"reasoning_levels"`
+	// A nil pointer (key omitted) auto-detects the levels from the API model id (see
+	// ResolvedReasoningLevels); a pointer to an empty list disables the reasoning
+	// selector even for a reasoning-capable model. The pointer keeps those two apart
+	// through a settings round trip: a plain slice with "omitempty" would erase the
+	// explicit opt-out, and one without would write "reasoning_levels: []" for every
+	// auto-detected model and silently turn detection off on the next load.
+	ReasoningLevels *[]string `yaml:"reasoning_levels,omitempty"`
 	// ReasoningDefault is the reasoning level pre-selected for new chats with this model.
 	// Ignored when not one of the resolved levels.
 	ReasoningDefault string `yaml:"reasoning_default"`
+	// Stream selects the transport used to talk to this model. A nil pointer (key
+	// omitted) means streaming, which is the default for every backend. An explicit
+	// false makes the runtime issue one blocking completion request and deliver the
+	// finished answer in one piece, for servers and proxies that handle SSE badly.
+	Stream *bool `yaml:"stream,omitempty"`
 }
 
 // SplitModelRef parses model into provider name and API model id.
@@ -59,4 +68,13 @@ func (m *ModelEntry) ProviderName() string {
 func (m *ModelEntry) APIModel() string {
 	_, api, _ := SplitModelRef(m.Model)
 	return api
+}
+
+// EffectiveStream reports whether this model is talked to over a stream.
+// Only an explicit stream: false turns streaming off.
+func (m *ModelEntry) EffectiveStream() bool {
+	if m == nil || m.Stream == nil {
+		return true
+	}
+	return *m.Stream
 }

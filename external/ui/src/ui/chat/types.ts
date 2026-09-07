@@ -1,5 +1,12 @@
-import type { CoddyPermissionPayload, PermissionResolvedState } from "./permissionTypes";
-import type { CoddyQuestionPayload, QuestionResolvedState } from "./questionTypes";
+import type {
+  CoddyPermissionPayload,
+  PermissionResolvedState,
+} from "./permissionTypes";
+import type {
+  CoddyQuestionPayload,
+  QuestionResolvedState,
+} from "./questionTypes";
+import type { TodoPlanEntry } from "./todoToolPreview";
 
 export type TokenUsage = {
   inputTokens: number;
@@ -43,7 +50,13 @@ export type TranscriptItem =
       /** RFC3339 UTC from server created_at or client clock when sending. */
       createdAtUtc?: string;
       /** Inline file attachments sent with this message. */
-      files?: { name: string; mimeType: string; sizeBytes?: number }[];
+      files?: {
+        name: string;
+        mimeType: string;
+        sizeBytes?: number;
+        /** Blob URL while optimistic; session asset URL after backend persistence. */
+        previewUrl?: string;
+      }[];
     }
   | {
       id: string;
@@ -79,10 +92,12 @@ export type TranscriptItem =
       argsText?: string;
       /** Truncated preview from SSE or list endpoint (never replace with full body). */
       resultText?: string;
-      /** Full saved tool output after user chose Load more (GET …/tool-calls/{id}). */
+      /** Full saved tool output after the first More… click (GET …/tool-calls/{id}). */
       fullResultText?: string;
       /** True when SSE or list preview omitted lines (_meta or resultPreviewTruncated). */
       resultWasTruncated?: boolean;
+      /** Final todo state saved with this call, so historical cards stay stable. */
+      todoPlan?: TodoPlanEntry[];
       startedAtMs?: number;
       finishedAtMs?: number;
       durationMs?: number;
@@ -90,7 +105,8 @@ export type TranscriptItem =
   | {
       id: string;
       type: "system_notice";
-      level: "error";
+      /** error rows carry the retry control; notice rows are informational. */
+      level: "error" | "notice";
       message: string;
       createdAtUtc?: string;
     }

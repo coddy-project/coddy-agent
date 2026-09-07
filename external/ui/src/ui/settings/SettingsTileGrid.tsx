@@ -1,4 +1,5 @@
 import type { SectionDescriptor } from "./settingsSections";
+import { useT } from "../i18n/I18nProvider";
 
 /**
  * SettingsTileGrid is the mobile section picker: a 2-column grid of tiles, each
@@ -12,11 +13,12 @@ export function SettingsTileGrid(props: {
   onSelect: (id: string) => void;
 }) {
   const { sections, onSelect } = props;
+  const { t } = useT();
   return (
     <div
       className="settings-tile-grid"
       role="list"
-      aria-label="Settings sections"
+      aria-label={t("settings.tileGrid.aria")}
       data-testid="settings-tile-grid"
     >
       {sections.map((s) => (

@@ -22,7 +22,7 @@ type anthropicProvider struct {
 }
 
 func newAnthropicProvider(model, apiKey, baseURL string, httpClient *http.Client, maxTokens int, temp float64, reasoningEffort string) *anthropicProvider {
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMaxRetries(0)}
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
@@ -126,6 +126,14 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 		return out
 	}
 
+	// emitted flips once any chunk reached the caller; a truncated stream
+	// after that must not be retried, or the same deltas would stream twice.
+	var emitted bool
+	emit := func(c StreamChunk) {
+		emitted = true
+		onChunk(c)
+	}
+
 	for stream.Next() {
 		event := stream.Current()
 		switch e := event.AsAny().(type) {
@@ -133,10 +141,10 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 			switch d := e.Delta.AsAny().(type) {
 			case anthropic.TextDelta:
 				fullContent += d.Text
-				onChunk(StreamChunk{TextDelta: d.Text})
+				emit(StreamChunk{TextDelta: d.Text})
 			case anthropic.ThinkingDelta:
 				thinkingBuf.WriteString(d.Thinking)
-				onChunk(StreamChunk{ReasoningDelta: d.Thinking})
+				emit(StreamChunk{ReasoningDelta: d.Thinking})
 			case anthropic.SignatureDelta:
 				thinkingSig = d.Signature
 			case anthropic.InputJSONDelta:
@@ -186,21 +194,35 @@ func (p *anthropicProvider) Stream(ctx context.Context, messages []Message, tool
 				}, fmt.Errorf("anthropic stream: %w", err)
 			}
 		}
-		return nil, fmt.Errorf("anthropic stream: %w", err)
+		// Same transport wrapper as the openai path: the emitted flag lets
+		// classification retry status-less failures only while nothing was
+		// delivered. HTTP errors keep their status reachable through Unwrap.
+		return nil, fmt.Errorf("anthropic stream: %w", &streamTransportError{cause: err, emitted: emitted})
+	}
+
+	if stopReason == "" {
+		// The stream ended without a stop_reason-bearing message_delta: the
+		// terminal event never arrived and the response was cut
+		// mid-generation. Mirror the openai path: keep the delivered text
+		// and reasoning next to the truncation error, and drop unfinished
+		// tool_use blocks, whose input JSON may be cut mid-way.
+		truncErr := fmt.Errorf("anthropic stream: %w", &streamTruncatedError{emitted: emitted})
+		if strings.TrimSpace(fullContent) != "" || strings.TrimSpace(thinkingBuf.String()) != "" {
+			return &Response{
+				Content:            fullContent,
+				Reasoning:          thinkingBuf.String(),
+				ReasoningSignature: thinkingSig,
+				InputTokens:        inputTokens,
+				OutputTokens:       outputTokens,
+			}, truncErr
+		}
+		return nil, truncErr
 	}
 
 	toolCalls = finalizeAnthropicToolUses()
 	for i := range toolCalls {
 		tc := toolCalls[i]
-		onChunk(StreamChunk{ToolCall: &tc})
-	}
-
-	if stopReason == "" {
-		if len(toolCalls) > 0 {
-			stopReason = "tool_use"
-		} else {
-			stopReason = "end_turn"
-		}
+		emit(StreamChunk{ToolCall: &tc})
 	}
 
 	return &Response{

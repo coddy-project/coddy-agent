@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { contextUsagePercent, contextUsedTokens } from "./contextUsage";
+import {
+  contextUsagePercent,
+  contextUsedTokens,
+  withContextUsedTokens,
+} from "./contextUsage";
 
 describe("contextUsagePercent", () => {
   it("uses estimatedTotal over max context", () => {
@@ -27,5 +31,24 @@ describe("contextUsagePercent", () => {
         conversation: 300,
       }),
     ).toBe(600);
+  });
+
+  it("replaces stale pre-compaction usage while preserving category totals", () => {
+    expect(
+      withContextUsedTokens(
+        {
+          systemPrompt: 1000,
+          toolDefinitions: 2000,
+          conversation: 147000,
+          estimatedTotal: 150000,
+        },
+        42000,
+      ),
+    ).toMatchObject({
+      systemPrompt: 1000,
+      toolDefinitions: 2000,
+      conversation: 39000,
+      estimatedTotal: 42000,
+    });
   });
 });

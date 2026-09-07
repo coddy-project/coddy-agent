@@ -15,9 +15,11 @@ The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMa
 
 Resolved locations use environment variables and flags (see README). In short:
 
-- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, and **`scheduler/`** when using the optional cron scheduler.
+- **`CODDY_HOME`** - agent state directory. Default **`~/.coddy`**. Holds `config.yaml`, `sessions/`, `skills/`, Coddy-managed provider credentials under `providers/`, and **`scheduler/`** when using the optional cron scheduler.
 - **`CODDY_CWD`** - default filesystem cwd when `session/new` sends an empty `cwd`. Default is the process working directory at startup. Same meaning as the **`--cwd`** flag when set.
 - **`CODDY_CONFIG`** - explicit path to `config.yaml`. Same as **`--config`**.
+- **`CODEX_HOME`** - Codex CLI state directory read by **`type: codex`** providers when no Coddy-managed credential exists. Default **`~/.codex`**.
+- **`CODDY_CODEX_BASE_URL`** - override for the Codex backend endpoint (default **`https://chatgpt.com/backend-api/codex`**). Process-level on purpose: **`api_base`** stays ignored for **`type: codex`**, so a settings document cannot redirect a ChatGPT OAuth token. Used by the executable specs and by self-hosted Codex gateways.
 
 If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (default home **`~/.coddy`**). If that file is missing, it tries **`config.yaml`** in the process current working directory (**`$CWD`** at startup). If neither file exists, built-in defaults apply (no error).
 
@@ -45,6 +47,7 @@ providers:
     # api_base: ""                    # optional override for OpenAI-compatible base URL
     # api_key_command: "my-cli print-token"  # host shell: pwsh/powershell/cmd on Windows; bash/sh elsewhere
     # proxy: "http://127.0.0.1:8888"   # optional per-provider HTTP(S) or SOCKS5/SOCKS5h proxy
+    # timeout_ms: 300000               # optional bound on each LLM request incl. streamed read (0 = no client timeout)
 
   - name: "anthropic"
     type: "anthropic"
@@ -53,6 +56,11 @@ providers:
   - name: "neuraldeep"
     type: "neuraldeep"
     api_key: "${NEURALDEEP_API_KEY}"
+
+  # In the bundled web UI, select codex and use Sign In with ChatGPT. Tokens are
+  # stored at $CODDY_HOME/providers/codex/codex-auth.json, not in config.yaml.
+  - name: "codex"
+    type: "codex"
 
   - name: "local"
     type: "openai"
@@ -95,18 +103,35 @@ models:
     max_tokens: 8192
     temperature: 0.2
 
+  - model: "codex/gpt-5.6-sol"
+    max_tokens: 8192
+
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
   model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
-  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3)
-  llm_retry_base_ms: 1000      # initial backoff between LLM retries
-  llm_min_interval_ms: 0       # min gap between consecutive LLM calls; e.g. 12000 on strict free tiers
+  llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
+  llm_retry_base_ms: 1000      # initial backoff between LLM retries; a server-provided
+                               # pause (Retry-After-Ms / Retry-After headers, "Limit resets
+                               # at" / "retry in Ns" body phrases) overrides the backoff,
+                               # capped at 60s
+  llm_min_interval_ms: 0       # min gap between consecutive LLM calls, retries included; e.g. 12000 on strict free tiers
+  llm_first_token_timeout_ms: 90000  # cancel a silent streamed LLM call after this long (0 disables the guard)
+  wait_for_limit_reset: false        # wait for a hit usage limit to lift and re-issue the call (off: the turn ends with the error)
+  wait_for_limit_reset_max_ms: 14400000  # total wait per turn (4 h), the retry wrapper's sleeps on a limit included; under 60 s it also bounds ordinary 429 retries; 0 never waits
+  loop_guard: true             # stop a response that repeats itself, and a tool called over and over with identical args
+  loop_tool_repeat_limit: 3    # identical tool calls in a row before the guard steps in (0 disables)
+  loop_stream_repeat_cycles: 5 # identical output cycles in one stream before it is cut (0 disables)
+  loop_nudge_max: 2            # nudges before the guard stops the turn with a notice
 
 # System prompt templates
 prompts:
   # Empty dir = use embedded defaults. Otherwise a directory containing the files named below.
+  #
+  # Whatever you put here, Coddy prepends its identity line ("You are Coddy, ...") unless the
+  # template already opens with it — gateways attribute traffic by the start of the system
+  # prompt. Source: internal/prompts/identity.go, rationale: docs/react-agent.md (Agent identity).
   #
   # Go text/template data. Fields in internal/prompts/loader.go. YAML shape is config.Prompts in internal/config/prompts.go.
   #   {{.CWD}}      - session working directory
@@ -121,6 +146,7 @@ prompts:
   dir: ""
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
+  ask_prompt: "ask.md"         # optional; default ask.md
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
@@ -167,12 +193,13 @@ skills:
     - "${CWD}/.coddy/skills"
 
 # Project rules (Go: config.Rules, internal/config/rules.go)
-# Discovered from .coddy/rules, .cursor/rules, .claude/rules, .codex/rules,
-# and nested **/AGENTS.md under session CWD.
+# Discovered from .coddy/rules, the shared .agents/rules, .cursor/rules,
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: coddy, cursor, claude, codex, agents
+  systems: []   # optional: coddy, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -200,6 +227,27 @@ tools:
 
   # TCP dial timeout for SSH connections in seconds (default: 30).
   # ssh_connect_timeout: 30
+
+# Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
+# from markdown definitions; each run is a background task with its own child session. See docs/subagents.md.
+# subagents:
+#   enabled: true
+#   dirs: ["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   max_concurrent: 4             # subagent runs in flight across the whole process
+#   max_depth: 1                  # 1 = children cannot spawn further; 0 = nobody spawns
+#   default_timeout_seconds: 1800 # hard limit when the definition and the call give none
+#   max_turns: 0                  # 0 follows agent.max_turns
+
+# Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
+# defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
+# hooks:
+#   enabled: true
+#   files: ["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]
+#   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
+#   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
+#   stop_loop_limit: 5            # Stop-hook continuations per turn
+#   max_output_chars: 10000       # cap on what one hook hands to the model or the user
 
 # HTTP OpenAI gateway (only with go build -tags=http). Embedded SPA on / needs -tags=http,ui too. See docs/http-api.md
 # httpserver:
@@ -263,9 +311,19 @@ The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`
 
 ## Scheduler (optional build)
 
+### MCP project trust
+
+The **`mcp.project_trust`** key decides whether the project-local **`<workspace>/.coddy/mcp.json`** may start
+its servers: **`ask`** (default) holds them until the operator approves each declaration for that workspace,
+**`allow`** starts them automatically, **`deny`** never loads them. Pass **`coddy acp --mcp-project-trust <value>`**
+or **`coddy http --mcp-project-trust <value>`** to override it for one process, which is what CI jobs and
+container entrypoints use instead of editing the config file. An unknown value fails the launch.
+Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80); full guide in
+[docs/mcp-integration.md](mcp-integration.md).
+
 The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
 
-Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent` or `plan`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
+Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent`, `plan`, or `ask`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
 **`retain_sessions`** (default **5**) caps how many **completed** scheduler-run session directories are kept per **`job_id`** under **`sessions.dir`**; older runs are pruned.
 
@@ -384,12 +442,12 @@ corrupting the secret. The Settings UI does this automatically for the `proxy` f
 **not** support `${VAR}` references; for a literal `$` in `api_key` (which does support `${VAR}`),
 write `$$` by hand.
 
-Special variables in YAML (before parse) and in path strings:
+Two placeholders are not environment variables:
 
-- **`${CODDY_HOME}`** - resolved `CODDY_HOME` directory
-- **`${CWD}`** in **`skills.dirs`** is resolved at skill load time using the **session** working directory (ACP `session/new` cwd)
+- **`${CODDY_HOME}`** - the resolved `CODDY_HOME` directory, substituted when the file is read.
+- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server command, arguments, URL, environment and headers. One **`coddy http`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.coddy/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`CODDY_CWD`**) at load time, since no session owns them.
 
-Inside the raw config file body, **`${CWD}`** and **`${CODDY_HOME}`** are expanded using the process **`CODDY_CWD`** and **`CODDY_HOME`** when the file is read. For paths that must follow the session cwd, leave **`${CWD}`** in **`skills.dirs`** so it is not baked in at parse time (defaults do this when **`dirs`** is empty).
+An environment variable named **`CWD`** does not replace the placeholder (a bare **`$CWD`** without braces is still an ordinary environment reference, as before), and **`GET /coddy/config`**, the Settings UI, and **`config_get`** report the entry exactly as written. The placeholder is honoured only in the fields listed above; in any other string value it stays as written (prompt templates use **`{{.CWD}}`** instead). Releases up to 1.0.5 substituted **`${CWD}`** with the process directory when the file was read, so a Settings save made in that version may have stored an absolute path such as **`/home/you/.agents/skills`** where you wrote **`${CWD}/.agents/skills`**; put the placeholder back by hand to get per-session resolution.
 
 ## Model Provider Reference
 
@@ -397,8 +455,8 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 
 YAML split:
 
-- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; ignored by **`type: neuraldeep`**, which always uses **`https://api.neuraldeep.ru/v1`**), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**.
+- **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`** today).
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](config-reference.md) for token lifetime and the startup credential report.
 
 ### `openai`
 Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
@@ -413,7 +471,11 @@ Provider needs **`api_key`**. Optional **`api_base`** overrides the Anthropic AP
 ### `neuraldeep`
 NeuralDeep API via its OpenAI-compatible endpoint.
 
-Provider needs **`api_key`**. **`api_base`** is not needed and is ignored; Coddy always sends requests to **`https://api.neuraldeep.ru/v1`**. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/default`** or another NeuralDeep model id, plus **`max_tokens`**, **`temperature`**.
+Credentials come from either a hub sign-in or a plain key. **`coddy providers login neuraldeep`** opens the browser on the NeuralDeep hub (add **`--device`** on headless machines), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and appends the tier's models to the config; the bundled web UI offers **Sign In with NeuralDeep** on the provider row. An explicit **`api_key`** (or **`api_key_command`** / **`NEURALDEEP_API_KEY`**) always wins over the stored login.
+
+While a `neuraldeep` model is active, the console footer, the remote console and the HTTP API show the account's usage (the hub's read-only **`GET /v1/limits`**: session and week windows as percent used with reset times, the wallet in rubles, a hit limit with its reset time), refreshed at session start and after every turn; see **`docs/cli.md`** (Footer, `/usage`) and **`docs/http-api.md`** (**`GET /coddy/providers/{name}/usage`**). The row's own credential is used, and no dollar figure is ever shown. The panel is on by default; **`usage_limits_panel: false`** on the row (the **Usage limits panel** switch in Settings → LLM Providers) hides it on every surface and stops the **`GET /v1/limits`** reads for that row, for a shared screen or an account that is not yours to watch.
+
+The same API is served from two deployments: **`https://api.neuraldeep.ru/v1`** for Russia and **`https://api.neuraldeep.tech/v1`** for everywhere else. **`api_base`** selects one - leave it empty for the first, and any value that is not one of the two falls back to it (a startup warning says so). The choice travels with the credential: sign-in goes to **`hub.neuraldeep.ru`** or **`hub.neuraldeep.tech`** to match, so pick the endpoint before signing in (**`coddy providers login neuraldeep --api-base https://api.neuraldeep.tech/v1`**, or the endpoint dropdown in Settings). A login with **`--api-base`** also moves an existing provider row to that endpoint (unless **`--no-config`**), so the row and the key agree; in Settings the sign-in follows the dropdown as picked in the form, before Save. A key minted by one hub is not honored by the other; Coddy warns at startup when the stored login and the selected endpoint disagree, and the Settings row shows the same warning live. **`CODDY_NEURALDEEP_BASE_URL`** and **`CODDY_NEURALDEEP_HUB_URL`** still redirect the whole process for stands and tests, and they win over the config. Optional **`proxy`** applies only to this provider row. Use **`models[].model`** like **`neuraldeep/qwen3.6-35b-a3b`**, plus **`max_tokens`**, **`temperature`**.
 
 ### Local OpenAI-compatible servers (Ollama, llama.cpp, LM Studio)
 Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL that already includes **`/v1`**, for example **`http://localhost:11434/v1`** for Ollama.

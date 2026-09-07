@@ -12,12 +12,14 @@ Checks:
 
 1. Three short exchanges seed a session; ``/compact`` sent as a normal prompt
    returns a confirmation text and inserts a ``compaction_summary`` row into
-   ``GET /coddy/sessions/{id}/messages`` while keeping every original row and
-   not persisting the command text.
+   ``GET /coddy/sessions/{id}/messages`` while keeping every original row; the
+   command text itself is persisted as a ``user`` row like any other input.
 2. A second session compacts via ``POST /coddy/sessions/{id}/compact``: 200
    with ``compacted: true``, non-empty ``summary``, positive counts.
-3. ``POST .../compact`` on a too-short session answers 200 with
-   ``compacted: false`` and reason ``nothing_to_compact``.
+3. ``POST .../compact`` on a one-turn session is forced like any manual
+   trigger: 200 with ``compacted: true`` and ``kept_messages: 0`` (the kept
+   tail shrinks until something folds; ``nothing_to_compact`` is reserved for
+   a session with no prior conversation at all).
 4. A follow-up prompt after compaction still produces an assistant reply.
 
 Environment:
@@ -128,8 +130,11 @@ def main() -> int:
         if p not in joined:
             print(f"FAIL: seeded prompt lost: {p!r}", file=sys.stderr)
             rc = rc or 13
-    if any(str(m.get("content", "")).strip() == "/compact" for m in msgs):
-        print("FAIL: /compact command persisted in transcript", file=sys.stderr)
+    if not any(
+        m.get("role") == "user" and str(m.get("content", "")).strip() == "/compact"
+        for m in msgs
+    ):
+        print("FAIL: /compact command missing from transcript", file=sys.stderr)
         rc = rc or 14
 
     _, follow = agent_turn(v1, sid, "Reply with exactly: STILL-ALIVE")
@@ -164,11 +169,16 @@ def main() -> int:
         print("FAIL: endpoint compaction left no summary row", file=sys.stderr)
         rc = rc or 24
 
-    # --- 3. nothing_to_compact on a short session ----------------------------
+    # --- 3. manual trigger forces compaction on a short session ---------------
     sid3, _ = agent_turn(v1, None, "Reply with exactly: OK")
     code, body, _ = http_json("POST", f"{origin}/coddy/sessions/{sid3}/compact", {}, {})
-    if code != 200 or body.get("compacted") is not False or body.get("reason") != "nothing_to_compact":
-        print(f"FAIL: short session compact {code}: {body}", file=sys.stderr)
+    if (
+        code != 200
+        or body.get("compacted") is not True
+        or int(body.get("compacted_messages", 0)) <= 0
+        or int(body.get("kept_messages", -1)) != 0
+    ):
+        print(f"FAIL: short session forced compact {code}: {body}", file=sys.stderr)
         rc = rc or 31
 
     if rc == 0:

@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -93,5 +94,38 @@ func TestSSHRunCommandToolDefinition(t *testing.T) {
 		if _, exists := props[required]; !exists {
 			t.Errorf("InputSchema missing required property %q", required)
 		}
+	}
+}
+
+func TestSSHTimeoutKeepsTheOutputItAlreadyRead(t *testing.T) {
+	const captured = "migration step 3 of 4 done\n"
+	result := timedOutResult(30, captured)
+
+	if !strings.Contains(result, captured) {
+		t.Fatalf("timed-out result %q dropped the output the command already produced", result)
+	}
+	// The notice has to lead: the tool output ceiling truncates from the end.
+	if strings.Index(result, "timed out after 30 seconds") > strings.Index(result, captured) {
+		t.Fatalf("timed-out result %q puts the output before the notice", result)
+	}
+	if !strings.Contains(result, "may still be running") {
+		t.Fatalf("timed-out result %q does not admit that the remote process survives", result)
+	}
+}
+
+func TestSSHTimeoutWithoutOutputStillExplainsItself(t *testing.T) {
+	result := timedOutResult(5, "")
+	if !strings.Contains(result, "timed out after 5 seconds") {
+		t.Fatalf("timed-out result %q does not name the timeout", result)
+	}
+}
+
+func TestSSHTimeoutSanitisesTheOutput(t *testing.T) {
+	result := timedOutResult(5, "\x1b[32mgreen\x1b[0m")
+	if !strings.Contains(result, "green") {
+		t.Fatalf("timed-out result %q lost the text under the escape sequences", result)
+	}
+	if strings.ContainsRune(result, 0x1b) {
+		t.Fatalf("timed-out result %q still carries escape sequences", result)
 	}
 }

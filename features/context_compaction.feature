@@ -19,3 +19,10 @@ Feature: Context compaction
     When the user sends a new prompt
     Then the agent replies successfully
     And the LLM request for that reply starts from the summary
+
+  Scenario: Compaction publishes the smaller context window over ACP
+    Given a session with 4 completed exchanges
+    And the ACP client has observed the context usage before compaction
+    When the session is compacted keeping the last 2 user turns
+    Then the ACP client receives a smaller context usage update
+    And the reported ACP usage matches the compacted LLM context

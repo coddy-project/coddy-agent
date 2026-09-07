@@ -98,7 +98,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
-	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), prompts.TemplateData{
+	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -108,13 +108,22 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		PlanContext:    planCtx,
 		DiscardedPlans: discardedPlans,
 		Instructions:   instructionsMD,
+		Subagents:      a.subagentCatalogBlock(),
+		SubagentRole:   a.subagentRoleBlock(),
 		UTCNow:         time.Now().UTC().Format(time.RFC3339),
 	})
 	full = joinNonEmptyPromptBlocks(full, a.environment.PromptContext())
-	if rs, ok := a.state.(rulesState); ok {
+	// Context handed over by SessionStart and UserPromptSubmit hooks; appended
+	// like the environment block so a custom template carries it too.
+	full = joinNonEmptyPromptBlocks(full, a.hookContextBlock())
+	// Applied last so it also covers a user's own prompts.dir template and the
+	// render fallback, and before the context breakdown so the estimate counts
+	// what is actually sent. See internal/prompts/identity.go.
+	full = prompts.WithIdentity(full)
+	if _, ok := a.state.(rulesState); ok {
 		// The Conversation estimate mirrors what buildMessages sends: only the
 		// LLM-visible window after the last compaction summary.
-		rs.SetLastContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, session.MessagesForLLM(a.state.GetMessages()), toolDefs))
+		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages())), toolDefs), false)
 	}
 	return full
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -30,13 +32,13 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 	mode := a.state.GetMode()
 	sd := strings.TrimSpace(a.state.GetPersistedSessionDir())
 	toolEnv := a.buildToolEnv(mode, sd)
-	if st := sessionStatePtr(a.state); st != nil {
-		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
-	}
-	if sd != "" {
-		_ = session.ClearPendingPermission(sd)
-	}
-	if perm.Outcome == "cancelled" || perm.OptionID == "reject" {
+	if !permission.Approved(perm) {
+		// A refusal needs nothing from the bundle: the gate is cleared and
+		// the denial recorded before anything is read, so an unreadable
+		// arguments file cannot keep a refused call pending.
+		if sd != "" {
+			_ = session.ClearPendingPermission(sd)
+		}
 		toolResultMsg := llm.Message{
 			Role:       llm.RoleTool,
 			Content:    "permission denied by user",
@@ -48,6 +50,33 @@ func (a *Agent) ResumeAfterPermission(ctx context.Context, toolCallID string, pe
 			_ = session.MarkToolCallFinished(sd, tc.ID, tc.Name, toolKind(tc.Name), "cancelled")
 		}
 		return a.continueReAct(ctx, mode, toolEnv)
+	}
+	// The history holds the arguments the model produced; the bundle holds
+	// the arguments the prompt showed, after any PreToolUse rewrite (it is
+	// written when the call starts and again after a rewrite, or the call is
+	// cancelled before the prompt). The approval binds to the latter, so
+	// those are what runs and what an allow-always grant is recorded
+	// against; a bundle that cannot produce them fails closed, and the gate
+	// stays for a retry.
+	if sd != "" {
+		shown, err := session.ReadToolCallArgs(sd, tc.ID)
+		if err != nil {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments could not be read: %w", tc.ID, err)
+		}
+		if strings.TrimSpace(shown) == "" && strings.TrimSpace(tc.InputJSON) != "" {
+			return "", fmt.Errorf("resume tool call %s: the approved arguments are missing from the bundle", tc.ID)
+		}
+		tc.InputJSON = shown
+	}
+	// A call the current mode refuses (a pending agent-mode write approved
+	// after switching to ask) must not leave an "allow always" grant behind:
+	// the grant would outlive the refusal and apply once the mode changes back.
+	_, refusedByMode := toolCallRefusedByMode(mode, tc.Name)
+	if st := sessionStatePtr(a.state); st != nil && !refusedByMode {
+		permission.RecordAllowAlways(st, tc.Name, tc.InputJSON, toolEnv.CWD, perm)
+	}
+	if sd != "" {
+		_ = session.ClearPendingPermission(sd)
 	}
 	result, execErr := a.executeToolCall(ctx, tc, toolEnv, mode, a.state.GetID(), true)
 	var toolResultMsg llm.Message
@@ -91,12 +120,12 @@ func (a *Agent) findPendingToolCall(toolCallID string) (llm.ToolCall, error) {
 }
 
 func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
-	return &tools.Env{
+	env := &tools.Env{
 		CWD:              a.state.GetCWD(),
 		PermissionMode:   effectivePermMode(a.state, a.cfg),
 		CommandAllowlist: a.cfg.Tools.CommandAllowlist,
-		SessionID:                    a.state.GetID(),
-		SessionDir:                   sessionDir,
+		SessionID:        a.state.GetID(),
+		SessionDir:       sessionDir,
 		ArchiveActiveMarkdown: func() error {
 			if sessionDir == "" {
 				return nil
@@ -119,25 +148,76 @@ func (a *Agent) buildToolEnv(mode, sessionDir string) *tools.Env {
 		PersistPlanDocument: func(doc plans.Document) {
 			a.state.AppendPlanDocument(doc)
 		},
-		LoadSkillBody: a.loadSkillBody,
+		LoadSkillBody:     a.loadSkillBody,
+		SSHConnectTimeout: a.cfg.Tools.SSHConnectTimeout,
+		ConfigPath:        a.cfg.Paths.ConfigPath,
+		ConfigHome:        a.cfg.Paths.Home,
+		ConfigCWD:         a.cfg.Paths.CWD,
+		OutputLineLimits:  a.cfg.Tools.OutputLimits.AsMap(),
+		Background:        a.backgroundPool(sessionDir),
+		BackgroundEnabled: a.cfg.Tools.Background.ResolvedEnabled(),
+	}
+	a.applySubagentEnv(env, mode)
+	if a.configReloader != nil {
+		env.ReloadConfig = func(ctx context.Context) ([]string, error) {
+			warnings, err := a.configReloader(ctx)
+			if err != nil {
+				return warnings, err
+			}
+			next, err := config.LoadWithPaths(a.cfg.Paths)
+			if err != nil {
+				return warnings, err
+			}
+			a.cfg = next
+			a.registry = tools.NewRegistryForEnvironment(next, a.environment)
+			env.PermissionMode = effectivePermMode(a.state, next)
+			env.CommandAllowlist = append([]string(nil), next.Tools.CommandAllowlist...)
+			env.SSHConnectTimeout = next.Tools.SSHConnectTimeout
+			env.OutputLineLimits = next.Tools.OutputLimits.AsMap()
+			env.Background = a.backgroundPool(sessionDir)
+			env.BackgroundEnabled = next.Tools.Background.ResolvedEnabled()
+			return warnings, nil
+		}
+	}
+	return env
+}
+
+// backgroundPool returns the process-wide task pool, telling it where this
+// session persists so a task started from here mirrors its output into the
+// session bundle.
+func (a *Agent) backgroundPool(sessionDir string) *bgtask.Pool {
+	pool := bgtask.Default()
+	pool.SetConfig(backgroundConfig(a.cfg))
+	if strings.TrimSpace(sessionDir) != "" {
+		pool.SetSessionDir(a.state.GetID(), sessionDir)
+	}
+	return pool
+}
+
+// backgroundConfig translates the operator's YAML into the pool's bounds.
+func backgroundConfig(cfg *config.Config) bgtask.Config {
+	if cfg == nil {
+		return bgtask.Config{}
+	}
+	resolved := cfg.Tools.Background.Resolved()
+	return bgtask.Config{
+		MaxConcurrent:         resolved.MaxConcurrent,
+		DefaultTimeoutSeconds: resolved.DefaultTimeoutSeconds,
+		MaxTimeoutSeconds:     resolved.MaxTimeoutSeconds,
+		OutputBufferBytes:     resolved.OutputBufferBytes,
 	}
 }
 
-// continueReAct runs the ReAct loop using messages already on the session (no new user turn).
+// continueReAct runs the ReAct loop using messages already on the session (no
+// new user turn): the turn's account of time spent on usage limits carries
+// over, since this is the same user turn.
 func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.Env) (string, error) {
+	a.limitLedgerFor()
 	userText := lastUserText(a.state.GetMessages())
 	contextFiles := extractContextFiles(nil)
 	activeSkills := FilterSkillsForContext(a.state.GetSkills(), contextFiles)
-	toolSet := ToolSetForMode(mode)
-	toolDefs := FilterToolDefinitions(a.registry.AllToolDefinitions(), toolSet)
-	if toolSet.Unrestricted() || mode == "plan" {
-		for _, mcpClient := range a.state.GetMCPClients() {
-			for _, t := range mcpClient.Tools() {
-				toolDefs = append(toolDefs, t.ToLLMToolDefinition(mcpClient.Name()))
-			}
-		}
-	}
-	provider, err := a.getProvider(mode)
+	toolDefs := a.currentToolDefinitions(mode)
+	transport, err := a.getProvider(mode)
 	if err != nil {
 		return string(acp.StopReasonRefused), fmt.Errorf("no LLM configured: %w", err)
 	}
@@ -150,7 +230,7 @@ func (a *Agent) continueReAct(ctx context.Context, mode string, toolEnv *tools.E
 	toolEnv.SendDesignPlanUpdate = func(doc plans.Document) {
 		tools.SendDesignPlanUpdate(toolEnv, doc)
 	}
-	return a.runReActLoop(ctx, mode, messages, toolDefs, provider, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
+	return a.runReActLoop(ctx, mode, messages, toolDefs, transport, toolEnv, sd, userText, contextFiles, activeSkills, maxTurns)
 }
 
 func lastUserText(msgs []llm.Message) string {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { describeCronScheduleOrError, describeCronScheduleUTC } from "./cronDescribe";
+import {
+  describeCronScheduleOrError,
+  describeCronScheduleUTC,
+} from "./cronDescribe";
+import { setLocale } from "../i18n/i18n";
 
 describe("describeCronScheduleUTC", () => {
   it("returns human text for valid 5-field cron", () => {
@@ -42,5 +46,15 @@ describe("describeCronScheduleOrError", () => {
   it("returns error for garbage", () => {
     const r = describeCronScheduleOrError("hello world");
     expect(r.ok).toBe(false);
+  });
+
+  it("localizes validation errors", () => {
+    setLocale("ru");
+    const r = describeCronScheduleOrError("  ");
+    expect(r).toEqual({
+      ok: false,
+      error: "Введите cron-выражение (5 полей, UTC).",
+    });
+    setLocale("en");
   });
 });

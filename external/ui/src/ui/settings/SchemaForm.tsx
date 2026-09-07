@@ -1,10 +1,10 @@
 import type { ChangeEvent, ReactNode } from "react";
 
 import { Combobox } from "./Combobox";
-import {
-  providerApiKeyFieldPlaceholder,
-} from "./providerApiKeyPlaceholder";
-import { Switch } from "./Switch";
+import { providerApiKeyFieldPlaceholder } from "./providerApiKeyPlaceholder";
+import { schemaFieldDesc, schemaFieldLabel } from "./schemaI18n";
+import { SwitchField } from "./SwitchField";
+import { useT } from "../i18n/I18nProvider";
 
 /** Trash glyph (lucide trash-2 style) matching the Settings footer icons. */
 export function IconTrash(props: { className?: string }) {
@@ -148,14 +148,44 @@ function SchemaField(props: {
   parentObj?: Record<string, unknown> | undefined;
   path?: string | undefined;
   fieldOverride?: FieldOverride | undefined;
+  /** Settings section id ("tools", "system.logger") selecting the dictionary domain. */
+  i18nDomain?: string | undefined;
+  /**
+   * Array item row: children keep translating through `i18nDomain`, but the
+   * row itself falls back to its own schema title/description — the enclosing
+   * array fieldset already shows the translated legend and description, so a
+   * row-level lookup would repeat them for every entry.
+   */
+  i18nInheritOnly?: boolean | undefined;
 }) {
-  const { name, schema, value, onChange, parentObj, fieldOverride } = props;
+  const {
+    name,
+    schema,
+    value,
+    onChange,
+    parentObj,
+    fieldOverride,
+    i18nDomain,
+    i18nInheritOnly,
+  } = props;
   const path = props.path ?? name;
-  const label = schema.title || name;
+  const label = i18nInheritOnly
+    ? schema.title || name
+    : schemaFieldLabel(i18nDomain, path, schema.title, name);
+  const desc = i18nInheritOnly
+    ? schema.description
+    : schemaFieldDesc(i18nDomain, path, schema.description);
   const t = schema.type;
+  const { t: tr } = useT();
 
   if (fieldOverride) {
-    const override = fieldOverride({ path, schema, value, onChange, parentObj });
+    const override = fieldOverride({
+      path,
+      schema,
+      value,
+      onChange,
+      parentObj,
+    });
     if (override != null) {
       return <>{override}</>;
     }
@@ -180,9 +210,7 @@ function SchemaField(props: {
     return (
       <fieldset className="settings-fieldset">
         <legend>{label}</legend>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
-        ) : null}
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
         <div className="settings-nested">
           {entriesInSchemaOrder(
             schema.properties,
@@ -196,6 +224,7 @@ function SchemaField(props: {
               parentObj={obj}
               path={path ? `${path}.${k}` : k}
               fieldOverride={fieldOverride}
+              i18nDomain={i18nDomain}
               onChange={(nv) => onChange({ ...obj, [k]: nv })}
             />
           ))}
@@ -210,9 +239,7 @@ function SchemaField(props: {
     return (
       <fieldset className="settings-fieldset">
         <legend>{label}</legend>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
-        ) : null}
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
         <ul className="settings-array">
           {arr.map((row, i) => (
             <li key={i} className="settings-array-row">
@@ -223,6 +250,8 @@ function SchemaField(props: {
                   value={row}
                   path={path}
                   fieldOverride={fieldOverride}
+                  i18nDomain={i18nDomain}
+                  i18nInheritOnly
                   parentObj={
                     row !== null &&
                     row !== undefined &&
@@ -241,8 +270,8 @@ function SchemaField(props: {
               <button
                 type="button"
                 className="settings-btn settings-btn-icon settings-btn-danger settings-array-remove"
-                aria-label="Remove"
-                title="Remove"
+                aria-label={tr("settings.array.removeAria")}
+                title={tr("settings.array.removeTitle")}
                 onClick={() => {
                   const next = arr.filter((_, j) => j !== i);
                   onChange(next);
@@ -261,30 +290,27 @@ function SchemaField(props: {
             onChange([...arr, seed]);
           }}
         >
-          Add
+          {tr("settings.array.add")}
         </button>
       </fieldset>
     );
   }
 
   if (t === "boolean") {
-    const checked = Boolean(value);
+    // A key the configuration never set is not automatically off: the schema says
+    // what its absence means (models[].stream defaults to true), and a switch drawn
+    // from Boolean(undefined) would report the opposite of how the agent behaves.
+    const checked =
+      value === undefined || value === null
+        ? Boolean(schema.default)
+        : Boolean(value);
     return (
-      <div className="settings-row">
-        <div className="settings-row-inline">
-          <Switch
-            checked={checked}
-            onChange={(next) => onChange(next)}
-            ariaLabel={label}
-          />
-          <span>{label}</span>
-        </div>
-        {schema.description ? (
-          <p className="settings-field-desc settings-field-desc-below-checkbox">
-            {schema.description}
-          </p>
-        ) : null}
-      </div>
+      <SwitchField
+        checked={checked}
+        onChange={(next) => onChange(next)}
+        label={label}
+        description={desc || undefined}
+      />
     );
   }
 
@@ -299,9 +325,7 @@ function SchemaField(props: {
     return (
       <div className="settings-row">
         <span className="settings-label">{label}</span>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
-        ) : null}
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
         <Combobox
           value={v}
           ariaLabel={label}
@@ -331,9 +355,7 @@ function SchemaField(props: {
     return (
       <div className="settings-row">
         <span className="settings-label">{label}</span>
-        {schema.description ? (
-          <p className="settings-field-desc">{schema.description}</p>
-        ) : null}
+        {desc ? <p className="settings-field-desc">{desc}</p> : null}
         <input
           className="settings-input"
           type="number"
@@ -341,7 +363,7 @@ function SchemaField(props: {
           min={schema.minimum}
           max={schema.maximum}
           placeholder={ph}
-          title={schema.description}
+          title={desc}
           aria-label={label}
           onChange={(e: ChangeEvent<HTMLInputElement>) => {
             const x = e.target.valueAsNumber;
@@ -361,16 +383,14 @@ function SchemaField(props: {
   return (
     <div className="settings-row">
       <span className="settings-label">{label}</span>
-      {schema.description ? (
-        <p className="settings-field-desc">{schema.description}</p>
-      ) : null}
+      {desc ? <p className="settings-field-desc">{desc}</p> : null}
       <input
         className="settings-input"
         type="text"
         value={s}
         placeholder={ph}
         pattern={schema.pattern}
-        title={schema.description}
+        title={desc}
         aria-label={label}
         onChange={(e: ChangeEvent<HTMLInputElement>) =>
           onChange(e.target.value)
@@ -385,11 +405,16 @@ export function SchemaForm(props: {
   value: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
   fieldOverride?: FieldOverride | undefined;
+  /** Settings section id ("tools", "system.logger") selecting the dictionary domain. */
+  i18nDomain?: string | undefined;
 }) {
-  const { schema, value, onChange, fieldOverride } = props;
+  const { schema, value, onChange, fieldOverride, i18nDomain } = props;
+  const { t } = useT();
   if (schema.type !== "object" || !schema.properties) {
     return (
-      <p className="settings-muted">Unsupported schema root (expected object).</p>
+      <p className="settings-muted">
+        {t("settings.error.unsupportedSchemaRoot")}
+      </p>
     );
   }
   return (
@@ -406,6 +431,7 @@ export function SchemaForm(props: {
           parentObj={value}
           path={k}
           fieldOverride={fieldOverride}
+          i18nDomain={i18nDomain}
           onChange={(nv) => onChange({ ...value, [k]: nv })}
         />
       ))}

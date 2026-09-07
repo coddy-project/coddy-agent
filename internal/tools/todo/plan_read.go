@@ -20,7 +20,7 @@ func PlanReadTool() *tooling.Tool {
 				"properties": map[string]interface{}{},
 			},
 		},
-		Execute:           execPlanRead,
+		Execute: execPlanRead,
 	}
 }
 

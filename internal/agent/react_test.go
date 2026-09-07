@@ -6,16 +6,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
+	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/tools"
+	"github.com/EvilFreelancer/coddy-agent/internal/tools/todo"
 )
 
 // --- Shared test doubles ---------------------------------------------------
@@ -29,6 +34,38 @@ func (resumePermissionSender) RequestPermission(context.Context, acp.PermissionR
 }
 
 func (resumePermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+type recordingPermissionSender struct {
+	requests []acp.PermissionRequestParams
+}
+
+type todoSnapshotSender struct {
+	updates []interface{}
+}
+
+func (s *todoSnapshotSender) SendSessionUpdate(_ string, update interface{}) error {
+	s.updates = append(s.updates, update)
+	return nil
+}
+
+func (*todoSnapshotSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+}
+
+func (*todoSnapshotSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+func (s *recordingPermissionSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *recordingPermissionSender) RequestPermission(_ context.Context, p acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.requests = append(s.requests, p)
+	return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+}
+
+func (s *recordingPermissionSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
 	return &acp.QuestionResult{}, nil
 }
 
@@ -55,6 +92,32 @@ func (p *resumePermissionProvider) Stream(_ context.Context, messages []llm.Mess
 // "thinking" bubble, leaving the user with no visible answer.
 type emptyThenAnswerProvider struct {
 	calls int
+}
+
+type configReloadProvider struct {
+	calls int
+	tools [][]llm.ToolDefinition
+}
+
+func (p *configReloadProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *configReloadProvider) Stream(_ context.Context, _ []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	p.tools = append(p.tools, append([]llm.ToolDefinition(nil), defs...))
+	switch p.calls {
+	case 1:
+		call := llm.ToolCall{ID: "cfg-1", Name: "config_set", InputJSON: `{"commands":["set skills.auto_discovery=false"]}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	case 2:
+		call := llm.ToolCall{ID: "cfg-2", Name: "config_commit", InputJSON: `{}`}
+		onChunk(llm.StreamChunk{ToolCall: &call})
+		return &llm.Response{ToolCalls: []llm.ToolCall{call}, StopReason: "tool_use"}, nil
+	}
+	onChunk(llm.StreamChunk{TextDelta: "Configuration reloaded."})
+	return &llm.Response{Content: "Configuration reloaded.", StopReason: "end_turn"}, nil
 }
 
 func (p *emptyThenAnswerProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
@@ -121,6 +184,99 @@ func TestToolKind(t *testing.T) {
 	}
 }
 
+func TestTodoItemUpdateSavesAndPublishesFinalPlanSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	st := &session.State{
+		ID:         "sess_todo_snapshot",
+		CWD:        dir,
+		Mode:       session.ModeAgent,
+		SessionDir: dir,
+	}
+	st.SetPlan([]acp.PlanEntry{
+		{Content: "Inspect existing cards", Status: "completed"},
+		{Content: "Render structured preview", Status: "pending"},
+	})
+	sender := &todoSnapshotSender{}
+	ag := NewAgent(&config.Config{}, st, sender, nil)
+
+	_, err := ag.executeToolCall(
+		context.Background(),
+		llm.ToolCall{
+			ID:        "todo-update-1",
+			Name:      todo.ToolNameItemUpdate,
+			InputJSON: `{"index":1,"status":"completed"}`,
+		},
+		ag.buildToolEnv(string(session.ModeAgent), dir),
+		string(session.ModeAgent),
+		st.ID,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("executeToolCall: %v", err)
+	}
+
+	meta, err := session.ReadToolCallMeta(dir, "todo-update-1")
+	if err != nil {
+		t.Fatalf("ReadToolCallMeta: %v", err)
+	}
+	if len(meta.PlanSnapshot) != 2 || meta.PlanSnapshot[1].Status != "completed" {
+		t.Fatalf("persisted PlanSnapshot = %+v", meta.PlanSnapshot)
+	}
+
+	st.SetPlan([]acp.PlanEntry{{Content: "Later plan", Status: "pending"}})
+	persisted, err := session.ReadToolCallMeta(dir, "todo-update-1")
+	if err != nil || persisted.PlanSnapshot[1].Content != "Render structured preview" {
+		t.Fatalf("historical plan snapshot changed: meta=%+v err=%v", persisted, err)
+	}
+
+	var completed acp.ToolCallStatusUpdate
+	for _, update := range sender.updates {
+		candidate, ok := update.(acp.ToolCallStatusUpdate)
+		if ok && candidate.Status == "completed" {
+			completed = candidate
+		}
+	}
+	coddy, _ := completed.Meta["coddy"].(map[string]interface{})
+	sent, _ := coddy["todoPlan"].([]acp.PlanEntry)
+	if len(sent) != 2 || sent[1].Status != "completed" {
+		t.Fatalf("SSE todoPlan = %+v", sent)
+	}
+}
+
+func TestMCPToolDefinitionsFilter(t *testing.T) {
+	clients := []*mcp.Client{
+		mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}, {Name: "write"}}),
+		mcp.NewStaticClient("other", []mcp.ToolInfo{{Name: "echo"}}),
+	}
+	defs := mcpToolDefinitions(clients, func(server, tool string) bool {
+		return server != "srv" || tool != "write"
+	})
+	names := make([]string, 0, len(defs))
+	for _, d := range defs {
+		names = append(names, d.Name)
+	}
+	want := []string{"srv__echo", "other__echo"}
+	if len(names) != len(want) || names[0] != want[0] || names[1] != want[1] {
+		t.Fatalf("defs = %v, want %v", names, want)
+	}
+}
+
+func TestCallMCPToolDisabledGuard(t *testing.T) {
+	st := &session.State{
+		ID:   "sess_mcp_guard",
+		CWD:  t.TempDir(),
+		Mode: session.ModeAgent,
+		MCPFilterFactory: func() func(server, tool string) bool {
+			return func(server, tool string) bool { return false }
+		},
+	}
+	st.AddSessionMCPClient(mcp.NewStaticClient("srv", []mcp.ToolInfo{{Name: "echo"}}))
+	ag := NewAgent(&config.Config{}, st, resumePermissionSender{}, nil)
+	if _, err := ag.callMCPTool(context.Background(), "srv", "echo", "{}"); err == nil {
+		t.Fatal("disabled MCP tool must be rejected at dispatch")
+	}
+}
+
 func TestExtractCommand(t *testing.T) {
 	if g := extractCommand(`{"command":"ls -la"}`); g != "ls -la" {
 		t.Fatalf("got %q", g)
@@ -176,6 +332,106 @@ func TestRunReActLoopRecoversFromEmptyAssistantTurn(t *testing.T) {
 	last := msgs[len(msgs)-1]
 	if last.Role != llm.RoleAssistant || last.Content != "Here is the real answer." {
 		t.Fatalf("conversation dead-ended on a thinking-only turn: last message = %+v", last)
+	}
+}
+
+func TestConfigSetRefreshesToolDefinitionsWithinSameTurn(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+	cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+	cfg.Agent.Model = "fake/model"
+	st := &session.State{ID: "sess_config_reload", CWD: dir, Mode: session.ModeAgent}
+	provider := &configReloadProvider{}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("provider calls = %d, want stage, commit, and final answer", provider.calls)
+	}
+	contains := func(defs []llm.ToolDefinition, name string) bool {
+		for _, def := range defs {
+			if def.Name == name {
+				return true
+			}
+		}
+		return false
+	}
+	if !contains(provider.tools[0], "load_skill") {
+		t.Fatal("load_skill should be present before config_set")
+	}
+	if !contains(provider.tools[1], "load_skill") {
+		t.Fatal("staging alone must not reload the runtime")
+	}
+	if contains(provider.tools[2], "load_skill") {
+		t.Fatal("load_skill should be removed after same-turn config_commit reload")
+	}
+}
+
+// Committing the agent's own config can start MCP processes and change the
+// permission policy itself, so accept_edits must still prompt for
+// config_commit (unlike project file writes), the prompt must show the staged
+// commands, and only the explicit bypass mode may skip the dialog.
+func TestConfigCommitPermissionPerMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode        string
+		wantPrompts int
+	}{
+		{mode: config.PermModeAcceptEdits, wantPrompts: 1},
+		{mode: config.PermModeBypass, wantPrompts: 0},
+	} {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config.yaml")
+		if err := os.WriteFile(configPath, []byte("skills:\n  auto_discovery: true\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Providers = []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}}
+		cfg.Models = []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}}
+		cfg.Agent.Model = "fake/model"
+		cfg.Tools.PermissionMode = tc.mode
+		st := &session.State{ID: "sess_cfg_perm_" + tc.mode, CWD: dir, Mode: session.ModeAgent}
+		sender := &recordingPermissionSender{}
+		provider := &configReloadProvider{}
+		ag := NewAgent(cfg, st, sender, nil)
+		ag.SetConfigReloader(func(context.Context) ([]string, error) { return nil, nil })
+		ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+		if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "disable skill discovery"}}); err != nil {
+			t.Fatalf("mode %s: %v", tc.mode, err)
+		}
+		var commitPrompts []acp.PermissionRequestParams
+		for _, req := range sender.requests {
+			if strings.Contains(req.ToolCall.Title, "config_commit") {
+				commitPrompts = append(commitPrompts, req)
+			}
+		}
+		if len(commitPrompts) != tc.wantPrompts {
+			t.Fatalf("mode %s: config_commit permission prompts = %d, want %d", tc.mode, len(commitPrompts), tc.wantPrompts)
+		}
+		if tc.wantPrompts > 0 {
+			body := ""
+			for _, item := range commitPrompts[0].ToolCall.Content {
+				body += item.Content.Text
+			}
+			if !strings.Contains(body, "set skills.auto_discovery=false") {
+				t.Fatalf("mode %s: permission prompt does not show the staged commands: %q", tc.mode, body)
+			}
+		}
 	}
 }
 
@@ -658,6 +914,43 @@ func TestToolSetForAgentIsUnrestricted(t *testing.T) {
 	}
 }
 
+func TestAskToolSetFiltersToReadAndWeb(t *testing.T) {
+	r := tools.NewRegistry()
+	set := ToolSetForMode("ask")
+	filtered := FilterToolDefinitions(r.AllToolDefinitions(), set)
+	got := make(map[string]bool)
+	for _, d := range filtered {
+		got[d.Name] = true
+	}
+	for _, want := range []string{"read", "keep_result", "glob", "grep", "print_tree", "websearch", "webfetch", "question"} {
+		if !got[want] {
+			t.Errorf("ask toolset should include %q", want)
+		}
+	}
+	for _, forbid := range []string{"write", "edit", "apply_patch", "run_command", "background_list", "plan_write", "plan_list", "plan_read", "config_get", "config_set", "coddy_todo_plan_read"} {
+		if got[forbid] {
+			t.Errorf("ask toolset should not include %q", forbid)
+		}
+	}
+}
+
+func TestToolCallRefusedByModeEnforcesAskOnly(t *testing.T) {
+	if msg, refused := toolCallRefusedByMode("ask", "write"); !refused || !strings.Contains(msg, "Ask mode") {
+		t.Errorf("ask mode must refuse write at execution time, got refused=%v msg=%q", refused, msg)
+	}
+	if _, refused := toolCallRefusedByMode("ask", "mcp_server__lookup"); !refused {
+		t.Error("ask mode must refuse MCP tool calls at execution time")
+	}
+	if _, refused := toolCallRefusedByMode("ask", "read"); refused {
+		t.Error("ask mode must allow read")
+	}
+	for _, mode := range []string{"agent", "plan"} {
+		if _, refused := toolCallRefusedByMode(mode, "write"); refused {
+			t.Errorf("%s mode must not enforce the execution-time refusal", mode)
+		}
+	}
+}
+
 // --- compact.go: CompactSession ---------------------------------------------
 
 // compactCannedProvider serves Complete (summarization) with a canned summary
@@ -747,6 +1040,43 @@ func TestCompactSessionInsertsSummaryAtBoundary(t *testing.T) {
 	}
 	if strings.Contains(req, "question 3") {
 		t.Fatalf("kept tail leaked into the summarization request:\n%s", req)
+	}
+}
+
+func TestCompactSessionPrunesHeadUsingWritesFromKeptTail(t *testing.T) {
+	st := &session.State{
+		ID:   "sess_compact_stale_read",
+		CWD:  testCWD,
+		Mode: session.ModeAgent,
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "inspect the file"})
+	st.AddMessage(asstRead("read", "big.go", 1, 500, true))
+	st.AddMessage(toolResult("read", bigBody("STALE FILE CONTENT")))
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "now change it"})
+	st.AddMessage(asstWrite("write", "write", "big.go"))
+	st.AddMessage(toolResult("write", "written"))
+
+	keepTurns := 1
+	keepResults := 0
+	minBytes := 10
+	provider := &compactCannedProvider{t: t, summary: "dense summary"}
+	ag := compactTestAgent(t, st, config.Compaction{
+		KeepRecentTurns: &keepTurns,
+		ResultEviction: config.ResultEviction{
+			KeepRecent:     &keepResults,
+			MinResultBytes: &minBytes,
+		},
+	}, provider)
+
+	if _, err := ag.CompactSession(context.Background(), "", false); err != nil {
+		t.Fatal(err)
+	}
+	request := transcriptText(provider.requests[0])
+	if strings.Contains(request, "STALE FILE CONTENT") {
+		t.Fatalf("compaction request retained a read made stale by a write in the kept tail:\n%s", request)
+	}
+	if !strings.Contains(request, "modified after this read") {
+		t.Fatalf("compaction request missing stale-read placeholder:\n%s", request)
 	}
 }
 
@@ -1058,5 +1388,678 @@ func TestRunAutoCompactsBeforeFirstLLMCall(t *testing.T) {
 	}
 	if !sawSummary {
 		t.Fatal("summary missing from the first LLM request")
+	}
+}
+
+// --- loop guard escalation and false-positive safety -----------------------
+
+// alwaysDegeneratingProvider never recovers: every turn degenerates into the same
+// repeated passage. The loop guard must give up after the nudge budget instead of
+// nudging forever.
+type alwaysDegeneratingProvider struct{ calls int }
+
+func (p *alwaysDegeneratingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *alwaysDegeneratingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	var produced strings.Builder
+	for i := 0; i < 200 && ctx.Err() == nil; i++ {
+		produced.WriteString(bddLoopedSentence)
+		onChunk(llm.StreamChunk{TextDelta: bddLoopedSentence})
+	}
+	return &llm.Response{Content: produced.String(), StopReason: "tool_use"}, context.Canceled
+}
+
+func TestLoopGuardStopsTurnAfterNudgeBudget(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_budget",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &alwaysDegeneratingProvider{}
+	nudges := 2
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LoopNudgeMax: &nudges},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil {
+		t.Fatal("expected the turn to stop with a notice once the nudge budget ran out")
+	}
+	if !strings.Contains(err.Error(), "repeating") {
+		t.Fatalf("error should explain the loop: %v", err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want agent_refused", stop)
+	}
+	// One initial attempt plus one per nudge, and nowhere near max_turns.
+	if provider.calls != nudges+1 {
+		t.Fatalf("provider called %d times, want %d (initial attempt + %d nudges)", provider.calls, nudges+1, nudges)
+	}
+}
+
+func TestLoopGuardDisabledLetsTheStreamRun(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_off",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &bddLoopProvider{
+		channel:      loopAbortText,
+		recoverAfter: 0,
+		realAnswer:   "answered without interference",
+		maxDeltas:    30,
+	}
+	off := false
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", LoopGuard: &off},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "go"}}); err != nil {
+		t.Fatalf("turn failed with the guard disabled: %v", err)
+	}
+	if provider.cancelled != 0 {
+		t.Fatal("the guard cancelled a stream even though loop_guard is false")
+	}
+}
+
+// varyingToolProvider calls the same tool with different arguments every turn.
+// That is ordinary progress, not a loop, and must never be blocked.
+type varyingToolProvider struct{ calls int }
+
+func (p *varyingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *varyingToolProvider) Stream(_ context.Context, _ []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	if p.calls > 6 {
+		onChunk(llm.StreamChunk{TextDelta: "done"})
+		return &llm.Response{Content: "done", StopReason: "end_turn"}, nil
+	}
+	tc := llm.ToolCall{
+		ID:        fmt.Sprintf("call_%d", p.calls),
+		Name:      "glob",
+		InputJSON: fmt.Sprintf(`{"pattern":"**/*%d.go"}`, p.calls),
+	}
+	onChunk(llm.StreamChunk{ToolCall: &tc})
+	return &llm.Response{ToolCalls: []llm.ToolCall{tc}, StopReason: "tool_use"}, nil
+}
+
+func TestLoopGuardIgnoresVaryingToolArguments(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_loop_varying",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &varyingToolProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "search for things"}})
+	if err != nil {
+		t.Fatalf("the guard interfered with legitimate varying tool calls: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop = %q, want end_turn", stop)
+	}
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && (m.Content == toolLoopNudge || m.Content == toolLoopSkippedResult) {
+			t.Fatal("the loop guard blocked a call with different arguments")
+		}
+	}
+}
+
+// A pending agent-mode call approved after the session switched to ask must be
+// refused, and an "allow always" answer must not leave a grant behind for the
+// call that never ran.
+func TestResumeAfterPermissionInAskModeRefusesAndRecordsNoGrant(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_resume_ask",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAsk,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run it"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_ask_hidden",
+					Name:      "run_command",
+					InputJSON: `{"command":"printf SHOULD_NOT_RUN"}`,
+				}},
+			},
+		},
+	}
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return provider, nil
+	}
+
+	// Every persisted bundle carries the arguments the prompt showed; a
+	// resume without them fails closed before the mode check.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_ask_hidden", `{"command":"printf SHOULD_NOT_RUN"}`); err != nil {
+		t.Fatal(err)
+	}
+	stop, err := ag.ResumeAfterPermission(context.Background(), "call_ask_hidden", &acp.PermissionResult{
+		Outcome:  "allow",
+		OptionID: "allow_always",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason %q", stop)
+	}
+	var toolMsg *llm.Message
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_ask_hidden" {
+			mm := m
+			toolMsg = &mm
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("missing tool result for the refused call")
+	}
+	if strings.Contains(toolMsg.Content, "SHOULD_NOT_RUN") {
+		t.Fatalf("the approved call executed in ask mode: %q", toolMsg.Content)
+	}
+	if !strings.Contains(toolMsg.Content, "not available in Ask mode") {
+		t.Fatalf("tool result is not the ask-mode refusal: %q", toolMsg.Content)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("refused call still recorded an allow-always grant: %v", grants)
+	}
+}
+
+func TestContentBlocksToText_lineRangeAttachment(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "docs/ui.md#L10-20", Text: "body"}},
+	}
+	got := contentBlocksToText(blocks)
+	if !strings.Contains(got, `path="docs/ui.md"`) ||
+		!strings.Contains(got, `name="ui.md"`) ||
+		!strings.Contains(got, `lines="10-20"`) {
+		t.Fatalf("unexpected XML bundle: %s", got)
+	}
+	if strings.Contains(got, "#L10-20") {
+		t.Fatalf("range fragment leaked into the path: %s", got)
+	}
+}
+
+// A path that is not a well-formed range fragment stays part of the file name.
+func TestContentBlocksToText_noLinesAttributeWithoutRange(t *testing.T) {
+	blocks := []acp.ContentBlock{
+		{Type: "resource", Resource: &acp.Resource{URI: "notes.md", Text: "b"}},
+	}
+	if got := contentBlocksToText(blocks); strings.Contains(got, "lines=") {
+		t.Fatalf("unexpected lines attribute: %s", got)
+	}
+}
+
+// resumeRewriteFixture prepares a session whose pending run_command call was
+// rewritten by a PreToolUse hook that then asked for permission: the history
+// holds the model's original arguments, the bundle holds the arguments the
+// prompt showed, exactly the state a persisted approval resumes from.
+func resumeRewriteFixture(t *testing.T, hookCommand string) (*Agent, *session.State, string) {
+	t.Helper()
+	home := t.TempDir()
+	if err := hooktest.Write(filepath.Join(home, "hooks.json"), hooktest.Entry{
+		Event:    hooks.EventPreToolUse,
+		Matcher:  "run_command",
+		Handlers: []hooks.Handler{hooktest.Handler("rewrite-ask", hookCommand)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := &session.State{
+		ID:         "sess_resume_rewrite",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+		Messages: []llm.Message{
+			{Role: llm.RoleUser, Content: "run the command"},
+			{
+				Role: llm.RoleAssistant,
+				ToolCalls: []llm.ToolCall{{
+					ID:        "call_rewrite",
+					Name:      "run_command",
+					InputJSON: `{"command":"echo original-arguments"}`,
+				}},
+			},
+		},
+	}
+	// What the permission prompt showed: the arguments after the first
+	// PreToolUse run, persisted by executeToolCall before the prompt.
+	if err := session.WriteToolCallArgs(st.SessionDir, "call_rewrite", `{"command":"echo shown-and-approved"}`); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{
+		Paths:     config.Paths{Home: home, CWD: st.CWD},
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	cfg.Hooks.ApplyDefaults(cfg.Paths)
+	provider := &resumePermissionProvider{t: t}
+	ag := NewAgent(cfg, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+	return ag, st, home
+}
+
+func resumedToolResult(st *session.State) string {
+	for _, m := range st.GetMessages() {
+		if m.Role == llm.RoleTool && m.ToolCallID == "call_rewrite" {
+			return m.Content
+		}
+	}
+	return ""
+}
+
+// The approval binds to the arguments the prompt showed: they run even when
+// the hook that produced them is gone by the time the approval arrives.
+func TestResumeAfterPermissionRunsTheApprovedArguments(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "original-arguments") {
+		t.Fatalf("the resumed call must run the approved arguments, got %q", result)
+	}
+	if grants := st.GetPermissionCommandGrants(); len(grants) != 0 {
+		t.Fatalf("a plain allow records no grant, got %v", grants)
+	}
+}
+
+// A hook that changes the approved arguments again on the resume is not
+// covered by the answer the user gave: the call is cancelled instead.
+func TestResumeAfterPermissionRefusesArgumentsChangedAfterTheApproval(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo changed-after-approval")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if strings.Contains(result, "changed-after-approval") || strings.Contains(result, "shown-and-approved") || !strings.Contains(result, "cancelled") {
+		t.Fatalf("a call rewritten after the approval must not run, got %q", result)
+	}
+}
+
+// promptRefusingSender fails the test if a permission prompt is issued.
+type promptRefusingSender struct {
+	t        *testing.T
+	prompted bool
+}
+
+func (*promptRefusingSender) SendSessionUpdate(string, interface{}) error { return nil }
+
+func (s *promptRefusingSender) RequestPermission(context.Context, acp.PermissionRequestParams) (*acp.PermissionResult, error) {
+	s.prompted = true
+	s.t.Error("no permission prompt must be issued")
+	return &acp.PermissionResult{Outcome: "cancelled", OptionID: "reject"}, nil
+}
+
+func (*promptRefusingSender) RequestQuestion(context.Context, acp.QuestionRequestParams) (*acp.QuestionResult, error) {
+	return &acp.QuestionResult{}, nil
+}
+
+// toolCallArgsPath finds the persisted args.json of the fixture's tool call.
+func toolCallArgsPath(t *testing.T, sessionDir string) string {
+	t.Helper()
+	var found string
+	_ = filepath.WalkDir(sessionDir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && d.Name() == "args.json" {
+			found = p
+		}
+		return nil
+	})
+	if found == "" {
+		t.Fatalf("no persisted arguments under %s", sessionDir)
+	}
+	return found
+}
+
+// The same hook answering again on the resume is not a change: the bundle
+// stores the arguments pretty-printed and the hook answers them compact, and
+// the approval must survive that formatting difference.
+func TestResumeAfterPermissionRunsWhenTheSameHookAnswersAgain(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"}); err != nil {
+		t.Fatal(err)
+	}
+	result := resumedToolResult(st)
+	if !strings.Contains(result, "shown-and-approved") || strings.Contains(result, "cancelled") {
+		t.Fatalf("the hook that produced the approved arguments must not cancel the resume, got %q", result)
+	}
+}
+
+// A bundle without persisted arguments has nothing the approval can bind to:
+// the resume fails instead of running the history's arguments.
+func TestResumeAfterPermissionFailsClosedWithoutPersistedArguments(t *testing.T) {
+	ag, st, home := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := os.Remove(filepath.Join(home, "hooks.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(toolCallArgsPath(t, st.SessionDir)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("a resume without persisted arguments must fail, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run without persisted arguments, got %q", result)
+	}
+}
+
+// A refusal needs nothing from the bundle: it is recorded and the gate is
+// cleared even when the persisted arguments cannot be read.
+func TestResumeAfterPermissionRejectsWithoutReadingTheArguments(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	if err := session.WritePendingPermission(st.SessionDir, acp.PermissionRequestParams{
+		SessionID: st.ID,
+		ToolCall:  acp.PermissionToolCall{ToolCallID: "call_rewrite", Status: "pending"},
+	}, "run_command", ""); err != nil {
+		t.Fatal(err)
+	}
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "reject"}); err != nil {
+		t.Fatalf("a refusal must not depend on the arguments file: %v", err)
+	}
+	if result := resumedToolResult(st); result != "permission denied by user" {
+		t.Fatalf("the refusal must be recorded, got %q", result)
+	}
+	if session.PendingPermissionHeld(st.SessionDir) {
+		t.Fatal("the refused gate must be cleared")
+	}
+}
+
+// Persisted arguments that cannot be read fail closed: nothing runs, and the
+// error leaves the pending gate in place for another attempt.
+func TestResumeAfterPermissionFailsClosedWhenTheApprovedArgumentsCannotBeRead(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	p := toolCallArgsPath(t, st.SessionDir)
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
+	}
+	// A directory in place of the file: the read fails, and not with not-exist.
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ag.ResumeAfterPermission(context.Background(), "call_rewrite", &acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("an unreadable arguments file must fail the resume, got %v", err)
+	}
+	if result := resumedToolResult(st); result != "" {
+		t.Fatalf("nothing must run when the approved arguments cannot be read, got %q", result)
+	}
+}
+
+// Rewritten arguments that cannot be persisted cancel the call before the
+// prompt: a resume would otherwise fall back to arguments the user never saw.
+func TestRewrittenArgumentsThatCannotBePersistedCancelBeforeThePrompt(t *testing.T) {
+	ag, st, _ := resumeRewriteFixture(t, "echo shown-and-approved")
+	toolCalls := filepath.Dir(filepath.Dir(toolCallArgsPath(t, st.SessionDir)))
+	if err := os.RemoveAll(toolCalls); err != nil {
+		t.Fatal(err)
+	}
+	// A file where the tool call directories live: every write fails.
+	if err := os.WriteFile(toolCalls, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sender := &promptRefusingSender{t: t}
+	ag.server = sender
+	tc := st.GetMessages()[1].ToolCalls[0]
+	env := ag.buildToolEnv(st.GetMode(), st.SessionDir)
+	result, err := ag.executeToolCall(context.Background(), tc, env, st.GetMode(), st.GetID(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "cancelled") || !strings.Contains(result, "persisted") {
+		t.Fatalf("a rewrite that cannot be persisted must cancel the call, got %q", result)
+	}
+	if sender.prompted {
+		t.Fatal("the prompt must not be issued for arguments that were not persisted")
+	}
+}
+
+// The comparison behind the resume check keeps number literals verbatim: a
+// float64 decode would read two integers past 2^53 as the same arguments.
+func TestSameToolArgsKeepsLargeIntegersApart(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b string
+		same bool
+	}{
+		{"formatting", `{"command":"echo x","n":1}`, "{\n  \"n\": 1,\n  \"command\": \"echo x\"\n}\n", true},
+		{"large integers", `{"n":9007199254740992}`, `{"n":9007199254740993}`, false},
+		{"float literal", `{"n":1.0}`, `{"n":1}`, false},
+		{"different values", `{"command":"echo a"}`, `{"command":"echo b"}`, false},
+		{"invalid", `{not json`, `{not json`, true},
+		{"one invalid", `{"n":1}`, `{n:1}`, false},
+	}
+	for _, c := range cases {
+		if got := sameToolArgs(c.a, c.b); got != c.same {
+			t.Errorf("%s: sameToolArgs(%q, %q) = %v, want %v", c.name, c.a, c.b, got, c.same)
+		}
+	}
+}
+
+// --- /export built-in command ---------------------------------------------
+
+func TestParseExportCommand(t *testing.T) {
+	tests := []struct {
+		in     string
+		want   exportCommandArgs
+		wantOK bool
+	}{
+		{"/export", exportCommandArgs{}, true},
+		{"  /export  ", exportCommandArgs{}, true},
+		{"/export md", exportCommandArgs{Format: "md"}, true},
+		{"/export JSON chat.json", exportCommandArgs{Format: "JSON", Target: "chat.json"}, true},
+		{"/export chat.md", exportCommandArgs{Target: "chat.md"}, true},
+		{"/export md my notes/chat.md", exportCommandArgs{Format: "md", Target: "my notes/chat.md"}, true},
+		{"/export\thtml\tout/", exportCommandArgs{Format: "html", Target: "out/"}, true},
+		{"/export\rjsonl", exportCommandArgs{Format: "jsonl"}, true},
+		{"/export --no-tools md chat.md", exportCommandArgs{Format: "md", Target: "chat.md", Options: session.ExportOptions{NoTools: true}}, true},
+		{"/export md chat.md --no-thinking", exportCommandArgs{Format: "md", Target: "chat.md", Options: session.ExportOptions{NoThinking: true}}, true},
+		{"/export --no-tools --no-thinking", exportCommandArgs{Options: session.ExportOptions{NoTools: true, NoThinking: true}}, true},
+		{"/export --bogus chat.md", exportCommandArgs{Target: "chat.md", UnknownOptions: []string{"--bogus"}}, true},
+		{"/exports", exportCommandArgs{}, false},          // must not match a longer word
+		{"say /export later", exportCommandArgs{}, false}, // only when it leads the message
+		{"hello world", exportCommandArgs{}, false},
+	}
+	for _, tc := range tests {
+		got, ok := parseExportCommand(tc.in)
+		if ok != tc.wantOK {
+			t.Errorf("parseExportCommand(%q) ok=%v, want %v", tc.in, ok, tc.wantOK)
+			continue
+		}
+		if ok && !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("parseExportCommand(%q) = %+v, want %+v", tc.in, got, tc.want)
+		}
+	}
+}
+
+// newExportTestAgent builds an agent over a two-message session whose provider
+// factory fails: a built-in command must never reach the model.
+func newExportTestAgent(t *testing.T) (*Agent, *session.State, *compactionUsageSender, string) {
+	t.Helper()
+	cwd := t.TempDir()
+	st := &session.State{
+		ID:         "sess_export",
+		CWD:        cwd,
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	st.AddMessage(llm.Message{Role: llm.RoleUser, Content: "question 1", CreatedAt: "2026-09-06T10:00:00Z"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer 1", Model: "fake/model", CreatedAt: "2026-09-06T10:00:01Z"})
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model"},
+	}
+	sender := &compactionUsageSender{}
+	ag := NewAgent(cfg, st, sender, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) {
+		return nil, errors.New("the LLM must not be called for /export")
+	}
+	return ag, st, sender, cwd
+}
+
+func lastAssistantText(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == llm.RoleAssistant {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+func TestRunExportCommandWritesTranscriptAndPersistsRows(t *testing.T) {
+	ag, st, sender, cwd := newExportTestAgent(t)
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md chat.md"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if stop != string(acp.StopReasonEndTurn) {
+		t.Fatalf("stop reason = %q", stop)
+	}
+
+	b, err := os.ReadFile(filepath.Join(cwd, "chat.md"))
+	if err != nil {
+		t.Fatalf("exported file: %v", err)
+	}
+	md := string(b)
+	for _, want := range []string{"`sess_export`", "question 1", "answer 1", "`fake/model`"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("export lacks %q:\n%s", want, md)
+		}
+	}
+	if strings.Contains(md, "/export") {
+		t.Errorf("the export must hold the conversation before the command, got:\n%s", md)
+	}
+
+	msgs := st.GetMessages()
+	if len(msgs) != 4 {
+		t.Fatalf("transcript rows = %d, want 4 (command + reply appended)", len(msgs))
+	}
+	if msgs[2].Role != llm.RoleUser || msgs[2].Content != "/export md chat.md" {
+		t.Fatalf("command row = %+v", msgs[2])
+	}
+	reply := lastAssistantText(msgs)
+	if !strings.HasPrefix(reply, "Session exported to markdown: chat.md") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if !strings.Contains(reply, filepath.Join(cwd, "chat.md")) {
+		t.Fatalf("reply does not name the full path: %q", reply)
+	}
+	streamed := false
+	for _, u := range sender.updates {
+		if chunk, ok := u.(acp.MessageChunkUpdate); ok && chunk.Content.Text == reply {
+			streamed = true
+		}
+	}
+	if !streamed {
+		t.Fatalf("the reply was not streamed as an agent message chunk: %+v", sender.updates)
+	}
+}
+
+func TestRunExportCommandRejectsPathOutsideWorkspace(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md ../escape.md"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply := lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "inside the session workspace") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(cwd), "escape.md")); !os.IsNotExist(err) {
+		t.Fatalf("a file escaped the workspace: %v", err)
+	}
+}
+
+func TestRunExportCommandExplainsUnknownFormat(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export yaml"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply := lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "Usage: /export") || !strings.Contains(reply, "yaml") {
+		t.Fatalf("reply = %q", reply)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "yaml")); !os.IsNotExist(err) {
+		t.Fatalf("a mistyped format became a file: %v", err)
+	}
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export --bogus chat.md"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	reply = lastAssistantText(st.GetMessages())
+	if !strings.Contains(reply, "unknown option --bogus") || !strings.Contains(reply, "Usage: /export") {
+		t.Fatalf("reply = %q", reply)
+	}
+}
+
+func TestRunExportCommandOptionsTrimToolsAndThinking(t *testing.T) {
+	ag, st, _, cwd := newExportTestAgent(t)
+	st.AddMessage(llm.Message{
+		Role:      llm.RoleAssistant,
+		Reasoning: "private thoughts",
+		ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "read", InputJSON: `{"path":"README.md"}`}},
+		Model:     "fake/model",
+	})
+	st.AddMessage(llm.Message{Role: llm.RoleTool, ToolCallID: "call_1", Content: "README BODY"})
+	st.AddMessage(llm.Message{Role: llm.RoleAssistant, Content: "answer 2", Model: "fake/model"})
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "/export md chat.md --no-tools --no-thinking"}}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(cwd, "chat.md"))
+	if err != nil {
+		t.Fatalf("exported file: %v", err)
+	}
+	md := string(b)
+	for _, want := range []string{"question 1", "answer 1", "answer 2"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("export lacks %q:\n%s", want, md)
+		}
+	}
+	for _, unwanted := range []string{"README BODY", "private thoughts", "Tool call"} {
+		if strings.Contains(md, unwanted) {
+			t.Errorf("export still holds %q:\n%s", unwanted, md)
+		}
 	}
 }

@@ -14,10 +14,13 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
+	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
+	"github.com/EvilFreelancer/coddy-agent/internal/update"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
 
@@ -46,8 +49,18 @@ func (r *serverRef) SendSessionUpdate(sessionID string, update interface{}) erro
 }
 
 func (r *serverRef) RequestPermission(ctx context.Context, params acp.PermissionRequestParams) (*acp.PermissionResult, error) {
-	if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+	// A subagent's request carries the child's own effective mode; that mode
+	// decides the bypass short-circuit, not the operator's global setting,
+	// so a child narrowed to ask is prompted (or denied) even under a
+	// globally bypassed parent.
+	stamped := strings.TrimSpace(params.EffectivePermissionMode)
+	if stamped == config.PermModeBypass {
 		return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+	}
+	if stamped == "" {
+		if cfg := r.liveCfg(); cfg != nil && cfg.Tools.ResolvedPermMode() == config.PermModeBypass {
+			return &acp.PermissionResult{Outcome: "allow", OptionID: "allow"}, nil
+		}
 	}
 	s := *r.p
 	if s == nil {
@@ -65,6 +78,13 @@ func (r *serverRef) RequestQuestion(ctx context.Context, params acp.QuestionRequ
 }
 
 func main() {
+	if handled, err := update.RunHelper(os.Args[1:], os.Stdout); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 {
 		a := os.Args[1]
 		if a == "-v" || a == "--version" {
@@ -75,6 +95,15 @@ func main() {
 
 	args := os.Args[1:]
 	if len(args) == 0 {
+		// Bare `coddy` on a terminal opens the interactive console (builds
+		// with -tags cli); pipes and lean builds keep the usage contract.
+		if cliInteractiveDefault() {
+			if err := runCLI(nil); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			return
+		}
 		printUsage(os.Stderr)
 		os.Exit(1)
 	}
@@ -82,11 +111,23 @@ func main() {
 		printUsage(os.Stdout)
 		os.Exit(0)
 	}
+	// Flag-looking arguments belong to the console surface: `coddy -c`,
+	// `coddy -p "..."`, `coddy --resume` mirror claude/pi ergonomics. Lean
+	// builds answer with the cli_stub rebuild hint.
+	if strings.HasPrefix(args[0], "-") {
+		if err := runCLI(args); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	var err error
 	switch args[0] {
 	case "acp":
 		err = runACP(args[1:])
+	case "cli":
+		err = runCLI(args[1:])
 	case "http":
 		err = runHTTP(args[1:])
 	case "gateway":
@@ -97,8 +138,18 @@ func main() {
 		err = runSkills(args[1:])
 	case "plugin":
 		err = runPlugin(args[1:])
+	case "mcp":
+		err = runMCP(args[1:])
+	case "codex":
+		err = runCodex(args[1:])
+	case "providers":
+		err = runProviders(args[1:])
 	case "rules":
 		err = runRules(args[1:])
+	case "agents":
+		err = runAgents(args[1:])
+	case "hooks":
+		err = runHooks(args[1:])
 	case "update":
 		err = runUpdate(args[1:])
 	default:
@@ -114,12 +165,17 @@ func main() {
 
 func printUsage(w *os.File) {
 	_, _ = fmt.Fprintf(w, `Usage:
+  %[1]s (no arguments on a terminal: interactive console, build tag cli)
+  %[1]s -c | --continue (console: continue the latest session here)
+  %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s gateway [flags] (messenger gateway: Telegram etc.)
   %[1]s sessions list [flags]
+  %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
   %[1]s skills enable <name>
   %[1]s skills disable <name>
@@ -130,7 +186,16 @@ func printUsage(w *os.File) {
   %[1]s plugin install <owner/repo | git-url | marketplace-url>
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
+  %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
+  %[1]s codex login | status | logout [--provider NAME] [--home DIR]
+  %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
+  %[1]s agents list [--cwd DIR]
+  %[1]s agents trust <name> [--cwd DIR]
+  %[1]s agents untrust <name> [--cwd DIR]
+  %[1]s hooks list [--cwd DIR]
+  %[1]s hooks trust <file> [--cwd DIR]
+  %[1]s hooks untrust <file> [--cwd DIR]
   %[1]s update [flags]
 `, os.Args[0])
 }
@@ -147,8 +212,11 @@ func runACP(args []string) error {
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
+	remoteFlag := fs.String("remote", "", "serve ACP against a remote coddy http server (configured remote name, host:port, or http(s) URL)")
+	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")
 	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
+	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -181,6 +249,9 @@ func runACP(args []string) error {
 		cfg.Scheduler.Enabled = true
 	}
 	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
+	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+		return err
+	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		return fmt.Errorf("scheduler: %w", err)
 	}
@@ -197,7 +268,36 @@ func runACP(args []string) error {
 	}
 	defer func() { _ = logCloser.Close() }()
 
+	ropts, err := remote.Resolve(cfg, *remoteFlag, *remoteToken)
+	if err != nil {
+		return err
+	}
+	if ropts != nil {
+		// Remote client mode: no local store, scheduler, or agent loop; every
+		// session call proxies to the remote coddy http server.
+		ropts.Log = log
+		if ropts.Insecure && ropts.Token != "" {
+			log.Warn("sending the bearer token over plain http", "remote", ropts.BaseURL, "hint", "prefer https or a trusted network")
+		}
+		h, err := remote.NewHandler(*ropts)
+		if err != nil {
+			return err
+		}
+		if pid := strings.TrimSpace(*persistedSession); pid != "" {
+			if err := session.ValidateFolderSessionID(pid); err != nil {
+				return fmt.Errorf("--session-id: %w", err)
+			}
+			h.SetPreferredSessionID(pid)
+		}
+		log.Info("starting ACP server (remote)", "version", version.Get(), "remote", h.BaseURL())
+		srv := acp.NewServer(h, log)
+		h.SetServer(srv)
+		return srv.Run(context.Background(), os.Stdin)
+	}
+
 	log.Info("starting ACP server", "version", version.Get())
+	llm.LogCodexAuthNotices(log, cfg)
+	llm.LogNeuralDeepAuthNotices(log, cfg)
 
 	if cfg.SchedulerEffectiveEnabled() {
 		scheduler.Start(context.Background(), cfg, log, paths.CWD)
@@ -210,12 +310,23 @@ func runACP(args []string) error {
 	log.Info("session persistence enabled", "root", store.Root)
 
 	var srv *acp.Server
-	ref := &serverRef{p: &srv, cfg: cfg}
+	var mgr *session.Manager
+	live := func() *config.Config {
+		if mgr != nil {
+			return mgr.Cfg()
+		}
+		return cfg
+	}
+	ref := &serverRef{p: &srv, cfg: cfg, live: live}
 	runner := func(ctx context.Context, st *session.State, prompt []acp.ContentBlock, snd acp.UpdateSender) (string, error) {
-		loop := agent.NewAgent(cfg, st, snd, log)
+		loop := agent.NewAgent(live(), st, snd, log)
+		loop.SetConfigReloader(func(ctx context.Context) ([]string, error) {
+			return mgr.ReloadConfigForSession(ctx, st)
+		})
+		loop.SetSubagentRuntime(mgr)
 		return loop.Run(ctx, prompt)
 	}
-	mgr := session.NewManager(cfg, ref, runner, log, paths.CWD, store)
+	mgr = session.NewManager(cfg, ref, runner, log, paths.CWD, store)
 	if pid := strings.TrimSpace(*persistedSession); pid != "" {
 		if err := session.ValidateFolderSessionID(pid); err != nil {
 			return fmt.Errorf("--session-id: %w", err)
@@ -264,9 +375,22 @@ func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore,
 
 func runSessions(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>]", os.Args[0])
+		return fmt.Errorf("usage: %s sessions list [--sessions-dir <path>] [--cwd <filter>] | sessions export <session-id> [flags]", os.Args[0])
 	}
 	switch strings.TrimSpace(args[0]) {
+	case "export":
+		if len(args) < 2 {
+			return errors.New(sessionsExportUsage())
+		}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.LoadFromCLI(config.CLIPaths{})
+		if err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		return sessionsExport(os.Stdout, nil, cfg, cwd, args[1:])
 	case "list":
 		fs := flag.NewFlagSet("sessions list", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
@@ -302,7 +426,7 @@ func runSessions(args []string) error {
 		fmt.Printf("(total %d)\n", len(rows))
 		return nil
 	default:
-		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list)", args[0], os.Args[0])
+		return fmt.Errorf("unknown sessions subcommand %q (try %s sessions list or sessions export)", args[0], os.Args[0])
 	}
 }
 

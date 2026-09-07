@@ -12,7 +12,7 @@ Environment:
 
 The script verifies:
 
-1. ``GET /v1/models`` lists ``agent`` and ``plan`` with ``owned_by`` ``coddy`` and every YAML
+1. ``GET /v1/models`` lists ``agent``, ``plan`` and ``ask`` with ``owned_by`` ``coddy`` and every YAML
    model row with ``owned_by`` equal to the provider prefix.
 2. Direct completion rejects a body that includes ``metadata.model`` (HTTP 400).
 3. ``POST /v1/responses`` with ``model=agent`` and ``metadata.model`` set to a configured selector (not
@@ -104,7 +104,7 @@ def main() -> int:
     rows = blob.get("data") or []
     by_id = {str(r.get("id", "")): r for r in rows}
 
-    for need in ["agent", "plan"]:
+    for need in ["agent", "plan", "ask"]:
         row = by_id.get(need)
         if row is None:
             print("missing profile", need, blob, file=sys.stderr)
@@ -158,7 +158,7 @@ def main() -> int:
         print("metadata.model mismatch", md, "want", alt, file=sys.stderr)
         return 1
 
-    # Switch metadata.model back to agent default (e.g. 120b after testing 20b).
+    # Switch metadata.model back to agent default (e.g. gpt-oss:120b after testing qwen3.6-35b-a3b).
     if alt != agent_default:
         extra: dict[str, str] = {}
         if sid:

@@ -1,10 +1,13 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { Settings } from "./Settings";
+import { I18nProvider } from "../i18n/I18nProvider";
+import { initLocale, setLocale } from "../i18n/i18n";
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  initLocale("en");
 });
 
 // Regression: while the config schema is still loading (fetch pending, no error),
@@ -35,4 +38,48 @@ test("appearance renders outside the centered loading placeholder", async () => 
       ".settings-scroll-placeholder .appearance-swatch-grid",
     ),
   ).toBeNull();
+});
+
+test("section labels re-render when the locale changes", async () => {
+  initLocale("en");
+  const schema = {
+    type: "object",
+    "x-coddy-property-order": ["providers", "tools"],
+    properties: {
+      providers: {
+        type: "array",
+        title: "LLM providers",
+        items: { type: "object" },
+      },
+      tools: {
+        type: "object",
+        title: "Tools and permissions",
+        properties: {},
+      },
+    },
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) => ({
+      ok: true,
+      json: async () => (path.endsWith("/schema") ? schema : {}),
+    })),
+  );
+
+  render(
+    <I18nProvider>
+      <Settings onClose={() => {}} initialSection="appearance" />
+    </I18nProvider>,
+  );
+
+  await screen.findByRole("button", { name: "LLM providers" });
+  act(() => {
+    setLocale("ru");
+  });
+
+  await screen.findByRole("button", { name: "Провайдеры LLM" });
+  expect(screen.getByRole("button", { name: "Оформление" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Инструменты и разрешения" }),
+  ).toBeTruthy();
 });

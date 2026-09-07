@@ -3,16 +3,25 @@ providers:
     type: openai
     api_base: "https://api.rpa.icu"
     api_key: "https://t.me/evilfreelancer"
+  # api_key intentionally empty: resolves from NEURALDEEP_API_KEY
+  # (conventional <NAME>_API_KEY env var; the cli e2e runner seeds it).
+  - name: neuraldeep
+    type: openai
+    api_base: "https://api.neuraldeep.ru/v1"
 
 models:
   - model: "rpa/gpt-oss:120b"
     max_tokens: 131072
     temperature: 0.2
     max_context_tokens: 131072
-  - model: "rpa/gpt-oss:20b"
-    max_tokens: 8192
-    temperature: 0.2
-    max_context_tokens: 8192
+  - model: "rpa/qwen3.6-35b-a3b"
+    max_tokens: 32000
+    temperature: 0.6
+    max_context_tokens: 262144
+  - model: "neuraldeep/qwen3.8-27b"
+    max_tokens: 32000
+    temperature: 0.6
+    max_context_tokens: 262144
 
 agent:
   model: "rpa/gpt-oss:120b"
@@ -23,9 +32,12 @@ sessions:
   dir: ""
 
 skills:
-  install_dir: "${CODDY_HOME}/skills_fixture"
   dirs:
     - "${CODDY_HOME}/skills_fixture"
+    # Session workspace, not the server process cwd: the skills e2e harnesses
+    # anchor a session on a folder that carries .coddy/skills/ and expect its
+    # skill in that session's catalog (coddy-project/coddy-agent#146).
+    - "${CWD}/.coddy/skills"
 
 mcp_servers: []
 

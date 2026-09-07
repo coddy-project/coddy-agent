@@ -19,10 +19,10 @@ func openAPISpec() map[string]interface{} {
 		"openapi": "3.0.3",
 		"info": map[string]interface{}{
 			"title": "Coddy HTTP API",
-			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent** and **plan** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
-				"Classify POST **model** values: **agent** / **plan** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
-				"**`metadata.model`** may appear only on agent/plan requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
-				"**`metadata.reasoning`** (optional, agent/plan only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). " +
+			"description": "OpenAI-compatible endpoints backed by Coddy sessions and agents. **`GET /v1/models`** returns one list: **agent**, **plan**, and **ask** first (**`owned_by`**: **`coddy`**), then every configured **`models[].model`** row (**`id`** is the YAML selector, **`owned_by`** is the provider prefix). " +
+				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
+				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
+				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
 				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
 				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
@@ -43,7 +43,7 @@ func openAPISpec() map[string]interface{} {
 			"/v1/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List models (profiles and configured LLM backends)",
-					"description": "Returns **agent**, then **plan** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
+					"description": "Returns **agent**, **plan**, then **ask** (**`owned_by`**: **`coddy`**), then each **`models[].model`** from configuration (**`owned_by`**: provider segment of **`id`**). " +
 						"Optional **`default_agent_model`** echoes configured **`agent.model`** for clients that default **`metadata.model`** on profile requests. " +
 						"Choose any returned **`id`** as the HTTP **`model`** on **`POST /v1/chat/completions`** or **`POST /v1/responses`**.",
 					"operationId": "listModels",
@@ -64,10 +64,14 @@ func openAPISpec() map[string]interface{} {
 			"/v1/chat/completions": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary": "Create chat completion",
-					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
-						"Optional **`metadata`** on agent/plan only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
+					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
+						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
 						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
+						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
+						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
+						"Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. " +
 						"The last entry in **messages** must have role **user**.",
 					"operationId": "createChatCompletion",
 					"parameters": []interface{}{
@@ -116,7 +120,8 @@ func openAPISpec() map[string]interface{} {
 				"post": map[string]interface{}{
 					"summary": "Create response",
 					"description": "Responses-style call with **`model`**, **`input`** text, optional **`stream`** (SSE). **`model`** is any **`id`** from **`GET /v1/models`**. " +
-						"**`metadata.model`** applies only when **`model`** is **`agent`** or **`plan`**. **`attachments`** (workspace-relative **`path`** rows) hydrate UTF-8 file bodies from session **cwd** on **`agent`** / **`plan`** only.",
+						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
+						"**`metadata.model`** applies only when **`model`** is **`agent`**, **`plan`**, or **`ask`**. **`attachments`** (workspace-relative **`path`** rows) hydrate text file bodies from session **cwd** on **`agent`** / **`plan`** / **`ask`** only; a file stored in another detected encoding (Windows-1251 and other legacy charsets) is converted to UTF-8. Every **agent**/**plan**/**ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it live over **GET /coddy/sessions/{id}/composer-stream**; with **`stream: false`** this response body is unchanged. A session already running a turn answers **409** for both shapes. A turn started with **`stream: false`** is cancelled when its HTTP request is dropped; a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM.",
 					"operationId": "createResponse",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -137,7 +142,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage**, **`coddy_meta`** (effective **`metadata`** map last), then **`[DONE]`**.",
+							"description": "Completed JSON or streamed SSE (when **stream** is true). SSE default lines are OpenAI-style `data: { ... chat.completion.chunk ... }`. Named events: **tool_call**, **tool_call_update**, **plan**, **token_usage** (completed model-call counters), **usage_update** (`used` / `size` for the current context window), **`coddy_meta`** (effective **`metadata`** map last; for agent/plan/ask turns it also carries **`stop_reason`** - `end_turn`, `cancelled`, `max_turns`, ... - so remote clients recover the ACP stop reason), then **`[DONE]`**.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -192,12 +197,18 @@ func openAPISpec() map[string]interface{} {
 					"summary": "List persisted chat sessions",
 					"description": "Rows are ordered by **session.json** **updatedAt** (newest first), then **id** when timestamps tie. " +
 						"**updatedAt** advances when session state is persisted (messages, titles, etc.); loading a snapshot into memory for HTTP does not rewrite it. " +
-						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**.",
+						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
+						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},
 						"description": "When true, include scheduler-run session directories in the list.",
+					}, map[string]interface{}{
+						"name":        "include_subagents",
+						"in":          "query",
+						"schema":      map[string]string{"type": "boolean"},
+						"description": "When true, include child sessions spawned by **spawn_agent**; each such row carries **subagent** **`{parentSessionId, name, taskId}`** read from its bundle. The default listing hides them and opens no child bundle.",
 					}, map[string]interface{}{
 						"name":        "include_activity",
 						"in":          "query",
@@ -251,12 +262,62 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/enhance-prompt": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Improve a draft prompt",
+					"description": "Rewrites a user's draft prompt into a clearer, more specific, and more effective prompt. The draft is treated only as source text to improve, never as a request to answer. " +
+						"The rewrite uses the model selected by the session in **X-Coddy-Session-ID**. Without a usable session, it falls back to **`agent.model`**, then the first configured **`models[]`** row. " +
+						"Unknown or invalid session ids fall back without creating a session. Returns **503** when no model is configured.",
+					"operationId": "coddyEnhancePrompt",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Existing session id, used to select the rewrite model.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"text": map[string]string{"type": "string"},
+									},
+									"required": []string{"text"},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Enhanced prompt payload",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string", "example": "coddy.enhance_prompt"},
+											"text":   map[string]string{"type": "string"},
+										},
+										"required": []string{"object", "text"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"502": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/slash-commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "List slash commands from skills (paginated)",
 					"description": "Returns skill-derived slash command **`name`** and **`description`** rows sorted by name. " +
 						"**`page`** (1-based) and **`page_size`** (1 to 200) are required. Optional **`prefix`** filters by case-insensitive name prefix. " +
-						"When **X-Coddy-Session-ID** is set (existing session), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default session cwd applies.",
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), listing uses that session **cwd** when resolving **`${CWD}`** in configured skill directories; otherwise the server default cwd applies.",
 					"operationId": "listSlashCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -301,8 +362,8 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/commands": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary": "List built-in slash commands",
-					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"summary":     "List built-in slash commands",
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true; **`export`** and **`plugin`** are always present. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -393,6 +454,50 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/workspace/file": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Read one workspace text file as display lines",
+					"description": "Backs the composer's line-range picker, the panel that opens while typing **`@path:`** so a ranged mention (**`@path:21-31`**) can be pointed at. " +
+						"**`path_rel`** is workspace-relative and never escapes session **cwd**. Legacy encodings are decoded to UTF-8 and files over 512 KiB are refused. " +
+						"A trailing newline adds no empty last line and CRLF files lose the stray **`\\r`**. **`max_lines`** (1 to 5000, default 2000) caps **`lines`**; **`total_lines`** always counts the whole file and **`truncated`** says whether the cap applied. " +
+						"A directory, a binary or otherwise undecodable file, and a traversing path yield **400**; a missing file yields **404**.",
+					"operationId": "coddyWorkspaceFileGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the read root.",
+						},
+						map[string]interface{}{
+							"name": "path_rel", "in": "query", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Workspace-relative file path.",
+						},
+						map[string]interface{}{
+							"name": "max_lines", "in": "query", "required": false,
+							"schema": map[string]interface{}{
+								"type": "integer", "minimum": 1, "maximum": 5000, "default": 2000,
+							},
+							"description": "Cap on returned lines.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "File content split into display lines",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/CoddyWorkspaceFile",
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/workspace/context": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Workspace context for the composer chips (folder, git branch, worktree)",
@@ -433,7 +538,9 @@ func openAPISpec() map[string]interface{} {
 				"get": map[string]interface{}{
 					"summary": "List subfolders for the workspace folder picker",
 					"description": "Lists direct subfolders of **`path`** (default: session cwd via **`X-Coddy-Session-ID`**, else the server default cwd). " +
-						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**.",
+						"Hidden folders and **`node_modules`** are skipped; rows are sorted by name. A missing folder yields **400**. " +
+						"**`path=:drives:`** lists the machine's drive roots instead (Windows only; **400** elsewhere), and the **`parent`** " +
+						"of a drive root is **`:drives:`** so the picker can walk up out of a volume.",
 					"operationId": "coddyWorkspaceFoldersGet",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -444,7 +551,7 @@ func openAPISpec() map[string]interface{} {
 						map[string]interface{}{
 							"name": "path", "in": "query", "required": false,
 							"schema":      map[string]string{"type": "string"},
-							"description": "Absolute folder to list.",
+							"description": "Absolute folder to list, or **`:drives:`** for the drive level.",
 						},
 					},
 					"responses": map[string]interface{}{
@@ -458,6 +565,10 @@ func openAPISpec() map[string]interface{} {
 											"object": map[string]interface{}{"type": "string", "example": "coddy.workspace_folders"},
 											"path":   map[string]interface{}{"type": "string"},
 											"parent": map[string]interface{}{"type": "string"},
+											"drives": map[string]interface{}{
+												"type":        "boolean",
+												"description": "Present and **`true`** only on the **`:drives:`** level, whose rows are drive roots rather than folders.",
+											},
 											"folders": map[string]interface{}{
 												"type": "array",
 												"items": map[string]interface{}{
@@ -472,10 +583,10 @@ func openAPISpec() map[string]interface{} {
 									},
 								},
 							},
-							"400": errorResponseRef(),
-							"404": errorResponseRef(),
-							"500": errorResponseRef(),
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -497,10 +608,47 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/config/reasoning-levels": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Reasoning levels a model id offers (UI)",
+					"description": "Resolves the reasoning levels a logical model id would offer with **no** **`models[].reasoning_levels`** override configured, so the settings form can fill that field instead of relying on the operator knowing each family's tiers. Detection is model-id based (**`gpt-5*`** -> **`minimal,low,medium,high`**; OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`**, and Claude extended-thinking models -> **`low,medium,high`**). The provider type decides the Codex remap (**`minimal`** becomes **`none`**): **`provider_type`**, when sent, is the type currently chosen in the settings form and wins over the saved config, so an unsaved or just-retyped provider row is honoured; without it the **`model`** provider prefix is looked up in the active config. A model id with no reasoning support is **not** an error: it answers **`{\"ok\":true,\"levels\":[],\"detected\":false}`**. A malformed id (the form is mid-edit) answers **200** with **`ok:false`** and an **`error`** for inline display; only a missing **`model`** parameter is **400**, reported as the flat **`{\"ok\":false,\"error\":...}`** the other **`/coddy/config`** routes use.",
+					"operationId": "coddyConfigReasoningLevelsGet",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name":        "model",
+							"in":          "query",
+							"required":    true,
+							"description": "Logical model id in the form **`provider_name/api_model_id`**. It need not be saved in **`models[]`** yet.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "valera/qwen3.8-27b",
+						},
+						map[string]interface{}{
+							"name":        "provider_type",
+							"in":          "query",
+							"required":    false,
+							"description": "Wire type of the provider currently chosen for this model in the settings form (**`openai`**, **`anthropic`**, **`neuraldeep`**, **`codex`**). Overrides the saved provider's type for the Codex remap so an unsaved or just-retyped provider row resolves correctly; omit to use the saved config.",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "codex",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Resolved levels, or `ok:false` with `error` for a malformed model id",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/CoddyReasoningLevelsResponse"},
+								},
+							},
+						},
+						"400": coddyConfigErrorResponse("Missing `model` query parameter"),
+						"500": coddyConfigErrorResponse("Configuration unavailable"),
+					},
+				},
+			},
 			"/coddy/config": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Get current configuration as JSON",
-					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers).",
+					"description": "Returns the active process configuration (including **api_key** and optional **proxy** fields on providers). Per-session path fields (**`skills.dirs`**, **`subagents.dirs`**, **`hooks.files`**, **`prompts.dir`**, **`mcp_servers[].command`** / **`args`** / **`url`** / **`env`** / **`headers`**) are returned as written in **config.yaml**, including a **`${CWD}`** placeholder, which each session resolves against its own workspace; **`${CODDY_HOME}`** and the process-scoped directories are returned expanded.",
 					"operationId": "coddyConfigGet",
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
@@ -516,7 +664,7 @@ func openAPISpec() map[string]interface{} {
 				},
 				"put": map[string]interface{}{
 					"summary":     "Replace configuration from JSON",
-					"description": "Validates the body, writes **config.yaml** atomically, reloads in-process config. On reload failure after write, restores **config.yaml.bak** to the primary path.",
+					"description": "Validates the body, writes **config.yaml** atomically, and reloads in-process config. Changed **mcp_servers** are reconnected for active sessions, re-running the workspace trust gate so unapproved project declarations stay cold; a session with a turn in flight is reconnected when that turn ends, not mid-turn, while ACP client-provided session servers stay connected. On reload failure after write, restores **config.yaml.bak** to the primary path.",
 					"operationId": "coddyConfigPut",
 					"requestBody": map[string]interface{}{
 						"required": true,
@@ -576,7 +724,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/activity": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Composer activity for a session",
-					"description": "Returns **turnActive** (exclusive turn lock held), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
+					"description": "Returns **turnActive** (a turn running in this server process, or the exclusive turn lock held by another one), **activitySeq**, **readActivitySeq**, and **unreadComplete** for multi-surface UI.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name": "id", "in": "path", "required": true,
@@ -586,6 +734,227 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Activity payload"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/background-tasks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Background tasks of a session",
+					"description": "Lists the tasks of the session: commands the agent started with **run_command** **`background: true`** (**kind** **command**) and subagent runs started with **spawn_agent** (**kind** **agent**, with **agent** **`{name, session_id}`** naming the definition and the child session whose transcript **GET /coddy/sessions/{session_id}/messages** serves). Each row carries **id**, **kind**, **label**, **command**, **status** (**queued**, **running**, **succeeded**, **failed**, **timed_out**, **stopped**, **orphaned**), **started_at**, **finished_at**, **exit_code**, **expected_seconds** (the model's own estimate), **timeout_seconds** (the hard limit), **notify_on_finish** (the task wakes the agent when it ends), plus the server-computed **elapsed_seconds**, **overdue**, and **running**. The task pool lives in the running **coddy** process; tasks recorded by an earlier process are merged in from the session bundle with status **orphaned**. Poll this endpoint for the status ticker: background tasks outlive the SSE stream of the turn that started them.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task list with a **running** count"},
+						"404": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Clear the finished background tasks of a session",
+					"description": "Drops every terminal task of the session, in memory and from the session bundle, and answers with **cleared**. Running tasks are left alone. History accumulates on its own and is deleted with the session, so this is the operator's explicit way to throw it away early.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Number of cleared tasks"},
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/background-tasks/{task_id}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "One background task with its captured output",
+					"description": "Returns the task row plus **output**, the combined stdout and stderr captured so far. Works while the task is still running. A task the pool no longer holds is answered from the session bundle log.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+						map[string]interface{}{
+							"name": "tail", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "integer"},
+							"description": "Return only the last N lines of output. Omit for everything retained. A non-integer or negative value is a **400**. A log read back from the session bundle is capped at its last 256 KiB and flags the truncation.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Task with output"},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/background-tasks/{task_id}/stop": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Stop a running background task",
+					"description": "Terminates the task and the whole process group it started, then returns the final row and its output. Stopping a task that already finished changes nothing and still returns **200**. An unknown id is a **404**; a task that exists but could not be terminated is a **500**, never a 404.",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "task_id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Background task id (for example **bg_1**).",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Stopped task with output"},
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/subagents": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Subagent definitions visible from a workspace",
+					"description": "Lists the subagent definitions a session with this **cwd** would see: the embedded built-ins (**general**, **explore**), user-scope files under **`${CODDY_HOME}/agents`**, and project-scope files under the workspace's **`.claude/agents`** and **`.coddy/agents`** (**`subagents.dirs`**), later directories overriding earlier ones by name. " +
+						"Each item carries **name**, **description**, **scope** (**builtin**, **user**, **project**), **path**, **digest** (SHA-256 of the file), **model**, **mode**, **builtin**, **hidden**, and the trust decision for this workspace: **trust** (**trusted** or **needs_approval**), mirrored as the booleans **trusted** and **needs_approval**. " +
+						"Under **`subagents.project_trust: ask`** a project-scope file needs a receipt for its current content; under **allow** it is trusted; under **deny** project directories are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy.",
+					"operationId": "listSubagents",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.subagent_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/subagents/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project subagent definition for a workspace",
+					"description": "Records a receipt in **`<home>/subagents-trust.json`** binding the workspace, the definition name and the digest of its current file content, so **spawn_agent** may run it under **`subagents.project_trust: ask`**. Rewriting the file changes the digest and withdraws the approval. " +
+						"Optional body **`{\"cwd\": ...}`** selects the workspace (default: the server's default cwd). **404** when no definition of that name is visible from the workspace; **400** for a built-in or user-scope definition (nothing to approve), a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/subagents/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project subagent approval",
+					"description": "Removes the receipt of the named definition for the workspace (optional body **`{\"cwd\": ...}`**, default: the server's default cwd). Withdrawing an approval that was never on file, or naming a built-in or user-scope definition, changes nothing and still answers with the current entry. **404** when no definition of that name is visible from the workspace; **400** for a malformed body or a relative **cwd**.",
+					"operationId": "untrustSubagent",
+					"parameters":  []interface{}{subagentNameParam()},
+					"requestBody": subagentTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": subagentEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/hooks": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary": "Hook definition files visible from a workspace",
+					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${CODDY_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.coddy/hooks.json`**). " +
+						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/hooks.md`**.",
+					"operationId": "listHooks",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "cwd", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Absolute workspace path. Defaults to the server's default cwd. A relative path is a **400**.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Catalog for the workspace",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string", "example": "coddy.hook_list"},
+											"workspace": map[string]string{"type": "string", "description": "Canonical workspace path the receipts are keyed by."},
+											"policy":    map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+											"items": map[string]interface{}{
+												"type":  "array",
+												"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+											},
+										},
+										"required": []string{"object", "workspace", "policy", "items"},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/hooks/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Approve a project hooks file for a workspace",
+					"description": "Records a receipt in **`<home>/hooks-trust.json`** binding the workspace, the file and the digest of its current content, so its hooks run under **`hooks.project_trust: ask`** from the next turn. Rewriting the file changes the digest and withdraws the approval. " +
+						"Body **`{\"cwd\": ..., \"file\": ...}`**: **cwd** selects the workspace (default: the server's default cwd; it must be the session's server-side workspace, since receipts are keyed by that path) and **file** names the file as **GET /coddy/hooks** lists it. **404** when no such file is visible from the workspace; **400** for a user-scope file (nothing to approve), a file that does not parse, a missing **file**, a malformed body, or a relative **cwd**. Answers with the refreshed catalog entry.",
+					"operationId": "trustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval recorded; the entry now reports **trusted**."),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/hooks/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project hooks file approval",
+					"description": "Removes the receipt of the named file for the workspace (same body as the trust route). Withdrawing an approval that was never on file changes nothing and still answers with the current entry. **404** when no such file is visible from the workspace; **400** for a missing **file**, a malformed body or a relative **cwd**.",
+					"operationId": "untrustHooksFile",
+					"requestBody": hookTrustRequestBody(),
+					"responses": map[string]interface{}{
+						"200": hookEntryResponse("Approval withdrawn (or none was on file); the entry reports its current trust state."),
+						"400": errorResponseRef(),
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
@@ -622,6 +991,168 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Patched session"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary": "Delete a persisted session",
+					"description": "Removes the whole session directory (messages, **`tool_calls/`**, **`stats.json`**, assets, background task logs) and the in-memory MCP clients, after stopping anything the session left running. " +
+						"The delete covers the session tree: every child session spawned by **spawn_agent** (found by **parentSessionId**, nested descendants included) goes with it. The task representing each child run is stopped and awaited first, root to leaf, then every remaining task of every node, and only then are the bundles removed deepest first, so nothing writes into a removed directory. Deleting a child session directly removes that child and its own descendants and stops its task in the parent's tasks drawer. " +
+						"A session that forked from another is also retracted from the **branches.json** of its source, and a branch point left with a single thread is dropped, so the branch navigator never points at a bundle that is gone. " +
+						"Deleting an id with no bundle on disk still answers **200**.",
+					"operationId": "coddySessionDelete",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Session deleted",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object": map[string]string{"type": "string"},
+											"id":     map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "Nothing was removed: either a cancelled turn of the session tree was still running after the settle timeout, or descendants kept appearing while the tree was being marked. Retry once the tree is quiet.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/sessions/{id}/branches": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary": "Fork the session at one user message",
+					"description": "Creates a sibling conversation that receives every message **before** the user message at **userMessageIndex** (0-based over **`user`** rows), so an edited version of that message can be resent without overwriting the original branch. " +
+						"Workspace turn diffs recorded **after** the branch point are reversed in the session cwd first, so the files match the state the branch starts from; **fileRollbackNote** reports which turns were reversed or why none were. " +
+						"Both branches are recorded in **branches.json** inside the source session bundle and are listed by **GET** on this path.",
+					"operationId": "coddyBranchCreate",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Source session id.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"userMessageIndex"},
+									"properties": map[string]interface{}{
+										"userMessageIndex": map[string]interface{}{
+											"type": "integer", "minimum": 0,
+											"description": "0-based index of the user message to branch at.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Branch created",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":           map[string]string{"type": "string"},
+											"newSessionId":     map[string]string{"type": "string"},
+											"branchIndex":      map[string]string{"type": "integer"},
+											"totalBranches":    map[string]string{"type": "integer"},
+											"fileRollbackNote": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The source is a subagent child session (sub_…): its transcript is read-only and cannot be forked; branch the parent instead.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+				"get": map[string]interface{}{
+					"summary": "List branch points visible from a session",
+					"description": "Reads **branches.json** from the session bundle. Each entry carries **userMessageIndex**, **currentIndex**, **total**, the sibling **sessions** (**sessionId**, **branchIndex**, **preview**, **lastUpdatedAt**), and **own** - **`true`** for a branch point this session introduced, **`false`** for the sibling view inherited from its parent. " +
+						"Sessions whose bundle no longer exists are skipped and **currentIndex** is derived from the surviving list, so a stale branch file heals itself on read; a branch point with fewer than two surviving threads is not reported. " +
+						"The bundled UI renders each entry as a **`‹ n/m ›`** navigator under that user message.",
+					"operationId": "coddyBranchList",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Branch points",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":    map[string]string{"type": "string"},
+											"sessionId": map[string]string{"type": "string"},
+											"branchPoints": map[string]interface{}{
+												"type": "array",
+												"items": map[string]interface{}{
+													"type": "object",
+													"properties": map[string]interface{}{
+														"userMessageIndex": map[string]string{"type": "integer"},
+														"currentIndex":     map[string]string{"type": "integer"},
+														"total":            map[string]string{"type": "integer"},
+														"own":              map[string]string{"type": "boolean"},
+														"sessions": map[string]interface{}{
+															"type": "array",
+															"items": map[string]interface{}{
+																"type": "object",
+																"properties": map[string]interface{}{
+																	"sessionId":     map[string]string{"type": "string"},
+																	"branchIndex":   map[string]string{"type": "integer"},
+																	"preview":       map[string]string{"type": "string"},
+																	"lastUpdatedAt": map[string]string{"type": "integer"},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
 					},
 				},
 			},
@@ -669,7 +1200,14 @@ func openAPISpec() map[string]interface{} {
 						},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
-						"409": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The workspace is locked (the conversation already has messages), or the session is a subagent child (sub_…) whose transcript is read-only.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
 						"500": errorResponseRef(),
 					},
 				},
@@ -677,11 +1215,12 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/messages": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary": "Read conversation transcript",
-					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). " +
+					"description": "Top-level **model** is the effective YAML backend for this session (**`selectedModelId`** when set, else configured **`agent.model`**). **selectedModelId** echoes the stored session override (may be empty). **mode** reports the session profile (`agent`, `plan`, or `ask`) so remote clients restore it on load. Assistant rows in **messages** may include **`model`** (YAML selector used for that reply). User rows with uploaded files include **`files`** metadata; persisted images carry a session-scoped **`preview_url`**. " +
 						"**user** and **assistant** rows may include **created_at** (RFC3339 UTC) when the server appended that message to history. " +
 						"When long-term memory copilot has run for this session bundle, responses may include **memoryTurns** (persisted observability parallel to Chat Completions transcript; not forwarded to main LLM). " +
 						"**uiLog** (optional) lists UI-only rows such as persisted LLM/request errors keyed by **userTurnIndex**; these are not part of **messages** and are not sent to the model. " +
-						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows.",
+						"Immediately after **POST /coddy/sessions/{id}/cancel**, the returned **messages** list can briefly omit or shorten the in-progress **assistant** row compared to what was already streamed; UIs that keep a local shadow should merge when the server snapshot is a strict prefix of on-screen rows. " +
+						"For a child session spawned by **spawn_agent** the payload also carries **readOnly** **true** and **subagent** **`{parentSessionId, name, taskId}`**: the transcript is served from the live child while it runs and from its bundle afterwards, and no route accepts a prompt for it (**409**), so a UI replaces the composer with a notice linking to the parent chat.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -692,10 +1231,41 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/assets/{name}/thumbnail": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Read a persisted session image thumbnail",
+					"description": "Returns the bounded PNG preview created for an uploaded image. The asset name comes from a user message **`files[].preview_url`**; arbitrary original asset bytes are not exposed by this route.",
+					"parameters": []interface{}{
+						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+						map[string]interface{}{"name": "name", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "PNG thumbnail",
+							"content": map[string]interface{}{
+								"image/png": map[string]interface{}{"schema": map[string]string{"type": "string", "format": "binary"}},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"503": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/events": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Subscribe to server-wide session events",
+					"description": "Server-Sent Events for activity that is not tied to one session, so a client can be told a turn started in a session it is not driving instead of polling **GET /coddy/sessions**. Emits **event: turn_started** and **event: turn_ended** (**`{object, sessionId, phase, at}`**) for every turn in this server process, whichever surface started it. On connect it replays one **turn_started** per turn already running, then **event: ready** to mark the snapshot complete; an idle stream sends **SSE comments** as keepalives. Like the composer stream, this route also accepts the bearer token as **`?access_token=`**.",
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "text/event-stream of session turn events"},
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/composer-stream": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "Subscribe to live composer SSE for an in-flight turn",
-					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). While no relay exists yet, emits **SSE comments** (`: composer stream pending`) until a composer POST attaches a relay or the wait window expires (**event: error**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Server-Sent Events with the same **data:** and **event:** frames as **POST /v1/responses** (**stream: true**) for the active **agent**/**plan**/**ask** turn. Replays bytes generated so far, then forwards live chunks until the turn ends (relay closes). With **no turn running** for the session, answers immediately with **event: error** carrying **error.code** **no_active_stream**, so a client can fall back to the persisted transcript without waiting. While a turn *is* running but has not attached its relay yet, emits **SSE comments** (`: composer stream pending`) until it does or the wait window expires. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{"name": "id", "in": "path", "required": true, "schema": map[string]string{"type": "string"}},
 					},
@@ -710,7 +1280,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/permission": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Resolve a pending tool permission prompt from a streaming ReAct turn",
-					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`**, or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: permission`** on **`POST /v1/responses`** (**stream: true**). A child session spawned by **spawn_agent** never holds a prompt of its own (its requests are relayed to the parent chat) and answers **409**. Body **`toolCallId`** must match **`toolCall.toolCallId`** from the SSE payload; **`optionId`** is **`allow`**, **`allow_always`** (remembers this exact command), **`allow_always_program`** (offered for **run_command** only, and only when the command is a single plain invocation; remembers the program, or the program plus its subcommand for multiplexers like **git**), or **`reject`** (or send **`outcome`** **`allow`** / **`cancelled`**). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -742,13 +1312,14 @@ func openAPISpec() map[string]interface{} {
 						"204": map[string]interface{}{"description": "Permission choice accepted"},
 						"400": errorResponseRef(),
 						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
 			"/coddy/sessions/{id}/question": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Answer a pending interactive question from a streaming ReAct turn",
-					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Completes **`event: question`** on **`POST /v1/responses`** (**stream: true**). Body **`requestId`** must match the payload from SSE, and **`answers`** is an array of string arrays (one row per question, entries are selected labels or custom text). Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -790,9 +1361,17 @@ func openAPISpec() map[string]interface{} {
 			},
 			"/coddy/skills": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "List skills",
-					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`).",
+					"summary": "List skills",
+					"description": "Returns all skills discovered from **`skills.dirs`** with their enabled/disabled status. The disabled state is read from the managed skills directory (`~/.coddy/skills/.disabled`). " +
+						"When **X-Coddy-Session-ID** names a session (a persisted one is loaded on demand), **`${CWD}`** in configured skill directories resolves against that session **cwd**, so project-local skills of that workspace are listed; otherwise the server default cwd applies.",
 					"operationId": "listSkills",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Optional session whose cwd scopes skill path expansion.",
+						},
+					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
 							"description": "Skill list",
@@ -804,6 +1383,8 @@ func openAPISpec() map[string]interface{} {
 								},
 							},
 						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
 						"500": errorResponseRef(),
 					},
 				},
@@ -829,7 +1410,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/providers/{name}/models": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List a provider's available models",
-					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET https://api.neuraldeep.ru/v1/models`**). The provider is resolved from the saved config, so its credentials (`api_key` / `api_key_command` / `NAME_API_KEY`) and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
+					"description": "Fetches the model list advertised by the named provider's server (openai: **`GET {api_base}/models`**; anthropic: **`GET {api_base}/v1/models`**; neuraldeep: **`GET {selected api_base}/models`**, where api_base is one of the official deployments (**`https://api.neuraldeep.ru/v1`** by default, **`https://api.neuraldeep.tech/v1`** for the international mirror); codex: the fixed official Codex backend with the saved ChatGPT OAuth token). The provider is resolved from the saved config, so its credentials and `proxy` apply server-side without exposing secrets. Returns **`{ok:true, models:[{id,name}]}`** on success, or **`{ok:false, error, models:[]}`** with HTTP 200 when the upstream call fails so the UI can fall back to manual model entry. Unknown provider name returns 404.",
 					"operationId": "listProviderModels",
 					"parameters": []interface{}{
 						map[string]interface{}{
@@ -842,6 +1423,161 @@ func openAPISpec() map[string]interface{} {
 						"200": map[string]interface{}{"description": "Model list result (ok:true with models, or ok:false with error)."},
 						"404": errorResponseRef(),
 						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get Codex OAuth status",
+					"description": "Reports whether the named Codex provider has a server-side ChatGPT OAuth credential. It never returns token values. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret Codex OAuth connection status.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Remove Coddy-managed Codex OAuth credentials",
+					"description": "Deletes only the credential stored under `CODDY_HOME/providers/{name}/codex-auth.json`. A separate Codex CLI login may remain available as a compatibility fallback.",
+					"operationId": "deleteProviderCodexAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after removal.", "#/components/schemas/CodexAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start Codex ChatGPT device authorization",
+					"description": "Starts the official ChatGPT device flow. Open `verification_url`, enter `user_code`, then poll the returned `login_id`. The server performs the token exchange and stores credentials with restrictive file permissions.",
+					"operationId": "startProviderCodexDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/CodexAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/codex-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll Codex device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Token values are never returned.",
+					"operationId": "getProviderCodexDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/neuraldeep-auth": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get NeuralDeep sign-in status",
+					"description": "Reports whether the named neuraldeep provider has a server-side hub login, masked, plus the credential source requests actually use (`oauth`, `api_key`, `api_key_command`, `env`, or `none`). `hub` names the hub that issued the stored login and `endpoint_hub` the hub a sign-in for the endpoint in **`api_base`** (default: the saved row's) would use; Settings warns when they differ, because a key minted by one deployment is not honored by the other. Key values are never returned. A valid unsaved provider name is accepted so Settings can show status before config is saved.",
+					"operationId": "getProviderNeuralDeepAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "api_base", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Endpoint currently picked in the settings form (`https://api.neuraldeep.ru/v1` or `https://api.neuraldeep.tech/v1`), possibly unsaved. Omitted or unrecognized: the saved row's endpoint, falling back to the default deployment like requests do.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Non-secret NeuralDeep sign-in status.", "#/components/schemas/NeuralDeepAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Sign out of NeuralDeep",
+					"description": "Best-effort revokes the key on the hub, then deletes the credential stored under `CODDY_HOME/providers/{name}/neuraldeep-auth.json`.",
+					"operationId": "deleteProviderNeuralDeepAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Connection status after sign-out.", "#/components/schemas/NeuralDeepAuthStatus"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/neuraldeep-auth/device": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Start NeuralDeep device authorization",
+					"description": "Starts the hub's RFC 8628 device flow for client `coddy`. The hub is the one paired with the deployment: **`api_base`** in the optional JSON body (the endpoint picked in Settings, possibly unsaved) or, when the body is absent, the saved row's `api_base`; a body value that is not one of the official endpoints is refused with 400 before the hub is contacted. A new start supersedes the provider's previous pending attempt, including one still waiting for the hub (that one answers 409); a sign-out cancels a pending start the same way. Open `verification_url` (it carries the pre-filled code), confirm on the hub portal, then poll the returned `login_id`. The server polls the hub and stores the key with restrictive file permissions.",
+					"operationId": "startProviderNeuralDeepDeviceAuth",
+					"parameters":  []interface{}{codexProviderNameParameter()},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/NeuralDeepAuthDeviceStartRequest"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Device authorization instructions.", "#/components/schemas/NeuralDeepAuthDeviceStart"),
+						"400": errorResponseRef(),
+						"409": errorResponseRef(),
+						"502": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/usage": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Get provider account usage",
+					"description": "Account usage behind a provider row, for the status bar of every surface. Today only `neuraldeep` rows have a source: the hub's read-only `GET /v1/limits`, read with the row's own credential and `proxy`. Answers `{ok:true, usage}` with the `provider_usage` snapshot (plan, metered windows as percent used with reset times, the live minute, the cooldown, the account's ruble wallet, the blocked state with its blockers and retry time, the models that bypass the windows); `{ok:false, unsupported:true}` for a provider type without a source, plus `disabled:true` when the row's usage limits panel is switched off (`providers[].usage_limits_panel: false`, nothing is read for that row); `{ok:false, error, usage}` when the read failed, with the previous snapshot marked `stale` so a client keeps the last numbers; 404 for an unknown provider. `refresh=1` asks for a fresh read: the manager serves its cache for 20 s, refreshes at once when the last read is 15 s or older, and otherwise defers the read to the end of that floor (`refreshPending`, `refreshInSec`). No dollar figure appears; the key never leaves the server.",
+					"operationId": "getProviderUsage",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "`1` asks for a fresh read instead of the cached snapshot, subject to the pacing floor.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Account usage answer.", "#/components/schemas/ProviderUsageAnswer"),
+						"404": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/providers/{name}/neuraldeep-auth/device/{loginID}": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Poll NeuralDeep device authorization",
+					"description": "Returns `pending`, `completed`, or `failed`. Key values are never returned.",
+					"operationId": "getProviderNeuralDeepDeviceAuth",
+					"parameters": []interface{}{
+						codexProviderNameParameter(),
+						map[string]interface{}{
+							"name": "loginID", "in": "path", "required": true,
+							"schema": map[string]string{"type": "string"},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonSchemaResponse("Current device authorization state.", "#/components/schemas/CodexAuthDeviceStatus"),
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
 					},
 				},
 			},
@@ -859,6 +1595,208 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{"description": "Skill disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "List MCP servers",
+					"description": "Returns the merged MCP server list from three levels: **`mcp_servers`** in config.yaml and the global **`<home>/mcp.json`** (scope `global`), plus the project-local **`.coddy/mcp.json`** (scope `local`); all mcp.json files are Cursor-compatible and later levels override earlier ones by name. Enabled servers are probed for their tool inventory over their transport (stdio spawn, streamable HTTP with legacy-SSE fallback, or SSE; connect, `tools/list`, close); results are cached until the server definition changes. **`?refresh=1`** forces a re-probe.\n\nA project-local entry arrives with the checkout, so it is **not** probed until it is approved for this workspace (see **POST** `/coddy/mcp/{name}/trust`): such a row comes back with `status: \"needs_approval\"`, `trusted: false`, no tools, and the `command`/`args`/`env`/`url`/`fingerprint` an approval would cover. Under `mcp.project_trust: deny` the status is `denied`.",
+					"operationId": "listMCPServers",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "refresh", "in": "query", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Set to `1` to bypass the probe cache.",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "MCP server list",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"$ref": "#/components/schemas/MCPServerList",
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable an MCP server",
+					"description": "Clears the disabled flag, persisting into the file that defines the server (config.yaml or `.coddy/mcp.json`). New sessions connect it; live sessions see its tools on their next turn.",
+					"operationId": "enableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable an MCP server",
+					"description": "Sets the disabled flag in the owning file. The server's tools disappear from live sessions on their next turn; new sessions skip connecting it.",
+					"operationId": "disableMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Approve a project MCP server for this workspace",
+					"description": "Records the operator's approval of the **current** declaration of a project-local (`.coddy/mcp.json`) server for the server's workspace, so sessions may start it. The approval is bound to the workspace and to a digest of the command-bearing declaration (transport, command, args, env, url, headers), and is stored in `<home>/mcp-trust.json` with a receipt naming what was approved (env and header **names** only). Rewriting the entry withdraws it. Refused with 400 for servers defined in config.yaml or `<home>/mcp.json` (they need no approval) and under `mcp.project_trust: deny`.",
+					"operationId": "trustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Server approved; the response carries the approved `fingerprint`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":          map[string]interface{}{"type": "boolean"},
+											"fingerprint": map[string]interface{}{"type": "string", "description": "Digest the approval is bound to."},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/untrust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Withdraw a project MCP server approval",
+					"description": "Removes the workspace approval of a project-local server. Sessions already holding a connected client keep it; new sessions no longer start the server. `removed` reports whether an approval was actually on file.",
+					"operationId": "untrustMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Approval withdrawn (or none was on file).",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":      map[string]interface{}{"type": "boolean"},
+											"removed": map[string]interface{}{"type": "boolean"},
+										},
+									},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/project-trust": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Set the project MCP trust policy",
+					"description": "Persists **`mcp.project_trust`** into config.yaml and reloads it. Body: **`{\"policy\":\"ask\"|\"allow\"|\"deny\"}`**. `ask` (default) keeps project-local `.coddy/mcp.json` servers cold until each declaration is approved for its workspace; `allow` starts them automatically; `deny` never loads them. The MCP tab of the bundled UI edits this next to the servers it governs, so it never joins the settings-document save flow.",
+					"operationId": "setMCPProjectTrust",
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []string{"policy"},
+									"properties": map[string]interface{}{
+										"policy": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Policy stored; the response echoes the effective `project_trust`.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"ok":            map[string]interface{}{"type": "boolean"},
+											"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/enable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Enable a single MCP tool",
+					"description": "Removes **{tool}** from the server's disabled-tools list in the owning file.",
+					"operationId": "enableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool enabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}/tools/{tool}/disable": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Disable a single MCP tool",
+					"description": "Adds **{tool}** to the server's disabled-tools list (`disabled_tools` in config.yaml, `disabledTools` in `.coddy/mcp.json`). The tool is hidden from the agent and rejected at dispatch.",
+					"operationId": "disableMCPTool",
+					"parameters":  []interface{}{mcpServerNameParam(), mcpToolNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Tool disabled."},
+						"400": errorResponseRef(),
+					},
+				},
+			},
+			"/coddy/mcp/{name}": map[string]interface{}{
+				"put": map[string]interface{}{
+					"summary":     "Create or update an mcp.json MCP server",
+					"description": "Upserts one named entry in an mcp.json file (Cursor format: `env` and `headers` are objects, per-tool switches use `disabledTools`). **`?scope=local`** (default) writes the project **`.coddy/mcp.json`**; **`?scope=global`** writes the user-global **`<home>/mcp.json`**. Either `command` (stdio) or `url` is required; names must not contain `__`. Config.yaml-defined servers are edited via **PUT** `/coddy/config` instead.",
+					"operationId": "putMCPServer",
+					"parameters": []interface{}{
+						mcpServerNameParam(),
+						map[string]interface{}{
+							"name": "scope", "in": "query", "required": false,
+							"schema":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}},
+							"description": "Target file: local (default) = ./.coddy/mcp.json, global = <home>/mcp.json.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{"$ref": "#/components/schemas/MCPJSONServer"},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server saved."},
+						"400": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
+				"delete": map[string]interface{}{
+					"summary":     "Delete an mcp.json MCP server",
+					"description": "Removes the named entry from the mcp.json file that defines it (project **`.coddy/mcp.json`** or global **`<home>/mcp.json`**). Servers defined in config.yaml are refused with 400.",
+					"operationId": "deleteMCPServer",
+					"parameters":  []interface{}{mcpServerNameParam()},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{"description": "Server deleted."},
 						"400": errorResponseRef(),
 					},
 				},
@@ -1053,7 +1991,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/sessions/{id}/cancel": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Cancel active generation for a session",
-					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set.",
+					"description": "Best-effort cancellation of the current ReAct or direct completion turn. Writes a cross-process cancel signal for persisted bundles so another **coddy** process holding the turn can observe cooperative cancel. When assistant tokens were already streamed, the server persists that partial **assistant** message for the interrupted turn before the turn ends. Optional header **X-Coddy-Session-ID** must match **{id}** when set. Frames replayed to a subscriber carry an **`id:`** sequence; send it back as **Last-Event-ID** (or **`?last_event_id=`**) to resume after it instead of replaying the whole turn. When the frames a client asks to resume from have already been trimmed, the stream leads with **event: desync** so it can reload the transcript instead of rendering a gap. The primary **POST** stream is unchanged and carries no ids.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1070,10 +2008,70 @@ func openAPISpec() map[string]interface{} {
 					},
 				},
 			},
+			"/coddy/sessions/{id}/plans/{slug}": map[string]interface{}{
+				"patch": map[string]interface{}{
+					"summary":     "Run a design plan",
+					"description": "Body **`{\"runPlan\": true}`** runs **RunPlan** synchronously: the session switches to **agent** mode, the plan document is injected and one agent turn runs. Prefer **POST /v1/responses** with **`metadata.runPlanSlug`** for streaming. The run is admitted like any other turn (turn lock, registration, cancellation).",
+					"operationId": "coddyDesignPlanRun",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "id", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session id.",
+						},
+						map[string]interface{}{
+							"name": "slug", "in": "path", "required": true,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Plan slug (the file name under the session's plans/ directory without the .plan.md suffix).",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"runPlan"},
+									"properties": map[string]interface{}{
+										"runPlan": map[string]interface{}{"type": "boolean", "description": "Must be true; any other patch is rejected."},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Plan run finished",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":     map[string]string{"type": "string"},
+											"stopReason": map[string]string{"type": "string"},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": map[string]interface{}{
+							"description": "The session is in **ask** mode (read-only: switch the mode first, then run), the session is a subagent child (sub_…) whose transcript is read-only, or another turn already holds the session turn lock.",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{"$ref": "#/components/schemas/ErrorEnvelope"},
+								},
+							},
+						},
+						"500": errorResponseRef(),
+					},
+				},
+			},
 			"/coddy/sessions/{id}/compact": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "Compact (summarize) older session history",
-					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running).",
+					"description": "Summarizes conversation history into a single summary row inserted into the transcript. As a manual trigger it forces compaction, folding whatever exists even below the keep-recent boundary (**compaction.keep_recent_turns**, default 2 user turns) by reducing the kept tail as needed; nothing_to_compact is returned only when there is no prior conversation. Later LLM prompts replay only the summary plus the kept tail; the persisted transcript keeps every original message. Equivalent to the built-in **/compact** prompt command. Requires the composer turn lock (409 when another agent turn is running). A child session spawned by **spawn_agent** is a read-only transcript and answers **409** as well.",
 					"parameters": []interface{}{
 						map[string]interface{}{
 							"name":        "id",
@@ -1124,6 +2122,61 @@ func openAPISpec() map[string]interface{} {
 				},
 			},
 			"schemas": map[string]interface{}{
+				"SubagentCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One subagent definition as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"name":           map[string]string{"type": "string"},
+						"description":    map[string]string{"type": "string"},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"builtin", "user", "project"}},
+						"path":           map[string]string{"type": "string", "description": "Definition file; absent for built-ins."},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the definition bytes (the embedded bytes for built-ins)."},
+						"model":          map[string]string{"type": "string", "description": "models[].model id from the frontmatter, when set."},
+						"mode":           map[string]string{"type": "string", "description": "agent or plan from the frontmatter, when set."},
+						"builtin":        map[string]string{"type": "boolean"},
+						"hidden":         map[string]string{"type": "boolean", "description": "Kept out of the model-facing catalog; still spawnable by name."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"name", "description", "scope", "builtin", "hidden", "trust", "trusted", "needs_approval"},
+				},
+				"HookCatalogHandler": map[string]interface{}{
+					"type":        "object",
+					"description": "One handler of a hooks file as the catalog shows it.",
+					"properties": map[string]interface{}{
+						"event":           map[string]string{"type": "string", "description": "Event name, for example PreToolUse."},
+						"matcher":         map[string]string{"type": "string", "description": "Matcher of the group; absent or empty means every occurrence."},
+						"type":            map[string]string{"type": "string", "description": "Handler type; only command runs."},
+						"command":         map[string]string{"type": "string"},
+						"args":            map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Present for the exec form."},
+						"timeout_seconds": map[string]string{"type": "integer"},
+						"async":           map[string]string{"type": "boolean"},
+						"fail_closed":     map[string]string{"type": "boolean"},
+						"unsupported":     map[string]string{"type": "string", "description": "Why the handler never runs (an unsupported type)."},
+					},
+					"required": []string{"event", "type"},
+				},
+				"HookCatalogEntry": map[string]interface{}{
+					"type":        "object",
+					"description": "One hook definition file as the catalog shows it, with the trust decision for the requested workspace.",
+					"properties": map[string]interface{}{
+						"file":           map[string]string{"type": "string", "description": "The name receipts and the CLI use: the workspace-relative path for project scope, the absolute path otherwise."},
+						"path":           map[string]string{"type": "string", "description": "Absolute file path."},
+						"scope":          map[string]interface{}{"type": "string", "enum": []string{"user", "project"}},
+						"digest":         map[string]string{"type": "string", "description": "SHA-256 of the file bytes."},
+						"trust":          map[string]interface{}{"type": "string", "enum": []string{"trusted", "needs_approval"}},
+						"trusted":        map[string]string{"type": "boolean"},
+						"needs_approval": map[string]string{"type": "boolean"},
+						"error":          map[string]string{"type": "string", "description": "Parse or read error of an invalid file."},
+						"warnings":       map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"hooks": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/HookCatalogHandler"},
+						},
+					},
+					"required": []string{"file", "path", "scope", "trust", "trusted", "needs_approval", "hooks"},
+				},
 				"ErrorEnvelope": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1209,6 +2262,67 @@ func openAPISpec() map[string]interface{} {
 						},
 					},
 				},
+				"MCPToolRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Tool name as advertised by the server."},
+						"description": map[string]string{"type": "string"},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the tool is in the server's disabled-tools list."},
+					},
+				},
+				"MCPServerRow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":        map[string]string{"type": "string", "description": "Server name (unique across the merged list)."},
+						"source":      map[string]interface{}{"type": "string", "enum": []string{"global", "local"}, "description": "Scope: global (config.yaml or <home>/mcp.json) or local (./.coddy/mcp.json)."},
+						"origin":      map[string]interface{}{"type": "string", "enum": []string{"config", "home", "project"}, "description": "File that owns the definition: config.yaml, <home>/mcp.json, or ./.coddy/mcp.json."},
+						"readonly":    map[string]interface{}{"type": "boolean", "description": "True for config.yaml-defined servers: not editable or deletable via this API."},
+						"transport":   map[string]string{"type": "string", "description": "Effective transport: stdio, http (streamable, with legacy-SSE fallback), or sse."},
+						"command":     map[string]string{"type": "string"},
+						"args":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"url":         map[string]string{"type": "string"},
+						"env":         map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"headers":     map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}, "description": "HTTP headers sent to http/sse servers."},
+						"enabled":     map[string]interface{}{"type": "boolean", "description": "False when the server-level disabled switch is set."},
+						"status":      map[string]interface{}{"type": "string", "enum": []string{"connected", "error", "disabled", "unsupported", "needs_approval", "denied"}, "description": "Probe result: connected (tools listed), error (probe failed), disabled (switched off), unsupported (unknown transport type), needs_approval (project entry awaiting workspace approval; not probed), denied (project entries switched off by mcp.project_trust)."},
+						"error":       map[string]string{"type": "string", "description": "Probe error message when status is error or unsupported, or why the trust gate refused the entry."},
+						"source_path": map[string]string{"type": "string", "description": "File the declaration was read from."},
+						"trusted":     map[string]interface{}{"type": "boolean", "description": "False only for a project entry the workspace trust gate holds back."},
+						"gated":       map[string]interface{}{"type": "boolean", "description": "True for project-local entries, the ones the trust gate applies to."},
+						"fingerprint": map[string]string{"type": "string", "description": "Digest of the command-bearing declaration; an approval binds to this value."},
+						"tools": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPToolRow"},
+						},
+						"disabled_tools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
+				"MCPServerList": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":        map[string]string{"type": "string", "example": "coddy.mcp_list"},
+						"workspace":     map[string]string{"type": "string", "description": "Workspace the rows were merged for; approvals are recorded against it."},
+						"project_trust": map[string]interface{}{"type": "string", "enum": []string{"ask", "allow", "deny"}, "description": "Effective mcp.project_trust policy."},
+						"items": map[string]interface{}{
+							"type":  "array",
+							"items": map[string]interface{}{"$ref": "#/components/schemas/MCPServerRow"},
+						},
+					},
+				},
+				"MCPJSONServer": map[string]interface{}{
+					"type":        "object",
+					"description": "One mcp.json entry (global <home>/mcp.json or project .coddy/mcp.json; Cursor-compatible).",
+					"properties": map[string]interface{}{
+						"type":          map[string]interface{}{"type": "string", "enum": []string{"stdio", "http", "sse"}, "description": "Transport; empty means stdio. Inferred as http for url-only entries."},
+						"command":       map[string]string{"type": "string", "description": "Executable for stdio transport."},
+						"args":          map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+						"env":           map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"url":           map[string]string{"type": "string", "description": "Remote endpoint for http/sse transports."},
+						"headers":       map[string]interface{}{"type": "object", "additionalProperties": map[string]string{"type": "string"}},
+						"disabled":      map[string]interface{}{"type": "boolean"},
+						"disabledTools": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}},
+					},
+				},
 				"CoddyConfigJSON": map[string]interface{}{
 					"type":        "object",
 					"description": "Coddy configuration as JSON (same logical fields as **config.yaml**). See **GET** `/coddy/config/schema` for the machine-readable JSON Schema.",
@@ -1219,6 +2333,165 @@ func openAPISpec() map[string]interface{} {
 						"ok":    map[string]string{"type": "boolean"},
 						"error": map[string]string{"type": "string"},
 					},
+				},
+				"CoddyReasoningLevelsResponse": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":    map[string]string{"type": "boolean"},
+						"error": map[string]string{"type": "string"},
+						"model": map[string]string{"type": "string"},
+						"levels": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Levels detected for this model id, in the order the composer offers them. Empty for a model without reasoning support.",
+						},
+						"detected": map[string]interface{}{
+							"type":        "boolean",
+							"description": "False when the model id matches no reasoning family, so the UI can say so instead of writing an override.",
+						},
+					},
+					"required": []string{"ok", "levels", "detected"},
+				},
+				"CodexAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"source": map[string]interface{}{
+							"type": "string", "enum": []string{"coddy", "codex_cli"},
+						},
+						"account_id": map[string]string{"type": "string"},
+					},
+					"required": []string{"connected"},
+				},
+				"CodexAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id":         map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{"type": "string", "format": "uri"},
+						"user_code":        map[string]string{"type": "string"},
+						"status":           map[string]string{"type": "string", "example": "pending"},
+						"connected":        map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"CodexAuthDeviceStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"status": map[string]interface{}{
+							"type": "string", "enum": []string{"pending", "completed", "failed"},
+						},
+						"connected": map[string]string{"type": "boolean"},
+						"error":     map[string]string{"type": "string"},
+					},
+					"required": []string{"status", "connected"},
+				},
+				"NeuralDeepAuthDeviceStartRequest": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"api_base": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"https://api.neuraldeep.ru/v1", "https://api.neuraldeep.tech/v1"},
+							"description": "Deployment to sign in against; decides which hub mints the key. Empty or absent: the saved provider row's `api_base`, else the default deployment.",
+						},
+					},
+				},
+				"NeuralDeepAuthDeviceStart": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"login_id": map[string]string{"type": "string"},
+						"verification_url": map[string]interface{}{
+							"type": "string", "format": "uri",
+							"description": "Hub portal page to open: the complete URI with the pre-filled code when the hub provides one, otherwise the plain verification URI (the complete form is optional in RFC 8628).",
+						},
+						"user_code": map[string]string{"type": "string"},
+						"status":    map[string]string{"type": "string", "example": "pending"},
+						"connected": map[string]string{"type": "boolean"},
+					},
+					"required": []string{"login_id", "verification_url", "user_code", "status", "connected"},
+				},
+				"ProviderUsageAnswer": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"ok":           map[string]interface{}{"type": "boolean"},
+						"unsupported":  map[string]interface{}{"type": "boolean", "description": "The provider type has no usage source, or the row's usage limits panel is switched off (then disabled is set too)."},
+						"disabled":     map[string]interface{}{"type": "boolean", "description": "The row's usage limits panel is switched off in config (providers[].usage_limits_panel: false); nothing is read for it. Always paired with unsupported."},
+						"provider":     map[string]interface{}{"type": "string", "description": "Provider row name, on the unsupported answer."},
+						"providerType": map[string]interface{}{"type": "string", "description": "Provider wire type, on the unsupported answer."},
+						"error":        map[string]interface{}{"type": "string", "description": "Failure kind of the latest read: unauthorized, unavailable, invalid."},
+						"detail":       map[string]interface{}{"type": "string", "description": "What went wrong when the read itself failed (a cancelled request, no snapshot); absent otherwise."},
+						"usage":        map[string]interface{}{"nullable": true, "allOf": []interface{}{map[string]interface{}{"$ref": "#/components/schemas/ProviderUsage"}}, "description": "The snapshot; null when a failed read has nothing stale to show."},
+					},
+				},
+				"ProviderUsage": map[string]interface{}{
+					"type":        "object",
+					"description": "The provider_usage session update: the account quota behind a provider row. Relative durations are corrected for the snapshot's age at delivery.",
+					"properties": map[string]interface{}{
+						"sessionUpdate":   map[string]interface{}{"type": "string", "enum": []string{"provider_usage"}},
+						"provider":        map[string]interface{}{"type": "string"},
+						"providerType":    map[string]interface{}{"type": "string"},
+						"observedAt":      map[string]interface{}{"type": "string", "description": "Hub timestamp of the counters, RFC3339."},
+						"fetchedAt":       map[string]interface{}{"type": "string", "description": "Local time of the read, RFC3339."},
+						"plan":            map[string]interface{}{"type": "string", "description": "Subscription tier: free, starter, pro."},
+						"keyName":         map[string]interface{}{"type": "string"},
+						"windows":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"$ref": "#/components/schemas/UsageWindow"}},
+						"rate":            map[string]interface{}{"type": "object", "properties": map[string]interface{}{"used": map[string]string{"type": "integer"}, "limit": map[string]string{"type": "integer"}, "remaining": map[string]string{"type": "integer"}, "resetInSec": map[string]string{"type": "integer"}}},
+						"cooldownSec":     map[string]interface{}{"type": "integer"},
+						"wallet":          map[string]interface{}{"type": "object", "properties": map[string]interface{}{"balanceRub": map[string]string{"type": "number"}, "spentRub30d": map[string]string{"type": "number"}}, "description": "The account's own rubles; the balance may be negative."},
+						"blocked":         map[string]interface{}{"type": "boolean", "description": "A chat request would be refused now."},
+						"blockers":        map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "session_exhausted, week_exhausted, rpm_exhausted, session_cooldown, abuse_cooldown, daily_capacity_exhausted, key_blocked, key_cap_blocked, wallet_empty, user_blocked."},
+						"retryAt":         map[string]interface{}{"type": "string"},
+						"retryInSec":      map[string]interface{}{"type": "integer"},
+						"unlimited":       map[string]interface{}{"type": "boolean", "description": "The key has no volume windows (wallet or bypass keys)."},
+						"unlimitedModels": map[string]interface{}{"type": "array", "items": map[string]string{"type": "string"}, "description": "Upstream model ids that bypass the windows on a metered key."},
+						"stale":           map[string]interface{}{"type": "boolean"},
+						"error":           map[string]interface{}{"type": "string"},
+						"unsupported":     map[string]interface{}{"type": "boolean"},
+						"disabled":        map[string]interface{}{"type": "boolean", "description": "The row's usage limits panel is switched off (providers[].usage_limits_panel: false); paired with unsupported."},
+						"refreshPending":  map[string]interface{}{"type": "boolean"},
+						"refreshInSec":    map[string]interface{}{"type": "integer"},
+						"resuming":        map[string]interface{}{"type": "boolean", "description": "Sent by the agent on the turn stream while it waits for a hit limit to lift (agent.wait_for_limit_reset); the next turn-end read replaces it."},
+					},
+				},
+				"UsageWindow": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":          map[string]interface{}{"type": "string", "enum": []string{"session", "week", "day"}},
+						"label":       map[string]interface{}{"type": "string"},
+						"used":        map[string]interface{}{"type": "integer"},
+						"limit":       map[string]interface{}{"type": "integer"},
+						"remaining":   map[string]interface{}{"type": "integer"},
+						"usedPercent": map[string]interface{}{"type": "number"},
+						"exhausted":   map[string]interface{}{"type": "boolean"},
+						"resetsAt":    map[string]interface{}{"type": "string"},
+						"resetInSec":  map[string]interface{}{"type": "integer"},
+					},
+				},
+				"NeuralDeepAuthStatus": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"connected": map[string]string{"type": "boolean"},
+						"masked": map[string]interface{}{
+							"type":        "string",
+							"description": "Display mask of the stored key (`sk-ab…1234`); never the key itself.",
+						},
+						"key_name": map[string]string{"type": "string"},
+						"source": map[string]interface{}{
+							"type":        "string",
+							"enum":        []string{"oauth", "api_key", "api_key_command", "env", "none"},
+							"description": "Credential requests actually use. An explicit api_key / command / env var wins over a stored hub login.",
+						},
+						"hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub that issued the stored login, as recorded in the credential file. Omitted when there is no stored login.",
+						},
+						"endpoint_hub": map[string]interface{}{
+							"type":        "string",
+							"format":      "uri",
+							"description": "Hub a sign-in for the queried endpoint (`api_base`, default: the saved row's) would use. Differs from `hub` when the stored login belongs to the other deployment.",
+						},
+					},
+					"required": []string{"connected", "source"},
 				},
 				"ModelList": map[string]interface{}{
 					"type": "object",
@@ -1242,7 +2515,7 @@ func openAPISpec() map[string]interface{} {
 									"reasoning_levels": map[string]interface{}{
 										"type":        "array",
 										"items":       map[string]string{"type": "string"},
-										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Omitted for non-reasoning models.",
+										"description": "Reasoning levels offered for this model (e.g. minimal, low, medium, high). Models served by a `type: codex` provider report `none` instead of `minimal`, which the Codex backend rejects. Omitted for non-reasoning models.",
 									},
 									"reasoning_default": map[string]string{
 										"type":        "string",
@@ -1281,6 +2554,12 @@ func openAPISpec() map[string]interface{} {
 							"type":        "string",
 							"description": "YAML `models[].model` selector persisted on assistant replies (Coddy extension).",
 						},
+						"files": map[string]interface{}{
+							"type":        "array",
+							"readOnly":    true,
+							"description": "Coddy transcript extension for uploaded files on a user row.",
+							"items":       map[string]interface{}{"$ref": "#/components/schemas/CoddyMessageFile"},
+						},
 						"tool_call_id": map[string]string{"type": "string"},
 						"name":         map[string]string{"type": "string"},
 						"compaction_summary": map[string]interface{}{
@@ -1290,12 +2569,24 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"role"},
 				},
+				"CoddyMessageFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name":      map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string"},
+						"preview_url": map[string]interface{}{
+							"type":        "string",
+							"description": "Session-scoped URL for a bounded PNG preview; present only when the backend persisted a decodable image thumbnail.",
+						},
+					},
+					"required": []string{"name", "mime_type"},
+				},
 				"ChatCompletionRequest": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"model": map[string]interface{}{
 							"type":        "string",
-							"description": "Any `id` from `GET /v1/models` (agent, plan, or `models[].model`).",
+							"description": "Any `id` from `GET /v1/models` (agent, plan, ask, or `models[].model`).",
 						},
 						"messages": map[string]interface{}{
 							"type":  "array",
@@ -1306,7 +2597,7 @@ func openAPISpec() map[string]interface{} {
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`. Not allowed for direct completion `model` values.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`. Not allowed for direct completion `model` values.",
 							"additionalProperties": true,
 						},
 					},
@@ -1357,17 +2648,17 @@ func openAPISpec() map[string]interface{} {
 						},
 						"metadata": map[string]interface{}{
 							"type":                 "object",
-							"description":          "Optional. For agent/plan only, `model` key selects `models[].model`.",
+							"description":          "Optional. For agent/plan/ask only, `model` key selects `models[].model`; `runPlanSlug` runs the named design plan (switches the session to agent) and is answered with **409** when `model` is `ask`.",
 							"additionalProperties": true,
 						},
 						"attachments": map[string]interface{}{
 							"type":        "array",
-							"description": "Allowed only when **model** is **`agent`** or **`plan`**. Hydrated UTF-8 file bodies from session **cwd** **path** fields.",
+							"description": "Allowed only when **model** is **`agent`**, **`plan`**, or **`ask`**. Hydrated text file bodies from session **cwd** **path** fields, converted to UTF-8 when the file uses another detected encoding.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesPromptAttachment"},
 						},
 						"inline_files": map[string]interface{}{
 							"type":        "array",
-							"description": "Supported for all modes. For **`agent`** / **`plan`**: each file is saved to `~/.coddy/sessions/<id>/assets/` with read-only permissions (0o444) and the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model: each entry becomes an image content part sent inline to the provider.",
+							"description": "Supported for all modes when the effective YAML model has **`multimodal: true`**. Entries sent for a non-multimodal model are ignored and never forwarded to its provider. Each accepted file is saved to `~/.coddy/sessions/<id>/assets/`; decodable images also get a bounded PNG thumbnail for transcript history. For **`agent`** / **`plan`** / **`ask`**, the model receives a `<coddy_session_assets>` annotation with the on-disk paths. For direct YAML model, each entry also becomes an image content part sent inline to the provider.",
 							"items":       map[string]interface{}{"$ref": "#/components/schemas/ResponsesInlineFile"},
 						},
 					},
@@ -1382,10 +2673,16 @@ func openAPISpec() map[string]interface{} {
 						},
 						"source": map[string]interface{}{
 							"type": "object",
+							"description": "How the attachment body is sourced. **`literal`** supplies it directly; **`start`**/**`end`** are byte offsets into the decoded file; " +
+								"**`startLine`**/**`endLine`** are a 1-based inclusive line range, which is what a ranged mention (**`@path:21-31`**) sends. " +
+								"A literal wins over byte offsets, which win over the line range; only a body that really is the line slice is labelled, so the model sees **`lines=\"21-31\"`** for a sliced file and no label for a literal or byte-offset body. " +
+								"A range the file cannot honour (zero, inverted, or starting past the last line) is answered with **400**; an end past the last line clamps.",
 							"properties": map[string]interface{}{
-								"literal": map[string]string{"type": "string"},
-								"start":   map[string]string{"type": "integer"},
-								"end":     map[string]string{"type": "integer"},
+								"literal":   map[string]string{"type": "string"},
+								"start":     map[string]string{"type": "integer"},
+								"end":       map[string]string{"type": "integer"},
+								"startLine": map[string]interface{}{"type": "integer", "minimum": 1},
+								"endLine":   map[string]interface{}{"type": "integer", "minimum": 1},
 							},
 						},
 					},
@@ -1489,6 +2786,22 @@ func openAPISpec() map[string]interface{} {
 					},
 					"required": []string{"object", "items", "total", "has_more", "page", "page_size"},
 				},
+				"CoddyWorkspaceFile": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object":    map[string]string{"type": "string", "example": "coddy.workspace_file"},
+						"path_rel":  map[string]string{"type": "string"},
+						"mime_type": map[string]string{"type": "string", "example": "text/plain; charset=utf-8"},
+						"lines": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "string"},
+							"description": "Display lines without their terminators.",
+						},
+						"total_lines": map[string]string{"type": "integer"},
+						"truncated":   map[string]string{"type": "boolean"},
+					},
+					"required": []string{"object", "path_rel", "lines", "total_lines", "truncated"},
+				},
 				"CoddyWorkspaceContext": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -1529,6 +2842,22 @@ func openAPISpec() map[string]interface{} {
 	return doc
 }
 
+// coddyConfigErrorResponse documents the flat {"ok":false,"error":...} body that
+// writeCoddyConfigErr emits for the /coddy/config routes, as opposed to the
+// OpenAI-style nested ErrorEnvelope used by the /v1 surface.
+func coddyConfigErrorResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"$ref": "#/components/schemas/CoddyConfigValidateResponse",
+				},
+			},
+		},
+	}
+}
+
 func errorResponseRef() map[string]interface{} {
 	return map[string]interface{}{
 		"description": "Error",
@@ -1539,6 +2868,43 @@ func errorResponseRef() map[string]interface{} {
 				},
 			},
 		},
+	}
+}
+
+func codexProviderNameParameter() map[string]interface{} {
+	return map[string]interface{}{
+		"name":        "name",
+		"in":          "path",
+		"required":    true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Codex provider name. Valid unsaved provider names are accepted by the OAuth routes.",
+	}
+}
+
+func jsonSchemaResponse(description, ref string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{"$ref": ref},
+			},
+		},
+	}
+}
+
+func mcpServerNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "MCP server name (no `__`, spaces, or path separators).",
+	}
+}
+
+func mcpToolNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "tool", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Tool name as advertised by the server.",
 	}
 }
 
@@ -1603,4 +2969,88 @@ func (s *Server) handleOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `inline; filename="openapi.json"`)
 	_, _ = w.Write(buf.Bytes())
+}
+
+// subagentNameParam is the {name} path parameter of the subagent trust routes.
+func subagentNameParam() map[string]interface{} {
+	return map[string]interface{}{
+		"name": "name", "in": "path", "required": true,
+		"schema":      map[string]string{"type": "string"},
+		"description": "Subagent definition name as listed by **GET /coddy/subagents**.",
+	}
+}
+
+// subagentTrustRequestBody is the optional body of the trust routes: the
+// workspace the receipt is written for.
+func subagentTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": false,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd": map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+					},
+				},
+			},
+		},
+	}
+}
+
+// hookTrustRequestBody is the body of the hooks trust routes.
+func hookTrustRequestBody() map[string]interface{} {
+	return map[string]interface{}{
+		"required": true,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"cwd":  map[string]string{"type": "string", "description": "Absolute workspace path. Defaults to the server's default cwd; a relative path is a **400**."},
+						"file": map[string]string{"type": "string", "description": "The file as **GET /coddy/hooks** names it (workspace-relative for project scope)."},
+					},
+					"required": []string{"file"},
+				},
+			},
+		},
+	}
+}
+
+// hookEntryResponse describes a 200 carrying one refreshed hooks catalog entry.
+func hookEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.hook_source"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/HookCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
+}
+
+// subagentEntryResponse describes a 200 carrying one refreshed catalog entry.
+func subagentEntryResponse(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"description": description,
+		"content": map[string]interface{}{
+			"application/json": map[string]interface{}{
+				"schema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"object": map[string]string{"type": "string", "example": "coddy.subagent"},
+						"item":   map[string]interface{}{"$ref": "#/components/schemas/SubagentCatalogEntry"},
+					},
+					"required": []string{"object", "item"},
+				},
+			},
+		},
+	}
 }

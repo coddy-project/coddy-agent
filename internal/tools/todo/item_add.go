@@ -40,7 +40,7 @@ func ItemAddTool() *tooling.Tool {
 				"required": []string{"content"},
 			},
 		},
-		Execute:           execItemAdd,
+		Execute: execItemAdd,
 	}
 }
 
