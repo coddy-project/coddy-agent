@@ -7,8 +7,13 @@ Mirrors ``examples/httpserver/http_e2e_skills_slash.py`` over stdio JSON-RPC:
    (the notification follows the ``session/new`` response, so the script reads past it).
 2. A ``session/prompt`` starting with ``/coddy_slash_demo`` yields assistant text containing ``DEMO_SKILL_TOKEN:z7k9-demo-slash``.
 3. A control turn must not repeat that token.
+4. Project-local skills follow the session workspace (coddy-project/coddy-agent#146): a second
+   ``session/new`` whose ``cwd`` is a folder carrying ``.coddy/skills/coddy_project_demo`` advertises
+   ``coddy_project_demo`` in its ``available_commands_update`` although the process was started with
+   another ``--cwd``, the first session does not, and a ``/coddy_project_demo`` prompt on the project
+   session echoes ``PROJECT_SKILL_TOKEN:q4m2-project-slash``.
 
-Uses a disposable ``CODDY_HOME`` with ``examples/skills_fixture/coddy_slash_demo`` copied under ``skills_fixture/`` (same layout as the HTTP harness).
+Uses a disposable ``CODDY_HOME`` with ``examples/skills_fixture/coddy_slash_demo`` copied under ``skills_fixture/`` (same layout as the HTTP harness) and a disposable project folder with ``examples/skills_fixture/coddy_project_demo`` under ``.coddy/skills/``.
 
 Environment: ``CODDY_BIN``, ``SESSION_ROOT`` (optional).
 """
@@ -27,6 +32,8 @@ from typing import Any
 
 FIXTURE_SLASH_NAME = "coddy_slash_demo"
 VERIFICATION_TOKEN = "DEMO_SKILL_TOKEN:z7k9-demo-slash"
+PROJECT_SLASH_NAME = "coddy_project_demo"
+PROJECT_TOKEN = "PROJECT_SKILL_TOKEN:q4m2-project-slash"
 
 
 def jd(obj: dict[str, Any]) -> str:
@@ -195,6 +202,15 @@ def main() -> int:
     fixture_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(fixture_src, fixture_dst, dirs_exist_ok=True)
 
+    # A second workspace with a project-local skill under .coddy/skills; the
+    # process is started with --cwd pointing at `work`, not here.
+    project = tempfile.mkdtemp(prefix="coddy-acp-skills-project-")
+    shutil.copytree(
+        examples_dir / "skills_fixture" / PROJECT_SLASH_NAME,
+        Path(project) / ".coddy" / "skills" / PROJECT_SLASH_NAME,
+        dirs_exist_ok=True,
+    )
+
     raw = src_cfg.read_text(encoding="utf-8")
     raw = raw.replace("__E2E_LOG_PATH__", str(log_f.resolve()))
     cfg_path = Path(home) / "config.resolved.yaml"
@@ -273,6 +289,9 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+        if PROJECT_SLASH_NAME in names:
+            print("project skill leaked into the work session catalog", sorted(names), file=sys.stderr)
+            return 1
 
         r_mode, _ = rpc_call(proc, "session/set_mode", {"sessionId": sid, "modeId": "agent"}, nid)
         if "error" in r_mode:
@@ -319,6 +338,51 @@ def main() -> int:
             )
             return 1
 
+        # Project-local skills follow the session workspace, not the process --cwd.
+        r2, bl2 = rpc_call(proc, "session/new", {"cwd": project, "mcpServers": []}, nid)
+        if "error" in r2:
+            print("project session/new error:", jd(r2), file=sys.stderr)
+            return 1
+        psid = (r2.get("result") or {}).get("sessionId")
+        if not psid:
+            print("missing project sessionId", jd(r2), file=sys.stderr)
+            return 1
+        bl2 += wait_for_session_update(proc, "available_commands_update")
+        pnames = slash_command_names(bl2)
+        if PROJECT_SLASH_NAME not in pnames or FIXTURE_SLASH_NAME not in pnames:
+            print(
+                "project session catalog missing",
+                PROJECT_SLASH_NAME,
+                "or",
+                FIXTURE_SLASH_NAME,
+                "got",
+                sorted(pnames),
+                file=sys.stderr,
+            )
+            return 1
+        r_pmode, _ = rpc_call(proc, "session/set_mode", {"sessionId": psid, "modeId": "agent"}, nid)
+        if "error" in r_pmode:
+            print("project session/set_mode error:", jd(r_pmode), file=sys.stderr)
+            return 1
+        pprompt = (
+            f"/{PROJECT_SLASH_NAME}\n\n"
+            "Follow the instructions from the user-invoked slash skill for this turn only. "
+            "Reply in one short sentence and include the required verification token verbatim."
+        )
+        rpp, blpp = rpc_call(
+            proc,
+            "session/prompt",
+            {"sessionId": psid, "prompt": [{"type": "text", "text": pprompt}]},
+            nid,
+        )
+        if "error" in rpp:
+            print("project session/prompt error:", jd(rpp), file=sys.stderr)
+            return 1
+        ptext = collect_assistant_text(blpp)
+        if PROJECT_TOKEN not in ptext:
+            print("model output missing project skill token", ptext[:800], file=sys.stderr)
+            return 1
+
         print("ok acp e2e skills slash", flush=True)
         return 0
     finally:
@@ -328,6 +392,7 @@ def main() -> int:
         except subprocess.TimeoutExpired:
             proc.kill()
         shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(project, ignore_errors=True)
         shutil.rmtree(home, ignore_errors=True)
         if os.path.isdir(sdir):
             shutil.rmtree(sdir, ignore_errors=True)

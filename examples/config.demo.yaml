@@ -35,6 +35,10 @@ skills:
   install_dir: "${CODDY_HOME}/skills_fixture"
   dirs:
     - "${CODDY_HOME}/skills_fixture"
+    # Session workspace, not the server process cwd: the skills e2e harnesses
+    # anchor a session on a folder that carries .coddy/skills/ and expect its
+    # skill in that session's catalog (coddy-project/coddy-agent#146).
+    - "${CWD}/.coddy/skills"
 
 mcp_servers: []
 
