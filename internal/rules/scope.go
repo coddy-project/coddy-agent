@@ -35,21 +35,31 @@ func PathsUnderDir(dir string, paths []string) bool {
 	return false
 }
 
-// MatchScoped returns directory-scoped auto rules whose ScopeDir contains any
-// of paths. Glob-based and unscoped rules are ignored on purpose: callers that
-// feed tool-call paths would otherwise re-match the whole always-on set on
-// every single tool call.
+// MatchScoped returns the auto rules a set of tool-call paths brings into
+// play: directory-scoped rules whose ScopeDir contains one of paths, and glob
+// rules one of whose patterns matches one of paths (Claude Code loads a paths
+// rule when a matching file is read; Cursor auto-attaches on a matching file
+// in context). Rules with neither a scope nor globs are ignored on purpose:
+// they are on from the first turn, and callers that feed tool-call paths
+// would otherwise re-match that whole always-on set on every single call.
 func MatchScoped(catalog []*Rule, paths []string) []*Rule {
 	if len(paths) == 0 {
 		return nil
 	}
 	var out []*Rule
 	for _, r := range catalog {
-		if r == nil || r.ScopeDir == "" || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
+		if r == nil || r.ApplyMode != ApplyAuto || !r.AlwaysApply {
 			continue
 		}
-		if PathsUnderDir(r.ScopeDir, paths) {
-			out = append(out, r)
+		switch {
+		case r.ScopeDir != "":
+			if PathsUnderDir(r.ScopeDir, paths) {
+				out = append(out, r)
+			}
+		case len(r.Globs) > 0:
+			if matchesRuleGlobs(r, paths) {
+				out = append(out, r)
+			}
 		}
 	}
 	return out

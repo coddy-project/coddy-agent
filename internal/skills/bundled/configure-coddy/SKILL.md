@@ -52,7 +52,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `prompts` - system prompt template overrides (`agent_prompt`, `plan_prompt`, `ask_prompt` files inside `dir`);
 - `instructions` - project instruction files (AGENTS.md chain);
 - `skills` - discovery dirs, remote sources, `auto_discovery` for the model-driven `load_skill` tool;
-- `rules` - project rules discovery;
+- `rules` - project rules discovery: `auto_discover` scans `.coddy/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules` and nested `AGENTS.md` under the session workspace; `systems` narrows that to some of `coddy`, `agents-dir`, `cursor`, `claude`, `codex`, `agents`;
 - `mcp_servers` - MCP servers started per session (stdio command, args, env, disabled flag);
 - `mcp` - trust policy for project-local `.coddy/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;

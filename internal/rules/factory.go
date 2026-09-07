@@ -10,13 +10,16 @@ type Factory struct {
 	providers []Provider
 }
 
-// DefaultFactory returns built-in providers in discover precedence order (lowest wins on dedupe).
+// DefaultFactory returns built-in providers in discover precedence order
+// (later wins on dedupe): coddy's own folder, then the tool-neutral
+// .agents/rules, then the other tools' folders, then nested AGENTS.md.
 func DefaultFactory() *Factory {
 	return NewFactory(
 		&AgentsProvider{},
 		NewMarkdownProvider(SourceCodex, ".codex/rules"),
 		NewMarkdownProvider(SourceClaude, ".claude/rules"),
 		NewMarkdownProvider(SourceCursor, ".cursor/rules"),
+		NewMarkdownProvider(SourceAgentsDir, ".agents/rules"),
 		NewMarkdownProvider(SourceCoddy, ".coddy/rules"),
 	)
 }
@@ -43,6 +46,8 @@ func (f *Factory) Providers() []Provider {
 func sourceRank(s Source) int {
 	switch s {
 	case SourceCoddy:
+		return 6
+	case SourceAgentsDir:
 		return 5
 	case SourceCursor:
 		return 4
@@ -57,12 +62,18 @@ func sourceRank(s Source) int {
 	}
 }
 
-// Discover loads rules from every provider whose root exists under cwd.
+// Discover loads rules from every provider whose root exists under cwd. Every
+// rule is anchored at the absolute cwd (Rule.Root) so its globs can be
+// matched against project-relative paths.
 func (f *Factory) Discover(cwd string, systems []Source) ([]*Rule, error) {
 	allowAll := len(systems) == 0
 	allowed := make(map[Source]bool, len(systems))
 	for _, s := range systems {
 		allowed[s] = true
+	}
+	projectRoot, err := filepath.Abs(cwd)
+	if err != nil {
+		projectRoot = cwd
 	}
 
 	byKey := make(map[string]*Rule)
@@ -79,6 +90,9 @@ func (f *Factory) Discover(cwd string, systems []Source) ([]*Rule, error) {
 			key := r.DedupeKey()
 			if key == "" {
 				continue
+			}
+			if r.Root == "" {
+				r.Root = projectRoot
 			}
 			prev, ok := byKey[key]
 			if !ok || sourceRank(r.Source) > sourceRank(prev.Source) {
