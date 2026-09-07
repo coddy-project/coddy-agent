@@ -5,13 +5,17 @@ package swarm
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -377,4 +381,190 @@ func TestRegistryIsSafeUnderConcurrentUse(t *testing.T) {
 	if r.Len() != 4 {
 		t.Fatalf("registry holds %d nodes, want 4", r.Len())
 	}
+}
+
+// ---- mount edges ----
+
+func TestMountAllowsOnlyTheDataPlane(t *testing.T) {
+	carried := []string{
+		"/v1/models",
+		"/v1/responses",
+		"/coddy/sessions",
+		"/coddy/sessions/abc/messages",
+		"/coddy/hooks",       // a route that did not exist when the relay was written
+		"/coddy/subagents/x", // likewise
+		"/swarm/info",
+		"/swarm/nodes",
+		"/swarm/sessions",
+		"/swarm/topology",
+		"/swarm/nodes/inner/coddy/sessions", // a further hop
+	}
+	for _, path := range carried {
+		if !mountAllows(path) {
+			t.Errorf("mount should carry %q", path)
+		}
+	}
+	refused := []string{
+		"/swarm/register",
+		"/swarm/tunnel",
+		"/swarm/register/anything",
+		"/",
+		"/docs",
+		"/openapi.yaml",
+		"/metrics",
+	}
+	for _, path := range refused {
+		if mountAllows(path) {
+			t.Errorf("mount should refuse %q", path)
+		}
+	}
+}
+
+func TestMountRemainderRejectsAmbiguousPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want string
+		ok   bool
+	}{
+		{"plain", "/swarm/nodes/nas02/coddy/sessions", "/coddy/sessions", true},
+		{"root", "/swarm/nodes/nas02", "/", true},
+		{"trailing slash", "/swarm/nodes/nas02/", "/", true},
+		{"encoded space survives", "/swarm/nodes/nas02/coddy/x%20y", "/coddy/x%20y", true},
+		{"encoded separator", "/swarm/nodes/nas02/coddy/a%2Fb", "", false},
+		{"encoded backslash", "/swarm/nodes/nas02/coddy/a%5Cb", "", false},
+		{"dot segment", "/swarm/nodes/nas02/coddy/../swarm/register", "", false},
+		{"single dot", "/swarm/nodes/nas02/./coddy", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			got, err := mountRemainder(req, "nas02")
+			if !tc.ok {
+				if err == nil {
+					t.Fatalf("mountRemainder(%q) = %q, want an error", tc.path, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("mountRemainder(%q): %v", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("mountRemainder(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// Whatever a client sends, the node must see the relay's view of who is
+// calling, not the client's claims about itself.
+func TestMountScrubsClientSuppliedHeaders(t *testing.T) {
+	var seen http.Header
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Clone()
+		seen.Set("X-Seen-Query", r.URL.RawQuery)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer node.Close()
+
+	relay, ts := mountTestRelay(t, node.URL)
+	defer ts.Close()
+	_ = relay
+
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/swarm/nodes/nas02/coddy/sessions?access_token=client-secret&keep=yes", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer client-secret")
+	req.Header.Set("Cookie", "session=mine")
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+	req.Header.Set("X-Real-IP", "10.0.0.1")
+	req.Header.Set("Forwarded", "for=10.0.0.1")
+	req.Header.Set("X-Coddy-Swarm-Path", "forged-uuid")
+	req.Header.Set("X-Coddy-Session-ID", "sess_keep")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+
+	if got := seen.Get("Authorization"); got != "Bearer node-secret" {
+		t.Fatalf("node saw authorization %q, want the node's own credential", got)
+	}
+	for _, h := range []string{"Cookie", "X-Forwarded-For", "X-Real-Ip", "Forwarded", "X-Coddy-Swarm-Path"} {
+		if v := seen.Get(h); v != "" {
+			t.Errorf("header %s reached the node as %q", h, v)
+		}
+	}
+	if got := seen.Get("X-Coddy-Session-ID"); got != "sess_keep" {
+		t.Errorf("a legitimate header was dropped: X-Coddy-Session-ID = %q", got)
+	}
+	query := seen.Get("X-Seen-Query")
+	if strings.Contains(query, "access_token") {
+		t.Errorf("the relay's own credential reached the node's query string: %q", query)
+	}
+	if !strings.Contains(query, "keep=yes") {
+		t.Errorf("an ordinary query parameter was lost: %q", query)
+	}
+}
+
+// A node that is registered but unreachable has to be reported as that, naming
+// the hop, rather than as an unattributed gateway failure.
+func TestMountReportsAnUnreachableNodeByName(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := dead.URL
+	dead.Close() // nothing listens there any more
+
+	_, ts := mountTestRelay(t, url)
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/swarm/nodes/nas02/coddy/sessions", nil)
+	req.Header.Set("Authorization", "Bearer client-secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status %d, want 502, body %s", res.StatusCode, body)
+	}
+	var wrap struct {
+		Error struct {
+			Node   string `json:"node"`
+			Reason string `json:"reason"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &wrap); err != nil {
+		t.Fatalf("decode: %v (%s)", err, body)
+	}
+	if wrap.Error.Node != "nas02" {
+		t.Fatalf("the failure does not name the hop: %s", body)
+	}
+	if wrap.Error.Reason == "" {
+		t.Fatalf("the failure carries no reason: %s", body)
+	}
+}
+
+// mountTestRelay builds a relay holding one direct node at nodeURL.
+func mountTestRelay(t *testing.T, nodeURL string) (*Server, *httptest.Server) {
+	t.Helper()
+	cfg := &config.Config{}
+	cfg.Swarm.AuthToken = "client-secret"
+	cfg.Swarm.PairingTokens = []string{"pair-secret"}
+	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.registry.Register(swarmdto.RegisterRequest{
+		Name:         "nas02",
+		Kind:         swarmdto.KindAgent,
+		Transport:    swarmdto.TransportDirect,
+		AdvertiseURL: nodeURL,
+		InstanceUUID: "uuid-nas02",
+		Token:        "node-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return srv, httptest.NewServer(srv.Handler())
 }
