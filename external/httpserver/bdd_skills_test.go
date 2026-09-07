@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cucumber/godog"
 
@@ -422,7 +423,6 @@ type skCWDFeatureState struct {
 	sessionID  string
 	status     int
 	body       map[string]interface{}
-	prevHOME   string
 	turnSkills []string
 	mu         sync.Mutex
 }
@@ -454,11 +454,6 @@ func (s *skCWDFeatureState) close() {
 		s.srv.Drain()
 		s.srv = nil
 	}
-	if s.prevHOME != "" {
-		_ = os.Setenv("CODDY_HOME", s.prevHOME)
-	} else {
-		_ = os.Unsetenv("CODDY_HOME")
-	}
 	if s.root != "" {
 		_ = os.RemoveAll(s.root)
 		s.root = ""
@@ -488,11 +483,7 @@ func (s *skCWDFeatureState) projectWithLocalSkill(project, skill string) error {
 }
 
 func (s *skCWDFeatureState) startServerOutsideProject() error {
-	if err := os.MkdirAll(filepath.Join(s.home, "memory"), 0o755); err != nil {
-		return err
-	}
-	s.prevHOME = os.Getenv("CODDY_HOME")
-	if err := os.Setenv("CODDY_HOME", s.home); err != nil {
+	if err := os.MkdirAll(s.home, 0o755); err != nil {
 		return err
 	}
 	cfgPath := filepath.Join(s.home, "config.yaml")
@@ -575,7 +566,7 @@ func (s *skCWDFeatureState) sessionAnchoredOnProject(project string) error {
 	if !ok {
 		return fmt.Errorf("unknown project %q", project)
 	}
-	s.sessionID = fmt.Sprintf("sess_%s", strings.ReplaceAll(filepath.Base(s.root), "coddy-bdd-skills-cwd-", ""))
+	s.sessionID = fmt.Sprintf("sess_%x", time.Now().UnixNano())
 	if err := s.do(http.MethodPost, "/coddy/sessions/"+s.sessionID+"/workspace", map[string]interface{}{"path": dir}, false); err != nil {
 		return err
 	}

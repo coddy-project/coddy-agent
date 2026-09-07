@@ -247,7 +247,7 @@
       "properties": {
         "dirs": {
           "type": "array",
-          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} and ${CWD} expand at runtime.",
+          "description": "Search paths; later entries win on name conflicts. Defaults (lowest to highest priority): ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills. ${CODDY_HOME} expands when the file is loaded; ${CWD} stays in the entry and expands per session against that session's workspace.",
           "default": [
             "~/.agents/skills",
             "${CODDY_HOME}/skills",

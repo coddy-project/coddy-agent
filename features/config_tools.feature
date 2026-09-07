@@ -87,6 +87,16 @@ Feature: Agent-managed Coddy configuration
     And config path "skills.dirs.0" equals "/opt/coddy/skills"
     And config path "skills.dirs.1" equals "/home/dev/.agents/skills"
 
+  Scenario: Register the session workspace skills directory
+    When the agent stages config commands:
+      """
+      add_list skills.dirs=${CWD}/.agents/skills
+      """
+    And the agent commits the staged config
+    Then the commit succeeds and reports the applied commands
+    And config path "skills.dirs.1" equals "${CWD}/.agents/skills"
+    And the reloaded config keeps the skills directory "${CWD}/.agents/skills" for the session
+
   Scenario: Revert discards pending commands without applying them
     When the agent stages config commands:
       """

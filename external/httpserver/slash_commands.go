@@ -16,6 +16,9 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 )
 
+// slashListCacheEntry caches one skill catalog per resolved workspace cwd
+// (not per session): two sessions rooted in the same folder share it, and the
+// signature over the expanded skill directories invalidates it on change.
 type slashListCacheEntry struct {
 	signature string
 	sums      []skills.SkillSummary
