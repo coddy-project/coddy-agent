@@ -63,7 +63,7 @@ func (s *Server) coddyWorkspaceFileGet(w http.ResponseWriter, r *http.Request) {
 		maxLines = n
 	}
 
-	cwdAbs, ok := s.resolveSkillsCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

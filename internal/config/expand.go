@@ -37,7 +37,9 @@ const (
 // references are expanded, while ${CWD} survives verbatim. Per-session paths
 // (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers) resolve
 // it against the workspace of the session that uses them; the process-scoped
-// directories expand it against Paths.CWD in applyDefaults.
+// directories expand it against Paths.CWD in applyDefaults. A leading ~ inside
+// a value is left to those consumers as well, as it always was: the previous
+// body-level pass only looked at the first byte of the whole document.
 func expandConfigBody(s string, p Paths) string {
 	s = strings.ReplaceAll(s, "${CODDY_HOME}", yamlSafePath(p.Home))
 	return expandEnvEscaped(s)

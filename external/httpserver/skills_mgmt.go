@@ -50,7 +50,7 @@ func (s *Server) coddySkillsGet(w http.ResponseWriter, r *http.Request) {
 	installDir := cfg.Skills.ManagedDir(cfg.Paths.Home)
 	loader := skills.NewLoader(cfg.Skills.Dirs)
 
-	cwd, ok := s.resolveSkillsCWD(w, r)
+	cwd, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

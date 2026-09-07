@@ -68,12 +68,13 @@ func (s *Server) listSkillSummariesCached(cwdAbs string) ([]skills.SkillSummary,
 	return sums, nil
 }
 
-// resolveSkillsCWD picks the workspace that ${CWD} in skills.dirs resolves
-// against for a skill listing: the cwd of the session named by
-// X-Coddy-Session-ID (a persisted session is loaded on demand), or the server
-// default cwd without the header. It writes the error response itself and
-// reports false when the request cannot be served.
-func (s *Server) resolveSkillsCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
+// resolveSessionCWD picks the workspace a cwd-scoped listing describes (skills,
+// slash commands, workspace context and files): the cwd of the session named
+// by X-Coddy-Session-ID, loading a persisted session on demand, or the server
+// default cwd without the header. A malformed id is answered with 400 and an
+// unknown session with 404; the function writes that response itself and
+// reports false so the handler returns.
+func (s *Server) resolveSessionCWD(w http.ResponseWriter, r *http.Request) (string, bool) {
 	sid := strings.TrimSpace(r.Header.Get("X-Coddy-Session-ID"))
 	if sid == "" {
 		cwd, err := session.EffectiveSessionCWD("", s.defaultCWD)
@@ -141,7 +142,7 @@ func (s *Server) coddySlashCommandsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cwdAbs, ok := s.resolveSkillsCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}

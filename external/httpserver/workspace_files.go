@@ -143,7 +143,7 @@ func (s *Server) coddyWorkspaceFilesGet(w http.ResponseWriter, r *http.Request) 
 		includeDirs = true
 	}
 
-	cwdAbs, ok := s.resolveSkillsCWD(w, r)
+	cwdAbs, ok := s.resolveSessionCWD(w, r)
 	if !ok {
 		return
 	}
