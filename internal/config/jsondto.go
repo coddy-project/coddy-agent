@@ -76,6 +76,9 @@ type ProviderJSON struct {
 	APIKeyCommand string `json:"api_key_command,omitempty"`
 	Proxy         string `json:"proxy,omitempty"`
 	TimeoutMS     int    `json:"timeout_ms,omitempty"`
+	// UsageLimitsPanel keeps the three states of the YAML key: absent (on),
+	// true, false. omitempty leaves an unset switch out of the document.
+	UsageLimitsPanel *bool `json:"usage_limits_panel,omitempty"`
 }
 
 // ModelJSON mirrors ModelEntry for JSON APIs.
@@ -303,7 +306,10 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out := &ConfigJSON{}
 	for _, p := range c.Providers {
-		out.Providers = append(out.Providers, ProviderJSON(p))
+		pj := ProviderJSON(p)
+		// Hand the DTO its own copy of the pointer field, as the models do.
+		pj.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
+		out.Providers = append(out.Providers, pj)
 	}
 	for _, m := range c.Models {
 		mj := ModelJSON(m)
@@ -462,7 +468,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		return cfg
 	}
 	for _, p := range j.Providers {
-		cfg.Providers = append(cfg.Providers, ProviderConfig(p))
+		pc := ProviderConfig(p)
+		pc.UsageLimitsPanel = cloneBoolPtr(p.UsageLimitsPanel)
+		cfg.Providers = append(cfg.Providers, pc)
 	}
 	for _, m := range j.Models {
 		me := ModelEntry(m)

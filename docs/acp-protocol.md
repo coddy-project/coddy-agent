@@ -495,8 +495,9 @@ define; a client that ignores unknown kinds keeps working.
 - **`provider_usage`**: the account quota behind the session's model
   provider, so a client can draw a status bar like the console's third footer
   line. Sent at session ready and after every turn (never for a subagent
-  child), once the provider has a usage source; today only `neuraldeep` has
-  one (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
+  child), once the provider has a usage source and the row's panel is on
+  (`providers[].usage_limits_panel`, default true); today only `neuraldeep`
+  has a source (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
   and cached by the manager (20 s, a 15 s floor between reads); relative
   durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
   the snapshot's age when it is delivered. No dollar figure and no credential
@@ -544,7 +545,9 @@ previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
 except a rejected key: `error: unauthorized` comes without windows, since
 numbers read with a key the hub no longer honours are not the account's
 numbers any more. `unsupported: true` is answered by the REST route for a
-provider type without a source.
+provider type without a source, and together with `disabled: true` for a row
+whose usage limits panel is switched off (`providers[].usage_limits_panel:
+false`); such a row is never read and the update is never sent for it.
 
 ### `memory_phase` - Memory copilot phase boundary
 

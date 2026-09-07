@@ -31,16 +31,20 @@ const usageUnsupportedTTL = 5 * time.Minute
 type providerUsageAnswer struct {
 	OK           bool                     `json:"ok"`
 	Unsupported  bool                     `json:"unsupported"`
+	Disabled     bool                     `json:"disabled"`
 	Provider     string                   `json:"provider"`
 	ProviderType string                   `json:"providerType"`
 	Error        string                   `json:"error"`
 	Usage        *acp.ProviderUsageUpdate `json:"usage"`
 }
 
-// usageUnsupportedMark remembers an unsupported row until it expires.
+// usageUnsupportedMark remembers an unsupported row until it expires;
+// disabled says the row's panel is switched off on the server rather than
+// the type having no source, so /usage can name the switch.
 type usageUnsupportedMark struct {
 	until        time.Time
 	providerType string
+	disabled     bool
 }
 
 // usageState is the per-handler cache of unsupported providers, the closed
@@ -80,7 +84,7 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 	h.usageMu.Lock()
 	if mark, ok := h.usageUnsupported[name]; ok && !refresh && time.Now().Before(mark.until) {
 		h.usageMu.Unlock()
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: mark.providerType, Unsupported: true}, nil
+		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: mark.providerType, Unsupported: true, Disabled: mark.disabled}, nil
 	}
 	h.usageMu.Unlock()
 
@@ -97,13 +101,13 @@ func (h *Handler) ProviderUsage(ctx context.Context, name string, refresh bool) 
 		if h.usageUnsupported == nil {
 			h.usageUnsupported = make(map[string]usageUnsupportedMark)
 		}
-		h.usageUnsupported[name] = usageUnsupportedMark{until: time.Now().Add(usageUnsupportedTTL), providerType: answer.ProviderType}
+		h.usageUnsupported[name] = usageUnsupportedMark{until: time.Now().Add(usageUnsupportedTTL), providerType: answer.ProviderType, disabled: answer.Disabled}
 	} else {
 		delete(h.usageUnsupported, name)
 	}
 	h.usageMu.Unlock()
 	if answer.Unsupported {
-		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: answer.ProviderType, Unsupported: true}, nil
+		return &acp.ProviderUsageUpdate{SessionUpdate: acp.UpdateTypeProviderUsage, Provider: name, ProviderType: answer.ProviderType, Unsupported: true, Disabled: answer.Disabled}, nil
 	}
 	if answer.Usage == nil {
 		if answer.Error != "" {
@@ -171,7 +175,10 @@ func (h *Handler) pullProviderUsage(ctx context.Context, sessionID string, refre
 		h.log.Debug("remote provider usage", "session", sessionID, "error", err)
 		return
 	}
-	if u == nil || u.Unsupported || h.usageIsClosed() {
+	// A type without a source stays silent, as before; a row whose panel the
+	// server switched off is forwarded, so the console takes a stale line
+	// down (its own reads do the same for the local backend).
+	if u == nil || (u.Unsupported && !u.Disabled) || h.usageIsClosed() {
 		return
 	}
 	if sender := h.currentSender(); sender != nil {

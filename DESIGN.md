@@ -423,7 +423,9 @@ popover, and a banner speaks up only when something needs the user.
   **`data-testid="context-usage"`**) is the last block of the context
   popover (`ContextBreakdownPopover.tsx`, floating on a wide shell, a bottom
   sheet on a stacked one), rendered only when the selected model's provider
-  reports usage. A head row names the provider and plan (`NeuralDeep · Pro`, the hub's tier id with a capital)
+  reports usage (its row keeps the **Usage limits panel** switch on,
+  `providers[].usage_limits_panel`; off, the section and the banner stay
+  away and nothing is read). A head row names the provider and plan (`NeuralDeep · Pro`, the hub's tier id with a capital)
   and, when there is one, a **note** on the right (**`.context-usage-note`**):
   `Usage limit reached · resets 20:59` or the cause of a block no clock lifts
   (**error** tone), `Auto-resuming at 20:59` while the agent waits for the

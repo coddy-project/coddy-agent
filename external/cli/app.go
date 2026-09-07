@@ -773,7 +773,7 @@ func (a *App) setModel(id string) {
 		if provider := usageProviderOf(id); provider != "" {
 			ctx, cancel := context.WithTimeout(a.workCtx, 30*time.Second)
 			defer cancel()
-			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, false); err == nil && u != nil && !u.Unsupported {
+			if u, err := a.mgr.ProviderUsageForSession(ctx, sessionID, provider, false); err == nil && u != nil {
 				_ = a.Sender().SendSessionUpdate(sessionID, *u)
 			}
 		}

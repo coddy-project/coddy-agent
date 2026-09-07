@@ -134,14 +134,31 @@ func neuralDeepUsagePayload(used int) string {
 }
 
 func (s *neuralDeepUsageBDDState) givenServerWithProviderLoginAndLimits() error {
+	return s.buildServer(true)
+}
+
+// givenServerWithPanelOff is the same server with the neuraldeep row's usage
+// limits panel switched off (providers[].usage_limits_panel: false).
+func (s *neuralDeepUsageBDDState) givenServerWithPanelOff() error {
+	return s.buildServer(false)
+}
+
+// buildServer assembles the manager and the HTTP server; panel says whether
+// the neuraldeep row keeps its usage limits panel on.
+func (s *neuralDeepUsageBDDState) buildServer(panel bool) error {
 	if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(s.home, "neuraldeep"), neuralDeepUsageBDDKey, "https://hub.bdd.invalid", llm.NeuralDeepClientID, "coddy"); err != nil {
 		return err
 	}
 	noAuto := false
+	neuraldeep := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
+	if !panel {
+		off := false
+		neuraldeep.UsageLimitsPanel = &off
+	}
 	cfg := &config.Config{
 		Paths: config.Paths{Home: s.home, CWD: s.home, ConfigPath: filepath.Join(s.home, "config.yaml")},
 		Providers: []config.ProviderConfig{
-			{Name: "neuraldeep", Type: "neuraldeep"},
+			neuraldeep,
 			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{
@@ -459,6 +476,67 @@ func (s *neuralDeepUsageBDDState) thenAnswerMarksUnsupported() error {
 	return nil
 }
 
+// thenAnswerMarksUnsupportedBecauseDisabled: a row whose panel is switched
+// off answers like a provider without a source and says why.
+func (s *neuralDeepUsageBDDState) thenAnswerMarksUnsupportedBecauseDisabled() error {
+	s.mu.Lock()
+	body, status := s.lastBody, s.lastStatus
+	s.mu.Unlock()
+	var out struct {
+		OK           bool   `json:"ok"`
+		Unsupported  bool   `json:"unsupported"`
+		Disabled     bool   `json:"disabled"`
+		Provider     string `json:"provider"`
+		ProviderType string `json:"providerType"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return fmt.Errorf("body %s: %w", body, err)
+	}
+	if status != http.StatusOK || out.OK || !out.Unsupported || !out.Disabled || out.Provider != "neuraldeep" || out.ProviderType != "neuraldeep" {
+		return fmt.Errorf("status %d body %s, want ok:false unsupported:true disabled:true for the neuraldeep row", status, body)
+	}
+	return nil
+}
+
+// thenAPIWasNeverAsked joins the manager's fetches first, so a request still
+// in flight would be counted.
+func (s *neuralDeepUsageBDDState) thenAPIWasNeverAsked() error {
+	if err := s.mgr.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	n := len(s.auths)
+	s.mu.Unlock()
+	if n != 0 {
+		return fmt.Errorf("the stand-in limits API was asked %d times, want none", n)
+	}
+	return nil
+}
+
+// thenEventsStreamAnnouncesNoUsage drains the events stream for a moment
+// after the fetches are idle: a wrongly published snapshot would already be
+// on its way.
+func (s *neuralDeepUsageBDDState) thenEventsStreamAnnouncesNoUsage() error {
+	if s.events == nil {
+		return fmt.Errorf("no events subscription")
+	}
+	defer s.events.cancel()
+	if err := s.mgr.WaitProviderUsageIdle(3 * time.Second); err != nil {
+		return err
+	}
+	quiet := time.After(300 * time.Millisecond)
+	for {
+		select {
+		case frame := <-s.events.frames:
+			if strings.HasPrefix(frame, "event: provider_usage") {
+				return fmt.Errorf("the events stream announced usage for a row whose panel is switched off: %s", frame)
+			}
+		case <-quiet:
+			return nil
+		}
+	}
+}
+
 func initializeNeuralDeepUsageScenario(sc *godog.ScenarioContext) {
 	s := &neuralDeepUsageBDDState{}
 	sc.Before(func(ctx context.Context, _ *godog.Scenario) (context.Context, error) {
@@ -483,6 +561,10 @@ func initializeNeuralDeepUsageScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the neuraldeep provider usage over REST shows the session window at (\d+)%$`, s.thenUsageOverRESTShowsSession)
 	sc.Step(`^I read the usage of the "([^"]*)" provider over REST$`, s.whenReadUsageOf)
 	sc.Step(`^the usage answer marks the provider as unsupported$`, s.thenAnswerMarksUnsupported)
+	sc.Step(`^a coddy HTTP server with a neuraldeep provider whose usage limits panel is switched off, a stored hub login and a stand-in limits API$`, s.givenServerWithPanelOff)
+	sc.Step(`^the usage answer marks the provider as unsupported because its usage limits panel is switched off$`, s.thenAnswerMarksUnsupportedBecauseDisabled)
+	sc.Step(`^the stand-in limits API was never asked$`, s.thenAPIWasNeverAsked)
+	sc.Step(`^the server-wide events stream announces no usage$`, s.thenEventsStreamAnnouncesNoUsage)
 }
 
 func TestNeuralDeepUsageFeature(t *testing.T) {

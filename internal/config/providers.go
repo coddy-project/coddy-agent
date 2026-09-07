@@ -46,6 +46,22 @@ type ProviderConfig struct {
 	// so slow prompt processing on large contexts is never cut short; the turn
 	// context stays the only bound.
 	TimeoutMS int `yaml:"timeout_ms"`
+	// UsageLimitsPanel switches the account usage panel of this row: the
+	// console footer line and /usage, the web UI's usage section and banner,
+	// and the reads behind them (GET /v1/limits for a neuraldeep row). A nil
+	// pointer (key omitted) means on. An explicit false makes Coddy treat the
+	// row like a provider without a usage source: nothing is fetched and
+	// nothing is shown. Only rows whose type has a usage source are affected.
+	UsageLimitsPanel *bool `yaml:"usage_limits_panel,omitempty"`
+}
+
+// EffectiveUsageLimitsPanel reports whether the row's usage limits panel is
+// on. Only an explicit usage_limits_panel: false turns it off.
+func (p *ProviderConfig) EffectiveUsageLimitsPanel() bool {
+	if p == nil || p.UsageLimitsPanel == nil {
+		return true
+	}
+	return *p.UsageLimitsPanel
 }
 
 // ProviderAPIKeyEnvVarName returns the conventional environment variable name for this provider's

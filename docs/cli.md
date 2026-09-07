@@ -96,8 +96,11 @@ Top to bottom:
   numbers of the new provider (from the cache when warm), once a window's
   reset passes it asks for a fresh read, and when the backend deferred a
   refresh by its pacing floor the console reads the cache again when the
-  answer says so. Nothing polls otherwise. Design record:
-  `docs/plans/neuraldeep-usage.md`.
+  answer says so. Nothing polls otherwise. `usage_limits_panel: false` on
+  the provider row switches the panel off: the line stays hidden, `/usage`
+  says so, and no request goes to the hub for that row; a configuration
+  reload re-reads the cache, so a switched panel follows without a restart.
+  Design record: `docs/plans/neuraldeep-usage.md`.
 
 Rendering is pi's inline main-screen model: line-diff against the previous
 frame, synchronized output (`ESC[?2026h/l`), per-line SGR + OSC 8 reset, a
@@ -112,8 +115,9 @@ loaded skill (from the ACP available-commands catalog). Enter on a slash
 suggestion applies and submits in one stroke. `/export [md|html|json|jsonl]
 [path]` writes the transcript into the workspace (`docs/session-export.md`);
 under `--remote` the file lands on the server. `/usage` forces a fresh read
-of the active provider's account usage and prints the breakdown as a dim
-block: every window with a ten-cell bar, its percent, counters and reset
+of the active provider's account usage (on a row whose panel is switched
+off it names the `usage_limits_panel` switch instead) and prints the
+breakdown as a dim block: every window with a ten-cell bar, its percent, counters and reset
 time, the live requests-per-minute, the cooldown, the wallet with the last
 30 days of spend, a `refresh in Ns (pacing)` line when the hub's pacing
 floor deferred the read, and the snapshot's age. Under `--remote` the

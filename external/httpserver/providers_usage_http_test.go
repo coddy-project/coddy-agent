@@ -18,10 +18,12 @@ import (
 func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("NEURALDEEP_API_KEY", "")
+	off := false
 	cfg := &config.Config{
 		Paths: config.Paths{Home: home, CWD: home},
 		Providers: []config.ProviderConfig{
 			{Name: "neuraldeep", Type: "neuraldeep"},
+			{Name: "nd-quiet", Type: "neuraldeep", UsageLimitsPanel: &off},
 			{Name: "stub", Type: "openai", APIBase: "http://127.0.0.1:0", APIKey: "test"},
 		},
 		Models: []config.ModelEntry{{Model: "neuraldeep/qwen", MaxTokens: 100, MaxContextTokens: 1000}},
@@ -60,5 +62,13 @@ func TestProviderUsageRouteErrorBranches(t *testing.T) {
 	}
 	if status, out = get("/coddy/providers/stub/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["provider"] != "stub" || out["providerType"] != "openai" {
 		t.Fatalf("unsupported: status=%d body=%v", status, out)
+	}
+	if _, has := out["disabled"]; has {
+		t.Fatalf("a provider type without a source must not claim a switched-off panel: %v", out)
+	}
+	// A row whose usage limits panel is switched off answers like a provider
+	// without a source and says why, so a client can tell the two apart.
+	if status, out = get("/coddy/providers/nd-quiet/usage"); status != http.StatusOK || out["ok"] != false || out["unsupported"] != true || out["disabled"] != true || out["provider"] != "nd-quiet" || out["providerType"] != "neuraldeep" {
+		t.Fatalf("switched-off panel: status=%d body=%v", status, out)
 	}
 }

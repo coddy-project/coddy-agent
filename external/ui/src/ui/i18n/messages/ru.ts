@@ -154,6 +154,9 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.providers.timeout_ms.label": "Таймаут запроса, мс",
   "settings.schema.providers.timeout_ms.desc":
     "Необязательный предел на каждый HTTP-запрос к LLM этого провайдера, включая чтение потокового тела ответа. 0 (по умолчанию) — без клиентского таймаута.",
+  "settings.schema.providers.usage_limits_panel.label": "Панель лимитов",
+  "settings.schema.providers.usage_limits_panel.desc":
+    "Показывать расход лимитов аккаунта этого провайдера (секция и баннер здесь, строка футера и /usage в консоли) и читать для этого его эндпоинт лимитов. Выключите, чтобы скрыть панель и прекратить эти запросы для данной строки; влияет только на провайдеров с источником лимитов (neuraldeep).",
 
   "settings.schema.models.desc":
     "Именованные записи моделей, которые агент и UI могут выбирать; id ссылаются на префиксы провайдеров.",

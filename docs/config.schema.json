@@ -54,6 +54,11 @@
             "description": "Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout, so slow prompt processing on large contexts is never cut short.",
             "default": 0,
             "minimum": 0
+          },
+          "usage_limits_panel": {
+            "type": "boolean",
+            "description": "Show this provider's account usage panel (the console footer line and /usage, the usage section and banner in the web UI) and read the provider's usage endpoint for it (GET /v1/limits for type neuraldeep). Omit or true keeps the panel on; false hides it and stops those reads for this row. Only providers whose type has a usage source are affected.",
+            "default": true
           }
         }
       }

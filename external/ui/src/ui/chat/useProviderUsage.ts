@@ -90,6 +90,9 @@ export function useProviderUsage(params: {
         if (providerRef.current !== name) return;
         if (!answer.ok && "unsupported" in answer) {
           unsupportedRef.current.set(name, Date.now() + USAGE_UNSUPPORTED_TTL_MS);
+          // The row has no usage now (no source, or its usage limits panel
+          // switched off in config): a snapshot shown for it must go too.
+          setUsage((current) => (current && current.provider === name ? null : current));
           return;
         }
         if (seq !== seqRef.current) return;

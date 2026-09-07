@@ -231,3 +231,40 @@ func TestRemoteCloseDropsAPullAlreadyInFlight(t *testing.T) {
 		t.Fatalf("a pull after Close delivered %+v", got)
 	}
 }
+
+// A row whose usage limits panel is switched off on the server answers
+// unsupported with the disabled flag; the mark keeps the flag so the
+// console's /usage can name the switch without another round trip.
+func TestRemoteUsageKeepsTheDisabledFlagOfASwitchedOffPanel(t *testing.T) {
+	stand := newUsageRemoteStand(t)
+	stand.answers <- `{"ok":false,"unsupported":true,"disabled":true,"provider":"neuraldeep","providerType":"neuraldeep"}`
+	h, err := NewHandler(Options{BaseURL: stand.srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := h.ProviderUsage(context.Background(), "neuraldeep", false)
+	if err != nil || u == nil || !u.Unsupported || !u.Disabled || u.ProviderType != "neuraldeep" || stand.calls.Load() != 1 {
+		t.Fatalf("first: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
+	}
+	if u, err = h.ProviderUsage(context.Background(), "neuraldeep", false); err != nil || !u.Unsupported || !u.Disabled || stand.calls.Load() != 1 {
+		t.Fatalf("cached: err=%v u=%+v calls=%d", err, u, stand.calls.Load())
+	}
+	// The pull after a turn forwards the answer too, so a remote console
+	// takes a stale line down when the server switched the panel off.
+	stand.answers <- `{"ok":false,"unsupported":true,"disabled":true,"provider":"neuraldeep","providerType":"neuraldeep"}`
+	sender := &collectSender{}
+	h.SetServer(sender)
+	res, err := h.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.HandleSessionPromptWithSender(context.Background(), acp.SessionPromptParams{
+		SessionID: res.SessionID, Prompt: []acp.ContentBlock{{Type: "text", Text: "hi"}},
+	}, sender, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.WaitUsage(2 * time.Second)
+	if got := usageUpdates(sender); len(got) != 1 || !got[0].Unsupported || !got[0].Disabled || got[0].Provider != "neuraldeep" {
+		t.Fatalf("post-turn pull must forward the disabled answer: %+v", got)
+	}
+}

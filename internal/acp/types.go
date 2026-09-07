@@ -466,8 +466,15 @@ type ProviderUsageUpdate struct {
 	// Error is the failure kind of the latest fetch: "unauthorized",
 	// "unavailable", or "invalid".
 	Error string `json:"error,omitempty"`
-	// Unsupported marks a provider type that has no usage source.
+	// Unsupported marks a provider type that has no usage source, or a row
+	// whose usage limits panel is switched off (then Disabled says so).
 	Unsupported bool `json:"unsupported,omitempty"`
+	// Disabled marks a row whose type has a usage source but whose panel is
+	// switched off in config (providers[].usage_limits_panel: false): the
+	// row is never read and every surface stays quiet about it. Always
+	// paired with Unsupported, so a client that knows only the older flag
+	// hides the panel the same way.
+	Disabled bool `json:"disabled,omitempty"`
 	// RefreshPending says the snapshot is older than the turn that asked for
 	// it and a refresh is deferred by the hub's pacing floor; RefreshInSec is
 	// when it fires, so a client can schedule one follow-up read.

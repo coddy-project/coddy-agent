@@ -56,6 +56,10 @@ providers:
   #   type: neuraldeep
   #   # api_base: "https://api.neuraldeep.tech/v1"  # outside Russia
   #   api_key: "${NEURALDEEP_API_KEY}"
+  #   # The account usage panel (the console footer line and /usage, the usage
+  #   # section and banner in the web UI) is on by default and reads the hub's
+  #   # GET /v1/limits. false hides it and stops those reads for this row.
+  #   # usage_limits_panel: false
 
   # Codex ChatGPT OAuth. In the bundled web UI, add/select this provider and use
   # Sign In with ChatGPT. Coddy stores tokens under $CODDY_HOME/providers/codex/

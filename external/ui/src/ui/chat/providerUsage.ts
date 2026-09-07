@@ -40,6 +40,8 @@ export type ProviderUsage = {
   stale?: boolean;
   error?: string;
   unsupported?: boolean;
+  /** The row's usage limits panel is switched off in config (providers[].usage_limits_panel: false); paired with unsupported. */
+  disabled?: boolean;
   refreshPending?: boolean;
   refreshInSec?: number;
   /** The agent is waiting for the limit to lift and will re-issue the call (agent.wait_for_limit_reset). */

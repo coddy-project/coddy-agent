@@ -573,3 +573,66 @@ func TestUsageResumingUpdateDrivesTheStatusRowOnly(t *testing.T) {
 		t.Fatal("the turn's end must drop the pending resume note")
 	}
 }
+
+// /usage on a row whose usage limits panel is switched off names the switch
+// instead of pretending the provider has no usage source.
+func TestUsageReportNamesASwitchedOffPanel(t *testing.T) {
+	a := newTestApp(t)
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	text := func() string {
+		var b strings.Builder
+		for _, line := range a.chat.Render(200) {
+			b.WriteString(plain(line))
+			b.WriteString("\n")
+		}
+		return b.String()
+	}
+	a.applyUsageReport(usageReport{provider: "neuraldeep", update: &acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage, Provider: "neuraldeep", ProviderType: "neuraldeep", Unsupported: true, Disabled: true,
+	}})
+	if got := text(); !strings.Contains(got, "neuraldeep: usage limits panel is switched off") || !strings.Contains(got, "providers[].usage_limits_panel") {
+		t.Fatalf("transcript %q does not name the switch", got)
+	}
+	// A provider type without a source keeps its own wording.
+	a.applyUsageReport(usageReport{provider: "stub", update: &acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage, Provider: "stub", ProviderType: "openai", Unsupported: true,
+	}})
+	if got := text(); !strings.Contains(got, "stub reports no account usage (provider type openai)") {
+		t.Fatalf("transcript %q lost the no-source wording", got)
+	}
+}
+
+// An unsupported answer for the active provider (its panel switched off by
+// a config reload, or the row retyped) takes the stale line down and disarms
+// the reset timer; a foreign row's answer leaves the active line alone.
+func TestUnsupportedUpdateClearsTheActiveProvidersLine(t *testing.T) {
+	a := newTestApp(t)
+	a.foot.now = func() time.Time { return usageNow }
+	a.modelID = "neuraldeep/qwen3.8-27b"
+	a.sessionID = "s1"
+	a.foot.SetModel(a.modelID, "")
+	stopped := 0
+	a.usageAfterFn = func(time.Duration, func()) func() bool {
+		return func() bool { stopped++; return true }
+	}
+	a.applyProviderUsage(*usageFixtureUpdate())
+	if a.foot.Usage() == nil || a.usageTimer == nil {
+		t.Fatal("precondition: the line and its reset timer are up")
+	}
+	a.applyProviderUsage(acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage, Provider: "neuraldeep", ProviderType: "neuraldeep", Unsupported: true, Disabled: true,
+	})
+	if a.foot.Usage() != nil {
+		t.Fatal("an unsupported answer for the active provider must take the line down")
+	}
+	if a.usageTimer != nil || stopped != 1 {
+		t.Fatalf("the reset timer must be disarmed once, stopped=%d timer=%v", stopped, a.usageTimer != nil)
+	}
+	a.applyProviderUsage(*usageFixtureUpdate())
+	a.applyProviderUsage(acp.ProviderUsageUpdate{
+		SessionUpdate: acp.UpdateTypeProviderUsage, Provider: "nd-work", ProviderType: "neuraldeep", Unsupported: true,
+	})
+	if a.foot.Usage() == nil {
+		t.Fatal("a foreign row's unsupported answer must not blank the active line")
+	}
+}

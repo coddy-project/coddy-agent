@@ -500,6 +500,11 @@ Automated checks:
   a blocked key or account and a rate limit name their cause; while the
   agent waits for the reset it reads `Usage limit reached · Auto-resuming
   at 20:59`.
+- The row's **Usage limits panel** switch in Settings → LLM Providers
+  (`providers[].usage_limits_panel`, on by default) hides the section and
+  the banner and stops the reads behind them: the route then answers
+  `unsupported` with `disabled: true`, and the hook drops the snapshot it
+  showed for that row.
 - Data comes from **`GET /coddy/providers/{name}/usage`** (session open,
   model change, after each finished turn of the viewed session, one read
   after a window's reset, one cache read when the server deferred a refresh)

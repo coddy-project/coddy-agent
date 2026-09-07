@@ -192,3 +192,27 @@ test("an unsupported row is asked again after five minutes", async () => {
   rerender({ sessionId: "s3" });
   await waitFor(() => expect(calls.length).toBe(2));
 });
+
+test("an unsupported answer for the shown provider clears the snapshot", async () => {
+  let panelOff = false;
+  const calls: string[] = [];
+  const impl = vi.fn(async (url: string) => {
+    calls.push(url);
+    const body = panelOff
+      ? { ok: false, unsupported: true, disabled: true, provider: "neuraldeep", providerType: "neuraldeep" }
+      : { ok: true, usage: snapshot(407) };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
+  const { result, rerender } = renderHook(
+    (p: { turnEpoch: number }) =>
+      useProviderUsage({ sessionId: "s1", llmModel: "neuraldeep/qwen3.8-27b", turnEpoch: p.turnEpoch, fetchImpl: impl }),
+    { initialProps: { turnEpoch: 0 } },
+  );
+  await waitFor(() => expect(result.current.usage?.plan).toBe("pro"));
+  // The operator switched the row's usage limits panel off; the refresh
+  // after the next turn says so and the section must not keep stale numbers.
+  panelOff = true;
+  rerender({ turnEpoch: 1 });
+  await waitFor(() => expect(result.current.usage).toBeNull());
+  expect(calls.length).toBe(2);
+});

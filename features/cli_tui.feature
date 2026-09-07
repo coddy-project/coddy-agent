@@ -187,3 +187,13 @@ Feature: Interactive console TUI
     And the operator switches the model to "stub/model-one"
     Then the footer names the model "(stub) model-one"
     And the footer does not show the neuraldeep usage
+
+  Scenario: The usage line stays off when the panel is switched off in config
+    Given a coddy console app over a stub agent runner with a neuraldeep provider whose usage limits panel is switched off
+    When the console app starts
+    And the operator submits the prompt "spend some quota"
+    And the stub turn streams the text "spent"
+    And the operator submits the command "/usage"
+    Then the usage report shows "usage limits panel is switched off"
+    And the footer does not show the neuraldeep usage
+    And the stand-in limits API was never asked

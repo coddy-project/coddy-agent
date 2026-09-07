@@ -11,6 +11,9 @@ package session
 // younger than the TTL; refreshes run at once past the floor and are deferred
 // to the floor's end otherwise; a Retry-After becomes a backoff during which
 // the stale snapshot is served. A rejected key is sticky for automatic reads.
+// A row can switch its panel off (providers[].usage_limits_panel: false): it
+// is then treated like a provider without a source, nothing is read for it
+// and nothing is published, and reads answer Unsupported with Disabled set.
 
 import (
 	"context"
@@ -193,6 +196,12 @@ func providerUsageSource(providerType string) bool {
 	return strings.EqualFold(strings.TrimSpace(providerType), "neuraldeep")
 }
 
+// providerUsageEnabled says whether a row is read at all: its type has a
+// usage source and its panel is on (providers[].usage_limits_panel).
+func providerUsageEnabled(prov *config.ProviderConfig) bool {
+	return prov != nil && providerUsageSource(prov.Type) && prov.EffectiveUsageLimitsPanel()
+}
+
 // ProviderUsage returns the account usage behind the named provider row. A
 // provider type without a usage source answers Unsupported; otherwise the
 // cached snapshot inside the TTL, or a fresh one. refresh bypasses the TTL:
@@ -224,12 +233,15 @@ func (m *Manager) providerUsageRead(ctx context.Context, providerName string, re
 	if prov == nil {
 		return nil, fmt.Errorf("unknown provider %q", providerName)
 	}
-	if !providerUsageSource(prov.Type) {
+	if !providerUsageEnabled(prov) {
+		// No source, or the row's panel is switched off: the answer says
+		// which, and nothing is read either way.
 		return &acp.ProviderUsageUpdate{
 			SessionUpdate: acp.UpdateTypeProviderUsage,
 			Provider:      prov.Name,
 			ProviderType:  prov.Type,
 			Unsupported:   true,
+			Disabled:      providerUsageSource(prov.Type),
 		}, nil
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
@@ -389,7 +401,7 @@ func (m *Manager) usageDeferredFire(name string, generation uint64) {
 	}
 	cfg := m.activeCfg()
 	prov := cfg.FindProvider(name)
-	if prov == nil || !providerUsageSource(prov.Type) {
+	if !providerUsageEnabled(prov) {
 		return
 	}
 	authPath := config.ProviderAuthPath(cfg.Paths.Home, prov.Name, prov.Type)
@@ -656,7 +668,8 @@ func (m *Manager) ShutdownProviderUsage(timeout time.Duration) {
 }
 
 // usageProviderForSession resolves the provider row behind a session's
-// effective model; ok is false when it has no usage source.
+// effective model; ok is false when it has no usage source or its panel is
+// switched off.
 func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, bool) {
 	if st == nil {
 		return nil, false
@@ -667,7 +680,7 @@ func (m *Manager) usageProviderForSession(st *State) (*config.ProviderConfig, bo
 		return nil, false
 	}
 	prov := cfg.FindProvider(entry.ProviderName())
-	if prov == nil || !providerUsageSource(prov.Type) {
+	if !providerUsageEnabled(prov) {
 		return nil, false
 	}
 	return prov, true

@@ -136,6 +136,8 @@ type cliTUIState struct {
 	prevBaseEnv string
 	prevKeyEnv  string
 	usageEnvSet bool
+	// usageAsked counts the stand-in's requests (under mu).
+	usageAsked int
 }
 
 // syncBuffer is a goroutine-safe string sink for the one-shot print steps.
@@ -174,6 +176,7 @@ func (s *cliTUIState) reset() {
 	s.usageUsed = 407
 	s.usageClock = nil
 	s.usageEnvSet = false
+	s.usageAsked = 0
 	s.directives = make(chan stubDirective, 16)
 	s.turnEnds = make(chan struct{}, 4)
 }
@@ -325,6 +328,12 @@ func (s *cliTUIState) buildApp() error { return s.buildAppWith(false) }
 // belongs to a neuraldeep provider whose stored hub login points at a
 // stand-in GET /limits, and the manager runs on the scenario's clock.
 func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
+	return s.buildAppWithUsagePanel(neuraldeep, true)
+}
+
+// buildAppWithUsagePanel is buildAppWith with the neuraldeep row's usage
+// limits panel switched on or off (providers[].usage_limits_panel).
+func (s *cliTUIState) buildAppWithUsagePanel(neuraldeep, panel bool) error {
 	s.home = filepath.Join(os.TempDir(), fmt.Sprintf("coddy-cli-bdd-%d", time.Now().UnixNano()))
 	s.cwd = filepath.Join(s.home, "work")
 	for _, d := range []string{s.home, s.cwd, filepath.Join(s.home, "sessions")} {
@@ -351,7 +360,12 @@ func (s *cliTUIState) buildAppWith(neuraldeep bool) error {
 		if err := llm.SaveNeuralDeepAuth(config.NeuralDeepAuthPath(s.home, "neuraldeep"), neuralDeepUsageBDDKey, "https://hub.bdd.invalid", llm.NeuralDeepClientID, "coddy"); err != nil {
 			return err
 		}
-		cfg.Providers = append(cfg.Providers, config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"})
+		row := config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"}
+		if !panel {
+			off := false
+			row.UsageLimitsPanel = &off
+		}
+		cfg.Providers = append(cfg.Providers, row)
 		cfg.Models = append(cfg.Models, config.ModelEntry{Model: "neuraldeep/qwen3.8-27b", MaxTokens: 1000, MaxContextTokens: 100000})
 		cfg.Agent.Model = "neuraldeep/qwen3.8-27b"
 	}
@@ -387,6 +401,7 @@ func (s *cliTUIState) startUsageStand() error {
 			return
 		}
 		s.mu.Lock()
+		s.usageAsked++
 		used := s.usageUsed
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -404,6 +419,27 @@ func (s *cliTUIState) startUsageStand() error {
 // --- provider usage steps ---
 
 func (s *cliTUIState) aConsoleAppWithNeuralDeep() error { return s.buildAppWith(true) }
+
+func (s *cliTUIState) aConsoleAppWithNeuralDeepPanelOff() error {
+	return s.buildAppWithUsagePanel(true, false)
+}
+
+// standNeverAsked joins the manager's fetches first, so a request still in
+// flight would be counted.
+func (s *cliTUIState) standNeverAsked() error {
+	if s.mgr != nil {
+		if err := s.mgr.WaitProviderUsageIdle(2 * time.Second); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	n := s.usageAsked
+	s.mu.Unlock()
+	if n != 0 {
+		return fmt.Errorf("the stand-in limits API was asked %d times, want none", n)
+	}
+	return nil
+}
 
 func (s *cliTUIState) standReportsSessionAt(pct int) error {
 	s.mu.Lock()
@@ -1081,6 +1117,8 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the operator switches the model to "([^"]*)"$`, s.operatorSwitchesModelTo)
 	sc.Step(`^the footer names the model "([^"]*)"$`, s.footerNamesModel)
 	sc.Step(`^the footer does not show the neuraldeep usage$`, s.footerHidesUsage)
+	sc.Step(`^a coddy console app over a stub agent runner with a neuraldeep provider whose usage limits panel is switched off$`, s.aConsoleAppWithNeuralDeepPanelOff)
+	sc.Step(`^the stand-in limits API was never asked$`, s.standNeverAsked)
 	sc.Step(`^the one-shot output contains "([^"]*)"$`, s.oneShotOutputContains)
 	sc.Step(`^the one-shot run ends cleanly$`, s.oneShotEndsCleanly)
 }

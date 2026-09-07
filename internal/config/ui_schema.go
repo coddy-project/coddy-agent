@@ -211,6 +211,12 @@ func UISchemaMap() map[string]interface{} {
 			"Optional per-provider outbound proxy. Use http:// or https:// for an HTTP proxy, or socks5:// / socks5h:// for SOCKS5 (socks5h resolves hostnames via the proxy). Leave empty for a direct connection."),
 		"timeout_ms": intProp("Request timeout ms",
 			"Optional bound on each LLM HTTP request to this provider, including the streamed body read. 0 (the default) sets no client timeout."),
+		// Defaults to true when the key is absent, like models[].stream: the
+		// form seeds new rows from schema defaults and renders an unset switch
+		// from them.
+		"usage_limits_panel": boolPropDefault("Usage limits panel",
+			"Show this provider's account usage (the usage section and banner in the web UI, the footer line and /usage in the console) and read the provider's usage endpoint for it. Turn off to hide the panel and stop those reads for this row; only providers with a usage source (neuraldeep) are affected.",
+			true),
 	}
 	modelProps := map[string]interface{}{
 		"model": strProp("Model id", "Logical id in the form provider/api-model-id; must match a provider name prefix."),
@@ -349,7 +355,7 @@ func UISchemaMap() map[string]interface{} {
 			"title":       "LLM providers",
 			"description": "API credentials and transport selection for upstream LLM vendors.",
 			"items": objectSchema("", "", providerProps,
-				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms"},
+				[]string{"name", "type", "api_base", "api_key", "proxy", "timeout_ms", "usage_limits_panel"},
 				[]string{"name", "type"}),
 		},
 		"models": map[string]interface{}{

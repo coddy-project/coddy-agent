@@ -80,6 +80,15 @@ func (f *footer) SetUsage(u *acp.ProviderUsageUpdate) {
 	f.usages[u.Provider] = u
 }
 
+// DropUsage forgets the snapshot of a provider row: the backend answered
+// that the row has no usage now (its panel switched off in config, or the
+// row retyped), so the line must not keep the old numbers.
+func (f *footer) DropUsage(provider string) {
+	if f.usages != nil {
+		delete(f.usages, provider)
+	}
+}
+
 // Usage returns the update of the active model's provider, or nil.
 func (f *footer) Usage() *acp.ProviderUsageUpdate {
 	if f.provider == "" || f.usages == nil {

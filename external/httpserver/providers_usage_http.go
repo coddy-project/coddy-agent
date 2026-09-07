@@ -24,7 +24,9 @@ func (s *Server) registerProviderUsageRoutes() {
 
 // coddyProviderUsageGet answers {"ok":true,"usage":<update>} with the
 // account usage behind a provider row; {"ok":false,"unsupported":true} for a
-// provider type without a usage source; {"ok":false,"error":...,"usage":<stale
+// provider type without a usage source, with "disabled":true added when the
+// type has one but the row's panel is switched off
+// (providers[].usage_limits_panel: false); {"ok":false,"error":...,"usage":<stale
 // or null>} when the fetch failed, so a client keeps the last numbers; 404
 // for an unknown provider name. ?refresh=1 asks for a fresh read (subject to
 // the manager's pacing floor, which then answers the cached snapshot with
@@ -56,7 +58,13 @@ func (s *Server) coddyProviderUsageGet(w http.ResponseWriter, r *http.Request) {
 	case usage == nil:
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "no usage snapshot", "usage": nil})
 	case usage.Unsupported:
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "unsupported": true, "provider": usage.Provider, "providerType": usage.ProviderType})
+		answer := map[string]interface{}{"ok": false, "unsupported": true, "provider": usage.Provider, "providerType": usage.ProviderType}
+		if usage.Disabled {
+			// The type has a source, the row's panel is switched off: a
+			// client can tell the operator which switch to look at.
+			answer["disabled"] = true
+		}
+		_ = json.NewEncoder(w).Encode(answer)
 	case usage.Error != "":
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": usage.Error, "usage": usage})
 	default:
