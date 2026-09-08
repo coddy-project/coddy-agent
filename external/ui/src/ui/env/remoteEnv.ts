@@ -21,6 +21,14 @@ export type CoddyEnv =
       swarmRelay?: string;
       /** The node path inside that relay, for showing where we are. */
       swarmNode?: string;
+      /**
+       * On the relay itself: the node last entered through it.
+       *
+       * Leaving a node throws its base URL away, and with it the only record of
+       * where the app has been. The map needs that record to say "you are
+       * here" and to draw the path that got there.
+       */
+      swarmFrom?: string;
     };
 
 const STORAGE_KEY = "coddy_env";
@@ -58,6 +66,7 @@ export function getEnv(): CoddyEnv {
         name?: string;
         swarmRelay?: string;
         swarmNode?: string;
+        swarmFrom?: string;
       };
       if (
         parsed &&
@@ -76,6 +85,9 @@ export function getEnv(): CoddyEnv {
         }
         if (typeof parsed.swarmNode === "string" && parsed.swarmNode) {
           remote.swarmNode = parsed.swarmNode;
+        }
+        if (typeof parsed.swarmFrom === "string" && parsed.swarmFrom) {
+          remote.swarmFrom = parsed.swarmFrom;
         }
         resolved = remote;
       }
@@ -224,6 +236,9 @@ export function returnToSwarm(): void {
     baseUrl: relay,
     token: getRemoteToken(relay) || env.token,
     name: "swarm",
+    // Carried over, not dropped: on the relay this is the node the map marks
+    // as where we are, and the path it highlights to get there.
+    ...(env.swarmNode ? { swarmFrom: env.swarmNode } : {}),
   });
   window.location.hash = "#/swarm";
   window.location.reload();

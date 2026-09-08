@@ -9,6 +9,8 @@ export type PlacedNode = TopologyNode & {
 };
 
 export type PlacedEdge = {
+  /** Stable across polls, so a highlighted route survives a refresh. */
+  id: string;
   from: PlacedNode;
   to: PlacedNode;
   name: string;
@@ -66,6 +68,9 @@ export const NODE_METRICS = {
   chipHeight: 20,
   /** Baseline of the meta line under a name. */
   agentMetaDrop: 62,
+  /** Baseline of the work line, which hangs below each shape's furniture. */
+  agentActivityDrop: 76,
+  relayActivityDrop: 44,
   /** Offset of a relay's two text rows from the card's centre line. */
   relayNameDrop: -3,
   relayMetaDrop: 13,
@@ -191,9 +196,16 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
   // A route reaches exactly one node, so its joined path identifies that node.
   // isAlternate needs it to tell the link the route arrives on from a link that
   // merely shares its name.
+  //
+  // Only the root answers to the empty route. A node with no route has an empty
+  // path too, and letting it into this map made it the owner of "" - which told
+  // isAlternate that no first hop leaves the relay, and painted every one of
+  // them as a way round.
   const uuidByRoute = new Map<string, string>();
   for (const n of placed.values()) {
-    uuidByRoute.set(n.path.join("/"), n.uuid);
+    if (n.depth === 0 || n.path.length > 0) {
+      uuidByRoute.set(n.path.join("/"), n.uuid);
+    }
   }
 
   // Outside every card, so a link that skips a row never crosses one.
@@ -209,6 +221,7 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
       continue;
     }
     edges.push({
+      id: `${from.uuid}>${to.uuid}:${e.name}`,
       from,
       to,
       name: e.name,
@@ -461,6 +474,46 @@ function isAlternate(
   }
   const parent = uuidByRoute.get(route.path.slice(0, -1).join("/"));
   return parent !== undefined && parent !== edge.from_uuid;
+}
+
+/**
+ * The links a request would follow from the attached relay down to one node.
+ *
+ * A route is a list of hop names, and the edge each hop arrives on is the one
+ * the relay chose - never a way round, which shares the name but leaves a
+ * different node. Pure, so the highlight can be checked without rendering.
+ */
+export function routeEdgeIds(
+  layout: TopologyLayout,
+  route: string,
+): Set<string> {
+  const out = new Set<string>();
+  if (!route) {
+    return out;
+  }
+  const target = layout.nodes.find(
+    (n) => n.path.length > 0 && n.path.join("/") === route,
+  );
+  if (!target) {
+    return out;
+  }
+  for (let hop = 1; hop <= target.path.length; hop += 1) {
+    const childKey = target.path.slice(0, hop).join("/");
+    const parentKey = target.path.slice(0, hop - 1).join("/");
+    const edge = layout.edges.find(
+      (e) =>
+        !e.alternate &&
+        e.to.path.length > 0 &&
+        e.to.path.join("/") === childKey &&
+        (parentKey === ""
+          ? e.from.depth === 0
+          : e.from.path.length > 0 && e.from.path.join("/") === parentKey),
+    );
+    if (edge) {
+      out.add(edge.id);
+    }
+  }
+  return out;
 }
 
 /** Counts what the swarm holds, for a one-line summary above the graph. */

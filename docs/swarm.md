@@ -186,10 +186,16 @@ Scheduler in the rail, and shows the map instead. The environment selector moves
 map's header, since the composer that usually carries it is not on screen. Enter a node and
 all of it comes back, because the node does have those things.
 
-**Working on a node.** `Open node` on a group points the app at that node's mount. From there
-every screen that already existed drives it - the history drawer lists that node's sessions,
-the composer shows its working directory and its model catalog - with a relay in the middle
-and nothing aware of it. Clicking a session does the same and lands on that session.
+**Working on a node.** Click a node on the map and the app points at that node's mount. From
+there every screen that already existed drives it - the history drawer lists that node's
+sessions, the composer shows its working directory and its model catalog - with a relay in the
+middle and nothing aware of it. Coming back to the map, that node is marked *you are here* and
+the route to it is drawn as one connected path.
+
+**Watching from the map.** Each node says what it is doing, from the same aggregated session
+list the search uses: how many sessions it holds, how many turns are in flight, and whether
+something there is waiting on a permission prompt. Start work on several machines, come back to
+the map, and it says which of them finished and which is asking you a question.
 
 **Going back and switching.** The Swarm entry stays in the rail while you are inside a node,
 because the relay you came through is remembered; clicking it returns to the swarm, where

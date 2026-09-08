@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apiPathFor,
-  groupByNode,
-  nodeChips,
+  nodeActivity,
   parseSwarmSessionHash,
   routeLabel,
   sessionApiPath,
@@ -82,38 +81,6 @@ describe("session identity", () => {
   });
 });
 
-describe("groupByNode", () => {
-  it("gathers sessions under the node that owns them", () => {
-    const groups = groupByNode([
-      session({ id: "a", node_path: ["nas02"], node_name: "nas02" }),
-      session({ id: "b", node_path: ["gpu03"], node_name: "gpu03" }),
-      session({ id: "c", node_path: ["nas02"], node_name: "nas02" }),
-    ]);
-    expect(groups.map((g) => g.node)).toEqual(["gpu03", "nas02"]);
-    expect(groups[1]?.sessions.map((s) => s.id)).toEqual(["a", "c"]);
-  });
-
-  it("keeps two nodes apart when they share a session id", () => {
-    const groups = groupByNode([
-      session({ id: "same", node_path: ["nas02"], node_name: "nas02" }),
-      session({ id: "same", node_path: ["gpu03"], node_name: "gpu03" }),
-    ]);
-    expect(groups).toHaveLength(2);
-  });
-
-  it("separates the same node name reached by different routes", () => {
-    const groups = groupByNode([
-      session({ id: "a", node_path: ["inner", "agent7"], node_name: "agent7" }),
-      session({ id: "b", node_path: ["agent7"], node_name: "agent7" }),
-    ]);
-    expect(groups).toHaveLength(2);
-  });
-
-  it("returns nothing for an empty list", () => {
-    expect(groupByNode([])).toEqual([]);
-  });
-});
-
 describe("routeLabel", () => {
   it("reads as a path a person can follow", () => {
     expect(routeLabel(["outer", "inner", "agent7"])).toBe(
@@ -122,43 +89,39 @@ describe("routeLabel", () => {
   });
 });
 
-describe("nodeChips", () => {
-  const registry = [
-    { name: "beta", online: true, transport: "direct", url: "http://beta:1" },
-    { name: "inner", online: true, transport: "direct", url: "http://inner:2" },
-  ];
-
-  it("offers the relay's own nodes", () => {
-    const chips = nodeChips(registry, []);
-    expect(chips.map((c) => c.path)).toEqual(["beta", "inner"]);
-    expect(chips.every((c) => c.direct)).toBe(true);
+describe("nodeActivity", () => {
+  it("counts nothing for a swarm with no sessions", () => {
+    expect(nodeActivity([])).toEqual({});
   });
 
-  // A relay holds leases only for its direct children, but a session can arrive
-  // from any depth. Without this there is no way to narrow to the agent whose
-  // work is right there on screen.
-  it("adds nodes that only appear through a chain", () => {
-    const chips = nodeChips(registry, [
-      session({ node_path: ["inner", "alpha"], node_name: "alpha" }),
+  it("counts sessions, turns in flight and prompts per node", () => {
+    const work = nodeActivity([
+      session({ id: "a", turnActive: true }),
+      session({ id: "b" }),
+      session({ id: "c", permissionPending: true }),
     ]);
-    const alpha = chips.find((c) => c.path === "inner/alpha");
-    expect(alpha).toBeDefined();
-    expect(alpha?.label).toBe("alpha");
-    expect(alpha?.direct).toBe(false);
+    expect(work["nas02"]).toEqual({ sessions: 3, running: 1, waiting: 1 });
   });
 
-  it("does not duplicate a node it already knows", () => {
-    const chips = nodeChips(registry, [
-      session({ node_path: ["beta"], node_name: "beta" }),
+  // The route is the key, not the name: two machines called the same thing sit
+  // at different places on the map and must not pool their work.
+  it("keeps two routes to the same name apart", () => {
+    const work = nodeActivity([
+      session({ id: "a", node_path: ["agent7"], turnActive: true }),
+      session({ id: "b", node_path: ["inner", "agent7"] }),
     ]);
-    expect(chips.filter((c) => c.path === "beta")).toHaveLength(1);
+    expect(work["agent7"]?.running).toBe(1);
+    expect(work["inner/agent7"]).toEqual({
+      sessions: 1,
+      running: 0,
+      waiting: 0,
+    });
   });
 
-  it("keeps an offline node on the row", () => {
-    const chips = nodeChips(
-      [{ name: "gone", online: false, transport: "direct" }],
-      [],
-    );
-    expect(chips[0]?.online).toBe(false);
+  it("counts one session as both running and waiting when it is both", () => {
+    const work = nodeActivity([
+      session({ id: "a", turnActive: true, permissionPending: true }),
+    ]);
+    expect(work["nas02"]).toEqual({ sessions: 1, running: 1, waiting: 1 });
   });
 });

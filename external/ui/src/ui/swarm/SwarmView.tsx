@@ -7,14 +7,7 @@ import {
   probeSwarm,
 } from "./api";
 import type { SwarmHttpError } from "./api";
-import {
-  groupByNode,
-  nodeChips,
-  nodeRows,
-  routeLabel,
-  sessionKey,
-  topologyNodePaths,
-} from "./routes";
+import { nodeActivity, routeLabel, sessionKey } from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
 import { useT } from "../i18n/I18nProvider";
@@ -26,16 +19,19 @@ import type {
 } from "./types";
 
 /**
- * One screen for a whole swarm: which nodes exist, what they are working on,
- * and how they are wired together.
+ * One screen for a whole swarm, and the map is the screen: which nodes exist,
+ * what each of them is doing, where the app is now, and the way in.
  *
- * The search box and the node filter both go to the relay, which fans out to
- * every node it knows and merges what comes back. That is why a query here can
- * find work on a machine this browser could never reach directly.
+ * Clicking a node connects to it, so there is nothing under the map but a
+ * search - and the search goes to the relay, which fans out to every node it
+ * knows and merges what comes back. That is why a query here can find work on
+ * a machine this browser could never reach directly.
  */
 export function SwarmView(props: {
   onOpenSession?: (s: SwarmSession) => void;
   onOpenNode?: (nodePath: string[]) => void;
+  /** Route of the node the app is driving right now, if it is inside one. */
+  currentNode?: string[];
   /**
    * Rendered in the header. On a relay opened as the app's home there is no
    * composer, so the environment selector that normally lives there has to be
@@ -47,14 +43,12 @@ export function SwarmView(props: {
   const [info, setInfo] = useState<SwarmInfo | null>(null);
   const [nodes, setNodes] = useState<SwarmNode[]>([]);
   const [sessions, setSessions] = useState<SwarmSession[]>([]);
+  const [results, setResults] = useState<SwarmSession[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [topology, setTopology] = useState<SwarmTopology | null>(null);
   const [search, setSearch] = useState("");
-  const [nodeFilter, setNodeFilter] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showGraph, setShowGraph] = useState(true);
 
   const searchRef = useRef(search);
   searchRef.current = search;
@@ -70,18 +64,20 @@ export function SwarmView(props: {
       }
       setInfo(probe);
       setError(null);
+      const query = searchRef.current.trim();
       try {
-        const [nodeList, sessionList, topo] = await Promise.all([
+        const [nodeList, sessionList, topo, found] = await Promise.all([
           fetchNodes(signal),
-          fetchSwarmSessions(
-            searchRef.current ? { q: searchRef.current } : {},
-            signal,
-          ),
+          // Unfiltered, because this list is what the map counts work from. A
+          // search narrows the rows under the map, never the picture.
+          fetchSwarmSessions({}, signal),
           fetchTopology(signal).catch(() => null),
+          query ? fetchSwarmSessions({ q: query }, signal) : null,
         ]);
         setNodes(nodeList);
         setSessions(sessionList.sessions);
         setWarnings(sessionList.warnings);
+        setResults(found ? found.sessions : []);
         if (topo) {
           setTopology(topo);
         }
@@ -121,47 +117,11 @@ export function SwarmView(props: {
     return () => window.clearTimeout(handle);
   }, [search, reload]);
 
-  const visible = useMemo(() => {
-    if (!nodeFilter) {
-      return sessions;
-    }
-    return sessions.filter((s) => s.node_path.join("/") === nodeFilter);
-  }, [sessions, nodeFilter]);
-
-  const groups = useMemo(() => {
-    const withWork = groupByNode(visible);
-    // A search asked about sessions, so answer with sessions. Otherwise show
-    // every node, including the ones nobody has started work on yet: that card
-    // is the only way in.
-    if (search.trim()) {
-      return withWork;
-    }
-    // The topology knows every node and how to reach it, including ones several
-    // hops away; the registry only lists this relay's own children. Mixing the
-    // two would list a node twice under two different routes.
-    const known = (
-      topology
-        ? topologyNodePaths(topology)
-        : nodes.map((n) => ({ path: [n.name], name: n.name, kind: n.kind }))
-    ).filter((n) => !nodeFilter || n.path.join("/") === nodeFilter);
-    return nodeRows(withWork, known);
-  }, [visible, topology, nodes, nodeFilter, search]);
-  // Chips cover every node with work on screen, not only the relay's own
-  // children: a session can arrive from any depth of the chain.
-  const chips = useMemo(() => nodeChips(nodes, sessions), [nodes, sessions]);
+  // Work per node, so the map can say what each of them is doing.
+  const activity = useMemo(() => nodeActivity(sessions), [sessions]);
   const summary = topology ? topologySummary(topology) : null;
-
-  const toggleGroup = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
+  const current = props.currentNode?.join("/") || "";
+  const query = search.trim();
 
   if (!info && !loading) {
     return (
@@ -190,82 +150,11 @@ export function SwarmView(props: {
             {info?.registry_warming ? ` · ${t("swarm.summary.warming")}` : ""}
           </p>
         </div>
-        <div className="swarm-header-actions">
-          {props.headerSlot}
-          <button
-            type="button"
-            className="swarm-graph-toggle"
-            onClick={() => setShowGraph((v) => !v)}
-          >
-            {showGraph ? t("swarm.graph.hide") : t("swarm.graph.show")}
-          </button>
-        </div>
+        <div className="swarm-header-actions">{props.headerSlot}</div>
       </header>
 
-      {showGraph && topology ? (
-        <TopologyGraph
-          topology={topology}
-          selectedNode={nodeFilter}
-          onPickNode={(n) =>
-            setNodeFilter((prev) => {
-              const path = n.path.join("/");
-              return prev === path || path === "" ? null : path;
-            })
-          }
-        />
-      ) : null}
-
-      <div className="swarm-controls">
-        <input
-          className="swarm-search"
-          data-testid="swarm-search"
-          type="search"
-          placeholder={t("swarm.search.placeholder")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <div className="swarm-chips" data-testid="swarm-chips">
-          <button
-            type="button"
-            className={`swarm-chip ${nodeFilter ? "" : "is-active"}`}
-            onClick={() => setNodeFilter(null)}
-          >
-            {t("swarm.chip.all")}
-          </button>
-          {chips.map((c) => (
-            <button
-              key={c.path}
-              type="button"
-              className={`swarm-chip ${
-                nodeFilter === c.path ? "is-active" : ""
-              } ${c.online ? "" : "is-offline"}`}
-              onClick={() =>
-                setNodeFilter((prev) => (prev === c.path ? null : c.path))
-              }
-              title={
-                c.url ||
-                (c.direct
-                  ? t("swarm.chip.dialsOut", { name: c.label })
-                  : c.path)
-              }
-            >
-              <span
-                className={`swarm-dot ${c.online ? "is-online" : "is-offline"}`}
-              />
-              {c.label}
-              {c.transport === "tunnel" ? (
-                <span
-                  className="swarm-chip-transport"
-                  title={t("swarm.chip.tunnel")}
-                >
-                  ⇡
-                </span>
-              ) : null}
-            </button>
-          ))}
-        </div>
-      </div>
-
+      {/* Above the map: a node that did not answer is not on the map at all, so
+          this is the only place it can be seen. */}
       {warnings.length > 0 ? (
         <ul className="swarm-warnings" data-testid="swarm-warnings">
           {warnings.map((w) => (
@@ -280,89 +169,75 @@ export function SwarmView(props: {
         </p>
       ) : null}
 
-      <div className="swarm-groups" data-testid="swarm-groups">
-        {groups.length === 0 && !error ? (
-          <p className="swarm-empty">
-            {loading
-              ? t("swarm.empty.looking")
-              : search || nodeFilter
-                ? t("swarm.empty.noMatches")
-                : t("swarm.empty.noNodes")}
+      {topology ? (
+        <TopologyGraph
+          topology={topology}
+          currentNode={current}
+          activity={activity}
+          {...(props.onOpenNode
+            ? { onEnterNode: (n) => props.onOpenNode?.(n.path) }
+            : {})}
+        />
+      ) : error ? null : (
+        <p className="swarm-empty">
+          {loading ? t("swarm.empty.looking") : t("swarm.empty.noNodes")}
+        </p>
+      )}
+
+      <input
+        className="swarm-search"
+        data-testid="swarm-search"
+        type="search"
+        placeholder={t("swarm.search.placeholder")}
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+
+      {/* Only a query puts rows on this screen. With none, the map is the
+          whole answer. */}
+      {query ? (
+        results.length === 0 ? (
+          <p className="swarm-empty" data-testid="swarm-results-empty">
+            {loading ? t("swarm.empty.looking") : t("swarm.empty.noMatches")}
           </p>
-        ) : null}
-        {groups.map((g) => {
-          const key = g.nodePath.join("/");
-          const isCollapsed = collapsed.has(key);
-          return (
-            <section className="swarm-group" key={key} data-node={key}>
-              <div className="swarm-group-bar">
+        ) : (
+          <ul
+            className="swarm-results"
+            data-testid="swarm-results"
+            aria-label={t("swarm.results.label")}
+          >
+            {results.map((s) => (
+              <li key={sessionKey(s)} className="swarm-result-row">
                 <button
                   type="button"
-                  className="swarm-group-header"
-                  onClick={() => toggleGroup(key)}
-                  aria-expanded={!isCollapsed}
+                  className="swarm-result-hit"
+                  onClick={() => props.onOpenSession?.(s)}
                 >
-                  <span className="swarm-group-name">{g.node}</span>
-                  <span className="swarm-group-route">
-                    {g.nodePath.length > 1 ? routeLabel(g.nodePath) : ""}
+                  <span className="swarm-result-title">{s.title || s.id}</span>
+                  <span className="swarm-result-meta">
+                    <span className="swarm-badge">{s.node_name}</span>
+                    <span className="swarm-result-route">
+                      {routeLabel(s.node_path)}
+                    </span>
+                    {s.cwd ? (
+                      <span className="swarm-result-cwd">{s.cwd}</span>
+                    ) : null}
+                    {s.permissionPending ? (
+                      <span className="swarm-result-waiting">
+                        {t("swarm.session.waiting")}
+                      </span>
+                    ) : s.turnActive ? (
+                      <span className="swarm-result-active">
+                        {t("swarm.session.working")}
+                      </span>
+                    ) : null}
                   </span>
-                  <span className="swarm-group-count">{g.sessions.length}</span>
                 </button>
-                {props.onOpenNode ? (
-                  <button
-                    type="button"
-                    className="swarm-group-open"
-                    data-testid={`swarm-open-node-${key}`}
-                    title={t("swarm.group.openTitle", { node: g.node })}
-                    onClick={() => props.onOpenNode?.(g.nodePath)}
-                  >
-                    {t("swarm.group.open")}
-                  </button>
-                ) : null}
-              </div>
-              {isCollapsed ? null : g.sessions.length === 0 ? (
-                <p className="swarm-group-idle">
-                  {g.kind === "relay"
-                    ? t("swarm.group.idleRelay")
-                    : t("swarm.group.idle")}
-                </p>
-              ) : (
-                <ul className="swarm-session-list">
-                  {g.sessions.map((s) => (
-                    <li key={sessionKey(s)} className="swarm-session-row">
-                      <button
-                        type="button"
-                        className="swarm-session-hit"
-                        onClick={() => props.onOpenSession?.(s)}
-                      >
-                        <span className="swarm-session-title">
-                          {s.title || s.id}
-                        </span>
-                        <span className="swarm-session-meta">
-                          <span className="swarm-badge">{s.node_name}</span>
-                          {s.cwd ? (
-                            <span className="swarm-session-cwd">{s.cwd}</span>
-                          ) : null}
-                          {s.turnActive ? (
-                            <span className="swarm-session-active">
-                              {t("swarm.session.working")}
-                            </span>
-                          ) : null}
-                          {s.permissionPending ? (
-                            <span className="swarm-session-waiting">
-                              {t("swarm.session.waiting")}
-                            </span>
-                          ) : null}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          );
-        })}
-      </div>
+              </li>
+            ))}
+          </ul>
+        )
+      ) : null}
     </section>
   );
 }

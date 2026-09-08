@@ -3,6 +3,7 @@ import {
   NODE_METRICS,
   connectorFor,
   layoutTopology,
+  routeEdgeIds,
   topologySummary,
   type PlacedNode,
   type TopologyLayout,
@@ -171,6 +172,7 @@ describe("connectorFor, peer links", () => {
       from,
       to,
       name: "right",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -205,6 +207,7 @@ describe("connectorFor, peer links", () => {
       from,
       to,
       name: "right",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -233,6 +236,7 @@ describe("connectorFor, peer links", () => {
       from,
       to,
       name: "right",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -251,6 +255,7 @@ describe("connectorFor, peer links", () => {
       from,
       to,
       name: "left",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -280,6 +285,7 @@ describe("connectorFor, hops", () => {
       from: parent,
       to: kid("a", 300, "agent"),
       name: "a",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -287,6 +293,7 @@ describe("connectorFor, hops", () => {
       from: parent,
       to: kid("b", 540, "relay"),
       name: "b",
+      id: "probe",
       alternate: false,
       laneX: 900,
     });
@@ -417,5 +424,84 @@ describe("a ring's back edge", () => {
     expect(Math.max(...xs)).toBeGreaterThan(clearOf);
     // And the canvas grew to hold the lane rather than clipping it.
     expect(layout.width).toBeGreaterThan(Math.max(...xs));
+  });
+});
+
+describe("routeEdgeIds", () => {
+  it("names every hop from the relay down to the node", () => {
+    const layout = layoutTopology(chain);
+    const ids = routeEdgeIds(layout, "middle/agent7");
+    const named = layout.edges
+      .filter((e) => ids.has(e.id))
+      .map((e) => `${e.from.name}->${e.to.name}`)
+      .sort();
+    expect(named).toEqual(["middle->agent7", "outer->middle"]);
+  });
+
+  it("stops at the first hop for a node one hop away", () => {
+    const layout = layoutTopology(chain);
+    expect(routeEdgeIds(layout, "middle").size).toBe(1);
+  });
+
+  it("has nothing to light for the relay itself or an unknown route", () => {
+    const layout = layoutTopology(chain);
+    expect(routeEdgeIds(layout, "").size).toBe(0);
+    expect(routeEdgeIds(layout, "nowhere").size).toBe(0);
+  });
+
+  // The back edge shares its name with the route's own link, so matching on the
+  // name alone would light the long way round instead of the way in use.
+  it("takes the route in use, never a ring's way round", () => {
+    const ring: SwarmTopology = {
+      root: { uuid: "u0", name: "root", kind: "relay", online: true },
+      nodes: [
+        { uuid: "u1", name: "r1", kind: "relay", online: true },
+        { uuid: "u2", name: "r2", kind: "relay", online: true },
+      ],
+      edges: [
+        { from_uuid: "u0", to_uuid: "u1", name: "r1" },
+        { from_uuid: "u1", to_uuid: "u2", name: "r2" },
+        { from_uuid: "u2", to_uuid: "u1", name: "r1" },
+      ],
+      routes: {
+        u1: { path: ["r1"] },
+        u2: { path: ["r1", "r2"] },
+      },
+      warnings: [],
+    };
+    const layout = layoutTopology(ring);
+    const ids = routeEdgeIds(layout, "r1");
+    expect(ids.size).toBe(1);
+    const only = layout.edges.find((e) => ids.has(e.id));
+    expect(only?.from.name).toBe("root");
+  });
+});
+
+// A node with no route has an empty path, exactly like the root. When it was
+// allowed to claim that key, every first hop out of the relay was drawn as a
+// way round and the live path had nothing to light.
+describe("a node with no route", () => {
+  const stranded: SwarmTopology = {
+    root: { uuid: "u0", name: "root", kind: "relay", online: true },
+    nodes: [
+      { uuid: "u1", name: "r1", kind: "relay", online: true },
+      { uuid: "u9", name: "orphan", kind: "agent", online: false },
+    ],
+    edges: [{ from_uuid: "u0", to_uuid: "u1", name: "r1" }],
+    routes: { u1: { path: ["r1"] } },
+    warnings: [],
+  };
+
+  it("leaves the first hop as the route in use", () => {
+    const layout = layoutTopology(stranded);
+    expect(layout.edges[0]?.alternate).toBe(false);
+    expect(routeEdgeIds(layout, "r1").size).toBe(1);
+  });
+
+  it("is still placed, past the deepest reachable tier", () => {
+    const layout = layoutTopology(stranded);
+    const orphan = placed(layout, "orphan");
+    expect(orphan.path).toEqual([]);
+    expect(orphan.depth).toBeGreaterThan(placed(layout, "r1").depth);
   });
 });

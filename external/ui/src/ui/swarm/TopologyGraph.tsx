@@ -1,12 +1,22 @@
-import { useId, useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   NODE_METRICS as M,
   connectorFor,
   layoutTopology,
+  routeEdgeIds,
   type PlacedEdge,
   type PlacedNode,
   type TierRow,
+  type TopologyLayout,
 } from "./layout";
+import type { NodeActivity } from "./routes";
 import type { SwarmTopology } from "./types";
 import { useT } from "../i18n/I18nProvider";
 
@@ -19,11 +29,23 @@ const TEXT_X = TILE_X + M.tile + M.textGap;
 /** Room the name has before it would run under the status dot. */
 const RELAY_TEXT_W = RELAY_HALF_W - M.statusInset - 4 - TEXT_X;
 
+/** Shared empties, so a graph without work does not rebuild its memos. */
+const NO_ACTIVITY: Record<string, NodeActivity> = {};
+const NO_EDGES: ReadonlySet<string> = new Set<string>();
+
+/** What a node is doing, in the order a person has to deal with it. */
+type WorkState = "idle" | "running" | "waiting";
+
 /**
- * Draws the swarm as a network: the relay you are attached to on the top row,
- * then whatever it reaches a hop lower, then whatever that reaches. A spine
- * down the left counts the hops, relays are cards carrying a router mark, and
- * agents are circles with their name on a chip below.
+ * Draws the swarm as a network, and is the way into it: the relay you are
+ * attached to on the top row, then whatever it reaches a hop lower, then
+ * whatever that reaches. Clicking a node connects to it. A spine down the left
+ * counts the hops, relays are cards carrying a router mark, and agents are
+ * circles with their name on a chip below.
+ *
+ * The map also carries the live picture - where the app is now, the path it
+ * took, and which nodes are working - so nothing about the swarm has to be
+ * repeated in a list underneath.
  *
  * Hand-rolled SVG rather than a graph library: the arrangement and the wire
  * geometry are pure functions tested on their own, and the drawing is a few
@@ -31,8 +53,11 @@ const RELAY_TEXT_W = RELAY_HALF_W - M.statusInset - 4 - TEXT_X;
  */
 export function TopologyGraph(props: {
   topology: SwarmTopology;
-  selectedNode?: string | null;
-  onPickNode?: (node: PlacedNode) => void;
+  /** Joined route of the node the app is driving right now, if any. */
+  currentNode?: string | null;
+  /** Work per node, keyed by joined route. */
+  activity?: Record<string, NodeActivity>;
+  onEnterNode?: (node: PlacedNode) => void;
 }) {
   const { t, tp } = useT();
   // SwarmView re-polls every five seconds; without this every poll rebuilds the
@@ -47,8 +72,16 @@ export function TopologyGraph(props: {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const heads = `swarm-head-${uid}`;
   const descId = `swarm-desc-${uid}`;
-  const pick = props.onPickNode;
+  const enter = props.onEnterNode;
+  const activity = props.activity ?? NO_ACTIVITY;
+  const current = props.currentNode || "";
   const { width, height, spineX } = layout;
+
+  // Previewing a route on hover needs no data, only which node the pointer is
+  // over. Focus feeds the same state so the keyboard sees what the mouse does.
+  const [preview, setPreview] = useState<string>("");
+
+  const scroller = useRef<HTMLDivElement | null>(null);
 
   // Degree, not out-degree: "2 links" should count every wire the node carries.
   const degrees = new Map<string, number>();
@@ -57,16 +90,73 @@ export function TopologyGraph(props: {
     degrees.set(e.to.uuid, (degrees.get(e.to.uuid) ?? 0) + 1);
   }
 
+  const liveEdges = useMemo(
+    () => (current ? routeEdgeIds(layout, current) : NO_EDGES),
+    [layout, current],
+  );
+  const previewEdges = useMemo(
+    () =>
+      preview && preview !== current ? routeEdgeIds(layout, preview) : NO_EDGES,
+    [layout, preview, current],
+  );
+  // Every hop that carries a turn in flight, so the busy branch of the swarm is
+  // visible without opening anything.
+  const busyEdges = useMemo(
+    () => busyRoutes(layout, activity),
+    [layout, activity],
+  );
+  // The nodes the live path passes through, so everything else can recede.
+  const onRoute = useMemo(() => {
+    const out = new Set<string>();
+    if (liveEdges.size === 0) {
+      return out;
+    }
+    for (const e of layout.edges) {
+      if (liveEdges.has(e.id)) {
+        out.add(e.from.uuid);
+        out.add(e.to.uuid);
+      }
+    }
+    return out;
+  }, [layout, liveEdges]);
+
+  const tracing = liveEdges.size > 0 || previewEdges.size > 0;
+
+  // A swarm wider than the box opens on its left gutter, which on a phone is
+  // an empty margin. Start where the reader is instead - the node the app is
+  // on, or the relay everything hangs off. Keyed to the width and to that
+  // node, so a poll that changes neither never yanks the view back.
+  const focusX = useMemo(() => {
+    const node =
+      layout.nodes.find(
+        (n) => current && n.path.length > 0 && n.path.join("/") === current,
+      ) ?? layout.nodes.find((n) => n.depth === 0);
+    return node ? node.x : 0;
+  }, [layout, current]);
+
+  useEffect(() => {
+    const box = scroller.current;
+    if (!box || box.scrollWidth <= box.clientWidth) {
+      return;
+    }
+    box.scrollLeft = focusX - box.clientWidth / 2;
+  }, [focusX, width]);
+
   const tierName = (row: TierRow): string => {
     if (!row.reachable) {
       return t("swarm.state.noRoute");
     }
     return row.depth === 0
-      ? t("swarm.tier.here")
+      ? t("swarm.tier.attached")
       : tp("swarm.tier.hop", row.depth);
   };
 
   const metaOf = (n: PlacedNode): string => {
+    // Where the app is now beats what the node is: the shape already says
+    // whether it routes or works, and only one node can say this.
+    if (current && n.path.length > 0 && n.path.join("/") === current) {
+      return t("swarm.node.here");
+    }
     if (n.depth > 0 && n.path.length === 0) {
       return t("swarm.state.noRoute");
     }
@@ -87,10 +177,33 @@ export function TopologyGraph(props: {
       : t("swarm.state.relay");
   };
 
+  const workOf = (n: PlacedNode): NodeActivity | null => {
+    // The root has no route of its own, and a stranded node's empty path would
+    // borrow the root's key. Neither can own a session anyway.
+    if (n.path.length === 0) {
+      return null;
+    }
+    return activity[n.path.join("/")] ?? null;
+  };
+
+  const workLine = (work: NodeActivity | null): string => {
+    if (!work || work.sessions === 0) {
+      return "";
+    }
+    if (work.waiting > 0) {
+      return t("swarm.activity.needsAnswer");
+    }
+    if (work.running > 0) {
+      return tp("swarm.activity.running", work.running);
+    }
+    return tp("swarm.activity.sessions", work.sessions);
+  };
+
   // role="img" collapses the subtree, so every per-node title and button role
-  // inside is announced as nothing. This paragraph is the picture in words.
-  const summary = layout.tiers
-    .map((row) =>
+  // inside is announced as nothing. This paragraph is the picture in words, and
+  // it has to carry the live half of it too.
+  const summary = [
+    ...layout.tiers.map((row) =>
       t("swarm.graph.tierNodes", {
         tier: tierName(row),
         names: layout.nodes
@@ -98,19 +211,35 @@ export function TopologyGraph(props: {
           .map((n) => n.name)
           .join(", "),
       }),
-    )
+    ),
+    hereSentence(layout, current, t),
+    namesSentence(layout, activity, "running", (names) =>
+      t("swarm.graph.busy", { names }),
+    ),
+    namesSentence(layout, activity, "waiting", (names) =>
+      t("swarm.graph.waitingOn", { names }),
+    ),
+  ]
+    .filter(Boolean)
     .join(" ");
+
+  const enterable = useCallback(
+    (n: PlacedNode): boolean => !!enter && n.depth > 0 && n.path.length > 0,
+    [enter],
+  );
 
   // A way round and a dead link go down first, so a route in use always paints
   // over them.
   const edges = [...layout.edges].sort(
-    (a, b) => weight(a, props.selectedNode) - weight(b, props.selectedNode),
+    (a, b) =>
+      weight(a, liveEdges, previewEdges, busyEdges) -
+      weight(b, liveEdges, previewEdges, busyEdges),
   );
-  // Deliberately not re-sorted by selection. The nodes are keyed by uuid, so
+  // Deliberately not re-sorted by state. The nodes are keyed by uuid, so
   // reordering them moves the live <g> in the DOM, which blurs the node the
   // reader just activated and reshuffles the tab order under them. Cards never
   // overlap anyway - a row leaves 132px between them and a tier 120px - so
-  // nothing can cover a selection ring.
+  // nothing can cover a ring.
   const nodes = layout.nodes;
   const first = layout.tiers[0];
   const last = layout.tiers[layout.tiers.length - 1];
@@ -120,7 +249,7 @@ export function TopologyGraph(props: {
       <p id={descId} className="swarm-graph-summary">
         {summary}
       </p>
-      <div className="swarm-graph-scroll">
+      <div className="swarm-graph-scroll" ref={scroller}>
         <svg
           className="swarm-graph"
           viewBox={`0 0 ${width} ${height}`}
@@ -177,26 +306,44 @@ export function TopologyGraph(props: {
           </g>
 
           {/* A wire crossing a node must never swallow a click meant for it. */}
-          <g className="swarm-graph-edges">
-            {edges.map((e, i) => (
+          <g
+            className={`swarm-graph-edges${tracing ? " is-tracing" : ""}`}
+            aria-hidden="true"
+          >
+            {edges.map((e) => (
               <Wire
-                key={`${e.from.uuid}-${e.to.uuid}-${e.name}-${i}`}
+                key={e.id}
                 edge={e}
                 prefix={heads}
+                live={liveEdges.has(e.id)}
+                preview={previewEdges.has(e.id)}
+                busy={busyEdges.has(e.id)}
               />
             ))}
           </g>
 
-          <g className="swarm-graph-nodes">
-            {nodes.map((n) => (
-              <Node
-                key={n.uuid}
-                node={n}
-                meta={metaOf(n)}
-                picked={isPicked(n, props.selectedNode)}
-                {...(pick ? { onPick: pick } : {})}
-              />
-            ))}
+          <g className={`swarm-graph-nodes${tracing ? " is-tracing" : ""}`}>
+            {nodes.map((n) => {
+              const work = workOf(n);
+              return (
+                <Node
+                  key={n.uuid}
+                  node={n}
+                  meta={metaOf(n)}
+                  work={workLine(work)}
+                  state={stateOf(work)}
+                  current={!!current && n.path.join("/") === current}
+                  onRoute={onRoute.has(n.uuid)}
+                  {...(enterable(n)
+                    ? {
+                        onEnter: enter,
+                        enterLabel: t("swarm.graph.enter", { node: n.name }),
+                      }
+                    : {})}
+                  onPreview={setPreview}
+                />
+              );
+            })}
           </g>
         </svg>
       </div>
@@ -294,7 +441,13 @@ function ArrowDefs(props: { prefix: string }) {
 }
 
 /** A link, its state, and the name a route would call it by. */
-function Wire(props: { edge: PlacedEdge; prefix: string }) {
+function Wire(props: {
+  edge: PlacedEdge;
+  prefix: string;
+  live: boolean;
+  preview: boolean;
+  busy: boolean;
+}) {
   const e = props.edge;
   const c = connectorFor(e);
   const dead = !e.to.online;
@@ -304,6 +457,9 @@ function Wire(props: { edge: PlacedEdge; prefix: string }) {
     e.alternate ? "is-alternate" : "",
     dead ? "is-down" : "",
     dials ? "is-dialled" : "",
+    props.live ? "is-live" : "",
+    props.preview ? "is-preview" : "",
+    props.busy ? "is-busy" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -318,6 +474,7 @@ function Wire(props: { edge: PlacedEdge; prefix: string }) {
         // The label plate's dashed outline is selected off the group, so the
         // state has to be here and not only on the path inside it.
         e.alternate ? "is-alternate" : "",
+        props.live || props.preview ? "is-traced" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -344,51 +501,78 @@ function Wire(props: { edge: PlacedEdge; prefix: string }) {
 function Node(props: {
   node: PlacedNode;
   meta: string;
-  picked: boolean;
-  onPick?: (node: PlacedNode) => void;
+  /** Empty when nothing is running there and nothing is parked there. */
+  work: string;
+  state: WorkState;
+  current: boolean;
+  onRoute: boolean;
+  onEnter?: (node: PlacedNode) => void;
+  enterLabel?: string;
+  onPreview: (route: string) => void;
 }) {
   const n = props.node;
-  const pick = props.onPick;
+  const enter = props.onEnter;
+  const route = n.path.join("/");
   const cls = [
     "swarm-node",
     n.kind === "relay" ? "swarm-node-relay" : "swarm-node-agent",
     n.depth === 0 ? "is-root" : "",
     n.online ? "is-online" : "is-offline",
     n.depth > 0 && n.path.length === 0 ? "is-stranded" : "",
-    props.picked ? "is-selected" : "",
+    props.current ? "is-current" : "",
+    props.onRoute ? "is-on-route" : "",
   ]
     .filter(Boolean)
     .join(" ");
+  const title = [n.name, props.meta, props.work, props.enterLabel]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <g
       className={cls}
       transform={`translate(${n.x},${n.y})`}
-      onClick={() => pick?.(n)}
-      role={pick ? "button" : undefined}
-      tabIndex={pick ? 0 : undefined}
+      onClick={enter ? () => enter(n) : undefined}
+      role={enter ? "button" : undefined}
+      tabIndex={enter ? 0 : undefined}
+      aria-label={enter ? props.enterLabel : undefined}
+      onMouseEnter={() => props.onPreview(route)}
+      onMouseLeave={() => props.onPreview("")}
+      onFocus={() => props.onPreview(route)}
+      onBlur={() => props.onPreview("")}
       onKeyDown={
-        pick
+        enter
           ? (ev) => {
               if (ev.key === "Enter" || ev.key === " ") {
                 ev.preventDefault();
-                pick(n);
+                enter(n);
               }
             }
           : undefined
       }
     >
-      <title>{`${n.name} · ${props.meta}`}</title>
+      <title>{title}</title>
       {n.kind === "relay" ? (
-        <RelayCard node={n} meta={props.meta} />
+        <RelayCard node={n} meta={props.meta} state={props.state} />
       ) : (
-        <AgentDisc node={n} meta={props.meta} />
+        <AgentDisc node={n} meta={props.meta} state={props.state} />
       )}
+      {props.work ? (
+        <WorkLine
+          text={props.work}
+          state={props.state}
+          y={n.kind === "relay" ? M.relayActivityDrop : M.agentActivityDrop}
+        />
+      ) : null}
     </g>
   );
 }
 
 /** A relay routes: a soft card with the router mark on an accent tile. */
-function RelayCard(props: { node: PlacedNode; meta: string }) {
+function RelayCard(props: {
+  node: PlacedNode;
+  meta: string;
+  state: WorkState;
+}) {
   const n = props.node;
   return (
     <>
@@ -399,6 +583,14 @@ function RelayCard(props: { node: PlacedNode; meta: string }) {
         width={M.relayWidth + 20}
         height={M.relayHeight + 24}
         rx={M.relayRadius + 8}
+      />
+      <rect
+        className={haloClass(props.state)}
+        x={-RELAY_HALF_W - 9}
+        y={-RELAY_HALF_H - 9}
+        width={M.relayWidth + 18}
+        height={M.relayHeight + 18}
+        rx={M.relayRadius + 9}
       />
       {/* Elevation without a filter: a darker plate peeking out below the card.
           It costs one shape and reads as a shadow on light and dark alike. */}
@@ -464,7 +656,11 @@ function RelayCard(props: { node: PlacedNode; meta: string }) {
 }
 
 /** An agent does the work: a circle round a prompt, its name on a chip below. */
-function AgentDisc(props: { node: PlacedNode; meta: string }) {
+function AgentDisc(props: {
+  node: PlacedNode;
+  meta: string;
+  state: WorkState;
+}) {
   const n = props.node;
   const r = M.agentRadius;
   const label = clip(n.name, 16);
@@ -472,6 +668,7 @@ function AgentDisc(props: { node: PlacedNode; meta: string }) {
   return (
     <>
       <circle className="swarm-node-hit" r={r + 12} />
+      <circle className={haloClass(props.state)} r={r + 9} />
       <circle className="swarm-node-shadow" cy={3} r={r - 1} />
       <circle className="swarm-node-ring" r={r + 6} />
       <circle className="swarm-node-body" r={r} />
@@ -499,6 +696,33 @@ function AgentDisc(props: { node: PlacedNode; meta: string }) {
         {clip(props.meta, 22)}
       </text>
     </>
+  );
+}
+
+/**
+ * What the node is doing, under everything else it says. A running node also
+ * carries a dot, so the state survives greyscale and a glance from across the
+ * room; a node waiting on a person says so in words, which is the only form
+ * that cannot be mistaken for progress.
+ */
+function WorkLine(props: { text: string; state: WorkState; y: number }) {
+  const label = clip(props.text, 22);
+  const dotted = props.state === "running";
+  const w = textWidth(label, 10);
+  return (
+    <g className={`swarm-node-work is-${props.state}`}>
+      {dotted ? (
+        <circle
+          className="swarm-node-work-dot"
+          cx={-(w + 10) / 2 + 3}
+          cy={props.y - 3.5}
+          r={3}
+        />
+      ) : null}
+      <text x={dotted ? 5 : 0} y={props.y} textAnchor="middle">
+        {label}
+      </text>
+    </g>
   );
 }
 
@@ -595,14 +819,93 @@ function LegendItem(props: {
   );
 }
 
-/** Selection travels as a route string, the same key the filter chips use. */
-function isPicked(n: PlacedNode, selected?: string | null): boolean {
-  return selected === n.path.join("/");
+/**
+ * The halo class is the only thing that changes when work starts or stops, so
+ * a poll that reports the same state leaves the element untouched and its
+ * animation keeps its phase instead of jumping back to the first frame.
+ */
+function haloClass(state: WorkState): string {
+  return state === "idle" ? "swarm-node-halo" : `swarm-node-halo is-${state}`;
 }
 
-/** Paint order: a dead or optional wire first, the route in use over it. */
-function weight(e: PlacedEdge, selected?: string | null): number {
-  if (isPicked(e.to, selected)) {
+/** A person has to answer before anything else moves, so waiting wins. */
+function stateOf(work: NodeActivity | null): WorkState {
+  if (!work || work.sessions === 0) {
+    return "idle";
+  }
+  if (work.waiting > 0) {
+    return "waiting";
+  }
+  return work.running > 0 ? "running" : "idle";
+}
+
+/** Every hop on the way to a node that has a turn in flight. */
+function busyRoutes(
+  layout: TopologyLayout,
+  activity: Record<string, NodeActivity>,
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const [route, work] of Object.entries(activity)) {
+    if (work.running > 0 && work.waiting === 0) {
+      for (const id of routeEdgeIds(layout, route)) {
+        out.add(id);
+      }
+    }
+  }
+  return out;
+}
+
+/** "You are on X, reached through a, b." Empty when we are on the relay. */
+function hereSentence(
+  layout: TopologyLayout,
+  current: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+): string {
+  if (!current) {
+    return "";
+  }
+  const node = layout.nodes.find(
+    (n) => n.path.length > 0 && n.path.join("/") === current,
+  );
+  if (!node) {
+    return "";
+  }
+  return t("swarm.graph.hereIs", {
+    node: node.name,
+    route: node.path.join(", "),
+  });
+}
+
+/** Names the nodes in one work state, for the paragraph a screen reader gets. */
+function namesSentence(
+  layout: TopologyLayout,
+  activity: Record<string, NodeActivity>,
+  field: "running" | "waiting",
+  say: (names: string) => string,
+): string {
+  const names = layout.nodes
+    .filter(
+      (n) =>
+        n.path.length > 0 && (activity[n.path.join("/")]?.[field] ?? 0) > 0,
+    )
+    .map((n) => n.name);
+  return names.length > 0 ? say(names.join(", ")) : "";
+}
+
+/** Paint order: a dead or optional wire first, the path in use over everything. */
+function weight(
+  e: PlacedEdge,
+  live: ReadonlySet<string>,
+  preview: ReadonlySet<string>,
+  busy: ReadonlySet<string>,
+): number {
+  if (live.has(e.id)) {
+    return 5;
+  }
+  if (preview.has(e.id)) {
+    return 4;
+  }
+  if (busy.has(e.id)) {
     return 3;
   }
   if (!e.to.online) {
@@ -617,7 +920,11 @@ function weight(e: PlacedEdge, selected?: string | null): number {
  * enough to 0.55em to size a plate from the string itself.
  */
 function chipWidth(text: string, fontSize: number, pad: number): number {
-  return Math.round(text.length * fontSize * 0.55 + pad * 2);
+  return Math.round(textWidth(text, fontSize) + pad * 2);
+}
+
+function textWidth(text: string, fontSize: number): number {
+  return Math.round(text.length * fontSize * 0.55);
 }
 
 /** SVG text has no ellipsis, so a long name is cut where the card ends. */

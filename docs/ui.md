@@ -653,27 +653,29 @@ a project-local one awaiting workspace approval):
 Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 
 - The **Swarm** rail entry appears only where `GET /swarm/info` answers, so a plain
-  agent never shows it.
+  agent never shows it. It sits at the foot of the rail, next to Settings.
 - On a relay the swarm map **is** the home screen: no composer, no `ChatScreen`,
   no History entry and no Scheduler entry, because a relay holds no sessions of
   its own. Its header carries the environment selector, which normally lives in
   the composer.
-- **Open node** on a group repoints the app at that node through the relay's
-  mount; every ordinary screen (chat, history, scheduler, settings, workspace)
-  then works against that node, and **Swarm** in the rail returns to the relay.
-- A relay that requires a token answers the public probe and refuses the rest;
-  the screen says so and asks for a credential instead of reporting an empty
-  swarm.
+- **Clicking a node on the map connects to it.** There is no list of nodes under
+  the map and no filter chips: from a node, every ordinary screen (chat,
+  history, scheduler, settings, workspace) works against it, and **Swarm** in
+  the rail returns to the relay.
+- The map marks the node the app is on as *you are here* and draws the route to
+  it from the attached relay as one connected accent path; everything off that
+  route recedes. Hovering another node previews where a click would take you.
+- Each node says what it is doing: a session count when idle, a running count
+  while a turn is in flight, and *needs an answer* when something there waits on
+  a permission prompt. A running node pulses, a waiting node pulses differently,
+  and the hops to a running node carry a travelling dash. All of it comes from
+  `GET /swarm/sessions` and all of it stops under `prefers-reduced-motion`.
 - Search runs on the relay, not in the browser, so it reaches nodes this
-  browser cannot dial; the node chips narrow what is already on screen. Nodes
-  that did not answer are listed as warnings above the groups rather than
-  dropped.
+  browser cannot dial. Matching sessions appear as rows under the map only while
+  there is a query; a row opens that session on its node. Nodes that did not
+  answer are listed as warnings above the map rather than dropped.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
-- The topology graph draws a relay as a card with a router mark and an agent as
-  a circle. Hops are elbows with arrowheads, a ring link is a bow, and the left
-  gutter states how many hops away each tier is. Nothing is carried by colour
-  alone, so the picture survives greyscale and the six dark themes.
 - The environment selector in the map header opens **downward**, because on a
   relay the chip sits at the top of the window rather than in the composer at
   the foot.

@@ -3874,6 +3874,22 @@ export function App() {
     );
   }, []);
 
+  /**
+   * Where the app has been in this swarm, as a route.
+   *
+   * Inside a node it is that node; back on the relay it is whatever
+   * `returnToSwarm` remembered. The map marks it and draws the path to it, so
+   * the screen can say where we are rather than only what exists.
+   */
+  const swarmCurrentNode = useMemo(() => {
+    const env = getEnv();
+    if (env.mode !== "remote") {
+      return [] as string[];
+    }
+    const route = env.swarmNode || env.swarmFrom || "";
+    return route.split("/").filter(Boolean);
+  }, []);
+
   const openSwarmFromNav = useCallback(() => {
     const env = getEnv();
     // Inside a node, going to the swarm means going back out to its relay.
@@ -4169,6 +4185,9 @@ export function App() {
             <SwarmView
               onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
               onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
+              {...(swarmCurrentNode.length > 0
+                ? { currentNode: swarmCurrentNode }
+                : {})}
               {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
             />
           </div>

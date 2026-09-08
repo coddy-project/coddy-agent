@@ -607,44 +607,61 @@ Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
 ### Swarm screen (`ui/swarm/SwarmView.tsx`)
 
 Shown at **`#/swarm`** in any environment that answers **`GET /swarm/info`**, and as the **home
-screen** when the environment is a relay itself. It is the only screen a relay has.
+screen** when the environment is a relay itself. It is the only screen a relay has, and the map
+is the screen: there is no list of nodes under it, because everything the list did the map does.
 
 - **Relay as home.** A relay serves no **`/coddy/*`** at all: it holds no sessions, no workspace and
   no model. **`App.tsx`** tracks this as **`atSwarmRoot`** (the swarm probe answered and the
   environment is not a node reached *through* a relay). While it is true the composer and
-  **`ChatScreen`** are not rendered, and the rail hides **History** (**`showHistory={false}`**) and
-  **Scheduler** — a drawer of sessions that cannot exist is furniture for a room nobody can enter.
-  Entering a node (**`connectSwarmNode`**) points the app at that node's mount and the whole
-  ordinary UI comes back, including chat, history and scheduler.
+  **`ChatScreen`** are not rendered, and the rail hides **History** and **Scheduler** - a drawer of
+  sessions that cannot exist is furniture for a room nobody can enter.
+- **The map is the way in.** Clicking a node in the graph connects to it: the app repoints at that
+  node through the relay (**`connectSwarmNode`**) and every ordinary screen - chat, History,
+  Scheduler - then works against it. The attached relay and a node with no route are not
+  clickable. Enter and Space do what a click does, and an enterable node takes a visible focus
+  ring.
+- **Where we are, and how we got there.** **`returnToSwarm`** carries the node last entered back to
+  the relay environment as **`swarmFrom`**, so the map can mark it: that node is drawn as *you are
+  here* and every edge on its route from the attached relay is drawn as the live path, with
+  everything off the route receding. Hovering or focusing another node previews its route the
+  same way, weaker.
+- **What the swarm is doing.** **`GET /swarm/sessions`** carries **`turnActive`** and
+  **`permissionPending`** per session; **`nodeActivity`** (**`swarm/routes.ts`**, pure and tested)
+  folds them per node path. Under each node's meta line: nothing when it holds no sessions,
+  a session count when it is idle, a running count when a turn is in flight, and *needs an answer*
+  when anything there waits on a permission prompt - that state wins, because it is the one that
+  needs a human. A running node pulses slowly, a waiting node pulses sharply in a different
+  rhythm, and the hops on the route to a running node carry a travelling dash. Every one of those
+  is driven by that live data and by nothing else, and
+  **`@media (prefers-reduced-motion: reduce)`** removes all of it, leaving the states carried by
+  the copy and a static ring.
 - **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
-  **`.swarm-header-actions`**: the **`headerSlot`** followed by the topology toggle. **`App.tsx`**
-  passes **`<EnvironmentChip/>`** into that slot **only** at the relay root, because the composer
-  that normally carries the environment selector is not on screen there.
-- **Empty and error states are distinct.** **`/swarm/info`** is public, so a credentialed relay
-  answers the probe and refuses everything else; the view then shows **`.swarm-error`**
-  (**`data-testid="swarm-error"`**) asking for a token rather than reporting an empty swarm. With a
-  working credential the empty text distinguishes *no nodes joined*, *no sessions yet* and *the
-  filter matched nothing*.
-- **Grouping and filtering.** Sessions group by node path. The **search box** goes to the relay,
-  which fans out, so a query here reaches machines this browser cannot dial; the **node chips**
-  narrow what is already on screen and do not re-query. Warnings for nodes that did not answer
-  render above the groups (**`.swarm-warnings`**) instead of removing them silently.
+  **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
+  **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it
+  is not on screen.
+- **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines
+  this browser cannot dial. With a query, matching sessions appear as rows under the map, each
+  naming its node and route, and a row opens that session on that node. With no query there are
+  no rows at all.
+- **Distinct empty and error states.** **`/swarm/info`** is public, so a credentialed relay answers
+  the probe and refuses everything else; the view then shows **`.swarm-error`** asking for a token
+  rather than reporting an empty swarm. Nodes that did not answer are listed in
+  **`.swarm-warnings`** above the map rather than silently dropped.
 - **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
-  **`swarm/layout.ts`**); clicking a node filters to it. A relay is a card carrying an
-  accent-filled tile with the router mark; an agent is a circle with its name on a chip below.
-  Hops are orthogonal elbows that leave the bottom, turn on a rail shared by the children of one
-  parent, and arrive at the top with an arrowhead; a same-tier link between peers is a bow that
-  leaves and arrives at the sides, with its name at the apex. Depth is stated in the left gutter -
-  a dashed upright with a tick, a hop caption and a node count per tier - not by lane blocks
-  behind the nodes. Every state is said twice, never in colour alone: the route in use is solid
+  **`swarm/layout.ts`**). A relay is a card carrying an accent-filled tile with the router mark; an
+  agent is a circle with its name on a chip below. Hops are orthogonal elbows that leave the
+  bottom, turn on a rail shared by the children of one parent, and arrive at the top with an
+  arrowhead; a same-tier link between peers is a bow that leaves and arrives at the sides, with
+  its name at the apex; a link that skips a row goes round the outside in a lane clear of every
+  card. Depth is stated in the left gutter - a dashed upright with a tick, a hop caption and a
+  node count per tier. Every state is said twice, never in colour alone: the route in use is solid
   with a filled head, a way round a ring is dotted with an open chevron, a link into an offline
   node is coarsely dashed and dimmed, and a node that dials out carries a badge as well as a
-  dotted wire. A meta line under each name says what the node is and how much it carries.
-  Because **`role="img"`** collapses the subtree, the SVG is described by a visually hidden
-  paragraph naming each tier and its nodes; marker ids are **`useId()`**-scoped so two graphs on
-  one page cannot collide. The SVG keeps its intrinsic size and scrolls inside
-  **`.swarm-graph-scroll`** rather than scaling its labels below legibility on a phone, and the
-  legend below it wraps instead of setting a minimum width.
+  dotted wire. Because **`role="img"`** collapses the subtree, the SVG is described by a visually
+  hidden paragraph naming each tier, its nodes, where the app is and what is running; marker ids
+  are **`useId()`**-scoped so two graphs on one page cannot collide. The SVG keeps its intrinsic
+  size and scrolls inside **`.swarm-graph-scroll`** rather than scaling its labels below
+  legibility on a phone, and the legend below it wraps instead of setting a minimum width.
 
 The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
 (**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
