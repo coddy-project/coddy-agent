@@ -1,8 +1,13 @@
 # Code review record
 
-Four rounds against the implementation, by Codex (gpt-5.6-sol) and Cursor. Thirty-seven
-findings, every one of them real; the interesting ones are collected here because several
-describe mistakes worth not repeating.
+Five rounds against the implementation, by Codex (gpt-5.6-sol) and Cursor. Thirty-seven
+findings, every one of them real, closed on the fifth with nothing blocking left. The
+interesting ones are collected here because several describe mistakes worth not repeating.
+
+One concern was answered by documenting it rather than changing the code: past a merge point
+a node keeps only the shortest route through it, so alternates are not inherited by
+descendants. Enumerating k-shortest paths would fill a failover list with speculation. It is
+a stated limitation, not an open defect.
 
 | Round | Reviewer | Verdict | Found |
 |---|---|---|---|
@@ -11,6 +16,7 @@ describe mistakes worth not repeating.
 | 3 | Codex (re-check) | REWORK | 5 unresolved + 5 new |
 | 4 | Cursor (fresh) | APPROVE_WITH_CHANGES | 7 |
 | 4 | Codex (re-check) | REWORK | 4 unresolved + 2 weak tests |
+| 5 | Codex (re-check) | **APPROVE** | nothing blocking |
 
 ## The ones worth remembering
 
