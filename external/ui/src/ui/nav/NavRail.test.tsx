@@ -149,4 +149,26 @@ describe("NavRail on a relay", () => {
     render(<NavRail {...base} />);
     expect(screen.getByTestId("nav-history")).toBeInTheDocument();
   });
+
+  // The rail splits at the spacer: what belongs to this session above it,
+  // what belongs to the installation below. Swarm is the fleet, so it sits
+  // with Settings.
+  it("puts swarm at the foot of the rail, above settings", () => {
+    render(<NavRail {...base} showSwarm showScheduler />);
+    const order = Array.from(
+      document.querySelectorAll("[data-testid^='nav-']"),
+    ).map((e) => e.getAttribute("data-testid"));
+    expect(order).toEqual([
+      "nav-home",
+      "nav-history",
+      "nav-scheduler",
+      "nav-swarm",
+      "nav-settings",
+    ]);
+    const spacer = document.querySelector(".rail-spacer-between");
+    const swarm = screen.getByTestId("nav-swarm");
+    expect(
+      spacer.compareDocumentPosition(swarm) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });

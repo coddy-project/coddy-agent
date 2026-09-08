@@ -332,6 +332,11 @@ export function NavRail(props: {
             </div>
           ) : null}
 
+          <div className="rail-spacer rail-spacer-between" aria-hidden />
+
+          {/* Below the spacer, next to Settings: History and Scheduler are
+              about the session in front of you, while the swarm is the fleet
+              this session happens to live in. */}
           {showSwarm ? (
             <div className="rail-tip-host">
               <a
@@ -356,8 +361,6 @@ export function NavRail(props: {
               ) : null}
             </div>
           ) : null}
-
-          <div className="rail-spacer rail-spacer-between" aria-hidden />
 
           <div className="rail-tip-host">
             <a

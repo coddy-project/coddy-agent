@@ -17,6 +17,7 @@ import {
 } from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
+import { useT } from "../i18n/I18nProvider";
 import type {
   SwarmInfo,
   SwarmNode,
@@ -42,6 +43,7 @@ export function SwarmView(props: {
    */
   headerSlot?: ReactNode;
 }) {
+  const { t, tp } = useT();
   const [info, setInfo] = useState<SwarmInfo | null>(null);
   const [nodes, setNodes] = useState<SwarmNode[]>([]);
   const [sessions, setSessions] = useState<SwarmSession[]>([]);
@@ -57,46 +59,49 @@ export function SwarmView(props: {
   const searchRef = useRef(search);
   searchRef.current = search;
 
-  const reload = useCallback(async (signal?: AbortSignal) => {
-    const probe = await probeSwarm(signal);
-    if (!probe) {
-      setInfo(null);
-      setError("This environment is not a swarm relay.");
-      setLoading(false);
-      return;
-    }
-    setInfo(probe);
-    setError(null);
-    try {
-      const [nodeList, sessionList, topo] = await Promise.all([
-        fetchNodes(signal),
-        fetchSwarmSessions(
-          searchRef.current ? { q: searchRef.current } : {},
-          signal,
-        ),
-        fetchTopology(signal).catch(() => null),
-      ]);
-      setNodes(nodeList);
-      setSessions(sessionList.sessions);
-      setWarnings(sessionList.warnings);
-      if (topo) {
-        setTopology(topo);
+  const reload = useCallback(
+    async (signal?: AbortSignal) => {
+      const probe = await probeSwarm(signal);
+      if (!probe) {
+        setInfo(null);
+        setError(t("swarm.error.notRelay"));
+        setLoading(false);
+        return;
       }
-    } catch (e) {
-      if ((e as Error)?.name !== "AbortError") {
-        // /swarm/info is public, so a relay answers the probe and then refuses
-        // everything else. Saying "no nodes" there would be a lie.
-        const status = (e as SwarmHttpError)?.status;
-        setError(
-          status === 401 || status === 403
-            ? "This relay needs a token. Add it with Connect in the environment menu."
-            : String((e as Error)?.message || e),
-        );
+      setInfo(probe);
+      setError(null);
+      try {
+        const [nodeList, sessionList, topo] = await Promise.all([
+          fetchNodes(signal),
+          fetchSwarmSessions(
+            searchRef.current ? { q: searchRef.current } : {},
+            signal,
+          ),
+          fetchTopology(signal).catch(() => null),
+        ]);
+        setNodes(nodeList);
+        setSessions(sessionList.sessions);
+        setWarnings(sessionList.warnings);
+        if (topo) {
+          setTopology(topo);
+        }
+      } catch (e) {
+        if ((e as Error)?.name !== "AbortError") {
+          // /swarm/info is public, so a relay answers the probe and then refuses
+          // everything else. Saying "no nodes" there would be a lie.
+          const status = (e as SwarmHttpError)?.status;
+          setError(
+            status === 401 || status === 403
+              ? t("swarm.error.needsToken")
+              : String((e as Error)?.message || e),
+          );
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [t],
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -161,7 +166,7 @@ export function SwarmView(props: {
   if (!info && !loading) {
     return (
       <section className="swarm-view" data-testid="swarm-view">
-        <p className="swarm-empty">{error || "No swarm here."}</p>
+        <p className="swarm-empty">{error || t("swarm.empty.noSwarm")}</p>
       </section>
     );
   }
@@ -170,14 +175,19 @@ export function SwarmView(props: {
     <section className="swarm-view" data-testid="swarm-view">
       <header className="swarm-header">
         <div>
-          <h1 className="swarm-title">{info?.name || "Swarm"}</h1>
+          <h1 className="swarm-title">{info?.name || t("swarm.title")}</h1>
           <p className="swarm-subtitle">
             {summary
-              ? `${summary.relays} relays · ${summary.agents} agents${
-                  summary.offline ? ` · ${summary.offline} offline` : ""
+              ? `${tp("swarm.summary.relays", summary.relays)} · ${tp(
+                  "swarm.summary.agents",
+                  summary.agents,
+                )}${
+                  summary.offline
+                    ? ` · ${tp("swarm.summary.offline", summary.offline)}`
+                    : ""
                 }`
-              : `${nodes.length} nodes`}
-            {info?.registry_warming ? " · nodes still checking in" : ""}
+              : tp("swarm.summary.nodes", nodes.length)}
+            {info?.registry_warming ? ` · ${t("swarm.summary.warming")}` : ""}
           </p>
         </div>
         <div className="swarm-header-actions">
@@ -187,7 +197,7 @@ export function SwarmView(props: {
             className="swarm-graph-toggle"
             onClick={() => setShowGraph((v) => !v)}
           >
-            {showGraph ? "Hide topology" : "Show topology"}
+            {showGraph ? t("swarm.graph.hide") : t("swarm.graph.show")}
           </button>
         </div>
       </header>
@@ -210,7 +220,7 @@ export function SwarmView(props: {
           className="swarm-search"
           data-testid="swarm-search"
           type="search"
-          placeholder="Search by task, folder, node or address"
+          placeholder={t("swarm.search.placeholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -220,7 +230,7 @@ export function SwarmView(props: {
             className={`swarm-chip ${nodeFilter ? "" : "is-active"}`}
             onClick={() => setNodeFilter(null)}
           >
-            All nodes
+            {t("swarm.chip.all")}
           </button>
           {chips.map((c) => (
             <button
@@ -232,14 +242,22 @@ export function SwarmView(props: {
               onClick={() =>
                 setNodeFilter((prev) => (prev === c.path ? null : c.path))
               }
-              title={c.url || (c.direct ? `${c.label} (dials out)` : c.path)}
+              title={
+                c.url ||
+                (c.direct
+                  ? t("swarm.chip.dialsOut", { name: c.label })
+                  : c.path)
+              }
             >
               <span
                 className={`swarm-dot ${c.online ? "is-online" : "is-offline"}`}
               />
               {c.label}
               {c.transport === "tunnel" ? (
-                <span className="swarm-chip-transport" title="dials out">
+                <span
+                  className="swarm-chip-transport"
+                  title={t("swarm.chip.tunnel")}
+                >
                   ⇡
                 </span>
               ) : null}
@@ -266,10 +284,10 @@ export function SwarmView(props: {
         {groups.length === 0 && !error ? (
           <p className="swarm-empty">
             {loading
-              ? "Looking…"
+              ? t("swarm.empty.looking")
               : search || nodeFilter
-                ? "No sessions match."
-                : "No nodes have joined yet."}
+                ? t("swarm.empty.noMatches")
+                : t("swarm.empty.noNodes")}
           </p>
         ) : null}
         {groups.map((g) => {
@@ -295,18 +313,18 @@ export function SwarmView(props: {
                     type="button"
                     className="swarm-group-open"
                     data-testid={`swarm-open-node-${key}`}
-                    title={`Work on ${g.node} through this relay`}
+                    title={t("swarm.group.openTitle", { node: g.node })}
                     onClick={() => props.onOpenNode?.(g.nodePath)}
                   >
-                    Open node
+                    {t("swarm.group.open")}
                   </button>
                 ) : null}
               </div>
               {isCollapsed ? null : g.sessions.length === 0 ? (
                 <p className="swarm-group-idle">
                   {g.kind === "relay"
-                    ? "A relay holds no sessions of its own. Open it to see its swarm."
-                    : "No sessions here yet. Open the node to start one."}
+                    ? t("swarm.group.idleRelay")
+                    : t("swarm.group.idle")}
                 </p>
               ) : (
                 <ul className="swarm-session-list">
@@ -327,12 +345,12 @@ export function SwarmView(props: {
                           ) : null}
                           {s.turnActive ? (
                             <span className="swarm-session-active">
-                              working
+                              {t("swarm.session.working")}
                             </span>
                           ) : null}
                           {s.permissionPending ? (
                             <span className="swarm-session-waiting">
-                              waiting
+                              {t("swarm.session.waiting")}
                             </span>
                           ) : null}
                         </span>

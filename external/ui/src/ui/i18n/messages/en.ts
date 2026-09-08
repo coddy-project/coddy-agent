@@ -1109,6 +1109,37 @@ export const messagesEn: Record<string, string> = {
   "tasks.chip.total.other": "{count} background tasks",
   "tasks.chip.openAria": "Open background tasks: {label}",
 
+  "swarm.title": "Swarm",
+  "swarm.summary.relays.one": "{count} relay",
+  "swarm.summary.relays.other": "{count} relays",
+  "swarm.summary.agents.one": "{count} agent",
+  "swarm.summary.agents.other": "{count} agents",
+  "swarm.summary.offline.one": "{count} offline",
+  "swarm.summary.offline.other": "{count} offline",
+  "swarm.summary.nodes.one": "{count} node",
+  "swarm.summary.nodes.other": "{count} nodes",
+  "swarm.summary.warming": "nodes still checking in",
+  "swarm.graph.hide": "Hide topology",
+  "swarm.graph.show": "Show topology",
+  "swarm.search.placeholder": "Search by task, folder, node or address",
+  "swarm.chip.all": "All nodes",
+  "swarm.chip.dialsOut": "{name} (dials out)",
+  "swarm.chip.tunnel": "dials out",
+  "swarm.empty.noSwarm": "No swarm here.",
+  "swarm.empty.looking": "Looking…",
+  "swarm.empty.noMatches": "No sessions match.",
+  "swarm.empty.noNodes": "No nodes have joined yet.",
+  "swarm.error.notRelay": "This environment is not a swarm relay.",
+  "swarm.error.needsToken":
+    "This relay needs a token. Add it with Connect in the environment menu.",
+  "swarm.group.open": "Open node",
+  "swarm.group.openTitle": "Work on {node} through this relay",
+  "swarm.group.idle": "No sessions here yet. Open the node to start one.",
+  "swarm.group.idleRelay":
+    "A relay holds no sessions of its own. Open it to see its swarm.",
+  "swarm.session.working": "working",
+  "swarm.session.waiting": "waiting",
+
   "env.error.remoteUnreachable":
     "Cannot reach remote {host} — it may be offline or the URL is wrong, or the response was blocked by CORS (enable httpserver.cors on the remote).",
   "env.error.localNetwork":

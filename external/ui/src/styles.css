@@ -10030,7 +10030,7 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   border-radius: 10px;
   border: 1px solid rgba(239, 68, 68, 0.5);
   background: rgba(239, 68, 68, 0.1);
-  color: var(--fg);
+  color: var(--text);
   font-size: 12px;
 }
 
