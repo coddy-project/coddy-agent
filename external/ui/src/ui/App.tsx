@@ -92,6 +92,7 @@ import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
 import { probeSwarm } from "./swarm/api";
+import { connectSwarmNode, returnToSwarm } from "./env/remoteEnv";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
 import { readLlmModelCookie, writeLlmModelCookie } from "./chat/llmModelCookie";
 import {
@@ -3823,12 +3824,42 @@ export function App() {
   };
 
   useEffect(() => {
+    const env = getEnv();
+    // Inside a node the relay's own routes are no longer under the base URL, so
+    // asking again would say "not a swarm" and take away the way back. What we
+    // came through is remembered instead.
+    if (env.mode === "remote" && env.swarmRelay) {
+      setIsSwarmEnv(true);
+      return undefined;
+    }
     const ac = new AbortController();
     void probeSwarm(ac.signal).then((info) => setIsSwarmEnv(!!info));
     return () => ac.abort();
   }, []);
 
+  // Entering a node points the whole app at that node's mount, so every screen
+  // that already existed works against it with a relay in the middle.
+  const openSwarmNode = useCallback((nodePath: string[], hash?: string) => {
+    const env = getEnv();
+    const relay = env.mode === "remote" ? (env.swarmRelay ?? env.baseUrl) : "";
+    if (!relay) {
+      return;
+    }
+    connectSwarmNode(
+      relay,
+      nodePath,
+      env.mode === "remote" ? env.token : "",
+      hash,
+    );
+  }, []);
+
   const openSwarmFromNav = useCallback(() => {
+    const env = getEnv();
+    // Inside a node, going to the swarm means going back out to its relay.
+    if (env.mode === "remote" && env.swarmRelay) {
+      returnToSwarm();
+      return;
+    }
     setSchedulerOpen(false);
     setSchedulerEditor(null);
     setTasksOpen(false);
@@ -4113,7 +4144,10 @@ export function App() {
 
         {swarmRoute ? (
           <div className="swarm-dock-cluster">
-            <SwarmView />
+            <SwarmView
+              onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
+              onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
+            />
           </div>
         ) : null}
         {settingsRoute ? (

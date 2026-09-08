@@ -10130,3 +10130,34 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     padding: 14px 12px 24px;
   }
 }
+
+/* A node group has two actions: fold it away, or go and work on that node. */
+.swarm-group-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.swarm-group-bar .swarm-group-header {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.swarm-group-open {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: 10px;
+  background: var(--coddy-surface-raised);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.swarm-group-open:hover {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border-color: var(--accent);
+}

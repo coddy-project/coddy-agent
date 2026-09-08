@@ -25,6 +25,7 @@ import type {
  */
 export function SwarmView(props: {
   onOpenSession?: (s: SwarmSession) => void;
+  onOpenNode?: (nodePath: string[]) => void;
 }) {
   const [info, setInfo] = useState<SwarmInfo | null>(null);
   const [nodes, setNodes] = useState<SwarmNode[]>([]);
@@ -224,18 +225,31 @@ export function SwarmView(props: {
           const isCollapsed = collapsed.has(key);
           return (
             <section className="swarm-group" key={key} data-node={key}>
-              <button
-                type="button"
-                className="swarm-group-header"
-                onClick={() => toggleGroup(key)}
-                aria-expanded={!isCollapsed}
-              >
-                <span className="swarm-group-name">{g.node}</span>
-                <span className="swarm-group-route">
-                  {g.nodePath.length > 1 ? routeLabel(g.nodePath) : ""}
-                </span>
-                <span className="swarm-group-count">{g.sessions.length}</span>
-              </button>
+              <div className="swarm-group-bar">
+                <button
+                  type="button"
+                  className="swarm-group-header"
+                  onClick={() => toggleGroup(key)}
+                  aria-expanded={!isCollapsed}
+                >
+                  <span className="swarm-group-name">{g.node}</span>
+                  <span className="swarm-group-route">
+                    {g.nodePath.length > 1 ? routeLabel(g.nodePath) : ""}
+                  </span>
+                  <span className="swarm-group-count">{g.sessions.length}</span>
+                </button>
+                {props.onOpenNode ? (
+                  <button
+                    type="button"
+                    className="swarm-group-open"
+                    data-testid={`swarm-open-node-${key}`}
+                    title={`Work on ${g.node} through this relay`}
+                    onClick={() => props.onOpenNode?.(g.nodePath)}
+                  >
+                    Open node
+                  </button>
+                ) : null}
+              </div>
               {isCollapsed ? null : (
                 <ul className="swarm-session-list">
                   {g.sessions.map((s) => (

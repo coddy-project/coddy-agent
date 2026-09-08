@@ -172,12 +172,40 @@ like "this machine has no work".
 
 ## The UI
 
-The Swarm screen appears when the selected environment answers as a relay. It shows the
-topology, a search box that goes to the relay, node filter chips, and sessions grouped under
-the node that owns them.
+Connecting is the ordinary environment flow: the chip in the composer, **Add remote**, the
+relay's address and its client token. Because the environment answers as a relay, a **Swarm**
+entry appears in the rail - on a plain agent it is not there at all.
+
+The Swarm screen shows the topology, a search box that goes to the relay, node filter chips,
+and sessions grouped under the node that owns them.
+
+**Working on a node.** `Open node` on a group points the app at that node's mount. From there
+every screen that already existed drives it - the history drawer lists that node's sessions,
+the composer shows its working directory and its model catalog - with a relay in the middle
+and nothing aware of it. Clicking a session does the same and lands on that session.
+
+**Going back and switching.** The Swarm entry stays in the rail while you are inside a node,
+because the relay you came through is remembered; clicking it returns to the swarm, where
+another node is one click away. Without that memory there would be no way back but to type
+the relay's address again: from inside a node, the relay's own routes are no longer under the
+base URL.
 
 The SPA is not served by the relay: it runs where it does today and treats a relay as one more
 environment.
+
+## Where the settings live
+
+| What | Where |
+|---|---|
+| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or `coddy swarm` flags |
+| Which relays this process joins | `swarm.join` in `config.yaml` - honoured by `coddy http` and `coddy swarm` alike |
+| Relays offered in the UI environment menu | `httpserver.remotes` (name and URL only; tokens stay in the browser) |
+| Credentials out of the file | `CODDY_SWARM_TOKEN`, `CODDY_SWARM_PAIRING_TOKEN`, `--auth-token`, `--pairing-token` |
+
+There is deliberately **no Settings page for the relay**. It is a deployment - a bind address
+and credentials for a whole fleet - and a page served by one of its own nodes is the wrong
+place to edit that. Node credentials are never returned by a config read, and a save preserves
+them by destination, so editing anything else in Settings cannot strip them.
 
 ## Security
 

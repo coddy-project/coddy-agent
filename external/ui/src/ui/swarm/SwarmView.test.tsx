@@ -246,3 +246,25 @@ describe("SwarmView", () => {
     expect(opened.node_path).toEqual(["nas02"]);
   });
 });
+
+describe("SwarmView actions", () => {
+  it("offers a way into each node, carrying its route", async () => {
+    const onOpenNode = vi.fn();
+    render(<SwarmView onOpenNode={onOpenNode} />);
+    await waitFor(() => {
+      expect(screen.getByText("refactor the parser")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("swarm-open-node-middle/hidden"));
+    expect(onOpenNode).toHaveBeenCalledWith(["middle", "hidden"]);
+  });
+
+  it("hides the action when there is nowhere to send it", async () => {
+    render(<SwarmView />);
+    await waitFor(() => {
+      expect(screen.getByText("refactor the parser")).toBeInTheDocument();
+    });
+    expect(
+      screen.queryByTestId("swarm-open-node-nas02"),
+    ).not.toBeInTheDocument();
+  });
+});
