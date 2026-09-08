@@ -5,6 +5,7 @@ package swarm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"sort"
@@ -77,28 +78,33 @@ func ComputeRoutes(root string, edges []TopologyEdge) map[string]Route {
 	}
 
 	routes := map[string]Route{}
-	depth := map[string]int{root: 0}
 	queue := []string{root}
 	paths := map[string][]string{root: {}}
-	// The root is where the client already stands. In a real cycle an edge
-	// leads back to it, and treating that as a discovery would publish a route
-	// from the relay to itself, and cyclic alternates for everything behind it.
-	seen := map[string]bool{root: true}
+	// Each queued node carries the nodes its own route passed through. A route
+	// that revisits one of them is a lap of a cycle, and publishing it would
+	// hand a client a path that walks in a circle before arriving.
+	ancestry := map[string]map[string]bool{root: {root: true}}
 
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
 		for _, edge := range adjacency[current] {
-			if edge.ToUUID == root {
+			// The root is where the client already stands, so a route to it is
+			// meaningless; every other repeat is a lap.
+			if edge.ToUUID == root || ancestry[current][edge.ToUUID] {
 				continue
 			}
 			candidate := append(append([]string{}, paths[current]...), edge.Name)
 			existing, known := routes[edge.ToUUID]
 			if !known {
-				seen[edge.ToUUID] = true
 				routes[edge.ToUUID] = Route{Path: candidate}
 				paths[edge.ToUUID] = candidate
-				depth[edge.ToUUID] = depth[current] + 1
+				reached := map[string]bool{}
+				for uuid := range ancestry[current] {
+					reached[uuid] = true
+				}
+				reached[edge.ToUUID] = true
+				ancestry[edge.ToUUID] = reached
 				queue = append(queue, edge.ToUUID)
 				continue
 			}
@@ -139,20 +145,31 @@ func (s *Server) registerTopologyRoutes() {
 
 // handleTopology walks the swarm and answers with its shape.
 func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
+	root := TopologyNode{
+		UUID: s.uuid, Name: s.relayName(), Kind: swarmdto.KindRelay, Online: true,
+	}
+
 	hops, err := s.hopPath(r)
 	if err != nil {
 		// Coming back to ourselves during discovery is normal in a ring: the
 		// caller already has everything below this point, so an empty answer
 		// closes the walk rather than failing it.
-		writeJSON(w, http.StatusOK, Topology{
+		//
+		// The root travels even so. It is how a parent learns the identity
+		// behind a name it only knows from configuration, and without it a
+		// back edge can never be reconciled with the relay it points at.
+		closed := Topology{
+			Root:  root,
 			Nodes: []TopologyNode{}, Edges: []TopologyEdge{},
-			Routes: map[string]Route{}, Warnings: []string{}, Looped: true,
-		})
+			Routes: map[string]Route{}, Warnings: []string{},
+		}
+		if errors.Is(err, errChainLooped) {
+			closed.Looped = true
+		} else {
+			closed.Warnings = []string{err.Error()}
+		}
+		writeJSON(w, http.StatusOK, closed)
 		return
-	}
-
-	root := TopologyNode{
-		UUID: s.uuid, Name: s.relayName(), Kind: swarmdto.KindRelay, Online: true,
 	}
 	topo := Topology{
 		Root:     root,

@@ -5,6 +5,7 @@ package swarm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -136,18 +137,26 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	path, err := s.hopPath(r)
 	if err != nil {
-		// The chain came back to this relay. In a ring that is the normal
-		// outcome of walking every branch, not a fault: whoever asked has
-		// already seen everything below this point. It is reported as such
-		// rather than as a warning, because a warning on every request in a
-		// healthy swarm is how operators learn to ignore warnings.
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		// A chain that came back to this relay is the normal end of a branch in
+		// a ring: whoever asked has already seen everything below here, so it
+		// is reported as such rather than as a warning - a warning on every
+		// request in a healthy swarm is how operators learn to ignore warnings.
+		//
+		// A chain that is merely too long is a different matter. Something is
+		// out there and cannot be reached, and saying nothing would make it
+		// vanish silently.
+		out := map[string]interface{}{
 			"object":   "swarm.session_list",
 			"sessions": []interface{}{},
 			"warnings": []string{},
-			"looped":   true,
 			"reason":   err.Error(),
-		})
+		}
+		if errors.Is(err, errChainLooped) {
+			out["looped"] = true
+		} else {
+			out["warnings"] = []string{err.Error()}
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 
@@ -401,6 +410,15 @@ func relayReport(node Node, body []byte) nodeReport {
 	return rep
 }
 
+// errChainLooped means the chain came back to this relay: in a ring that is the
+// ordinary end of a branch. errChainTooDeep means it is simply longer than the
+// swarm carries, which is a fault worth telling somebody about. Collapsing the
+// two would let an acyclic but distant relay disappear in silence.
+var (
+	errChainLooped  = errors.New("chain looped")
+	errChainTooDeep = errors.New("chain too deep")
+)
+
 // hopPath records this relay in the chain and refuses a request that already
 // passed through it.
 func (s *Server) hopPath(r *http.Request) ([]string, error) {
@@ -416,11 +434,11 @@ func (s *Server) hopPath(r *http.Request) ([]string, error) {
 	}
 	for _, uuid := range path {
 		if uuid == s.uuid {
-			return nil, fmt.Errorf("swarm chain loops back through relay %s", s.relayName())
+			return nil, fmt.Errorf("%w: back through relay %s", errChainLooped, s.relayName())
 		}
 	}
 	if len(path) >= swarmMaxHops {
-		return nil, fmt.Errorf("swarm chain is deeper than %d relays at %s", swarmMaxHops, s.relayName())
+		return nil, fmt.Errorf("%w: deeper than %d relays at %s", errChainTooDeep, swarmMaxHops, s.relayName())
 	}
 	return append(path, s.uuid), nil
 }

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http2"
@@ -24,9 +25,9 @@ const TunnelPath = "/swarm/tunnel"
 // TunnelMaxConcurrentStreams bounds how many requests share one tunnel.
 const TunnelMaxConcurrentStreams = 250
 
-// TunnelIdleTimeout is how long a node keeps serving a connection that has gone
-// completely silent. The relay pings every 30s, so silence this long means the
-// relay is gone rather than merely idle.
+// TunnelIdleTimeout is how long a node keeps serving a connection on which
+// nothing at all arrives. The relay pings every 30s, so silence this long means
+// the relay is gone rather than merely idle.
 const TunnelIdleTimeout = 150 * time.Second
 
 // handshakeTimeout bounds the upgrade exchange, not the connection it produces.
@@ -139,7 +140,16 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 		return fmt.Errorf("swarm tunnel: clear handshake deadline: %w", derr)
 	}
 
-	served := SpliceBuffered(conn, br)
+	// The relay pings this connection to prove it is alive, but HTTP/2's own
+	// idle timeout deliberately does not count a ping as activity - and an
+	// active stream suppresses it entirely. So liveness is watched here, on the
+	// bytes actually arriving: a connection nobody is talking on is a relay
+	// that has gone away, and the node should redial rather than serve nobody.
+	watched := newActivityConn(SpliceBuffered(conn, br))
+	stopWatch := watched.watch(TunnelIdleTimeout)
+	defer stopWatch()
+
+	served := watched
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -147,12 +157,11 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 			// One connection carries every request for this node, so the stream
 			// bound is what keeps a burst from starving a live turn.
 			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
-			// The relay pings well inside this window, and a ping counts as
-			// activity. So a connection that goes truly silent is one whose
-			// relay is gone - and without this the node would sit here serving
-			// nobody, never redialling, while the relay has long since decided
-			// it is offline.
-			IdleTimeout: TunnelIdleTimeout,
+			// Liveness is watched on the connection itself (see above), not
+			// here: HTTP/2's idle timeout ignores pings and is suppressed by an
+			// open stream, so it would never fire on a tunnel that is quietly
+			// dead while holding a long turn.
+			IdleTimeout: 0,
 		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
 	}()
 
@@ -217,4 +226,55 @@ func EncodeTunnelAccept(node string) []byte {
 		"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s",
 		len(body), body,
 	))
+}
+
+// activityConn records when bytes last arrived, so a watchdog can tell a quiet
+// connection from a dead one.
+type activityConn struct {
+	net.Conn
+	mu   sync.Mutex
+	last time.Time
+}
+
+func newActivityConn(c net.Conn) *activityConn {
+	return &activityConn{Conn: c, last: time.Now()}
+}
+
+func (c *activityConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.mu.Lock()
+		c.last = time.Now()
+		c.mu.Unlock()
+	}
+	return n, err
+}
+
+func (c *activityConn) idleFor() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return time.Since(c.last)
+}
+
+// watch closes the connection once nothing has arrived for idle. It returns a
+// function that stops watching.
+func (c *activityConn) watch(idle time.Duration) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(idle / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if c.idleFor() > idle {
+					_ = c.Close()
+					return
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(stop) }) }
 }

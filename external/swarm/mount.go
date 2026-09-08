@@ -204,8 +204,16 @@ func mountRemainder(r *http.Request, node string) (string, error) {
 	if strings.Contains(lowered, "%2f") || strings.Contains(lowered, "%5c") {
 		return "", fmt.Errorf("encoded path separators are not accepted")
 	}
+	// Judging the escaped form alone is not enough: %2e%2e survives that check
+	// and becomes ".." the moment anything decodes it, which is how a request
+	// aimed at a node's API climbs back out into the relay's own routes. Every
+	// segment is therefore decoded before it is judged.
 	for _, seg := range strings.Split(rest, "/") {
-		if seg == "." || seg == ".." {
+		decoded, derr := url.PathUnescape(seg)
+		if derr != nil {
+			return "", fmt.Errorf("path segment %q is not decodable", seg)
+		}
+		if decoded == "." || decoded == ".." {
 			return "", fmt.Errorf("relative path segments are not accepted")
 		}
 	}

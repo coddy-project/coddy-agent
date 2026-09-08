@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/proxy"
 )
 
@@ -66,7 +67,17 @@ func (o Options) DialFunc() (func(ctx context.Context, network, addr string) (ne
 	raw := strings.TrimSpace(o.Proxy)
 	base := &net.Dialer{Timeout: o.dialTimeout(), KeepAlive: 30 * time.Second}
 	if raw == "" {
-		return base.DialContext, nil
+		// Documented behaviour is that an empty setting falls back to the
+		// standard environment variables. A raw dialer has no proxy support of
+		// its own, so the lookup is done here - otherwise a tunnel would ignore
+		// HTTPS_PROXY while every ordinary request honoured it.
+		return func(ctx context.Context, network, addr string) (net.Conn, error) {
+			envProxy, perr := proxyFromEnvironment(addr)
+			if perr != nil || envProxy == nil {
+				return base.DialContext(ctx, network, addr)
+			}
+			return dialViaCONNECT(ctx, base, envProxy, network, addr, o)
+		}, nil
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -148,6 +159,23 @@ func dialViaCONNECT(ctx context.Context, base *net.Dialer, proxyURL *url.URL, ne
 	if err != nil {
 		return nil, fmt.Errorf("dial proxy %s: %w", proxyAddr, err)
 	}
+	// A proxy that accepts the connection and then says nothing would otherwise
+	// hold this call for ever: the dial timeout covers reaching the proxy, not
+	// the exchange that follows. The deadline is cleared once the tunnel is
+	// established, because what travels it afterwards is allowed to be slow.
+	if derr := conn.SetDeadline(time.Now().Add(o.dialTimeout())); derr != nil {
+		_ = conn.Close()
+		return nil, derr
+	}
+	handshakeDone := make(chan struct{})
+	defer close(handshakeDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-handshakeDone:
+		}
+	}()
 	if strings.EqualFold(proxyURL.Scheme, "https") {
 		tlsCfg, terr := o.TLSConfig(proxyURL.Hostname())
 		if terr != nil {
@@ -185,5 +213,25 @@ func dialViaCONNECT(ctx context.Context, base *net.Dialer, proxyURL *url.URL, ne
 		_ = conn.Close()
 		return nil, fmt.Errorf("proxy CONNECT to %s: %s", addr, res.Status)
 	}
+	if derr := conn.SetDeadline(time.Time{}); derr != nil {
+		_ = conn.Close()
+		return nil, derr
+	}
 	return spliced, nil
+}
+
+// proxyFromEnvironment reports the proxy the standard variables name for addr,
+// or nil when they name none. Both schemes are treated as an origin to CONNECT
+// through, which is what a raw stream needs.
+func proxyFromEnvironment(addr string) (*url.URL, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	target := &url.URL{Scheme: "https", Host: addr, Path: "/"}
+	if host == "" {
+		return nil, nil
+	}
+	cfg := httpproxy.FromEnvironment()
+	return cfg.ProxyFunc()(target)
 }

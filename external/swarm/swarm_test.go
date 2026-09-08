@@ -751,3 +751,34 @@ func TestAggregationWarnsAboutANodeWhoseLeaseWentStale(t *testing.T) {
 		t.Fatalf("a stale node vanished without a word: %s", body)
 	}
 }
+
+// Judging only the escaped form is not enough: %2e%2e survives it and becomes
+// ".." the moment anything decodes the path, which is how a request aimed at a
+// node's API climbs back out into the relay's own routes.
+func TestMountRefusesEncodedRelativeSegments(t *testing.T) {
+	traversals := []string{
+		"/swarm/nodes/nas02/coddy/%2e%2e/swarm/register",
+		"/swarm/nodes/nas02/coddy/%2E%2E/swarm/register",
+		"/swarm/nodes/nas02/%2e/coddy/sessions",
+		"/swarm/nodes/nas02/coddy/%2e%2e%2f%2e%2e/etc",
+		"/swarm/nodes/nas02/coddy/../swarm/register",
+	}
+	for _, raw := range traversals {
+		t.Run(raw, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, raw, nil)
+			if rest, err := mountRemainder(req, "nas02"); err == nil {
+				t.Fatalf("mountRemainder accepted %q as %q", raw, rest)
+			}
+		})
+	}
+
+	// An ordinary escape is still carried through untouched.
+	req := httptest.NewRequest(http.MethodGet, "/swarm/nodes/nas02/coddy/x%20y", nil)
+	rest, err := mountRemainder(req, "nas02")
+	if err != nil {
+		t.Fatalf("a legitimate escape was refused: %v", err)
+	}
+	if rest != "/coddy/x%20y" {
+		t.Fatalf("rest = %q", rest)
+	}
+}

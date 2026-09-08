@@ -648,3 +648,55 @@ func TestStartJoinsGivesEveryParentTheSameIdentity(t *testing.T) {
 		t.Fatalf("two parents saw two identities: %q and %q", first, clients[1].opts.InstanceUUID)
 	}
 }
+
+// HTTP/2's own idle timeout ignores pings and is suppressed by an open stream,
+// so a node needs its own view of whether anything is still arriving.
+func TestTunnelWatchdogClosesAConnectionNothingArrivesOn(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = server.Close() }()
+
+	watched := newActivityConn(client)
+	stop := watched.watch(150 * time.Millisecond)
+	defer stop()
+
+	// Nothing is ever written from the other side.
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := watched.Read(buf)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("the read should have been broken by the watchdog")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watchdog never closed a silent connection")
+	}
+}
+
+// A connection somebody is still talking on must not be torn down, however
+// little of substance is said.
+func TestTunnelWatchdogLeavesALivelyConnectionAlone(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = server.Close() }()
+
+	watched := newActivityConn(client)
+	stop := watched.watch(300 * time.Millisecond)
+	defer stop()
+
+	go func() {
+		for i := 0; i < 10; i++ {
+			_, _ = server.Write([]byte("."))
+			time.Sleep(60 * time.Millisecond)
+		}
+	}()
+
+	buf := make([]byte, 1)
+	for i := 0; i < 8; i++ {
+		if _, err := watched.Read(buf); err != nil {
+			t.Fatalf("a connection with traffic on it was closed: %v", err)
+		}
+	}
+}

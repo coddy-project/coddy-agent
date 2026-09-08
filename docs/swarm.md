@@ -157,7 +157,8 @@ already carries it, so a walk cannot go round forever. Depth is capped the same 
 hand-written mount path.
 
 A branch that closes back on the walk answers `looped: true` and contributes nothing, rather
-than raising a warning. In a ring that is the ordinary end of a branch, and a warning on
+than raising a warning. A chain that is merely **too long** is a different answer: something
+is out there and cannot be reached, so that one does warn. In a ring that is the ordinary end of a branch, and a warning on
 every request in a healthy swarm is how an operator learns to ignore warnings. What does
 warrant one is a node the relay still knows but cannot reach - including a lease that went
 stale, which would otherwise vanish silently and make "this machine is down" look exactly
@@ -206,8 +207,13 @@ addresses that passed are **pinned**, and the relay dials exactly them, because 
 at dial time would reopen the window the check closed.
 
 The proxy **replaces** the caller's `Authorization` rather than forwarding it, strips cookies,
-hop-by-hop and forwarding headers, removes an SSE query token before the hop, refuses encoded
-separators and relative path segments, and never follows a redirect.
+hop-by-hop and forwarding headers, removes an SSE query token before the hop, and never
+follows a redirect. Path segments are judged **after decoding**: `%2e%2e` passes any check of
+the escaped form and becomes `..` the moment something decodes it, which is how a request
+aimed at a node's API would climb back out into the relay's own routes.
+
+Credentials are preserved across a config save by **destination**, not by label: renaming an
+entry keeps its token, pointing it at a new address does not.
 
 ## Encryption and proxies
 

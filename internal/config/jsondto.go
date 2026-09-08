@@ -823,14 +823,18 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 	if len(next.PairingTokens) == 0 && len(current.PairingTokens) > 0 {
 		next.PairingTokens = append([]string(nil), current.PairingTokens...)
 	}
-	// Node credentials are matched by the name or URL that identifies the entry,
-	// so reordering the list does not shuffle secrets between nodes.
+	// A credential belongs to a destination, not to a label. Matching on the
+	// name alone would hand a node's token to whatever address the entry was
+	// pointed at next - a rename is harmless, a redirection is not.
+	upstreamKey := func(u SwarmUpstream) string {
+		return strings.TrimSpace(u.Name) + "\x00" + strings.TrimRight(strings.TrimSpace(u.URL), "/")
+	}
 	prevUpstream := map[string]SwarmUpstream{}
 	for _, up := range current.Upstreams {
-		prevUpstream[up.Name] = up
+		prevUpstream[upstreamKey(up)] = up
 	}
 	for i := range next.Upstreams {
-		old, ok := prevUpstream[next.Upstreams[i].Name]
+		old, ok := prevUpstream[upstreamKey(next.Upstreams[i])]
 		if !ok {
 			continue
 		}
@@ -841,12 +845,15 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 			next.Upstreams[i].Dial.Proxy = old.Dial.Proxy
 		}
 	}
+	joinKey := func(j SwarmJoin) string {
+		return strings.TrimRight(strings.TrimSpace(j.URL), "/") + "\x00" + strings.TrimSpace(j.Name)
+	}
 	prevJoin := map[string]SwarmJoin{}
 	for _, j := range current.Join {
-		prevJoin[j.URL+"\x00"+j.Name] = j
+		prevJoin[joinKey(j)] = j
 	}
 	for i := range next.Join {
-		old, ok := prevJoin[next.Join[i].URL+"\x00"+next.Join[i].Name]
+		old, ok := prevJoin[joinKey(next.Join[i])]
 		if !ok {
 			continue
 		}
@@ -885,6 +892,26 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 		}
 	}
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
+	// A swarm proxy URL carries credentials just as a provider's does, so a "$"
+	// in a password would otherwise be read as an environment reference on the
+	// next load and silently expand to nothing.
+	//
+	// The slices are copied before they are touched: `out` is a shallow copy, so
+	// editing an element in place would escape the caller's live config too.
+	if len(cfg.Swarm.Upstreams) > 0 {
+		out.Swarm.Upstreams = make([]SwarmUpstream, len(cfg.Swarm.Upstreams))
+		copy(out.Swarm.Upstreams, cfg.Swarm.Upstreams)
+		for i := range out.Swarm.Upstreams {
+			out.Swarm.Upstreams[i].Dial.Proxy = escapeYAMLDollar(out.Swarm.Upstreams[i].Dial.Proxy)
+		}
+	}
+	if len(cfg.Swarm.Join) > 0 {
+		out.Swarm.Join = make([]SwarmJoin, len(cfg.Swarm.Join))
+		copy(out.Swarm.Join, cfg.Swarm.Join)
+		for i := range out.Swarm.Join {
+			out.Swarm.Join[i].Dial.Proxy = escapeYAMLDollar(out.Swarm.Join[i].Dial.Proxy)
+		}
+	}
 	return &out
 }
 

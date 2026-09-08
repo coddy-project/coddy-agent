@@ -152,3 +152,30 @@ func TestComputeRoutesNeverRoutesBackToTheRoot(t *testing.T) {
 		}
 	}
 }
+
+// A cycle that does not pass through the root is still a cycle. A route that
+// laps it before arriving is a path no client should be handed.
+func TestComputeRoutesNeverRepeatsAHop(t *testing.T) {
+	// root -> a -> b -> c -> b : the b-c-b lap never touches the root.
+	edges := []TopologyEdge{
+		{FromUUID: "root", ToUUID: "a", Name: "alpha"},
+		{FromUUID: "a", ToUUID: "b", Name: "bravo"},
+		{FromUUID: "b", ToUUID: "c", Name: "charlie"},
+		{FromUUID: "c", ToUUID: "b", Name: "back-to-bravo"},
+	}
+	routes := ComputeRoutes("root", edges)
+	for uuid, r := range routes {
+		for _, path := range append([][]string{r.Path}, r.Alternates...) {
+			seen := map[string]bool{}
+			for _, hop := range path {
+				if seen[hop] {
+					t.Fatalf("route to %s laps a cycle: %v", uuid, path)
+				}
+				seen[hop] = true
+			}
+		}
+	}
+	if got := pathOf(routes, "c"); got != "alpha/bravo/charlie" {
+		t.Fatalf("route to c = %q", got)
+	}
+}

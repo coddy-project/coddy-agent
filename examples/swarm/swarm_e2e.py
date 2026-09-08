@@ -261,12 +261,17 @@ swarm:
       token: "{R3_CLIENT}"
 """)
 
-    # Close the ring: relay3 learns about the outer relay too. Registering it by
-    # hand is the same thing a `swarm.join` on relay3 would produce.
+    # Close the ring: relay3 learns about the outer relay too. The edge has to
+    # carry the outer relay's *real* identity, or the graph sees two different
+    # relays and the cycle it is meant to exercise never exists.
+    code, info, raw = call("GET", f"{r1}/swarm/info", None)
+    if code != 200 or not info.get("uuid"):
+        fail(f"reading the outer relay's identity: {code} {raw[:200]}")
+    outer_uuid = info["uuid"]
     code, _, raw = call_json("POST", f"{r3}/swarm/register", PAIRING, {
         "name": "outer", "kind": "relay", "transport": "direct",
         "advertise_url": f"http://127.0.0.1:{p_r1}",
-        "instance_uuid": "ring-edge-outer", "token": R1_CLIENT,
+        "instance_uuid": outer_uuid, "token": R1_CLIENT,
     })
     if code != 200:
         fail(f"closing the ring: {code} {raw[:200]}")
@@ -377,6 +382,10 @@ swarm:
     code, topo, raw = call("GET", f"{r1}/swarm/topology", R1_CLIENT)
     if code != 200:
         fail(f"topology: {code} {raw[:200]}")
+    # The cycle has to actually be in the graph, or nothing below is a test of
+    # anything: some edge must point back at the relay the client is attached to.
+    if not any(e["to_uuid"] == outer_uuid for e in topo["edges"]):
+        fail("the stand claims to be a ring but no edge leads back to the outer relay")
     names = sorted(n["name"] for n in topo["nodes"])
     if names.count("relay3") + names.count("shortcut") != 1:
         fail(f"the ring's shared relay should appear once, got {names}")
