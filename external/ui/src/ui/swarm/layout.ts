@@ -16,17 +16,73 @@ export type PlacedEdge = {
   alternate: boolean;
 };
 
+/**
+ * One hop, marked on the spine by a tick and a caption. The caption itself is
+ * built by the view: copy is localized and layout stays free of language.
+ */
+export type TierRow = {
+  depth: number;
+  /** Centre line of the row: the y every node in it sits on. */
+  y: number;
+  count: number;
+  /** False for the parked row: nothing in it has a route from here. */
+  reachable: boolean;
+};
+
 export type TopologyLayout = {
   nodes: PlacedNode[];
   edges: PlacedEdge[];
+  tiers: TierRow[];
+  /** Where the hop spine runs, in the gutter left of the first column. */
+  spineX: number;
   width: number;
   height: number;
 };
 
-const TIER_HEIGHT = 120;
-const NODE_SPACING = 170;
-const MARGIN_X = 90;
-const MARGIN_Y = 60;
+/**
+ * Every dimension a node shape is drawn from. The view derives glyph and plate
+ * coordinates from these rather than repeating literals, so widening a card
+ * moves its router mark with it instead of leaving it off-centre.
+ */
+export const NODE_METRICS = {
+  relayWidth: 168,
+  relayHeight: 56,
+  relayRadius: 18,
+  agentRadius: 26,
+  /** The accent-filled tile that carries the router mark on a relay. */
+  tile: 36,
+  tileRadius: 11,
+  /** Gap between the card edge and the tile. */
+  tileInset: 12,
+  /** Gap between the tile and the text column beside it. */
+  textGap: 12,
+  statusRadius: 5.5,
+  statusInset: 15,
+  badgeRadius: 8.5,
+  /** Centre of an agent's name chip, below the disc. */
+  chipDrop: 45,
+  chipHeight: 20,
+  /** Baseline of the meta line under a name. */
+  agentMetaDrop: 62,
+  /** Offset of a relay's two text rows from the card's centre line. */
+  relayNameDrop: -3,
+  relayMetaDrop: 13,
+} as const;
+
+/* Tall enough that a hop's label lands clear of both the corner it turns and
+   the arrowhead it ends in, and that its rail misses the meta line of the row
+   above. Everything below that height puts two of the three on top of each
+   other. */
+const TIER_HEIGHT = 176;
+/* Wide enough that two cards side by side leave a peer link real room to
+   cross: at 244 the gap was 76px and every bow across it read as a wedge. */
+const NODE_SPACING = 300;
+/** Room on the left for the spine and its hop captions. */
+const GUTTER = 124;
+const MARGIN_RIGHT = 28;
+const MARGIN_TOP = 48;
+/** Room under the deepest row for an agent's name chip and meta line. */
+const BOTTOM_PAD = 82;
 
 /**
  * layoutTopology places the swarm on a tier per hop.
@@ -74,27 +130,57 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     tiers.set(d, tier);
   }
 
-  const placed = new Map<string, PlacedNode>();
+  const ordered = [...tiers.entries()].sort((a, b) => a[0] - b[0]);
   let widest = 1;
-  for (const [, members] of [...tiers.entries()].sort((a, b) => a[0] - b[0])) {
+  let deepest = 0;
+  for (const [depth, members] of ordered) {
     widest = Math.max(widest, members.length);
+    deepest = Math.max(deepest, depth);
   }
-  const width = MARGIN_X * 2 + (widest - 1) * NODE_SPACING;
+  // A single column still has to hold a whole relay card, so the widest shape
+  // is part of the width rather than something that hangs over the edge.
+  const contentWidth = (widest - 1) * NODE_SPACING + NODE_METRICS.relayWidth;
+  const width = GUTTER + contentWidth + MARGIN_RIGHT;
 
-  for (const [depth, members] of [...tiers.entries()].sort(
-    (a, b) => a[0] - b[0],
-  )) {
-    members.sort((a, b) => a.name.localeCompare(b.name));
+  // A route names the node it reaches, so a route minus its last hop names the
+  // node one hop back. That is how a row finds the parent to line up under.
+  const byRoute = new Map<string, string>();
+  for (const [uuid, path] of paths) {
+    if (path.length > 0) {
+      byRoute.set(path.join("/"), uuid);
+    }
+  }
+
+  const placed = new Map<string, PlacedNode>();
+  const rows: TierRow[] = [];
+  for (const [depth, members] of ordered) {
+    // Rows are placed top down, so the tier above is already positioned and can
+    // pull its children into line. Ordering a row by name alone crosses every
+    // connector whose parent happens to sort the other way.
+    members.sort((a, b) => {
+      const ax = parentX(a, paths, byRoute, placed);
+      const bx = parentX(b, paths, byRoute, placed);
+      return ax - bx || a.name.localeCompare(b.name);
+    });
     const rowWidth = (members.length - 1) * NODE_SPACING;
-    const startX = (width - rowWidth) / 2;
+    const startX = GUTTER + (contentWidth - rowWidth) / 2;
+    const y = MARGIN_TOP + depth * TIER_HEIGHT;
     members.forEach((n, i) => {
       placed.set(n.uuid, {
         ...n,
         depth,
         path: paths.get(n.uuid) || [],
         x: startX + i * NODE_SPACING,
-        y: MARGIN_Y + depth * TIER_HEIGHT,
+        y,
       });
+    });
+    rows.push({
+      depth,
+      y,
+      count: members.length,
+      reachable:
+        depth === 0 ||
+        members.some((n) => (paths.get(n.uuid) || []).length > 0),
     });
   }
 
@@ -102,19 +188,185 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
   for (const e of topology.edges || []) {
     const from = placed.get(e.from_uuid);
     const to = placed.get(e.to_uuid);
-    if (!from || !to) {
+    if (!from || !to || from.uuid === to.uuid) {
       continue;
     }
     edges.push({ from, to, name: e.name, alternate: isAlternate(topology, e) });
   }
 
-  const height = MARGIN_Y * 2 + (maxDepth + 1) * TIER_HEIGHT;
+  const height = MARGIN_TOP + deepest * TIER_HEIGHT + BOTTOM_PAD;
   return {
     nodes: [...placed.values()].sort((a, b) => a.depth - b.depth || a.x - b.x),
     edges,
+    tiers: rows,
+    spineX: GUTTER - 28,
     width,
     height,
   };
+}
+
+/** Where the node one hop back sits, or 0 when there is nothing above it. */
+function parentX(
+  node: TopologyNode,
+  paths: Map<string, string[]>,
+  byRoute: Map<string, string>,
+  placed: Map<string, PlacedNode>,
+): number {
+  const path = paths.get(node.uuid) || [];
+  if (path.length < 2) {
+    return 0;
+  }
+  const parent = byRoute.get(path.slice(0, -1).join("/"));
+  if (!parent) {
+    return 0;
+  }
+  return placed.get(parent)?.x ?? 0;
+}
+
+export type Connector = {
+  d: string;
+  labelX: number;
+  labelY: number;
+  /** A peer link runs inside one tier; a hop crosses between two. */
+  peer: boolean;
+};
+
+/**
+ * Clear space left between a shape and the wire leaving it. Wide enough that
+ * the head on a dialled link, which sits at the near end and points back into
+ * the node, is not swallowed by that node's shadow plate.
+ */
+const EXIT_GAP = 10;
+/** The arrowhead is 12 user units long, so a wire stops that short of a shape. */
+const ARRIVE_GAP = 12;
+/** Radius of an elbow corner where a hop turns onto its rail. */
+const CORNER = 12;
+/**
+ * A peer link sags below its row. The floor keeps a short link visible, the
+ * ceiling stops a long one swinging into the next tier, and the span cap beats
+ * both: a sag deeper than the wire is long is the V every earlier draft drew.
+ */
+const PEER_SAG_MIN = 34;
+const PEER_SAG_MAX = 78;
+const PEER_SAG_OF_SPAN = 0.36;
+const PEER_SAG_CAP_OF_SPAN = 0.6;
+/**
+ * How far the control points reach along the span. A fraction with no absolute
+ * floor, so the two of them can never swap order and kink the curve.
+ */
+const PEER_BEND_OF_SPAN = 0.34;
+/** Below this the two shapes are all but touching; a flat wire is the honest one. */
+const PEER_MIN_SPAN = 8;
+
+/**
+ * Where a link is drawn, and where its label sits on it.
+ *
+ * Two idioms, kept apart so the picture keeps a grammar. A hop leaves the
+ * bottom of one node, turns onto a rail shared by every node its parent feeds,
+ * and arrives at the top of the next, so a fan-out reads as a bus rather than
+ * as scattered wires. A link between peers on one row leaves a side and arrives
+ * at the other's side, sagging under the row by an amount the span sets.
+ *
+ * Pure, so both idioms can be checked at their extremes without rendering.
+ */
+export function connectorFor(edge: PlacedEdge): Connector {
+  const { from, to } = edge;
+  return Math.abs(to.y - from.y) < 1 ? peerLink(from, to) : hopLink(from, to);
+}
+
+function peerLink(from: PlacedNode, to: PlacedNode): Connector {
+  const dir = to.x >= from.x ? 1 : -1;
+  const x0 = from.x + dir * (halfWidth(from) + EXIT_GAP);
+  const x1 = to.x - dir * (halfWidth(to) + ARRIVE_GAP);
+  const span = Math.max(dir * (x1 - x0), 0);
+  if (span < PEER_MIN_SPAN) {
+    // The two shapes all but meet. A bow across nothing is a spike, and anchors
+    // this close can cross, which would point the arrow back at its source, so
+    // the wire becomes a stub centred in what gap there is.
+    const mid = (from.x + to.x) / 2;
+    const half = (dir * PEER_MIN_SPAN) / 2;
+    return {
+      d: `M${round(mid - half)} ${round(from.y)} L${round(mid + half)} ${round(to.y)}`,
+      labelX: round(mid),
+      labelY: round(from.y),
+      peer: true,
+    };
+  }
+  const sag = Math.min(
+    PEER_SAG_MAX,
+    Math.max(PEER_SAG_MIN, span * PEER_SAG_OF_SPAN),
+    span * PEER_SAG_CAP_OF_SPAN,
+  );
+  const bend = span * PEER_BEND_OF_SPAN;
+  const c1x = x0 + dir * bend;
+  const c2x = x1 - dir * bend;
+  const cy = from.y + sag;
+  return {
+    d:
+      `M${round(x0)} ${round(from.y)}` +
+      ` C${round(c1x)} ${round(cy)} ${round(c2x)} ${round(cy)}` +
+      ` ${round(x1)} ${round(to.y)}`,
+    labelX: round(cubicMid(x0, c1x, c2x, x1)),
+    labelY: round(cubicMid(from.y, cy, cy, to.y)),
+    peer: true,
+  };
+}
+
+function hopLink(from: PlacedNode, to: PlacedNode): Connector {
+  const vdir = to.y > from.y ? 1 : -1;
+  const y0 = from.y + vdir * (halfHeight(from) + EXIT_GAP);
+  const y1 = to.y - vdir * (halfHeight(to) + ARRIVE_GAP);
+  // Halfway between the two rows, not between the two shapes: siblings of
+  // different sizes then still turn on one rail instead of on four of them.
+  const railY = (from.y + to.y) / 2;
+  if (Math.abs(to.x - from.x) < 1) {
+    return {
+      d: `M${round(from.x)} ${round(y0)} L${round(from.x)} ${round(y1)}`,
+      labelX: round(from.x),
+      labelY: round((railY + y1) / 2),
+      peer: false,
+    };
+  }
+  const hdir = to.x > from.x ? 1 : -1;
+  const r = Math.min(
+    CORNER,
+    Math.abs(to.x - from.x) / 2,
+    Math.abs(railY - y0),
+    Math.abs(y1 - railY),
+  );
+  return {
+    d:
+      `M${round(from.x)} ${round(y0)}` +
+      ` L${round(from.x)} ${round(railY - vdir * r)}` +
+      ` Q${round(from.x)} ${round(railY)} ${round(from.x + hdir * r)} ${round(railY)}` +
+      ` L${round(to.x - hdir * r)} ${round(railY)}` +
+      ` Q${round(to.x)} ${round(railY)} ${round(to.x)} ${round(railY + vdir * r)}` +
+      ` L${round(to.x)} ${round(y1)}`,
+    labelX: round(to.x),
+    labelY: round((railY + y1) / 2),
+    peer: false,
+  };
+}
+
+function halfWidth(n: PlacedNode): number {
+  return n.kind === "relay"
+    ? NODE_METRICS.relayWidth / 2
+    : NODE_METRICS.agentRadius;
+}
+
+function halfHeight(n: PlacedNode): number {
+  return n.kind === "relay"
+    ? NODE_METRICS.relayHeight / 2
+    : NODE_METRICS.agentRadius;
+}
+
+/** The point halfway along a cubic, which is where a peer label sits. */
+function cubicMid(a: number, b: number, c: number, d: number): number {
+  return (a + 3 * b + 3 * c + d) / 8;
+}
+
+function round(v: number): number {
+  return Math.round(v * 10) / 10;
 }
 
 /**

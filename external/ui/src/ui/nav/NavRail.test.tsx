@@ -167,8 +167,11 @@ describe("NavRail on a relay", () => {
     ]);
     const spacer = document.querySelector(".rail-spacer-between");
     const swarm = screen.getByTestId("nav-swarm");
+    expect(spacer).not.toBeNull();
     expect(
-      spacer.compareDocumentPosition(swarm) & Node.DOCUMENT_POSITION_FOLLOWING,
+      spacer?.compareDocumentPosition(swarm) &&
+        spacer.compareDocumentPosition(swarm) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 });

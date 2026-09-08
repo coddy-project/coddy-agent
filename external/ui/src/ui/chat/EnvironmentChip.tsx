@@ -45,6 +45,10 @@ export function EnvironmentChip() {
   const [remotes, setRemotes] = useState<Remote[]>([]);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  // The chip usually sits in the composer at the foot of the screen, where a
+  // menu has to grow upward. On a relay the composer is gone and the chip is in
+  // the swarm header, where growing upward puts the whole menu off the top.
+  const opensUp = !!anchor && anchor.top > window.innerHeight / 2;
   const [health, setHealth] = useState<Record<string, Health>>({});
   const [adding, setAdding] = useState(false);
   const [addName, setAddName] = useState("");
@@ -153,16 +157,22 @@ export function EnvironmentChip() {
                 }}
               />
               <div
-                className={`mode-menu mode-menu--env ${useSheet ? "mode-menu--sheet" : "mode-menu--portal opens-up"}`}
+                className={`mode-menu mode-menu--env ${
+                  useSheet
+                    ? "mode-menu--sheet"
+                    : `mode-menu--portal ${opensUp ? "opens-up" : "opens-down"}`
+                }`}
                 role="menu"
                 data-testid="composer-env-menu"
                 style={
                   useSheet || !anchor
                     ? undefined
-                    : {
-                        left: anchor.left,
-                        bottom: window.innerHeight - anchor.top + 8,
-                      }
+                    : opensUp
+                      ? {
+                          left: anchor.left,
+                          bottom: window.innerHeight - anchor.top + 8,
+                        }
+                      : { left: anchor.left, top: anchor.bottom + 8 }
                 }
                 onKeyDown={(e) => {
                   if (e.key === "Escape") {
@@ -171,7 +181,9 @@ export function EnvironmentChip() {
                   }
                 }}
               >
-                <div className="mode-menu-group-label">{t("composer.env.groupEnvironment")}</div>
+                <div className="mode-menu-group-label">
+                  {t("composer.env.groupEnvironment")}
+                </div>
                 <button
                   type="button"
                   role="menuitem"
@@ -180,11 +192,15 @@ export function EnvironmentChip() {
                   onClick={() => connectLocal()}
                 >
                   {dot("local")}
-                  <span className="mode-env-name">{t("composer.env.localThisOrigin")}</span>
+                  <span className="mode-env-name">
+                    {t("composer.env.localThisOrigin")}
+                  </span>
                 </button>
 
                 {remotes.length ? (
-                  <div className="mode-menu-group-label">{t("composer.env.groupRemote")}</div>
+                  <div className="mode-menu-group-label">
+                    {t("composer.env.groupRemote")}
+                  </div>
                 ) : null}
                 {remotes.map((r) => {
                   const active =
@@ -211,7 +227,9 @@ export function EnvironmentChip() {
 
                 {adding ? (
                   <div className="mode-menu-form">
-                    <div className="mode-menu-form-title">{t("composer.env.addFormTitle")}</div>
+                    <div className="mode-menu-form-title">
+                      {t("composer.env.addFormTitle")}
+                    </div>
                     <input
                       className="mode-menu-filter"
                       type="text"

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { layoutTopology, topologySummary, type TopologyLayout } from "./layout";
+import {
+  NODE_METRICS,
+  connectorFor,
+  layoutTopology,
+  topologySummary,
+  type PlacedNode,
+  type TopologyLayout,
+} from "./layout";
 import type { SwarmTopology } from "./types";
 
 /** Finds a placed node by name, failing loudly when the layout dropped it. */
@@ -126,6 +133,167 @@ describe("layoutTopology", () => {
       ],
     };
     expect(layoutTopology(dangling).edges).toHaveLength(2);
+  });
+});
+
+/** Every coordinate pair in a path, in order, whatever commands carried them. */
+function points(d: string): { x: number; y: number }[] {
+  const nums = (d.match(/-?\d+(\.\d+)?/g) ?? []).map(Number);
+  const out: { x: number; y: number }[] = [];
+  for (let i = 0; i + 1 < nums.length; i += 2) {
+    out.push({ x: nums[i] as number, y: nums[i + 1] as number });
+  }
+  return out;
+}
+
+function peer(name: string, x: number, kind: "relay" | "agent"): PlacedNode {
+  return {
+    uuid: name,
+    name,
+    kind,
+    online: true,
+    x,
+    y: 200,
+    depth: 1,
+    path: [name],
+  };
+}
+
+describe("connectorFor, peer links", () => {
+  const relayHalf = NODE_METRICS.relayWidth / 2;
+
+  // The span every earlier draft broke on: adjacent cards, a hand's width of
+  // clear space, and a bow that has to read as a sag rather than as a V.
+  it("sags gently between two neighbours a row apart", () => {
+    const from = peer("left", 300, "relay");
+    const to = peer("right", 300 + 244, "relay");
+    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const p = points(c.d);
+    const start = p[0] as { x: number; y: number };
+    const end = p[p.length - 1] as { x: number; y: number };
+
+    // It leaves a side and arrives at a side, not the top or the bottom.
+    expect(start.y).toBe(from.y);
+    expect(end.y).toBe(to.y);
+    expect(start.x).toBeGreaterThan(from.x + relayHalf);
+    expect(end.x).toBeLessThan(to.x - relayHalf);
+
+    // The control points stay in order, which is the whole fix: a floor on the
+    // horizontal reach used to swap them and kink the curve into a zigzag.
+    const xs = p.map((q) => q.x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+
+    // A sag, measured against the distance it covers.
+    const span = end.x - start.x;
+    expect(span).toBeGreaterThan(50);
+    expect(c.labelY - from.y).toBeGreaterThan(8);
+    expect(c.labelY - from.y).toBeLessThan(span * 0.5);
+    expect(c.labelX).toBeGreaterThan(start.x);
+    expect(c.labelX).toBeLessThan(end.x);
+  });
+
+  it("clamps the sag on a link that crosses the whole picture", () => {
+    const from = peer("left", 200, "relay");
+    const to = peer("right", 700, "relay");
+    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const p = points(c.d);
+    const xs = p.map((q) => q.x);
+    expect([...xs].sort((a, b) => a - b)).toEqual(xs);
+
+    // Deeper than the short link, and still nowhere near the next tier down.
+    expect(c.labelY - from.y).toBeGreaterThan(40);
+    expect(c.labelY - from.y).toBeLessThan(70);
+    // Halfway along the wire, which is a few units left of halfway between the
+    // two centres: the arrowhead eats more room at the far end than the gap
+    // the wire leaves behind it.
+    const start = points(c.d)[0] as { x: number };
+    const end = points(c.d)[points(c.d).length - 1] as { x: number };
+    expect(c.labelX).toBeCloseTo((start.x + end.x) / 2, 0);
+  });
+
+  it("keeps a stub pointing forward when two shapes all but touch", () => {
+    const from = peer("left", 300, "relay");
+    const to = peer("right", 360, "relay");
+    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const p = points(c.d);
+    const start = p[0] as { x: number; y: number };
+    const end = p[p.length - 1] as { x: number; y: number };
+    expect(end.x).toBeGreaterThan(start.x);
+    expect(start.y).toBe(from.y);
+    expect(end.y).toBe(to.y);
+  });
+
+  it("mirrors itself on a link that runs right to left", () => {
+    const from = peer("right", 700, "relay");
+    const to = peer("left", 200, "relay");
+    const c = connectorFor({ from, to, name: "left", alternate: false });
+    const xs = points(c.d).map((q) => q.x);
+    expect([...xs].sort((a, b) => b - a)).toEqual(xs);
+    expect(c.labelY).toBeGreaterThan(from.y);
+  });
+});
+
+describe("connectorFor, hops", () => {
+  it("turns every child of one parent onto the same rail", () => {
+    const parent: PlacedNode = {
+      uuid: "p",
+      name: "p",
+      kind: "relay",
+      online: true,
+      x: 400,
+      y: 48,
+      depth: 0,
+      path: [],
+    };
+    const kid = (name: string, x: number, kind: "relay" | "agent") => ({
+      ...peer(name, x, kind),
+      y: 198,
+    });
+    const a = connectorFor({
+      from: parent,
+      to: kid("a", 300, "agent"),
+      name: "a",
+      alternate: false,
+    });
+    const b = connectorFor({
+      from: parent,
+      to: kid("b", 540, "relay"),
+      name: "b",
+      alternate: false,
+    });
+    // Second point of an elbow is where it reaches the rail. A rail taken from
+    // the shapes rather than the rows would put a disc and a card on two.
+    expect((points(a.d)[1] as { y: number }).y).toBe(
+      (points(b.d)[1] as { y: number }).y,
+    );
+    expect(a.peer).toBe(false);
+  });
+});
+
+describe("layoutTopology row order", () => {
+  // Sorting a row by name alone crosses every connector whose parent happens to
+  // sort the other way, and a crossing reads as a link that is not there.
+  it("lines a row up under the nodes one hop back", () => {
+    const crossing: SwarmTopology = {
+      root: { uuid: "root", name: "root", kind: "relay", online: true },
+      nodes: [
+        { uuid: "al", name: "alpha", kind: "relay", online: true },
+        { uuid: "be", name: "beta", kind: "relay", online: true },
+        { uuid: "zu", name: "zulu", kind: "agent", online: true },
+        { uuid: "aa", name: "aaa", kind: "agent", online: true },
+      ],
+      edges: [],
+      routes: {
+        al: { path: ["alpha"] },
+        be: { path: ["beta"] },
+        zu: { path: ["alpha", "zulu"] },
+        aa: { path: ["beta", "aaa"] },
+      },
+      warnings: [],
+    };
+    const layout = layoutTopology(crossing);
+    expect(placed(layout, "alpha").x).toBeLessThan(placed(layout, "beta").x);
+    expect(placed(layout, "zulu").x).toBeLessThan(placed(layout, "aaa").x);
   });
 });
 

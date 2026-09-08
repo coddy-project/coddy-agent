@@ -669,6 +669,13 @@ Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   warnings above the groups rather than dropped.
 - Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
   without the `ui` tag its root explains how to rebuild.
+- The topology graph draws a relay as a card with a router mark and an agent as
+  a circle. Hops are elbows with arrowheads, a ring link is a bow, and the left
+  gutter states how many hops away each tier is. Nothing is carried by colour
+  alone, so the picture survives greyscale and the six dark themes.
+- The environment selector in the map header opens **downward**, because on a
+  relay the chip sits at the top of the window rather than in the composer at
+  the foot.
 
 ## Swagger
 

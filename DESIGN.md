@@ -629,8 +629,22 @@ screen** when the environment is a relay itself. It is the only screen a relay h
   relay, which fans out, so a query here reaches machines this browser cannot dial. Warnings for
   nodes that did not answer render above the groups (**`.swarm-warnings`**) instead of removing
   them silently.
-- The topology graph is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in **`swarm/layout.ts`**);
-  clicking a node filters to it.
+- **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
+  **`swarm/layout.ts`**); clicking a node filters to it. A relay is a card carrying an
+  accent-filled tile with the router mark; an agent is a circle with its name on a chip below.
+  Hops are orthogonal elbows that leave the bottom, turn on a rail shared by the children of one
+  parent, and arrive at the top with an arrowhead; a same-tier link between peers is a bow that
+  leaves and arrives at the sides, with its name at the apex. Depth is stated in the left gutter -
+  a dashed upright with a tick, a hop caption and a node count per tier - not by lane blocks
+  behind the nodes. Every state is said twice, never in colour alone: the route in use is solid
+  with a filled head, a way round a ring is dotted with an open chevron, a link into an offline
+  node is coarsely dashed and dimmed, and a node that dials out carries a badge as well as a
+  dotted wire. A meta line under each name says what the node is and how much it carries.
+  Because **`role="img"`** collapses the subtree, the SVG is described by a visually hidden
+  paragraph naming each tier and its nodes; marker ids are **`useId()`**-scoped so two graphs on
+  one page cannot collide. The SVG keeps its intrinsic size and scrolls inside
+  **`.swarm-graph-scroll`** rather than scaling its labels below legibility on a phone, and the
+  legend below it wraps instead of setting a minimum width.
 
 The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
 (**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
