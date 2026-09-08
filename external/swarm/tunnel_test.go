@@ -309,3 +309,81 @@ func TestTunnelNodeGoesOfflineWhenItDisconnects(t *testing.T) {
 	}
 	t.Fatal("the relay kept advertising a node whose connection had gone")
 }
+
+// A node that redials replaces its connection. The streams that were running on
+// the old one end; a client sees a failure rather than a hang, and the next
+// request goes to the new connection.
+func TestTunnelReconnectReplacesTheRouteAndEndsOldWork(t *testing.T) {
+	slow := make(chan struct{})
+	stand := newTunnelStand(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/coddy/slow" {
+			<-slow // held open until the test lets go
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"path": r.URL.Path})
+	}))
+	defer close(slow)
+
+	before, _ := stand.srv.registry.Node("inner")
+
+	inFlight := make(chan error, 1)
+	go func() {
+		req, _ := http.NewRequest(http.MethodGet, stand.relay.URL+swarmdto.MountPath+"inner/coddy/slow", nil)
+		req.Header.Set("Authorization", "Bearer client-secret")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			inFlight <- err
+			return
+		}
+		_, err = io.ReadAll(res.Body)
+		_ = res.Body.Close()
+		inFlight <- err
+	}()
+	// Let the request reach the node before the connection is replaced.
+	time.Sleep(200 * time.Millisecond)
+
+	// A second dial-out from the same node, as a reconnect would be.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = swarmdto.DialTunnel(ctx, swarmdto.TunnelOptions{
+			RelayURL:    stand.relay.URL,
+			Node:        "inner",
+			LeaseSecret: stand.secret,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusOK, map[string]interface{}{"served_by": "reconnected"})
+			}),
+		})
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var after Node
+	for time.Now().Before(deadline) {
+		n, ok := stand.srv.registry.Node("inner")
+		if ok && n.Info.Generation > before.Info.Generation && n.Transport != nil {
+			after = n
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after.Transport == nil {
+		t.Fatal("the reconnect never replaced the transport")
+	}
+	if after.Transport == before.Transport {
+		t.Fatal("the registry kept routing to the replaced connection")
+	}
+
+	// The work that was in flight ends rather than hanging forever.
+	select {
+	case <-inFlight:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a request on the replaced connection hung instead of failing")
+	}
+
+	// And the node is reachable again, over the new connection.
+	status, body := stand.get(t, "/coddy/sessions")
+	if status != http.StatusOK || !strings.Contains(body, "reconnected") {
+		t.Fatalf("after a reconnect the node should answer on the new connection: %d %s", status, body)
+	}
+}
