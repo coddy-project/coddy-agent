@@ -7,7 +7,7 @@ import {
   probeSwarm,
 } from "./api";
 import type { SwarmHttpError } from "./api";
-import { nodeActivity, routeLabel, sessionKey } from "./routes";
+import { nodeActivity, routeLabel, sessionKey, sessionToOpen } from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
 import { useT } from "../i18n/I18nProvider";
@@ -119,6 +119,17 @@ export function SwarmView(props: {
 
   // Work per node, so the map can say what each of them is doing.
   const activity = useMemo(() => nodeActivity(sessions), [sessions]);
+
+  // The map says a node is asking a question; the click has to land on the
+  // question. Only an idle node opens its own home.
+  const enterNode = (nodePath: string[]): void => {
+    const s = sessionToOpen(sessions, nodePath);
+    if (s) {
+      props.onOpenSession?.(s);
+      return;
+    }
+    props.onOpenNode?.(nodePath);
+  };
   const summary = topology ? topologySummary(topology) : null;
   const current = props.currentNode?.join("/") || "";
   const query = search.trim();
@@ -175,7 +186,7 @@ export function SwarmView(props: {
           currentNode={current}
           activity={activity}
           {...(props.onOpenNode
-            ? { onEnterNode: (n) => props.onOpenNode?.(n.path) }
+            ? { onEnterNode: (n) => enterNode(n.path) }
             : {})}
         />
       ) : error ? null : (

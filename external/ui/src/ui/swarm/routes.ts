@@ -104,3 +104,30 @@ export function nodeActivity(
   }
   return out;
 }
+
+/**
+ * The session on a node that a person came to the map for.
+ *
+ * Spotting on the map that a box is asking a question is only half the job; the
+ * click after it has to land on the question, not on an empty chat. One waiting
+ * on an answer wins, then one with a turn in flight, and freshest first inside
+ * each - and when a node is merely idle there is nothing to open and the node's
+ * own home is the right place.
+ */
+export function sessionToOpen(
+  sessions: SwarmSession[],
+  nodePath: string[],
+): SwarmSession | null {
+  const key = nodePath.join("/");
+  const here = sessions.filter((s) => s.node_path.join("/") === key);
+  const freshest = (rows: SwarmSession[]): SwarmSession | null =>
+    rows.length === 0
+      ? null
+      : [...rows].sort((a, b) =>
+          String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
+        )[0] || null;
+  return (
+    freshest(here.filter((s) => s.permissionPending)) ??
+    freshest(here.filter((s) => s.turnActive))
+  );
+}

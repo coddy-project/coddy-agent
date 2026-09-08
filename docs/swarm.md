@@ -195,7 +195,8 @@ the route to it is drawn as one connected path.
 **Watching from the map.** Each node says what it is doing, from the same aggregated session
 list the search uses: how many sessions it holds, how many turns are in flight, and whether
 something there is waiting on a permission prompt. Start work on several machines, come back to
-the map, and it says which of them finished and which is asking you a question.
+the map, and it says which of them finished and which is asking you a question. Clicking the one
+that is asking opens that very session rather than a blank chat.
 
 **Going back and switching.** The Swarm entry stays in the rail while you are inside a node,
 because the relay you came through is remembered; clicking it returns to the swarm, where

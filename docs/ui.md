@@ -662,6 +662,9 @@ Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
   the map and no filter chips: from a node, every ordinary screen (chat,
   history, scheduler, settings, workspace) works against it, and **Swarm** in
   the rail returns to the relay.
+- Clicking a node that is **asking a question** opens that session, not an empty
+  chat; a node that is merely busy opens its running session; an idle one opens
+  its home.
 - The map marks the node the app is on as *you are here* and draws the route to
   it from the attached relay as one connected accent path; everything off that
   route recedes. Hovering another node previews where a click would take you.

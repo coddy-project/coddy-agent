@@ -639,6 +639,12 @@ is the screen: there is no list of nodes under it, because everything the list d
   **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
   **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it
   is not on screen.
+- **The click lands on the question.** Spotting on the map that a box is asking is half the job:
+  clicking a node whose sessions include one waiting on a permission prompt opens *that* session,
+  then one with a turn in flight, freshest first; only a node with neither opens its own home
+  (**`sessionToOpen`** in **`swarm/routes.ts`**, pure and tested). The graph box also scrolls
+  itself to the current node, so a narrow shell opens on the branch you are on rather than on an
+  empty gutter.
 - **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines
   this browser cannot dial. With a query, matching sessions appear as rows under the map, each
   naming its node and route, and a row opens that session on that node. With no query there are

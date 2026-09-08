@@ -171,20 +171,39 @@ describe("SwarmView", () => {
     const onOpenNode = vi.fn();
     render(<SwarmView onOpenNode={onOpenNode} />);
     await drawn();
+    // The middle relay holds no sessions of its own, so there is nothing to
+    // open there but the node itself.
+    fireEvent.click(mapNode("middle"));
+    expect(onOpenNode).toHaveBeenCalledWith(["middle"]);
+  });
+
+  // Spotting on the map that a box is asking a question is half the job. The
+  // click after it has to land on the question.
+  it("opens the waiting session when the node it clicked is asking", async () => {
+    const onOpenNode = vi.fn();
+    const onOpenSession = vi.fn();
+    render(<SwarmView onOpenNode={onOpenNode} onOpenSession={onOpenSession} />);
+    await drawn();
     fireEvent.click(mapNode("hidden"));
-    expect(onOpenNode).toHaveBeenCalledWith(["middle", "hidden"]);
+    expect(onOpenNode).not.toHaveBeenCalled();
+    const opened = onOpenSession.mock.calls[0]?.[0] as {
+      node_path: string[];
+      permissionPending?: boolean;
+    };
+    expect(opened.node_path).toEqual(["middle", "hidden"]);
+    expect(opened.permissionPending).toBe(true);
   });
 
   it("enters a node from the keyboard, and marks it focusable", async () => {
     const onOpenNode = vi.fn();
     render(<SwarmView onOpenNode={onOpenNode} />);
     await drawn();
-    const node = mapNode("nas02");
+    const node = mapNode("middle");
     expect(node.getAttribute("tabindex")).toBe("0");
     fireEvent.keyDown(node, { key: "Enter" });
     fireEvent.keyDown(node, { key: " " });
     expect(onOpenNode).toHaveBeenCalledTimes(2);
-    expect(onOpenNode).toHaveBeenLastCalledWith(["nas02"]);
+    expect(onOpenNode).toHaveBeenLastCalledWith(["middle"]);
   });
 
   it("does nothing when the relay we are attached to is clicked", async () => {
