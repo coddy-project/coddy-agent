@@ -89,6 +89,7 @@ func (s *mountFeatureState) lastSeen() (nodeRecord, bool) {
 func (s *mountFeatureState) aRelay(pair, client string) error {
 	s.reset()
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
 	cfg.Swarm.PairingTokens = []string{pair}
 	cfg.Swarm.AuthToken = client
 	s.pair, s.client = pair, client

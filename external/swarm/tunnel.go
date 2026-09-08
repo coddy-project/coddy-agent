@@ -83,6 +83,15 @@ func (s *Server) handleTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ownership is proved before anything is written. Hijacking first and
+	// checking afterwards hands an accept - and a taken-over connection - to a
+	// caller who has proved nothing, and only then hangs up on them.
+	if err := s.registry.VerifyLease(node, secret); err != nil {
+		s.log.Warn("swarm tunnel refused", "node", node, "error", err)
+		writeError(w, http.StatusUnauthorized, "lease secret does not match this node")
+		return
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		// A layer-7 proxy or an HTTP/2 terminator in front of the relay leaves

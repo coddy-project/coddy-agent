@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -42,6 +43,9 @@ func newTestRegistry(t *testing.T, ttl time.Duration) (*Registry, *testClock) {
 	clock := &testClock{now: time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)}
 	r := NewRegistry(ttl)
 	r.now = clock.Now
+	// These tests advertise loopback and private addresses on purpose; the
+	// policy that refuses them by default has its own tests in internal/netx.
+	r.SetEgressPolicy(netx.EgressPolicy{AllowLoopback: true, AllowPrivate: true})
 	return r, clock
 }
 
@@ -50,7 +54,7 @@ func directRequest(name string) swarmdto.RegisterRequest {
 		Name:         name,
 		Kind:         swarmdto.KindAgent,
 		Transport:    swarmdto.TransportDirect,
-		AdvertiseURL: "http://" + name + ":12345",
+		AdvertiseURL: "http://127.0.0.1:12345",
 		InstanceUUID: "uuid-" + name,
 		Token:        "node-token-" + name,
 	}
@@ -86,7 +90,7 @@ func TestRegisterRefusesToStealALiveName(t *testing.T) {
 	}
 
 	impostor := directRequest("nas02")
-	impostor.AdvertiseURL = "http://attacker.example"
+	impostor.AdvertiseURL = "http://127.0.0.2:12345"
 	impostor.Token = "attacker-token"
 	if _, err := r.Register(impostor); err != ErrNameTaken {
 		t.Fatalf("registration without the secret = %v, want ErrNameTaken", err)
@@ -100,7 +104,7 @@ func TestRegisterRefusesToStealALiveName(t *testing.T) {
 	if !ok {
 		t.Fatal("node vanished")
 	}
-	if node.Info.URL != "http://nas02:12345" {
+	if node.Info.URL != "http://127.0.0.1:12345" {
 		t.Fatalf("a refused registration still moved the route: %q", node.Info.URL)
 	}
 	if node.Token != "node-token-nas02" {
@@ -400,7 +404,7 @@ func TestMountAllowsOnlyTheDataPlane(t *testing.T) {
 		"/swarm/nodes/inner/coddy/sessions", // a further hop
 	}
 	for _, path := range carried {
-		if !mountAllows(path) {
+		if !mountAllows(http.MethodGet, path) {
 			t.Errorf("mount should carry %q", path)
 		}
 	}
@@ -414,9 +418,25 @@ func TestMountAllowsOnlyTheDataPlane(t *testing.T) {
 		"/metrics",
 	}
 	for _, path := range refused {
-		if mountAllows(path) {
+		if mountAllows(http.MethodGet, path) {
 			t.Errorf("mount should refuse %q", path)
 		}
+	}
+
+	// Reading a child relay's node list is ordinary; evicting from it is the
+	// child's own control plane, and the two differ only by method.
+	if !mountAllows(http.MethodGet, "/swarm/nodes/victim") {
+		t.Error("reading a node through a chain should be allowed")
+	}
+	if mountAllows(http.MethodDelete, "/swarm/nodes/victim") {
+		t.Error("a mount must not carry a node eviction to a child relay")
+	}
+	// A delete deeper down belongs to the node's own API, not the relay's.
+	if !mountAllows(http.MethodDelete, "/swarm/nodes/child/coddy/sessions/abc") {
+		t.Error("deleting a session on a node is the node's API, not the relay's")
+	}
+	if !mountAllows(http.MethodDelete, "/coddy/sessions/abc") {
+		t.Error("deleting a session should be carried")
 	}
 }
 
@@ -550,6 +570,7 @@ func TestMountReportsAnUnreachableNodeByName(t *testing.T) {
 func mountTestRelay(t *testing.T, nodeURL string) (*Server, *httptest.Server) {
 	t.Helper()
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1" // a loopback relay may reach loopback nodes
 	cfg.Swarm.AuthToken = "client-secret"
 	cfg.Swarm.PairingTokens = []string{"pair-secret"}
 	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -567,4 +588,70 @@ func mountTestRelay(t *testing.T, nodeURL string) (*Server, *httptest.Server) {
 		t.Fatal(err)
 	}
 	return srv, httptest.NewServer(srv.Handler())
+}
+
+// A hand-written path can walk a ring indefinitely; the fan-out's hop budget
+// lives in a header the client never sees, so the path needs its own bound.
+func TestMountRefusesAPathThatWalksTooManyRelays(t *testing.T) {
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer node.Close()
+	_, ts := mountTestRelay(t, node.URL)
+	defer ts.Close()
+
+	deep := ts.URL + "/swarm/nodes/nas02"
+	for i := 0; i < swarmMaxHops; i++ {
+		deep += "/swarm/nodes/next"
+	}
+	deep += "/coddy/sessions"
+
+	req, _ := http.NewRequest(http.MethodGet, deep, nil)
+	req.Header.Set("Authorization", "Bearer client-secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusLoopDetected {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("status %d, want 508 for an over-long chain: %s", res.StatusCode, body)
+	}
+}
+
+// An EventSource cannot set a header, so a browser reattaching a stream through
+// a relay has only the query. The relay accepts it there and nowhere else, and
+// never passes it on.
+func TestMountAcceptsAQueryTokenOnlyWhereAHeaderIsImpossible(t *testing.T) {
+	var seenQuery string
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer node.Close()
+	_, ts := mountTestRelay(t, node.URL)
+	defer ts.Close()
+
+	stream := ts.URL + "/swarm/nodes/nas02/coddy/sessions/abc/composer-stream?access_token=client-secret"
+	res, err := http.Get(stream) //nolint:noctx // short-lived test request
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("a stream reattach with a query token got %d, want it accepted", res.StatusCode)
+	}
+	if strings.Contains(seenQuery, "access_token") {
+		t.Fatalf("the relay's own credential reached the node: %q", seenQuery)
+	}
+
+	// The same token on an ordinary route is not a credential.
+	plain, err := http.Get(ts.URL + "/swarm/nodes/nas02/coddy/sessions?access_token=client-secret") //nolint:noctx // short-lived test request
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = plain.Body.Close()
+	if plain.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a query token on a normal route got %d, want 401", plain.StatusCode)
+	}
 }

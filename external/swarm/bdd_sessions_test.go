@@ -103,6 +103,7 @@ func (s *sessionsFeatureState) reset() {
 func (s *sessionsFeatureState) aRelay(pair, client string) error {
 	s.reset()
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1" // a loopback relay may reach loopback nodes
 	cfg.Swarm.Name = "outer"
 	cfg.Swarm.PairingTokens = []string{pair}
 	cfg.Swarm.AuthToken = client
@@ -155,6 +156,7 @@ func (s *sessionsFeatureState) unreachableNode(node string) error {
 
 func (s *sessionsFeatureState) childRelayHolding(child, node, id, title string) error {
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1" // a loopback relay may reach loopback nodes
 	cfg.Swarm.Name = child
 	cfg.Swarm.AuthToken = "child-secret"
 	cfg.Swarm.PairingTokens = []string{"child-pair"}

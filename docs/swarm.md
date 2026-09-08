@@ -107,9 +107,14 @@ It carries `/v1/*`, `/coddy/*`, the read-only swarm routes, and further `/swarm/
 That is a **prefix** allowlist, not a route list, so a node's new routes work the day they
 ship.
 
-It refuses `POST /swarm/register`, `POST /swarm/tunnel`, and `DELETE /swarm/nodes/{node}`. The
-proxy authenticates to the node on the caller's behalf, so anything reachable through a mount
-is something the relay authorises for them; membership decisions are not that.
+It refuses `POST /swarm/register`, `POST /swarm/tunnel`, and `DELETE /swarm/nodes/{node}` -
+that last one by method, since reading a child relay's node list is ordinary and evicting
+from it is not. The proxy authenticates to the node on the caller's behalf, so anything
+reachable through a mount is something the relay authorises for them; membership decisions
+are not that.
+
+A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot
+walk a ring indefinitely by writing hops out one after another.
 
 ## The aggregated list
 
@@ -184,9 +189,13 @@ token: a fleet credential must not let one node claim another's name, redirect i
 read the prompts meant for it. The secret is stored under the coddy home so a restart reclaims
 the same name at once. `DELETE /swarm/nodes/{node}` is the administrative takeover path.
 
-An advertised URL is an **SSRF boundary**: only `http(s)`, no credentials, query or fragment,
-and hosts resolving into loopback, link-local or metadata ranges are refused unless
-allow-listed in `swarm.allow_private_upstreams`.
+An advertised URL is an **SSRF boundary**. Only `http(s)`, with no credentials, query or
+fragment; the host is then resolved and every address checked. Link-local, multicast,
+unspecified and cloud metadata addresses are refused outright. Loopback is allowed only when
+the relay itself is bound to loopback (the development case), and private ranges only when
+`swarm.allow_private_upstreams` names hosts - which also allow-lists those names. The
+addresses that passed are **pinned**, and the relay dials exactly them, because re-resolving
+at dial time would reopen the window the check closed.
 
 The proxy **replaces** the caller's `Authorization` rather than forwarding it, strips cookies,
 hop-by-hop and forwarding headers, removes an SSE query token before the hop, refuses encoded
@@ -221,6 +230,9 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
   "nothing here".
 - **No cross-node pagination.** Each node returns a first page and the merge truncates; deep
   history for one node uses that node's own pagination through its mount.
+- **One tunnel is one connection.** A reconnect ends the streams that were running on the
+  old one, and a bulk response shares flow control with a live turn. Both are inherent to a
+  single HTTP/2 connection per node and are not worked around.
 - **One relay process per endpoint.** Two replicas behind a load balancer would split the
   registry and the tunnels.
 - **No per-node client authorisation.** See the blast radius above.

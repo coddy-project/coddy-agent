@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
@@ -30,17 +31,23 @@ var mountedPrefixes = []string{
 	"/swarm/topology",
 }
 
-// controlPlaneRoutes must never be reachable through a mount.
+// controlPlaneRoutes must never be reachable through a mount, whatever method
+// is used.
 //
 // The proxy authenticates to the node on the caller's behalf, so anything
 // reachable this way is something the relay authorises for them. Registration
 // and tunnel establishment are how the swarm's membership is decided; a client
 // that could reach them through a mount could enrol a node into a relay it only
-// had read access to, or evict one.
+// had read access to.
 var controlPlaneRoutes = []string{
 	"/swarm/register",
 	"/swarm/tunnel",
 }
+
+// unregisterRoute matches a relay's own "evict this node" route. Reading a
+// child relay's node list is ordinary; deleting from it is not, and the
+// difference is the method, so a prefix rule alone would leave the hole open.
+var unregisterRoute = regexp.MustCompile(`^/swarm/nodes/[^/]+$`)
 
 // hopByHopHeaders never survive a proxy hop.
 var hopByHopHeaders = []string{
@@ -73,7 +80,15 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !mountAllows(rest) {
+	// A chain composes by writing hops into the path, so a client could write
+	// an arbitrarily long one - round a ring, indefinitely. The fan-out has a
+	// hop budget in its own header; a hand-written path needs the same bound.
+	if hops := strings.Count(rest, swarmdto.MountPath) + 1; hops > swarmMaxHops {
+		writeError(w, http.StatusLoopDetected,
+			fmt.Sprintf("path walks %d relays, more than the %d this swarm carries", hops, swarmMaxHops))
+		return
+	}
+	if !mountAllows(r.Method, rest) {
 		// Saying which plane the route belongs to is more useful than a bare
 		// 404, and reveals nothing the caller could not learn by reading the
 		// docs for the relay they are already talking to.
@@ -189,12 +204,15 @@ func mountRemainder(r *http.Request, node string) (string, error) {
 	return rest, nil
 }
 
-// mountAllows reports whether a route may be carried to a node.
-func mountAllows(rest string) bool {
+// mountAllows reports whether a request may be carried to a node.
+func mountAllows(method, rest string) bool {
 	for _, denied := range controlPlaneRoutes {
 		if rest == denied || strings.HasPrefix(rest, denied+"/") {
 			return false
 		}
+	}
+	if method == http.MethodDelete && unregisterRoute.MatchString(rest) {
+		return false
 	}
 	for _, allowed := range mountedPrefixes {
 		if rest == strings.TrimSuffix(allowed, "/") || strings.HasPrefix(rest, allowed) {

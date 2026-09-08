@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
 )
@@ -56,6 +57,14 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 		startedAt: time.Now(),
 	}
 	s.routes()
+	// An advertised address is somebody else's claim about where to dial, so
+	// the relay decides what it is willing to act on. Loopback is allowed only
+	// when the relay itself is bound to loopback, which is the development case.
+	s.registry.SetEgressPolicy(netx.EgressPolicy{
+		AllowLoopback: isLoopbackBind(cfg.Swarm.EffectiveHost()),
+		AllowPrivate:  len(cfg.Swarm.AllowPrivateUpstreams) > 0,
+		AllowHosts:    cfg.Swarm.AllowPrivateUpstreams,
+	})
 	if err := s.seedUpstreams(); err != nil {
 		return nil, err
 	}
@@ -115,7 +124,11 @@ func (s *Server) seedUpstreams() error {
 			Token:        up.Token,
 			Version:      "configured",
 		}
-		if _, err := s.registry.Register(req); err != nil {
+		if _, err := s.registry.RegisterWithDial(req, netx.Options{
+			Proxy:              up.Dial.Proxy,
+			CAFile:             up.Dial.CAFile,
+			InsecureSkipVerify: up.Dial.InsecureSkipVerify,
+		}); err != nil {
 			return fmt.Errorf("swarm.upstreams %q: %w", up.Name, err)
 		}
 		s.registry.Pin(up.Name)
@@ -228,7 +241,7 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !acceptToken(tokens, bearerOf(r)) {
+		if !acceptToken(tokens, credentialOf(r)) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="coddy-swarm"`)
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
@@ -262,6 +275,32 @@ func acceptToken(accepted []string, got string) bool {
 		}
 	}
 	return false
+}
+
+// eventStreamRoutes are the node routes a browser opens with EventSource, which
+// cannot set a header. The relay accepts a query token on exactly those, the
+// same narrow exception the agent makes, and strips it before the hop.
+var eventStreamRoutes = []string{"/composer-stream", "/coddy/events"}
+
+// credentialOf reads the client's token, allowing the query only where a header
+// is impossible.
+func credentialOf(r *http.Request) string {
+	if t := bearerOf(r); t != "" {
+		return t
+	}
+	if r.Method != http.MethodGet {
+		return ""
+	}
+	path := r.URL.Path
+	if !strings.HasPrefix(path, swarmdto.MountPath) {
+		return ""
+	}
+	for _, suffix := range eventStreamRoutes {
+		if strings.HasSuffix(path, suffix) {
+			return strings.TrimSpace(r.URL.Query().Get("access_token"))
+		}
+	}
+	return ""
 }
 
 func bearerOf(r *http.Request) string {

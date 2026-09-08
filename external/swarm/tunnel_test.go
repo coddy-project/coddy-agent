@@ -31,6 +31,7 @@ type tunnelStand struct {
 func newTunnelStand(t *testing.T, nodeHandler http.Handler) *tunnelStand {
 	t.Helper()
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
 	cfg.Swarm.AuthToken = "client-secret"
 	cfg.Swarm.PairingTokens = []string{"pair-secret"}
 	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -205,28 +206,74 @@ func TestTunnelMultiplexesConcurrentRequests(t *testing.T) {
 // A tunnel needs a real connection to take over. Behind an intermediary that
 // re-frames requests there is none, and saying so beats a generic failure.
 func TestTunnelRefusesWhenTheConnectionCannotBeTakenOver(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Swarm.PairingTokens = []string{"pair"}
-	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv, res := tunnelRelayWithLease(t)
 	rec := httptest.NewRecorder() // a ResponseWriter that cannot be hijacked
 	req := httptest.NewRequest(http.MethodPost, swarmdto.TunnelPath, nil)
 	req.Header.Set("X-Coddy-Swarm-Node", "inner")
-	req.Header.Set("Authorization", "Bearer some-secret")
+	req.Header.Set("Authorization", "Bearer "+res.LeaseSecret)
 	srv.handleTunnel(rec, req)
 
 	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("status %d, want 501", rec.Code)
+		t.Fatalf("status %d, want 501, body %s", rec.Code, rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), "HTTP/1.1") {
 		t.Fatalf("the refusal should explain what the deployment needs: %s", rec.Body.String())
 	}
 }
 
+// tunnelRelayWithLease returns a relay holding one tunnel lease for "inner".
+func tunnelRelayWithLease(t *testing.T) (*Server, swarmdto.RegisterResponse) {
+	t.Helper()
+	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
+	cfg.Swarm.PairingTokens = []string{"pair"}
+	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := srv.registry.Register(swarmdto.RegisterRequest{
+		Name:         "inner",
+		Kind:         swarmdto.KindAgent,
+		Transport:    swarmdto.TransportTunnel,
+		InstanceUUID: "uuid-inner",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv, res
+}
+
+// The connection is taken over only after ownership is proved. Answering first
+// and checking afterwards would hand an accept to a caller who proved nothing.
+func TestTunnelProvesTheLeaseBeforeTakingTheConnection(t *testing.T) {
+	srv, _ := tunnelRelayWithLease(t)
+
+	// A recorder cannot be hijacked, so reaching the hijack check at all means
+	// the credential passed. A wrong secret must stop earlier than that.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, swarmdto.TunnelPath, nil)
+	req.Header.Set("X-Coddy-Swarm-Node", "inner")
+	req.Header.Set("Authorization", "Bearer not-the-secret")
+	srv.handleTunnel(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("a wrong secret got %d, want 401 before anything is taken over", rec.Code)
+	}
+
+	// An unknown node is refused the same way rather than being accepted and
+	// then dropped.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, swarmdto.TunnelPath, nil)
+	req.Header.Set("X-Coddy-Swarm-Node", "stranger")
+	req.Header.Set("Authorization", "Bearer anything")
+	srv.handleTunnel(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("an unknown node got %d, want 401", rec.Code)
+	}
+}
+
 func TestTunnelNeedsTheLeaseSecret(t *testing.T) {
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
 	cfg.Swarm.PairingTokens = []string{"pair"}
 	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

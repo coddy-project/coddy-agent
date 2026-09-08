@@ -12,17 +12,20 @@
 package swarm
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -63,6 +66,10 @@ type lease struct {
 	// pinned marks a lease the operator asserted in configuration. Nothing
 	// refreshes it, so nothing may expire it either.
 	pinned bool
+	// dial carries the proxy and TLS settings for reaching this node, which
+	// only an operator can supply: a node cannot ask the relay to trust a
+	// certificate authority or route through a proxy of its choosing.
+	dial netx.Options
 }
 
 // Node is an immutable snapshot handed to the proxy.
@@ -79,6 +86,11 @@ type Registry struct {
 
 	ttl   time.Duration
 	grace time.Duration
+
+	// egress decides which addresses a node may make this relay dial. Without
+	// it, anyone holding a pairing token could point the relay at loopback or a
+	// cloud metadata endpoint and read the answer through a mount.
+	egress netx.EgressPolicy
 
 	// now and newSecret are injectable so tests can drive time and identity
 	// instead of sleeping and hoping.
@@ -102,6 +114,30 @@ func NewRegistry(ttl time.Duration) *Registry {
 	}
 }
 
+// SetEgressPolicy installs the policy applied to every advertised address.
+func (r *Registry) SetEgressPolicy(p netx.EgressPolicy) {
+	r.mu.Lock()
+	r.egress = p
+	r.mu.Unlock()
+}
+
+// VerifyLease reports whether secret proves ownership of name, without changing
+// anything. The tunnel handshake needs this before it takes over a connection:
+// answering first and checking afterwards hands an accept to a caller who has
+// proved nothing.
+func (r *Registry) VerifyLease(name, secret string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	l, ok := r.nodes[name]
+	if !ok {
+		return ErrUnknownNode
+	}
+	if subtle.ConstantTimeCompare([]byte(l.secret), []byte(secret)) != 1 {
+		return ErrLeaseSecret
+	}
+	return nil
+}
+
 func randomSecret() (string, error) {
 	var buf [32]byte
 	if _, err := rand.Read(buf[:]); err != nil {
@@ -118,16 +154,35 @@ func randomSecret() (string, error) {
 // be used to take over a peer's identity, redirect its traffic, or read the
 // prompts meant for it.
 func (r *Registry) Register(req swarmdto.RegisterRequest) (swarmdto.RegisterResponse, error) {
+	return r.RegisterWithDial(req, netx.Options{})
+}
+
+// RegisterWithDial is Register for a node the operator configured by hand, who
+// may also have said how to reach it: through a proxy, or past a private
+// certificate authority. A node that registers itself cannot supply those - it
+// would be asking the relay to trust an authority of its choosing.
+func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Options) (swarmdto.RegisterResponse, error) {
 	if err := req.Validate(); err != nil {
 		return swarmdto.RegisterResponse{}, err
 	}
 	var advertise *url.URL
+	var pinned []netip.Addr
 	if req.Transport == swarmdto.TransportDirect {
 		u, err := swarmdto.ValidateAdvertiseURL(req.AdvertiseURL)
 		if err != nil {
 			return swarmdto.RegisterResponse{}, err
 		}
 		advertise = u
+		r.mu.Lock()
+		policy := r.egress
+		r.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		addrs, rerr := policy.Resolve(ctx, u.Hostname())
+		cancel()
+		if rerr != nil {
+			return swarmdto.RegisterResponse{}, fmt.Errorf("advertise url %q: %w", req.AdvertiseURL, rerr)
+		}
+		pinned = addrs
 	}
 
 	r.mu.Lock()
@@ -154,12 +209,32 @@ func (r *Registry) Register(req swarmdto.RegisterRequest) (swarmdto.RegisterResp
 		if req.Token != "" {
 			existing.token = req.Token
 		}
-		existing.expiresAt = now.Add(r.ttl)
-		if req.Transport == swarmdto.TransportDirect {
+		switch req.Transport {
+		case swarmdto.TransportDirect:
 			// A node that switched back to being reachable no longer needs the
 			// connection it used to hold.
 			existing.closeTransportLocked()
-			existing.transport = newDirectTransport(advertise)
+			if dial != (netx.Options{}) {
+				existing.dial = dial
+			}
+			t, terr := newDirectTransport(advertise, existing.dial, pinned)
+			if terr != nil {
+				return swarmdto.RegisterResponse{}, terr
+			}
+			existing.transport = t
+			existing.expiresAt = now.Add(r.ttl)
+		default:
+			// A tunnel lease follows its connection, not a clock. Putting it
+			// back on the clock here would let a dead tunnel read as online for
+			// a whole TTL, and would advertise a node with no way to reach it.
+			if existing.transport != nil && existing.transport.Alive() {
+				existing.expiresAt = time.Time{}
+			} else {
+				// No live connection yet: the lease is held on the clock only
+				// long enough for the node to dial in.
+				existing.closeTransportLocked()
+				existing.expiresAt = now.Add(r.ttl)
+			}
 		}
 		return swarmdto.RegisterResponse{
 			NodeID:      req.Name,
@@ -188,10 +263,15 @@ func (r *Registry) Register(req swarmdto.RegisterRequest) (swarmdto.RegisterResp
 		token:     req.Token,
 		secret:    secret,
 		advertise: advertise,
+		dial:      dial,
 		expiresAt: now.Add(r.ttl),
 	}
 	if req.Transport == swarmdto.TransportDirect {
-		l.transport = newDirectTransport(advertise)
+		t, terr := newDirectTransport(advertise, l.dial, pinned)
+		if terr != nil {
+			return swarmdto.RegisterResponse{}, terr
+		}
+		l.transport = t
 	}
 	r.nodes[req.Name] = l
 	return swarmdto.RegisterResponse{

@@ -103,6 +103,10 @@ func Run(args []string, deps CommandDeps) error {
 	bindHost := firstNonEmpty(strings.TrimSpace(*host), cfg.Swarm.EffectiveHost())
 	bindPort := firstNonEmpty(strings.TrimSpace(*port), strconv.Itoa(cfg.Swarm.EffectivePort()))
 	addr := net.JoinHostPort(bindHost, bindPort)
+	// Where the relay actually listens decides what it is willing to dial, and
+	// the flag is part of that answer: a relay told to bind loopback on the
+	// command line is a development relay whatever the file says.
+	cfg.Swarm.Host = bindHost
 
 	srv, err := New(cfg, log)
 	if err != nil {

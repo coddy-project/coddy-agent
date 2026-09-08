@@ -52,6 +52,7 @@ func (s *registryFeatureState) reset() {
 func (s *registryFeatureState) relayWithTokens(pair, client string) error {
 	s.reset()
 	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1" // a loopback relay may reach loopback nodes
 	cfg.Swarm.Name = "test-relay"
 	cfg.Swarm.PairingTokens = []string{pair}
 	cfg.Swarm.AuthToken = client
@@ -100,7 +101,7 @@ func (s *registryFeatureState) registration(name, secret string) swarmdto.Regist
 		Name:         name,
 		Kind:         swarmdto.KindAgent,
 		Transport:    swarmdto.TransportDirect,
-		AdvertiseURL: "http://" + name + ".example:12345",
+		AdvertiseURL: "http://127.0.0.1:12345",
 		InstanceUUID: "uuid-" + name,
 		Token:        "node-token-" + name,
 		LeaseSecret:  secret,
