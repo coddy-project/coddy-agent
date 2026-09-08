@@ -10017,6 +10017,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   font-size: 12px;
 }
 
+.swarm-group-idle {
+  margin: 0;
+  padding: 8px 14px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .swarm-error {
   margin: 0;
   padding: 8px 12px;

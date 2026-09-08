@@ -68,13 +68,16 @@ export function parseSwarmSessionHash(
 }
 
 /** Groups sessions by the node that owns them, nodes ordered by name. */
-export function groupByNode(
-  sessions: SwarmSession[],
-): { node: string; nodePath: string[]; sessions: SwarmSession[] }[] {
-  const groups = new Map<
-    string,
-    { node: string; nodePath: string[]; sessions: SwarmSession[] }
-  >();
+/** One card on the swarm screen: a node, how to reach it, and its work. */
+export type NodeRow = {
+  node: string;
+  nodePath: string[];
+  sessions: SwarmSession[];
+  kind?: string;
+};
+
+export function groupByNode(sessions: SwarmSession[]): NodeRow[] {
+  const groups = new Map<string, NodeRow>();
   for (const s of sessions) {
     const key = s.node_path.join("/") || s.node_name;
     const existing = groups.get(key);
@@ -155,4 +158,61 @@ export function nodeChips(
     });
   }
   return [...chips.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * Every node worth showing a card for, whether or not it has work on it.
+ *
+ * A swarm that has just come up has no sessions anywhere, and a node with no
+ * sessions used to have no card and therefore no way in - the one moment when
+ * a person most needs a way in. Nodes come from the topology when there is one
+ * (it reaches past the relay's own children), from the registry otherwise, and
+ * from the sessions themselves for anything neither knew about.
+ */
+export function nodeRows(
+  groups: NodeRow[],
+  known: { path: string[]; name: string; kind?: string }[],
+): NodeRow[] {
+  const byKey = new Map<string, NodeRow>(
+    groups.map((g) => [g.nodePath.join("/"), g]),
+  );
+  for (const n of known) {
+    const key = n.path.join("/");
+    if (!key || byKey.has(key)) {
+      continue;
+    }
+    byKey.set(key, {
+      node: n.name,
+      nodePath: n.path,
+      sessions: [],
+      ...(n.kind !== undefined ? { kind: n.kind } : {}),
+    });
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.nodePath.join("/").localeCompare(b.nodePath.join("/")),
+  );
+}
+
+/** Routes from a topology, as node paths: how to reach each node from here. */
+export function topologyNodePaths(
+  topology: {
+    root: { uuid: string };
+    nodes: { uuid: string; name: string; kind: string }[];
+    routes: Record<string, { path: string[] }>;
+  } | null,
+): { path: string[]; name: string; kind?: string }[] {
+  if (!topology) {
+    return [];
+  }
+  const out: { path: string[]; name: string; kind?: string }[] = [];
+  for (const n of topology.nodes) {
+    if (n.uuid === topology.root.uuid) {
+      continue;
+    }
+    const route = topology.routes[n.uuid];
+    if (route && route.path.length > 0) {
+      out.push({ path: route.path, name: n.name, kind: n.kind });
+    }
+  }
+  return out;
 }

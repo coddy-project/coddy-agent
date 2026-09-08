@@ -7,7 +7,14 @@ import {
   probeSwarm,
 } from "./api";
 import type { SwarmHttpError } from "./api";
-import { groupByNode, nodeChips, routeLabel, sessionKey } from "./routes";
+import {
+  groupByNode,
+  nodeChips,
+  nodeRows,
+  routeLabel,
+  sessionKey,
+  topologyNodePaths,
+} from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
 import type {
@@ -116,7 +123,24 @@ export function SwarmView(props: {
     return sessions.filter((s) => s.node_path.join("/") === nodeFilter);
   }, [sessions, nodeFilter]);
 
-  const groups = useMemo(() => groupByNode(visible), [visible]);
+  const groups = useMemo(() => {
+    const withWork = groupByNode(visible);
+    // A search asked about sessions, so answer with sessions. Otherwise show
+    // every node, including the ones nobody has started work on yet: that card
+    // is the only way in.
+    if (search.trim()) {
+      return withWork;
+    }
+    // The topology knows every node and how to reach it, including ones several
+    // hops away; the registry only lists this relay's own children. Mixing the
+    // two would list a node twice under two different routes.
+    const known = (
+      topology
+        ? topologyNodePaths(topology)
+        : nodes.map((n) => ({ path: [n.name], name: n.name, kind: n.kind }))
+    ).filter((n) => !nodeFilter || n.path.join("/") === nodeFilter);
+    return nodeRows(withWork, known);
+  }, [visible, topology, nodes, nodeFilter, search]);
   // Chips cover every node with work on screen, not only the relay's own
   // children: a session can arrive from any depth of the chain.
   const chips = useMemo(() => nodeChips(nodes, sessions), [nodes, sessions]);
@@ -245,9 +269,7 @@ export function SwarmView(props: {
               ? "Looking…"
               : search || nodeFilter
                 ? "No sessions match."
-                : nodes.length === 0
-                  ? "No nodes have joined yet."
-                  : "No sessions on these nodes yet. Open a node to start one."}
+                : "No nodes have joined yet."}
           </p>
         ) : null}
         {groups.map((g) => {
@@ -280,7 +302,13 @@ export function SwarmView(props: {
                   </button>
                 ) : null}
               </div>
-              {isCollapsed ? null : (
+              {isCollapsed ? null : g.sessions.length === 0 ? (
+                <p className="swarm-group-idle">
+                  {g.kind === "relay"
+                    ? "A relay holds no sessions of its own. Open it to see its swarm."
+                    : "No sessions here yet. Open the node to start one."}
+                </p>
+              ) : (
                 <ul className="swarm-session-list">
                   {g.sessions.map((s) => (
                     <li key={sessionKey(s)} className="swarm-session-row">

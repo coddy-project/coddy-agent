@@ -136,10 +136,18 @@ describe("SwarmView", () => {
     await waitFor(() => {
       expect(screen.getByText("refactor the parser")).toBeInTheDocument();
     });
-    const groups = screen
-      .getByTestId("swarm-groups")
-      .querySelectorAll(".swarm-group");
-    expect(groups).toHaveLength(2);
+    const groups = [
+      ...screen.getByTestId("swarm-groups").querySelectorAll(".swarm-group"),
+    ];
+    // One card per node the topology can reach, not only per node with work:
+    // the card is the way in, and a node nobody has started on still needs one.
+    expect(groups.map((g) => g.getAttribute("data-node")).sort()).toEqual([
+      "middle",
+      "middle/hidden",
+      "nas02",
+    ]);
+    const nas02 = groups.find((g) => g.getAttribute("data-node") === "nas02");
+    expect(nas02?.textContent).toContain("refactor the parser");
   });
 
   // The two rows share a session id and differ only by node, which is exactly
@@ -264,14 +272,24 @@ describe("SwarmView", () => {
     );
   });
 
-  it("separates an empty swarm from a filter that matched nothing", async () => {
+  it("offers a way into a node nobody has started work on", async () => {
     vi.stubGlobal("fetch", stubFetch({ sessions: [] }));
-    render(<SwarmView />);
+    const onOpen = vi.fn();
+    render(<SwarmView onOpenNode={onOpen} />);
     await waitFor(() => {
-      expect(screen.getByTestId("swarm-groups")).toHaveTextContent(
-        "No sessions on these nodes yet",
-      );
+      expect(screen.getByTestId("swarm-open-node-nas02")).toBeInTheDocument();
     });
+    expect(screen.getByTestId("swarm-groups")).toHaveTextContent(
+      "No sessions here yet",
+    );
+    // A relay in the chain is enterable too, and says what it is.
+    expect(screen.getByTestId("swarm-groups")).toHaveTextContent(
+      "A relay holds no sessions of its own",
+    );
+    fireEvent.click(screen.getByTestId("swarm-open-node-middle/hidden"));
+    expect(onOpen).toHaveBeenCalledWith(["middle", "hidden"]);
+
+    // A search asks about sessions, so it answers with sessions only.
     fireEvent.change(screen.getByTestId("swarm-search"), {
       target: { value: "nothing matches this" },
     });
