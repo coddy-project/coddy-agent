@@ -1,6 +1,21 @@
 # Coddy Swarm — design & work plan (v3)
 
-Status: **v3 out for cross-review, implementation starting on approved groups.**
+Status: **implemented and committed on this branch.** Ten commits from `db0d39e` to
+`73617cf`; `make test` green; the guide moved to `docs/swarm.md`, which is now the
+maintained document. This file is kept as the record of how the design was reached and what
+four rounds of cross-review changed.
+
+Shipped: registry with per-lease name ownership, self-registration over proxies and TLS, the
+per-node mount with control-plane isolation, aggregation with recursion through child relays,
+the reverse HTTP/2 tunnel for closed contours, ring-aware topology with shortest-route
+selection, and the SPA swarm screen. Verified live, not only in tests: a real turn and a
+subagent run on a node two hops away with no inbound port, today's ACP client driving a node
+through a mount unchanged, and a three-relay ring choosing the short way.
+
+Deferred, and said so in `docs/swarm.md`: cross-node pagination, per-node client ACLs,
+multi-replica relays, and per-session routing inside the SPA transcript view.
+
+Original status line: **v3 out for cross-review, implementation starting on approved groups.**
 v1→v2.1 history and all six review documents are in `swarm-review/`; v2.1 reached a
 three-way consensus (Fable 5 APPROVE, Cursor APPROVE_WITH_CHANGES, Codex APPROVE).
 v3 changes two things: the branch was **synced with `main`** (facts re-verified, §1.1), and
