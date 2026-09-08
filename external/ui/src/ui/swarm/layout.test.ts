@@ -167,7 +167,13 @@ describe("connectorFor, peer links", () => {
   it("sags gently between two neighbours a row apart", () => {
     const from = peer("left", 300, "relay");
     const to = peer("right", 300 + 244, "relay");
-    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const c = connectorFor({
+      from,
+      to,
+      name: "right",
+      alternate: false,
+      laneX: 900,
+    });
     const p = points(c.d);
     const start = p[0] as { x: number; y: number };
     const end = p[p.length - 1] as { x: number; y: number };
@@ -195,7 +201,13 @@ describe("connectorFor, peer links", () => {
   it("clamps the sag on a link that crosses the whole picture", () => {
     const from = peer("left", 200, "relay");
     const to = peer("right", 700, "relay");
-    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const c = connectorFor({
+      from,
+      to,
+      name: "right",
+      alternate: false,
+      laneX: 900,
+    });
     const p = points(c.d);
     const xs = p.map((q) => q.x);
     expect([...xs].sort((a, b) => a - b)).toEqual(xs);
@@ -203,18 +215,27 @@ describe("connectorFor, peer links", () => {
     // Deeper than the short link, and still nowhere near the next tier down.
     expect(c.labelY - from.y).toBeGreaterThan(40);
     expect(c.labelY - from.y).toBeLessThan(70);
-    // Halfway along the wire, which is a few units left of halfway between the
-    // two centres: the arrowhead eats more room at the far end than the gap
-    // the wire leaves behind it.
+    // The label belongs on the wire, clear of both cards it runs between.
     const start = points(c.d)[0] as { x: number };
     const end = points(c.d)[points(c.d).length - 1] as { x: number };
-    expect(c.labelX).toBeCloseTo((start.x + end.x) / 2, 0);
+    expect(c.labelX).toBeGreaterThan(start.x);
+    expect(c.labelX).toBeLessThan(end.x);
+    expect(c.labelX).toBeGreaterThan(from.x + relayHalf);
+    expect(c.labelX).toBeLessThan(to.x - relayHalf);
+    // And on the sag, not on the row the two nodes stand on.
+    expect(c.labelY).toBeGreaterThan(from.y + 20);
   });
 
   it("keeps a stub pointing forward when two shapes all but touch", () => {
     const from = peer("left", 300, "relay");
     const to = peer("right", 360, "relay");
-    const c = connectorFor({ from, to, name: "right", alternate: false });
+    const c = connectorFor({
+      from,
+      to,
+      name: "right",
+      alternate: false,
+      laneX: 900,
+    });
     const p = points(c.d);
     const start = p[0] as { x: number; y: number };
     const end = p[p.length - 1] as { x: number; y: number };
@@ -226,7 +247,13 @@ describe("connectorFor, peer links", () => {
   it("mirrors itself on a link that runs right to left", () => {
     const from = peer("right", 700, "relay");
     const to = peer("left", 200, "relay");
-    const c = connectorFor({ from, to, name: "left", alternate: false });
+    const c = connectorFor({
+      from,
+      to,
+      name: "left",
+      alternate: false,
+      laneX: 900,
+    });
     const xs = points(c.d).map((q) => q.x);
     expect([...xs].sort((a, b) => b - a)).toEqual(xs);
     expect(c.labelY).toBeGreaterThan(from.y);
@@ -254,18 +281,29 @@ describe("connectorFor, hops", () => {
       to: kid("a", 300, "agent"),
       name: "a",
       alternate: false,
+      laneX: 900,
     });
     const b = connectorFor({
       from: parent,
       to: kid("b", 540, "relay"),
       name: "b",
       alternate: false,
+      laneX: 900,
     });
-    // Second point of an elbow is where it reaches the rail. A rail taken from
-    // the shapes rather than the rows would put a disc and a card on two.
-    expect((points(a.d)[1] as { y: number }).y).toBe(
-      (points(b.d)[1] as { y: number }).y,
-    );
+    // The horizontal run IS the rail, so read its y rather than the point
+    // before the corner: that one is railY minus a radius, and two children
+    // whose radii happened to clamp alike would agree even off separate rails.
+    const railOf = (d: string) => {
+      const m = /L(-?[\d.]+) (-?[\d.]+) Q/.exec(d.slice(d.indexOf("Q")));
+      return m ? Number(m[2]) : NaN;
+    };
+    const railA = railOf(a.d);
+    const railB = railOf(b.d);
+    expect(Number.isNaN(railA)).toBe(false);
+    expect(railA).toBe(railB);
+    // And it really is halfway between the rows, not between the shapes: a
+    // disc and a card have different heights and would otherwise part.
+    expect(railA).toBe((parent.y + 198) / 2);
     expect(a.peer).toBe(false);
   });
 });
@@ -315,5 +353,69 @@ describe("topologySummary", () => {
       ],
     };
     expect(topologySummary(withDead).offline).toBe(1);
+  });
+});
+
+// A ring closes back on a relay several rows up. Both of these went wrong in
+// the first cut of the redesign, and both are invisible without a fixture that
+// actually has a ring in it.
+describe("a ring's back edge", () => {
+  // root -> r1 -> r2 -> r3, and r3 also knows r1. ComputeRoutes reaches r1 in
+  // one hop, so the back edge climbs two rows.
+  const ring = {
+    root: { uuid: "u0", name: "root", kind: "relay" as const, online: true },
+    nodes: [
+      { uuid: "u1", name: "r1", kind: "relay" as const, online: true },
+      { uuid: "u2", name: "r2", kind: "relay" as const, online: true },
+      { uuid: "u3", name: "r3", kind: "relay" as const, online: true },
+    ],
+    edges: [
+      { from_uuid: "u0", to_uuid: "u1", name: "r1" },
+      { from_uuid: "u1", to_uuid: "u2", name: "r2" },
+      { from_uuid: "u2", to_uuid: "u3", name: "r3" },
+      { from_uuid: "u3", to_uuid: "u1", name: "r1" },
+    ],
+    routes: {
+      u1: { path: ["r1"] },
+      u2: { path: ["r1", "r2"] },
+      u3: { path: ["r1", "r2", "r3"] },
+    },
+    warnings: [],
+  };
+
+  const backEdge = () => {
+    const layout = layoutTopology(ring);
+    const e = layout.edges.find(
+      (x) => x.from.name === "r3" && x.to.name === "r1",
+    );
+    if (!e) {
+      throw new Error("no back edge in the layout");
+    }
+    return { layout, edge: e };
+  };
+
+  it("is a way round, not the route in use", () => {
+    // Both links into r1 are named "r1", because an edge carries the name the
+    // node that registered it chose. Only the one from root is the route.
+    const { layout, edge } = backEdge();
+    expect(edge.alternate).toBe(true);
+    const real = layout.edges.find(
+      (x) => x.from.name === "root" && x.to.name === "r1",
+    );
+    expect(real?.alternate).toBe(false);
+  });
+
+  it("goes round the outside instead of through the row it skips", () => {
+    const { layout, edge } = backEdge();
+    const c = connectorFor(edge);
+    const r2 = layout.nodes.find((n) => n.name === "r2");
+    expect(r2).toBeTruthy();
+
+    // Every point of the wire is clear of the card it would otherwise cross.
+    const xs = points(c.d).map((p) => p.x);
+    const clearOf = Math.abs(r2!.x) + NODE_METRICS.relayWidth / 2;
+    expect(Math.max(...xs)).toBeGreaterThan(clearOf);
+    // And the canvas grew to hold the lane rather than clipping it.
+    expect(layout.width).toBeGreaterThan(Math.max(...xs));
   });
 });

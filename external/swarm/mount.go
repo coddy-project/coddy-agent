@@ -29,8 +29,12 @@ var mountedPrefixes = []string{
 	"/swarm/nodes",
 	"/swarm/sessions",
 	"/swarm/topology",
-	// A node's own API description, which the UI links to from its footer.
-	// Read-only, and part of the API a mount is meant to carry.
+	// A node's own API description. Read-only, and the one part of its HTTP
+	// surface a mount used to answer 404 for while every other route worked,
+	// which made a mount look broken to anything that reads a spec before
+	// calling - curl, a generated client, a conformance check. The SPA's own
+	// footer link is relative to wherever the SPA is served from, so it is not
+	// what these are here for.
 	"/openapi",
 	"/docs",
 }

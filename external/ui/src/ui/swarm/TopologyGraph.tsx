@@ -102,15 +102,16 @@ export function TopologyGraph(props: {
     .join(" ");
 
   // A way round and a dead link go down first, so a route in use always paints
-  // over them; the picked node goes last so nothing overlaps its ring.
+  // over them.
   const edges = [...layout.edges].sort(
     (a, b) => weight(a, props.selectedNode) - weight(b, props.selectedNode),
   );
-  const nodes = [...layout.nodes].sort(
-    (a, b) =>
-      Number(isPicked(a, props.selectedNode)) -
-      Number(isPicked(b, props.selectedNode)),
-  );
+  // Deliberately not re-sorted by selection. The nodes are keyed by uuid, so
+  // reordering them moves the live <g> in the DOM, which blurs the node the
+  // reader just activated and reshuffles the tab order under them. Cards never
+  // overlap anyway - a row leaves 132px between them and a tier 120px - so
+  // nothing can cover a selection ring.
+  const nodes = layout.nodes;
   const first = layout.tiers[0];
   const last = layout.tiers[layout.tiers.length - 1];
 
@@ -182,9 +183,6 @@ export function TopologyGraph(props: {
                 key={`${e.from.uuid}-${e.to.uuid}-${e.name}-${i}`}
                 edge={e}
                 prefix={heads}
-                title={`${e.name} · ${t(
-                  e.alternate ? "swarm.state.wayRound" : "swarm.state.route",
-                )}`}
               />
             ))}
           </g>
@@ -296,7 +294,7 @@ function ArrowDefs(props: { prefix: string }) {
 }
 
 /** A link, its state, and the name a route would call it by. */
-function Wire(props: { edge: PlacedEdge; prefix: string; title: string }) {
+function Wire(props: { edge: PlacedEdge; prefix: string }) {
   const e = props.edge;
   const c = connectorFor(e);
   const dead = !e.to.online;
@@ -313,8 +311,17 @@ function Wire(props: { edge: PlacedEdge; prefix: string; title: string }) {
   const label = clip(e.name, 16);
   const plate = chipWidth(label, 10, 9);
   return (
-    <g className={c.peer ? "swarm-edge-group is-peer" : "swarm-edge-group"}>
-      <title>{props.title}</title>
+    <g
+      className={[
+        "swarm-edge-group",
+        c.peer ? "is-peer" : "",
+        // The label plate's dashed outline is selected off the group, so the
+        // state has to be here and not only on the path inside it.
+        e.alternate ? "is-alternate" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <path
         className={cls}
         d={c.d}
@@ -434,7 +441,7 @@ function RelayCard(props: { node: PlacedNode; meta: string }) {
         y={M.relayNameDrop}
         textAnchor="start"
       >
-        {clip(n.name, Math.floor(RELAY_TEXT_W / 6.6))}
+        {clipToWidth(n.name, RELAY_TEXT_W, 12.5)}
       </text>
       <text
         className="swarm-node-meta"
@@ -442,7 +449,7 @@ function RelayCard(props: { node: PlacedNode; meta: string }) {
         y={M.relayMetaDrop}
         textAnchor="start"
       >
-        {clip(props.meta, Math.floor(RELAY_TEXT_W / 5.5))}
+        {clipToWidth(props.meta, RELAY_TEXT_W, 10.5)}
       </text>
       <StatusDot
         x={RELAY_HALF_W - M.statusInset}
@@ -616,4 +623,31 @@ function chipWidth(text: string, fontSize: number, pad: number): number {
 /** SVG text has no ellipsis, so a long name is cut where the card ends. */
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(max - 1, 1))}…`;
+}
+
+/**
+ * Roughly how wide a string will be, so a plate can be given the text that
+ * fits it. Counting characters instead would clip Russian early: Cyrillic
+ * lowercase is narrower here than the Latin average a per-character budget is
+ * calibrated on.
+ */
+function clipToWidth(text: string, px: number, size: number): string {
+  const advance = (ch: string): number =>
+    /[MWmw@%]/.test(ch)
+      ? size * 0.82
+      : /[ .,:;·'`|!iIjlt()[\]-]/.test(ch)
+        ? size * 0.3
+        : /[A-ZА-ЯЁ0-9]/.test(ch)
+          ? size * 0.6
+          : size * 0.5;
+  let w = 0;
+  let out = "";
+  for (const ch of text) {
+    w += advance(ch);
+    if (w > px) {
+      return `${out.slice(0, Math.max(out.length - 1, 1))}…`;
+    }
+    out += ch;
+  }
+  return out;
 }

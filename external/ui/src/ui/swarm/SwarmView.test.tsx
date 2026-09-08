@@ -300,6 +300,54 @@ describe("SwarmView", () => {
     });
   });
 
+  // DESIGN.md fixes this and nothing covered it: clicking a node in the graph
+  // filters the list to that node, and clicking it again clears the filter.
+  it("filters the list from the graph, and clears it on a second click", async () => {
+    render(<SwarmView />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("img", { name: "Swarm topology" }),
+      ).toBeInTheDocument();
+    });
+    const nodes = () =>
+      [...screen.getByTestId("swarm-groups").querySelectorAll(".swarm-group")]
+        .map((g) => g.getAttribute("data-node"))
+        .sort();
+    expect(nodes()).toEqual(["middle", "middle/hidden", "nas02"]);
+
+    const hidden = [...document.querySelectorAll(".swarm-node")].find((n) =>
+      (n.textContent || "").includes("hidden"),
+    );
+    expect(hidden).toBeTruthy();
+    fireEvent.click(hidden!);
+    await waitFor(() => {
+      expect(nodes()).toEqual(["middle/hidden"]);
+    });
+
+    fireEvent.click(hidden!);
+    await waitFor(() => {
+      expect(nodes()).toEqual(["middle", "middle/hidden", "nas02"]);
+    });
+  });
+
+  // The relay-as-home wiring lives in App.tsx and had no coverage at all. What
+  // is testable here is the half SwarmView owns: with a header slot it renders
+  // it, because on a relay that slot is the only environment control on screen.
+  it("renders the header slot it is given", async () => {
+    render(<SwarmView headerSlot={<button type="button">окружение</button>} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-view")).toBeInTheDocument();
+    });
+    const slot = screen.getByRole("button", { name: "окружение" });
+    const header = document.querySelector(".swarm-header-actions");
+    expect(header?.contains(slot)).toBe(true);
+    // Ahead of the topology toggle, which DESIGN.md fixes as the order.
+    const toggle = document.querySelector(".swarm-graph-toggle");
+    expect(
+      slot.compareDocumentPosition(toggle!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("hands a picked session to its owner", async () => {
     const onOpen = vi.fn();
     render(<SwarmView onOpenSession={onOpen} />);

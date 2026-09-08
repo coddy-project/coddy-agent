@@ -44,7 +44,7 @@ Store the design reference images under `docs/assets/` and link to the specific 
 - **Dictionary contract:** every registered dictionary must contain the same keys and interpolation tokens as the default locale. Add or change the key in every dictionary in the same patch; `messagesParity.test.ts` validates the contract and prevents a newly registered locale from silently drifting.
 - **Counted copy:** anything that reads "N things" goes through `translatePlural` / `tp(key, count)`, not a `count === 1` ternary in the component. The dictionary stores one entry per CLDR category under `key.category` (`tasks.chip.running.one` / `.other` in English; `.one` / `.few` / `.many` / `.other` in Russian), the entry always receives `{count}`, and each locale supplies exactly the categories `Intl.PluralRules` says it can produce — the parity test derives the expected set from that, so Russian declensions cannot silently regress to a single form.
 - **Reactivity:** the controlled select value is driven by local `choice` state (cookie-derived), because picking **Auto** can resolve to the already-active locale (no locale-store notification); label translation re-renders via the locale store subscription.
-- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), the schema-driven settings fields are translated as well (labels and descriptions of providers, models, agent, tools, subagents, memory, compaction, and the System group, resolved by section id and field path in `settings/schemaI18n.ts`, falling back to the schema's own text), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, and the env health banner. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
+- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), the schema-driven settings fields are translated as well (labels and descriptions of providers, models, agent, tools, subagents, memory, compaction, and the System group, resolved by section id and field path in `settings/schemaI18n.ts`, falling back to the schema's own text), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, the env health banner, and the swarm screen with its topology graph. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
 
 ### Frosted glass panels
 
@@ -625,10 +625,10 @@ screen** when the environment is a relay itself. It is the only screen a relay h
   (**`data-testid="swarm-error"`**) asking for a token rather than reporting an empty swarm. With a
   working credential the empty text distinguishes *no nodes joined*, *no sessions yet* and *the
   filter matched nothing*.
-- **Grouping and filtering.** Sessions group by node path; chips and the search box both go to the
-  relay, which fans out, so a query here reaches machines this browser cannot dial. Warnings for
-  nodes that did not answer render above the groups (**`.swarm-warnings`**) instead of removing
-  them silently.
+- **Grouping and filtering.** Sessions group by node path. The **search box** goes to the relay,
+  which fans out, so a query here reaches machines this browser cannot dial; the **node chips**
+  narrow what is already on screen and do not re-query. Warnings for nodes that did not answer
+  render above the groups (**`.swarm-warnings`**) instead of removing them silently.
 - **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
   **`swarm/layout.ts`**); clicking a node filters to it. A relay is a card carrying an
   accent-filled tile with the router mark; an agent is a circle with its name on a chip below.

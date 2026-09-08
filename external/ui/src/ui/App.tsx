@@ -3856,7 +3856,13 @@ export function App() {
   // that already existed works against it with a relay in the middle.
   const openSwarmNode = useCallback((nodePath: string[], hash?: string) => {
     const env = getEnv();
-    const relay = env.mode === "remote" ? (env.swarmRelay ?? env.baseUrl) : "";
+    // Served by the relay from its own root, the environment is plain
+    // same-origin: the relay is then this page's origin. Without that fallback
+    // the one entry point this screen exists for silently did nothing.
+    const relay =
+      env.mode === "remote"
+        ? (env.swarmRelay ?? env.baseUrl)
+        : window.location.origin;
     if (!relay) {
       return;
     }

@@ -10195,6 +10195,14 @@ html:not([data-theme="light"]) .swarm-graph-panel {
   opacity: 0.45;
 }
 
+/* Hover is the weakest of the three ring states, but its selector carried an
+   attribute the other two do not, so it was winning on specificity and dimming
+   the ring of the node the reader had just picked. */
+.swarm-node[role="button"].is-selected .swarm-node-ring,
+.swarm-node[role="button"]:focus-visible .swarm-node-ring {
+  opacity: 1;
+}
+
 .swarm-node.is-selected .swarm-node-body {
   fill: color-mix(in srgb, var(--accent) 18%, var(--swarm-plate));
 }

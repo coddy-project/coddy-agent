@@ -14,6 +14,8 @@ export type PlacedEdge = {
   name: string;
   /** True when this edge is not on the node's shortest route: a way round. */
   alternate: boolean;
+  /** x of the lane a row-skipping link goes round in, clear of every node. */
+  laneX: number;
 };
 
 /**
@@ -80,6 +82,8 @@ const NODE_SPACING = 300;
 /** Room on the left for the spine and its hop captions. */
 const GUTTER = 124;
 const MARGIN_RIGHT = 28;
+/** How far outside the widest card a row-skipping link runs. */
+const LANE_GAP = 34;
 const MARGIN_TOP = 48;
 /** Room under the deepest row for an agent's name chip and meta line. */
 const BOTTOM_PAD = 82;
@@ -184,6 +188,19 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     });
   }
 
+  // A route reaches exactly one node, so its joined path identifies that node.
+  // isAlternate needs it to tell the link the route arrives on from a link that
+  // merely shares its name.
+  const uuidByRoute = new Map<string, string>();
+  for (const n of placed.values()) {
+    uuidByRoute.set(n.path.join("/"), n.uuid);
+  }
+
+  // Outside every card, so a link that skips a row never crosses one.
+  const laneX =
+    Math.max(...[...placed.values()].map((n) => n.x + halfWidth(n)), GUTTER) +
+    LANE_GAP;
+
   const edges: PlacedEdge[] = [];
   for (const e of topology.edges || []) {
     const from = placed.get(e.from_uuid);
@@ -191,16 +208,26 @@ export function layoutTopology(topology: SwarmTopology): TopologyLayout {
     if (!from || !to || from.uuid === to.uuid) {
       continue;
     }
-    edges.push({ from, to, name: e.name, alternate: isAlternate(topology, e) });
+    edges.push({
+      from,
+      to,
+      name: e.name,
+      alternate: isAlternate(topology, e, uuidByRoute),
+      laneX,
+    });
   }
 
   const height = MARGIN_TOP + deepest * TIER_HEIGHT + BOTTOM_PAD;
+  // The lane only costs width when something actually runs in it.
+  const skipsARow = edges.some(
+    (e) => Math.abs(e.to.y - e.from.y) > TIER_HEIGHT * 1.5,
+  );
   return {
     nodes: [...placed.values()].sort((a, b) => a.depth - b.depth || a.x - b.x),
     edges,
     tiers: rows,
     spineX: GUTTER - 28,
-    width,
+    width: skipsARow ? Math.max(width, laneX + LANE_GAP) : width,
     height,
   };
 }
@@ -271,7 +298,51 @@ const PEER_MIN_SPAN = 8;
  */
 export function connectorFor(edge: PlacedEdge): Connector {
   const { from, to } = edge;
-  return Math.abs(to.y - from.y) < 1 ? peerLink(from, to) : hopLink(from, to);
+  if (Math.abs(to.y - from.y) < 1) {
+    return peerLink(from, to);
+  }
+  // A hop between adjacent rows can turn in the gutter between them. A link
+  // that skips a row cannot: its rail would land on that row's centre line and
+  // run straight through the cards standing there, and since nodes paint over
+  // edges the wire would read as two stubs entering a node it never touches.
+  // Those are ring back edges, so they go round the outside instead.
+  return Math.abs(to.y - from.y) > TIER_HEIGHT * 1.5
+    ? bypassLink(from, to, edge.laneX)
+    : hopLink(from, to);
+}
+
+/**
+ * A link that skips a row: out of one side, along a lane clear of every node,
+ * and into the side of the target. Drawn as a way round because that is what
+ * it is.
+ */
+function bypassLink(
+  from: PlacedNode,
+  to: PlacedNode,
+  laneX: number,
+): Connector {
+  const dir = laneX >= from.x ? 1 : -1;
+  const x0 = from.x + dir * (halfWidth(from) + EXIT_GAP);
+  const x1 = to.x + dir * (halfWidth(to) + ARRIVE_GAP);
+  const vdir = to.y > from.y ? 1 : -1;
+  const r = Math.min(
+    CORNER,
+    Math.abs(laneX - x0) / 2,
+    Math.abs(laneX - x1) / 2,
+    Math.abs(to.y - from.y) / 2,
+  );
+  return {
+    d:
+      `M${round(x0)} ${round(from.y)}` +
+      ` L${round(laneX - dir * r)} ${round(from.y)}` +
+      ` Q${round(laneX)} ${round(from.y)} ${round(laneX)} ${round(from.y + vdir * r)}` +
+      ` L${round(laneX)} ${round(to.y - vdir * r)}` +
+      ` Q${round(laneX)} ${round(to.y)} ${round(laneX - dir * r)} ${round(to.y)}` +
+      ` L${round(x1)} ${round(to.y)}`,
+    labelX: round(laneX),
+    labelY: round((from.y + to.y) / 2),
+    peer: false,
+  };
 }
 
 function peerLink(from: PlacedNode, to: PlacedNode): Connector {
@@ -370,16 +441,26 @@ function round(v: number): number {
 }
 
 /**
- * An edge is an alternate when the node's chosen route does not end with it.
- * Those are the extra ways round a ring, worth drawing differently so the
- * picture says which path a request would actually take.
+ * An edge is an alternate when it is not the last step of the target's chosen
+ * route. The name alone does not settle that: an edge is named by whoever
+ * registered the target, so two relays that both know a node call the link the
+ * same thing, and matching on the name would paint a ring's back edge as the
+ * route in use. The edge also has to leave the node the route arrives from.
  */
-function isAlternate(topology: SwarmTopology, edge: TopologyEdge): boolean {
+function isAlternate(
+  topology: SwarmTopology,
+  edge: TopologyEdge,
+  uuidByRoute: Map<string, string>,
+): boolean {
   const route = (topology.routes || {})[edge.to_uuid];
   if (!route || route.path.length === 0) {
     return false;
   }
-  return route.path[route.path.length - 1] !== edge.name;
+  if (route.path[route.path.length - 1] !== edge.name) {
+    return true;
+  }
+  const parent = uuidByRoute.get(route.path.slice(0, -1).join("/"));
+  return parent !== undefined && parent !== edge.from_uuid;
 }
 
 /** Counts what the swarm holds, for a one-line summary above the graph. */
