@@ -149,8 +149,14 @@ against the session title, the first user message, and the working directory.
 Routes come from a breadth-first walk, which visits by increasing hop count - so the first
 route found is a shortest one, and a node already seen is never expanded again, which is also
 why a ring terminates instead of spinning. Ties break lexicographically, so two clients asking
-the same relay are told the same route. Longer ways round are kept as `alternates` rather than
-discarded: that is where a client fails over when the short hop dies.
+the same relay are told the same route. A route never repeats a hop, so it cannot lap a cycle
+on the way.
+
+`alternates` are the other edges the walk saw arriving **at that node**, of any length - that
+is where a client fails over when the short hop dies. They are not routes inherited from
+another way into some ancestor: past a merge point only the shortest way through it is carried
+forward, so a node behind a diamond has one route rather than two. Enumerating every k-shortest
+path would fill the list with speculation; a failover list is more useful correct and short.
 
 Per **request**, a relay appends its own id to an internal header and refuses a request that
 already carries it, so a walk cannot go round forever. Depth is capped the same way for a

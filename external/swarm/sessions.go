@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
@@ -25,8 +26,10 @@ const (
 	maxSessionLimit     = 200
 	maxFanoutConcurrent = 8
 	// swarmMaxHops is the hard bound on chain depth. The loop guard catches a
-	// cycle; this catches a chain that is merely too long to be sane.
-	swarmMaxHops = 4
+	// cycle; this catches a chain that is merely too long to be sane. It is the
+	// configuration's constant rather than a second copy, so a mount and a
+	// fan-out can never disagree about how far the swarm reaches.
+	swarmMaxHops = config.SwarmMaxHops
 )
 
 // SwarmPathHeader carries the relays a request has already passed through, so a

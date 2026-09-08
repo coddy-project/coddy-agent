@@ -31,6 +31,9 @@ type Options struct {
 	InsecureSkipVerify bool
 	// DialTimeout bounds establishing the connection, not using it.
 	DialTimeout time.Duration
+	// Scheme is what the caller is about to speak, http or https. It decides
+	// which of the standard proxy variables applies when Proxy is empty.
+	Scheme string
 }
 
 func (o Options) dialTimeout() time.Duration {
@@ -72,11 +75,17 @@ func (o Options) DialFunc() (func(ctx context.Context, network, addr string) (ne
 		// its own, so the lookup is done here - otherwise a tunnel would ignore
 		// HTTPS_PROXY while every ordinary request honoured it.
 		return func(ctx context.Context, network, addr string) (net.Conn, error) {
-			envProxy, perr := proxyFromEnvironment(addr)
-			if perr != nil || envProxy == nil {
+			envProxy, perr := proxyFromEnvironment(addr, o.Scheme)
+			if perr != nil {
+				// A malformed proxy variable is a configuration mistake. Going
+				// direct instead would quietly leave the network the operator
+				// told us to go through.
+				return nil, fmt.Errorf("proxy from environment: %w", perr)
+			}
+			if envProxy == nil {
 				return base.DialContext(ctx, network, addr)
 			}
-			return dialViaCONNECT(ctx, base, envProxy, network, addr, o)
+			return dialThrough(ctx, base, envProxy, network, addr, o)
 		}, nil
 	}
 	u, err := url.Parse(raw)
@@ -221,17 +230,46 @@ func dialViaCONNECT(ctx context.Context, base *net.Dialer, proxyURL *url.URL, ne
 }
 
 // proxyFromEnvironment reports the proxy the standard variables name for addr,
-// or nil when they name none. Both schemes are treated as an origin to CONNECT
-// through, which is what a raw stream needs.
-func proxyFromEnvironment(addr string) (*url.URL, error) {
+// or nil when they name none.
+//
+// The scheme decides which variable applies - HTTP_PROXY or HTTPS_PROXY - so a
+// caller dialling a plain relay must say so, or it would be routed by the rule
+// meant for the other one.
+func proxyFromEnvironment(addr, scheme string) (*url.URL, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
 	}
-	target := &url.URL{Scheme: "https", Host: addr, Path: "/"}
 	if host == "" {
 		return nil, nil
 	}
+	if scheme != "http" && scheme != "https" {
+		scheme = "https"
+	}
+	target := &url.URL{Scheme: scheme, Host: addr, Path: "/"}
 	cfg := httpproxy.FromEnvironment()
 	return cfg.ProxyFunc()(target)
+}
+
+// dialThrough reaches addr through whatever kind of proxy the URL names.
+//
+// The environment variables can name a SOCKS proxy just as easily as an HTTP
+// one, and treating the first as the second produces a connection that looks
+// established and then answers nothing intelligible.
+func dialThrough(ctx context.Context, base *net.Dialer, proxyURL *url.URL, network, addr string, o Options) (net.Conn, error) {
+	switch strings.ToLower(proxyURL.Scheme) {
+	case "socks5", "socks5h":
+		d, err := proxy.FromURL(proxyURL, base)
+		if err != nil {
+			return nil, fmt.Errorf("socks5 proxy: %w", err)
+		}
+		if ctxDialer, ok := d.(proxy.ContextDialer); ok {
+			return ctxDialer.DialContext(ctx, network, addr)
+		}
+		return d.Dial(network, addr)
+	case "http", "https":
+		return dialViaCONNECT(ctx, base, proxyURL, network, addr, o)
+	default:
+		return nil, fmt.Errorf("unsupported proxy scheme %q from the environment", proxyURL.Scheme)
+	}
 }

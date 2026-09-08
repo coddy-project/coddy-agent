@@ -823,18 +823,14 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 	if len(next.PairingTokens) == 0 && len(current.PairingTokens) > 0 {
 		next.PairingTokens = append([]string(nil), current.PairingTokens...)
 	}
-	// A credential belongs to a destination, not to a label. Matching on the
-	// name alone would hand a node's token to whatever address the entry was
-	// pointed at next - a rename is harmless, a redirection is not.
-	upstreamKey := func(u SwarmUpstream) string {
-		return strings.TrimSpace(u.Name) + "\x00" + strings.TrimRight(strings.TrimSpace(u.URL), "/")
-	}
-	prevUpstream := map[string]SwarmUpstream{}
-	for _, up := range current.Upstreams {
-		prevUpstream[upstreamKey(up)] = up
-	}
+	// A credential belongs to a destination, not to a label. Renaming an entry
+	// must keep its token; pointing it somewhere new must not carry the token
+	// along. So the address is the key, and the name only disambiguates when
+	// two entries share one.
+	prevUpstream := indexByDestination(current.Upstreams,
+		func(u SwarmUpstream) (string, string) { return u.URL, u.Name })
 	for i := range next.Upstreams {
-		old, ok := prevUpstream[upstreamKey(next.Upstreams[i])]
+		old, ok := prevUpstream.lookup(next.Upstreams[i].URL, next.Upstreams[i].Name)
 		if !ok {
 			continue
 		}
@@ -845,15 +841,10 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 			next.Upstreams[i].Dial.Proxy = old.Dial.Proxy
 		}
 	}
-	joinKey := func(j SwarmJoin) string {
-		return strings.TrimRight(strings.TrimSpace(j.URL), "/") + "\x00" + strings.TrimSpace(j.Name)
-	}
-	prevJoin := map[string]SwarmJoin{}
-	for _, j := range current.Join {
-		prevJoin[joinKey(j)] = j
-	}
+	prevJoin := indexByDestination(current.Join,
+		func(j SwarmJoin) (string, string) { return j.URL, j.Name })
 	for i := range next.Join {
-		old, ok := prevJoin[joinKey(next.Join[i])]
+		old, ok := prevJoin.lookup(next.Join[i].URL, next.Join[i].Name)
 		if !ok {
 			continue
 		}
@@ -942,4 +933,43 @@ func cloneStringMap(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// destinationIndex finds a previous entry by the address it points at, falling
+// back to the name only to tell apart two entries sharing one address.
+type destinationIndex[T any] struct {
+	byAddr     map[string][]T
+	byAddrName map[string]T
+}
+
+func canonicalDestination(url string) string {
+	return strings.TrimRight(strings.TrimSpace(url), "/")
+}
+
+func indexByDestination[T any](items []T, key func(T) (addr string, name string)) destinationIndex[T] {
+	idx := destinationIndex[T]{
+		byAddr:     map[string][]T{},
+		byAddrName: map[string]T{},
+	}
+	for _, item := range items {
+		addr, name := key(item)
+		addr = canonicalDestination(addr)
+		idx.byAddr[addr] = append(idx.byAddr[addr], item)
+		idx.byAddrName[addr+"\x00"+strings.TrimSpace(name)] = item
+	}
+	return idx
+}
+
+func (i destinationIndex[T]) lookup(addr, name string) (T, bool) {
+	var zero T
+	addr = canonicalDestination(addr)
+	if exact, ok := i.byAddrName[addr+"\x00"+strings.TrimSpace(name)]; ok {
+		return exact, true
+	}
+	// A rename: same destination, different label. Safe as long as only one
+	// entry pointed there.
+	if only := i.byAddr[addr]; len(only) == 1 {
+		return only[0], true
+	}
+	return zero, false
 }

@@ -177,7 +177,11 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 
 // dialRelay opens the raw stream, through a proxy and under TLS when asked.
 func dialRelay(ctx context.Context, u *url.URL, opts TunnelOptions) (net.Conn, error) {
-	dial, err := opts.Dial.DialFunc()
+	// Which proxy variable applies depends on the scheme being spoken, so the
+	// dialler is told rather than left to guess.
+	dialOpts := opts.Dial
+	dialOpts.Scheme = u.Scheme
+	dial, err := dialOpts.DialFunc()
 	if err != nil {
 		return nil, err
 	}
@@ -228,8 +232,14 @@ func EncodeTunnelAccept(node string) []byte {
 	))
 }
 
-// activityConn records when bytes last arrived, so a watchdog can tell a quiet
-// connection from a dead one.
+// activityConn records when bytes last moved in either direction, so a watchdog
+// can tell a quiet connection from a dead one.
+//
+// Counting only what arrives is not enough, and gets it exactly backwards for
+// the case that matters most: while this node is streaming a long turn the
+// relay has nothing to read-idle about, so it sends no pings, and a watchdog
+// watching only inbound bytes would cut a healthy stream off mid-answer. A
+// connection this node is actively writing to is alive by definition.
 type activityConn struct {
 	net.Conn
 	mu   sync.Mutex
@@ -243,11 +253,23 @@ func newActivityConn(c net.Conn) *activityConn {
 func (c *activityConn) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 {
-		c.mu.Lock()
-		c.last = time.Now()
-		c.mu.Unlock()
+		c.touch()
 	}
 	return n, err
+}
+
+func (c *activityConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		c.touch()
+	}
+	return n, err
+}
+
+func (c *activityConn) touch() {
+	c.mu.Lock()
+	c.last = time.Now()
+	c.mu.Unlock()
 }
 
 func (c *activityConn) idleFor() time.Duration {

@@ -153,25 +153,46 @@ func TestComputeRoutesNeverRoutesBackToTheRoot(t *testing.T) {
 	}
 }
 
-// A cycle that does not pass through the root is still a cycle. A route that
+// A cycle that does not pass through the root is still a cycle, and a route that
 // laps it before arriving is a path no client should be handed.
-func TestComputeRoutesNeverRepeatsAHop(t *testing.T) {
-	// root -> a -> b -> c -> b : the b-c-b lap never touches the root.
+//
+// The lap is deliberately reachable only by revisiting a node, and the check is
+// on the nodes a route passes through rather than on edge labels: distinct
+// labels would let a cyclic route slip past a name-based assertion.
+func TestComputeRoutesNeverRepeatsANode(t *testing.T) {
+	// root -> a -> b -> c -> b: the b-c-b lap never touches the root, and every
+	// edge carries a different label.
 	edges := []TopologyEdge{
 		{FromUUID: "root", ToUUID: "a", Name: "alpha"},
 		{FromUUID: "a", ToUUID: "b", Name: "bravo"},
 		{FromUUID: "b", ToUUID: "c", Name: "charlie"},
-		{FromUUID: "c", ToUUID: "b", Name: "back-to-bravo"},
+		{FromUUID: "c", ToUUID: "b", Name: "delta"},
 	}
 	routes := ComputeRoutes("root", edges)
+
+	// Rebuild the nodes each route walks through by following the edges, which
+	// is what "laps a cycle" actually means.
+	byFromAndName := map[string]string{}
+	for _, e := range edges {
+		byFromAndName[e.FromUUID+"/"+e.Name] = e.ToUUID
+	}
 	for uuid, r := range routes {
 		for _, path := range append([][]string{r.Path}, r.Alternates...) {
-			seen := map[string]bool{}
+			at := "root"
+			visited := map[string]bool{"root": true}
 			for _, hop := range path {
-				if seen[hop] {
-					t.Fatalf("route to %s laps a cycle: %v", uuid, path)
+				next, ok := byFromAndName[at+"/"+hop]
+				if !ok {
+					t.Fatalf("route to %s has a hop %q that does not exist from %s: %v", uuid, hop, at, path)
 				}
-				seen[hop] = true
+				if visited[next] {
+					t.Fatalf("route to %s passes through %s twice: %v", uuid, next, path)
+				}
+				visited[next] = true
+				at = next
+			}
+			if at != uuid {
+				t.Fatalf("route labelled for %s actually arrives at %s: %v", uuid, at, path)
 			}
 		}
 	}

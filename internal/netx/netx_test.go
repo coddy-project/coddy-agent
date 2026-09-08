@@ -479,3 +479,89 @@ func TestEgressPolicyAllowListStillRefusesTheMetadataEndpoint(t *testing.T) {
 		t.Fatal("no allow list may reach the metadata endpoint")
 	}
 }
+
+// RFC 6598 shared address space is what carrier-grade NAT and several mesh VPNs
+// hand out. Go does not call it private, so it would slip past a policy that
+// only asked that question.
+func TestEgressPolicyRefusesSharedAddressSpace(t *testing.T) {
+	cgnat := netip.MustParseAddr("100.64.0.1")
+	if err := (EgressPolicy{}).CheckAddr(cgnat); err == nil {
+		t.Fatal("carrier-grade NAT space should not be dialled on a node's word")
+	}
+	if err := (EgressPolicy{AllowPrivate: true}).CheckAddr(cgnat); err != nil {
+		t.Fatalf("it should be reachable when private ranges are allowed: %v", err)
+	}
+	// The neighbouring public range is unaffected.
+	if err := (EgressPolicy{}).CheckAddr(netip.MustParseAddr("100.128.0.1")); err != nil {
+		t.Fatalf("100.128.0.0 is public: %v", err)
+	}
+}
+
+// Which proxy variable applies depends on the scheme, so a caller dialling a
+// plain relay must not be routed by the rule meant for TLS.
+func TestProxyFromEnvironmentFollowsTheScheme(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://plain-proxy:3128")
+	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
+	t.Setenv("NO_PROXY", "")
+
+	plain, err := proxyFromEnvironment("relay.example:80", "http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain == nil || plain.Host != "plain-proxy:3128" {
+		t.Fatalf("an http dial should use HTTP_PROXY, got %v", plain)
+	}
+	secure, err := proxyFromEnvironment("relay.example:443", "https")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secure == nil || secure.Host != "tls-proxy:3129" {
+		t.Fatalf("an https dial should use HTTPS_PROXY, got %v", secure)
+	}
+}
+
+func TestProxyFromEnvironmentHonoursNoProxy(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "http://tls-proxy:3129")
+	t.Setenv("NO_PROXY", "relay.example")
+	got, err := proxyFromEnvironment("relay.example:443", "https")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("NO_PROXY should exclude this host, got %v", got)
+	}
+}
+
+// The environment can name a SOCKS proxy as easily as an HTTP one, and dialling
+// the first as if it were the second yields a connection that looks established
+// and then answers nothing intelligible.
+func TestEnvironmentProxySchemeIsRespected(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "socks5://127.0.0.1:1")
+	t.Setenv("NO_PROXY", "")
+	dial, err := (Options{Scheme: "https"}).DialFunc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = dial(context.Background(), "tcp", "relay.example:443")
+	if err == nil {
+		t.Fatal("dialling a dead socks proxy should fail")
+	}
+	// It has to fail as SOCKS, not as an HTTP CONNECT attempt.
+	if strings.Contains(err.Error(), "CONNECT") {
+		t.Fatalf("a socks proxy was dialled as an http one: %v", err)
+	}
+}
+
+// A malformed proxy variable is a configuration mistake; going direct instead
+// would quietly leave the network the operator said to go through.
+func TestEnvironmentProxyErrorIsNotSilentlyIgnored(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "://not-a-url")
+	t.Setenv("NO_PROXY", "")
+	dial, err := (Options{Scheme: "https"}).DialFunc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dial(context.Background(), "tcp", "relay.example:443"); err == nil {
+		t.Fatal("a malformed proxy variable should not fall through to a direct dial")
+	}
+}

@@ -202,8 +202,24 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		if req.LeaseSecret == "" || subtle.ConstantTimeCompare([]byte(existing.secret), []byte(req.LeaseSecret)) != 1 {
 			return swarmdto.RegisterResponse{}, ErrNameTaken
 		}
-		// A renewal from the owner. The generation moves so a proxy holding an
-		// older snapshot can tell its transport is stale.
+		// A renewal from the owner. Anything that can fail is done before the
+		// live lease is touched: a heartbeat that cannot build its new route
+		// must leave the node exactly as it was, not knock it off the air until
+		// the next one succeeds.
+		var replacement NodeTransport
+		if req.Transport == swarmdto.TransportDirect {
+			effectiveDial := existing.dial
+			if dial != (netx.Options{}) {
+				effectiveDial = dial
+			}
+			t, terr := newDirectTransport(advertise, effectiveDial, pinned)
+			if terr != nil {
+				return swarmdto.RegisterResponse{}, terr
+			}
+			replacement = t
+			existing.dial = effectiveDial
+		}
+
 		existing.info.Generation++
 		existing.info.Kind = req.Kind
 		existing.info.Transport = req.Transport
@@ -219,16 +235,10 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 		switch req.Transport {
 		case swarmdto.TransportDirect:
 			// A node that switched back to being reachable no longer needs the
-			// connection it used to hold.
+			// connection it used to hold. The replacement is already built, so
+			// the swap cannot leave the lease without a route.
 			existing.closeTransportLocked()
-			if dial != (netx.Options{}) {
-				existing.dial = dial
-			}
-			t, terr := newDirectTransport(advertise, existing.dial, pinned)
-			if terr != nil {
-				return swarmdto.RegisterResponse{}, terr
-			}
-			existing.transport = t
+			existing.transport = replacement
 			existing.expiresAt = now.Add(r.ttl)
 		default:
 			// A tunnel lease follows its connection, not a clock. Putting it

@@ -700,3 +700,34 @@ func TestTunnelWatchdogLeavesALivelyConnectionAlone(t *testing.T) {
 		}
 	}
 }
+
+// While a node streams a long answer the relay has nothing to read-idle about,
+// so it sends no pings and nothing arrives. A watchdog counting only inbound
+// bytes would cut the stream off mid-answer - the opposite of its purpose.
+func TestTunnelWatchdogLeavesALongOutgoingStreamAlone(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = server.Close() }()
+
+	watched := newActivityConn(client)
+	stop := watched.watch(250 * time.Millisecond)
+	defer stop()
+
+	// The other side reads and never says anything back, as a relay carrying a
+	// turn to a silent client does.
+	go func() {
+		buf := make([]byte, 64)
+		for {
+			if _, err := server.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	deadline := time.Now().Add(1200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if _, err := watched.Write([]byte("data: chunk\n\n")); err != nil {
+			t.Fatalf("the watchdog closed a connection this node was streaming on: %v", err)
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+}

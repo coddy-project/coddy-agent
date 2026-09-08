@@ -62,7 +62,7 @@ func (p EgressPolicy) CheckAddr(addr netip.Addr) error {
 		return fmt.Errorf("address %s is unspecified", addr)
 	case addr.IsMulticast():
 		return fmt.Errorf("address %s is multicast", addr)
-	case addr.IsPrivate():
+	case addr.IsPrivate(), isSharedAddressSpace(addr):
 		if !p.AllowPrivate {
 			return fmt.Errorf("address %s is in a private range", addr)
 		}
@@ -147,4 +147,14 @@ func PinnedDialer(addrs []netip.Addr, base func(ctx context.Context, network, ad
 		}
 		return nil, lastErr
 	}
+}
+
+// sharedAddressSpace is RFC 6598's 100.64.0.0/10. Go does not count it as
+// private, but it is carrier-grade NAT and the range several mesh VPNs hand out,
+// so a node advertising one is asking the relay to dial somewhere it should not
+// reach on a stranger's word.
+var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+
+func isSharedAddressSpace(addr netip.Addr) bool {
+	return addr.Is4() && sharedAddressSpace.Contains(addr)
 }

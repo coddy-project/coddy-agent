@@ -56,7 +56,7 @@ type Topology struct {
 }
 
 // ComputeRoutes finds, for every node reachable from root, the shortest route
-// to it and any equally reachable alternatives.
+// to it and the other ways in that the walk saw directly.
 //
 // Relays are not required to form a tree: three of them may each join the other
 // two, or a chain may be closed into a ring for redundancy. A breadth-first
@@ -66,6 +66,13 @@ type Topology struct {
 //
 // Ties break lexicographically so two clients asking the same relay are told
 // the same route and a cached one stays valid.
+//
+// What an alternate is, precisely: another edge arriving at that node, of any
+// length. What it is not: a route inherited from an alternate way into some
+// ancestor. Past a merge point only the shortest way through it is carried
+// forward, so a node behind a diamond has one route rather than two. Making it
+// otherwise means enumerating k-shortest paths, and a failover list is more
+// useful correct and short than long and speculative.
 func ComputeRoutes(root string, edges []TopologyEdge) map[string]Route {
 	adjacency := map[string][]TopologyEdge{}
 	for _, e := range edges {

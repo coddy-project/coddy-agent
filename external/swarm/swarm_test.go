@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -199,18 +200,12 @@ func TestListNeverSerialisesACredential(t *testing.T) {
 
 func TestListOrdersOnlineFirstThenByName(t *testing.T) {
 	r, clock := newTestRegistry(t, time.Minute)
-	for _, name := range []string{"zulu", "alpha", "mike"} {
-		if _, err := r.Register(directRequest(name)); err != nil {
-			t.Fatal(err)
-		}
-	}
+	secrets := registerAll(t, r, "zulu", "alpha", "mike")
 	// Let alpha go stale while the others stay fresh.
 	clock.Advance(90 * time.Second)
 	for _, name := range []string{"zulu", "mike"} {
 		req := directRequest(name)
-		node, _ := r.Node(name)
-		_ = node
-		req.LeaseSecret = secretOf(t, r, name)
+		req.LeaseSecret = secrets[name]
 		if _, err := r.Register(req); err != nil {
 			t.Fatal(err)
 		}
@@ -225,17 +220,20 @@ func TestListOrdersOnlineFirstThenByName(t *testing.T) {
 	}
 }
 
-// secretOf reaches into the registry the way only a test may, so a renewal can
-// be exercised without threading secrets through every helper.
-func secretOf(t *testing.T, r *Registry, name string) string {
+// registerAll claims each name and keeps the secret the relay handed back, so a
+// renewal can be exercised through the same surface a node uses rather than by
+// reading the registry's own map.
+func registerAll(t *testing.T, r *Registry, names ...string) map[string]string {
 	t.Helper()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	l, ok := r.nodes[name]
-	if !ok {
-		t.Fatalf("no lease for %q", name)
+	secrets := map[string]string{}
+	for _, name := range names {
+		res, err := r.Register(directRequest(name))
+		if err != nil {
+			t.Fatalf("register %q: %v", name, err)
+		}
+		secrets[name] = res.LeaseSecret
 	}
-	return l.secret
+	return secrets
 }
 
 // fakeTunnel stands in for a dialled-out connection.
@@ -780,5 +778,45 @@ func TestMountRefusesEncodedRelativeSegments(t *testing.T) {
 	}
 	if rest != "/coddy/x%20y" {
 		t.Fatalf("rest = %q", rest)
+	}
+}
+
+// A heartbeat that cannot build its new route must leave the node exactly as it
+// was. Tearing the working one down first means the owner knocks itself off the
+// air until some later heartbeat happens to succeed.
+func TestRenewalKeepsTheWorkingRouteWhenTheNewOneCannotBeBuilt(t *testing.T) {
+	r, _ := newTestRegistry(t, time.Minute)
+	res, err := r.Register(directRequest("nas02"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, ok := r.Node("nas02")
+	if !ok || before.Transport == nil {
+		t.Fatal("the node should start with a route")
+	}
+
+	// A renewal naming a certificate authority that does not exist: everything
+	// about the request is fine except that its transport cannot be built.
+	broken := directRequest("nas02")
+	broken.LeaseSecret = res.LeaseSecret
+	if _, err := r.RegisterWithDial(broken, netx.Options{
+		CAFile: filepath.Join(t.TempDir(), "absent.pem"),
+	}); err == nil {
+		t.Fatal("a renewal that cannot build its transport should fail")
+	}
+
+	after, ok := r.Node("nas02")
+	if !ok {
+		t.Fatal("the lease disappeared")
+	}
+	if after.Transport == nil {
+		t.Fatal("a failed renewal took away the route that was working")
+	}
+	if after.Info.Generation != before.Info.Generation {
+		t.Fatalf("a failed renewal moved the generation: %d -> %d",
+			before.Info.Generation, after.Info.Generation)
+	}
+	if !after.Info.Online {
+		t.Fatal("a failed renewal took the node offline")
 	}
 }
