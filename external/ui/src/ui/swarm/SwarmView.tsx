@@ -5,7 +5,7 @@ import {
   fetchTopology,
   probeSwarm,
 } from "./api";
-import { groupByNode, routeLabel, sessionKey } from "./routes";
+import { groupByNode, nodeChips, routeLabel, sessionKey } from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
 import type {
@@ -101,6 +101,9 @@ export function SwarmView(props: {
   }, [sessions, nodeFilter]);
 
   const groups = useMemo(() => groupByNode(visible), [visible]);
+  // Chips cover every node with work on screen, not only the relay's own
+  // children: a session can arrive from any depth of the chain.
+  const chips = useMemo(() => nodeChips(nodes, sessions), [nodes, sessions]);
   const summary = topology ? topologySummary(topology) : null;
 
   const toggleGroup = (key: string) => {
@@ -176,23 +179,23 @@ export function SwarmView(props: {
           >
             All nodes
           </button>
-          {nodes.map((n) => (
+          {chips.map((c) => (
             <button
-              key={n.instance_uuid || n.name}
+              key={c.path}
               type="button"
               className={`swarm-chip ${
-                nodeFilter === n.name ? "is-active" : ""
-              } ${n.online ? "" : "is-offline"}`}
+                nodeFilter === c.path ? "is-active" : ""
+              } ${c.online ? "" : "is-offline"}`}
               onClick={() =>
-                setNodeFilter((prev) => (prev === n.name ? null : n.name))
+                setNodeFilter((prev) => (prev === c.path ? null : c.path))
               }
-              title={n.url || `${n.name} (dials out)`}
+              title={c.url || (c.direct ? `${c.label} (dials out)` : c.path)}
             >
               <span
-                className={`swarm-dot ${n.online ? "is-online" : "is-offline"}`}
+                className={`swarm-dot ${c.online ? "is-online" : "is-offline"}`}
               />
-              {n.name}
-              {n.transport === "tunnel" ? (
+              {c.label}
+              {c.transport === "tunnel" ? (
                 <span className="swarm-chip-transport" title="dials out">
                   ⇡
                 </span>

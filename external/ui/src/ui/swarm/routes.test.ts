@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   apiPathFor,
   groupByNode,
+  nodeChips,
   parseSwarmSessionHash,
   routeLabel,
   sessionApiPath,
@@ -118,5 +119,46 @@ describe("routeLabel", () => {
     expect(routeLabel(["outer", "inner", "agent7"])).toBe(
       "outer › inner › agent7",
     );
+  });
+});
+
+describe("nodeChips", () => {
+  const registry = [
+    { name: "beta", online: true, transport: "direct", url: "http://beta:1" },
+    { name: "inner", online: true, transport: "direct", url: "http://inner:2" },
+  ];
+
+  it("offers the relay's own nodes", () => {
+    const chips = nodeChips(registry, []);
+    expect(chips.map((c) => c.path)).toEqual(["beta", "inner"]);
+    expect(chips.every((c) => c.direct)).toBe(true);
+  });
+
+  // A relay holds leases only for its direct children, but a session can arrive
+  // from any depth. Without this there is no way to narrow to the agent whose
+  // work is right there on screen.
+  it("adds nodes that only appear through a chain", () => {
+    const chips = nodeChips(registry, [
+      session({ node_path: ["inner", "alpha"], node_name: "alpha" }),
+    ]);
+    const alpha = chips.find((c) => c.path === "inner/alpha");
+    expect(alpha).toBeDefined();
+    expect(alpha?.label).toBe("alpha");
+    expect(alpha?.direct).toBe(false);
+  });
+
+  it("does not duplicate a node it already knows", () => {
+    const chips = nodeChips(registry, [
+      session({ node_path: ["beta"], node_name: "beta" }),
+    ]);
+    expect(chips.filter((c) => c.path === "beta")).toHaveLength(1);
+  });
+
+  it("keeps an offline node on the row", () => {
+    const chips = nodeChips(
+      [{ name: "gone", online: false, transport: "direct" }],
+      [],
+    );
+    expect(chips[0]?.online).toBe(false);
   });
 });

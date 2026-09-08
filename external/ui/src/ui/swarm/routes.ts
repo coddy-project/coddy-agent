@@ -97,3 +97,62 @@ export function groupByNode(
 export function routeLabel(nodePath: string[]): string {
   return nodePath.join(" › ");
 }
+
+/** One entry in the node filter row. */
+export type NodeChip = {
+  /** Route to the node, joined - also the filter value. */
+  path: string;
+  /** What to show on the chip. */
+  label: string;
+  online: boolean;
+  transport?: string;
+  url?: string;
+  /** True when this relay knows the node directly. */
+  direct: boolean;
+};
+
+/**
+ * Builds the node filter row from what the relay lists **and** what the sessions
+ * came from.
+ *
+ * A relay only lists the nodes it holds leases for - its direct children - but a
+ * session can arrive from any depth of the chain. Filtering by the registry
+ * alone would therefore offer no way to narrow to the agent whose work is right
+ * there on the screen.
+ */
+export function nodeChips(
+  nodes: {
+    name: string;
+    online: boolean;
+    transport?: string;
+    url?: string;
+    kind?: string;
+  }[],
+  sessions: SwarmSession[],
+): NodeChip[] {
+  const chips = new Map<string, NodeChip>();
+  for (const n of nodes) {
+    chips.set(n.name, {
+      path: n.name,
+      label: n.name,
+      online: n.online,
+      ...(n.transport !== undefined ? { transport: n.transport } : {}),
+      ...(n.url !== undefined ? { url: n.url } : {}),
+      direct: true,
+    });
+  }
+  for (const s of sessions) {
+    const path = s.node_path.join("/");
+    if (!path || chips.has(path)) {
+      continue;
+    }
+    chips.set(path, {
+      path,
+      label: s.node_name,
+      online: true,
+      ...(s.node_url ? { url: s.node_url } : {}),
+      direct: false,
+    });
+  }
+  return [...chips.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
