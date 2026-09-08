@@ -23,28 +23,12 @@ const TunnelPath = "/swarm/tunnel"
 // TunnelMaxConcurrentStreams bounds how many requests share one tunnel.
 const TunnelMaxConcurrentStreams = 250
 
-// bufferedConn re-attaches bytes that were already read off a connection.
+// SpliceBuffered re-attaches bytes a reader already pulled off a connection.
 //
 // Both sides of the upgrade read their peer's HTTP message through a buffered
-// reader, which happily pulls in whatever came next - and what comes next here
-// is the start of the HTTP/2 preface. Dropping those bytes leaves a connection
-// that looks healthy and then fails to parse its first frame, so they are
-// spliced back in front of the socket.
-type bufferedConn struct {
-	net.Conn
-	reader io.Reader
-}
-
-// SpliceBuffered returns a connection that yields the already-buffered bytes
-// before anything further off the socket.
-func SpliceBuffered(conn net.Conn, buffered *bufio.Reader) net.Conn {
-	if buffered == nil || buffered.Buffered() == 0 {
-		return conn
-	}
-	return &bufferedConn{Conn: conn, reader: io.MultiReader(io.LimitReader(buffered, int64(buffered.Buffered())), conn)}
-}
-
-func (c *bufferedConn) Read(p []byte) (int, error) { return c.reader.Read(p) }
+// reader, which happily takes in whatever came next - and what comes next here
+// is the start of the HTTP/2 preface.
+var SpliceBuffered = netx.SpliceBuffered
 
 // TunnelOptions describe one dial-out from a node to a relay.
 type TunnelOptions struct {

@@ -107,6 +107,9 @@ func TestDialFuncTunnelsThroughAnHTTPProxy(t *testing.T) {
 					_ = client.Close()
 					return
 				}
+				// A real proxy answers and starts relaying at once, so the
+				// origin's first bytes routinely land in the same read as this
+				// response. That is the case the splice has to survive.
 				_, _ = client.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 				go func() { _, _ = io.Copy(upstream, client) }()
 				_, _ = io.Copy(client, upstream)
@@ -265,4 +268,49 @@ func pemOf(t *testing.T, ts *httptest.Server) []byte {
 
 func pemEncode(der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// A proxy may relay the origin's first bytes in the same packet as its 200.
+// Losing them leaves a connection that looks fine and then fails to parse
+// whatever speaks next.
+func TestDialFuncKeepsBytesSentWithTheProxyResponse(t *testing.T) {
+	proxyLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = proxyLn.Close() }()
+	go func() {
+		for {
+			c, aerr := proxyLn.Accept()
+			if aerr != nil {
+				return
+			}
+			br := bufio.NewReader(c)
+			if _, rerr := http.ReadRequest(br); rerr != nil {
+				_ = c.Close()
+				continue
+			}
+			// One write: the response and the payload together.
+			_, _ = c.Write([]byte(
+				"HTTP/1.1 200 Connection Established\r\n\r\nHELLO-FROM-ORIGIN"))
+			_ = c.Close()
+		}
+	}()
+
+	dial, err := (Options{Proxy: "http://" + proxyLn.Addr().String()}).DialFunc()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := dial(context.Background(), "tcp", "198.51.100.9:80")
+	if err != nil {
+		t.Fatalf("the dial should succeed: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	got, err := io.ReadAll(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "HELLO-FROM-ORIGIN" {
+		t.Fatalf("read %q, want the origin bytes that arrived with the proxy response", got)
+	}
 }

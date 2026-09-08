@@ -176,7 +176,7 @@ func dialViaCONNECT(ctx context.Context, base *net.Dialer, proxyURL *url.URL, ne
 		_ = conn.Close()
 		return nil, fmt.Errorf("proxy CONNECT: %w", err)
 	}
-	res, err := readCONNECTResponse(conn, req)
+	res, spliced, err := readCONNECTResponse(conn, req)
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -185,5 +185,5 @@ func dialViaCONNECT(ctx context.Context, base *net.Dialer, proxyURL *url.URL, ne
 		_ = conn.Close()
 		return nil, fmt.Errorf("proxy CONNECT to %s: %s", addr, res.Status)
 	}
-	return conn, nil
+	return spliced, nil
 }
