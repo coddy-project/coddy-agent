@@ -19,10 +19,11 @@ type EgressPolicy struct {
 	// AllowLoopback permits 127.0.0.0/8 and ::1. Sensible when the relay itself
 	// is bound to loopback, which is the development case.
 	AllowLoopback bool
-	// AllowPrivate permits RFC1918 and unique-local addresses. A relay inside a
-	// private network needs this to reach anything at all.
+	// AllowPrivate permits RFC1918 and unique-local addresses for every host.
+	// Prefer naming hosts in AllowHosts: this opens the whole range.
 	AllowPrivate bool
-	// AllowHosts lists host names that bypass the checks entirely.
+	// AllowHosts lists host names whose range rules are relaxed. It is scoped to
+	// those names and never lifts the absolute refusals below.
 	AllowHosts []string
 }
 
@@ -79,13 +80,16 @@ func (p EgressPolicy) Resolve(ctx context.Context, host string) ([]netip.Addr, e
 	if host == "" {
 		return nil, fmt.Errorf("no host to resolve")
 	}
+	// Naming a host relaxes the range rules for that host alone. It never lifts
+	// the absolute refusals: an operator allowing one internal name should not
+	// thereby open every private range, nor the metadata endpoint.
+	relaxed := p
 	if p.allows(host) {
-		// An explicitly allow-listed host is the operator overriding the policy
-		// for a name they chose, so it is resolved without further judgement.
-		return resolveAll(ctx, host)
+		relaxed.AllowLoopback = true
+		relaxed.AllowPrivate = true
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
-		if cerr := p.CheckAddr(addr); cerr != nil {
+		if cerr := relaxed.CheckAddr(addr); cerr != nil {
 			return nil, cerr
 		}
 		return []netip.Addr{addr}, nil
@@ -96,7 +100,7 @@ func (p EgressPolicy) Resolve(ctx context.Context, host string) ([]netip.Addr, e
 	}
 	out := make([]netip.Addr, 0, len(addrs))
 	for _, a := range addrs {
-		if cerr := p.CheckAddr(a); cerr != nil {
+		if cerr := relaxed.CheckAddr(a); cerr != nil {
 			return nil, fmt.Errorf("host %q resolves to a refused address: %w", host, cerr)
 		}
 		out = append(out, a)

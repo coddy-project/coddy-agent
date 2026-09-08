@@ -139,10 +139,18 @@ func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httpu
 		out.Host = target.Host
 
 		// The node may itself live under a base path, which has to survive.
+		//
+		// Path holds the decoded form and RawPath the escaped one. Putting the
+		// escaped string in both would send the node a double-encoded path: a
+		// space arrives as %2520 rather than %20.
 		base := strings.TrimRight(target.Path, "/")
-		joined := base + rest
-		out.URL.Path = joined
-		out.URL.RawPath = joined
+		escaped := base + rest
+		decoded, err := url.PathUnescape(escaped)
+		if err != nil {
+			decoded = escaped
+		}
+		out.URL.Path = decoded
+		out.URL.RawPath = escaped
 
 		query := pr.In.URL.Query()
 		// The client authenticated to the relay, possibly with a token in the

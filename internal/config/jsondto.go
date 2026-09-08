@@ -26,6 +26,7 @@ type ConfigJSON struct {
 	Compaction   CompactionJSON   `json:"compaction,omitempty"`
 	Memory       MemoryJSON       `json:"memory,omitempty"`
 	HTTPServer   HTTPServerJSON   `json:"httpserver,omitempty"`
+	Swarm        SwarmJSON        `json:"swarm,omitempty"`
 	Scheduler    SchedulerJSON    `json:"scheduler,omitempty"`
 	Gateways     GatewaysJSON     `json:"gateways,omitempty"`
 }
@@ -269,6 +270,66 @@ type HTTPRemoteJSON struct {
 	URL  string `json:"url"`
 }
 
+// SwarmJSON mirrors SwarmConfig. Every credential is write-only: reading the
+// config reports only whether one is set, the way HTTPServerJSON does, so an
+// authenticated endpoint never hands back the token that reached it.
+type SwarmJSON struct {
+	Host                     string              `json:"host,omitempty"`
+	Port                     int                 `json:"port,omitempty"`
+	Name                     string              `json:"name,omitempty"`
+	AuthToken                string              `json:"auth_token,omitempty"`
+	AuthConfigured           bool                `json:"auth_configured,omitempty"`
+	PairingTokens            []string            `json:"pairing_tokens,omitempty"`
+	PairingConfigured        int                 `json:"pairing_configured,omitempty"`
+	AllowInsecure            bool                `json:"allow_insecure,omitempty"`
+	InsecureOpenRegistration bool                `json:"insecure_open_registration,omitempty"`
+	AllowPrivateUpstreams    []string            `json:"allow_private_upstreams,omitempty"`
+	CORS                     HTTPCORSJSON        `json:"cors,omitempty"`
+	TLS                      SwarmTLSJSON        `json:"tls,omitempty"`
+	LeaseTTLSeconds          int                 `json:"lease_ttl_seconds,omitempty"`
+	FanoutTimeoutSeconds     int                 `json:"fanout_timeout_seconds,omitempty"`
+	Upstreams                []SwarmUpstreamJSON `json:"upstreams,omitempty"`
+	Join                     []SwarmJoinJSON     `json:"join,omitempty"`
+}
+
+// SwarmTLSJSON mirrors SwarmTLSConfig.
+type SwarmTLSJSON struct {
+	CertFile string `json:"cert_file,omitempty"`
+	KeyFile  string `json:"key_file,omitempty"`
+}
+
+// SwarmDialJSON mirrors SwarmDialConfig. The proxy URL can carry credentials,
+// so it is write-only like the tokens.
+type SwarmDialJSON struct {
+	Proxy              string `json:"proxy,omitempty"`
+	ProxyConfigured    bool   `json:"proxy_configured,omitempty"`
+	CAFile             string `json:"ca_file,omitempty"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+}
+
+// SwarmUpstreamJSON mirrors SwarmUpstream.
+type SwarmUpstreamJSON struct {
+	Name            string        `json:"name"`
+	URL             string        `json:"url"`
+	Kind            string        `json:"kind,omitempty"`
+	Token           string        `json:"token,omitempty"`
+	TokenConfigured bool          `json:"token_configured,omitempty"`
+	Dial            SwarmDialJSON `json:"dial,omitempty"`
+}
+
+// SwarmJoinJSON mirrors SwarmJoin.
+type SwarmJoinJSON struct {
+	URL                    string            `json:"url"`
+	Name                   string            `json:"name,omitempty"`
+	PairingToken           string            `json:"pairing_token,omitempty"`
+	PairingTokenConfigured bool              `json:"pairing_token_configured,omitempty"`
+	AdvertiseURL           string            `json:"advertise_url,omitempty"`
+	Token                  string            `json:"token,omitempty"`
+	TokenConfigured        bool              `json:"token_configured,omitempty"`
+	Labels                 map[string]string `json:"labels,omitempty"`
+	Dial                   SwarmDialJSON     `json:"dial,omitempty"`
+}
+
 // SubagentsJSON mirrors Subagents.
 type SubagentsJSON struct {
 	Enabled               *bool    `json:"enabled,omitempty"`
@@ -418,6 +479,39 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	for _, rm := range c.HTTPServer.Remotes {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
+	}
+	out.Swarm = SwarmJSON{
+		Host:                     c.Swarm.Host,
+		Port:                     c.Swarm.Port,
+		Name:                     c.Swarm.Name,
+		AuthConfigured:           strings.TrimSpace(c.Swarm.AuthToken) != "",
+		PairingConfigured:        len(c.Swarm.PairingTokens),
+		AllowInsecure:            c.Swarm.AllowInsecure,
+		InsecureOpenRegistration: c.Swarm.InsecureOpenRegistration,
+		AllowPrivateUpstreams:    append([]string(nil), c.Swarm.AllowPrivateUpstreams...),
+		CORS: HTTPCORSJSON{
+			Enabled:        c.Swarm.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), c.Swarm.CORS.AllowedOrigins...),
+		},
+		TLS:                  SwarmTLSJSON{CertFile: c.Swarm.TLS.CertFile, KeyFile: c.Swarm.TLS.KeyFile},
+		LeaseTTLSeconds:      c.Swarm.LeaseTTLSeconds,
+		FanoutTimeoutSeconds: c.Swarm.FanoutTimeoutSeconds,
+	}
+	for _, up := range c.Swarm.Upstreams {
+		out.Swarm.Upstreams = append(out.Swarm.Upstreams, SwarmUpstreamJSON{
+			Name: up.Name, URL: up.URL, Kind: up.Kind,
+			TokenConfigured: strings.TrimSpace(up.Token) != "",
+			Dial:            swarmDialToJSON(up.Dial),
+		})
+	}
+	for _, j := range c.Swarm.Join {
+		out.Swarm.Join = append(out.Swarm.Join, SwarmJoinJSON{
+			URL: j.URL, Name: j.Name, AdvertiseURL: j.AdvertiseURL,
+			PairingTokenConfigured: strings.TrimSpace(j.PairingToken) != "",
+			TokenConfigured:        strings.TrimSpace(j.Token) != "",
+			Labels:                 cloneStringMap(j.Labels),
+			Dial:                   swarmDialToJSON(j.Dial),
+		})
 	}
 	out.Scheduler = SchedulerJSON{
 		Enabled: c.Scheduler.Enabled, Dir: c.Scheduler.Dir, MaxQueue: c.Scheduler.MaxQueue,
@@ -578,6 +672,37 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	for _, rm := range j.HTTPServer.Remotes {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
 	}
+	cfg.Swarm = SwarmConfig{
+		Host:                     j.Swarm.Host,
+		Port:                     j.Swarm.Port,
+		Name:                     j.Swarm.Name,
+		AuthToken:                j.Swarm.AuthToken,
+		PairingTokens:            append([]string(nil), j.Swarm.PairingTokens...),
+		AllowInsecure:            j.Swarm.AllowInsecure,
+		InsecureOpenRegistration: j.Swarm.InsecureOpenRegistration,
+		AllowPrivateUpstreams:    append([]string(nil), j.Swarm.AllowPrivateUpstreams...),
+		CORS: HTTPCORSConfig{
+			Enabled:        j.Swarm.CORS.Enabled,
+			AllowedOrigins: append([]string(nil), j.Swarm.CORS.AllowedOrigins...),
+		},
+		TLS:                  SwarmTLSConfig{CertFile: j.Swarm.TLS.CertFile, KeyFile: j.Swarm.TLS.KeyFile},
+		LeaseTTLSeconds:      j.Swarm.LeaseTTLSeconds,
+		FanoutTimeoutSeconds: j.Swarm.FanoutTimeoutSeconds,
+	}
+	for _, up := range j.Swarm.Upstreams {
+		cfg.Swarm.Upstreams = append(cfg.Swarm.Upstreams, SwarmUpstream{
+			Name: up.Name, URL: up.URL, Kind: up.Kind, Token: up.Token,
+			Dial: swarmDialFromJSON(up.Dial),
+		})
+	}
+	for _, jn := range j.Swarm.Join {
+		cfg.Swarm.Join = append(cfg.Swarm.Join, SwarmJoin{
+			URL: jn.URL, Name: jn.Name, PairingToken: jn.PairingToken,
+			AdvertiseURL: jn.AdvertiseURL, Token: jn.Token,
+			Labels: cloneStringMap(jn.Labels),
+			Dial:   swarmDialFromJSON(jn.Dial),
+		})
+	}
 	cfg.Scheduler = SchedulerConfig{
 		Enabled: j.Scheduler.Enabled, Dir: j.Scheduler.Dir, MaxQueue: j.Scheduler.MaxQueue,
 		Timeout: j.Scheduler.Timeout, RetainSessions: j.Scheduler.RetainSessions,
@@ -679,6 +804,62 @@ func preserveRedactedSecrets(next, current *Config) {
 	if strings.TrimSpace(next.HTTPServer.AuthToken) == "" && strings.TrimSpace(current.HTTPServer.AuthToken) != "" {
 		next.HTTPServer.AuthToken = current.HTTPServer.AuthToken
 	}
+	preserveSwarmSecrets(&next.Swarm, &current.Swarm)
+}
+
+// preserveSwarmSecrets carries a relay's credentials across a save.
+//
+// Every one of them is write-only, so a client that reads the config and writes
+// it back sends them empty. Without this a single save from the settings screen
+// would strip the relay's client token, its pairing tokens, and every node's
+// credential - leaving a relay that refuses its own fleet.
+func preserveSwarmSecrets(next, current *SwarmConfig) {
+	if next == nil || current == nil {
+		return
+	}
+	if strings.TrimSpace(next.AuthToken) == "" && strings.TrimSpace(current.AuthToken) != "" {
+		next.AuthToken = current.AuthToken
+	}
+	if len(next.PairingTokens) == 0 && len(current.PairingTokens) > 0 {
+		next.PairingTokens = append([]string(nil), current.PairingTokens...)
+	}
+	// Node credentials are matched by the name or URL that identifies the entry,
+	// so reordering the list does not shuffle secrets between nodes.
+	prevUpstream := map[string]SwarmUpstream{}
+	for _, up := range current.Upstreams {
+		prevUpstream[up.Name] = up
+	}
+	for i := range next.Upstreams {
+		old, ok := prevUpstream[next.Upstreams[i].Name]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(next.Upstreams[i].Token) == "" {
+			next.Upstreams[i].Token = old.Token
+		}
+		if strings.TrimSpace(next.Upstreams[i].Dial.Proxy) == "" {
+			next.Upstreams[i].Dial.Proxy = old.Dial.Proxy
+		}
+	}
+	prevJoin := map[string]SwarmJoin{}
+	for _, j := range current.Join {
+		prevJoin[j.URL+"\x00"+j.Name] = j
+	}
+	for i := range next.Join {
+		old, ok := prevJoin[next.Join[i].URL+"\x00"+next.Join[i].Name]
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(next.Join[i].PairingToken) == "" {
+			next.Join[i].PairingToken = old.PairingToken
+		}
+		if strings.TrimSpace(next.Join[i].Token) == "" {
+			next.Join[i].Token = old.Token
+		}
+		if strings.TrimSpace(next.Join[i].Dial.Proxy) == "" {
+			next.Join[i].Dial.Proxy = old.Dial.Proxy
+		}
+	}
 }
 
 // MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).
@@ -705,4 +886,33 @@ func escapeYAMLSecrets(cfg *Config) *Config {
 	}
 	out.Gateways.Telegram.Proxy = escapeYAMLDollar(cfg.Gateways.Telegram.Proxy)
 	return &out
+}
+
+func swarmDialToJSON(d SwarmDialConfig) SwarmDialJSON {
+	return SwarmDialJSON{
+		// A proxy URL can carry credentials, so it is reported as present
+		// rather than echoed back.
+		ProxyConfigured:    strings.TrimSpace(d.Proxy) != "",
+		CAFile:             d.CAFile,
+		InsecureSkipVerify: d.InsecureSkipVerify,
+	}
+}
+
+func swarmDialFromJSON(d SwarmDialJSON) SwarmDialConfig {
+	return SwarmDialConfig{
+		Proxy:              d.Proxy,
+		CAFile:             d.CAFile,
+		InsecureSkipVerify: d.InsecureSkipVerify,
+	}
+}
+
+func cloneStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

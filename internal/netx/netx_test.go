@@ -456,3 +456,26 @@ func TestPinnedDialerTriesEveryAddress(t *testing.T) {
 	}
 	_ = conn.Close()
 }
+
+// Naming one internal host must relax the rules for that host alone. Opening
+// every private range because an operator allowed one name would be a much
+// larger permission than they asked for.
+func TestEgressPolicyAllowListIsScopedToTheNamedHost(t *testing.T) {
+	p := EgressPolicy{AllowHosts: []string{"localhost"}}
+	if _, err := p.Resolve(context.Background(), "localhost"); err != nil {
+		t.Fatalf("the named host should resolve: %v", err)
+	}
+	if _, err := p.Resolve(context.Background(), "127.0.0.1"); err == nil {
+		t.Fatal("allowing a name must not allow every loopback address")
+	}
+	if _, err := p.Resolve(context.Background(), "10.0.0.7"); err == nil {
+		t.Fatal("allowing a name must not open every private range")
+	}
+}
+
+func TestEgressPolicyAllowListStillRefusesTheMetadataEndpoint(t *testing.T) {
+	p := EgressPolicy{AllowHosts: []string{"169.254.169.254"}}
+	if _, err := p.Resolve(context.Background(), "169.254.169.254"); err == nil {
+		t.Fatal("no allow list may reach the metadata endpoint")
+	}
+}

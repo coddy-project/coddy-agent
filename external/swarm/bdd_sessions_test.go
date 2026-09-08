@@ -310,20 +310,39 @@ func (s *sessionsFeatureState) reachableThroughPath(id, path string) error {
 	return fmt.Errorf("session %q is not in the list: %s", id, s.body)
 }
 
-func (s *sessionsFeatureState) emptyWithLoopWarning() error {
-	out, err := s.decode()
-	if err != nil {
-		return err
+func (s *sessionsFeatureState) emptyAndAlreadyWalked() error {
+	var out struct {
+		Sessions []json.RawMessage `json:"sessions"`
+		Looped   bool              `json:"looped"`
+		Reason   string            `json:"reason"`
+	}
+	if err := json.Unmarshal(s.body, &out); err != nil {
+		return fmt.Errorf("decode: %w (%s)", err, s.body)
 	}
 	if len(out.Sessions) != 0 {
 		return fmt.Errorf("a looping request should return nothing, got %d rows", len(out.Sessions))
 	}
-	for _, warn := range out.Warnings {
-		if strings.Contains(strings.ToLower(warn), "loop") {
-			return nil
-		}
+	if !out.Looped {
+		return fmt.Errorf("the answer does not say the branch was already walked: %s", s.body)
 	}
-	return fmt.Errorf("no warning mentions the loop: %s", s.body)
+	if !strings.Contains(strings.ToLower(out.Reason), "loop") {
+		return fmt.Errorf("the reason does not explain itself: %s", s.body)
+	}
+	return nil
+}
+
+// A ring is a shape somebody chose, so the guard firing on every request is
+// normal. Reporting it as a warning would teach an operator to ignore the
+// warnings that do matter.
+func (s *sessionsFeatureState) noWarningRaised() error {
+	out, err := s.decode()
+	if err != nil {
+		return err
+	}
+	if len(out.Warnings) != 0 {
+		return fmt.Errorf("a closed ring raised warnings: %v", out.Warnings)
+	}
+	return nil
 }
 
 func TestSwarmSessionsFeature(t *testing.T) {
@@ -342,7 +361,8 @@ func TestSwarmSessionsFeature(t *testing.T) {
 			ctx.Step(`^both rows are told apart by their node$`, st.rowsToldApartByNode)
 			ctx.Step(`^a warning names the node "([^"]*)"$`, st.warningNamesNode)
 			ctx.Step(`^the session "([^"]*)" is reachable through the path "([^"]*)"$`, st.reachableThroughPath)
-			ctx.Step(`^the answer is empty and warns about the loop$`, st.emptyWithLoopWarning)
+			ctx.Step(`^the answer is empty and says the branch was already walked$`, st.emptyAndAlreadyWalked)
+			ctx.Step(`^no warning is raised, because a closed ring is the shape and not a fault$`, st.noWarningRaised)
 			ctx.Step(`^I read the swarm topology with the client token$`, st.readTopology)
 			ctx.Step(`^the topology names this relay as its root$`, st.topologyRootIsThisRelay)
 			ctx.Step(`^the topology holds the node "([^"]*)"$`, st.topologyHoldsNode)

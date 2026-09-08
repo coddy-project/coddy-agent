@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/EvilFreelancer/coddy-agent/internal/config"
 )
 
 func TestValidateNodeName(t *testing.T) {
@@ -537,4 +540,111 @@ func TestFileSecretStoreSurvivesACorruptFile(t *testing.T) {
 
 func quietLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// A relay that accepts the connection and then says nothing must not hold the
+// node - or a shutdown waiting on it - forever.
+func TestDialTunnelGivesUpOnASilentRelay(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			// Accept and say nothing at all.
+			go func() { <-time.After(30 * time.Second); _ = c.Close() }()
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- DialTunnel(ctx, TunnelOptions{
+			RelayURL:    "http://" + ln.Addr().String(),
+			Node:        "inner",
+			LeaseSecret: "s",
+			Handler:     http.NotFoundHandler(),
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a silent relay should not look like a successful tunnel")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("DialTunnel hung on a relay that never answered")
+	}
+}
+
+// Cancelling has to reach a blocking read, which only closing the connection
+// does.
+func TestDialTunnelStopsWhenItsContextIsCancelled(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			go func() { <-time.After(60 * time.Second); _ = c.Close() }()
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- DialTunnel(ctx, TunnelOptions{
+			RelayURL:    "http://" + ln.Addr().String(),
+			Node:        "inner",
+			LeaseSecret: "s",
+			Handler:     http.NotFoundHandler(),
+		})
+	}()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled dial kept waiting on a blocking read")
+	}
+}
+
+// One identity per process. A node joining two relays under two identities
+// would defeat the deduplication a ring relies on.
+func TestStartJoinsGivesEveryParentTheSameIdentity(t *testing.T) {
+	relay := newFakeRelay(t, "pair")
+	cfg := &config.Config{}
+	cfg.Swarm.Join = []config.SwarmJoin{
+		{URL: relay.ts.URL, Name: "node-a", PairingToken: "pair", AdvertiseURL: "http://a:1"},
+		{URL: relay.ts.URL, Name: "node-b", PairingToken: "pair", AdvertiseURL: "http://b:1"},
+	}
+	set, err := StartJoins(context.Background(), cfg, StartJoinsOptions{
+		Kind: KindAgent, Handler: http.NotFoundHandler(), Log: quietLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer set.Stop()
+
+	clients := set.Clients()
+	if len(clients) != 2 {
+		t.Fatalf("expected two join clients, got %d", len(clients))
+	}
+	first := clients[0].opts.InstanceUUID
+	if first == "" {
+		t.Fatal("no identity was generated")
+	}
+	if clients[1].opts.InstanceUUID != first {
+		t.Fatalf("two parents saw two identities: %q and %q", first, clients[1].opts.InstanceUUID)
+	}
 }

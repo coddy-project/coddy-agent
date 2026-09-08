@@ -7,9 +7,12 @@ client would.
 
     client -> outer --+-> middle --+-> agent8   (reachable, dialled by middle)
                       |            \\-> relay3
-                      \\-> relay3 ------> agent7 (dials out, no inbound port)
+                      \\-> relay3 --+---> agent7 (dials out, no inbound port)
+                                    \\---> outer  (the edge that closes the ring)
 
-``relay3`` is reachable two ways, which makes this a ring rather than a tree.
+``relay3`` is reachable two ways *and* knows its way back to ``outer``, so this
+is a real cycle rather than a diamond: a walk that did not keep track of where
+it had been would go round it forever.
 
 What it proves, in order:
 
@@ -99,6 +102,22 @@ def cleanup() -> None:
             p.kill()
     for d in tmpdirs:
         shutil.rmtree(d, ignore_errors=True)
+
+
+def call_json(method: str, url: str, token: str | None, body: dict[str, Any]) -> tuple[int, Any, str]:
+    data = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json")
+    if token:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            return resp.status, (json.loads(raw) if raw.strip().startswith(("{", "[")) else {}), raw
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace")
+        return e.code, {}, raw
 
 
 def call(method: str, url: str, token: str | None) -> tuple[int, Any, str]:
@@ -214,6 +233,8 @@ def main() -> int:
 
     print("booting the swarm")
     # Innermost relay first: the ones above it point at it.
+    # relay3 also knows the outer relay, which is the edge that closes the ring.
+    # It is added after the outer relay exists, further down.
     r3 = boot_relay(binary, "inner", p_r3, R3_CLIENT, None)
     r2 = boot_relay(binary, "middle", p_r2, R2_CLIENT, f"""\
 swarm:
@@ -239,6 +260,16 @@ swarm:
       kind: "relay"
       token: "{R3_CLIENT}"
 """)
+
+    # Close the ring: relay3 learns about the outer relay too. Registering it by
+    # hand is the same thing a `swarm.join` on relay3 would produce.
+    code, _, raw = call_json("POST", f"{r3}/swarm/register", PAIRING, {
+        "name": "outer", "kind": "relay", "transport": "direct",
+        "advertise_url": f"http://127.0.0.1:{p_r1}",
+        "instance_uuid": "ring-edge-outer", "token": R1_CLIENT,
+    })
+    if code != 200:
+        fail(f"closing the ring: {code} {raw[:200]}")
 
     # agent7 advertises nothing, so it can only dial out.
     _, home7, _ = boot_agent(binary, "agent7", p_a7, AGENT_MODELS + f"""\
@@ -353,7 +384,15 @@ swarm:
     with_alternates = [r for r in routes.values() if r.get("alternates")]
     if not with_alternates:
         fail("a ring should leave at least one node with an alternate route")
-    ok("the topology reported the ring once, with a way round kept")
+    # The cycle leads back to where the client already stands. A route from the
+    # relay to itself is nonsense a client might try to follow.
+    if topo["root"]["uuid"] in routes:
+        fail(f"the ring produced a route back to the relay itself: {routes[topo['root']['uuid']]}")
+    for uuid, r in routes.items():
+        for path in [r["path"]] + (r.get("alternates") or []):
+            if len(path) != len(set(path)):
+                fail(f"route to {uuid} repeats a hop: {path}")
+    ok("the topology reported the ring once, with a way round kept and no route home")
 
     # 10. the control plane is not reachable through a mount
     code, _, raw = call("POST", f"{r1}/swarm/nodes/middle/swarm/register", R1_CLIENT)

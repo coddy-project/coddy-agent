@@ -152,8 +152,16 @@ why a ring terminates instead of spinning. Ties break lexicographically, so two 
 the same relay are told the same route. Longer ways round are kept as `alternates` rather than
 discarded: that is where a client fails over when the short hop dies.
 
-Per **request**, a cycle is a fault rather than a feature, so each relay appends its own id to
-an internal header, refuses a request carrying its own id, and caps depth.
+Per **request**, a relay appends its own id to an internal header and refuses a request that
+already carries it, so a walk cannot go round forever. Depth is capped the same way for a
+hand-written mount path.
+
+A branch that closes back on the walk answers `looped: true` and contributes nothing, rather
+than raising a warning. In a ring that is the ordinary end of a branch, and a warning on
+every request in a healthy swarm is how an operator learns to ignore warnings. What does
+warrant one is a node the relay still knows but cannot reach - including a lease that went
+stale, which would otherwise vanish silently and make "this machine is down" look exactly
+like "this machine has no work".
 
 ## The UI
 

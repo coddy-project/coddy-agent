@@ -59,6 +59,40 @@ type sessionRow struct {
 	Extra map[string]json.RawMessage `json:"-"`
 }
 
+// UnmarshalJSON is the other half of MarshalJSON.
+//
+// Without it a row loses everything this relay does not model itself the moment
+// it crosses a hop: activity flags, permission state, a subagent link. The
+// fields are flattened on the way out, so they have to be gathered on the way
+// back in.
+func (r *sessionRow) UnmarshalJSON(data []byte) error {
+	type alias sessionRow
+	var base alias
+	if err := json.Unmarshal(data, &base); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	known := map[string]bool{
+		"id": true, "title": true, "updatedAt": true, "cwd": true,
+		"agent_uuid": true, "node_path": true, "node_name": true,
+		"node_url": true, "node_kind": true,
+	}
+	extra := map[string]json.RawMessage{}
+	for k, v := range all {
+		if !known[k] {
+			extra[k] = v
+		}
+	}
+	*r = sessionRow(base)
+	if len(extra) > 0 {
+		r.Extra = extra
+	}
+	return nil
+}
+
 // MarshalJSON flattens Extra beside the known fields so a client keeps seeing
 // the node's own row shape.
 func (r sessionRow) MarshalJSON() ([]byte, error) {
@@ -102,18 +136,35 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	path, err := s.hopPath(r)
 	if err != nil {
-		// The chain came back to this relay. Answering with an empty result and
-		// a warning keeps the caller's own aggregation useful; refusing outright
-		// would lose every other branch as well.
+		// The chain came back to this relay. In a ring that is the normal
+		// outcome of walking every branch, not a fault: whoever asked has
+		// already seen everything below this point. It is reported as such
+		// rather than as a warning, because a warning on every request in a
+		// healthy swarm is how operators learn to ignore warnings.
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"object":   "swarm.session_list",
 			"sessions": []interface{}{},
-			"warnings": []string{err.Error()},
+			"warnings": []string{},
+			"looped":   true,
+			"reason":   err.Error(),
 		})
 		return
 	}
 
 	nodes := s.registry.Online()
+	// A node the relay still knows but cannot reach has to say so. Dropping it
+	// silently makes "this machine is down" indistinguishable from "this
+	// machine has no work", which is the more alarming of the two.
+	offline := []string{}
+	for _, info := range s.registry.List() {
+		if info.Online {
+			continue
+		}
+		if only != "" && info.Name != only {
+			continue
+		}
+		offline = append(offline, fmt.Sprintf("%s: offline since %s", info.Name, info.LastSeen))
+	}
 	if only != "" {
 		filtered := nodes[:0]
 		for _, n := range nodes {
@@ -134,7 +185,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	})
 
 	var rows []sessionRow
-	warnings := []string{}
+	warnings := append([]string{}, offline...)
 	perNode := map[string]bool{}
 	for name, rep := range reports {
 		rows = append(rows, rep.rows...)
@@ -324,9 +375,15 @@ func relayReport(node Node, body []byte) nodeReport {
 		Sessions []sessionRow `json:"sessions"`
 		Warnings []string     `json:"warnings"`
 		HasMore  bool         `json:"hasMore"`
+		Looped   bool         `json:"looped"`
 	}
 	if err := json.Unmarshal(body, &wrap); err != nil {
 		return nodeReport{warning: fmt.Sprintf("%s: %v", node.Info.Name, err)}
+	}
+	if wrap.Looped {
+		// This branch closes back on a relay already in the chain, so it holds
+		// nothing new. Saying nothing is the correct answer.
+		return nodeReport{}
 	}
 	rep := nodeReport{hasMore: wrap.HasMore}
 	for _, row := range wrap.Sessions {

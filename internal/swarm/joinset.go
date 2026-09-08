@@ -54,6 +54,17 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 	if strings.TrimSpace(home) != "" {
 		store = NewFileSecretStore(home)
 	}
+	// One identity for the whole process. Letting each client mint its own
+	// would give a node joining two relays two identities, and identity is
+	// exactly what a ring collapses duplicate rows on.
+	instance := opts.InstanceUUID
+	if instance == "" {
+		id, err := randomID()
+		if err != nil {
+			return nil, err
+		}
+		instance = id
+	}
 
 	set := &JoinSet{}
 	for _, j := range cfg.Swarm.Join {
@@ -71,7 +82,7 @@ func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions)
 				CAFile:             j.Dial.CAFile,
 				InsecureSkipVerify: j.Dial.InsecureSkipVerify,
 			},
-			InstanceUUID: opts.InstanceUUID,
+			InstanceUUID: instance,
 			Handler:      handler,
 			Secrets:      store,
 			Log:          log,

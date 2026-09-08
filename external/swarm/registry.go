@@ -22,6 +22,7 @@ import (
 	"net/netip"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -173,16 +174,22 @@ func (r *Registry) RegisterWithDial(req swarmdto.RegisterRequest, dial netx.Opti
 			return swarmdto.RegisterResponse{}, err
 		}
 		advertise = u
-		r.mu.Lock()
-		policy := r.egress
-		r.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		addrs, rerr := policy.Resolve(ctx, u.Hostname())
-		cancel()
-		if rerr != nil {
-			return swarmdto.RegisterResponse{}, fmt.Errorf("advertise url %q: %w", req.AdvertiseURL, rerr)
+		// A node reached through a proxy is resolved by that proxy, not here:
+		// its name may not exist in this network at all. Configuring a proxy is
+		// something only the operator can do, and it is that decision - not the
+		// node's claim - that the relay is trusting.
+		if strings.TrimSpace(dial.Proxy) == "" {
+			r.mu.Lock()
+			policy := r.egress
+			r.mu.Unlock()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			addrs, rerr := policy.Resolve(ctx, u.Hostname())
+			cancel()
+			if rerr != nil {
+				return swarmdto.RegisterResponse{}, fmt.Errorf("advertise url %q: %w", req.AdvertiseURL, rerr)
+			}
+			pinned = addrs
 		}
-		pinned = addrs
 	}
 
 	r.mu.Lock()

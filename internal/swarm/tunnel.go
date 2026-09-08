@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/net/http2"
 
@@ -22,6 +23,14 @@ const TunnelPath = "/swarm/tunnel"
 
 // TunnelMaxConcurrentStreams bounds how many requests share one tunnel.
 const TunnelMaxConcurrentStreams = 250
+
+// TunnelIdleTimeout is how long a node keeps serving a connection that has gone
+// completely silent. The relay pings every 30s, so silence this long means the
+// relay is gone rather than merely idle.
+const TunnelIdleTimeout = 150 * time.Second
+
+// handshakeTimeout bounds the upgrade exchange, not the connection it produces.
+const handshakeTimeout = 30 * time.Second
 
 // SpliceBuffered re-attaches bytes a reader already pulled off a connection.
 //
@@ -74,6 +83,27 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	// The upgrade is an HTTP/1.1 mechanism; HTTP/2 begins only once it has
 	// succeeded, by prior knowledge rather than negotiation.
 	req.Header.Set("Connection", "close")
+
+	// A peer that accepts the connection and then says nothing would otherwise
+	// hold this goroutine - and a shutdown waiting on it - forever. The
+	// deadline covers the handshake only; it is cleared before the connection
+	// starts carrying turns, which legitimately go quiet for minutes.
+	if derr := conn.SetDeadline(time.Now().Add(handshakeTimeout)); derr != nil {
+		_ = conn.Close()
+		return fmt.Errorf("swarm tunnel: set handshake deadline: %w", derr)
+	}
+	// Cancellation has to reach a blocking read, and only closing the
+	// connection does that.
+	handshakeDone := make(chan struct{})
+	defer close(handshakeDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-handshakeDone:
+		}
+	}()
+
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		return fmt.Errorf("swarm tunnel: send upgrade: %w", err)
@@ -102,6 +132,13 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 	}
 	_ = res.Body.Close()
 
+	// The handshake is over; from here the connection carries turns that are
+	// allowed to be quiet for a long time.
+	if derr := conn.SetDeadline(time.Time{}); derr != nil {
+		_ = conn.Close()
+		return fmt.Errorf("swarm tunnel: clear handshake deadline: %w", derr)
+	}
+
 	served := SpliceBuffered(conn, br)
 	done := make(chan struct{})
 	go func() {
@@ -110,7 +147,12 @@ func DialTunnel(ctx context.Context, opts TunnelOptions) error {
 			// One connection carries every request for this node, so the stream
 			// bound is what keeps a burst from starving a live turn.
 			MaxConcurrentStreams: TunnelMaxConcurrentStreams,
-			IdleTimeout:          0, // the relay decides when the connection is done
+			// The relay pings well inside this window, and a ping counts as
+			// activity. So a connection that goes truly silent is one whose
+			// relay is gone - and without this the node would sit here serving
+			// nobody, never redialling, while the relay has long since decided
+			// it is offline.
+			IdleTimeout: TunnelIdleTimeout,
 		}).ServeConn(served, &http2.ServeConnOpts{Handler: opts.Handler})
 	}()
 

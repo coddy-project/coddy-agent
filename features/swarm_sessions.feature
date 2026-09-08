@@ -47,7 +47,8 @@ Feature: Every session in the swarm, in one list
     When I list swarm sessions with the client token
     Then the session "sess_deep" is reachable through the path "inner/agent7"
 
-  Scenario: A chain that loops back on itself stops
+  Scenario: A chain that loops back on itself stops without crying wolf
     Given a child relay "inner" holding a node "agent7" with a session "sess_deep" titled "deep work"
     When the child relay asks this relay for its sessions as part of the same chain
-    Then the answer is empty and warns about the loop
+    Then the answer is empty and says the branch was already walked
+    And no warning is raised, because a closed ring is the shape and not a fault

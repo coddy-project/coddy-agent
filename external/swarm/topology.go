@@ -49,6 +49,9 @@ type Topology struct {
 	Edges    []TopologyEdge   `json:"edges"`
 	Routes   map[string]Route `json:"routes"`
 	Warnings []string         `json:"warnings"`
+	// Looped marks a branch that closes back on a relay already in the walk.
+	// In a ring that is the expected end of a branch rather than a fault.
+	Looped bool `json:"looped,omitempty"`
 }
 
 // ComputeRoutes finds, for every node reachable from root, the shortest route
@@ -77,14 +80,22 @@ func ComputeRoutes(root string, edges []TopologyEdge) map[string]Route {
 	depth := map[string]int{root: 0}
 	queue := []string{root}
 	paths := map[string][]string{root: {}}
+	// The root is where the client already stands. In a real cycle an edge
+	// leads back to it, and treating that as a discovery would publish a route
+	// from the relay to itself, and cyclic alternates for everything behind it.
+	seen := map[string]bool{root: true}
 
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
 		for _, edge := range adjacency[current] {
+			if edge.ToUUID == root {
+				continue
+			}
 			candidate := append(append([]string{}, paths[current]...), edge.Name)
-			existing, seen := routes[edge.ToUUID]
-			if !seen {
+			existing, known := routes[edge.ToUUID]
+			if !known {
+				seen[edge.ToUUID] = true
 				routes[edge.ToUUID] = Route{Path: candidate}
 				paths[edge.ToUUID] = candidate
 				depth[edge.ToUUID] = depth[current] + 1
@@ -135,7 +146,7 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		// closes the walk rather than failing it.
 		writeJSON(w, http.StatusOK, Topology{
 			Nodes: []TopologyNode{}, Edges: []TopologyEdge{},
-			Routes: map[string]Route{}, Warnings: []string{err.Error()},
+			Routes: map[string]Route{}, Warnings: []string{}, Looped: true,
 		})
 		return
 	}
@@ -203,7 +214,8 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) {
 		if res.warn != "" {
 			topo.Warnings = append(topo.Warnings, res.warn)
 		}
-		if res.child == nil {
+		if res.child == nil || res.child.Looped {
+			// A branch that closed back on the walk contributes nothing new.
 			continue
 		}
 		// A ring delivers the same node through more than one child, so the

@@ -125,3 +125,30 @@ func TestDedupeEdgesKeepsDistinctConnections(t *testing.T) {
 		t.Fatalf("dedupeEdges kept %d edges, want 2: %+v", len(edges), edges)
 	}
 }
+
+// A real cycle leads an edge back to where the client already stands.
+// Publishing a route from the relay to itself, and cyclic alternates for
+// everything behind it, would be nonsense a client might try to follow.
+func TestComputeRoutesNeverRoutesBackToTheRoot(t *testing.T) {
+	cycle := []TopologyEdge{
+		{FromUUID: "root", ToUUID: "a", Name: "alpha"},
+		{FromUUID: "a", ToUUID: "b", Name: "bravo"},
+		{FromUUID: "b", ToUUID: "root", Name: "back-to-root"},
+	}
+	routes := ComputeRoutes("root", cycle)
+	if _, ok := routes["root"]; ok {
+		t.Fatalf("a cycle produced a route to the relay itself: %v", routes["root"])
+	}
+	if got := pathOf(routes, "b"); got != "alpha/bravo" {
+		t.Fatalf("route to b = %q", got)
+	}
+	for uuid, r := range routes {
+		for _, alt := range r.Alternates {
+			for _, hop := range alt {
+				if hop == "back-to-root" {
+					t.Fatalf("node %s got an alternate that loops back: %v", uuid, alt)
+				}
+			}
+		}
+	}
+}

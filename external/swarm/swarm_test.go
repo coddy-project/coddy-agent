@@ -655,3 +655,99 @@ func TestMountAcceptsAQueryTokenOnlyWhereAHeaderIsImpossible(t *testing.T) {
 		t.Fatalf("a query token on a normal route got %d, want 401", plain.StatusCode)
 	}
 }
+
+// A row crossing a relay carries fields this relay does not model itself:
+// activity, permission state, a subagent link. They are flattened on the way
+// out, so they have to be gathered on the way back in or a chain quietly
+// strips them.
+func TestSessionRowSurvivesARelayHopWithItsExtras(t *testing.T) {
+	original := []byte(`{
+		"id":"sess_a","title":"work","updatedAt":"2026-09-08T12:00:00Z","cwd":"/srv",
+		"agent_uuid":"agent-1","node_path":["inner","agent7"],"node_name":"agent7",
+		"turnActive":true,"permissionPending":false,"subagent":{"parent":"sess_p"}
+	}`)
+	var row sessionRow
+	if err := json.Unmarshal(original, &row); err != nil {
+		t.Fatal(err)
+	}
+	if row.ID != "sess_a" || row.NodeName != "agent7" || row.AgentUUID != "agent-1" {
+		t.Fatalf("known fields did not survive: %+v", row)
+	}
+	if len(row.Extra) == 0 {
+		t.Fatal("the fields this relay does not model were dropped on the way in")
+	}
+
+	// A parent prefixes its own hop and re-emits the row.
+	row.NodePath = append([]string{"outer"}, row.NodePath...)
+	out, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seen map[string]interface{}
+	if err := json.Unmarshal(out, &seen); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"turnActive", "permissionPending", "subagent"} {
+		if _, ok := seen[key]; !ok {
+			t.Errorf("field %q was lost crossing a relay: %s", key, out)
+		}
+	}
+	if got, _ := seen["node_path"].([]interface{}); len(got) != 3 {
+		t.Fatalf("the hop was not prefixed: %s", out)
+	}
+}
+
+// A node the relay still holds a lease for but cannot reach has to say so.
+// Dropping it silently makes "this machine is down" look identical to "this
+// machine has no work", which is the more alarming of the two.
+func TestAggregationWarnsAboutANodeWhoseLeaseWentStale(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Swarm.Host = "127.0.0.1"
+	cfg.Swarm.AuthToken = "client-secret"
+	srv, err := New(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := &testClock{now: time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)}
+	srv.registry.now = clock.Now
+	srv.registry.SetEgressPolicy(netx.EgressPolicy{AllowLoopback: true})
+	if _, err := srv.registry.Register(swarmdto.RegisterRequest{
+		Name: "quiet", Kind: swarmdto.KindAgent, Transport: swarmdto.TransportDirect,
+		AdvertiseURL: "http://127.0.0.1:12345", InstanceUUID: "u", Token: "t",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Past its lease but inside the grace period: still known, not reachable.
+	clock.Advance(100 * time.Second)
+	if len(srv.registry.Online()) != 0 {
+		t.Fatal("the lease should be stale by now")
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/swarm/sessions", nil)
+	req.Header.Set("Authorization", "Bearer client-secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	body, _ := io.ReadAll(res.Body)
+
+	var out struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatal(err)
+	}
+	var named bool
+	for _, w := range out.Warnings {
+		if strings.Contains(w, "quiet") {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("a stale node vanished without a word: %s", body)
+	}
+}

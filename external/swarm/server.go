@@ -62,8 +62,9 @@ func New(cfg *config.Config, log *slog.Logger) (*Server, error) {
 	// when the relay itself is bound to loopback, which is the development case.
 	s.registry.SetEgressPolicy(netx.EgressPolicy{
 		AllowLoopback: isLoopbackBind(cfg.Swarm.EffectiveHost()),
-		AllowPrivate:  len(cfg.Swarm.AllowPrivateUpstreams) > 0,
-		AllowHosts:    cfg.Swarm.AllowPrivateUpstreams,
+		// Deliberately not AllowPrivate: naming hosts relaxes the rules for
+		// those hosts, not for every private address a node might claim.
+		AllowHosts: cfg.Swarm.AllowPrivateUpstreams,
 	})
 	if err := s.seedUpstreams(); err != nil {
 		return nil, err
