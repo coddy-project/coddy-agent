@@ -91,6 +91,7 @@ import {
 import { resolveLatestLeaf } from "./chat/resolveLatestLeaf";
 import { NavRail } from "./nav/NavRail";
 import { SwarmView } from "./swarm/SwarmView";
+import { EnvironmentChip } from "./chat/EnvironmentChip";
 import { probeSwarm } from "./swarm/api";
 import { connectSwarmNode, returnToSwarm } from "./env/remoteEnv";
 import { readNavRailCookie, writeNavRailCookie } from "./nav/navRailCookie";
@@ -922,6 +923,16 @@ export function App() {
   // The Swarm entry only appears when the environment answers as a relay: on a
   // plain agent there is no swarm to show.
   const [isSwarmEnv, setIsSwarmEnv] = useState(false);
+  /**
+   * True while the environment is a relay itself rather than a node reached
+   * through one.
+   *
+   * A relay holds no sessions, no workspace and no model of its own - it serves
+   * no /coddy/* at all - so a chat box and a history drawer there are furniture
+   * for a room nobody can enter. What it does have is the swarm, so that is
+   * what it shows.
+   */
+  const [atSwarmRoot, setAtSwarmRoot] = useState(false);
   // Active Settings section id from `#/settings/<section>` (null = default/grid).
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   const [schedulerEditor, setSchedulerEditor] =
@@ -3830,10 +3841,14 @@ export function App() {
     // came through is remembered instead.
     if (env.mode === "remote" && env.swarmRelay) {
       setIsSwarmEnv(true);
+      setAtSwarmRoot(false);
       return undefined;
     }
     const ac = new AbortController();
-    void probeSwarm(ac.signal).then((info) => setIsSwarmEnv(!!info));
+    void probeSwarm(ac.signal).then((info) => {
+      setIsSwarmEnv(!!info);
+      setAtSwarmRoot(!!info);
+    });
     return () => ac.abort();
   }, []);
 
@@ -4039,7 +4054,8 @@ export function App() {
         onNewChat={goHome}
         onOpenHistory={onOpenHistoryFromNav}
         historyOpen={sessionsOpen}
-        showScheduler={schedulerHttpLinked === true}
+        showHistory={!atSwarmRoot}
+        showScheduler={schedulerHttpLinked === true && !atSwarmRoot}
         onOpenScheduler={openSchedulerFromNav}
         schedulerOpen={schedulerOpen}
         showSwarm={isSwarmEnv}
@@ -4142,11 +4158,12 @@ export function App() {
           </div>
         ) : null}
 
-        {swarmRoute ? (
+        {swarmRoute || (atSwarmRoot && !settingsRoute) ? (
           <div className="swarm-dock-cluster">
             <SwarmView
               onOpenNode={(nodePath: string[]) => openSwarmNode(nodePath)}
               onOpenSession={(s) => openSwarmNode(s.node_path, `#/s/${s.id}`)}
+              {...(atSwarmRoot ? { headerSlot: <EnvironmentChip /> } : {})}
             />
           </div>
         ) : null}
@@ -4181,153 +4198,158 @@ export function App() {
           />
         ) : null}
 
-        <ChatScreen
-          title={currentTitle}
-          sessionId={sessionId}
-          backgroundTasks={backgroundTasks}
-          onOpenBackgroundTasks={openTasksFromNav}
-          backgroundTasksByToolCallId={backgroundTasksByToolCallId}
-          backgroundNowMs={backgroundNowMs}
-          onOpenBackgroundTask={openBackgroundTask}
-          onStopBackgroundTask={handleStopBackgroundTask}
-          subagentTranscript={subagentTranscript}
-          onOpenSession={openSessionInPlace}
-          workspaceCtx={workspaceCtx}
-          worktreePref={worktreePref}
-          workspaceLocked={items.length > 0}
-          onWorkspacePickFolder={(p: string) =>
-            void switchWorkspace({ path: p })
-          }
-          onWorkspacePickBranch={(b: string, wt: boolean) =>
-            void switchWorkspace({ branch: b, worktree: wt })
-          }
-          onWorktreeToggle={() => setWorktreePref((v) => !v)}
-          sessionLoading={sessionLoading}
-          sessionFadingOut={sessionFadingOut}
-          heroAccentVerb={heroAccentVerb}
-          heroComposerFocusEpoch={heroHomeGeneration}
-          onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
-          items={items}
-          draft={draft}
-          tokenUsage={tokenUsage}
-          providerUsage={providerUsageState.usage}
-          usageBannerDismissedKey={providerUsageState.dismissedKey}
-          onUsageBannerDismiss={providerUsageState.dismissBanner}
-          contextPct={contextPct}
-          maxContextTokens={maxContextTokens}
-          contextBreakdown={contextBreakdown}
-          mode={mode}
-          modes={[...PROFILE_MODES]}
-          {...(llmModelIds.length > 0
-            ? {
-                llmModels: llmModelIds,
-                llmModel,
-                onLlmModelChange,
-                llmModelMultimodal,
-                ...(llmReasoningLevels.length > 0
-                  ? {
-                      llmReasoningLevels,
-                      llmReasoning,
-                      onLlmReasoningChange,
-                    }
-                  : {}),
+        {atSwarmRoot ? null : (
+          <ChatScreen
+            title={currentTitle}
+            sessionId={sessionId}
+            backgroundTasks={backgroundTasks}
+            onOpenBackgroundTasks={openTasksFromNav}
+            backgroundTasksByToolCallId={backgroundTasksByToolCallId}
+            backgroundNowMs={backgroundNowMs}
+            onOpenBackgroundTask={openBackgroundTask}
+            onStopBackgroundTask={handleStopBackgroundTask}
+            subagentTranscript={subagentTranscript}
+            onOpenSession={openSessionInPlace}
+            workspaceCtx={workspaceCtx}
+            worktreePref={worktreePref}
+            workspaceLocked={items.length > 0}
+            onWorkspacePickFolder={(p: string) =>
+              void switchWorkspace({ path: p })
+            }
+            onWorkspacePickBranch={(b: string, wt: boolean) =>
+              void switchWorkspace({ branch: b, worktree: wt })
+            }
+            onWorktreeToggle={() => setWorktreePref((v) => !v)}
+            sessionLoading={sessionLoading}
+            sessionFadingOut={sessionFadingOut}
+            heroAccentVerb={heroAccentVerb}
+            heroComposerFocusEpoch={heroHomeGeneration}
+            onTitleSave={(t: string) => void saveSessionTitle(sessionId, t)}
+            items={items}
+            draft={draft}
+            tokenUsage={tokenUsage}
+            providerUsage={providerUsageState.usage}
+            usageBannerDismissedKey={providerUsageState.dismissedKey}
+            onUsageBannerDismiss={providerUsageState.dismissBanner}
+            contextPct={contextPct}
+            maxContextTokens={maxContextTokens}
+            contextBreakdown={contextBreakdown}
+            mode={mode}
+            modes={[...PROFILE_MODES]}
+            {...(llmModelIds.length > 0
+              ? {
+                  llmModels: llmModelIds,
+                  llmModel,
+                  onLlmModelChange,
+                  llmModelMultimodal,
+                  ...(llmReasoningLevels.length > 0
+                    ? {
+                        llmReasoningLevels,
+                        llmReasoning,
+                        onLlmReasoningChange,
+                      }
+                    : {}),
+                }
+              : {})}
+            onModeChange={setMode}
+            onDraftChange={setDraft}
+            generating={generating}
+            {...(!generating && lastUserText.trim() && !subagentTranscript
+              ? { onRetryLast: handleRetryLast }
+              : {})}
+            onContextRingOpen={() => {
+              const sid = sessionId.trim();
+              if (sid) {
+                void refreshSessionStats(sid);
               }
-            : {})}
-          onModeChange={setMode}
-          onDraftChange={setDraft}
-          generating={generating}
-          {...(!generating && lastUserText.trim() && !subagentTranscript
-            ? { onRetryLast: handleRetryLast }
-            : {})}
-          onContextRingOpen={() => {
-            const sid = sessionId.trim();
-            if (sid) {
-              void refreshSessionStats(sid);
-            }
-          }}
-          onStop={() => stopActiveGeneration()}
-          onQuestionPromptResolved={resolveQuestionPrompt}
-          onPermissionPromptResolved={resolvePermissionPrompt}
-          onPlanDocumentExpanded={(itemId, expanded) => {
-            setItems((prev) =>
-              prev.map((x) =>
-                x.id === itemId && x.type === "plan_document"
-                  ? { ...x, expanded }
-                  : x,
-              ),
-            );
-          }}
-          // A subagent transcript is read-only: like onEdit below, Run plan and
-          // Discard are withheld rather than stubbed, so the plan card renders
-          // without its footer and its editor is read-only.
-          {...(subagentTranscript
-            ? {}
-            : {
-                onPlanDocumentRun: (slug: string) => {
-                  if (
-                    sessionId.trim() &&
-                    activeComposerSidRef.current.has(sessionId.trim())
-                  ) {
-                    return;
-                  }
-                  void streamResponses(t("chat.runPlanMessage"), {
-                    modeOverride: "agent",
-                    runPlanSlug: slug,
-                  });
-                },
-                onPlanDocumentDiscard: async (itemId: string, slug: string) => {
-                  const sid = sessionId.trim();
-                  if (!sid) return;
-                  try {
-                    await fetch(
-                      `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
-                      {
-                        method: "DELETE",
-                        headers,
-                      },
+            }}
+            onStop={() => stopActiveGeneration()}
+            onQuestionPromptResolved={resolveQuestionPrompt}
+            onPermissionPromptResolved={resolvePermissionPrompt}
+            onPlanDocumentExpanded={(itemId, expanded) => {
+              setItems((prev) =>
+                prev.map((x) =>
+                  x.id === itemId && x.type === "plan_document"
+                    ? { ...x, expanded }
+                    : x,
+                ),
+              );
+            }}
+            // A subagent transcript is read-only: like onEdit below, Run plan and
+            // Discard are withheld rather than stubbed, so the plan card renders
+            // without its footer and its editor is read-only.
+            {...(subagentTranscript
+              ? {}
+              : {
+                  onPlanDocumentRun: (slug: string) => {
+                    if (
+                      sessionId.trim() &&
+                      activeComposerSidRef.current.has(sessionId.trim())
+                    ) {
+                      return;
+                    }
+                    void streamResponses(t("chat.runPlanMessage"), {
+                      modeOverride: "agent",
+                      runPlanSlug: slug,
+                    });
+                  },
+                  onPlanDocumentDiscard: async (
+                    itemId: string,
+                    slug: string,
+                  ) => {
+                    const sid = sessionId.trim();
+                    if (!sid) return;
+                    try {
+                      await fetch(
+                        `/coddy/sessions/${encodeURIComponent(sid)}/plans/${encodeURIComponent(slug)}`,
+                        {
+                          method: "DELETE",
+                          headers,
+                        },
+                      );
+                    } catch {
+                      return;
+                    }
+                    setItems((prev) =>
+                      prev.map((x) =>
+                        x.id === itemId && x.type === "plan_document"
+                          ? { ...x, discarded: true }
+                          : x,
+                      ),
                     );
-                  } catch {
-                    return;
-                  }
-                  setItems((prev) =>
-                    prev.map((x) =>
-                      x.id === itemId && x.type === "plan_document"
-                        ? { ...x, discarded: true }
-                        : x,
-                    ),
-                  );
-                },
-              })}
-          {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
-          {...(editingFiles.length > 0 ? { editingFiles } : {})}
-          onBranchSwitch={(sid) => switchBranch(sid)}
-          {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
-          onSend={(text: string, files?: File[]) => {
-            // A subagent transcript is read-only: the server answers 409.
-            if (subagentTranscript) {
-              return;
-            }
-            if (
-              sessionId.trim() &&
-              activeComposerSidRef.current.has(sessionId.trim())
-            ) {
-              return;
-            }
-            setDraft("");
-            if (editingUserMsgIdx !== null) {
-              const idx = editingUserMsgIdx;
-              const note = editingAssetNote;
-              setEditingUserMsgIdx(null);
-              setEditingAssetNote("");
-              setEditingFiles([]);
-              const textWithAssets = note ? `${text}\n${note}` : text;
-              void handleBranchSend(textWithAssets, idx);
-            } else {
-              void streamResponses(text, files ? { files } : undefined);
-            }
-          }}
-          onFetchToolCallFull={handleFetchToolCallFull}
-        />
+                  },
+                })}
+            {...(subagentTranscript ? {} : { onEdit: handleEditUserMessage })}
+            {...(editingFiles.length > 0 ? { editingFiles } : {})}
+            onBranchSwitch={(sid) => switchBranch(sid)}
+            {...(knownSkillNames.size > 0 ? { knownSkillNames } : {})}
+            onSend={(text: string, files?: File[]) => {
+              // A subagent transcript is read-only: the server answers 409.
+              if (subagentTranscript) {
+                return;
+              }
+              if (
+                sessionId.trim() &&
+                activeComposerSidRef.current.has(sessionId.trim())
+              ) {
+                return;
+              }
+              setDraft("");
+              if (editingUserMsgIdx !== null) {
+                const idx = editingUserMsgIdx;
+                const note = editingAssetNote;
+                setEditingUserMsgIdx(null);
+                setEditingAssetNote("");
+                setEditingFiles([]);
+                const textWithAssets = note ? `${text}\n${note}` : text;
+                void handleBranchSend(textWithAssets, idx);
+              } else {
+                void streamResponses(text, files ? { files } : undefined);
+              }
+            }}
+            onFetchToolCallFull={handleFetchToolCallFull}
+          />
+        )}
       </div>
     </div>
   );

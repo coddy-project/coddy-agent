@@ -400,6 +400,12 @@ func TestMountAllowsOnlyTheDataPlane(t *testing.T) {
 		"/swarm/sessions",
 		"/swarm/topology",
 		"/swarm/nodes/inner/coddy/sessions", // a further hop
+		// A node's own API description: the UI links to it from its footer, and
+		// a mount that dropped it would leave that link broken.
+		"/openapi.yaml",
+		"/openapi.json",
+		"/docs",
+		"/docs/index.html",
 	}
 	for _, path := range carried {
 		if !mountAllows(http.MethodGet, path) {
@@ -411,8 +417,6 @@ func TestMountAllowsOnlyTheDataPlane(t *testing.T) {
 		"/swarm/tunnel",
 		"/swarm/register/anything",
 		"/",
-		"/docs",
-		"/openapi.yaml",
 		"/metrics",
 	}
 	for _, path := range refused {

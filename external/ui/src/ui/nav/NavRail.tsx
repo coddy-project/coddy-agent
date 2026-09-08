@@ -144,6 +144,8 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** When false, hide History: a relay holds no sessions of its own. */
+  showHistory?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
   onOpenScheduler: () => void;
@@ -183,6 +185,7 @@ export function NavRail(props: {
 
   const showScheduler = props.showScheduler !== false;
   const showSwarm = props.showSwarm === true;
+  const showHistory = props.showHistory !== false;
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -281,26 +284,28 @@ export function NavRail(props: {
         )}
 
         <div className="rail-middle">
-          <div className="rail-tip-host">
-            <a
-              href={appNavHrefHistory()}
-              className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
-              aria-label={t("nav.history")}
-              aria-pressed={props.historyOpen}
-              data-testid="nav-history"
-              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
-            >
-              <IconBook className="rail-svg rail-nav-hit-svg" />
-              {pillWide ? (
-                <span className="rail-nav-label">{t("nav.history")}</span>
+          {showHistory ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefHistory()}
+                className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
+                aria-label={t("nav.history")}
+                aria-pressed={props.historyOpen}
+                data-testid="nav-history"
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
+              >
+                <IconBook className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.history")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.historyOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.history")}
+                </span>
               ) : null}
-            </a>
-            {!pillWide && !props.historyOpen ? (
-              <span className="rail-tip" role="tooltip">
-                {t("nav.history")}
-              </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {showScheduler ? (
             <div className="rail-tip-host">

@@ -11,6 +11,16 @@ import type {
  * so nothing here needs to know which relay is in play.
  */
 
+/** An HTTP failure that kept its status, so callers can tell 401 from 503. */
+export class SwarmHttpError extends Error {
+  readonly status: number;
+  constructor(path: string, status: number) {
+    super(`${path}: ${status}`);
+    this.name = "SwarmHttpError";
+    this.status = status;
+  }
+}
+
 async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   const init: RequestInit = { headers: { Accept: "application/json" } };
   if (signal) {
@@ -18,7 +28,7 @@ async function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
   const res = await fetch(path, init);
   if (!res.ok) {
-    throw new Error(`${path}: ${res.status}`);
+    throw new SwarmHttpError(path, res.status);
   }
   return (await res.json()) as T;
 }

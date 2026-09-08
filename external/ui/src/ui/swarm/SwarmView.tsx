@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   fetchNodes,
   fetchSwarmSessions,
   fetchTopology,
   probeSwarm,
 } from "./api";
+import type { SwarmHttpError } from "./api";
 import { groupByNode, nodeChips, routeLabel, sessionKey } from "./routes";
 import { topologySummary } from "./layout";
 import { TopologyGraph } from "./TopologyGraph";
@@ -26,6 +28,12 @@ import type {
 export function SwarmView(props: {
   onOpenSession?: (s: SwarmSession) => void;
   onOpenNode?: (nodePath: string[]) => void;
+  /**
+   * Rendered in the header. On a relay opened as the app's home there is no
+   * composer, so the environment selector that normally lives there has to be
+   * reachable from here instead.
+   */
+  headerSlot?: ReactNode;
 }) {
   const [info, setInfo] = useState<SwarmInfo | null>(null);
   const [nodes, setNodes] = useState<SwarmNode[]>([]);
@@ -69,7 +77,14 @@ export function SwarmView(props: {
       }
     } catch (e) {
       if ((e as Error)?.name !== "AbortError") {
-        setError(String((e as Error)?.message || e));
+        // /swarm/info is public, so a relay answers the probe and then refuses
+        // everything else. Saying "no nodes" there would be a lie.
+        const status = (e as SwarmHttpError)?.status;
+        setError(
+          status === 401 || status === 403
+            ? "This relay needs a token. Add it with Connect in the environment menu."
+            : String((e as Error)?.message || e),
+        );
       }
     } finally {
       setLoading(false);
@@ -141,13 +156,16 @@ export function SwarmView(props: {
             {info?.registry_warming ? " · nodes still checking in" : ""}
           </p>
         </div>
-        <button
-          type="button"
-          className="swarm-graph-toggle"
-          onClick={() => setShowGraph((v) => !v)}
-        >
-          {showGraph ? "Hide topology" : "Show topology"}
-        </button>
+        <div className="swarm-header-actions">
+          {props.headerSlot}
+          <button
+            type="button"
+            className="swarm-graph-toggle"
+            onClick={() => setShowGraph((v) => !v)}
+          >
+            {showGraph ? "Hide topology" : "Show topology"}
+          </button>
+        </div>
       </header>
 
       {showGraph && topology ? (
@@ -214,10 +232,22 @@ export function SwarmView(props: {
         </ul>
       ) : null}
 
+      {error ? (
+        <p className="swarm-error" data-testid="swarm-error">
+          {error}
+        </p>
+      ) : null}
+
       <div className="swarm-groups" data-testid="swarm-groups">
-        {groups.length === 0 ? (
+        {groups.length === 0 && !error ? (
           <p className="swarm-empty">
-            {loading ? "Looking…" : "No sessions match."}
+            {loading
+              ? "Looking…"
+              : search || nodeFilter
+                ? "No sessions match."
+                : nodes.length === 0
+                  ? "No nodes have joined yet."
+                  : "No sessions on these nodes yet. Open a node to start one."}
           </p>
         ) : null}
         {groups.map((g) => {

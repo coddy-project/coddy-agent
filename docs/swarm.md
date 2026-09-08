@@ -179,6 +179,13 @@ entry appears in the rail - on a plain agent it is not there at all.
 The Swarm screen shows the topology, a search box that goes to the relay, node filter chips,
 and sessions grouped under the node that owns them.
 
+**A relay's home screen is the swarm.** A relay serves no `/coddy/*` at all - no sessions, no
+workspace, no model - so there is nothing for a composer to send to and nothing for a history
+drawer to list. Pointed at a relay the app therefore drops the chat screen, hides History and
+Scheduler in the rail, and shows the map instead. The environment selector moves into the
+map's header, since the composer that usually carries it is not on screen. Enter a node and
+all of it comes back, because the node does have those things.
+
 **Working on a node.** `Open node` on a group points the app at that node's mount. From there
 every screen that already existed drives it - the history drawer lists that node's sessions,
 the composer shows its working directory and its model catalog - with a relay in the middle
@@ -190,8 +197,12 @@ another node is one click away. Without that memory there would be no way back b
 the relay's address again: from inside a node, the relay's own routes are no longer under the
 base URL.
 
-The SPA is not served by the relay: it runs where it does today and treats a relay as one more
-environment.
+**Where the SPA comes from.** Built with `-tags "swarm ui"` the relay serves the console at its
+own address, so a relay is something you open in a browser. It is the same bundle a node
+serves, and it treats a relay as one more environment: opened same-origin on a relay that
+requires a token, it will say so and ask for one rather than reporting an empty swarm. Built
+without the `ui` tag the relay's root explains how to rebuild, and the console can still be
+opened from any node and pointed at the relay.
 
 ## Where the settings live
 

@@ -29,6 +29,10 @@ var mountedPrefixes = []string{
 	"/swarm/nodes",
 	"/swarm/sessions",
 	"/swarm/topology",
+	// A node's own API description, which the UI links to from its footer.
+	// Read-only, and part of the API a mount is meant to carry.
+	"/openapi",
+	"/docs",
 }
 
 // controlPlaneRoutes must never be reachable through a mount, whatever method

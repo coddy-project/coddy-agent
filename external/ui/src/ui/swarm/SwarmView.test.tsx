@@ -80,7 +80,9 @@ const topology = {
 
 let calls: string[] = [];
 
-function stubFetch(overrides: { warnings?: string[] } = {}) {
+function stubFetch(
+  overrides: { warnings?: string[]; sessions?: typeof sessions } = {},
+) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     calls.push(url);
@@ -98,9 +100,8 @@ function stubFetch(overrides: { warnings?: string[] } = {}) {
     }
     if (url.startsWith("/swarm/sessions")) {
       const q = new URL(url, "http://x").searchParams.get("q");
-      const rows = q
-        ? sessions.filter((s) => (s.title || "").includes(q))
-        : sessions;
+      const all = overrides.sessions ?? sessions;
+      const rows = q ? all.filter((s) => (s.title || "").includes(q)) : all;
       return body({
         sessions: rows,
         warnings: overrides.warnings ?? [],
@@ -230,6 +231,53 @@ describe("SwarmView", () => {
     await waitFor(() => {
       expect(screen.getByTestId("swarm-view")).toHaveTextContent(
         "not a swarm relay",
+      );
+    });
+  });
+
+  it("asks for a token when the relay refuses everything but discovery", async () => {
+    // /swarm/info is public, so the probe succeeds and the rest returns 401.
+    // Reporting "no nodes" there would describe the swarm as empty when the
+    // real problem is that this browser never got a credential.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/swarm/info")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ swarm: true, name: "outer" }),
+          } as Response;
+        }
+        return { ok: false, status: 401, json: async () => ({}) } as Response;
+      }),
+    );
+    render(<SwarmView />);
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-error")).toHaveTextContent(
+        "This relay needs a token",
+      );
+    });
+    expect(screen.getByTestId("swarm-view")).not.toHaveTextContent(
+      "No nodes have joined yet",
+    );
+  });
+
+  it("separates an empty swarm from a filter that matched nothing", async () => {
+    vi.stubGlobal("fetch", stubFetch({ sessions: [] }));
+    render(<SwarmView />);
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-groups")).toHaveTextContent(
+        "No sessions on these nodes yet",
+      );
+    });
+    fireEvent.change(screen.getByTestId("swarm-search"), {
+      target: { value: "nothing matches this" },
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("swarm-groups")).toHaveTextContent(
+        "No sessions match",
       );
     });
   });

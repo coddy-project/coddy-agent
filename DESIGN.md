@@ -604,6 +604,38 @@ The UI should be implemented as small React components with folder-enforced hier
 
 Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
 
+### Swarm screen (`ui/swarm/SwarmView.tsx`)
+
+Shown at **`#/swarm`** in any environment that answers **`GET /swarm/info`**, and as the **home
+screen** when the environment is a relay itself. It is the only screen a relay has.
+
+- **Relay as home.** A relay serves no **`/coddy/*`** at all: it holds no sessions, no workspace and
+  no model. **`App.tsx`** tracks this as **`atSwarmRoot`** (the swarm probe answered and the
+  environment is not a node reached *through* a relay). While it is true the composer and
+  **`ChatScreen`** are not rendered, and the rail hides **History** (**`showHistory={false}`**) and
+  **Scheduler** — a drawer of sessions that cannot exist is furniture for a room nobody can enter.
+  Entering a node (**`connectSwarmNode`**) points the app at that node's mount and the whole
+  ordinary UI comes back, including chat, history and scheduler.
+- **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
+  **`.swarm-header-actions`**: the **`headerSlot`** followed by the topology toggle. **`App.tsx`**
+  passes **`<EnvironmentChip/>`** into that slot **only** at the relay root, because the composer
+  that normally carries the environment selector is not on screen there.
+- **Empty and error states are distinct.** **`/swarm/info`** is public, so a credentialed relay
+  answers the probe and refuses everything else; the view then shows **`.swarm-error`**
+  (**`data-testid="swarm-error"`**) asking for a token rather than reporting an empty swarm. With a
+  working credential the empty text distinguishes *no nodes joined*, *no sessions yet* and *the
+  filter matched nothing*.
+- **Grouping and filtering.** Sessions group by node path; chips and the search box both go to the
+  relay, which fans out, so a query here reaches machines this browser cannot dial. Warnings for
+  nodes that did not answer render above the groups (**`.swarm-warnings`**) instead of removing
+  them silently.
+- The topology graph is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in **`swarm/layout.ts`**);
+  clicking a node filters to it.
+
+The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
+(**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
+service you reach through some other node's UI.
+
 ## States
 
 - Idle composer: bordered textarea.

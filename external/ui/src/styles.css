@@ -9848,6 +9848,13 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   flex-wrap: wrap;
 }
 
+.swarm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .swarm-title {
   margin: 0;
   font-size: 20px;
@@ -10007,6 +10014,16 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
   background: var(--coddy-surface-muted);
   border: 1px solid var(--coddy-glass-panel-border);
   color: var(--muted);
+  font-size: 12px;
+}
+
+.swarm-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--fg);
   font-size: 12px;
 }
 

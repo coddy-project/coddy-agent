@@ -1,5 +1,5 @@
 import React from "react";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, describe, expect, it, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { NavRail } from "./NavRail";
 
@@ -85,9 +85,18 @@ test("in-app nav links expose hash hrefs for new-tab open", () => {
     />,
   );
   expect(screen.getByTestId("nav-home")).toHaveAttribute("href", "#/");
-  expect(screen.getByTestId("nav-history")).toHaveAttribute("href", "#/history");
-  expect(screen.getByTestId("nav-scheduler")).toHaveAttribute("href", "#/scheduler");
-  expect(screen.getByTestId("nav-settings")).toHaveAttribute("href", "#/settings");
+  expect(screen.getByTestId("nav-history")).toHaveAttribute(
+    "href",
+    "#/history",
+  );
+  expect(screen.getByTestId("nav-scheduler")).toHaveAttribute(
+    "href",
+    "#/scheduler",
+  );
+  expect(screen.getByTestId("nav-settings")).toHaveAttribute(
+    "href",
+    "#/settings",
+  );
 });
 
 test("the rail no longer carries a Tasks entry", () => {
@@ -110,4 +119,34 @@ test("the rail no longer carries a Tasks entry", () => {
   // rather than in the global rail.
   expect(screen.queryByTestId("nav-tasks")).toBeNull();
   expect(screen.queryByTestId("nav-tasks-badge")).toBeNull();
+});
+
+// A relay holds no sessions of its own, so a history drawer there is furniture
+// for a room nobody can enter.
+describe("NavRail on a relay", () => {
+  const base = {
+    onNewChat: () => {},
+    onOpenHistory: () => {},
+    historyOpen: false,
+    onOpenScheduler: () => {},
+    schedulerOpen: false,
+    onOpenSettings: () => {},
+    settingsOpen: false,
+    canWidenRail: false,
+    railLabelsWide: false,
+    onToggleRailLabels: () => {},
+  };
+
+  afterEach(cleanup);
+
+  it("hides history when there is none to show", () => {
+    render(<NavRail {...base} showHistory={false} showSwarm />);
+    expect(screen.queryByTestId("nav-history")).not.toBeInTheDocument();
+    expect(screen.getByTestId("nav-swarm")).toBeInTheDocument();
+  });
+
+  it("keeps history everywhere else", () => {
+    render(<NavRail {...base} />);
+    expect(screen.getByTestId("nav-history")).toBeInTheDocument();
+  });
 });

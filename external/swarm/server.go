@@ -96,6 +96,15 @@ func (s *Server) routes() {
 	s.registerTunnelRoutes()
 	s.registerTopologyRoutes()
 	s.registerMountRoutes()
+	mountSPARoot(s)
+}
+
+// writeSPANotice answers the root with a plain-text explanation instead of the
+// SPA. Shared by both build variants of mountSPARoot.
+func writeSPANotice(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	_, _ = w.Write([]byte(msg))
 }
 
 // Handler returns the relay's HTTP handler with CORS and the auth gate applied.
@@ -217,8 +226,11 @@ func (s *Server) handleUnregister(w http.ResponseWriter, r *http.Request) {
 // probe qualifies: a client has to be able to tell a relay from a plain agent
 // before it holds anything, and the answer names the swarm without listing what
 // is in it.
+// The SPA shell and its static assets match the "/" catch-all; they are public
+// for the same reason a login page is: a browser holds no credential until the
+// page it is loading has asked for one.
 func isPublicSwarmPattern(pattern string) bool {
-	return pattern == "GET /swarm/info"
+	return pattern == "GET /swarm/info" || pattern == "/"
 }
 
 // authGate requires the client credential on everything but discovery.

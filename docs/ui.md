@@ -648,6 +648,28 @@ a project-local one awaiting workspace approval):
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.
 
+## Swarm screen
+
+Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
+
+- The **Swarm** rail entry appears only where `GET /swarm/info` answers, so a plain
+  agent never shows it.
+- On a relay the swarm map **is** the home screen: no composer, no `ChatScreen`,
+  no History entry and no Scheduler entry, because a relay holds no sessions of
+  its own. Its header carries the environment selector, which normally lives in
+  the composer.
+- **Open node** on a group repoints the app at that node through the relay's
+  mount; every ordinary screen (chat, history, scheduler, settings, workspace)
+  then works against that node, and **Swarm** in the rail returns to the relay.
+- A relay that requires a token answers the public probe and refuses the rest;
+  the screen says so and asks for a credential instead of reporting an empty
+  swarm.
+- Search and node chips run on the relay, not in the browser, so they reach
+  nodes this browser cannot dial. Nodes that did not answer are listed as
+  warnings above the groups rather than dropped.
+- Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
+  without the `ui` tag its root explains how to rebuild.
+
 ## Swagger
 
 - Swagger UI is served under `/docs/`.
