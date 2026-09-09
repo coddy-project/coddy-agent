@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew
+.PHONY: build build-acp test test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -95,6 +95,11 @@ install:
 # `brew` renders the Homebrew cask (packaging/homebrew/coddy.rb.tmpl) for the
 # macOS archives of a release. It needs those archives, so pass the version of a
 # published release: make brew VERSION=1.0.11
+#
+# `brew-formula` renders the Homebrew formula (packaging/homebrew/coddy-formula.rb.tmpl)
+# for the source archive of a release - that is the artefact homebrew/core takes,
+# because Homebrew wants open-source command-line software built from source.
+# `brew-check` is the preflight for that submission. See docs/homebrew.md.
 PKG_ARCHS ?= $(shell go env GOARCH)
 PKG_TAGS ?= $(FULL_TAGS)
 DIST_DIR ?= dist
@@ -113,6 +118,12 @@ rpm:
 
 brew:
 	scripts/build-homebrew-cask.sh --version "$(VERSION)" --out "$(DIST_DIR)"
+
+brew-formula:
+	scripts/build-homebrew-formula.sh --version "$(VERSION)" --out "$(DIST_DIR)/formula"
+
+brew-check:
+	scripts/check-homebrew-submission.sh --version "$(VERSION)"
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

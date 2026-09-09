@@ -180,20 +180,40 @@ func TestDetectSystemPackage(t *testing.T) {
 	})
 
 	// Homebrew is read off the resolved path, so it needs no package tool at
-	// all and works the same on macOS and on Linux.
-	t.Run("homebrew cask and cellar", func(t *testing.T) {
-		for _, path := range []string{
-			"/opt/homebrew/Caskroom/coddy/1.0.11/coddy",
-			"/usr/local/Cellar/coddy/1.0.11/bin/coddy",
-			"/home/dev/.linuxbrew/Caskroom/coddy/1.0.11/coddy",
+	// all and works the same on macOS and on Linux. The Caskroom and the Cellar
+	// are upgraded by different commands, so the two are told apart.
+	t.Run("homebrew", func(t *testing.T) {
+		for _, tc := range []struct {
+			path string
+			cask bool
+			hint string
+		}{
+			{"/opt/homebrew/Caskroom/coddy/1.0.11/coddy", true, "brew upgrade --cask coddy"},
+			{"/home/dev/.linuxbrew/Caskroom/coddy/1.0.11/coddy", true, "brew upgrade --cask coddy"},
+			{"/usr/local/Cellar/coddy/1.0.11/bin/coddy", false, "brew upgrade coddy"},
+			{"/opt/homebrew/Cellar/coddy/1.0.13/bin/coddy", false, "brew upgrade coddy"},
 		} {
 			env := packageEnv{GOOS: "darwin", LookPath: lookPathFor()}
-			pkg, ok := detectSystemPackage(context.Background(), env, path)
+			pkg, ok := detectSystemPackage(context.Background(), env, tc.path)
 			if !ok || pkg.Format != formatBrew || pkg.Name != "coddy" || pkg.Manager != "brew" {
-				t.Fatalf("%s: package = %+v, ok = %v", path, pkg, ok)
+				t.Fatalf("%s: package = %+v, ok = %v", tc.path, pkg, ok)
 			}
-			if got := packageUpgradeHint(pkg); got != "brew upgrade --cask coddy" {
-				t.Fatalf("%s: hint = %q", path, got)
+			if pkg.Cask != tc.cask {
+				t.Fatalf("%s: cask = %v, want %v", tc.path, pkg.Cask, tc.cask)
+			}
+			if got := packageUpgradeHint(pkg); got != tc.hint {
+				t.Fatalf("%s: hint = %q, want %q", tc.path, got, tc.hint)
+			}
+		}
+	})
+
+	// A Cellar path whose package directory is missing is not an install; the
+	// same holds for the Caskroom, so neither marker is trusted on its own.
+	t.Run("a path that ends at the marker", func(t *testing.T) {
+		env := packageEnv{GOOS: "darwin", LookPath: lookPathFor()}
+		for _, path := range []string{"/opt/homebrew/Cellar/", "/opt/homebrew/Caskroom/"} {
+			if _, ok := detectSystemPackage(context.Background(), env, path); ok {
+				t.Fatalf("%s was read as a Homebrew install", path)
 			}
 		}
 	})

@@ -93,7 +93,7 @@ jobs:
   # this proves the packaging, not the binary, and skipping the npm step keeps
   # the job short.
   packages:
-    name: Linux packages
+    name: Distribution packages
     runs-on: ubuntu-latest
 
     steps:
@@ -108,6 +108,13 @@ jobs:
 
       - name: Build deb and rpm
         run: make deb rpm PKG_TAGS="http scheduler memory cli gateway"
+
+      # Same reasoning one step further: the Homebrew cask is rendered only by
+      # the release job and the formula only by hand, so a template that stopped
+      # being valid Ruby would surface at the worst moment. Rendering needs a
+      # published tag; parsing does not, and the placeholders sit inside strings.
+      - name: Parse the Homebrew templates
+        run: ruby -c packaging/homebrew/coddy.rb.tmpl && ruby -c packaging/homebrew/coddy-formula.rb.tmpl
 
   lint:
     name: Lint
