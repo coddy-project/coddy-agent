@@ -8,6 +8,10 @@ export type ServerEventsHandlers = {
    *  (a finished turn, a deferred refresh); sessionId names the turn, the
    *  snapshot is account-wide. */
   onProviderUsage?: (sessionId: string, usage: ProviderUsage) => void;
+  /** The live configuration was swapped (settings save, the agent's `config_commit`,
+   *  a skill install). The event carries nothing but the fact, so a caller re-reads
+   *  whatever config-derived list it renders - the model picker, the slash commands. */
+  onConfigReloaded?: () => void;
   /** Called whenever the subscription goes up or down, so callers can fall back to polling. */
   onConnectedChange?: (connected: boolean) => void;
   signal: AbortSignal;
@@ -92,6 +96,11 @@ export async function subscribeServerEvents(
           if (ev.event === "provider_usage") {
             const parsed = providerUsageOf(ev.data);
             if (parsed) p.onProviderUsage?.(parsed.sessionId, parsed.usage);
+            continue;
+          }
+          if (ev.event === "config_reloaded") {
+            // Nothing to parse: the payload is the announcement itself.
+            p.onConfigReloaded?.();
             continue;
           }
           if (ev.event !== "turn_started" && ev.event !== "turn_ended")

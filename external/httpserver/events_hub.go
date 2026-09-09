@@ -89,3 +89,37 @@ func (s *Server) publishTurnEvent(ev session.TurnEvent) {
 		s.events.publish(frame)
 	}
 }
+
+// configReloadedFrame renders a swap of the live configuration as one SSE frame.
+//
+// As thin as turnEventFrame, and for the same reason: what a reload changed is already
+// on the wire behind GET /v1/models and GET /coddy/slash-commands, so a payload that
+// tried to carry it would be a second copy to keep in step with both. The event says
+// only that those answers moved; the client re-reads whichever one it renders.
+func configReloadedFrame(at time.Time) []byte {
+	body, err := json.Marshal(map[string]interface{}{
+		"object": "coddy.config_reloaded",
+		"at":     at.UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		return nil
+	}
+	frame := make([]byte, 0, len(body)+40)
+	frame = append(frame, "event: config_reloaded\ndata: "...)
+	frame = append(frame, body...)
+	frame = append(frame, "\n\n"...)
+	return frame
+}
+
+// publishConfigReloaded announces a reload to every events subscriber. ReplaceConfig is
+// its only caller, so every path that installs a new configuration - the settings form,
+// the agent's config_commit and config_rollback, a skill install - announces it without
+// each having to remember to.
+func (s *Server) publishConfigReloaded() {
+	if s.events == nil {
+		return
+	}
+	if frame := configReloadedFrame(time.Now()); frame != nil {
+		s.events.publish(frame)
+	}
+}

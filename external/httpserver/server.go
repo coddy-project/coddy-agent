@@ -154,11 +154,21 @@ func (s *Server) activeCfg() *config.Config {
 	return s.cfgAt.Load()
 }
 
-// ReplaceConfig updates the in-memory config used by HTTP handlers.
+// ReplaceConfig updates the in-memory config used by HTTP handlers and tells the
+// connected clients that it moved.
+//
+// Order matters, because a client re-reads the config-derived endpoints the moment it
+// sees the event and must not be able to catch the outgoing answers. The live pointer
+// moves first, then the per-workspace slash-command cache is dropped (a reload can move
+// skills.dirs, or leave them alone while the skills behind them changed), and only then
+// is the reload announced.
 func (s *Server) ReplaceConfig(c *config.Config) {
-	if c != nil {
-		s.cfgAt.Store(c)
+	if c == nil {
+		return
 	}
+	s.cfgAt.Store(c)
+	s.invalidateSlashCache()
+	s.publishConfigReloaded()
 }
 
 func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {

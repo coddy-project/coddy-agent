@@ -116,8 +116,8 @@ func (s *Server) runPermissionResume(ctx context.Context, sessionID, toolCallID 
 	ag.SetConfigReloader(func(ctx context.Context) ([]string, error) {
 		warnings, err := s.mgr.ReloadConfigForSession(ctx, st)
 		if err == nil {
+			// ReplaceConfig also drops the slash cache and announces the reload.
 			s.ReplaceConfig(s.mgr.Cfg())
-			s.invalidateSlashCache()
 		}
 		return warnings, err
 	})
