@@ -4246,11 +4246,24 @@ textarea#composer {
   background: rgba(0, 0, 0, 0.45);
 }
 
+/* Column flex box with a height cap: the folder list below is its only
+   scrollport, everything else is flex: none. Safari keeps its dynamic browser
+   chrome inside vh but outside dvh, so a vh-only cap can push the action row
+   under the toolbar - the vh line stays as the fallback for engines without
+   dvh (issue #159). */
 .workspace-modal {
   display: flex;
   flex-direction: column;
   width: min(440px, calc(100vw - 32px));
+  /* Roomy body for a folder with few children: 262px is the 140px of head,
+     path row and actions plus the 120px of list the body used to claim through
+     the list's own min-height. Stated on the dialog, the floor leaves the list
+     free to shrink; clamped by the same viewport fraction as the cap below, it
+     can never exceed it. */
+  min-height: min(262px, 60vh);
+  min-height: min(262px, 60dvh);
   max-height: min(60vh, 520px);
+  max-height: min(60dvh, 520px);
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent);
   background: var(--bg);
@@ -4260,6 +4273,7 @@ textarea#composer {
 
 .workspace-modal-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px 8px;
@@ -4272,6 +4286,7 @@ textarea#composer {
    another drive). Shares the .mode-menu-filter token recipe so every theme is
    covered; no direction: rtl here - it breaks the caret for LTR text. */
 .workspace-modal-path {
+  flex: none;
   width: calc(100% - 28px);
   box-sizing: border-box;
   margin: 0 14px 8px;
@@ -4292,11 +4307,45 @@ textarea#composer {
   border-color: rgba(147, 51, 234, 0.45);
 }
 
+/* The dialog's only scrollport. `min-height: 0` is what turns a column flex
+   child into one: with a positive floor here the head, the path row and the
+   action buttons are laid out past the dialog's max-height and clipped away by
+   its `overflow: hidden`, with nothing left to scroll them back into view
+   (issue #159, reported on Safari 26.6 in a short window). The dialog's own
+   min-height keeps the body roomy when the listing is short, and being a bound
+   on the dialog it yields to the cap instead of fighting it.
+   The explicit thin scrollbar below is the same recipe the settings lists use:
+   where the platform draws a scrollbar at all, this one is legible against the
+   dark panel instead of inheriting the default. It does not create a track on
+   platforms with overlay scrollbars (macOS), so it is an affordance, not the
+   fix. */
 .workspace-modal-list {
   flex: 1 1 auto;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
+  /* A wheel gesture that runs past the last folder stays in the dialog instead
+     of scrolling the page behind it. */
+  overscroll-behavior: contain;
   padding: 0 8px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+  border-radius: 999px;
+}
+
+.workspace-modal-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 34%, transparent);
 }
 
 .workspace-modal-row {
@@ -4360,20 +4409,10 @@ textarea#composer {
 
 .workspace-modal-actions {
   display: flex;
+  flex: none;
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 14px 12px;
-}
-
-/* New folder leads the footer, opposite the Cancel / Open pair. */
-.workspace-modal-btn--lead {
-  margin-right: auto;
-}
-
-.workspace-modal-btn--inline {
-  flex: 0 0 auto;
-  padding: 4px 10px;
-  font-size: 12px;
 }
 
 .workspace-modal-btn {
@@ -4390,6 +4429,20 @@ textarea#composer {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+/* New folder leads the footer, opposite the Cancel / Open pair. */
+.workspace-modal-btn--lead {
+  margin-right: auto;
+}
+
+/* The two buttons inside the inline name row sit on a list row, not in the
+   footer, so they are tighter than the footer pair. Same specificity as the
+   base rule above, which is why they have to come after it. */
+.workspace-modal-btn--inline {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .workspace-modal-btn:disabled {

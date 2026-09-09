@@ -3,13 +3,19 @@
 This page is the narrative guide. Two companion artifacts cover the full key list:
 
 - **[config-reference.md](config-reference.md)** - field-by-field tables: type, default, env-var fallback, required/optional, examples.
-- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation. Add this header line to your `config.yaml` and any editor with a YAML language server (VS Code YAML extension, IntelliJ, Zed) validates keys and values as you type:
+- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://coddy.dev/config.schema.json** so an editor resolves it without a checkout. Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
+# yaml-language-server: $schema=https://coddy.dev/config.schema.json
 ```
 
-The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` (`internal/config/docs_schema_test.go`); CI fails when a config field is added or renamed without updating the schema.
+**Coddy writes that line itself.** Every save that rewrites `config.yaml` - the settings screen (`PUT /coddy/config`), `coddy mcp add`, a skill source, the agent's own `config_set` / `config_commit` - adds the header when the file has none, and leaves a `$schema` you chose yourself (a pinned tag, a local path) alone. The same saves keep your comments, including commented-out keys, and the order the keys are already in; only the values change. JetBrains IDEs do not read the header; if `config.yaml` is not validated there, map the same URL by hand under **Settings - Languages & Frameworks - Schemas and DTDs - JSON Schema Mappings**. VS Code can be told the same thing without touching the file:
+
+```json
+"yaml.schemas": { "https://coddy.dev/config.schema.json": ["**/.coddy/config.yaml"] }
+```
+
+The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` (`internal/config/docs_schema_test.go`); CI fails when a config field is added or renamed without updating the schema. The copy served from `coddy.dev` is a verbatim mirror of this file, kept in the [site repository](https://github.com/coddy-project/coddy-project.github.io).
 
 ## Config File Location and Paths
 

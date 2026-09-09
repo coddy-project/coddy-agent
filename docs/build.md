@@ -110,11 +110,30 @@ brew install --cask dist/coddy.rb
 ```
 
 The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
-**`darwin`** and **`linux`** archives carry those files beside the binary. Its **`livecheck`** block
-tracks GitHub releases, so once the cask is accepted into
-[homebrew/cask](https://github.com/Homebrew/homebrew-cask) Homebrew's own automation opens the
-version bumps; until then each release publishes **`coddy.rb`** as an asset, and
-**`brew install --cask <url>`** installs from it.
+**`darwin`** and **`linux`** archives carry those files beside the binary. Each release publishes
+**`coddy.rb`** as an asset, and **`brew install --cask <url>`** installs from it.
+
+### Homebrew formula
+
+```bash
+make brew-formula VERSION=1.0.13
+make brew-check VERSION=1.0.13
+```
+
+**`scripts/build-homebrew-formula.sh`** fills **`packaging/homebrew/coddy-formula.rb.tmpl`** with the
+version and the SHA-256 of that tag's **source** archive, writing **`dist/formula/coddy.rb`**. It
+downloads the archive to hash it, so the version has to be a published tag.
+
+That file is the artefact a [homebrew/core](https://github.com/Homebrew/homebrew-core) pull request
+carries. Homebrew routes open-source command-line software there as a formula built from source and
+keeps homebrew/cask for native applications and binary-only software, so the cask above is our own
+channel and the formula is the submission. The formula builds the release tag set, which is why
+**`node`** joins **`go`** as a build dependency: the embedded SPA is generated rather than committed.
+
+**`scripts/check-homebrew-submission.sh`** (**`make brew-check`**) is the preflight - token
+availability, notability thresholds, the release, and the rendered formula. It exits non-zero when
+something blocks the submission. The full path, including the notability arithmetic that blocks a
+self-submission today, is in [homebrew.md](homebrew.md).
 
 What the packages install, and how they interact with **`coddy update`**, is documented in
 [install.md](install.md#linux-packages-deb-rpm) and

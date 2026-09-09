@@ -42,7 +42,7 @@ A **`coddy`** that **`apt`** or **`dnf`** put on disk is listed in the package d
 - **as an ordinary user** - it changes nothing, names the package that owns the installation, and prints the command that upgrades it (**`sudo apt-get install --only-upgrade coddy`**, **`sudo dnf upgrade coddy`**, ...). The exit code is **1**, so a script notices;
 - **as root** - it downloads the **`.deb`** or **`.rpm`** for this architecture, verifies it against **`SHA256SUMS`** like any other asset, and hands it to the package manager it found (**`apt-get`**, **`apt`**, **`dnf`**, **`yum`**, **`zypper`**, else **`dpkg`** or **`rpm`**). The package database stays correct.
 
-**Homebrew** is recognised too, on macOS and on Linux: an executable that resolves into a **`Caskroom`** or **`Cellar`** directory belongs to brew. There is no privileged route there - Homebrew refuses to run under **`sudo`** - so both root and an ordinary user are pointed at **`brew upgrade --cask coddy`**.
+**Homebrew** is recognised too, on macOS and on Linux: an executable that resolves into a **`Caskroom`** or **`Cellar`** directory belongs to brew. There is no privileged route there - Homebrew refuses to run under **`sudo`** - so both root and an ordinary user are pointed at **`brew upgrade`**. Which of the two markers matched decides the flag: a **`Caskroom`** path is a cask and takes **`brew upgrade --cask coddy`**, a **`Cellar`** path is a formula and takes **`brew upgrade coddy`**. The distinction is not cosmetic - **`--cask`** on a formula install fails, there being no cask by that name to upgrade.
 
 ```bash
 sudo coddy update -y
@@ -107,7 +107,8 @@ coddy update --help
 | **Docker** | **`docker compose pull`** / image tag **`X.Y.Z`** on [GHCR](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent). |
 | **`go install ...@latest`** | Quick install without release assets; default module tags only (no **`http`** / UI unless you build from source). |
 | **`apt` / `dnf` / `zypper`** | You installed the **`.deb`** or **`.rpm`**; install the newer package file, or run **`sudo coddy update`** to have it fetched for you. |
-| **`brew upgrade --cask coddy`** | You installed the Homebrew cask. |
+| **`brew upgrade --cask coddy`** | You installed the Homebrew cask (the executable resolves into a **`Caskroom`**). |
+| **`brew upgrade coddy`** | You installed a Homebrew formula (the executable resolves into a **`Cellar`**). |
 
 ## Limitations
 

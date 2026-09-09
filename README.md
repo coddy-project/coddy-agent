@@ -150,8 +150,13 @@ sudo apt-get install ./coddy_1.0.10_linux_amd64.deb     # dnf install ./coddy_1.
 **macOS** - the same release publishes a Homebrew cask:
 
 ```bash
-brew install --cask coddy
+brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb
 ```
+
+**`brew install coddy`** by name needs Coddy in one of Homebrew's own repositories, which is
+[open work](docs/homebrew.md): as open-source command-line software it belongs in **homebrew/core**
+as a formula, and Homebrew holds a self-submission to a higher notability bar than this repository
+clears today.
 
 Prefer a package on a machine you administer: the files are tracked by the package manager, and **`coddy update`** defers to it instead of overwriting a tracked binary. Details: **[`docs/install.md`](docs/install.md#linux-packages-deb-rpm)**.
 
@@ -228,7 +233,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - the same set as **`make build TAGS="http ui scheduler memory cli gateway"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)** and **[docs/homebrew.md](docs/homebrew.md)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - the same set as **`make build TAGS="http ui scheduler memory cli gateway"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -359,7 +364,8 @@ Coddy will not overwrite a file a package manager owns. As an ordinary user, **`
 
 ```bash
 sudo coddy update -y          # deb / rpm
-brew upgrade --cask coddy     # Homebrew
+brew upgrade --cask coddy     # Homebrew cask (Caskroom)
+brew upgrade coddy            # Homebrew formula (Cellar)
 ```
 
 **Notes**
@@ -546,7 +552,7 @@ Full guide — access levels, group isolation modes, per-chat overrides, and how
 
 ## Configuration
 
-Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json) enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header (see `config.example.yaml`).
+Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json), published at <https://coddy.dev/config.schema.json>, enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header. Coddy writes that header into every `config.yaml` it saves and keeps the comments already in the file (see `config.example.yaml`).
 
 Key settings:
 
@@ -591,7 +597,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 ## Documentation
 
 - [Install](docs/install.md) - installer script options, Linux **`.deb`** / **`.rpm`** packages, the Homebrew cask, Windows paths, manual placement
-- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**, **`make deb`** / **`rpm`** / **`brew`**
+- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**, **`make deb`** / **`rpm`** / **`brew`** / **`brew-formula`**
+- [Homebrew](docs/homebrew.md) - which Homebrew repository takes what, the cask against the formula, and the homebrew/core submission
 - [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Console TUI](docs/cli.md) - bare **`coddy`** in a terminal (**`-tags cli`**): layout, keys, flags, print mode, captures

@@ -122,7 +122,9 @@ func (s *Server) coddyConfigPut(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("%w: %s", errCoddyConfigParse, err.Error())
 		}
-		yb, err := config.MarshalConfigYAML(newCfg)
+		// Rendered over the file that is there, so the operator's comments and the
+		// editor schema modeline survive a save from the settings screen.
+		yb, err := config.MarshalConfigYAMLForFile(newCfg, cfgPath)
 		if err != nil {
 			return errCoddyConfigSerialize
 		}

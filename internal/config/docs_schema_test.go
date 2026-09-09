@@ -68,12 +68,22 @@ func schemaTypeForGoType(t reflect.Type) string {
 // checkSchemaNodeMatchesType recursively verifies that a schema node describes goType.
 func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, node map[string]interface{}) {
 	t.Helper()
-	if goType.Kind() == reflect.Pointer {
+	// A pointer field is tri-state - absent, explicitly null, or a value - and the
+	// serializer writes the null form for every unset one. The schema has to accept
+	// it, otherwise an editor flags a config the agent itself just saved.
+	tristate := goType.Kind() == reflect.Pointer
+	if tristate {
 		goType = goType.Elem()
 	}
 	wantType := schemaTypeForGoType(goType)
-	gotType, _ := node["type"].(string)
-	if gotType != wantType {
+	if tristate {
+		got, ok := node["type"].([]interface{})
+		if !ok || len(got) != 2 || got[0] != wantType || got[1] != "null" {
+			t.Errorf("%s: schema type %v, want [%q, \"null\"] because the field is optional and is written as null when unset",
+				path, node["type"], wantType)
+			return
+		}
+	} else if gotType, _ := node["type"].(string); gotType != wantType {
 		t.Errorf("%s: schema type %q, want %q", path, gotType, wantType)
 		return
 	}
@@ -219,10 +229,19 @@ func TestDocsConfigSchemaEnums(t *testing.T) {
 }
 
 // canonicalSchemaURL is the hosted, absolute JSON Schema URL that YAML language
-// servers must be able to resolve without a local checkout. The refs/heads/main
-// form is the canonical raw.githubusercontent.com reference GitHub itself emits;
-// the shorter /main/ form is avoided so editors resolve the schema reliably.
-const canonicalSchemaURL = "https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json"
+// servers must be able to resolve without a local checkout. It is served from the
+// project site, which keeps the address stable and independent of the branch,
+// path and hosting a repository file happens to have; the copy behind it is a
+// verbatim mirror of docs/config.schema.json kept in the site repository.
+const canonicalSchemaURL = "https://coddy.dev/config.schema.json"
+
+// staleSchemaURLs are addresses the schema used to be published under. A config
+// file pointing at one of them still resolves today, but the docs must not teach
+// them: they tie an editor to a repository path rather than to the hosted schema.
+var staleSchemaURLs = []string{
+	"$schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json",
+	"$schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json",
+}
 
 // TestConfigSchemaURLIsCanonical guards that every published $schema reference and
 // the schema's own $id use the canonical hosted URL, so config.yaml highlighting
@@ -234,8 +253,17 @@ func TestConfigSchemaURLIsCanonical(t *testing.T) {
 		t.Errorf("docs/config.schema.json $id = %q, want %q", got, canonicalSchemaURL)
 	}
 
+	// The modeline the agent writes into every config it saves is the same address,
+	// otherwise a saved file would point editors at a schema nobody publishes.
+	if SchemaURL != canonicalSchemaURL {
+		t.Errorf("config.SchemaURL = %q, want %q", SchemaURL, canonicalSchemaURL)
+	}
+
 	// Every file that ships the yaml-language-server header for users/editors.
 	header := "# yaml-language-server: $schema=" + canonicalSchemaURL
+	if got := SchemaModeline(); got != header {
+		t.Errorf("config.SchemaModeline() = %q, want %q", got, header)
+	}
 	for _, rel := range []string{
 		"../../config.example.yaml",
 		"../../docs/config.md",
@@ -248,10 +276,10 @@ func TestConfigSchemaURLIsCanonical(t *testing.T) {
 		if !strings.Contains(string(data), header) {
 			t.Errorf("%s: missing canonical schema header %q", rel, header)
 		}
-		// The non-canonical /main/ form (without refs/heads) must not linger.
-		stale := "$schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/config.schema.json"
-		if strings.Contains(string(data), stale) {
-			t.Errorf("%s: still references non-canonical schema URL %q", rel, stale)
+		for _, stale := range staleSchemaURLs {
+			if strings.Contains(string(data), stale) {
+				t.Errorf("%s: still references retired schema URL %q", rel, stale)
+			}
 		}
 	}
 }

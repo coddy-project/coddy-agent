@@ -790,7 +790,13 @@ export function App() {
     turnStarted: (sid: string) => void;
     turnEnded: (sid: string) => void;
     providerUsage: (usage: ProviderUsage) => void;
-  }>({ turnStarted: () => {}, turnEnded: () => {}, providerUsage: () => {} });
+    configReloaded: () => void;
+  }>({
+    turnStarted: () => {},
+    turnEnded: () => {},
+    providerUsage: () => {},
+    configReloaded: () => {},
+  });
   // Provider account usage for the composer pill and banner: read over REST
   // at session open, model change and after each viewed turn, pushed by the
   // events stream in between (chat/useProviderUsage.ts).
@@ -911,7 +917,13 @@ export function App() {
     new Map(),
   );
   const [modelInfos, setModelInfos] = useState<ModelInfo[]>([]);
-  const [modelsEpoch, setModelsEpoch] = useState(0);
+  /**
+   * Bumped whenever the server's configuration moved: a settings save here, or a
+   * `config_reloaded` event from a swap made elsewhere (the agent's `config_commit`,
+   * a skill install, another tab). Everything derived from the config re-reads on it,
+   * so a model added mid-session reaches the picker without a page reload.
+   */
+  const [configEpoch, setConfigEpoch] = useState(0);
   const [sessionsOpen, setSessionsOpen] = useState(false);
   /** null until first probe of /coddy/scheduler/jobs; false when route returns 404 (binary without scheduler). */
   const [schedulerHttpLinked, setSchedulerHttpLinked] = useState<
@@ -1664,7 +1676,8 @@ export function App() {
         setKnownSkillNames(new Set(res.data.items.map((i) => i.name)));
       }
     })();
-  }, []);
+    // Slash commands are derived from skills.dirs, so a config swap moves them too.
+  }, [configEpoch]);
 
   // Background tasks outlive the SSE stream of the turn that started them, so
   // the drawer and the nav badge are kept honest by polling rather than by the
@@ -1794,9 +1807,10 @@ export function App() {
         );
       }
     })();
-    // modelsEpoch bumps after config save so the multimodal flag refreshes without a page reload.
+    // configEpoch bumps after every config swap, so a model added to models[] - and the
+    // multimodal flag on one already there - reaches the picker without a page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelsEpoch]);
+  }, [configEpoch]);
 
   // Apply the opened session's saved model/reasoning once the backends list is
   // known. Runs whenever either input lands, so the restore is independent of
@@ -2078,6 +2092,7 @@ export function App() {
       void refreshSessionStats(key);
     },
     providerUsage: providerUsageState.applyPushed,
+    configReloaded: () => setConfigEpoch((e) => e + 1),
   };
 
   useEffect(() => {
@@ -2087,6 +2102,7 @@ export function App() {
       onTurnEnded: (sid) => serverEventHandlersRef.current.turnEnded(sid),
       onProviderUsage: (_sid, usage) =>
         serverEventHandlersRef.current.providerUsage(usage),
+      onConfigReloaded: () => serverEventHandlersRef.current.configReloaded(),
       onConnectedChange: setServerEventsConnected,
       signal: ctl.signal,
     });
@@ -4196,7 +4212,7 @@ export function App() {
           <div className="settings-dock-cluster">
             <Settings
               onClose={onCloseSettings}
-              onConfigSaved={() => setModelsEpoch((e) => e + 1)}
+              onConfigSaved={() => setConfigEpoch((e) => e + 1)}
               initialSection={settingsSection}
             />
           </div>

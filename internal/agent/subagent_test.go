@@ -1434,6 +1434,21 @@ func TestSpawnSubagentChildBackgroundCommandNeverNotifies(t *testing.T) {
 	}
 }
 
+// gateStep holds the model until gate is closed, then runs next, so a scripted
+// turn can be pinned behind work it started. Unlike waitStep it gives up after
+// testWait, so a gate that never opens fails the test instead of parking the
+// package until its own timeout.
+func gateStep(t *testing.T, gate <-chan struct{}, next scriptStep) scriptStep {
+	return func(messages []llm.Message, defs []llm.ToolDefinition, onChunk func(llm.StreamChunk)) *llm.Response {
+		select {
+		case <-gate:
+		case <-time.After(testWait):
+			t.Errorf("a gated step waited %s and its gate never opened", testWait)
+		}
+		return next(messages, defs, onChunk)
+	}
+}
+
 // A detached grandchild spawned by a child with notify_on_finish: true is
 // launched with the flag off, and is stopped when the child retires.
 func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
@@ -1449,7 +1464,19 @@ func TestSpawnSubagentChildSpawnNeverNotifies(t *testing.T) {
 				"agent": "reviewer", "prompt": "nested", "description": "nested",
 				"background": true, "notify_on_finish": true, "expected_seconds": 5,
 			})
-			return scripted(toolStep(llm.ToolCall{ID: "call_nested", Name: tools.ToolSpawnAgent, InputJSON: string(args)}), answerStep("REPORT: middle"))
+			// The middle child holds its report until the grandchild's turn
+			// is under way. A child's bundle is written by the last step of
+			// its creation, and a retirement that lands while it is still
+			// being created cancels that creation and rolls the half-written
+			// bundle back, on purpose - see
+			// TestSpawnSubagentStopAndTimeoutReachAChildStillBeingCreated.
+			// The leaf provider is entered only once the grandchild is past
+			// that point, so gating on it is what makes the bundle asserted
+			// below exist at all.
+			return scripted(
+				toolStep(llm.ToolCall{ID: "call_nested", Name: tools.ToolSpawnAgent, InputJSON: string(args)}),
+				gateStep(t, leafProv.started, answerStep("REPORT: middle")),
+			)
 		}
 		return leafProv
 	})

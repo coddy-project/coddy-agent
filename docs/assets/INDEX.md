@@ -83,3 +83,27 @@ Captured from the embedded SPA against a disposable NeuralDeep-backed session.
 ## Batch uploads
 
 Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+
+## Open folder dialog scroll (issue #159, September 2026)
+
+Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut from - against `coddy http` with the SPA embedded, workspace `/home/pasha/demo/coddy-workspace` (30 subfolders, so the list overflows). `before-*` is `main`, `after-*` is the fix. The two short viewports carry the change; **1280x800** and **390x720** are there to show the dialog is untouched where it already fit.
+
+- `issue-159-folder-dialog-{before,after}-{dark,light}-786x420.png` - the reporter's viewport: before, the dialog's bottom padding is clipped and the buttons sit flush on the border; after, the list gives up those pixels instead
+- `issue-159-folder-dialog-{before,after}-{dark,light}-786x340.png` - shorter window: before, **Cancel** / **Open** are laid out past the height cap and clipped away entirely; after, they stay in the dialog
+- `issue-159-folder-dialog-{before,after}-{dark,light}-1280x800.png` - wide desktop, dialog unchanged (520px cap, 378px list)
+- `issue-159-folder-dialog-{before,after}-{dark,light}-390x720.png` - narrow shell, dialog unchanged
+
+## Open folder dialog: New folder (issue #157, September 2026)
+
+In `ui-folder-picker/`. Captured through Playwright against `coddy http` with the SPA embedded
+(`make build TAGS="http ui"`), demo workspace holding `codex` and `tmp` so the listing matches the
+screenshot in the issue. `before-*` is the dialog built from the pre-change sources.
+
+- `folder-picker-before-dark-1280.png` - the footer before the change: only **Cancel** / **Open**
+- `folder-picker-after-dark-1280.png` - the same dialog with **New folder** leading the footer
+- `folder-picker-new-row-dark-1280.png` - the inline name row at the top of the list, name typed
+- `folder-picker-created-dark-1280.png` - after **Enter**: the dialog is inside the folder it just made, so **Open** picks it
+- `folder-picker-exists-dark-1280.png` - a name already taken (**409**): the row keeps its text and the clash is reported inline
+- `folder-picker-new-row-light-1280.png` - the name row in the Light theme
+- `folder-picker-{after,new-row}-dark-390.png` - narrow shell: the three-button footer and the name row still fit
+

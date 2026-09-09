@@ -127,24 +127,29 @@ See [build.md](build.md#distribution-packages).
 ## macOS (Homebrew)
 
 ```bash
-brew install --cask coddy
+brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb
 ```
 
-The cask installs the same **`coddy`** binary the macOS archive carries, plus **`man coddy`** and the
-bash and zsh completions. Upgrade and removal go through Homebrew:
+Every release publishes **`coddy.rb`** beside the archives, rendered with the checksums of the macOS
+archives of that same tag. The cask installs the same **`coddy`** binary the macOS archive carries,
+plus **`man coddy`** and the bash and zsh completions. Removal goes through Homebrew:
 
 ```bash
-brew upgrade --cask coddy
 brew uninstall --cask coddy      # brew zap --cask coddy also removes ~/.coddy
 ```
 
-**`coddy update`** recognises a Homebrew install and points back at **`brew upgrade`** rather than
-replacing a file Homebrew tracks. Homebrew refuses to run under **`sudo`**, so there is no
-privileged shortcut there.
+Upgrading means running the install command again: Homebrew tracks new versions of a cask it got from
+a tap, not of one installed from a URL.
 
-> Until the cask is accepted into **homebrew/cask**, install it from the release asset:
-> **`brew install --cask https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy.rb`**.
-> Every release publishes that file with the checksums of the macOS archives of the same tag.
+**`brew install --cask coddy`** by name needs Coddy in one of Homebrew's own repositories, and that is
+still open. Homebrew routes open-source command-line software to **homebrew/core** as a formula built
+from source, so the cask above is our own distribution channel rather than a submission - the whole
+path, including what currently blocks it, is in [homebrew.md](homebrew.md).
+
+**`coddy update`** recognises a Homebrew install and points back at **`brew upgrade`** rather than
+replacing a file Homebrew tracks: **`brew upgrade --cask coddy`** for this cask, and
+**`brew upgrade coddy`** for a formula. Homebrew refuses to run under **`sudo`**, so there is no
+privileged shortcut there.
 
 If macOS blocks the first run because the binary is not notarised, clear the quarantine flag:
 **`xattr -d com.apple.quarantine "$(which coddy)"`**.
