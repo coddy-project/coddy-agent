@@ -40,11 +40,11 @@ providers:
     type: openai
     api_key: "dummy-not-used"
 models:
-  - model: "openai/gpt-4o"
+  - model: "openai/gpt-5.6-terra"
     max_tokens: 256
-    temperature: 0.2
+    reasoning_default: medium
 agent:
-  model: "openai/gpt-4o"
+  model: "openai/gpt-5.6-terra"
   max_turns: 4
 """
 

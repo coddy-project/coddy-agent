@@ -31,7 +31,7 @@ defaults:
     shell: bash
 
 env:
-  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli"
+  GO_BUILD_TAGS: "http,ui,scheduler,memory,cli,gateway"
 
 jobs:
   release-binaries:
@@ -114,7 +114,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: make ui-build
 
-      - name: Cross-compile release binaries
+      - name: Cross-compile release binaries, build packages, render the cask
         if: steps.gate.outputs.skip != 'true'
         env:
           VERSION: ${{ steps.git_tag.outputs.tag }}
@@ -146,7 +146,14 @@ jobs:
             if [ "$goos" = "windows" ]; then
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
-              tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" "$binname"
+              # The macOS archives are what the Homebrew cask installs, so the
+              # man page and the completions travel beside the binary. Every
+              # consumer that wants only the executable - `coddy update`, the
+              # install script - takes it out by name and ignores the rest.
+              cp packaging/man/coddy.1 "$bindir/coddy.1"
+              cp packaging/completions/coddy.bash "$bindir/coddy.bash"
+              cp packaging/completions/coddy.zsh "$bindir/coddy.zsh"
+              tar -C "$bindir" -czf "$DIST/${stem}.tar.gz" coddy coddy.1 coddy.bash coddy.zsh
             fi
           }
 
@@ -156,8 +163,26 @@ jobs:
           build_target darwin amd64
           build_target darwin arm64
 
+          # The deb and rpm wrap the Linux binaries built above rather than
+          # compiling their own: packaging must not double the slowest step of
+          # the release, and shipping a package whose binary differs from the
+          # archive of the same tag would be worse than slow.
+          for arch in amd64 arm64; do
+            scripts/build-packages.sh \
+              --version "${VERSION}" \
+              --arch "$arch" \
+              --out "$DIST" \
+              --binary "$DIST/_staging/coddy_${VERSION}_linux_${arch}/coddy"
+          done
+
+          # The cask pins the checksum of the macOS archives, so it is rendered
+          # from the ones just built rather than from a published release.
+          scripts/build-homebrew-cask.sh --version "${VERSION}" --out "$DIST"
+
           rm -rf "$DIST/_staging"
-          (cd "$DIST" && sha256sum coddy_*.tar.gz coddy_*.zip > SHA256SUMS)
+          # `coddy update` verifies every asset it downloads against this list,
+          # packages included.
+          (cd "$DIST" && sha256sum coddy_*.tar.gz coddy_*.zip coddy_*.deb coddy_*.rpm > SHA256SUMS)
           ls -la "$DIST"
 
       - name: Upload assets to GitHub Release

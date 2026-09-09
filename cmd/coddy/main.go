@@ -142,8 +142,6 @@ func main() {
 		err = runPlugin(args[1:])
 	case "mcp":
 		err = runMCP(args[1:])
-	case "codex":
-		err = runCodex(args[1:])
 	case "providers":
 		err = runProviders(args[1:])
 	case "rules":
@@ -190,7 +188,6 @@ func printUsage(w *os.File) {
   %[1]s plugin remove <name>
   %[1]s plugin enable <name> | disable <name>
   %[1]s mcp list | trust <name> | untrust <name> [--cwd DIR]
-  %[1]s codex login | status | logout [--provider NAME] [--home DIR]
   %[1]s providers list | login <name> [--device] [--no-config] | logout <name> [--home DIR]
   %[1]s rules list [--cwd DIR]
   %[1]s agents list [--cwd DIR]

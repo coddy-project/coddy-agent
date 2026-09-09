@@ -16,10 +16,10 @@ Optional:
 
 Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
 
-The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
+The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`**, **`coddy gateway`** — see [`docs/gateway.md`](gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 ```
 
 Output: **`build/coddy`**.
@@ -41,16 +41,84 @@ The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via
 
 **`make install`** copies **`build/coddy`** onto your **`PATH`**:
 
-- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli"`** first.
+- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway"`** first.
 
-- **root** - **`/usr/local/bin/coddy`**
-- **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**)
+- **root** - **`/usr/local/bin/coddy`**, man page in **`/usr/local/share/man/man1`**
+- **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**), man page in **`~/.local/share/man/man1`**
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 make install
 ```
+
+## Distribution packages
+
+**`make deb`** and **`make rpm`** build the Linux packages a release publishes; **`make brew`**
+renders the Homebrew cask for one.
+
+```bash
+make deb
+make rpm
+```
+
+Output: **`dist/coddy_<version>_linux_<arch>.deb`** and **`.rpm`**. Knobs:
+
+| Variable | Default | What |
+|----------|---------|------|
+| **`PKG_ARCHS`** | host **`GOARCH`** | architectures to package, e.g. **`"amd64 arm64"`** |
+| **`PKG_TAGS`** | **`http ui scheduler memory cli`** | build tags for the packaged binary |
+| **`DIST_DIR`** | **`dist`** | where the packages land |
+
+```bash
+make deb PKG_ARCHS="amd64 arm64"
+make rpm PKG_TAGS="http cli"      # lean binary, no npm step
+```
+
+The recipe is **`packaging/nfpm.yaml`**, driven by **`scripts/build-packages.sh`**, which stages the
+man page (**`packaging/man/coddy.1`**), the shell completions (**`packaging/completions/`**),
+**`config.example.yaml`** and **`LICENSE`** into one directory and runs
+[nfpm](https://nfpm.goreleaser.com/) over it. nfpm is not a module dependency: the script uses the
+**`nfpm`** on **`PATH`** when there is one and otherwise fetches the pinned version with
+**`go run`**, so there is nothing to install first.
+
+The package installs a binary and its documentation and nothing else - no service, no system
+account, no files under **`/etc`** - because Coddy's state lives in the invoking user's
+**`~/.coddy`**.
+
+Version strings are normalised for the two formats by **`scripts/package-version.sh`** - rpm forbids
+**`-`** in a version and dpkg reads the last one as the start of the Debian revision, so
+**`1.0.8-5-gb6b7d31-dirty`** is packaged as **`1.0.8+5.gb6b7d31.dirty`**, which both accept and both
+sort after **`1.0.8`**.
+
+### Homebrew cask
+
+```bash
+make brew VERSION=1.0.11
+```
+
+**`scripts/build-homebrew-cask.sh`** fills **`packaging/homebrew/coddy.rb.tmpl`** with the version
+and the SHA-256 of both macOS archives, writing **`dist/coddy.rb`**. It takes those archives from
+**`DIST_DIR`** when they are there (which is the case in the release job, right after the
+cross-compile) and downloads them from the GitHub release otherwise - a cask pins checksums, so it
+can only be rendered for a version whose archives exist.
+
+Install the rendered file to try it:
+
+```bash
+brew install --cask dist/coddy.rb
+```
+
+The cask links **`coddy`**, **`coddy.1`** and both completion scripts, which is why the release
+**`darwin`** and **`linux`** archives carry those files beside the binary. Its **`livecheck`** block
+tracks GitHub releases, so once the cask is accepted into
+[homebrew/cask](https://github.com/Homebrew/homebrew-cask) Homebrew's own automation opens the
+version bumps; until then each release publishes **`coddy.rb`** as an asset, and
+**`brew install --cask <url>`** installs from it.
+
+What the packages install, and how they interact with **`coddy update`**, is documented in
+[install.md](install.md#linux-packages-deb-rpm) and
+[update.md](update.md#installations-owned-by-a-package-manager).
 
 ## Update from GitHub Releases
 
@@ -95,7 +163,7 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
@@ -130,7 +198,14 @@ On each SemVer git tag **`X.Y.Z`** that is on **`main`**, the [**Release binarie
 | **`coddy_X.Y.Z_windows_amd64.zip`** | Windows x86_64 (**`coddy.exe`**) |
 | **`coddy_X.Y.Z_darwin_amd64.tar.gz`** | macOS Intel |
 | **`coddy_X.Y.Z_darwin_arm64.tar.gz`** | macOS Apple Silicon |
-| **`SHA256SUMS`** | Checksums for the archives above |
+| **`coddy_X.Y.Z_linux_amd64.deb`**, **`coddy_X.Y.Z_linux_arm64.deb`** | Debian, Ubuntu and derivatives |
+| **`coddy_X.Y.Z_linux_amd64.rpm`**, **`coddy_X.Y.Z_linux_arm64.rpm`** | Fedora, RHEL, openSUSE and derivatives |
+| **`coddy.rb`** | Homebrew cask for the macOS archives of this tag |
+| **`SHA256SUMS`** | Checksums for every archive and package above |
+
+The **`.tar.gz`** archives carry the man page and the shell completions beside the binary; the
+packages wrap the Linux binaries the same job just built rather than compiling their own, so the
+**`.deb`**, the **`.rpm`** and the **`.tar.gz`** of one tag hold byte-identical executables.
 
 Tags match the full feature set: **`http`**, **`ui`**, **`scheduler`**, **`memory`**. Manual run after a tag exists:
 
@@ -144,4 +219,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console), clone the repo and use **`make build TAGS="http ui scheduler memory cli"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway"`** (or **`go build -tags=...`** as above).

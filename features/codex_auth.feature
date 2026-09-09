@@ -26,3 +26,18 @@ Feature: Codex ChatGPT credentials drive Coddy's own agent
     And the Codex request carried coddy's own tools and system prompt
     And the second Codex request replayed the encrypted reasoning of the first
     And the final assistant message contains the coddy tool result
+
+  @cli
+  Scenario: Signing in with ChatGPT fills config.yaml with the subscription catalog
+    A sign-in that only stores a token leaves the operator with no model to
+    pick: config.yaml still lists no codex provider and no codex models. The
+    login has to publish the catalog the subscription actually serves, the way
+    the NeuralDeep login publishes its tier models.
+
+    Given a fresh CODDY_HOME with an empty config and a stored Codex credential
+    When the Codex login applies the catalog to the config
+    Then the config gains the codex provider and its subscription models
+    And the catalog models Codex hides are left out of the config
+    And agent.model is the model Codex ranks first
+    When the Codex login applies the catalog to the config
+    Then the config is left unchanged

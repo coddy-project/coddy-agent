@@ -63,7 +63,9 @@ Multiple gateways (Telegram today, Discord/Slack tomorrow) run in the same proce
 | `gateway.telegram` | Telegram adapter only |
 | `gateway` | all adapters (currently Telegram; a superset for future integrations) |
 
-Build with one tag:
+`gateway` is part of the recommended full set, so the released binaries, the
+packages and the published image all carry it. Build it on its own only for a
+slimmer binary:
 
 ```bash
 # Telegram only
@@ -72,8 +74,8 @@ make build TAGS="gateway.telegram"
 # All gateways
 make build TAGS="gateway"
 
-# Combined with HTTP, UI, scheduler, memory
-make build TAGS="http ui scheduler memory gateway"
+# The full set (what a release ships)
+make build TAGS="http ui scheduler memory cli gateway"
 ```
 
 Without either tag the `coddy gateway` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.
@@ -322,7 +324,7 @@ services:
     restart: unless-stopped
 ```
 
-> The `Dockerfile` `BUILD_TAGS` default now includes `gateway`, so a from-source build (`docker-compose.dev.yml`) supports gateway mode out of the box. The **published GHCR image still ships without it** (CI sets `BUILD_TAGS=http,scheduler,ui,memory`), so with `docker-compose.yml` you must build a custom image (`BUILD_TAGS=http,ui,scheduler,memory,gateway`) and point `CODDY_IMAGE` at it. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
+> Both the `Dockerfile` default and the published GHCR image include `gateway`, so gateway mode works out of the box with `docker-compose.yml` and with a from-source build (`docker-compose.dev.yml`); no custom image is needed. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
 
 ---
 

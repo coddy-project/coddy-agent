@@ -136,9 +136,24 @@ curl -fsSL https://coddy.dev/install.sh | bash
 irm https://coddy.dev/install.ps1 | iex
 ```
 
-Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
+Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). On Linux and macOS it also installs the man page and the bash and zsh completions, and wires them into your login shell's rc file (**`--no-shell-setup`** opts out). Full installer options: **[`docs/install.md`](docs/install.md)**.
 
 > **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). Runtime commands select `pwsh`, then Windows PowerShell, then `cmd.exe`; Unix builds select `bash`, then `sh`. The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
+
+**Linux packages** - every release also publishes a **`.deb`** and an **`.rpm`** (x86_64 and arm64), carrying the binary, the man page and the shell completions:
+
+```bash
+curl -fsSLO https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy_1.0.10_linux_amd64.deb
+sudo apt-get install ./coddy_1.0.10_linux_amd64.deb     # dnf install ./coddy_1.0.10_linux_amd64.rpm
+```
+
+**macOS** - the same release publishes a Homebrew cask:
+
+```bash
+brew install --cask coddy
+```
+
+Prefer a package on a machine you administer: the files are tracked by the package manager, and **`coddy update`** defers to it instead of overwriting a tracked binary. Details: **[`docs/install.md`](docs/install.md#linux-packages-deb-rpm)**.
 
 Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
 
@@ -168,7 +183,7 @@ For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release bi
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 make install   # copies build/coddy to ~/.local/bin or /usr/local/bin
 ```
 
@@ -197,7 +212,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory,cli`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli gateway"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory,cli,gateway`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -213,7 +228,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - a superset of **`make build TAGS="http ui scheduler memory cli"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - the same set as **`make build TAGS="http ui scheduler memory cli gateway"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -263,7 +278,7 @@ If **`$CODDY_HOME/config.yaml`** is absent, the loader may use **`config.yaml`**
 
 **Providers and models**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`**, or empty for **`NAME_API_KEY`**) and optional **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`coddy codex login`** in a terminal (ACP and headless setups); `api_key` and `api_base` are ignored and credentials are stored under **`$CODDY_HOME/providers/<name>/`**. Codex is only a model backend - the agent keeps Coddy's own prompt, tools, and permissions, and an existing **`codex login`** in **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment - **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror) - and any other value falls back to the default. Sign in with your hub account instead of pasting a key: **`coddy providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines, **`--api-base`** to pick the deployment, which also moves an existing row to it), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. The endpoint decides which hub issues the key, so pick it before signing in; the web sign-in follows the dropdown as picked, before Save, and the row warns when a stored login came from the other deployment's hub. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`coddy providers list`** shows every provider with the credential source requests actually use, and **`coddy providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
+- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`**, or empty for **`NAME_API_KEY`**) and optional **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`coddy providers login codex`** in a terminal (ACP and headless setups); `api_key` and `api_base` are ignored and credentials are stored under **`$CODDY_HOME/providers/<name>/`**. The terminal login also adds the provider, the subscription models Codex lists, and an **`agent.model`** to **`config.yaml`** when they are missing (**`--no-config`** skips that). Codex is only a model backend - the agent keeps Coddy's own prompt, tools, and permissions, and an existing **`codex login`** in **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment - **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror) - and any other value falls back to the default. Sign in with your hub account instead of pasting a key: **`coddy providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines, **`--api-base`** to pick the deployment, which also moves an existing row to it), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. The endpoint decides which hub issues the key, so pick it before signing in; the web sign-in follows the dropdown as picked, before Save, and the row warns when a stored login came from the other deployment's hub. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`coddy providers list`** shows every provider with the credential source requests actually use, and **`coddy providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
 - **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn. **`loop_guard`** (default **`true`**) adds runaway-loop protection on top of that cap: a streamed response that degenerates into repeating the same passage is cut (**`loop_stream_repeat_cycles`**), and a tool requested over and over with identical arguments stops being executed (**`loop_tool_repeat_limit`**). The model is nudged back on track first; a turn that keeps looping after **`loop_nudge_max`** nudges ends with a notice.
 
@@ -278,7 +293,7 @@ providers:
 models:
   - model: "openai/gpt-5.4-mini"
     max_tokens: 400000
-    temperature: 0.2
+    reasoning_default: medium
 
 agent:
   model: "openai/gpt-5.4-mini"
@@ -296,7 +311,7 @@ Other setups (Anthropic, NeuralDeep, Ollama, a non-default **`api_base`**, and e
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**, plus **`.deb`** and **`.rpm`** packages for Linux). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli gateway"`**.
 
 **`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
 
@@ -337,6 +352,15 @@ coddy http --help     # only when the binary includes -tags=http (release builds
 | **`-y`** / **`--yes`** | Install without confirmation. |
 | **`--version X.Y.Z`** | Install a specific release, not only "latest". |
 | **`--repo owner/name`** | Alternate GitHub repo (default **`coddy-project/coddy-agent`**). |
+
+**Installed from a `.deb`, an `.rpm` or Homebrew?**
+
+Coddy will not overwrite a file a package manager owns. As an ordinary user, **`coddy update`** names the command that upgrades the package and changes nothing; as **root** on a **`.deb`** or **`.rpm`** install, it downloads the release package for your architecture and installs it through **`apt-get`**, **`dnf`**, **`zypper`** or whichever tool the system has:
+
+```bash
+sudo coddy update -y          # deb / rpm
+brew upgrade --cask coddy     # Homebrew
+```
 
 **Notes**
 
@@ -534,12 +558,12 @@ providers:
     api_base: "${OPENAI_API_BASE}"
 
 models:
-  - model: "local/gpt-4o"
+  - model: "local/gpt-5.6-terra"
     max_tokens: 8192
-    temperature: 0.2
+    reasoning_default: medium
 
 agent:
-  model: "local/gpt-4o"
+  model: "local/gpt-5.6-terra"
   max_turns: 30
 
 tools:
@@ -566,8 +590,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
-- [Install](docs/install.md) - installer script options, Windows paths, manual placement
-- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
+- [Install](docs/install.md) - installer script options, Linux **`.deb`** / **`.rpm`** packages, the Homebrew cask, Windows paths, manual placement
+- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**, **`make deb`** / **`rpm`** / **`brew`**
 - [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Console TUI](docs/cli.md) - bare **`coddy`** in a terminal (**`-tags cli`**): layout, keys, flags, print mode, captures
@@ -622,21 +646,21 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | Target | What it does |
 |--------|--------------|
 | `make` / `make build` | Build `build/coddy` with the current `TAGS` (see [Build tags](#build-tags)). With `http`+`ui` it first runs `ui-build` (installs and bundles the embedded SPA). |
-| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli"`. Lean ACP-only binary: `make build` (no tags). |
+| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli gateway"`. Lean ACP-only binary: `make build` (no tags). |
 | `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
 | `make test` | Run `go test` across the tag combinations (default, `http`, `scheduler`, `ui`, and mixes) plus `ui-build`. |
 | `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
-| `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory"` first if the binary is missing. |
+| `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory cli gateway"` first if the binary is missing. |
 | `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
 | `make clean` | Remove the `build/` directory. |
 
-`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory cli"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
+`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory cli gateway"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
 
 > **Windows note.** The `Makefile` targets need a Unix-like shell — run them from **Git Bash** (or WSL/MSYS2), not `cmd`/PowerShell. Building with the `ui` tag also requires **Node.js/npm** on `PATH`. If `make ui-build` (or `make build TAGS="…ui…"`) fails with `npm error enoent … open '…\package.json'`, you are on an npm that mishandles `--prefix`; build the UI from inside its directory instead:
 >
 > ```bash
 > (cd external/ui && npm install && npm run build:go)
-> make build TAGS="http ui scheduler memory cli"   # ui-build now sees the prebuilt assets
+> make build TAGS="http ui scheduler memory cli gateway"   # ui-build now sees the prebuilt assets
 > ```
 
 ### Common commands
@@ -649,7 +673,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_coddy.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 
 ./build/coddy -v    # same as --version
 

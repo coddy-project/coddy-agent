@@ -1,0 +1,41 @@
+# Homebrew cask template for Coddy.
+#
+# Not installable as it stands: scripts/build-homebrew-cask.sh fills the version
+# and the two checksums from the macOS archives of a release and writes the
+# result to dist/coddy.rb. Run `make brew VERSION=X.Y.Z`.
+#
+# The cask takes the same darwin archives `coddy update` takes, so a brew
+# install and a manual one are the same binary. The archives carry the man page
+# and the shell completions beside it, which is what the artifacts below link.
+#
+# The `zap` stanza names ~/.coddy - sessions, skills, credentials and the
+# config. Only `brew zap` removes it; `brew uninstall` leaves it alone.
+#
+# Everything above the `cask` line is stripped when the file is rendered, so the
+# published cask stays comment-free the way homebrew/cask expects.
+
+cask "coddy" do
+  arch arm: "arm64", intel: "amd64"
+
+  version "__VERSION__"
+  sha256 arm:   "__SHA256_ARM64__",
+         intel: "__SHA256_AMD64__"
+
+  url "https://github.com/coddy-project/coddy-agent/releases/download/#{version}/coddy_#{version}_darwin_#{arch}.tar.gz",
+      verified: "github.com/coddy-project/coddy-agent/"
+  name "Coddy Agent"
+  desc "Coding agent with a console, an editor protocol and an HTTP gateway"
+  homepage "https://coddy.dev/"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  binary "coddy"
+  manpage "coddy.1"
+  binary "coddy.bash", target: "#{HOMEBREW_PREFIX}/etc/bash_completion.d/coddy"
+  binary "coddy.zsh",  target: "#{HOMEBREW_PREFIX}/share/zsh/site-functions/_coddy"
+
+  zap trash: "~/.coddy"
+end

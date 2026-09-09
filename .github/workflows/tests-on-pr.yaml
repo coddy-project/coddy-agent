@@ -88,6 +88,27 @@ jobs:
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
 
+  # The packages are only built on a release tag, so without this job a broken
+  # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:
+  # this proves the packaging, not the binary, and skipping the npm step keeps
+  # the job short.
+  packages:
+    name: Linux packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build deb and rpm
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
