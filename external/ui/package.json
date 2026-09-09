@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "build:go": "vite build && node scripts-sync-to-go.mjs",
+    "check:webkit": "node scripts/webkit-scroll-check.mjs",
     "fmt": "prettier -w ."
   },
   "keywords": [],
