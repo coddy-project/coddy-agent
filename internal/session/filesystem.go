@@ -451,8 +451,12 @@ func (f *FileStore) FirstUserMessageContent(sessionID string) (content string, f
 	return "", false, nil
 }
 
-// FilterSnapshotListForSearch keeps sessions where title matches needle (case-insensitive substring)
-// or the first role-user message content matches (title match checked first).
+// FilterSnapshotListForSearch keeps sessions where the title, the working directory, or the
+// first role-user message content matches needle (case-insensitive substring), checked in
+// that order because the first two are already in hand and the last needs a file read.
+//
+// The working directory is part of the search because it is often how someone remembers a
+// session: not by what they called it, but by which checkout it was about.
 func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q string) ([]SessionListEntry, error) {
 	needle := strings.ToLower(strings.TrimSpace(q))
 	if needle == "" {
@@ -462,6 +466,10 @@ func (f *FileStore) FilterSnapshotListForSearch(entries []SessionListEntry, q st
 	for _, row := range entries {
 		title := strings.ToLower(strings.TrimSpace(row.Title))
 		if strings.Contains(title, needle) {
+			out = append(out, row)
+			continue
+		}
+		if cwd := strings.ToLower(strings.TrimSpace(row.CWD)); cwd != "" && strings.Contains(cwd, needle) {
 			out = append(out, row)
 			continue
 		}

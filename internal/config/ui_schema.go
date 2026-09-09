@@ -679,9 +679,13 @@ func toIfaceOrder(keys []string) []interface{} {
 //	             would let the page cut its own connection.
 //	mcp        - edited in the MCP servers tab (POST /coddy/mcp/project-trust),
 //	             next to the servers the policy governs.
+//	swarm      - a relay's own deployment: bind address, credentials for a whole
+//	             fleet, and the parents this process joins. It is set in the file
+//	             or on the command line, not from a page one of its nodes serves.
 var uiHiddenConfigKeys = map[string]struct{}{
 	"httpserver": {},
 	"mcp":        {},
+	"swarm":      {},
 }
 
 // UISchemaCoversConfigJSONFields checks that UI schema properties match ConfigJSON

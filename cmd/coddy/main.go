@@ -132,6 +132,8 @@ func main() {
 		err = runHTTP(args[1:])
 	case "gateway":
 		err = runGateway(args[1:])
+	case "swarm":
+		err = runSwarm(args[1:])
 	case "sessions":
 		err = runSessions(args[1:])
 	case "skills":
@@ -172,6 +174,7 @@ func printUsage(w *os.File) {
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s http [flags] (OpenAI-compatible HTTP)
   %[1]s gateway [flags] (messenger gateway: Telegram etc.)
+  %[1]s swarm [flags] (stateless relay: nodes register, their sessions aggregate)
   %[1]s sessions list [flags]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list

@@ -5,7 +5,31 @@
 
 export type CoddyEnv =
   | { mode: "local" }
-  | { mode: "remote"; baseUrl: string; token: string; name?: string };
+  | {
+      mode: "remote";
+      baseUrl: string;
+      token: string;
+      name?: string;
+      /**
+       * The relay this environment was reached through, when it was.
+       *
+       * Entering a node means pointing the base URL at that node's mount, and
+       * from there the relay's own routes are no longer under it - so without
+       * remembering where we came from there is no way back to the swarm but
+       * to type its address again.
+       */
+      swarmRelay?: string;
+      /** The node path inside that relay, for showing where we are. */
+      swarmNode?: string;
+      /**
+       * On the relay itself: the node last entered through it.
+       *
+       * Leaving a node throws its base URL away, and with it the only record of
+       * where the app has been. The map needs that record to say "you are
+       * here" and to draw the path that got there.
+       */
+      swarmFrom?: string;
+    };
 
 const STORAGE_KEY = "coddy_env";
 
@@ -40,6 +64,9 @@ export function getEnv(): CoddyEnv {
         baseUrl?: string;
         token?: string;
         name?: string;
+        swarmRelay?: string;
+        swarmNode?: string;
+        swarmFrom?: string;
       };
       if (
         parsed &&
@@ -53,6 +80,15 @@ export function getEnv(): CoddyEnv {
           token: typeof parsed.token === "string" ? parsed.token : "",
         };
         if (typeof parsed.name === "string") remote.name = parsed.name;
+        if (typeof parsed.swarmRelay === "string" && parsed.swarmRelay) {
+          remote.swarmRelay = normalizeBase(parsed.swarmRelay);
+        }
+        if (typeof parsed.swarmNode === "string" && parsed.swarmNode) {
+          remote.swarmNode = parsed.swarmNode;
+        }
+        if (typeof parsed.swarmFrom === "string" && parsed.swarmFrom) {
+          remote.swarmFrom = parsed.swarmFrom;
+        }
         resolved = remote;
       }
     }
@@ -155,10 +191,66 @@ export function connectRemote(url: string, token: string, name?: string): void {
   window.location.reload();
 }
 
+/**
+ * connectSwarmNode drives one node of a swarm as if it were an ordinary remote.
+ *
+ * A node's mount is a base URL with a path, which is all the rest of the app
+ * has ever needed - so from here every existing screen works against that node
+ * without knowing a relay is in the middle. The relay is remembered so there is
+ * a way back to the swarm afterwards.
+ *
+ * `hash` optionally lands on a particular session once the reload is done.
+ */
+export function connectSwarmNode(
+  relayUrl: string,
+  nodePath: string[],
+  token: string,
+  hash?: string,
+): void {
+  const relay = normalizeBase(relayUrl);
+  if (!relay || nodePath.length === 0) return;
+  const base = relay + nodePath.map((n) => `/swarm/nodes/${n}`).join("");
+  setRemoteToken(base, token);
+  setEnv({
+    mode: "remote",
+    baseUrl: base,
+    token,
+    name: nodePath[nodePath.length - 1] ?? relay,
+    swarmRelay: relay,
+    swarmNode: nodePath.join("/"),
+  });
+  // Leaving the hash alone would keep us on the swarm route, which then asks a
+  // node whether it is a relay and is told no. Entering a node means going to
+  // that node's own screens.
+  window.location.hash = hash || "#/";
+  window.location.reload();
+}
+
+/** returnToSwarm points the UI back at the relay a node was reached through. */
+export function returnToSwarm(): void {
+  const env = getEnv();
+  if (env.mode !== "remote" || !env.swarmRelay) return;
+  const relay = env.swarmRelay;
+  setEnv({
+    mode: "remote",
+    baseUrl: relay,
+    token: getRemoteToken(relay) || env.token,
+    name: "swarm",
+    // Carried over, not dropped: on the relay this is the node the map marks
+    // as where we are, and the path it highlights to get there.
+    ...(env.swarmNode ? { swarmFrom: env.swarmNode } : {}),
+  });
+  window.location.hash = "#/swarm";
+  window.location.reload();
+}
+
 export function isApiPath(path: string): boolean {
   return (
     path.startsWith("/v1/") ||
     path.startsWith("/coddy/") ||
+    // A relay answers under /swarm/ and mounts each node beneath it, so these
+    // have to reach the selected environment like any other API call.
+    path.startsWith("/swarm/") ||
     path.startsWith("/openapi")
   );
 }

@@ -110,3 +110,15 @@ persist, compact, plan files, ask mode, scheduler agent, plus
 console-unique permissions (ask-mode modal) and resume (transcript replay).
 REST-only surfaces (`e2e_scheduler_api`, `e2e_remote`,
 `e2e_background_reap`) have no console equivalent.
+
+## `swarm/`
+
+`swarm_e2e.py` boots a real swarm - three `coddy swarm` relays wired into a ring, one agent
+that the relay dials and one that can only dial out - and checks that a client drives a node
+two relays away, that every session arrives in one labelled list, that a session id shared by
+two agents stays two sessions, that search reaches both the work and the machine, that the
+ring is reported once with the short route chosen, that the control plane stays off the
+mounts, and that a node which dies becomes a warning rather than an error.
+
+Run it with `examples/test_swarm.sh`. Needs `build/coddy` built with `-tags "http swarm"`; no
+model or provider is involved.

@@ -44,7 +44,7 @@ Store the design reference images under `docs/assets/` and link to the specific 
 - **Dictionary contract:** every registered dictionary must contain the same keys and interpolation tokens as the default locale. Add or change the key in every dictionary in the same patch; `messagesParity.test.ts` validates the contract and prevents a newly registered locale from silently drifting.
 - **Counted copy:** anything that reads "N things" goes through `translatePlural` / `tp(key, count)`, not a `count === 1` ternary in the component. The dictionary stores one entry per CLDR category under `key.category` (`tasks.chip.running.one` / `.other` in English; `.one` / `.few` / `.many` / `.other` in Russian), the entry always receives `{count}`, and each locale supplies exactly the categories `Intl.PluralRules` says it can produce — the parity test derives the expected set from that, so Russian declensions cannot silently regress to a single form.
 - **Reactivity:** the controlled select value is driven by local `choice` state (cookie-derived), because picking **Auto** can resolve to the already-active locale (no locale-store notification); label translation re-renders via the locale store subscription.
-- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), the schema-driven settings fields are translated as well (labels and descriptions of providers, models, agent, tools, subagents, memory, compaction, and the System group, resolved by section id and field path in `settings/schemaI18n.ts`, falling back to the schema's own text), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, and the env health banner. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
+- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), the schema-driven settings fields are translated as well (labels and descriptions of providers, models, agent, tools, subagents, memory, compaction, and the System group, resolved by section id and field path in `settings/schemaI18n.ts`, falling back to the schema's own text), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, the env health banner, and the swarm screen with its topology graph. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
 
 ### Frosted glass panels
 
@@ -603,6 +603,75 @@ The UI should be implemented as small React components with folder-enforced hier
 ### Session overflow menu (`…`)
 
 Opens lightweight rename/delete UX (prompt-first until richer modals arrive).
+
+### Swarm screen (`ui/swarm/SwarmView.tsx`)
+
+Shown at **`#/swarm`** in any environment that answers **`GET /swarm/info`**, and as the **home
+screen** when the environment is a relay itself. It is the only screen a relay has, and the map
+is the screen: there is no list of nodes under it, because everything the list did the map does.
+
+- **Relay as home.** A relay serves no **`/coddy/*`** at all: it holds no sessions, no workspace and
+  no model. **`App.tsx`** tracks this as **`atSwarmRoot`** (the swarm probe answered and the
+  environment is not a node reached *through* a relay). While it is true the composer and
+  **`ChatScreen`** are not rendered, and the rail hides **History** and **Scheduler** - a drawer of
+  sessions that cannot exist is furniture for a room nobody can enter.
+- **The map is the way in.** Clicking a node in the graph connects to it: the app repoints at that
+  node through the relay (**`connectSwarmNode`**) and every ordinary screen - chat, History,
+  Scheduler - then works against it. The attached relay and a node with no route are not
+  clickable. Enter and Space do what a click does, and an enterable node takes a visible focus
+  ring.
+- **Where we are, and how we got there.** **`returnToSwarm`** carries the node last entered back to
+  the relay environment as **`swarmFrom`**, so the map can mark it: that node is drawn as *you are
+  here* and every edge on its route from the attached relay is drawn as the live path, with
+  everything off the route receding. Hovering or focusing another node previews its route the
+  same way, weaker.
+- **What the swarm is doing.** **`GET /swarm/sessions`** carries **`turnActive`** and
+  **`permissionPending`** per session; **`nodeActivity`** (**`swarm/routes.ts`**, pure and tested)
+  folds them per node path. Under each node's meta line: nothing when it holds no sessions,
+  a session count when it is idle, a running count when a turn is in flight, and *needs an answer*
+  when anything there waits on a permission prompt - that state wins, because it is the one that
+  needs a human. A running node pulses slowly, a waiting node pulses sharply in a different
+  rhythm, and the hops on the route to a running node carry a travelling dash. Every one of those
+  is driven by that live data and by nothing else, and
+  **`@media (prefers-reduced-motion: reduce)`** removes all of it, leaving the states carried by
+  the copy and a static ring.
+- **Header.** Title (relay name) and a subtitle counting relays, agents and offline nodes, then
+  **`.swarm-header-actions`** holding the **`headerSlot`** - **`App.tsx`** passes
+  **`<EnvironmentChip/>`** there at the relay root, because the composer that normally carries it
+  is not on screen.
+- **The click lands on the question.** Spotting on the map that a box is asking is half the job:
+  clicking a node whose sessions include one waiting on a permission prompt opens *that* session,
+  then one with a turn in flight, freshest first; only a node with neither opens its own home
+  (**`sessionToOpen`** in **`swarm/routes.ts`**, pure and tested). The graph box also scrolls
+  itself to the current node, so a narrow shell opens on the branch you are on rather than on an
+  empty gutter.
+- **Search, not filter.** The box goes to the relay, which fans out, so a query reaches machines
+  this browser cannot dial. With a query, matching sessions appear as rows under the map, each
+  naming its node and route, and a row opens that session on that node. With no query there are
+  no rows at all.
+- **Distinct empty and error states.** **`/swarm/info`** is public, so a credentialed relay answers
+  the probe and refuses everything else; the view then shows **`.swarm-error`** asking for a token
+  rather than reporting an empty swarm. Nodes that did not answer are listed in
+  **`.swarm-warnings`** above the map rather than silently dropped.
+- **The topology graph** is a hand-rolled SVG (**`TopologyGraph.tsx`**, layout in
+  **`swarm/layout.ts`**). A relay is a card carrying an accent-filled tile with the router mark; an
+  agent is a circle with its name on a chip below. Hops are orthogonal elbows that leave the
+  bottom, turn on a rail shared by the children of one parent, and arrive at the top with an
+  arrowhead; a same-tier link between peers is a bow that leaves and arrives at the sides, with
+  its name at the apex; a link that skips a row goes round the outside in a lane clear of every
+  card. Depth is stated in the left gutter - a dashed upright with a tick, a hop caption and a
+  node count per tier. Every state is said twice, never in colour alone: the route in use is solid
+  with a filled head, a way round a ring is dotted with an open chevron, a link into an offline
+  node is coarsely dashed and dimmed, and a node that dials out carries a badge as well as a
+  dotted wire. Because **`role="img"`** collapses the subtree, the SVG is described by a visually
+  hidden paragraph naming each tier, its nodes, where the app is and what is running; marker ids
+  are **`useId()`**-scoped so two graphs on one page cannot collide. The SVG keeps its intrinsic
+  size and scrolls inside **`.swarm-graph-scroll`** rather than scaling its labels below
+  legibility on a phone, and the legend below it wraps instead of setting a minimum width.
+
+The relay serves this SPA from its own address when built with **`-tags "swarm ui"`**
+(**`external/swarm/spa_ui.go`**), so a relay is something you open in a browser rather than a
+service you reach through some other node's UI.
 
 ## States
 

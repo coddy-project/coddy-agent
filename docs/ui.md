@@ -20,7 +20,7 @@ This page captures the original UI requirements and the intended end state. It i
 - **i18n engine:** **`external/ui/src/ui/i18n/`** (**`translate`/`t`**, locale store, **`I18nProvider`** + **`useT()`**). **`locales.ts`** is the single registry for supported ids, picker labels, and dictionaries; picker generation, locale validation, bootstrap, and parity tests derive from it. **`main.tsx`** wraps the app plus shared confirmation provider in **`I18nProvider`**. **`useT()` falls back to `translate` outside a provider**, so components render in tests without wrapping; default-English values match the former hardcoded literals exactly.
 - **Locale maintenance:** adding a locale requires its dictionary plus one **`locales.ts`** entry. Every registered dictionary must add or change the same key and interpolation tokens in one patch; **`messagesParity.test.ts`** enforces both.
 - **Plural copy:** counted strings use **`translatePlural`** / **`tp(key, count)`** with one dictionary entry per CLDR category (**`key.one`**, **`key.few`**, **`key.many`**, **`key.other`**), so Russian declines the noun by the number instead of falling back to one form. Each locale must supply exactly the categories its own **`Intl.PluralRules`** produces; the parity test derives that set per locale.
-- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), schema-driven settings field labels and descriptions are translated too (see below), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, and the env health banner. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
+- **Coverage:** Appearance + Settings surfaces are translated (Settings shell, sections, MCP, Skills, CodexAuth, ModelField/Picker, Combobox), schema-driven settings field labels and descriptions are translated too (see below), and the conversation surfaces are translated too: nav rail, hero title, composer (modes, model picker, attachments, slash/@ menus, environment and folder modals), message rendering (thinking, tool calls, memory, compaction, copy controls), permission and question prompts, plan document card, History sidebar, scheduler drawer and job editor, background tasks panel, the env health banner, and the swarm screen with its topology graph. Shared destructive confirmations for drafts, chats, and scheduler jobs are translated as well.
 - **Schema field localization:** settings sections rendered from the server JSON Schema (providers, models, agent, tools, subagents, hooks, memory, compaction, and every System group child) localize their field labels and descriptions client-side via **`settings/schemaI18n.ts`**: the dictionary key derives deterministically from the section id and the dotted field path (**`settings.schema.<section>.<path>.label` / `.desc`**, System children as **`settings.schema.system.<child>.<path>`**). A key no dictionary defines falls back to the schema's own English text, so unmapped or newly added server fields never leak a raw key. Array item rows inherit the domain for their nested fields but keep their own fallback for the row label, so the enclosing fieldset legend and description are not repeated per row.
 - **Settings sub-panels (Appearance / Skills) are mutually exclusive** — opening one closes the other. Only one sub-panel may be expanded at a time.
 - **Persistence:** switching theme writes the cookie and sets **`document.documentElement.dataset.theme`**; reload must keep the chosen theme.
@@ -647,6 +647,41 @@ a project-local one awaiting workspace approval):
 - List refreshes never unmount the list (initial-load-only placeholder), so the
   drawer scroll position is preserved.
 - The tab does not participate in the settings document Save all flow.
+
+## Swarm screen
+
+Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
+
+- The **Swarm** rail entry appears only where `GET /swarm/info` answers, so a plain
+  agent never shows it. It sits at the foot of the rail, next to Settings.
+- On a relay the swarm map **is** the home screen: no composer, no `ChatScreen`,
+  no History entry and no Scheduler entry, because a relay holds no sessions of
+  its own. Its header carries the environment selector, which normally lives in
+  the composer.
+- **Clicking a node on the map connects to it.** There is no list of nodes under
+  the map and no filter chips: from a node, every ordinary screen (chat,
+  history, scheduler, settings, workspace) works against it, and **Swarm** in
+  the rail returns to the relay.
+- Clicking a node that is **asking a question** opens that session, not an empty
+  chat; a node that is merely busy opens its running session; an idle one opens
+  its home.
+- The map marks the node the app is on as *you are here* and draws the route to
+  it from the attached relay as one connected accent path; everything off that
+  route recedes. Hovering another node previews where a click would take you.
+- Each node says what it is doing: a session count when idle, a running count
+  while a turn is in flight, and *needs an answer* when something there waits on
+  a permission prompt. A running node pulses, a waiting node pulses differently,
+  and the hops to a running node carry a travelling dash. All of it comes from
+  `GET /swarm/sessions` and all of it stops under `prefers-reduced-motion`.
+- Search runs on the relay, not in the browser, so it reaches nodes this
+  browser cannot dial. Matching sessions appear as rows under the map only while
+  there is a query; a row opens that session on its node. Nodes that did not
+  answer are listed as warnings above the map rather than dropped.
+- Built with `-tags "swarm ui"` the relay serves this SPA at its own address;
+  without the `ui` tag its root explains how to rebuild.
+- The environment selector in the map header opens **downward**, because on a
+  relay the chip sits at the top of the window rather than in the composer at
+  the foot.
 
 ## Swagger
 

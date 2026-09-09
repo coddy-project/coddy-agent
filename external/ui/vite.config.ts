@@ -22,6 +22,9 @@ export default defineConfig({
           proxy: {
             "/v1": backend,
             "/coddy": backend,
+            // A relay answers here, and mounts every node it reaches beneath
+            // it, so a dev run pointed at one needs this too.
+            "/swarm": backend,
             "/docs": backend,
             "/openapi.yaml": backend,
             "/openapi.json": backend,

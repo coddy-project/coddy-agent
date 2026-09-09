@@ -5,6 +5,7 @@ import {
   appNavHrefHome,
   appNavHrefScheduler,
   appNavHrefSettings,
+  appNavHrefSwarm,
 } from "../scheduler/hashRoute";
 import { sameTabInAppNavClick } from "./sameTabInAppNav";
 
@@ -51,6 +52,29 @@ function IconScheduler(props: { className?: string }) {
     >
       <circle cx="12" cy="12" r="8" />
       <path d="M12 8v4l2.5 2.5" />
+    </svg>
+  );
+}
+
+/** Nodes wired together: the swarm. */
+function IconSwarm(props: { className?: string }) {
+  return (
+    <svg
+      className={props.className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="5" r="2.5" />
+      <circle cx="5" cy="18" r="2.5" />
+      <circle cx="19" cy="18" r="2.5" />
+      <path d="M12 7.5 6.5 15.8M12 7.5l5.5 8.3M7.5 18h9" />
     </svg>
   );
 }
@@ -120,10 +144,16 @@ export function NavRail(props: {
   onNewChat: () => void;
   onOpenHistory: () => void;
   historyOpen: boolean;
+  /** When false, hide History: a relay holds no sessions of its own. */
+  showHistory?: boolean;
   /** When false, hide Scheduler (binary built without scheduler HTTP routes). Default true for tests. */
   showScheduler?: boolean;
   onOpenScheduler: () => void;
   schedulerOpen: boolean;
+  /** When false, hide Swarm (the environment is not a relay). */
+  showSwarm?: boolean;
+  onOpenSwarm?: () => void;
+  swarmOpen?: boolean;
   onOpenSettings: () => void;
   settingsOpen: boolean;
   canWidenRail: boolean;
@@ -154,6 +184,8 @@ export function NavRail(props: {
   }, [props.canWidenRail, props.railLabelsWide]);
 
   const showScheduler = props.showScheduler !== false;
+  const showSwarm = props.showSwarm === true;
+  const showHistory = props.showHistory !== false;
   const pillWide = props.canWidenRail && props.railLabelsWide;
   const navBtnCls = pillWide
     ? "rail-hit rail-nav-hit rail-nav-hit-wide"
@@ -185,13 +217,13 @@ export function NavRail(props: {
                 className="rail-brand rail-brand-header"
                 aria-label={t("nav.homeAriaLabel")}
                 data-testid="nav-home"
-                onClick={(ev) =>
-                  sameTabInAppNavClick(ev, props.onNewChat)
-                }
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
               >
                 <span className="rail-brand-text-header-single">
                   {t("nav.brandTitle")}{" "}
-                  <span className="rail-brand-header-agent">{t("nav.brandSub")}</span>
+                  <span className="rail-brand-header-agent">
+                    {t("nav.brandSub")}
+                  </span>
                 </span>
               </a>
             </div>
@@ -216,12 +248,12 @@ export function NavRail(props: {
                   className="rail-brand"
                   aria-label={t("nav.homeAriaLabel")}
                   data-testid="nav-home"
-                  onClick={(ev) =>
-                    sameTabInAppNavClick(ev, props.onNewChat)
-                  }
+                  onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
                 >
                   <span className="rail-brand-text">
-                    <span className="rail-brand-title">{t("nav.brandTitle")}</span>
+                    <span className="rail-brand-title">
+                      {t("nav.brandTitle")}
+                    </span>
                     <span className="rail-brand-sub">{t("nav.brandSub")}</span>
                   </span>
                 </a>
@@ -238,9 +270,7 @@ export function NavRail(props: {
               className="rail-brand"
               aria-label={t("nav.homeAriaLabel")}
               data-testid="nav-home"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onNewChat)
-              }
+              onClick={(ev) => sameTabInAppNavClick(ev, props.onNewChat)}
             >
               <span className="rail-brand-text">
                 <span className="rail-brand-title">{t("nav.brandTitle")}</span>
@@ -254,28 +284,28 @@ export function NavRail(props: {
         )}
 
         <div className="rail-middle">
-          <div className="rail-tip-host">
-            <a
-              href={appNavHrefHistory()}
-              className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
-              aria-label={t("nav.history")}
-              aria-pressed={props.historyOpen}
-              data-testid="nav-history"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onOpenHistory)
-              }
-            >
-              <IconBook className="rail-svg rail-nav-hit-svg" />
-              {pillWide ? (
-                <span className="rail-nav-label">{t("nav.history")}</span>
+          {showHistory ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefHistory()}
+                className={`${navBtnCls} ${props.historyOpen ? "is-active" : ""}`}
+                aria-label={t("nav.history")}
+                aria-pressed={props.historyOpen}
+                data-testid="nav-history"
+                onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenHistory)}
+              >
+                <IconBook className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.history")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.historyOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.history")}
+                </span>
               ) : null}
-            </a>
-            {!pillWide && !props.historyOpen ? (
-              <span className="rail-tip" role="tooltip">
-                {t("nav.history")}
-              </span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
 
           {showScheduler ? (
             <div className="rail-tip-host">
@@ -304,6 +334,34 @@ export function NavRail(props: {
 
           <div className="rail-spacer rail-spacer-between" aria-hidden />
 
+          {/* Below the spacer, next to Settings: History and Scheduler are
+              about the session in front of you, while the swarm is the fleet
+              this session happens to live in. */}
+          {showSwarm ? (
+            <div className="rail-tip-host">
+              <a
+                href={appNavHrefSwarm()}
+                className={`${navBtnCls} ${props.swarmOpen ? "is-active" : ""}`}
+                aria-label={t("nav.swarm")}
+                aria-pressed={props.swarmOpen}
+                data-testid="nav-swarm"
+                onClick={(ev) =>
+                  sameTabInAppNavClick(ev, props.onOpenSwarm ?? (() => {}))
+                }
+              >
+                <IconSwarm className="rail-svg rail-nav-hit-svg" />
+                {pillWide ? (
+                  <span className="rail-nav-label">{t("nav.swarm")}</span>
+                ) : null}
+              </a>
+              {!pillWide && !props.swarmOpen ? (
+                <span className="rail-tip" role="tooltip">
+                  {t("nav.swarm")}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rail-tip-host">
             <a
               href={appNavHrefSettings()}
@@ -311,9 +369,7 @@ export function NavRail(props: {
               aria-label={t("nav.settings")}
               aria-pressed={props.settingsOpen}
               data-testid="nav-settings"
-              onClick={(ev) =>
-                sameTabInAppNavClick(ev, props.onOpenSettings)
-              }
+              onClick={(ev) => sameTabInAppNavClick(ev, props.onOpenSettings)}
             >
               <IconSettings className="rail-svg rail-nav-hit-svg" />
               {pillWide ? (

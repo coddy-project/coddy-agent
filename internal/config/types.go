@@ -22,6 +22,7 @@ type Config struct {
 	Compaction   Compaction        `yaml:"compaction"`
 	Memory       MemoryConfig      `yaml:"memory"`
 	HTTPServer   HTTPServerConfig  `yaml:"httpserver"`
+	Swarm        SwarmConfig       `yaml:"swarm"`
 	UI           UIConfig          `yaml:"ui"`
 	Scheduler    SchedulerConfig   `yaml:"scheduler"`
 	Gateways     GatewayConfig     `yaml:"gateways"`

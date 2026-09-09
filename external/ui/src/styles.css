@@ -9796,3 +9796,745 @@ button.question-prompt-row.question-prompt-row--other.question-prompt-row--activ
     min-height: 36px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Swarm: one screen for every node a relay can reach.
+
+   Colours come from the shared tokens, so the screen follows whichever theme is
+   active without a palette of its own.
+   --------------------------------------------------------------------------- */
+
+/* Docked like Settings: a fixed panel right of the rail with its own scroll, so
+   the chat underneath keeps its scroll position instead of the page growing. */
+.swarm-dock-cluster {
+  position: fixed;
+  top: 14px;
+  bottom: 14px;
+  left: calc(var(--rail-shell-track-width) + var(--nav-floating-gutter));
+  right: 14px;
+  z-index: 50;
+  overflow: auto;
+  border-radius: var(--coddy-glass-panel-radius);
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: var(--coddy-glass-panel-bg);
+  backdrop-filter: var(--coddy-glass-panel-backdrop);
+  box-shadow: var(--coddy-glass-panel-shadow);
+}
+
+@media (max-width: 1199px) {
+  .swarm-dock-cluster {
+    left: 8px;
+    right: 8px;
+    top: 8px;
+    bottom: 8px;
+  }
+}
+
+.swarm-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 32px;
+  max-width: 1100px;
+  margin: 0 auto;
+  color: var(--text);
+}
+
+.swarm-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.swarm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.swarm-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.swarm-subtitle {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+  font-size: 13px;
+}
+
+/* The graph, the paragraph that says it in words, and the legend. Positioned,
+   because the summary is taken out of flow and has to hang off this box. */
+.swarm-graph-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  /* Every --coddy-surface-* token is translucent on six of the seven themes.
+     A node painted in one shows the wires running behind it, and a label plate
+     knocks nothing out. These three flatten the same intent onto the canvas so
+     a card is a card and a plate hides what it covers. */
+  --swarm-ground: color-mix(in srgb, var(--text) 4%, var(--bg));
+  --swarm-plate: var(--bg);
+  --swarm-sunken: color-mix(in srgb, var(--text) 10%, var(--bg));
+
+  /* Work in flight is the accent, because that is the swarm doing what it is
+     for. Something waiting on a person is the one alarm hue every theme
+     declares, lifted against the text so it stays legible on all seven. */
+  --swarm-running: var(--accent);
+  --swarm-waiting: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+}
+
+/* Light stacks a pale card on a grey canvas; every dark theme runs the other
+   way, so only the two plates flip. */
+html:not([data-theme="light"]) .swarm-graph-panel {
+  --swarm-plate: color-mix(in srgb, var(--text) 9%, var(--bg));
+  --swarm-sunken: var(--bg);
+}
+
+/* role="img" collapses the SVG, so nothing inside it is announced. This is
+   what a screen reader reads instead, and it is the only copy in the picture
+   that has to stay off the canvas. */
+.swarm-graph-summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The graph keeps the size it was drawn at and scrolls inside this box.
+   Scaling a wide swarm down to fit takes its 11px labels below legibility. */
+.swarm-graph-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: var(--coddy-glass-panel-radius, var(--radius));
+  background: var(--swarm-ground);
+  padding: 10px;
+}
+
+.swarm-graph {
+  display: block;
+  margin: 0 auto;
+  font-family: inherit;
+}
+
+/* The spine: a light upright with one tick per hop, so distance is counted
+   rather than inferred from how far down the page a row happens to sit. */
+.swarm-spine-rule {
+  stroke: color-mix(in srgb, var(--text) 16%, var(--coddy-blend-base));
+  stroke-width: 1;
+  stroke-dasharray: 3 5;
+}
+
+.swarm-tier-tick {
+  stroke: color-mix(in srgb, var(--text) 34%, var(--coddy-blend-base));
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+/* Text-derived rather than --muted: on nord and monokai --muted sits almost on
+   the canvas, and a caption drawn in it is gone. */
+.swarm-tier-label {
+  fill: color-mix(in srgb, var(--text) 72%, var(--coddy-blend-base));
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.swarm-tier-count {
+  fill: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+  font-size: 10px;
+}
+
+.swarm-tier.is-parked .swarm-tier-label {
+  font-style: italic;
+}
+
+/* Arrowheads. Each head is painted here rather than on the path referencing
+   it, because a marker resolves its paint inside defs and never inherits. */
+.swarm-head-route {
+  fill: var(--accent);
+  stroke: none;
+}
+
+.swarm-head-idle {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.swarm-head-down {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.swarm-head-dial {
+  fill: color-mix(in srgb, var(--text) 66%, var(--coddy-blend-base));
+  stroke: none;
+}
+
+/* A wire crossing a node must not swallow a click meant for the node. */
+.swarm-graph-edges {
+  pointer-events: none;
+}
+
+/* The route a request would take: solid, heavier, filled head. */
+.swarm-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+/* Opened from the far end, so it is drawn as a series of pulses rather than a
+   line the relay laid down. */
+.swarm-edge.is-dialled {
+  stroke-dasharray: 1.5 5;
+}
+
+/* A way round a ring the relay would not take: drawn, but lighter, dashed and
+   ended with an open chevron instead of a filled head. */
+.swarm-edge.is-alternate {
+  stroke: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  stroke-width: 1.6;
+  stroke-dasharray: 6 5;
+  opacity: 0.85;
+}
+
+/* The far end is down, so the wire is too. Last, because when a link is both
+   optional and dead, dead is the half of the answer that matters. */
+.swarm-edge.is-down {
+  stroke: color-mix(in srgb, var(--text) 40%, var(--coddy-blend-base));
+  stroke-width: 1.5;
+  stroke-dasharray: 10 9;
+  opacity: 0.75;
+}
+
+/* The path from the relay to the node the app is on: one connected line, drawn
+   over everything else so it reads as a single route rather than as links that
+   happen to touch. */
+.swarm-edge.is-live {
+  stroke: var(--accent);
+  stroke-width: 3.4;
+  stroke-dasharray: none;
+  opacity: 1;
+}
+
+/* Where a click would take you. The same line, said quietly, because it has
+   not happened yet. */
+.swarm-edge.is-preview {
+  stroke: var(--accent);
+  stroke-width: 2.6;
+  stroke-dasharray: none;
+  opacity: 0.72;
+}
+
+/* While a path is traced, the rest of the wiring is context. */
+.swarm-graph-edges.is-tracing .swarm-edge:not(.is-live):not(.is-preview) {
+  opacity: 0.4;
+}
+
+.swarm-graph-edges.is-tracing
+  .swarm-edge-group:not(.is-traced)
+  .swarm-edge-chip {
+  opacity: 0.5;
+}
+
+/* A turn is in flight down this branch: the dashes travel the way the request
+   does, from the relay towards the node. */
+.swarm-edge.is-busy {
+  stroke-dasharray: 12 10;
+  animation: swarm-edge-flow 1.4s linear infinite;
+}
+
+@keyframes swarm-edge-flow {
+  from {
+    stroke-dashoffset: 22;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A plate the exact colour of the canvas: the wire runs under the name rather
+   than through it. */
+.swarm-edge-chip rect {
+  fill: var(--swarm-ground);
+  stroke: color-mix(in srgb, var(--text) 13%, var(--coddy-blend-base));
+  stroke-width: 1;
+}
+
+.swarm-edge-group.is-alternate .swarm-edge-chip rect {
+  stroke-dasharray: 4 3;
+}
+
+.swarm-edge-label {
+  fill: color-mix(in srgb, var(--text) 64%, var(--coddy-blend-base));
+  font-size: 10px;
+}
+
+/* Nodes. The hit shape is larger than the drawing so a finger can land on it. */
+.swarm-node-hit {
+  fill: transparent;
+  stroke: none;
+}
+
+/* Elevation without a filter: a darker plate under the shape. Both themes read
+   it as a shadow, because it is darker than the surface it sits on in both. */
+.swarm-node-shadow {
+  fill: var(--swarm-sunken);
+  stroke: none;
+}
+
+.swarm-node-body {
+  fill: var(--swarm-plate);
+  stroke: var(--coddy-glass-panel-border);
+  stroke-width: 1.5;
+}
+
+.swarm-node-tile {
+  fill: color-mix(in srgb, var(--accent) 18%, var(--coddy-blend-base));
+  stroke: none;
+}
+
+.swarm-node-mark,
+.swarm-node-glyph {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.swarm-node-agent .swarm-node-glyph {
+  stroke: color-mix(in srgb, var(--text) 68%, var(--coddy-blend-base));
+}
+
+/* The relay you are attached to: the only node whose tile is filled solid. */
+.swarm-node.is-root .swarm-node-body {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.swarm-node.is-root .swarm-node-tile {
+  fill: var(--accent);
+}
+
+/* Not white: --accent sits on a light canvas on monokai, nord, rose-pine and
+   solarized-dark, and white on it is unreadable. */
+.swarm-node.is-root .swarm-node-mark {
+  stroke: var(--coddy-on-accent-fg);
+}
+
+.swarm-node-meta {
+  fill: color-mix(in srgb, var(--text) 52%, var(--coddy-blend-base));
+  font-size: 10px;
+}
+
+.swarm-node-chip rect {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  stroke-width: 1;
+}
+
+.swarm-node-chip text {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.swarm-node-dot {
+  fill: var(--coddy-todo-completed);
+  stroke: var(--swarm-plate);
+  stroke-width: 2;
+}
+
+.swarm-node-dot-off circle {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  stroke-width: 1.6;
+}
+
+.swarm-node-dot-off path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 50%, var(--coddy-blend-base));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.swarm-node-badge circle {
+  fill: var(--swarm-plate);
+  stroke: color-mix(in srgb, var(--text) 22%, var(--coddy-blend-base));
+  stroke-width: 1.2;
+}
+
+.swarm-node-badge path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Liveness never rides on colour alone: the body dashes as well. */
+.swarm-node.is-offline .swarm-node-body,
+.swarm-node.is-stranded .swarm-node-body {
+  stroke-dasharray: 5 4;
+}
+
+.swarm-node.is-offline .swarm-node-mark,
+.swarm-node.is-offline .swarm-node-glyph {
+  opacity: 0.45;
+}
+
+.swarm-node.is-offline .swarm-node-label,
+.swarm-node.is-offline .swarm-node-chip text {
+  opacity: 0.62;
+}
+
+.swarm-node-label {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* The ring is always in the DOM at zero opacity: growing a stroke on hover
+   would move the shape's edge by half the delta and make the node breathe. */
+.swarm-node-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.swarm-node[role="button"] {
+  cursor: pointer;
+}
+
+.swarm-node[role="button"]:hover .swarm-node-ring {
+  opacity: 0.45;
+}
+
+/* Hover is the weakest of the three ring states, but its selector carried an
+   attribute the other two do not, so it was winning on specificity and dimming
+   the ring of the node the reader had just picked. */
+.swarm-node[role="button"].is-selected .swarm-node-ring,
+.swarm-node[role="button"]:focus-visible .swarm-node-ring {
+  opacity: 1;
+}
+
+.swarm-node.is-selected .swarm-node-body {
+  fill: color-mix(in srgb, var(--accent) 18%, var(--swarm-plate));
+}
+
+.swarm-node.is-selected .swarm-node-ring {
+  opacity: 1;
+}
+
+.swarm-node:focus {
+  outline: none;
+}
+
+.swarm-node:focus-visible .swarm-node-ring {
+  opacity: 1;
+  stroke-dasharray: 5 4;
+}
+
+/* The halo carries every bit of motion on this screen, and it only moves when
+   the swarm does: its state class is the single thing that changes when work
+   starts or stops, so a poll returning the same answer never restarts it. */
+.swarm-node-halo {
+  fill: none;
+  stroke: none;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.swarm-node-halo.is-running {
+  stroke: var(--swarm-running);
+  stroke-width: 2.5;
+  animation: swarm-halo-running 2.6s ease-out infinite;
+}
+
+/* Faster, and it never fades out: something is waiting for a person, and the
+   two rhythms have to read apart from across a room. */
+.swarm-node-halo.is-waiting {
+  stroke: var(--swarm-waiting);
+  stroke-width: 3;
+  animation: swarm-halo-waiting 0.9s ease-in-out infinite;
+}
+
+@keyframes swarm-halo-running {
+  0% {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes swarm-halo-waiting {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.06);
+  }
+}
+
+/* What the node is working on, under everything else it says. */
+.swarm-node-work text {
+  fill: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 10px;
+}
+
+.swarm-node-work.is-running text {
+  fill: var(--swarm-running);
+  font-weight: 600;
+}
+
+.swarm-node-work.is-waiting text {
+  fill: var(--swarm-waiting);
+  font-weight: 600;
+}
+
+.swarm-node-work-dot {
+  fill: var(--swarm-running);
+  stroke: none;
+}
+
+/* You are here: the one node the app is actually driving. Stronger than hover
+   and than focus, and it does not go away when the pointer moves. */
+.swarm-node.is-current .swarm-node-ring {
+  opacity: 1;
+  stroke-width: 3.2;
+  stroke-dasharray: none;
+}
+
+.swarm-node.is-current .swarm-node-body {
+  fill: color-mix(in srgb, var(--accent) 16%, var(--swarm-plate));
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.swarm-node.is-current .swarm-node-meta {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
+/* Off the traced path: still readable, no longer competing with it. */
+.swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-label,
+.swarm-graph-nodes.is-tracing .swarm-node:not(.is-on-route) .swarm-node-meta,
+.swarm-graph-nodes.is-tracing
+  .swarm-node:not(.is-on-route)
+  .swarm-node-chip
+  text {
+  fill-opacity: 0.62;
+}
+
+/* HTML, not SVG, so it wraps on a phone instead of setting a minimum width the
+   graph would then have to scroll to reach. */
+.swarm-graph-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+
+.swarm-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--text) 62%, var(--coddy-blend-base));
+}
+
+.swarm-legend-mark {
+  width: 42px;
+  height: 12px;
+  flex: none;
+  overflow: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swarm-node-ring {
+    transition: none;
+  }
+
+  /* No movement at all, and none of the meaning lost: the halo becomes a plain
+     ring and the copy under the node still says what is going on. A media
+     query adds no specificity, so these have to name the state classes or the
+     animation that set them keeps running. */
+  .swarm-node-halo.is-running,
+  .swarm-node-halo.is-waiting,
+  .swarm-edge.is-busy {
+    animation: none;
+  }
+
+  .swarm-node-halo.is-running,
+  .swarm-node-halo.is-waiting {
+    opacity: 0.55;
+  }
+
+  .swarm-edge.is-busy {
+    stroke-dasharray: none;
+  }
+}
+
+/* The search is the only control left under the map, so it stands on its own
+   rather than inside a row of them. */
+.swarm-search {
+  width: 100%;
+  background: var(--coddy-surface-field);
+  border: 1px solid var(--coddy-glass-panel-border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.swarm-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.swarm-warnings {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border-radius: 10px;
+  background: var(--coddy-surface-muted);
+  border: 1px solid var(--coddy-glass-panel-border);
+  color: color-mix(in srgb, var(--text) 70%, var(--coddy-blend-base));
+  font-size: 12px;
+}
+
+.swarm-error {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Search answers with sessions, wherever in the swarm they live. Each row says
+   which node holds it and how that node is reached, because the same title can
+   exist on several machines. */
+.swarm-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.swarm-result-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  padding: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.swarm-result-hit:hover {
+  background: var(--coddy-surface-muted);
+}
+
+.swarm-result-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.swarm-result-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swarm-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: color-mix(in srgb, var(--text) 58%, var(--coddy-blend-base));
+  font-size: 11px;
+  min-width: 0;
+}
+
+.swarm-result-route,
+.swarm-result-cwd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swarm-result-active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.swarm-result-waiting {
+  color: color-mix(in srgb, var(--diff-del-no) 62%, var(--text));
+  font-weight: 600;
+}
+
+/* Which machine the session is on. Text-derived rather than a surface token:
+   the translucent surfaces all but vanish against the panel on the darker
+   themes, and this is the half of the row that answers "where". */
+.swarm-badge {
+  background: color-mix(in srgb, var(--text) 9%, var(--coddy-blend-base));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, var(--coddy-blend-base));
+  border-radius: 5px;
+  padding: 1px 6px;
+  flex: none;
+}
+
+.swarm-empty {
+  color: color-mix(in srgb, var(--text) 60%, var(--coddy-blend-base));
+  font-size: 13px;
+  padding: 12px 2px;
+}
+
+@media (max-width: 700px) {
+  .swarm-view {
+    padding: 14px 12px 24px;
+  }
+}
