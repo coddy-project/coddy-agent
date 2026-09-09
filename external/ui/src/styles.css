@@ -4374,11 +4374,22 @@ textarea#composer {
   color: var(--muted);
 }
 
-/* Inline "new folder" row: a name field on the folder-row grid, so the entry
-   being typed sits where the folder will appear. Not hoverable - it is a form,
-   not a destination. */
+/* Inline "new folder" row: a name field on the folder-row metrics, directly
+   above the listing it will appear in. It is a form, not a destination, so it
+   takes no row hover - and it sits *outside* the scrollport below on purpose:
+   as a flex: none sibling it is always fully visible, where a child of the list
+   would scroll away under the operator, and on a short window (issue #159's
+   1024x300: a 38px scrollport) it would be taller than the port it lives in. */
 .workspace-modal-row--new {
+  flex: none;
   gap: 6px;
+  /* Tighter than a folder row on purpose: the row is chrome, and chrome is
+     what a short dialog runs out of room for. At 1024x300 - the shortest
+     viewport webkit-scroll-check.mjs drives - the list has already shrunk to
+     zero, so every pixel here comes straight off the dialog's own height. */
+  padding: 2px 8px;
+  margin: 0 6px 2px;
+  width: auto;
   cursor: default;
   overflow: visible;
 }

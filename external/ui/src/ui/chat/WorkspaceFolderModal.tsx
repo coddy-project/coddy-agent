@@ -172,65 +172,65 @@ export function WorkspaceFolderModal(props: Props) {
             }
           }}
         />
-        <div className="workspace-modal-list">
-          {error ? <div className="mode-menu-empty">{error}</div> : null}
-          {creating ? (
-            <div className="workspace-modal-row workspace-modal-row--new">
-              <span className="workspace-chip-icon" aria-hidden="true">
-                <svg
-                  viewBox="0 0 16 16"
-                  width="12"
-                  height="12"
-                  fill="currentColor"
-                >
-                  <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
-                </svg>
-              </span>
-              <input
-                className="workspace-modal-new-name"
-                data-testid="workspace-modal-new-folder-name"
-                aria-label={t("composer.folderModal.newFolderPlaceholder")}
-                placeholder={t("composer.folderModal.newFolderPlaceholder")}
-                spellCheck={false}
-                autoComplete="off"
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void createFolder();
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setCreating(false);
-                    setNewName("");
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="workspace-modal-btn workspace-modal-btn--primary workspace-modal-btn--inline"
-                data-testid="workspace-modal-new-folder-create"
-                disabled={!newName.trim()}
-                onClick={() => void createFolder()}
+        {creating ? (
+          <div className="workspace-modal-row workspace-modal-row--new">
+            <span className="workspace-chip-icon" aria-hidden="true">
+              <svg
+                viewBox="0 0 16 16"
+                width="12"
+                height="12"
+                fill="currentColor"
               >
-                {t("composer.folderModal.newFolderCreate")}
-              </button>
-              <button
-                type="button"
-                className="workspace-modal-btn workspace-modal-btn--inline"
-                data-testid="workspace-modal-new-folder-cancel"
-                aria-label={t("composer.folderModal.newFolderCancel")}
-                onClick={() => {
+                <path d="M1.75 2.5h4.3l1.4 1.5h6.8c.41 0 .75.34.75.75v8c0 .41-.34.75-.75.75H1.75a.75.75 0 0 1-.75-.75v-9.5c0-.41.34-.75.75-.75Z" />
+              </svg>
+            </span>
+            <input
+              className="workspace-modal-new-name"
+              data-testid="workspace-modal-new-folder-name"
+              aria-label={t("composer.folderModal.newFolderPlaceholder")}
+              placeholder={t("composer.folderModal.newFolderPlaceholder")}
+              spellCheck={false}
+              autoComplete="off"
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void createFolder();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
                   setCreating(false);
                   setNewName("");
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ) : null}
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="workspace-modal-btn workspace-modal-btn--primary workspace-modal-btn--inline"
+              data-testid="workspace-modal-new-folder-create"
+              disabled={!newName.trim()}
+              onClick={() => void createFolder()}
+            >
+              {t("composer.folderModal.newFolderCreate")}
+            </button>
+            <button
+              type="button"
+              className="workspace-modal-btn workspace-modal-btn--inline"
+              data-testid="workspace-modal-new-folder-cancel"
+              aria-label={t("composer.folderModal.newFolderCancel")}
+              onClick={() => {
+                setCreating(false);
+                setNewName("");
+              }}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
+        <div className="workspace-modal-list">
+          {error ? <div className="mode-menu-empty">{error}</div> : null}
           {listing && listing.path !== listing.parent ? (
             <button
               type="button"

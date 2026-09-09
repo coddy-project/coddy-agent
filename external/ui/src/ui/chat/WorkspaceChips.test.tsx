@@ -429,6 +429,37 @@ describe("WorkspaceChips", () => {
     expect(props.onPickFolder).toHaveBeenCalledWith("/repos/fresh");
   });
 
+  it("keeps the name row out of the scrolling list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        path: "/repos",
+        parent: "/",
+        folders: Array.from({ length: 30 }, (_, i) => ({
+          name: `project-${i}`,
+          path: `/repos/project-${i}`,
+        })),
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-project-0"));
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+
+    // The row is a sibling of the list, not a child of it: inside the
+    // scrollport it would scroll away under the operator, and on a short
+    // window it is taller than the port itself.
+    const list = document.querySelector(".workspace-modal-list");
+    const row = document.querySelector(".workspace-modal-row--new");
+    expect(row).toBeTruthy();
+    expect(list?.contains(row as Node)).toBe(false);
+    // It sits directly above the listing it will appear in.
+    expect(row?.nextElementSibling).toBe(list);
+  });
+
   it("keeps the name row open and explains a folder that already exists", async () => {
     const fetchMock = vi
       .fn()
