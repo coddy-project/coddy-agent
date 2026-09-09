@@ -4,6 +4,7 @@ package swarm
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -120,6 +121,20 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The transport carrying this request reads the body from a goroutine of
+	// its own, and net/http closes an inbound body the moment the handler
+	// writes response headers - which, for a proxied stream, is while the node
+	// is still answering. Having copied the declared length, the transport
+	// reads once more to see whether the body was longer than it claimed; if
+	// that read lands after the close it fails, the transport drops the
+	// connection to the node, and an answer that had already started arrives
+	// truncated. Nothing can follow the length the client declared, so the
+	// forwarded body answers that read here rather than reaching for a body
+	// that is no longer there.
+	if r.Body != nil && r.ContentLength > 0 {
+		r.Body = &declaredBody{rc: r.Body, left: r.ContentLength}
+	}
+
 	proxy := &httputil.ReverseProxy{
 		Rewrite:   s.rewriteFor(node, target, rest),
 		Transport: node.Transport.RoundTripper(),
@@ -137,6 +152,30 @@ func (s *Server) handleMount(w http.ResponseWriter, r *http.Request) {
 	}
 	proxy.ServeHTTP(w, r)
 }
+
+// declaredBody is a request body bounded by the length its sender declared.
+//
+// It is deliberately not a plain io.LimitReader: the point is the Close, which
+// belongs to the inbound server and may happen while the transport is still
+// reading. Past the declared length the wrapper stops asking.
+type declaredBody struct {
+	rc   io.ReadCloser
+	left int64
+}
+
+func (b *declaredBody) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.rc.Read(p)
+	b.left -= int64(n)
+	return n, err
+}
+
+func (b *declaredBody) Close() error { return b.rc.Close() }
 
 // rewriteFor builds the request the node will see.
 func (s *Server) rewriteFor(node Node, target *url.URL, rest string) func(*httputil.ProxyRequest) {
