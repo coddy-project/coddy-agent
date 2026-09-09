@@ -164,3 +164,58 @@ test("provider_usage frames reach their handler with the session that caused the
   });
   expect(seen).toEqual([{ sid: "sess_a", used: 42 }]);
 });
+
+test("a config reload tells the client to re-read what the config decides", async () => {
+  let reloads = 0;
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        `event: config_reloaded\ndata: ${JSON.stringify({
+          object: "coddy.config_reloaded",
+          at: "2026-09-09T12:00:00Z",
+        })}\n\n`,
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: () => {},
+    onConfigReloaded: () => {
+      reloads += 1;
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(reloads).toBe(1);
+});
+
+// The event carries no model list, so a client that has no use for one must not be
+// forced to handle it: the callback stays optional.
+test("a config reload without a handler is not an error", async () => {
+  const ended: string[] = [];
+  const ctl = new AbortController();
+  const fetchImpl = vi.fn(async () =>
+    responseOf(
+      `event: ready\ndata: {"object":"coddy.events_ready"}\n\n` +
+        `event: config_reloaded\ndata: {"object":"coddy.config_reloaded"}\n\n` +
+        turnEvent("turn_ended", "sess_z"),
+    ),
+  );
+
+  await subscribeServerEvents({
+    onTurnStarted: () => {},
+    onTurnEnded: (sid) => {
+      ended.push(sid);
+      ctl.abort();
+    },
+    signal: ctl.signal,
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+    sleep: async () => {},
+  });
+
+  expect(ended).toEqual(["sess_z"]);
+});
