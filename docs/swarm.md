@@ -5,9 +5,13 @@ stateless meeting point: nodes register into it, it carries requests to them, an
 their session lists into one. It stores nothing of its own, so what it reports is only ever a
 live view of what the nodes told it.
 
-Built with `-tags swarm`. Without that tag `coddy swarm` prints the usual "not built in"
-message, the agent-side join hook is a stub that starts no goroutine and opens no connection,
-and the binary behaves exactly as it did before the feature existed.
+Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
+the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry
+`coddy swarm`. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm"`.
+
+A binary built without the tag still works: `coddy swarm` prints the usual "not built in" message,
+the agent-side join hook is a stub that starts no goroutine and opens no connection, and the binary
+behaves exactly as it did before the feature existed.
 
 ## Why
 

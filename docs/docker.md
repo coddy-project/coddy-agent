@@ -138,7 +138,7 @@ docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot
 
 Notes:
 
-- The **published GHCR image carries the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway`**), so **`docker-compose.yml`** with **`CODDY_COMMAND=gateway`** runs on the stock image; no custom **`CODDY_IMAGE`** is needed.
+- The **published GHCR image carries the `gateway` tag** (CI [`docker-build-push.yaml`](../.github/workflows/docker-build-push.yaml) sets **`BUILD_TAGS=http,scheduler,ui,memory,cli,gateway,swarm`**), so **`docker-compose.yml`** with **`CODDY_COMMAND=gateway`** runs on the stock image; no custom **`CODDY_IMAGE`** is needed.
 - The bot token is read from **`TELEGRAM_BOT_TOKEN`** (passed through by both compose files) or **`$CODDY_HOME/.env`**; keep it out of git.
 - If your **`gateways.telegram.proxy`** points at a host-local proxy (e.g. **`socks5://127.0.0.1:7890`**), it is unreachable from inside the container - use **`host.docker.internal`** or add **`network_mode: host`** in a **`docker-compose.override.yml`**.
 - Gateway mode uses no inbound port (Telegram long-polling); the mapped **`12345`** is simply unused.

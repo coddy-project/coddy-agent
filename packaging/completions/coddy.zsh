@@ -11,6 +11,7 @@ _coddy() {
         'acp:Agent Client Protocol server on stdio'
         'http:OpenAI-compatible HTTP gateway and web UI'
         'gateway:messenger gateway'
+        'swarm:stateless relay aggregating nodes'
         'sessions:list or export stored sessions'
         'skills:manage skills'
         'plugin:manage plugins and marketplaces'
@@ -51,7 +52,7 @@ _coddy() {
                         '--repo[GitHub repository to take releases from]:repo:' \
                         '--no-restart[Windows only: do not start Coddy again]'
                     ;;
-                cli|acp|http|gateway)
+                cli|acp|http|gateway|swarm)
                     _arguments \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \

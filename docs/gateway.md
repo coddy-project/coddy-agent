@@ -75,7 +75,7 @@ make build TAGS="gateway.telegram"
 make build TAGS="gateway"
 
 # The full set (what a release ships)
-make build TAGS="http ui scheduler memory cli gateway"
+make build TAGS="http ui scheduler memory cli gateway swarm"
 ```
 
 Without either tag the `coddy gateway` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.

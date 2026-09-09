@@ -4374,6 +4374,50 @@ textarea#composer {
   color: var(--muted);
 }
 
+/* Inline "new folder" row: a name field on the folder-row metrics, directly
+   above the listing it will appear in. It is a form, not a destination, so it
+   takes no row hover - and it sits *outside* the scrollport below on purpose:
+   as a flex: none sibling it is always fully visible, where a child of the list
+   would scroll away under the operator, and on a short window (issue #159's
+   1024x300: a 38px scrollport) it would be taller than the port it lives in. */
+.workspace-modal-row--new {
+  flex: none;
+  gap: 6px;
+  /* Tighter than a folder row on purpose: the row is chrome, and chrome is
+     what a short dialog runs out of room for. At 1024x300 - the shortest
+     viewport webkit-scroll-check.mjs drives - the list has already shrunk to
+     zero, so every pixel here comes straight off the dialog's own height. */
+  padding: 2px 8px;
+  margin: 0 6px 2px;
+  width: auto;
+  cursor: default;
+  overflow: visible;
+}
+
+.workspace-modal-row--new:hover {
+  background: transparent;
+}
+
+.workspace-modal-new-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.workspace-modal-new-name::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.workspace-modal-new-name:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
 .workspace-modal-actions {
   display: flex;
   flex: none;
@@ -4396,6 +4440,20 @@ textarea#composer {
   border-color: var(--accent);
   background: var(--accent);
   color: #fff;
+}
+
+/* New folder leads the footer, opposite the Cancel / Open pair. */
+.workspace-modal-btn--lead {
+  margin-right: auto;
+}
+
+/* The two buttons inside the inline name row sit on a list row, not in the
+   footer, so they are tighter than the footer pair. Same specificity as the
+   base rule above, which is why they have to come after it. */
+.workspace-modal-btn--inline {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .workspace-modal-btn:disabled {

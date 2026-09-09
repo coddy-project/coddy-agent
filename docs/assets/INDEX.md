@@ -93,3 +93,18 @@ Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut fro
 - `issue-159-folder-dialog-{before,after}-{dark,light}-1280x800.png` - wide desktop, dialog unchanged (520px cap, 378px list)
 - `issue-159-folder-dialog-{before,after}-{dark,light}-390x720.png` - narrow shell, dialog unchanged
 
+## Open folder dialog: New folder (issue #157, September 2026)
+
+In `ui-folder-picker/`. Captured through Playwright against `coddy http` with the SPA embedded
+(`make build TAGS="http ui"`), demo workspace holding `codex` and `tmp` so the listing matches the
+screenshot in the issue. `before-*` is the dialog built from the pre-change sources.
+
+- `folder-picker-before-dark-1280.png` - the footer before the change: only **Cancel** / **Open**
+- `folder-picker-after-dark-1280.png` - the same dialog with **New folder** leading the footer
+- `folder-picker-new-row-dark-1280.png` - the inline name row between the path field and the list, name typed
+- `folder-picker-created-dark-1280.png` - after **Enter**: the dialog is inside the folder it just made, so **Open** picks it
+- `folder-picker-exists-dark-1280.png` - a name already taken (**409**): the row keeps its text and the clash is reported inline
+- `folder-picker-new-row-light-1280.png` - the name row in the Light theme
+- `folder-picker-{after,new-row}-dark-390.png` - narrow shell: the three-button footer and the name row still fit
+- `folder-picker-new-row-dark-1024x300.png` - the shortest viewport `webkit-scroll-check.mjs` drives, name row open: the list has shrunk to nothing and the row plus all three buttons are still whole (issue #159's invariant, which is why the row is a sibling of the list rather than a child of it)
+

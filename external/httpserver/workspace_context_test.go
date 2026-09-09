@@ -8,6 +8,7 @@ package httpserver
 // enumeration lives in internal/platform and is tested on a Windows runner.
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -62,9 +63,26 @@ func newFoldersTestServer(t *testing.T, drives []string) *httptest.Server {
 	srv := &Server{drives: func() []string { return drives }}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /coddy/workspace/folders", srv.coddyWorkspaceFoldersGet)
+	mux.HandleFunc("POST /coddy/workspace/folders", srv.coddyWorkspaceFoldersPost)
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func postFolderJSON(t *testing.T, ts *httptest.Server, dir, name string) (int, map[string]interface{}) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]string{"path": dir, "name": name})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	res, err := http.Post(ts.URL+"/coddy/workspace/folders", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST folders: %v", err)
+	}
+	defer res.Body.Close()
+	var body map[string]interface{}
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	return res.StatusCode, body
 }
 
 func getFoldersJSON(t *testing.T, ts *httptest.Server, path string) (int, map[string]interface{}) {
@@ -130,5 +148,90 @@ func TestWorkspaceFoldersDriveRootOffersDriveLevelAsParent(t *testing.T) {
 	}
 	if body["parent"] != workspaceDrivesPath {
 		t.Errorf("parent of %q = %v, want %q", root, body["parent"], workspaceDrivesPath)
+	}
+}
+
+func TestWorkspaceFolderCreateMakesTheFolderAndReturnsItsListing(t *testing.T) {
+	dir := t.TempDir()
+	ts := newFoldersTestServer(t, nil)
+
+	status, body := postFolderJSON(t, ts, dir, "project")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %v)", status, body)
+	}
+	made := filepath.Join(dir, "project")
+	if body["path"] != made {
+		t.Errorf("path = %v, want the new folder %q", body["path"], made)
+	}
+	if body["parent"] != dir {
+		t.Errorf("parent = %v, want %q", body["parent"], dir)
+	}
+	// The new folder is empty, and the picker renders "no subfolders" from an
+	// array rather than a missing key.
+	rows, ok := body["folders"].([]interface{})
+	if !ok || len(rows) != 0 {
+		t.Errorf("folders = %v, want an empty array", body["folders"])
+	}
+	if fi, err := os.Stat(made); err != nil || !fi.IsDir() {
+		t.Fatalf("stat %q: %v", made, err)
+	}
+}
+
+func TestWorkspaceFolderCreateRejectsNamesThatEscapeTheParent(t *testing.T) {
+	ts := newFoldersTestServer(t, nil)
+	for _, name := range []string{"", "   ", ".", "..", "a/b", `a\b`, "/abs", "../sibling"} {
+		dir := t.TempDir()
+		status, body := postFolderJSON(t, ts, dir, name)
+		if status != http.StatusBadRequest {
+			t.Errorf("name %q: status = %d, want 400 (body %v)", name, status, body)
+		}
+		// Nothing may appear next to, above, or inside the parent.
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("read %q: %v", dir, err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("name %q created %v inside the parent", name, entries)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "sibling")); err == nil {
+			t.Errorf("name %q escaped into the parent's parent", name)
+		}
+	}
+}
+
+func TestWorkspaceFolderCreateReportsAnExistingFolderAsAConflict(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "taken"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ts := newFoldersTestServer(t, nil)
+
+	status, body := postFolderJSON(t, ts, dir, "taken")
+	if status != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body %v)", status, body)
+	}
+}
+
+func TestWorkspaceFolderCreateRejectsAMissingParent(t *testing.T) {
+	ts := newFoldersTestServer(t, nil)
+	missing := filepath.Join(t.TempDir(), "definitely", "missing")
+
+	status, body := postFolderJSON(t, ts, missing, "child")
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %v)", status, body)
+	}
+	// A missing parent is an error, never an invitation to build the chain.
+	if _, err := os.Stat(missing); err == nil {
+		t.Errorf("%q was created instead of rejected", missing)
+	}
+}
+
+func TestWorkspaceFolderCreateRejectsTheDriveLevel(t *testing.T) {
+	// ":drives:" is a synthetic level with no directory behind it.
+	ts := newFoldersTestServer(t, []string{`X:\`})
+
+	status, body := postFolderJSON(t, ts, workspaceDrivesPath, "child")
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %v)", status, body)
 	}
 }

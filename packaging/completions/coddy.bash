@@ -7,7 +7,7 @@ _coddy() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="cli acp http gateway sessions skills plugin mcp providers rules agents hooks update"
+    commands="cli acp http gateway swarm sessions skills plugin mcp providers rules agents hooks update"
 
     if [ "${COMP_CWORD}" -eq 1 ]; then
         COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue -p --prompt --resume" -- "${cur}"))
@@ -46,7 +46,7 @@ _coddy() {
         update)
             COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart" -- "${cur}"))
             ;;
-        cli|acp|http|gateway)
+        cli|acp|http|gateway|swarm)
             COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
             ;;
     esac

@@ -64,6 +64,13 @@ Feature: Workspace switching
     When I browse workspace folders under "parent"
     Then the folder listing contains "one, two"
 
+  Scenario: Create a folder from the workspace picker
+    Given a workspace folder "parent" containing subfolders "one, two"
+    When I create the folder "three" under "parent"
+    Then the folder listing points at "three" inside "parent"
+    When I browse workspace folders under "parent"
+    Then the folder listing contains "one, three, two"
+
   Scenario: Browse the machine drives for the workspace picker
     Given the host reports drives "X:\, Y:\"
     When I browse the workspace drive list

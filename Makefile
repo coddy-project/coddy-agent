@@ -2,7 +2,7 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway"
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm"
 #     http     OpenAI-compatible gateway (coddy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -10,12 +10,13 @@
 #     gateway.telegram  Telegram bot gateway only (coddy gateway; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `coddy` on a terminal; see external/cli/)
+#     swarm    stateless relay that aggregates nodes (coddy swarm; see external/swarm/)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
-#             make build TAGS="http ui scheduler memory cli gateway"
+#             make build TAGS="http ui scheduler memory cli gateway swarm"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
@@ -34,7 +35,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/coddy
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli gateway
+FULL_TAGS := http ui scheduler memory cli gateway swarm
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -152,6 +153,7 @@ test: test-opencode-rules
 	go test -tags=gateway ./...
 	go test -tags=http,scheduler,ui,memory,cli,gateway ./...
 	go test -tags=http,scheduler,ui,memory,cli,swarm ./...
+	go test -tags=http,ui,scheduler,memory,cli,gateway,swarm ./...
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -181,6 +183,7 @@ check-windows:
 	GOOS=windows go vet -tags=http,swarm ./...
 	GOOS=windows go vet -tags=gateway ./...
 	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway,swarm ./...
 
 # Clean build artifacts.
 clean:

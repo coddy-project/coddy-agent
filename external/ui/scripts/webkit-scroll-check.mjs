@@ -56,6 +56,29 @@ function check(label, ok, detail) {
   }
 }
 
+// The same geometry read is taken twice per viewport: once on the dialog as it
+// opens, once with the New folder name row expanded, since that row lands
+// inside the scrollport and is the state a short window is most likely to
+// break.
+async function probe(page) {
+  return page.evaluate(() => {
+    const modal = document.querySelector(".workspace-modal");
+    const list = document.querySelector(".workspace-modal-list");
+    const open = document.querySelector('[data-testid="workspace-modal-open"]');
+    const modalRect = modal.getBoundingClientRect();
+    const openRect = open.getBoundingClientRect();
+    return {
+      clipped: modal.scrollHeight - modal.clientHeight,
+      openInside:
+        openRect.bottom <= modalRect.bottom + 0.5 &&
+        openRect.top >= modalRect.top - 0.5,
+      modalInViewport:
+        modalRect.top >= -0.5 && modalRect.bottom <= innerHeight + 0.5,
+      listOverflows: list.scrollHeight > list.clientHeight,
+    };
+  });
+}
+
 const browser = await launcher.launch();
 try {
   for (const [width, height] of VIEWPORTS) {
@@ -73,24 +96,7 @@ try {
       await page.waitForTimeout(700);
     }
 
-    const geometry = await page.evaluate(() => {
-      const modal = document.querySelector(".workspace-modal");
-      const list = document.querySelector(".workspace-modal-list");
-      const open = document.querySelector(
-        '[data-testid="workspace-modal-open"]',
-      );
-      const modalRect = modal.getBoundingClientRect();
-      const openRect = open.getBoundingClientRect();
-      return {
-        clipped: modal.scrollHeight - modal.clientHeight,
-        openInside:
-          openRect.bottom <= modalRect.bottom + 0.5 &&
-          openRect.top >= modalRect.top - 0.5,
-        modalInViewport:
-          modalRect.top >= -0.5 && modalRect.bottom <= innerHeight + 0.5,
-        listOverflows: list.scrollHeight > list.clientHeight,
-      };
-    });
+    const geometry = await probe(page);
 
     const at = `${ENGINE} ${width}x${height}`;
     // The dialog clips at its rounded corners, so anything laid out past its
@@ -140,6 +146,60 @@ try {
         `skip ${at} list fits, no scroll assertions (set CODDY_FOLDER)`,
       );
     }
+
+    // New folder expands a name row at the top of the list. It is a child of
+    // the scrollport, so the dialog must absorb it the same way it absorbs a
+    // long listing: nothing laid out past the height cap, buttons still
+    // reachable.
+    await page.click('[data-testid="workspace-modal-new-folder"]');
+    await page.waitForSelector(
+      '[data-testid="workspace-modal-new-folder-name"]',
+    );
+    await page.waitForTimeout(200);
+    const withRow = await probe(page);
+    check(
+      `${at} name row open: dialog does not clip its own chrome`,
+      withRow.clipped <= 0,
+      `clipped=${withRow.clipped}px`,
+    );
+    check(
+      `${at} name row open: Open button stays inside the dialog`,
+      withRow.openInside,
+    );
+    check(
+      `${at} name row open: dialog stays inside the visible viewport`,
+      withRow.modalInViewport,
+    );
+    const rowInside = await page.evaluate(() => {
+      const modal = document.querySelector(".workspace-modal");
+      const list = document.querySelector(".workspace-modal-list");
+      const row = document.querySelector(".workspace-modal-row--new");
+      const create = document.querySelector(
+        '[data-testid="workspace-modal-new-folder-create"]',
+      );
+      const modalRect = modal.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      return {
+        // The row is a flex: none sibling of the list, so it is whole and
+        // visible at every height - inside the scrollport it would be taller
+        // than the port itself on the shortest window here.
+        outsideScrollport: !list.contains(row),
+        visible:
+          rowRect.top >= modalRect.top - 0.5 &&
+          rowRect.bottom <= modalRect.bottom + 0.5,
+        createInside:
+          create.getBoundingClientRect().right <= modalRect.right + 0.5,
+      };
+    });
+    check(
+      `${at} name row open: row sits outside the scrollport`,
+      rowInside.outsideScrollport,
+    );
+    check(`${at} name row open: row is whole and visible`, rowInside.visible);
+    check(
+      `${at} name row open: Create folder stays inside the dialog`,
+      rowInside.createInside,
+    );
 
     await page.close();
   }

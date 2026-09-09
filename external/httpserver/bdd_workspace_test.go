@@ -284,6 +284,49 @@ func (s *wsFeatureState) browseFolders(name string) error {
 	return s.do(req)
 }
 
+func (s *wsFeatureState) createFolder(name, parent string) error {
+	dir, ok := s.folders[parent]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", parent)
+	}
+	payload, err := json.Marshal(map[string]string{"path": dir, "name": name})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost,
+		s.ts.URL+"/coddy/workspace/folders", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return s.do(req)
+}
+
+// folderListingPointsAtNewFolder checks the create answer: it is the listing of
+// the folder that was just made, so the picker can step straight into it.
+func (s *wsFeatureState) folderListingPointsAtNewFolder(name, parent string) error {
+	dir, ok := s.folders[parent]
+	if !ok {
+		return fmt.Errorf("unknown folder %q", parent)
+	}
+	if s.status != http.StatusOK {
+		return fmt.Errorf("create folder returned %d: %v", s.status, s.body)
+	}
+	want := filepath.Join(dir, name)
+	got, _ := s.body["path"].(string)
+	if bddNormPath(got) != bddNormPath(want) {
+		return fmt.Errorf("listing path = %q, want the new folder %q", got, want)
+	}
+	if gotParent, _ := s.body["parent"].(string); bddNormPath(gotParent) != bddNormPath(dir) {
+		return fmt.Errorf("listing parent = %q, want %q", gotParent, dir)
+	}
+	fi, err := os.Stat(want)
+	if err != nil || !fi.IsDir() {
+		return fmt.Errorf("folder %q was not created on disk: %v", want, err)
+	}
+	return nil
+}
+
 // hostReportsDrives stubs the machine's drive roots so the volume level of the
 // picker is exercised on every OS, not only on a Windows runner.
 func (s *wsFeatureState) hostReportsDrives(list string) error {
@@ -527,6 +570,7 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^I browse workspace folders under "([^"]+)"$`, s.browseFolders)
 	sc.Step(`^I browse the workspace drive list$`, s.browseDrives)
 	sc.Step(`^I browse workspace folders under the filesystem root$`, s.browseFilesystemRoot)
+	sc.Step(`^I create the folder "([^"]+)" under "([^"]+)"$`, s.createFolder)
 
 	sc.Step(`^the context path points to folder "([^"]+)"$`, s.contextPathPointsTo)
 	sc.Step(`^the context reports it is not a git repository$`, s.contextNotGitRepo)
@@ -537,6 +581,7 @@ func initializeWorkspaceScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the session cwd is persisted as folder "([^"]+)"$`, s.sessionCwdPersistedAs)
 	sc.Step(`^the workspace request fails with status (\d+)$`, s.requestFailsWithStatus)
 	sc.Step(`^the folder listing contains "([^"]+)"$`, s.folderListingContains)
+	sc.Step(`^the folder listing points at "([^"]+)" inside "([^"]+)"$`, s.folderListingPointsAtNewFolder)
 	sc.Step(`^the folder listing has no folder above it$`, s.folderListingHasNoParent)
 	sc.Step(`^the folder listing offers the drive list above it$`, s.folderListingParentIsDriveList)
 }

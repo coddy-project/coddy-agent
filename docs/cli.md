@@ -6,7 +6,7 @@ Nothing agent-side is console-specific — the TUI is a fourth `UpdateSender`
 next to ACP, HTTP, and the Telegram gateway.
 
 Build: `make build TAGS=cli` (or any tag set including `cli`; the recommended
-full binary is `make build TAGS="http ui scheduler memory cli gateway"`). In builds
+full binary is `make build TAGS="http ui scheduler memory cli gateway swarm"`). In builds
 without the tag, `coddy cli` explains how to rebuild and bare `coddy` keeps
 printing usage.
 
