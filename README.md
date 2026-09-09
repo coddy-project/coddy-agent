@@ -546,7 +546,7 @@ Full guide — access levels, group isolation modes, per-chat overrides, and how
 
 ## Configuration
 
-Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json) enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header (see `config.example.yaml`).
+Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json), published at <https://coddy.dev/config.schema.json>, enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header. Coddy writes that header into every `config.yaml` it saves and keeps the comments already in the file (see `config.example.yaml`).
 
 Key settings:
 
