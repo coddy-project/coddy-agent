@@ -15,7 +15,6 @@ _coddy() {
         'skills:manage skills'
         'plugin:manage plugins and marketplaces'
         'mcp:list and trust MCP servers'
-        'codex:manage codex provider credentials'
         'providers:manage provider credentials'
         'rules:list project rules'
         'agents:list and trust subagents'
@@ -42,7 +41,6 @@ _coddy() {
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)   _values 'subcommand' marketplace install remove enable disable ;;
                 mcp|agents|hooks) _values 'subcommand' list trust untrust ;;
-                codex)    _values 'subcommand' login status logout ;;
                 providers) _values 'subcommand' list login logout ;;
                 rules)    _values 'subcommand' list ;;
                 update)

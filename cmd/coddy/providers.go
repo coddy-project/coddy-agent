@@ -290,7 +290,17 @@ func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) 
 		if err != nil || !st.Connected {
 			return "not connected; run `" + os.Args[0] + " providers login " + prov.Name + "`"
 		}
-		return "connected via ChatGPT (" + st.Source + ")"
+		// This line is the only credential report for codex rows, so it names
+		// the file the token actually comes from and the account behind it.
+		source := "Coddy-managed credential"
+		if st.Source == "codex_cli" {
+			source = "Codex CLI login " + llm.CodexCLIAuthPath()
+		}
+		account := st.AccountID
+		if account == "" {
+			account = "unknown"
+		}
+		return "connected via ChatGPT (" + source + "), account " + account
 	case "neuraldeep":
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name))
 		explicit := explicitKeySource(prov)

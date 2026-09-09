@@ -7,7 +7,7 @@ _coddy() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="cli acp http gateway sessions skills plugin mcp codex providers rules agents hooks update"
+    commands="cli acp http gateway sessions skills plugin mcp providers rules agents hooks update"
 
     if [ "${COMP_CWORD}" -eq 1 ]; then
         COMPREPLY=($(compgen -W "${commands} -h --help -v --version -c --continue -p --prompt --resume" -- "${cur}"))
@@ -30,10 +30,6 @@ _coddy() {
         mcp)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list trust untrust" -- "${cur}"))
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
-            ;;
-        codex)
-            [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "login status logout" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--provider --no-config --home" -- "${cur}"))
             ;;
         providers)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list login logout" -- "${cur}"))
