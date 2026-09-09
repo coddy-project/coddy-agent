@@ -44,7 +44,7 @@ func runProviders(args []string) error {
 	fs.SetOutput(os.Stderr)
 	home := fs.String("home", "", "override CODDY_HOME")
 	device := fs.Bool("device", false, "neuraldeep: use the device flow (headless machines, remote browsers)")
-	noConfig := fs.Bool("no-config", false, "neuraldeep: do not add the provider and its models to config.yaml after login")
+	noConfig := fs.Bool("no-config", false, "login: do not add the provider and its models to config.yaml after login")
 	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first)")
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -77,7 +77,7 @@ func providersUsageErr() error {
 // resolveLoginProvider picks the provider entry for login/logout. A name
 // present in config.yaml wins; otherwise the conventional names "neuraldeep"
 // and "codex" synthesize a probe entry of that type, so a fresh install can
-// sign in before editing config.yaml (same convention as `coddy codex login`).
+// sign in before editing config.yaml.
 func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConfig, error) {
 	if prov := cfg.FindProvider(name); prov != nil {
 		return prov, nil
@@ -101,7 +101,10 @@ func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiB
 	switch prov.Type {
 	case "codex":
 		authPath := config.CodexAuthPath(cfg.Paths.Home, prov.Name)
-		return codexLogin(prov, prov.Name, authPath)
+		if authPath == "" {
+			return fmt.Errorf("providers: could not resolve the credential path for provider %q", prov.Name)
+		}
+		return codexLogin(cfg, prov, prov.Name, authPath, noConfig)
 	case "neuraldeep":
 		return neuralDeepLogin(cfg, prov, device, noConfig, apiBase)
 	default:
@@ -287,7 +290,17 @@ func providerCredentialSummary(cfg *config.Config, prov *config.ProviderConfig) 
 		if err != nil || !st.Connected {
 			return "not connected; run `" + os.Args[0] + " providers login " + prov.Name + "`"
 		}
-		return "connected via ChatGPT (" + st.Source + ")"
+		// This line is the only credential report for codex rows, so it names
+		// the file the token actually comes from and the account behind it.
+		source := "Coddy-managed credential"
+		if st.Source == "codex_cli" {
+			source = "Codex CLI login " + llm.CodexCLIAuthPath()
+		}
+		account := st.AccountID
+		if account == "" {
+			account = "unknown"
+		}
+		return "connected via ChatGPT (" + source + "), account " + account
 	case "neuraldeep":
 		st, err := llm.InspectNeuralDeepAuth(config.NeuralDeepAuthPath(cfg.Paths.Home, prov.Name))
 		explicit := explicitKeySource(prov)

@@ -18,6 +18,9 @@ func TestResolvedReasoningLevelsAutoDetect(t *testing.T) {
 	}{
 		{"openai/gpt-5", []string{"minimal", "low", "medium", "high"}},
 		{"openai/gpt-5-mini", []string{"minimal", "low", "medium", "high"}},
+		{"openai/gpt-5.6-terra", []string{"minimal", "low", "medium", "high"}},
+		// The Codex catalog now serves a gpt-6 family; it reasons like gpt-5.
+		{"codex/gpt-6-astra", []string{"minimal", "low", "medium", "high"}},
 		{"openai/o3", []string{"low", "medium", "high"}},
 		{"openai/o4-mini", []string{"low", "medium", "high"}},
 		{"openai/o1", []string{"low", "medium", "high"}},

@@ -16,10 +16,10 @@ Optional:
 
 Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
 
-The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
+The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`**, **`coddy gateway`** — see [`docs/gateway.md`](gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 ```
 
 Output: **`build/coddy`**.
@@ -41,14 +41,14 @@ The [**Dockerfile**](../Dockerfile) uses the same idea: comma-separated tags via
 
 **`make install`** copies **`build/coddy`** onto your **`PATH`**:
 
-- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli"`**), it is installed as-is without rebuilding.
-- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli"`** first.
+- If **`build/coddy`** already exists (for example after **`make build TAGS="http ui scheduler memory cli gateway"`**), it is installed as-is without rebuilding.
+- If the binary is missing, **`make install`** runs **`make build TAGS="http ui scheduler memory cli gateway"`** first.
 
 - **root** - **`/usr/local/bin/coddy`**, man page in **`/usr/local/share/man/man1`**
 - **non-root** - **`~/.local/bin/coddy`** (ensure that directory is on **`PATH`**), man page in **`~/.local/share/man/man1`**
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 make install
 ```
 
@@ -163,7 +163,7 @@ go build \
 In **`Makefile`**, **`TAGS`** is **space-separated**:
 
 ```bash
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 ```
 
 **`go build`** expects a **comma-separated** list (no spaces):
@@ -219,4 +219,4 @@ gh workflow run "Release binaries" --ref X.Y.Z -f tag=X.Y.Z
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console), clone the repo and use **`make build TAGS="http ui scheduler memory cli"`** (or **`go build -tags=...`** as above).
+That compiles whatever the module default is **without** your local **`TAGS`**. For a known set of features (HTTP, UI, scheduler, memory, console, messenger gateway), clone the repo and use **`make build TAGS="http ui scheduler memory cli gateway"`** (or **`go build -tags=...`** as above).

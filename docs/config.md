@@ -76,9 +76,9 @@ providers:
 # Each model value is "provider_name/api_model_id". The first path segment must match providers[].name.
 # The same string is the ACP model selector and agent.model default.
 models:
-  - model: "openai/gpt-4o"
+  - model: "openai/gpt-5.6-terra"
     max_tokens: 8192
-    temperature: 0.2
+    reasoning_default: medium     # reasoning models take a level, not a temperature
     multimodal: true              # accepts images/files; UI shows file attachment button
 
   - model: "anthropic/claude-3-5-sonnet-20241022"
@@ -108,7 +108,7 @@ models:
 
 # ReAct loop settings (Go: config.Agent, internal/config/agent.go)
 agent:
-  model: "openai/gpt-4o"       # required when models is non-empty; default LLM until the client overrides per session
+  model: "openai/gpt-5.6-terra"  # required when models is non-empty; default LLM until the client overrides per session
   max_turns: 30                # max LLM calls per prompt turn
   max_tokens_per_turn: 200000  # max tokens across all calls in one turn
   llm_retry_max: 3             # retries after HTTP 429 and similar errors (default 3; an explicit 0 disables retries)
@@ -456,12 +456,12 @@ Provider **`type`** values match **`internal/llm.NewProvider`**: **`openai`**, *
 YAML split:
 
 - **`providers`**: **`name`** (unique), **`type`**, **`api_key`**, optional **`api_base`** (base URL override for the provider SDK: an OpenAI-compatible endpoint or Ollama host without **`/v1`** for **`type: openai`**, or an Anthropic-compatible gateway/relay for **`type: anthropic`**; for **`type: neuraldeep`** it selects the deployment, **`https://api.neuraldeep.ru/v1`** or **`https://api.neuraldeep.tech/v1`**, and any other value falls back to the first), optional **`proxy`** (per-provider outbound **`http://`**, **`https://`**, **`socks5://`**, or **`socks5h://`** URL; not a global default), optional **`usage_limits_panel`** (boolean, default **`true`**; **`false`** hides the account usage panel of this row on every surface and stops the usage reads behind it, meaningful for **`type: neuraldeep`** today).
-- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](config-reference.md) for token lifetime and the startup credential report.
+- **`models`**: **`model`** (string **`provider_name/api_model_id`**, session selector and **`agent.model`** value; first segment names **`providers[].name`**, remainder is the API model id), **`max_tokens`**, **`temperature`**, optional **`max_context_tokens`** (UI hint for context bar; 0 means derive from provider metadata), optional **`multimodal`** (boolean, default **`false`**; when **`true`** signals that the model accepts image/file inputs — the UI exposes a file attachment button in the composer for this model only), optional **`reasoning_levels`** (string list; overrides the reasoning levels offered for this model — when omitted they are auto-detected from the API model id: **`gpt-5*`** and **`gpt-6*`** → **`minimal,low,medium,high`**, OpenAI **`o`**-series, **`gpt-oss*`**, **`qwen3*`** (qwen3, qwen3.5, qwen3.6, qwen3.8, ...) and Claude extended-thinking models → **`low,medium,high`**; an explicit empty list hides the composer reasoning selector), optional **`reasoning_default`** (the level pre-selected for new chats; must be one of the resolved levels). Reasoning levels map to OpenAI **`reasoning_effort`** and Anthropic extended-thinking **`budget_tokens`**; for **`qwen3*`** models on OpenAI-compatible providers the request also carries **`chat_template_kwargs`** **`{"enable_thinking": true}`** so the chat-template thinking switch stays on. The Codex backend rejects **`max_output_tokens`**, so **`max_tokens`** is not sent for **`codex`** providers; it also rejects the **`minimal`** tier its **`gpt-5*`** and **`gpt-6*`** ids would normally imply, so codex-backed models offer **`none`** in its place (in the composer selector and in **`GET /v1/models`**). Reasoning turns request summaries (**`summary: auto`**) so thinking streams, and encrypted reasoning (**`include: reasoning.encrypted_content`**) so the chain of thought is replayed across tool calls the way the Codex CLI does it. See [config-reference.md](config-reference.md) for token lifetime and the startup credential report.
 
 ### `openai`
-Standard OpenAI API. Supports: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`, etc.
+Standard OpenAI API. Supports the current reasoning families (`gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`) as well as the older `o`-series and `gpt-4` ids.
 
-Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider row (HTTP, HTTPS, SOCKS5, or SOCKS5h). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-4o`**. Also set **`max_tokens`**, **`temperature`**.
+Provider needs **`api_key`**. Optional **`proxy`** applies only to this provider row (HTTP, HTTPS, SOCKS5, or SOCKS5h). The **`models[].model`** string must start with this provider **`name`** and a slash, then the OpenAI API model id, for example **`openai/gpt-5.6-terra`**. Also set **`max_tokens`**, and **`temperature`** for the non-reasoning ids.
 
 ### `anthropic`
 Anthropic API. Supports: `claude-3-5-sonnet-*`, `claude-3-5-haiku-*`, `claude-3-opus-*`

@@ -76,13 +76,13 @@ providers:
   #   api_key: "${DEEPSEEK_API_KEY}"
 
 models:
-  - model: "openai/gpt-4o"
+  - model: "openai/gpt-5.6-terra"
     max_tokens: 8192
-    temperature: 0.2
+    reasoning_default: medium     # a reasoning model takes a level, not a temperature
     multimodal: true              # model accepts image/file inputs; UI shows file attachment button
 
   # Reasoning models expose a reasoning-level selector in the composer.
-  # Levels are auto-detected from the model id (gpt-5* -> minimal,low,medium,high;
+  # Levels are auto-detected from the model id (gpt-5*/gpt-6* -> minimal,low,medium,high;
   # o-series, gpt-oss*, qwen3* — qwen3, qwen3.5, qwen3.6, ... — and Claude thinking
   # models -> low,medium,high). Override or disable below.
   # - model: "openai/gpt-5"
@@ -112,7 +112,7 @@ models:
   #   stream: false
 
 agent:
-  model: "openai/gpt-4o"
+  model: "openai/gpt-5.6-terra"
   max_turns: 30
   max_tokens_per_turn: 200000
   # LLM retry and pacing. A 429/5xx is retried llm_retry_max times; the pause is

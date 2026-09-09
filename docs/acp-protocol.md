@@ -196,11 +196,11 @@ Coddy returns both **Session Config Options** (preferred by modern ACP clients) 
       "description": "LLM used for this session.",
       "category": "model",
       "type": "select",
-      "currentValue": "openai/gpt-4o",
+      "currentValue": "openai/gpt-5.6-terra",
       "options": [
         {
-          "value": "openai/gpt-4o",
-          "name": "gpt-4o",
+          "value": "openai/gpt-5.6-terra",
+          "name": "gpt-5.6-terra",
           "description": "openai"
         }
       ]
@@ -613,7 +613,7 @@ Sent after `session/set_config_option`, after `session/set_mode`, or whenever th
       "name": "Model",
       "category": "model",
       "type": "select",
-      "currentValue": "openai/gpt-4o",
+      "currentValue": "openai/gpt-5.6-terra",
       "options": [ ... ]
     },
     {

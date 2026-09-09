@@ -183,7 +183,7 @@ For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release bi
 ```bash
 git clone https://github.com/EvilFreelancer/coddy-agent
 cd coddy-agent
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 make install   # copies build/coddy to ~/.local/bin or /usr/local/bin
 ```
 
@@ -212,7 +212,7 @@ Build reference: **[`docs/build.md`](docs/build.md)**.
 
 ### Build tags
 
-Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory,cli`**).
+Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http ui scheduler memory cli gateway"`**). **`go build`** uses **commas** (**`-tags=http,ui,scheduler,memory,cli,gateway`**).
 
 | Tag | Enables | Docs |
 |-----|---------|------|
@@ -228,7 +228,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - a superset of **`make build TAGS="http ui scheduler memory cli"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - the same set as **`make build TAGS="http ui scheduler memory cli gateway"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -278,7 +278,7 @@ If **`$CODDY_HOME/config.yaml`** is absent, the loader may use **`config.yaml`**
 
 **Providers and models**
 
-- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`**, or empty for **`NAME_API_KEY`**) and optional **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`coddy codex login`** in a terminal (ACP and headless setups); `api_key` and `api_base` are ignored and credentials are stored under **`$CODDY_HOME/providers/<name>/`**. Codex is only a model backend - the agent keeps Coddy's own prompt, tools, and permissions, and an existing **`codex login`** in **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment - **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror) - and any other value falls back to the default. Sign in with your hub account instead of pasting a key: **`coddy providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines, **`--api-base`** to pick the deployment, which also moves an existing row to it), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. The endpoint decides which hub issues the key, so pick it before signing in; the web sign-in follows the dropdown as picked, before Save, and the row warns when a stored login came from the other deployment's hub. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`coddy providers list`** shows every provider with the credential source requests actually use, and **`coddy providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
+- **`providers`** - named backends (**`type`**: **`openai`** for configurable OpenAI-compatible HTTP APIs, **`anthropic`** for Anthropic, **`neuraldeep`** for NeuralDeep at either of its two official endpoints, **`codex`** for ChatGPT OAuth through the official Codex backend). Each **`name`** must be ASCII letters, digits, hyphen, or underscore, starting with a letter (it becomes the prefix in model ids). API-key providers accept **`api_key`** (literal, **`${ENV}`**, or empty for **`NAME_API_KEY`**) and optional **`api_base`**. For **`codex`**, use **Sign In with ChatGPT** in the bundled web UI or **`coddy providers login codex`** in a terminal (ACP and headless setups); `api_key` and `api_base` are ignored and credentials are stored under **`$CODDY_HOME/providers/<name>/`**. The terminal login also adds the provider, the subscription models Codex lists, and an **`agent.model`** to **`config.yaml`** when they are missing (**`--no-config`** skips that). Codex is only a model backend - the agent keeps Coddy's own prompt, tools, and permissions, and an existing **`codex login`** in **`~/.codex/auth.json`** is picked up as a fallback. For **`neuraldeep`**, **`api_base`** picks the deployment - **`https://api.neuraldeep.ru/v1`** (Russia, the default) or **`https://api.neuraldeep.tech/v1`** (the international mirror) - and any other value falls back to the default. Sign in with your hub account instead of pasting a key: **`coddy providers login neuraldeep`** opens the browser (loopback callback; **`--device`** for headless machines, **`--api-base`** to pick the deployment, which also moves an existing row to it), stores the hub-issued key under **`$CODDY_HOME/providers/<name>/neuraldeep-auth.json`**, and adds the tier's models to **`config.yaml`** (**`--no-config`** skips that); the bundled web UI offers an endpoint dropdown and **Sign In with NeuralDeep** on the provider row. The endpoint decides which hub issues the key, so pick it before signing in; the web sign-in follows the dropdown as picked, before Save, and the row warns when a stored login came from the other deployment's hub. An explicit **`api_key`** / **`api_key_command`** / **`NEURALDEEP_API_KEY`** still wins over the stored login. **`coddy providers list`** shows every provider with the credential source requests actually use, and **`coddy providers logout <name>`** revokes the key on the hub (best-effort) and forgets it locally.
 - **`models`** - selectable models. Each **`model`** string is **`<provider_name>/<api_model_id>`** where **`provider_name`** matches **`providers[].name`**. Tunables include **`max_tokens`**, **`temperature`**, and optional **`max_context_tokens`**.
 - **`agent`** - **`model`** picks the default ReAct model (must match one **`models[].model`** entry). **`max_turns`** and **`max_tokens_per_turn`** bound one user turn. **`loop_guard`** (default **`true`**) adds runaway-loop protection on top of that cap: a streamed response that degenerates into repeating the same passage is cut (**`loop_stream_repeat_cycles`**), and a tool requested over and over with identical arguments stops being executed (**`loop_tool_repeat_limit`**). The model is nudged back on track first; a turn that keeps looping after **`loop_nudge_max`** nudges ends with a notice.
 
@@ -293,7 +293,7 @@ providers:
 models:
   - model: "openai/gpt-5.4-mini"
     max_tokens: 400000
-    temperature: 0.2
+    reasoning_default: medium
 
 agent:
   model: "openai/gpt-5.4-mini"
@@ -311,7 +311,7 @@ Other setups (Anthropic, NeuralDeep, Ollama, a non-default **`api_base`**, and e
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**, plus **`.deb`** and **`.rpm`** packages for Linux). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**, plus **`.deb`** and **`.rpm`** packages for Linux). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli gateway"`**.
 
 **`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
 
@@ -558,12 +558,12 @@ providers:
     api_base: "${OPENAI_API_BASE}"
 
 models:
-  - model: "local/gpt-4o"
+  - model: "local/gpt-5.6-terra"
     max_tokens: 8192
-    temperature: 0.2
+    reasoning_default: medium
 
 agent:
-  model: "local/gpt-4o"
+  model: "local/gpt-5.6-terra"
   max_turns: 30
 
 tools:
@@ -646,21 +646,21 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | Target | What it does |
 |--------|--------------|
 | `make` / `make build` | Build `build/coddy` with the current `TAGS` (see [Build tags](#build-tags)). With `http`+`ui` it first runs `ui-build` (installs and bundles the embedded SPA). |
-| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli"`. Lean ACP-only binary: `make build` (no tags). |
+| `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli gateway"`. Lean ACP-only binary: `make build` (no tags). |
 | `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
 | `make test` | Run `go test` across the tag combinations (default, `http`, `scheduler`, `ui`, and mixes) plus `ui-build`. |
 | `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
-| `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory"` first if the binary is missing. |
+| `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory cli gateway"` first if the binary is missing. |
 | `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
 | `make clean` | Remove the `build/` directory. |
 
-`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory cli"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
+`TAGS` uses **spaces** (`make build TAGS="http ui scheduler memory cli gateway"`); a raw `go build` uses **commas** (`-tags=http,ui,scheduler,memory`).
 
 > **Windows note.** The `Makefile` targets need a Unix-like shell — run them from **Git Bash** (or WSL/MSYS2), not `cmd`/PowerShell. Building with the `ui` tag also requires **Node.js/npm** on `PATH`. If `make ui-build` (or `make build TAGS="…ui…"`) fails with `npm error enoent … open '…\package.json'`, you are on an npm that mishandles `--prefix`; build the UI from inside its directory instead:
 >
 > ```bash
 > (cd external/ui && npm install && npm run build:go)
-> make build TAGS="http ui scheduler memory cli"   # ui-build now sees the prebuilt assets
+> make build TAGS="http ui scheduler memory cli gateway"   # ui-build now sees the prebuilt assets
 > ```
 
 ### Common commands
@@ -673,7 +673,7 @@ make test
 # Example harnesses (see examples/README.md): ./examples/build_coddy.sh && ./examples/test_acp.sh && ./examples/test_httpserver.sh
 
 # Full-featured local binary (HTTP + UI + scheduler), same defaults as Docker
-make build TAGS="http ui scheduler memory cli"
+make build TAGS="http ui scheduler memory cli gateway"
 
 ./build/coddy -v    # same as --version
 

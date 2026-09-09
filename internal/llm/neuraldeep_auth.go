@@ -289,11 +289,6 @@ func maskNeuralDeepKey(key string) string {
 
 var neuralDeepSecretRe = regexp.MustCompile(`sk-[A-Za-z0-9_-]+`)
 
-// neuralDeepModelIDRe accepts the catalog ids the hub publishes. The id is
-// interpolated into a UCI config path (`models[model=<name>/<id>]`), so
-// anything outside this safe alphabet is skipped rather than staged.
-var neuralDeepModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 // redactNeuralDeepSecrets masks hub keys wherever they may surface: upstream
 // error bodies, callback URLs, log lines. Every error this file returns and
 // every snippet persisted by HTTP login attempts must pass through it.
@@ -784,7 +779,7 @@ func ApplyNeuralDeepLoginToConfig(ctx context.Context, cfg *config.Config, name,
 	}
 	for _, m := range st.Models {
 		id := strings.TrimSpace(m.ID)
-		if !neuralDeepModelIDRe.MatchString(id) {
+		if !catalogModelIDRe.MatchString(id) {
 			// The id feeds a config path; a hub (or a stand-in) must not be
 			// able to smuggle path syntax into the staged commands.
 			continue

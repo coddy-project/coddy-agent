@@ -7,6 +7,12 @@ func intPtr(v int) *int { return &v }
 // SchemaExampleConfigJSON returns representative defaults for JSON Schema "default"
 // and UI placeholders. It is not loaded as a real config; values mirror applyDefaults
 // and field semantics where possible.
+//
+// Each value is the placeholder of its own field, not part of a coherent row:
+// attachNodeDefaults walks the tree and attaches a "default" per property. So
+// the temperature here is what a new models[] row offers for temperature
+// whatever model it names - including a reasoning id such as the one below,
+// which would not send it (see the reasoning branch in internal/llm/openai.go).
 func SchemaExampleConfigJSON() *ConfigJSON {
 	return &ConfigJSON{
 		Providers: []ProviderJSON{
@@ -14,14 +20,14 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 		},
 		Models: []ModelJSON{
 			{
-				Model:            "openai/gpt-4o",
+				Model:            "openai/gpt-5.6-terra",
 				MaxTokens:        4096,
 				Temperature:      0.2,
 				MaxContextTokens: 0,
 			},
 		},
 		Agent: AgentJSON{
-			Model:                  "openai/gpt-4o",
+			Model:                  "openai/gpt-5.6-terra",
 			MaxTurns:               AgentDefaultMaxTurns,
 			MaxTokensPerTurn:       AgentDefaultMaxTokensPerTurn,
 			LLMRetryMax:            intPtr(AgentDefaultLLMRetryMax),

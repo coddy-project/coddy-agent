@@ -26,7 +26,6 @@ var (
 	reBulletStar  = regexp.MustCompile(`(?m)^\* `)
 	reHRule       = regexp.MustCompile(`(?m)^(\*{3,}|-{3,}|={3,})$`)
 	reTableAlign  = regexp.MustCompile(`(?m)^\|?[\s\-:|]+\|[\s\-:|]*\|?$`) // alignment row
-	reTablePipes  = regexp.MustCompile(`\|`)
 )
 
 // mdToTelegram converts text from standard Markdown to Telegram legacy-Markdown format.

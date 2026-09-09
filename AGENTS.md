@@ -24,7 +24,7 @@ Short map for automation-friendly contributors.
 
 ## Builds
 
-Run **`make build TAGS=http`** for the HTTP gateway only (**`coddy http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `coddy`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
+Run **`make build TAGS=http`** for the HTTP gateway only (**`coddy http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `coddy`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli gateway"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping Coddy-hosted experiences.
 

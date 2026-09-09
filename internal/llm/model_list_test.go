@@ -161,13 +161,14 @@ func TestListCodexModelsOnlineUsesManagedOAuth(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	got, err := listCodexModelsOnline(context.Background(), ProviderInput{
+	entries, err := fetchCodexCatalogOnline(context.Background(), ProviderInput{
 		Type:     "codex",
 		AuthPath: filepath.Clean(authPath),
 	}, upstream.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := normalizeCodexModels(entries)
 	if len(got) != 1 || got[0].ID != "gpt-5-codex" || got[0].Name != "GPT-5 Codex" {
 		t.Fatalf("models = %+v", got)
 	}

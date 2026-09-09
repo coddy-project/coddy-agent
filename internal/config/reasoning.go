@@ -14,7 +14,8 @@ const (
 	ReasoningNone = "none"
 )
 
-// reasoningWithMinimal is the level set for models that support a minimal tier (OpenAI gpt-5 family).
+// reasoningWithMinimal is the level set for models that support a minimal tier
+// (the OpenAI gpt-5 and gpt-6 families).
 var reasoningWithMinimal = []string{ReasoningMinimal, ReasoningLow, ReasoningMedium, ReasoningHigh}
 
 // reasoningStandard is the level set for reasoning models without a minimal tier
@@ -128,7 +129,7 @@ func remapMinimalToNone(levels []string) []string {
 func detectReasoningLevels(apiModel string) []string {
 	id := strings.ToLower(strings.TrimSpace(apiModel))
 	switch {
-	case strings.HasPrefix(id, "gpt-5"):
+	case strings.HasPrefix(id, "gpt-5"), strings.HasPrefix(id, "gpt-6"):
 		return append([]string(nil), reasoningWithMinimal...)
 	case isOpenAIOSeries(id), strings.HasPrefix(id, "gpt-oss"):
 		return append([]string(nil), reasoningStandard...)

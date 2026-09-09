@@ -32,7 +32,7 @@ defaults:
 
 env:
   REGISTRY: ghcr.io
-  BUILD_TAGS: "http,scheduler,ui,memory,cli"
+  BUILD_TAGS: "http,scheduler,ui,memory,cli,gateway"
 
 jobs:
   test-and-publish:

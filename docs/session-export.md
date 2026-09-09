@@ -65,7 +65,7 @@ The export is built before the `/export` row lands in the transcript, so the fil
 {
   "version": 1,
   "session": {
-    "id": "sess_...", "title": "...", "cwd": "/path", "git_branch": "main", "model": "openai/gpt-4o",
+    "id": "sess_...", "title": "...", "cwd": "/path", "git_branch": "main", "model": "openai/gpt-5.6-terra",
     "started_at": "2026-09-06T10:00:00Z", "exported_at": "2026-09-06T12:00:00Z",
     "message_count": 8, "user_turns": 3,
     "token_usage": {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500}
