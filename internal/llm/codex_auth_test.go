@@ -48,7 +48,9 @@ func TestCodexAuthNoticesReportCredentialState(t *testing.T) {
 	if len(notices) != 1 || !notices[0].Warning || notices[0].Provider != "codex" {
 		t.Fatalf("missing-credential notices = %+v, want one warning for codex", notices)
 	}
-	if !strings.Contains(notices[0].Message, "codex login") {
+	// The hint names the command that signs this provider in today; the
+	// codex-only alias it used to name is no longer what the docs teach.
+	if !strings.Contains(notices[0].Message, "coddy providers login codex") {
 		t.Errorf("missing-credential message %q should point at the sign-in command", notices[0].Message)
 	}
 

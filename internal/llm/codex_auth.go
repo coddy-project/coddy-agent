@@ -338,7 +338,7 @@ func codexAuthNotice(provider, managedPath string) CodexAuthNotice {
 	auth, path, err := (&codexAuthSource{path: managedPath, fallbackPath: codexAuthPath()}).load()
 	if err != nil {
 		notice.Warning = true
-		notice.Message = "no ChatGPT credential found, run `coddy codex login` or sign in from Settings"
+		notice.Message = fmt.Sprintf("no ChatGPT credential found, run `coddy providers login %s` or sign in from Settings", provider)
 		return notice
 	}
 	if auth.AuthMode != "" && auth.AuthMode != codexAuthModeChatGPT {
@@ -355,11 +355,11 @@ func codexAuthNotice(provider, managedPath string) CodexAuthNotice {
 	switch {
 	case strings.TrimSpace(auth.Tokens.AccessToken) == "" && !hasRefresh:
 		notice.Warning = true
-		notice.Message = fmt.Sprintf("credential in %s carries no tokens, run `coddy codex login`", path)
+		notice.Message = fmt.Sprintf("credential in %s carries no tokens, run `coddy providers login %s`", path, provider)
 	case parsed && exp.Before(time.Now()) && !hasRefresh:
 		notice.Warning = true
-		notice.Message = fmt.Sprintf("access token expired at %s and there is no refresh token, run `coddy codex login` (%s)",
-			exp.UTC().Format(time.RFC3339), source)
+		notice.Message = fmt.Sprintf("access token expired at %s and there is no refresh token, run `coddy providers login %s` (%s)",
+			exp.UTC().Format(time.RFC3339), provider, source)
 	case parsed && exp.Before(time.Now()):
 		notice.Message = fmt.Sprintf("access token expired at %s, it will refresh on the next request (%s)",
 			exp.UTC().Format(time.RFC3339), source)

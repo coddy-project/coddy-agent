@@ -16,6 +16,11 @@ import (
 // counterpart of Settings -> LLM Providers -> Sign In with ChatGPT, for ACP and
 // headless setups that never open the web UI. Credentials land in the same
 // place the HTTP surface uses ($CODDY_HOME/providers/<name>/codex-auth.json).
+//
+// It predates `coddy providers`, which now covers every backend and is the
+// command the docs and the runtime hints name. This one stays as the codex
+// alias - the flows are identical, and `--provider` still reaches a codex
+// provider that config.yaml does not list yet.
 func runCodex(args []string) error {
 	if len(args) == 0 {
 		return codexUsageErr()
@@ -59,7 +64,8 @@ func runCodex(args []string) error {
 }
 
 func codexUsageErr() error {
-	return fmt.Errorf("usage: %s codex login|status|logout [--provider NAME] [--no-config] [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %[1]s codex login|status|logout [--provider NAME] [--no-config] [--home DIR]\n"+
+		"       (`%[1]s providers login codex` is the same sign-in, and covers every other backend too)", os.Args[0])
 }
 
 // resolveCodexProvider picks the provider entry to sign in for. An explicit
@@ -140,7 +146,7 @@ func codexStatus(name, authPath string) error {
 		return fmt.Errorf("codex status: %w", err)
 	}
 	if !status.Connected {
-		fmt.Printf("Provider %q: not connected. Run `%s codex login`.\n", name, os.Args[0])
+		fmt.Printf("Provider %q: not connected. Run `%s providers login %s`.\n", name, os.Args[0], name)
 		return nil
 	}
 	source := "Coddy-managed credential"

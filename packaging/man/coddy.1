@@ -82,17 +82,18 @@ List merged MCP servers and approve or revoke project\-local
 .I .coddy/mcp.json
 declarations for a workspace.
 .TP
-.B "codex login | status | logout"
-Manage the OAuth credentials of a
-.I codex
-provider. A login also adds the provider, the subscription models and an
+.B "providers list | login | logout"
+Manage provider credentials, including the browser and device login flows.
+A login also adds the provider, the models the account can use and an
 .I agent.model
 to the configuration unless
 .B \-\-no\-config
 is given.
 .TP
-.B "providers list | login | logout"
-Manage provider credentials, including the browser and device login flows.
+.B "codex login | status | logout"
+The older codex\-only alias of the same sign-in, kept for existing scripts;
+prefer
+.BR "providers login codex" .
 .TP
 .B "rules list"
 Show the project rules discovered under the session working directory.

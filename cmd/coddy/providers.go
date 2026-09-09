@@ -77,7 +77,7 @@ func providersUsageErr() error {
 // resolveLoginProvider picks the provider entry for login/logout. A name
 // present in config.yaml wins; otherwise the conventional names "neuraldeep"
 // and "codex" synthesize a probe entry of that type, so a fresh install can
-// sign in before editing config.yaml (same convention as `coddy codex login`).
+// sign in before editing config.yaml.
 func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConfig, error) {
 	if prov := cfg.FindProvider(name); prov != nil {
 		return prov, nil
