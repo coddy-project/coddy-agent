@@ -33,7 +33,7 @@ _coddy() {
             ;;
         codex)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "login status logout" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--provider --home" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--provider --no-config --home" -- "${cur}"))
             ;;
         providers)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list login logout" -- "${cur}"))

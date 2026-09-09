@@ -115,6 +115,8 @@ coddy codex status   # shows whether a credential is available and where it came
 coddy codex logout   # removes the Coddy-managed credential (leaves the Codex CLI login alone)
 ```
 
+A successful `coddy codex login` also publishes the subscription catalog into `config.yaml`, the way `coddy providers login neuraldeep` publishes its tier models (the Settings button stores the credential only): it adds the `codex` provider row when it is missing, one `models[]` entry per catalog model Codex lists (the ids Codex hides from its own picker, such as `gpt-reserve` and `codex-auto-review`, are left out), and `agent.model` when nothing is set yet - Codex's own top-ranked model. Nothing already in the file is rewritten: an existing provider row, an already listed model, and a chosen `agent.model` survive untouched, so a repeated login is a no-op. `--no-config` stores only the credential. Entries carry no `max_tokens`, because the Codex backend rejects `max_output_tokens`. A running `coddy http` keeps its loaded config, so restart it to pick the new models up.
+
 Both paths use the same storage; `--provider NAME` targets a specific codex provider when `config.yaml` defines several. Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `CODDY_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
 
 Codex is only a model backend: the agent keeps Coddy's own system prompt, tool catalog, permissions, and ReAct loop, and the ChatGPT credential is used solely to authenticate the Responses calls (`features/codex_auth.feature` pins this on both the HTTP and ACP surfaces).
@@ -123,7 +125,7 @@ Codex is only a model backend: the agent keeps Coddy's own system prompt, tool c
 
 **Startup report.** When at least one `type: codex` provider is configured, `coddy acp` and `coddy http` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `coddy codex login`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
 
-**Reasoning.** The Codex backend serves `gpt-5*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /coddy/sessions/{id}/messages`.
+**Reasoning.** The Codex backend serves `gpt-5*` and `gpt-6*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /coddy/sessions/{id}/messages`.
 
 ## `models`
 
@@ -137,14 +139,14 @@ List of logical models (`[]config.ModelEntry`, `internal/config/models.go`).
 | `max_context_tokens` | int | no | `0` | UI hint for the context bar; `0` derives from provider metadata. |
 | `multimodal` | bool | no | `false` | Model accepts image/file inputs; UI shows an attachment button. |
 | `stream` | bool | no | `true` | Transport. Omitted or `true` streams the answer over SSE. `false` sends one blocking completion request and delivers the whole answer at once. Rejected for `type: codex` providers, whose backend is streaming-only. |
-| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /coddy/config/reasoning-levels`. |
+| `reasoning_levels` | string list | no | auto-detected | Override the offered reasoning levels. Omitted: auto-detect from the model id (`gpt-5*` and `gpt-6*` → `minimal,low,medium,high`; OpenAI o-series, `gpt-oss*`, `qwen3*`, and Claude extended-thinking models → `low,medium,high`). Explicit `[]` hides the selector. Both states survive a Settings save: the key is omitted from the written YAML when unset rather than serialized as `[]`. Settings → Logical models → **Fetch reasoning levels** fills this list from `GET /coddy/config/reasoning-levels`. |
 | `reasoning_default` | string | no | — | Level pre-selected for new chats; must be one of the resolved levels. |
 
 ```yaml
 models:
-  - model: "openai/gpt-4o"
+  - model: "openai/gpt-5.6-terra"
     max_tokens: 8192
-    temperature: 0.2
+    reasoning_default: medium
     multimodal: true
   - model: "openai/gpt-5"
     max_tokens: 8192

@@ -218,3 +218,134 @@ func TestJWTExpiry(t *testing.T) {
 		t.Error("jwtExpiry returned ok=true for non-JWT")
 	}
 }
+
+// codexConfigTestBackend serves one Codex model catalog and points the process
+// at itself for the duration of the test.
+func codexConfigTestBackend(t *testing.T, catalog string) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/models") {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(catalog))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv(EnvCodexBaseURL, srv.URL)
+}
+
+// codexConfigTestHome writes a config.yaml plus a Codex credential and returns
+// the loaded config and the credential path.
+func codexConfigTestHome(t *testing.T, yaml string) (*config.Config, string) {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	authPath := config.CodexAuthPath(home, "codex")
+	if err := os.MkdirAll(filepath.Dir(authPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	token := makeJWT(time.Now().Add(time.Hour))
+	auth := `{"auth_mode":"chatgpt","tokens":{"id_token":"` + token +
+		`","access_token":"` + token + `","refresh_token":"rt","account_id":"acct"}}`
+	if err := os.WriteFile(authPath, []byte(auth), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	return cfg, authPath
+}
+
+// TestApplyCodexLoginKeepsWhatTheOperatorAlreadyChose: the login publishes the
+// catalog, it does not take the config over. An existing provider row, an
+// already listed model, and a chosen agent.model all survive untouched.
+func TestApplyCodexLoginKeepsWhatTheOperatorAlreadyChose(t *testing.T) {
+	codexConfigTestBackend(t, `{"models":[
+      {"slug":"gpt-6-astra","display_name":"GPT-6-Astra","visibility":"list","priority":1},
+      {"slug":"gpt-5.6-sol","display_name":"GPT-5.6-Sol","visibility":"list","priority":6}
+    ]}`)
+	cfg, authPath := codexConfigTestHome(t, "providers:\n  - name: codex\n    type: codex\n"+
+		"models:\n  - model: codex/gpt-5.6-sol\n    max_tokens: 4242\n"+
+		"agent:\n  model: codex/gpt-5.6-sol\n")
+
+	added, err := ApplyCodexLoginToConfig(context.Background(), cfg, "codex", authPath, "")
+	if err != nil {
+		t.Fatalf("ApplyCodexLoginToConfig: %v", err)
+	}
+	joined := strings.Join(added, ",")
+	if strings.Contains(joined, "provider codex") {
+		t.Errorf("an existing provider row must not be re-added: %v", added)
+	}
+	if !strings.Contains(joined, "model codex/gpt-6-astra") {
+		t.Errorf("the missing catalog model should be added: %v", added)
+	}
+	reloaded, err := config.LoadFromCLI(config.CLIPaths{Home: cfg.Paths.Home})
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if reloaded.Agent.Model != "codex/gpt-5.6-sol" {
+		t.Errorf("agent.model = %q, want the operator's choice codex/gpt-5.6-sol", reloaded.Agent.Model)
+	}
+	kept := reloaded.FindModelEntry("codex/gpt-5.6-sol")
+	if kept == nil || kept.MaxTokens != 4242 {
+		t.Errorf("the existing model entry lost its settings: %+v", kept)
+	}
+}
+
+// TestApplyCodexLoginSkipsUnsafeModelIDs: catalog slugs are interpolated into
+// UCI config paths, so a backend must not be able to smuggle selector syntax
+// through the model list.
+func TestApplyCodexLoginSkipsUnsafeModelIDs(t *testing.T) {
+	codexConfigTestBackend(t, `{"models":[
+      {"slug":"gpt-5.6-sol","display_name":"ok","visibility":"list","priority":6},
+      {"slug":"evil]x.hack=1","display_name":"bad","visibility":"list","priority":2},
+      {"slug":"also/bad","display_name":"bad","visibility":"list","priority":3}
+    ]}`)
+	cfg, authPath := codexConfigTestHome(t, "providers: []\nmodels: []\n")
+
+	added, err := ApplyCodexLoginToConfig(context.Background(), cfg, "codex", authPath, "")
+	if err != nil {
+		t.Fatalf("ApplyCodexLoginToConfig: %v", err)
+	}
+	joined := strings.Join(added, ",")
+	if !strings.Contains(joined, "model codex/gpt-5.6-sol") {
+		t.Fatalf("safe model missing from %q", joined)
+	}
+	if strings.Contains(joined, "evil") || strings.Contains(joined, "also/bad") {
+		t.Fatalf("unsafe model ids must be skipped, got %q", joined)
+	}
+	reloaded, err := config.LoadFromCLI(config.CLIPaths{Home: cfg.Paths.Home})
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	// The top-priority slug is unsafe, so the default falls to the best usable one.
+	if reloaded.Agent.Model != "codex/gpt-5.6-sol" {
+		t.Errorf("agent.model = %q, want codex/gpt-5.6-sol", reloaded.Agent.Model)
+	}
+}
+
+// TestApplyCodexLoginReportsACatalogFailure: a sign-in whose catalog cannot be
+// read must say so rather than write a provider row with no models behind it.
+func TestApplyCodexLoginReportsACatalogFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "nope", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+	t.Setenv(EnvCodexBaseURL, srv.URL)
+	cfg, authPath := codexConfigTestHome(t, "providers: []\nmodels: []\n")
+
+	if _, err := ApplyCodexLoginToConfig(context.Background(), cfg, "codex", authPath, ""); err == nil {
+		t.Fatal("expected an error when the catalog cannot be fetched, got nil")
+	}
+	reloaded, err := config.LoadFromCLI(config.CLIPaths{Home: cfg.Paths.Home})
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if reloaded.FindProvider("codex") != nil {
+		t.Error("a failed catalog fetch must not leave a provider row behind")
+	}
+}

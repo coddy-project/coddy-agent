@@ -470,3 +470,66 @@ func jwtExpiry(token string) (time.Time, bool) {
 	}
 	return time.Unix(claims.Exp, 0), true
 }
+
+// ApplyCodexLoginToConfig makes a fresh ChatGPT sign-in usable without
+// hand-editing config.yaml. Storing the token is only half a login: until the
+// provider row and the models exist, every surface offers an empty picker and
+// the agent has no default model. So the sign-in publishes what the
+// subscription actually serves - the provider row, the catalog models Codex
+// lists (the ones it hides stay out), and an agent.model when none is set -
+// the same way ApplyNeuralDeepLoginToConfig publishes a tier catalog.
+//
+// It only ever adds: an existing provider row, an already listed model, and a
+// chosen agent.model are left exactly as the operator wrote them. The returned
+// slice names what was added, and is empty when the config already had it all.
+func ApplyCodexLoginToConfig(ctx context.Context, cfg *config.Config, name, authPath, proxyURL string) ([]string, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("codex: no config to update")
+	}
+	entries, err := fetchCodexCatalog(ctx, ProviderInput{Type: "codex", AuthPath: authPath, ProxyURL: proxyURL})
+	if err != nil {
+		return nil, fmt.Errorf("fetch the Codex model catalog: %w", err)
+	}
+	models := rankedCodexModels(entries)
+
+	var cmds []config.UCICommand
+	var added []string
+	if cfg.FindProvider(name) == nil {
+		prov, _ := json.Marshal(map[string]string{"name": name, "type": "codex"})
+		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("providers[name=%s]", name), Value: string(prov)})
+		added = append(added, "provider "+name)
+	}
+	// The first usable id is the default: the catalog is already in Codex's own
+	// ranking, so this is the model Codex itself puts at the top.
+	var defaultRef string
+	for _, m := range models {
+		if !catalogModelIDRe.MatchString(m.Slug) {
+			// The id feeds a config path; a backend (or a stand-in) must not be
+			// able to smuggle path syntax into the staged commands.
+			continue
+		}
+		ref := name + "/" + m.Slug
+		if defaultRef == "" {
+			defaultRef = ref
+		}
+		if cfg.FindModelEntry(ref) != nil {
+			continue
+		}
+		// max_tokens is deliberately absent: the Codex backend rejects
+		// max_output_tokens, so the entry carries only the selector.
+		entry, _ := json.Marshal(map[string]any{"model": ref})
+		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: fmt.Sprintf("models[model=%s]", ref), Value: string(entry)})
+		added = append(added, "model "+ref)
+	}
+	if strings.TrimSpace(cfg.Agent.Model) == "" && defaultRef != "" {
+		cmds = append(cmds, config.UCICommand{Op: config.UCIOpSet, Path: "agent.model", Value: defaultRef})
+		added = append(added, "agent.model "+defaultRef)
+	}
+	if len(cmds) == 0 {
+		return nil, nil
+	}
+	if _, err := config.CommitUCICommands(cfg.Paths, cmds); err != nil {
+		return nil, err
+	}
+	return added, nil
+}

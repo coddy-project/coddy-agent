@@ -85,7 +85,11 @@ declarations for a workspace.
 .B "codex login | status | logout"
 Manage the OAuth credentials of a
 .I codex
-provider.
+provider. A login also adds the provider, the subscription models and an
+.I agent.model
+to the configuration unless
+.B \-\-no\-config
+is given.
 .TP
 .B "providers list | login | logout"
 Manage provider credentials, including the browser and device login flows.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,12 @@ type ModelEntry struct {
 
 // modelListTimeout bounds a single provider model-listing request.
 const modelListTimeout = 15 * time.Second
+
+// catalogModelIDRe accepts the catalog ids a provider publishes. A login that
+// writes a catalog into config.yaml interpolates the id into a UCI config path
+// (`models[model=<provider>/<id>]`), so anything outside this safe alphabet is
+// skipped rather than staged.
+var catalogModelIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // codexModelsClientVersion is the numeric compatibility sentinel accepted by
 // the Codex models endpoint and used by Codex source/test builds. It is a Codex
@@ -48,10 +55,11 @@ func defaultModelListBaseURL(providerType string) string {
 // manual entry).
 func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	if in.Type == "codex" {
-		if strings.TrimSpace(in.AuthPath) != "" {
-			return listCodexModelsOnline(ctx, in, codexBaseURL())
+		entries, err := fetchCodexCatalog(ctx, in)
+		if err != nil {
+			return nil, err
 		}
-		return listCodexModels()
+		return normalizeCodexModels(entries), nil
 	}
 	var url string
 	switch in.Type {
@@ -142,10 +150,20 @@ func ListModels(ctx context.Context, in ProviderInput) ([]ModelEntry, error) {
 	return out, nil
 }
 
-// listCodexModelsOnline fetches the model catalog with the same OAuth
+// fetchCodexCatalog returns the raw Codex model catalog: fetched online with
+// the signed-in credential when the provider has one, read from the Codex CLI
+// cache otherwise.
+func fetchCodexCatalog(ctx context.Context, in ProviderInput) ([]codexModelCacheEntry, error) {
+	if strings.TrimSpace(in.AuthPath) != "" {
+		return fetchCodexCatalogOnline(ctx, in, codexBaseURL())
+	}
+	return readCodexCatalogCache()
+}
+
+// fetchCodexCatalogOnline fetches the model catalog with the same OAuth
 // credential used for completions. The base URL is a parameter only for tests;
-// ListModels always supplies the fixed official Codex backend.
-func listCodexModelsOnline(ctx context.Context, in ProviderInput, baseURL string) ([]ModelEntry, error) {
+// fetchCodexCatalog always supplies the fixed official Codex backend.
+func fetchCodexCatalogOnline(ctx context.Context, in ProviderInput, baseURL string) ([]codexModelCacheEntry, error) {
 	hc, err := HTTPClientForOptionalProxy(in.ProxyURL)
 	if err != nil {
 		return nil, err
@@ -186,37 +204,77 @@ func listCodexModelsOnline(ctx context.Context, in ProviderInput, baseURL string
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("list models: decode: %w", err)
 	}
-	return normalizeCodexModels(parsed.Models), nil
+	return parsed.Models, nil
 }
 
+// codexModelCacheEntry is one row of the Codex model catalog, as served by the
+// backend and cached by the Codex CLI.
 type codexModelCacheEntry struct {
 	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
+	// Visibility is "list" for the models Codex offers in its own picker and
+	// "hide" for the internal ones (gpt-reserve, codex-auto-review). An empty
+	// value means the catalog does not say, which is not the same as hidden:
+	// caches written by older Codex builds carry no visibility at all.
+	Visibility string `json:"visibility"`
+	// Priority is how Codex itself ranks the catalog, lowest first. It decides
+	// which model a fresh sign-in adopts as the default.
+	Priority int `json:"priority"`
 }
 
-func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
+// codexVisibilityHidden marks a catalog row Codex keeps out of its own picker.
+const codexVisibilityHidden = "hide"
+
+// visibleCodexModels drops the hidden rows, the unnamed ones, and the
+// duplicates, keeping the catalog order for callers that rank it themselves.
+func visibleCodexModels(models []codexModelCacheEntry) []codexModelCacheEntry {
 	seen := make(map[string]struct{}, len(models))
-	out := make([]ModelEntry, 0, len(models))
+	out := make([]codexModelCacheEntry, 0, len(models))
 	for _, m := range models {
 		id := strings.TrimSpace(m.Slug)
-		if id == "" {
+		if id == "" || m.Visibility == codexVisibilityHidden {
 			continue
 		}
 		if _, dup := seen[id]; dup {
 			continue
 		}
 		seen[id] = struct{}{}
-		out = append(out, ModelEntry{ID: id, Name: strings.TrimSpace(m.DisplayName)})
+		m.Slug = id
+		out = append(out, m)
+	}
+	return out
+}
+
+// rankedCodexModels orders the offered catalog the way Codex ranks it, lowest
+// priority number first, with the id breaking ties so the order is stable for
+// a cache that carries no priorities at all.
+func rankedCodexModels(models []codexModelCacheEntry) []codexModelCacheEntry {
+	out := visibleCodexModels(models)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Priority != out[j].Priority {
+			return out[i].Priority < out[j].Priority
+		}
+		return out[i].Slug < out[j].Slug
+	})
+	return out
+}
+
+// normalizeCodexModels renders the offered catalog as model entries, sorted by
+// id like every other provider's list.
+func normalizeCodexModels(models []codexModelCacheEntry) []ModelEntry {
+	visible := visibleCodexModels(models)
+	out := make([]ModelEntry, 0, len(visible))
+	for _, m := range visible {
+		out = append(out, ModelEntry{ID: m.Slug, Name: strings.TrimSpace(m.DisplayName)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
-// listCodexModels reads the models the Codex CLI advertises from its local cache
-// (~/.codex/models_cache.json), which is maintained by `codex`. The Codex backend
-// has no plain {base}/models endpoint, so this offline cache is the model source.
-// Entries are de-duplicated and sorted by id.
-func listCodexModels() ([]ModelEntry, error) {
+// readCodexCatalogCache reads the models the Codex CLI advertises from its local
+// cache (~/.codex/models_cache.json), which is maintained by `codex`. It is the
+// model source when no Coddy-managed credential exists to query the backend with.
+func readCodexCatalogCache() ([]codexModelCacheEntry, error) {
 	path := codexModelsCachePath()
 	if path == "" {
 		return nil, fmt.Errorf("list models: could not locate Codex models cache (set CODEX_HOME)")
@@ -231,5 +289,5 @@ func listCodexModels() ([]ModelEntry, error) {
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, fmt.Errorf("list models: parse %s: %w", path, err)
 	}
-	return normalizeCodexModels(cache.Models), nil
+	return cache.Models, nil
 }

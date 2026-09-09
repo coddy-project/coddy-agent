@@ -45,3 +45,41 @@ func TestListCodexModelsMissingCache(t *testing.T) {
 		t.Fatal("expected error for missing models cache, got nil")
 	}
 }
+
+func TestListCodexModelsHidesTheModelsCodexHides(t *testing.T) {
+	// visibility "hide" marks catalog rows Codex keeps out of its own picker
+	// (gpt-reserve, codex-auto-review). An absent field is not a hidden model:
+	// older caches carry no visibility at all.
+	dir := t.TempDir()
+	t.Setenv("CODEX_HOME", dir)
+	cache := `{
+      "models": [
+        {"slug": "gpt-6-astra", "display_name": "GPT-6-Astra", "visibility": "list", "priority": 1},
+        {"slug": "gpt-reserve", "display_name": "GPT-Reserve", "visibility": "hide", "priority": 3},
+        {"slug": "codex-auto-review", "display_name": "Codex Auto Review", "visibility": "hide", "priority": 43},
+        {"slug": "gpt-5.5", "display_name": "GPT-5.5"}
+      ]
+    }`
+	if err := os.WriteFile(filepath.Join(dir, "models_cache.json"), []byte(cache), 0o600); err != nil {
+		t.Fatalf("write cache: %v", err)
+	}
+
+	models, err := ListModels(context.Background(), ProviderInput{Type: "codex"})
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	got := make([]string, 0, len(models))
+	for _, m := range models {
+		got = append(got, m.ID)
+	}
+	// Still sorted by id, as every other provider's catalog is.
+	want := []string{"gpt-5.5", "gpt-6-astra"}
+	if len(got) != len(want) {
+		t.Fatalf("models = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("models = %v, want %v", got, want)
+		}
+	}
+}
