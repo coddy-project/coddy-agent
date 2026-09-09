@@ -35,6 +35,10 @@ type Options struct {
 
 	// windowsInstaller replaces the Windows helper launcher in deterministic tests.
 	windowsInstaller windowsUpdateInstaller
+
+	// packageEnv replaces the package database, the package manager, and the
+	// effective user id in deterministic tests.
+	packageEnv *packageEnv
 }
 
 // Run checks GitHub releases and optionally installs a newer binary.
@@ -76,6 +80,31 @@ func Run(ctx context.Context, opts Options) error {
 		return ErrUpdateAvailable
 	}
 
+	dest := strings.TrimSpace(opts.InstallPath)
+	if dest == "" {
+		dest, err = resolveExecutablePath()
+		if err != nil {
+			return err
+		}
+	}
+
+	// A package manager owning this file changes what an update even is: the
+	// unit to replace is the package, not the executable inside it.
+	if opts.GOOS == "linux" || opts.GOOS == "darwin" {
+		env := defaultPackageEnv()
+		if opts.packageEnv != nil {
+			env = *opts.packageEnv
+		}
+		if pkg, ok := detectSystemPackage(ctx, env, dest); ok {
+			// Homebrew has no privileged route - it refuses to run as root -
+			// so every brew install ends at the same guidance.
+			if pkg.Format == formatBrew || env.Geteuid() != 0 {
+				return packageManagedError(pkg, opts.CurrentVersion, latest, dest)
+			}
+			return installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client)
+		}
+	}
+
 	assetName, err := AssetFileName(latest, opts.GOOS, opts.GOARCH)
 	if err != nil {
 		return err
@@ -83,14 +112,6 @@ func Run(ctx context.Context, opts Options) error {
 	asset, err := pickAsset(rel, assetName)
 	if err != nil {
 		return err
-	}
-
-	dest := strings.TrimSpace(opts.InstallPath)
-	if dest == "" {
-		dest, err = resolveExecutablePath()
-		if err != nil {
-			return err
-		}
 	}
 
 	if !opts.Yes {
