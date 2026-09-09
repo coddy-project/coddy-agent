@@ -372,7 +372,7 @@ func applyUCICommandsToBytes(paths Paths, base []byte, cmds []UCICommand) ([]byt
 	if _, err := parseValidateYAMLBytes(expanded, paths); err != nil {
 		return nil, fmt.Errorf("resulting config is invalid: %w", err)
 	}
-	return updated, nil
+	return ensureSchemaModeline(updated), nil
 }
 
 // DryRunUCICommands validates that the staged batch applies cleanly to the

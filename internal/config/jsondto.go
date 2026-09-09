@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // ConfigJSON is the JSON shape for GET/PUT /coddy/config (snake_case keys match YAML).
@@ -858,16 +856,6 @@ func preserveSwarmSecrets(next, current *SwarmConfig) {
 			next.Join[i].Dial.Proxy = old.Dial.Proxy
 		}
 	}
-}
-
-// MarshalConfigYAML serializes cfg to YAML bytes for disk (Paths is omitted via yaml:"-" on field).
-// Always-literal secret fields (proxy URLs) are "$"-escaped so the load-time expansion pass restores
-// them verbatim instead of resolving "$WORD"/"$N" fragments to empty environment variables.
-func MarshalConfigYAML(cfg *Config) ([]byte, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config is nil")
-	}
-	return yaml.Marshal(escapeYAMLSecrets(cfg))
 }
 
 // escapeYAMLSecrets returns a copy of cfg with always-literal proxy URLs "$"-escaped for disk.
