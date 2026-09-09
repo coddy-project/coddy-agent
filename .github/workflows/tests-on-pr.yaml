@@ -107,7 +107,7 @@ jobs:
           cache: true
 
       - name: Build deb and rpm
-        run: make deb rpm PKG_TAGS="http scheduler memory cli"
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway"
 
   lint:
     name: Lint

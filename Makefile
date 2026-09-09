@@ -2,8 +2,7 @@
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
-#     Recommended full binary: make build TAGS="http ui scheduler memory cli"
-#     (default Docker BUILD_TAGS additionally includes gateway)
+#     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway"
 #     http     OpenAI-compatible gateway (coddy http)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
@@ -16,7 +15,7 @@
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
-#             make build TAGS="http ui scheduler memory gateway"
+#             make build TAGS="http ui scheduler memory cli gateway"
 #   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
@@ -35,7 +34,7 @@ BUILD_DIR := build
 BINARY := $(BUILD_DIR)/coddy
 
 # Default tag set for `make install` when build/coddy is missing (matches Docker BUILD_TAGS).
-FULL_TAGS := http ui scheduler memory cli
+FULL_TAGS := http ui scheduler memory cli gateway
 
 # Plain `make` must run `build`. Without this, the first rule would be `print-version`.
 .DEFAULT_GOAL := build
@@ -138,6 +137,8 @@ test: test-opencode-rules
 	go test -tags=http,scheduler,ui ./...
 	go test -tags=http,scheduler,ui,memory ./...
 	go test -tags=http,scheduler,ui,memory,cli ./...
+	go test -tags=gateway ./...
+	go test -tags=http,scheduler,ui,memory,cli,gateway ./...
 
 # Type-check the Windows build without a Windows machine.
 #
@@ -163,6 +164,8 @@ check-windows:
 	GOOS=windows go vet -tags=http,scheduler,memory ./...
 	GOOS=windows go vet -tags=cli ./...
 	GOOS=windows go vet -tags=cli,scheduler,memory ./...
+	GOOS=windows go vet -tags=gateway ./...
+	GOOS=windows go vet -tags=http,scheduler,memory,cli,gateway ./...
 
 # Clean build artifacts.
 clean:
@@ -173,11 +176,13 @@ clean:
 lint:
 	golangci-lint run ./...
 	golangci-lint run --build-tags cli ./external/cli/... ./cmd/coddy/...
+	golangci-lint run --build-tags gateway ./external/gateway/... ./cmd/coddy/...
 
 # Run the linter against the Windows build, which lint above never compiles.
 lint-windows:
 	GOOS=windows golangci-lint run ./...
 	GOOS=windows golangci-lint run --build-tags cli ./external/cli/... ./cmd/coddy/...
+	GOOS=windows golangci-lint run --build-tags gateway ./external/gateway/... ./cmd/coddy/...
 
 # Enable the repo's git hooks (pre-commit runs scripts/checks.sh). One-time per clone.
 # Bypass a single commit with: git commit --no-verify
