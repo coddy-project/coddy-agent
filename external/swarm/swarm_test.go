@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,12 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/netx"
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
+
+// streamAck bounds how long a stand-in node waits to hear that the chunk it
+// just wrote reached the client. It is a deadlock guard, not a measurement: a
+// relay that forwards a chunk answers in microseconds, and a relay that
+// buffered the response never answers at all.
+const streamAck = 10 * time.Second
 
 // testClock lets a lease expire without the test sleeping through its TTL.
 type testClock struct {
@@ -475,6 +483,138 @@ func TestMountRemainderRejectsAmbiguousPaths(t *testing.T) {
 				t.Fatalf("mountRemainder(%q) = %q, want %q", tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+// closingBody behaves like the request body net/http hands a handler: once the
+// server has closed it, every further read fails.
+//
+// A read past the declared length waits for that close before it answers. That
+// is the ordering a busy machine produces on its own - the inbound server
+// closing the body before the transport asks whether anything followed it -
+// held here as a certainty rather than a probability.
+type closingBody struct {
+	data   []byte
+	off    int
+	closed chan struct{}
+}
+
+func newClosingBody(data string) *closingBody {
+	return &closingBody{data: []byte(data), closed: make(chan struct{})}
+}
+
+func (b *closingBody) Read(p []byte) (int, error) {
+	if b.off >= len(b.data) {
+		select {
+		case <-b.closed:
+		case <-time.After(streamAck):
+		}
+	}
+	select {
+	case <-b.closed:
+		return 0, http.ErrBodyReadAfterClose
+	default:
+	}
+	if b.off >= len(b.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, b.data[b.off:])
+	b.off += n
+	if b.off >= len(b.data) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+func (b *closingBody) Close() error {
+	select {
+	case <-b.closed:
+	default:
+		close(b.closed)
+	}
+	return nil
+}
+
+// A node answers while the relay is still finishing the request it was
+// sending, and net/http closes an inbound request body the moment those
+// response headers go out. The transport's last read - the one asking whether
+// the body ran past the length it declared - then lands on a body that is
+// already gone, and failing it costs the whole connection to the node. The
+// answer already on its way is cut, and the next request has to dial again.
+//
+// The request goes through the relay's handler directly so the body under it is
+// the test's own, which is the only way to hold that interleaving still.
+func TestMountKeepsTheNodeConnectionWhenTheRequestBodyIsClosed(t *testing.T) {
+	body := newClosingBody(`{"stream":true}`)
+
+	var dialled atomic.Int64
+	node := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Errorf("node reading the request body: %v", err)
+		}
+		// Stand in for the inbound server, which closes a request body as soon
+		// as the handler writes response headers - here, as soon as the node
+		// has something to say.
+		_ = body.Close()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl, ok := w.(http.Flusher)
+		if !ok {
+			t.Error("no flusher on the node")
+			return
+		}
+		for i := 0; i < 3; i++ {
+			_, _ = fmt.Fprintf(w, "data: chunk-%d\n\n", i)
+			fl.Flush()
+		}
+	}))
+	node.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			dialled.Add(1)
+		}
+	}
+	node.Start()
+	defer node.Close()
+
+	srv, ts := mountTestRelay(t, node.URL)
+	defer ts.Close()
+
+	req := httptest.NewRequest(http.MethodPost, swarmdto.MountPath+"nas02/v1/responses", body)
+	req.ContentLength = int64(len(body.data))
+	req.Header.Set("Authorization", "Bearer client-secret")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	for i := 0; i < 3; i++ {
+		if chunk := fmt.Sprintf("data: chunk-%d", i); !strings.Contains(rec.Body.String(), chunk) {
+			t.Fatalf("the answer was cut before %s: %q", chunk, rec.Body.String())
+		}
+	}
+
+	// A second request proves the connection outlived the first: a torn-down
+	// one is not in the pool to reuse, and the node sees a fresh dial.
+	again := httptest.NewRequest(http.MethodGet, swarmdto.MountPath+"nas02/coddy/sessions", nil)
+	again.Header.Set("Authorization", "Bearer client-secret")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(), again)
+
+	if got := dialled.Load(); got != 1 {
+		t.Fatalf("the node was dialled %d times, want 1: the relay dropped the connection it was streaming over", got)
+	}
+}
+
+// A body that disappears before it delivered what it promised is a real
+// failure, and stays one: the node would otherwise be told a truncated request
+// was the whole of it.
+func TestMountBodyReportsAShortRequest(t *testing.T) {
+	inner := newClosingBody("half")
+	forwarded := &declaredBody{rc: inner, left: 64}
+
+	if _, err := forwarded.Read(make([]byte, 2)); err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	_ = inner.Close()
+	if _, err := forwarded.Read(make([]byte, 16)); err != http.ErrBodyReadAfterClose {
+		t.Fatalf("read after a short body returned %v, want %v", err, http.ErrBodyReadAfterClose)
 	}
 }
 
