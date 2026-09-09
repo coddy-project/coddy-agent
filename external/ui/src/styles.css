@@ -4325,11 +4325,55 @@ textarea#composer {
   color: var(--muted);
 }
 
+/* Inline "new folder" row: a name field on the folder-row grid, so the entry
+   being typed sits where the folder will appear. Not hoverable - it is a form,
+   not a destination. */
+.workspace-modal-row--new {
+  gap: 6px;
+  cursor: default;
+  overflow: visible;
+}
+
+.workspace-modal-row--new:hover {
+  background: transparent;
+}
+
+.workspace-modal-new-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--coddy-glass-panel-border);
+  background: color-mix(in srgb, var(--text) 4%, var(--coddy-blend-base));
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.workspace-modal-new-name::placeholder {
+  color: color-mix(in srgb, var(--text) 45%, var(--coddy-blend-base));
+}
+
+.workspace-modal-new-name:focus {
+  border-color: rgba(147, 51, 234, 0.45);
+}
+
 .workspace-modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   padding: 10px 14px 12px;
+}
+
+/* New folder leads the footer, opposite the Cancel / Open pair. */
+.workspace-modal-btn--lead {
+  margin-right: auto;
+}
+
+.workspace-modal-btn--inline {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
 
 .workspace-modal-btn {

@@ -589,6 +589,65 @@ func openAPISpec() map[string]interface{} {
 						"500": errorResponseRef(),
 					},
 				},
+				"post": map[string]interface{}{
+					"summary": "Create a subfolder for the workspace folder picker",
+					"description": "Creates **`name`** inside **`path`** (default: session cwd via **`X-Coddy-Session-ID`**, else the server default cwd) and answers with the " +
+						"**listing of the folder just created**, so the picker can step into it and open it as the workspace. " +
+						"**`name`** must be a single new entry: an empty name, **`.`**, **`..`**, a volume name, or anything containing **`/`** or **`\\`** yields **400**, and so does a " +
+						"parent that does not exist (the chain is never created) or the **`:drives:`** level, which has no directory behind it. " +
+						"An existing folder of that name yields **409**.",
+					"operationId": "coddyWorkspaceFoldersPost",
+					"parameters": []interface{}{
+						map[string]interface{}{
+							"name": "X-Coddy-Session-ID", "in": "header", "required": false,
+							"schema":      map[string]string{"type": "string"},
+							"description": "Session whose **cwd** is the default parent folder.",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"required": true,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type":     "object",
+									"required": []interface{}{"name"},
+									"properties": map[string]interface{}{
+										"path": map[string]interface{}{
+											"type":        "string",
+											"description": "Absolute folder the new one is created in. Defaults to the session **cwd**.",
+										},
+										"name": map[string]interface{}{
+											"type":        "string",
+											"description": "Name of the new folder: one entry, no path separators.",
+										},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": map[string]interface{}{
+							"description": "Listing of the folder that was created (empty **`folders`**)",
+							"content": map[string]interface{}{
+								"application/json": map[string]interface{}{
+									"schema": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"object":  map[string]interface{}{"type": "string", "example": "coddy.workspace_folders"},
+											"path":    map[string]interface{}{"type": "string"},
+											"parent":  map[string]interface{}{"type": "string"},
+											"folders": map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object"}},
+										},
+									},
+								},
+							},
+						},
+						"400": errorResponseRef(),
+						"404": errorResponseRef(),
+						"409": errorResponseRef(),
+						"500": errorResponseRef(),
+					},
+				},
 			},
 			"/coddy/config/schema": map[string]interface{}{
 				"get": map[string]interface{}{

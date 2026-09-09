@@ -363,6 +363,120 @@ describe("WorkspaceChips", () => {
     );
   });
 
+  it("creates a folder from the browser and steps into it", async () => {
+    const listings: Record<string, unknown> = {
+      "/repos": {
+        path: "/repos",
+        parent: "/",
+        folders: [{ name: "other", path: "/repos/other" }],
+      },
+    };
+    const created = {
+      path: "/repos/fresh",
+      parent: "/repos",
+      folders: [],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({ ok: true, json: async () => created });
+        }
+        const u = new URL(String(url), "http://localhost");
+        const p = u.searchParams.get("path") || "";
+        return Promise.resolve({ ok: true, json: async () => listings[p] });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { props } = renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    // The name row only appears on demand, and an empty name cannot be sent.
+    expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+    const field = screen.getByTestId("workspace-modal-new-folder-name");
+    expect(
+      (
+        screen.getByTestId(
+          "workspace-modal-new-folder-create",
+        ) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    fireEvent.change(field, { target: { value: "fresh" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+        "value",
+        "/repos/fresh",
+      ),
+    );
+    const post = fetchMock.mock.calls.find(
+      (c) => (c[1] as RequestInit | undefined)?.method === "POST",
+    );
+    expect(post?.[0]).toBe("/coddy/workspace/folders");
+    expect(JSON.parse(String((post?.[1] as RequestInit).body))).toEqual({
+      path: "/repos",
+      name: "fresh",
+    });
+
+    // The row closes and the new folder is what Open picks.
+    expect(screen.queryByTestId("workspace-modal-new-folder-name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-modal-open"));
+    expect(props.onPickFolder).toHaveBeenCalledWith("/repos/fresh");
+  });
+
+  it("keeps the name row open and explains a folder that already exists", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({}),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            path: "/repos",
+            parent: "/",
+            folders: [{ name: "other", path: "/repos/other" }],
+          }),
+        });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChips();
+    fireEvent.click(screen.getByTestId("composer-workspace-chip"));
+    fireEvent.click(screen.getByTestId("workspace-open-folder"));
+    await waitFor(() => screen.getByTestId("workspace-modal-row-other"));
+
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder"));
+    fireEvent.change(screen.getByTestId("workspace-modal-new-folder-name"), {
+      target: { value: "other" },
+    });
+    fireEvent.click(screen.getByTestId("workspace-modal-new-folder-create"));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("workspace-folder-modal").textContent,
+      ).toContain("already exists"),
+    );
+    // The typed name survives so it can be corrected rather than retyped.
+    expect(
+      screen.getByTestId("workspace-modal-new-folder-name"),
+    ).toHaveProperty("value", "other");
+    expect(screen.getByTestId("workspace-modal-path")).toHaveProperty(
+      "value",
+      "/repos",
+    );
+  });
+
   it("cancels the folder browser modal without picking", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
