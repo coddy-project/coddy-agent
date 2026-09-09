@@ -194,3 +194,79 @@ func TestAppendingLinesUsesAppendPathWithoutFullRedraw(t *testing.T) {
 		t.Fatalf("appended line missing: %q", out)
 	}
 }
+
+// plainSelectListTheme styles nothing, so assertions read the raw text the
+// list lays out.
+func plainSelectListTheme() SelectListTheme {
+	id := func(s string) string { return s }
+	return SelectListTheme{SelectedText: id, Description: id, ScrollInfo: id, NoMatch: id}
+}
+
+// A question option carries a whole sentence of explanation. Squeezed into the
+// row's description column it loses most of itself and steals the label's
+// width on the way; pi's SettingsList instead wraps the selected item's
+// description under the list, and DescriptionBelow asks for that layout.
+func TestSelectListWrapsTheSelectedDescriptionBelowTheList(t *testing.T) {
+	long := "A self-contained pair on nas02 itself: the relay listens on a port and the node dials it, " +
+		"so the swarm survives the laptop going away."
+	items := []SelectItem{
+		{Value: "0", Label: "Relay and node both on nas02 (recommended)", Description: long},
+		{Value: "1", Label: "Relay on the laptop, node only on nas02", Description: "short"},
+	}
+	list := NewSelectList(items, 8, plainSelectListTheme(), SelectListLayout{DescriptionBelow: true})
+	lines := list.Render(60)
+	if len(lines) == 0 {
+		t.Fatal("nothing rendered")
+	}
+	if !strings.Contains(lines[0], "Relay and node both on nas02 (recommended)") {
+		t.Fatalf("the row must spend the full width on its label, got %q", lines[0])
+	}
+	for i, row := range lines[:2] {
+		if strings.Contains(row, "self-contained") {
+			t.Fatalf("row %d still carries the description: %q", i, row)
+		}
+	}
+	block := strings.Join(lines[2:], "\n")
+	if !strings.Contains(block, "self-contained") || !strings.Contains(block, "laptop going away") {
+		t.Fatalf("the selected description is not readable below the list:\n%s", block)
+	}
+	if got := len(strings.Split(strings.TrimSpace(block), "\n")); got < 2 {
+		t.Fatalf("a sentence that long must wrap, got %d line(s):\n%s", got, block)
+	}
+	for _, line := range lines {
+		if w := VisibleWidth(line); w > 60 {
+			t.Fatalf("line wider than the terminal (%d): %q", w, line)
+		}
+	}
+	// The description follows the cursor.
+	list.MoveDown()
+	if tail := strings.Join(list.Render(60), "\n"); !strings.Contains(tail, "short") {
+		t.Fatalf("the second option's description is missing:\n%s", tail)
+	}
+}
+
+// Without the option nothing moves: slash commands and the selectors keep the
+// two-column layout they were ported with.
+func TestSelectListKeepsTheDescriptionColumnByDefault(t *testing.T) {
+	items := []SelectItem{{Value: "compact", Label: "/compact", Description: "Compact the session"}}
+	lines := NewSelectList(items, 8, plainSelectListTheme(), SelectListLayout{}).Render(60)
+	if len(lines) != 1 {
+		t.Fatalf("expected one row, got %q", lines)
+	}
+	if !strings.Contains(lines[0], "/compact") || !strings.Contains(lines[0], "Compact the session") {
+		t.Fatalf("row lost its description column: %q", lines[0])
+	}
+}
+
+// A label the width cannot hold is cut with an ellipsis, so the operator can
+// see that the text continues instead of reading a word broken mid-syllable.
+func TestSelectListMarksATruncatedLabel(t *testing.T) {
+	items := []SelectItem{{Value: "0", Label: "Relay and node both on nas02 (recommended)"}}
+	lines := NewSelectList(items, 8, plainSelectListTheme(), SelectListLayout{DescriptionBelow: true}).Render(24)
+	if len(lines) == 0 || !strings.Contains(lines[0], "...") {
+		t.Fatalf("truncated label carries no ellipsis: %q", lines)
+	}
+	if w := VisibleWidth(lines[0]); w > 24 {
+		t.Fatalf("truncated row is %d wide: %q", w, lines[0])
+	}
+}

@@ -10,6 +10,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -296,12 +297,35 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					s.mu.Unlock()
 				}
 			case "question":
+				// The real agent runs the question tool like any other call:
+				// a tool_call block opens, the arguments stream in, the
+				// operator answers, and the JSON result closes the block.
+				s.toolSeq++
+				s.activeToolID = fmt.Sprintf("call_%d", s.toolSeq)
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallUpdate{
+					SessionUpdate: "tool_call", ToolCallID: s.activeToolID,
+					Title: "question", Kind: "other", Status: "pending",
+				})
+				args, _ := json.Marshal(map[string]interface{}{"questions": d.qParams.Questions})
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
+					Status:  "in_progress",
+					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: string(args)}}},
+				})
 				res, err := snd.RequestQuestion(ctx, *d.qParams)
+				var answers [][]string
 				if err == nil && res != nil {
+					answers = res.Answers
 					s.mu.Lock()
-					s.questionAns = res.Answers
+					s.questionAns = answers
 					s.mu.Unlock()
 				}
+				result, _ := json.Marshal(acp.QuestionResult{Answers: answers})
+				_ = snd.SendSessionUpdate(sessionID, acp.ToolCallStatusUpdate{
+					SessionUpdate: "tool_call_update", ToolCallID: s.activeToolID,
+					Status:  "completed",
+					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: string(result)}}},
+				})
 			case "block":
 				s.blockedCh = d.blockCh
 				select {
@@ -863,6 +887,67 @@ func (s *cliTUIState) operatorChoosesCustomAndTypes(answer string) error {
 	return fmt.Errorf("question answer never arrived")
 }
 
+// The option texts of a real question are sentences, not menu entries: the
+// label of the recommendation and the explanation under it both have to stay
+// readable at 100 columns.
+const (
+	bddLongOptionLabel = "Relay and node both on nas02 (recommended)"
+	bddLongOptionDesc  = "A self-contained pair on nas02 itself: the relay listens on a port and the node dials it, " +
+		"so the swarm survives the laptop going away."
+)
+
+func (s *cliTUIState) stubAsksQuestionWithLongDescriptions() error {
+	s.directives <- stubDirective{kind: "question", qParams: &acp.QuestionRequestParams{
+		SessionID: s.app.sessionID,
+		RequestID: "q2",
+		Questions: []acp.QuestionPrompt{{
+			Header:   "Swarm topology",
+			Question: "Where should the relay live?",
+			Options: []acp.QuestionOption{
+				{Label: bddLongOptionLabel, Description: bddLongOptionDesc},
+				{Label: "Relay on the laptop, node only on nas02", Description: "The swarm is visible from the laptop only."},
+			},
+		}},
+	}}
+	return s.waitScreen("Where should the relay live?", 3*time.Second)
+}
+
+func (s *cliTUIState) questionModalShowsWholeFirstLabel() error {
+	return s.waitScreen(bddLongOptionLabel, 2*time.Second)
+}
+
+// The description sits under the list, wrapped: its tail is on a row of its
+// own instead of being cut off at the end of the option row.
+func (s *cliTUIState) questionModalWrapsSelectedDescription() error {
+	if err := s.waitScreen("A self-contained pair on nas02 itself", 2*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("swarm survives the laptop going away.", 2*time.Second)
+}
+
+func (s *cliTUIState) operatorChoosesHighlightedOption() error {
+	s.press("\r")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		n := len(s.questionAns)
+		s.mu.Unlock()
+		if n > 0 {
+			s.directives <- stubDirective{kind: "end"}
+			return s.waitTurnEnd(2 * time.Second)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("question answer never arrived")
+}
+
+func (s *cliTUIState) transcriptShowsQuestionAnswered(question, answer string) error {
+	if err := s.waitScreen(question, 3*time.Second); err != nil {
+		return err
+	}
+	return s.waitScreen("\u2192 "+answer, 3*time.Second)
+}
+
 func (s *cliTUIState) stubObservesQuestionAnswer(answer string) error {
 	s.mu.Lock()
 	ans := s.questionAns
@@ -1088,6 +1173,11 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the replayed prompt "([^"]*)" renders as a user message block and not as assistant text$`, s.replayedPromptRendersAsUserBlock)
 	sc.Step(`^the stub turn asks a question titled "([^"]*)" that allows a custom answer$`, s.stubAsksQuestion)
 	sc.Step(`^the operator chooses the custom answer and types "([^"]*)"$`, s.operatorChoosesCustomAndTypes)
+	sc.Step(`^the stub turn asks a question whose options carry long descriptions$`, s.stubAsksQuestionWithLongDescriptions)
+	sc.Step(`^the question modal shows the whole label of the first option$`, s.questionModalShowsWholeFirstLabel)
+	sc.Step(`^the question modal wraps the selected option's description below the list$`, s.questionModalWrapsSelectedDescription)
+	sc.Step(`^the operator chooses the highlighted option$`, s.operatorChoosesHighlightedOption)
+	sc.Step(`^the transcript shows the question "([^"]*)" answered with "([^"]*)"$`, s.transcriptShowsQuestionAnswered)
 	sc.Step(`^the stub turn observes the question answer "([^"]*)"$`, s.stubObservesQuestionAnswer)
 	sc.Step(`^the stub turn fails with the error "([^"]*)"$`, s.stubFailsWith)
 	sc.Step(`^the transcript shows an error notice containing "([^"]*)"$`, s.transcriptShowsErrorNotice)

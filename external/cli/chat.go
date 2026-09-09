@@ -211,6 +211,102 @@ func firstLine(s string) string {
 	return s
 }
 
+// questionPromptText is the one field of a question argument the transcript
+// needs: what the operator was asked.
+type questionPromptText struct {
+	Question string `json:"question"`
+}
+
+// questionReadout turns the question tool's JSON answer into the question and
+// answer pairs the operator saw, so the transcript carries the decision rather
+// than `{"answers":[["..."]]}`. The SPA timeline reads the same result the same
+// way (external/ui/src/ui/chat/questionToolDisplay.ts). Returns "" when the
+// text is not a question result, leaving every other body untouched.
+func questionReadout(argsJSON, resultJSON string) string {
+	// A raw message tells an absent key (not a question result) from the null
+	// list a dismissed question answers with.
+	var result struct {
+		Answers json.RawMessage `json:"answers"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(resultJSON)), &result); err != nil || len(result.Answers) == 0 {
+		return ""
+	}
+	var answers [][]string
+	if err := json.Unmarshal(result.Answers, &answers); err != nil {
+		return ""
+	}
+	questions := questionTexts(argsJSON)
+	rows := max(len(questions), len(answers))
+	if rows == 0 {
+		return "→ (no answer)"
+	}
+	var b strings.Builder
+	for i := 0; i < rows; i++ {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		if i < len(questions) && questions[i] != "" {
+			b.WriteString(questions[i] + "\n")
+		}
+		answer := ""
+		if i < len(answers) {
+			var picked []string
+			for _, one := range answers[i] {
+				if collapsed := collapseSpaces(one); collapsed != "" {
+					picked = append(picked, collapsed)
+				}
+			}
+			answer = strings.Join(picked, ", ")
+		}
+		if answer == "" {
+			answer = "(no answer)"
+		}
+		b.WriteString("→ " + answer)
+	}
+	return b.String()
+}
+
+// questionTexts reads the question prompts out of the call arguments. It
+// tolerates the shapes the tool itself accepts (the array, a single object,
+// and either of them encoded inside a JSON string), and answers nil when the
+// arguments never arrived or say something else.
+func questionTexts(argsJSON string) []string {
+	raw := strings.TrimSpace(argsJSON)
+	if rest, ok := cutArgumentsPrefix(raw); ok {
+		raw = rest
+	}
+	var args struct {
+		Questions json.RawMessage `json:"questions"`
+	}
+	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+		return nil
+	}
+	raw = strings.TrimSpace(string(args.Questions))
+	if strings.HasPrefix(raw, `"`) {
+		var inner string
+		if err := json.Unmarshal([]byte(raw), &inner); err != nil {
+			return nil
+		}
+		raw = strings.TrimSpace(inner)
+	}
+	var prompts []questionPromptText
+	if err := json.Unmarshal([]byte(raw), &prompts); err != nil {
+		var one questionPromptText
+		if err := json.Unmarshal([]byte(raw), &one); err != nil {
+			return nil
+		}
+		prompts = []questionPromptText{one}
+	}
+	texts := make([]string, 0, len(prompts))
+	for _, p := range prompts {
+		texts = append(texts, collapseSpaces(p.Question))
+	}
+	return texts
+}
+
+// collapseSpaces folds every whitespace run into one space.
+func collapseSpaces(s string) string { return strings.Join(strings.Fields(s), " ") }
+
 func (t *toolBox) rebuild() {
 	t.Clear()
 	t.AddChild(tui.NewSpacer(1))
@@ -222,6 +318,11 @@ func (t *toolBox) rebuild() {
 	body := t.preview
 	if t.expanded && t.fullText != "" {
 		body = t.fullText
+	}
+	if t.name == "question" {
+		if readout := questionReadout(t.args, body); readout != "" {
+			body = tui.SanitizeText(readout)
+		}
 	}
 	if t.expanded && t.loadFailed {
 		box.AddChild(tui.NewText(t.theme.Fg(roleDim, "full output unavailable (tool_calls result missing)"), 0, 0, nil))

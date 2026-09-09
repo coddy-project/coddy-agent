@@ -35,6 +35,12 @@ type SelectListTheme struct {
 type SelectListLayout struct {
 	MinPrimaryColumnWidth int
 	MaxPrimaryColumnWidth int
+	// DescriptionBelow moves descriptions out of the rows: every row spends
+	// the whole width on its label, and the selected item's description is
+	// word-wrapped under the list (port of pi-tui SettingsList's description
+	// block). Sentence-long option texts stay readable that way, where the
+	// column layout would cut both the label and the description.
+	DescriptionBelow bool
 }
 
 // SelectList renders a scrolling selection list with `→ ` cursor prefix and an
@@ -170,7 +176,7 @@ func (s *SelectList) Render(width int) []string {
 	for i := startIndex; i < endIndex; i++ {
 		item := s.filteredItems[i]
 		desc := ""
-		if item.Description != "" {
+		if item.Description != "" && !s.layout.DescriptionBelow {
 			desc = strings.TrimSpace(newlineRunRegex.ReplaceAllString(item.Description, " "))
 		}
 		lines = append(lines, s.renderItem(item, i == s.selectedIndex, width, desc, primaryColumnWidth))
@@ -178,6 +184,23 @@ func (s *SelectList) Render(width int) []string {
 	if startIndex > 0 || endIndex < len(s.filteredItems) {
 		scrollText := "  (" + strconv.Itoa(s.selectedIndex+1) + "/" + strconv.Itoa(len(s.filteredItems)) + ")"
 		lines = append(lines, s.theme.ScrollInfo(TruncateToWidth(scrollText, width-2, "")))
+	}
+	return append(lines, s.descriptionBlock(width)...)
+}
+
+// descriptionBlock renders the selected row's description under the list,
+// wrapped and indented, when the layout asked for it (pi-tui SettingsList).
+func (s *SelectList) descriptionBlock(width int) []string {
+	if !s.layout.DescriptionBelow {
+		return nil
+	}
+	item := s.SelectedItem()
+	if item == nil || strings.TrimSpace(item.Description) == "" {
+		return nil
+	}
+	lines := []string{""}
+	for _, line := range WrapTextWithANSI(item.Description, max(1, width-4)) {
+		lines = append(lines, s.theme.Description("  "+line))
 	}
 	return lines
 }
@@ -207,7 +230,7 @@ func (s *SelectList) renderItem(item SelectItem, isSelected bool, width int, des
 	}
 
 	maxWidth := width - prefixWidth - 2
-	value := TruncateToWidth(s.displayValue(item), maxWidth, "")
+	value := TruncateToWidth(s.displayValue(item), maxWidth, "...")
 	if isSelected {
 		return s.theme.SelectedText(prefix + value)
 	}
