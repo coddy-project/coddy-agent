@@ -119,6 +119,10 @@ func detectSystemPackage(ctx context.Context, env packageEnv, path string) (syst
 // itself - no `brew` process, and no answer that depends on brew being on PATH
 // at all. The directory below Caskroom or Cellar is the package name.
 func homebrewOwner(path string) (string, bool) {
+	// Homebrew is a Unix-only tool, but the path handed in comes from the host
+	// this process runs on, so normalise the separator before matching rather
+	// than assuming one.
+	path = filepath.ToSlash(path)
 	for _, marker := range []string{"/Caskroom/", "/Cellar/"} {
 		_, rest, ok := strings.Cut(path, marker)
 		if !ok {

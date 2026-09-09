@@ -122,24 +122,29 @@ func (s *packageFeatureState) runsWithoutRoot() error {
 }
 
 // env answers as a host where the package database owns s.dest and the chosen
-// front-end is the only package tool installed.
+// front-end is the only package tool installed. A Homebrew host has neither
+// dpkg nor rpm, so nothing but the path can identify that install - which is
+// the point of the scenario.
 func (s *packageFeatureState) env() packageEnv {
 	owner := "dpkg-query"
-	if s.format == formatRPM {
+	switch s.format {
+	case formatRPM:
 		owner = "rpm"
+	case formatBrew:
+		owner = ""
 	}
 	return packageEnv{
 		GOOS:    "linux",
 		Geteuid: func() int { return s.euid },
 		LookPath: func(name string) (string, error) {
-			if name == owner || name == s.manager {
+			if owner != "" && (name == owner || name == s.manager) {
 				return "/usr/bin/" + name, nil
 			}
 			return "", errors.New("not found")
 		},
 		Query: func(_ context.Context, name string, args ...string) (string, error) {
 			path := args[len(args)-1]
-			if path != s.dest {
+			if owner == "" || path != s.dest {
 				return "", errors.New("not owned")
 			}
 			if name == "dpkg-query" {
