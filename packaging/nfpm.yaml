@@ -1,0 +1,90 @@
+# nfpm recipe for the Linux packages published on every release tag.
+#
+# The package installs a binary and its documentation, nothing else: no service,
+# no system account, no files under /etc. Coddy keeps every piece of state in the
+# invoking user's ~/.coddy, so one installed package serves every user on the
+# machine and what to run is the user's decision, not the packager's.
+#
+# Not built by hand: scripts/build-packages.sh stages every file listed below
+# into one directory, exports PKG_ARCH and PKG_VERSION, and runs nfpm from that
+# directory - nfpm expands environment variables in scalar fields but treats
+# "contents.src" as a literal glob, so the sources here are relative names.
+# Run `make packages`.
+#
+# https://nfpm.goreleaser.com/configuration/
+
+name: coddy
+arch: ${PKG_ARCH}
+platform: linux
+version: ${PKG_VERSION}
+# The version comes from a git tag or from `git describe`, already normalised
+# for deb and rpm by the build script. nfpm must not reinterpret it.
+version_schema: none
+release: "1"
+section: devel
+priority: optional
+maintainer: Pavel Rykov <paul@drteam.rocks>
+vendor: Coddy project
+homepage: https://coddy.dev
+license: MIT
+description: |
+  Coding agent with a console, an editor protocol and an HTTP gateway.
+  Coddy runs a ReAct loop - the model reasons, calls tools, observes results -
+  behind four surfaces that share one session store: an interactive console,
+  an Agent Client Protocol server for editors, an OpenAI-compatible HTTP
+  gateway with an embedded web UI, and a messenger gateway. It speaks to
+  OpenAI, Anthropic, Ollama and any OpenAI-compatible API, merges MCP servers,
+  and reads project rules, skills, subagents and hooks from the repository it
+  is working in.
+
+contents:
+  - src: coddy
+    dst: /usr/bin/coddy
+    file_info:
+      mode: 0755
+
+  - src: coddy.1.gz
+    dst: /usr/share/man/man1/coddy.1.gz
+    file_info:
+      mode: 0644
+
+  - src: coddy.bash
+    dst: /usr/share/bash-completion/completions/coddy
+    file_info:
+      mode: 0644
+
+  - src: coddy.zsh
+    dst: /usr/share/zsh/site-functions/_coddy
+    file_info:
+      mode: 0644
+
+  # Plain files, not nfpm's "doc" type: that type is rpm-only, and a deb built
+  # from it silently ships without /usr/share/doc - which is where the
+  # post-install message sends the user for a starting config.
+  - src: config.example.yaml
+    dst: /usr/share/doc/coddy/config.example.yaml
+    file_info:
+      mode: 0644
+
+  - src: LICENSE
+    dst: /usr/share/doc/coddy/LICENSE
+    file_info:
+      mode: 0644
+
+  # Debian policy expects the licence at this exact path.
+  - src: LICENSE
+    dst: /usr/share/doc/coddy/copyright
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: postinstall.sh
+
+deb:
+  # dpkg-query -S on /usr/bin/coddy is what `coddy update` asks to learn that
+  # this file is package-managed; nothing here may move the binary elsewhere.
+  fields:
+    Bugs: https://github.com/coddy-project/coddy-agent/issues
+
+rpm:
+  summary: Coding agent with a console, an editor protocol and an HTTP gateway

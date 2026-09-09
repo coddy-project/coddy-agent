@@ -136,9 +136,24 @@ curl -fsSL https://coddy.dev/install.sh | bash
 irm https://coddy.dev/install.ps1 | iex
 ```
 
-Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). Full installer options: **[`docs/install.md`](docs/install.md)**.
+Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing. Puts **`coddy`** on **`PATH`** (Unix: `~/.local/bin`; Windows: `%LOCALAPPDATA%\Programs\coddy`). On Linux and macOS it also installs the man page and the bash and zsh completions, and wires them into your login shell's rc file (**`--no-shell-setup`** opts out). Full installer options: **[`docs/install.md`](docs/install.md)**.
 
 > **Windows.** The binary lands at `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; config and sessions live under `%USERPROFILE%\.coddy\` (use `$env:USERPROFILE`, not `$HOME`). Runtime commands select `pwsh`, then Windows PowerShell, then `cmd.exe`; Unix builds select `bash`, then `sh`. The installing terminal does not see the updated `PATH` — open a new one or refresh it in place. Details: [`docs/install.md`](docs/install.md#windows).
+
+**Linux packages** - every release also publishes a **`.deb`** and an **`.rpm`** (x86_64 and arm64), carrying the binary, the man page and the shell completions:
+
+```bash
+curl -fsSLO https://github.com/coddy-project/coddy-agent/releases/latest/download/coddy_1.0.10_linux_amd64.deb
+sudo apt-get install ./coddy_1.0.10_linux_amd64.deb     # dnf install ./coddy_1.0.10_linux_amd64.rpm
+```
+
+**macOS** - the same release publishes a Homebrew cask:
+
+```bash
+brew install --cask coddy
+```
+
+Prefer a package on a machine you administer: the files are tracked by the package manager, and **`coddy update`** defers to it instead of overwriting a tracked binary. Details: **[`docs/install.md`](docs/install.md#linux-packages-deb-rpm)**.
 
 Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
 
@@ -213,7 +228,7 @@ Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
 
 ### Docker
 
-Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon) - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - a superset of **`make build TAGS="http ui scheduler memory cli"`**.
+Release images are published on **[GitHub Container Registry](https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent)** as **`ghcr.io/coddy-project/coddy-agent`** (tags such as **`latest`** and **`X.Y.Z`**, **linux/amd64** and **linux/arm64**). Each SemVer git tag also gets **GitHub Release** archives (Linux, Windows, macOS Intel and Apple Silicon), Linux **`.deb`** / **`.rpm`** packages, and a Homebrew cask - see **[docs/build.md](docs/build.md#release-binaries-ci)**. The default image includes **`http`**, **`ui`**, **`scheduler`**, **`memory`**, **`cli`**, and **`gateway`** - a superset of **`make build TAGS="http ui scheduler memory cli"`**.
 
 **1. Config and workspace** (from the repo root, or any directory where you keep **`config.yaml`**):
 
@@ -296,7 +311,7 @@ Other setups (Anthropic, NeuralDeep, Ollama, a non-default **`api_base`**, and e
 
 ## How to update
 
-Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
+Official CLI binaries are published on **[GitHub Releases](https://github.com/coddy-project/coddy-agent/releases)** (assets such as **`coddy_0.9.3_linux_amd64.tar.gz`**, plus **`.deb`** and **`.rpm`** packages for Linux). Each release matches the full feature set from **`make build TAGS="http ui scheduler memory cli"`**.
 
 **`coddy update`** downloads the archive for your OS/architecture and replaces the binary you invoked (symlinks resolved). That is the usual path after **`make install`** (**`~/.local/bin/coddy`**) or when you run **`./build/coddy update`** to refresh a local build artifact.
 
@@ -337,6 +352,15 @@ coddy http --help     # only when the binary includes -tags=http (release builds
 | **`-y`** / **`--yes`** | Install without confirmation. |
 | **`--version X.Y.Z`** | Install a specific release, not only "latest". |
 | **`--repo owner/name`** | Alternate GitHub repo (default **`coddy-project/coddy-agent`**). |
+
+**Installed from a `.deb`, an `.rpm` or Homebrew?**
+
+Coddy will not overwrite a file a package manager owns. As an ordinary user, **`coddy update`** names the command that upgrades the package and changes nothing; as **root** on a **`.deb`** or **`.rpm`** install, it downloads the release package for your architecture and installs it through **`apt-get`**, **`dnf`**, **`zypper`** or whichever tool the system has:
+
+```bash
+sudo coddy update -y          # deb / rpm
+brew upgrade --cask coddy     # Homebrew
+```
 
 **Notes**
 
@@ -566,8 +590,8 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Documentation
 
-- [Install](docs/install.md) - installer script options, Windows paths, manual placement
-- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**
+- [Install](docs/install.md) - installer script options, Linux **`.deb`** / **`.rpm`** packages, the Homebrew cask, Windows paths, manual placement
+- [Build from source](docs/build.md) - prerequisites, **`make build`**, **`TAGS`** vs **`go build -tags`**, **`build/coddy`**, **`make deb`** / **`rpm`** / **`brew`**
 - [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Console TUI](docs/cli.md) - bare **`coddy`** in a terminal (**`-tags cli`**): layout, keys, flags, print mode, captures

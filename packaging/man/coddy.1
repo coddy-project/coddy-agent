@@ -1,0 +1,270 @@
+.\" Manual page for coddy.
+.\" Keep the command list in sync with printUsage() in cmd/coddy/main.go.
+.TH CODDY 1 "2026-09-09" "Coddy" "User Commands"
+.SH NAME
+coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a messenger gateway
+.SH SYNOPSIS
+.B coddy
+.RI [ command ]
+.RI [ options ]
+.br
+.B coddy
+.RB [ \-c | \-\-continue ]
+.RB [ \-p
+.IR PROMPT ]
+.br
+.B coddy
+.RB [ \-h | \-\-help ]
+.RB [ \-v | \-\-version ]
+.SH DESCRIPTION
+.B coddy
+is a coding agent built around a ReAct loop: the model reasons, calls tools, and
+observes the results. One agent core is reachable through four surfaces that all
+share the same sessions under
+.BR $CODDY_HOME :
+an interactive console, an Agent Client Protocol (ACP) server for editors, an
+OpenAI\-compatible HTTP gateway with an embedded web UI, and a messenger gateway.
+.PP
+Run with no arguments on a terminal,
+.B coddy
+opens the interactive console. Optional surfaces are Go build tags, so a binary
+may not carry every command below; a missing one says so and names the tag to
+rebuild with. The packages published for Linux carry all of them.
+.SH COMMANDS
+.TP
+.B cli
+Interactive console TUI. Bare
+.B coddy
+on a terminal does the same.
+.TP
+.B acp
+Agent Client Protocol server on stdio, for editors and ACP clients.
+.TP
+.B http
+OpenAI\-compatible HTTP gateway, REST API under
+.IR /coddy ,
+Swagger UI at
+.IR /docs ,
+and the embedded web UI at
+.IR / .
+.TP
+.B gateway
+Messenger gateway (Telegram).
+.TP
+.BI "sessions list"
+List stored sessions.
+.TP
+.BI "sessions export " id
+Write a stored session to a file:
+.BI \-\-format " md|html|json|jsonl" ,
+.BI \-\-out " PATH" ,
+.BR \-\-no\-tools ,
+.BR \-\-no\-thinking .
+.TP
+.B "skills list | enable | disable | add | sync | remove"
+Manage skills: slash commands and
+.I SKILL.md
+packs from
+.IR skills.dirs .
+.B add
+takes an
+.IR owner/repo ,
+a git URL, or a marketplace URL.
+.TP
+.B "plugin marketplace list | add | remove | sync"
+Manage skill marketplaces.
+.TP
+.B "plugin install | remove | enable | disable"
+Manage installed plugins.
+.TP
+.B "mcp list | trust | untrust"
+List merged MCP servers and approve or revoke project\-local
+.I .coddy/mcp.json
+declarations for a workspace.
+.TP
+.B "codex login | status | logout"
+Manage the OAuth credentials of a
+.I codex
+provider.
+.TP
+.B "providers list | login | logout"
+Manage provider credentials, including the browser and device login flows.
+.TP
+.B "rules list"
+Show the project rules discovered under the session working directory.
+.TP
+.B "agents list | trust | untrust"
+List subagent definitions and approve or revoke project\-scope ones.
+.TP
+.B "hooks list | trust | untrust"
+List lifecycle hooks and approve or revoke project\-scope hook files.
+.TP
+.B update
+Install the latest release. See
+.B SELF\-UPDATE
+below.
+.SH OPTIONS
+Every command parses its own flags;
+.BI "coddy " command " \-\-help"
+prints them. The options accepted before any command are:
+.TP
+.BR \-h ", " \-\-help
+Print the command list and exit.
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-c ", " \-\-continue
+Console: continue the most recent session for this directory.
+.TP
+.BR \-p ", " \-\-prompt " " \fIPROMPT\fR
+Console: run one prompt, print the answer, and exit.
+.TP
+.B \-\-resume
+Console: pick a session to resume.
+.PP
+Flags shared by the long\-running surfaces
+.RB ( cli ", " acp ", " http ", " gateway )
+include
+.BI \-\-config " PATH" ,
+.BI \-\-home " DIR" ,
+.BI \-\-cwd " DIR" ,
+.BI \-\-log\-level " debug|info|warn|error" ,
+and
+.BI \-\-remote " NAME|HOST:PORT|URL"
+with
+.BI \-\-remote\-token " TOKEN"
+to drive a remote
+.B coddy http
+server instead of a local agent.
+.SH SELF\-UPDATE
+.B coddy update
+downloads the release assets published on GitHub, verifies them against the
+release
+.I SHA256SUMS
+list, and replaces the executable it is running.
+.TP
+.B \-\-check
+Report whether a newer release exists and exit
+.B 1
+if one does.
+.TP
+.BR \-y ", " \-\-yes
+Install without the confirmation prompt.
+.TP
+.BI \-\-version " X.Y.Z"
+Install a specific release tag instead of the latest.
+.TP
+.BI \-\-repo " owner/name"
+Take releases from another GitHub repository.
+.TP
+.B \-\-no\-restart
+Windows only: install the update but do not start Coddy again.
+.PP
+When the executable belongs to a
+.BR deb (5)
+or rpm package,
+.B coddy update
+does not overwrite it: that would leave the package database describing a build
+that is gone. Run as an ordinary user it names the package manager command that
+upgrades it; run as
+.B root
+it downloads the release package for this architecture and installs it through
+.BR apt\-get (8),
+.BR dnf (8),
+.BR zypper (8),
+.BR dpkg (1)
+or
+.BR rpm (8),
+whichever the system provides.
+.PP
+A Coddy installed by Homebrew is treated the same way: nothing is replaced, and
+.B "brew upgrade \-\-cask coddy"
+is named instead. Homebrew refuses to run under
+.BR sudo ,
+so there is no privileged path there.
+.SH ENVIRONMENT
+.TP
+.B CODDY_HOME
+Agent state directory: configuration, sessions, skills, logs. Default
+.IR ~/.coddy .
+.TP
+.B CODDY_CWD
+Default session working directory when a client sends none. Default: the process
+working directory.
+.TP
+.B CODDY_CONFIG
+Configuration file to load. Default
+.IR $CODDY_HOME/config.yaml .
+.TP
+.B CODDY_HTTP_TOKEN
+Bearer token required by
+.BR "coddy http" .
+.TP
+.B CODDY_REMOTE_TOKEN
+Bearer token used by
+.BI \-\-remote .
+.PP
+Provider keys are read from the environment as well
+.RB ( OPENAI_API_KEY
+and the equivalents of the other providers), and from
+.IR $CODDY_HOME/.env .
+.SH FILES
+.TP
+.I ~/.coddy/config.yaml
+Main configuration. A commented starting point is installed as
+.IR /usr/share/doc/coddy/config.example.yaml .
+.TP
+.I ~/.coddy/sessions/
+Persisted sessions, one directory per session.
+.TP
+.I ~/.coddy/skills/
+Installed skills.
+.TP
+.I .coddy/rules/, .cursor/rules/, .claude/rules/, .codex/rules/, AGENTS.md
+Project rules, discovered under the session working directory.
+.TP
+.I .coddy/mcp.json, .coddy/agents/, .coddy/hooks.json
+Project\-local MCP servers, subagents and hooks. Each needs a one\-time approval
+before Coddy reads or runs it.
+.SH EXAMPLES
+Start the console in the current repository:
+.PP
+.RS 4
+.B coddy
+.RE
+.PP
+Ask one question and exit:
+.PP
+.RS 4
+.B coddy \-p "what does internal/agent do?"
+.RE
+.PP
+Serve the web UI and REST API on the default port:
+.PP
+.RS 4
+.B coddy http
+.RE
+.PP
+Wire an editor to Coddy over ACP:
+.PP
+.RS 4
+.B coddy acp
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+A command failed, or
+.B coddy update \-\-check
+found a newer release.
+.SH SEE ALSO
+Project documentation:
+.UR https://coddy.dev
+.UE ,
+.UR https://github.com/coddy-project/coddy-agent
+.UE .
+.SH AUTHOR
+Pavel Rykov and the Coddy contributors.
