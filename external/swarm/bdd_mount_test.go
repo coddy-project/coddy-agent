@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -47,7 +48,13 @@ type mountFeatureState struct {
 	status int
 	body   []byte
 	chunks []string
-	gaps   []time.Duration
+	// delivered carries the client's word that the chunk the node just wrote
+	// has arrived. The node waits on it before producing the next one, which
+	// is what turns "the relay streams" into something the scenario can prove
+	// rather than time.
+	delivered chan struct{}
+	streamErr error
+	stalled   bool
 }
 
 func (s *mountFeatureState) reset() {
@@ -61,8 +68,34 @@ func (s *mountFeatureState) reset() {
 	}
 	s.mu.Lock()
 	s.seen = nil
+	s.stalled = false
 	s.mu.Unlock()
-	s.status, s.body, s.chunks, s.gaps = 0, nil, nil, nil
+	s.status, s.body, s.chunks, s.streamErr = 0, nil, nil, nil
+}
+
+// awaitDelivery blocks the node until the client reports the chunk it just
+// wrote, and reports whether that happened.
+func (s *mountFeatureState) awaitDelivery(ctx context.Context, delivered <-chan struct{}) bool {
+	select {
+	case <-delivered:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-time.After(streamAck):
+		s.mu.Lock()
+		s.stalled = true
+		s.mu.Unlock()
+		return false
+	}
+}
+
+// noteDelivery is the other half. The channel holds the whole stream, so the
+// client never blocks here even once the node has stopped listening.
+func (s *mountFeatureState) noteDelivery() {
+	select {
+	case s.delivered <- struct{}{}:
+	default:
+	}
 }
 
 func (s *mountFeatureState) record(r *http.Request) {
@@ -108,8 +141,19 @@ func (s *mountFeatureState) anAgentNode(name string) error {
 		s.record(r)
 		writeJSON(w, http.StatusOK, map[string]interface{}{"origin": "node:" + name, "sessions": []interface{}{}})
 	})
+	// delivered belongs to this node: the handler closes over it, so a request
+	// left over from an earlier scenario cannot reach the next one's gate.
+	delivered := make(chan struct{}, 8)
+	s.delivered = delivered
 	mux.HandleFunc("/v1/responses", func(w http.ResponseWriter, r *http.Request) {
 		s.record(r)
+		// Read the request out before answering, the way a node that parses a
+		// JSON body does. A node that answers first leaves the relay's
+		// transport still writing that body while this server drains and
+		// closes it - the server does that the moment a response header goes
+		// out - and the transport answers the failed write by tearing down the
+		// connection, which cuts the very stream this scenario is about.
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl, ok := w.(http.Flusher)
 		if !ok {
@@ -119,7 +163,9 @@ func (s *mountFeatureState) anAgentNode(name string) error {
 		for i := 0; i < 3; i++ {
 			_, _ = fmt.Fprintf(w, "data: chunk-%d\n\n", i)
 			fl.Flush()
-			time.Sleep(80 * time.Millisecond)
+			if !s.awaitDelivery(r.Context(), delivered) {
+				return
+			}
 		}
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 		fl.Flush()
@@ -169,7 +215,11 @@ func (s *mountFeatureState) callWithoutCredential(path, node string) error {
 }
 
 func (s *mountFeatureState) streamFromNode(path, node string) error {
-	req, err := http.NewRequest(http.MethodPost, s.relay.URL+swarmdto.MountPath+node+path, strings.NewReader(`{"stream":true}`))
+	// The deadline is what a wedged stream runs into instead of the package's
+	// own ten-minute timeout, which would say nothing about which step hung.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*streamAck)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.relay.URL+swarmdto.MountPath+node+path, strings.NewReader(`{"stream":true}`))
 	if err != nil {
 		return err
 	}
@@ -183,19 +233,19 @@ func (s *mountFeatureState) streamFromNode(path, node string) error {
 	s.status = res.StatusCode
 
 	sc := bufio.NewScanner(res.Body)
-	last := time.Now()
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
 		}
 		s.chunks = append(s.chunks, line)
-		s.gaps = append(s.gaps, time.Since(last))
-		last = time.Now()
-		if strings.Contains(line, "[DONE]") {
-			break
-		}
+		s.noteDelivery()
 	}
+	// Reading to the end rather than stopping at [DONE] leaves the relay's
+	// copy finished before the next step tears the servers down. Closing the
+	// body early would cancel that copy in flight, and the scenario would be
+	// asserting on a stream it had just cut itself.
+	s.streamErr = sc.Err()
 	return nil
 }
 
@@ -234,19 +284,22 @@ func (s *mountFeatureState) nodeSawAuthorization(want string) error {
 }
 
 func (s *mountFeatureState) receivedStreamedChunks() error {
-	if len(s.chunks) != 4 {
-		return fmt.Errorf("received %d chunks, want 4: %v", len(s.chunks), s.chunks)
+	s.mu.Lock()
+	stalled := s.stalled
+	s.mu.Unlock()
+	// The node writes a chunk and then waits to hear that it arrived, so a
+	// relay that buffered the response leaves it waiting: the whole answer
+	// would only be handed over once the handler had returned, and the handler
+	// cannot return until the client has seen the chunk before it.
+	if stalled {
+		return fmt.Errorf("the node waited %s for a chunk to reach the client, so the relay buffered the response: %v", streamAck, s.chunks)
 	}
-	// If the relay buffered the response, every chunk would land at once at the
-	// end. Seeing the gaps proves each was forwarded as the node produced it.
-	var spread int
-	for _, gap := range s.gaps[1:] {
-		if gap > 40*time.Millisecond {
-			spread++
-		}
+	if s.streamErr != nil {
+		return fmt.Errorf("the stream ended early: %v (chunks %v)", s.streamErr, s.chunks)
 	}
-	if spread < 2 {
-		return fmt.Errorf("chunks arrived together, so the relay buffered them: %v", s.gaps)
+	want := []string{"data: chunk-0", "data: chunk-1", "data: chunk-2", "data: [DONE]"}
+	if !slices.Equal(s.chunks, want) {
+		return fmt.Errorf("received %v, want %v", s.chunks, want)
 	}
 	return nil
 }

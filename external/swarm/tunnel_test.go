@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -125,7 +126,15 @@ func TestTunnelCarriesRequestsToAnUnreachableNode(t *testing.T) {
 
 // A turn arrives as a stream, and it has to stay a stream all the way through a
 // connection that runs backwards.
+//
+// The node writes a chunk and then waits to hear that it arrived before writing
+// the next, so what the test observes is the delivery itself rather than the
+// wall-clock gaps between arrivals. A tunnel that buffered would leave the node
+// waiting: its answer reaches the client only once the handler has returned,
+// and the handler cannot return until the client has seen the chunk before.
 func TestTunnelStreamsWithoutBuffering(t *testing.T) {
+	delivered := make(chan struct{}, 8)
+	var stalled atomic.Bool
 	stand := newTunnelStand(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl, ok := w.(http.Flusher)
@@ -136,11 +145,20 @@ func TestTunnelStreamsWithoutBuffering(t *testing.T) {
 		for i := 0; i < 3; i++ {
 			_, _ = fmt.Fprintf(w, "data: chunk-%d\n\n", i)
 			fl.Flush()
-			time.Sleep(80 * time.Millisecond)
+			select {
+			case <-delivered:
+			case <-r.Context().Done():
+				return
+			case <-time.After(streamAck):
+				stalled.Store(true)
+				return
+			}
 		}
 	}))
 
-	req, _ := http.NewRequest(http.MethodGet, stand.relay.URL+swarmdto.MountPath+"inner/v1/responses", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*streamAck)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, stand.relay.URL+swarmdto.MountPath+"inner/v1/responses", nil)
 	req.Header.Set("Authorization", "Bearer client-secret")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -149,30 +167,26 @@ func TestTunnelStreamsWithoutBuffering(t *testing.T) {
 	defer func() { _ = res.Body.Close() }()
 
 	sc := bufio.NewScanner(res.Body)
-	var gaps []time.Duration
-	last := time.Now()
-	var chunks int
+	var chunks []string
 	for sc.Scan() {
-		if strings.HasPrefix(sc.Text(), "data: ") {
-			chunks++
-			gaps = append(gaps, time.Since(last))
-			last = time.Now()
+		if !strings.HasPrefix(sc.Text(), "data: ") {
+			continue
 		}
-		if chunks == 3 {
-			break
-		}
-	}
-	if chunks != 3 {
-		t.Fatalf("received %d chunks, want 3", chunks)
-	}
-	var spread int
-	for _, g := range gaps[1:] {
-		if g > 40*time.Millisecond {
-			spread++
+		chunks = append(chunks, strings.TrimSpace(sc.Text()))
+		select {
+		case delivered <- struct{}{}:
+		default:
 		}
 	}
-	if spread < 1 {
-		t.Fatalf("chunks arrived together, so something buffered them: %v", gaps)
+	if stalled.Load() {
+		t.Fatalf("the node waited %s for a chunk to reach the client, so something buffered the stream: %v", streamAck, chunks)
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatalf("the stream ended early: %v (chunks %v)", err, chunks)
+	}
+	want := []string{"data: chunk-0", "data: chunk-1", "data: chunk-2"}
+	if !slices.Equal(chunks, want) {
+		t.Fatalf("received %v, want %v", chunks, want)
 	}
 }
 
