@@ -18,6 +18,28 @@ irm https://coddy.dev/install.ps1 | iex
 
 Creates **`~/.coddy/config.yaml`** from the release **`config.example.yaml`** when missing.
 
+On Linux and macOS the script installs more than the binary. The release archive carries the man
+page and the bash and zsh completions beside **`coddy`**, so they land in the **`share`** directory
+of the same prefix (**`~/.local/bin`** -> **`~/.local/share`**), and a user-level install then writes
+one guarded block to the rc file of your login shell:
+
+| What the block does | Why |
+|---|---|
+| adds the install directory to **`PATH`** | a new shell has never heard of **`~/.local/bin`** |
+| adds the data directory to **`MANPATH`** | so **`man coddy`** finds the page |
+| prepends the completions directory to zsh's **`fpath`** and registers **`_coddy`** | zsh searches system directories only |
+| sources the bash completion file | **`bash-completion`** may not be installed |
+
+The block is rewritten between its markers on every run rather than appended to, so re-running the
+installer never duplicates it. Skip it with **`--no-shell-setup`**. A system prefix
+(**`--install-dir /usr/local/bin`**) gets no block at all: those directories are already on
+**`PATH`**, in the man search path and in zsh's default **`fpath`**.
+
+```bash
+source ~/.zshrc   # or open a new terminal
+coddy -v
+```
+
 ## Linux packages (deb, rpm)
 
 Every release publishes a **`.deb`** and an **`.rpm`** for **x86_64** and **arm64** beside the
