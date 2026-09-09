@@ -41,7 +41,7 @@ class Coddy < Formula
     end
 
     ldflags = "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=#{version}"
-    tags = %w[http ui scheduler memory cli gateway]
+    tags = %w[http ui scheduler memory cli gateway swarm]
     system "go", "build", *std_go_args(ldflags:, tags:), "./cmd/coddy"
 
     man1.install "packaging/man/coddy.1"

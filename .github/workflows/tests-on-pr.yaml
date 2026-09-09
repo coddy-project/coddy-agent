@@ -107,7 +107,7 @@ jobs:
           cache: true
 
       - name: Build deb and rpm
-        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway"
+        run: make deb rpm PKG_TAGS="http scheduler memory cli gateway swarm"
 
       # Same reasoning one step further: the Homebrew cask is rendered only by
       # the release job and the formula only by hand, so a template that stopped
