@@ -1,0 +1,60 @@
+# Homebrew formula template for Coddy.
+#
+# Not installable as it stands: scripts/build-homebrew-formula.sh fills the
+# version and the checksum of that tag's source tarball and writes the result to
+# dist/formula/coddy.rb. Run `make brew-formula VERSION=X.Y.Z`.
+#
+# This is the artefact homebrew/core takes. Homebrew routes open-source
+# command-line software to homebrew/core as a formula built from source and
+# keeps homebrew/cask for native applications and binary-only software, so the
+# cask beside this file (coddy.rb.tmpl) is what the release asset offers and
+# this is what the homebrew/core pull request carries. docs/homebrew.md has the
+# whole submission path.
+#
+# Everything above the `class` line is stripped when the file is rendered, so
+# the published formula carries none of it.
+
+class Coddy < Formula
+  desc "Coding agent with a console, an editor protocol and an HTTP gateway"
+  homepage "https://coddy.dev/"
+  url "https://github.com/coddy-project/coddy-agent/archive/refs/tags/__VERSION__.tar.gz"
+  sha256 "__SHA256_SOURCE__"
+  license "MIT"
+  head "https://github.com/coddy-project/coddy-agent.git", branch: "main"
+
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
+  depends_on "go" => :build
+  depends_on "node" => :build
+
+  def install
+    # The embedded SPA is generated rather than committed, so the assets that
+    # go:embed picks up are built before the binary that claims to carry them.
+    # `npm ci` rather than `npm install`: the build has to resolve the locked
+    # dependency set, not whatever is current.
+    cd "external/ui" do
+      system "npm", "ci", "--no-audit", "--no-fund"
+      system "npm", "run", "build:go"
+    end
+
+    ldflags = "-X github.com/EvilFreelancer/coddy-agent/internal/version.Version=#{version}"
+    tags = %w[http ui scheduler memory cli gateway]
+    system "go", "build", *std_go_args(ldflags:, tags:), "./cmd/coddy"
+
+    man1.install "packaging/man/coddy.1"
+    bash_completion.install "packaging/completions/coddy.bash" => "coddy"
+    zsh_completion.install "packaging/completions/coddy.zsh" => "_coddy"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/coddy -v")
+
+    # Two runs that have to reach ~/.coddy: the session store and the skill
+    # roots are what a fresh install creates and reads first.
+    assert_match "SESSION_ID", shell_output("#{bin}/coddy sessions list")
+    assert_match "Search roots:", shell_output("#{bin}/coddy skills list")
+  end
+end

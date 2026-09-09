@@ -29,6 +29,7 @@ type packageFeatureState struct {
 	dir       string
 	euid      int
 	format    packageFormat
+	cask      bool
 	installed []string
 	manager   string
 	out       bytes.Buffer
@@ -55,7 +56,13 @@ func (s *packageFeatureState) installedFromRPM() error {
 	return s.installedFromPackage(formatRPM, "dnf")
 }
 
-func (s *packageFeatureState) installedByHomebrew() error {
+func (s *packageFeatureState) installedByHomebrewCask() error {
+	s.cask = true
+	return s.installedFromPackage(formatBrew, "brew")
+}
+
+func (s *packageFeatureState) installedByHomebrewFormula() error {
+	s.cask = false
 	return s.installedFromPackage(formatBrew, "brew")
 }
 
@@ -80,10 +87,15 @@ func (s *packageFeatureState) installedFromPackage(format packageFormat, manager
 	}
 	// The path a package manager would own. For dpkg and rpm what matters is
 	// that the database claims it, not where it sits; Homebrew is recognised
-	// from the path itself, so that one has to look like a Caskroom.
+	// from the path itself, so a cask has to look like a Caskroom and a formula
+	// like a Cellar.
 	s.dest = filepath.Join(s.dir, "coddy")
 	if format == formatBrew {
-		s.dest = filepath.Join(s.dir, "Caskroom", "coddy", featureReleaseTag, "coddy")
+		if s.cask {
+			s.dest = filepath.Join(s.dir, "Caskroom", "coddy", featureReleaseTag, "coddy")
+		} else {
+			s.dest = filepath.Join(s.dir, "Cellar", "coddy", featureReleaseTag, "bin", "coddy")
+		}
 		if err := os.MkdirAll(filepath.Dir(s.dest), 0o755); err != nil {
 			return err
 		}
@@ -203,6 +215,19 @@ func (s *packageFeatureState) namesTheUpgradeCommand() error {
 	return nil
 }
 
+// tellsTheUserToRun asserts the literal command, so a hint that changes shape -
+// a cask flag on a formula install, say - fails the scenario rather than being
+// recomputed by the step and agreeing with itself.
+func (s *packageFeatureState) tellsTheUserToRun(command string) error {
+	if s.runErr == nil {
+		return fmt.Errorf("update succeeded, want it to stop and name %q", command)
+	}
+	if !strings.Contains(s.runErr.Error(), command) {
+		return fmt.Errorf("error does not name %q: %v", command, s.runErr)
+	}
+	return nil
+}
+
 func (s *packageFeatureState) executableIsUntouched() error {
 	got, err := os.ReadFile(s.dest)
 	if err != nil {
@@ -254,13 +279,15 @@ func TestUpdatePackagesFeature(t *testing.T) {
 			})
 			sc.Step(`^Coddy was installed from a deb package$`, s.installedFromDeb)
 			sc.Step(`^Coddy was installed from an rpm package$`, s.installedFromRPM)
-			sc.Step(`^Coddy was installed by Homebrew$`, s.installedByHomebrew)
+			sc.Step(`^Coddy was installed by a Homebrew cask$`, s.installedByHomebrewCask)
+			sc.Step(`^Coddy was installed by a Homebrew formula$`, s.installedByHomebrewFormula)
 			sc.Step(`^Coddy runs as root$`, s.runsAsRoot)
 			sc.Step(`^Coddy runs without root privileges$`, s.runsWithoutRoot)
 			sc.Step(`^Coddy installs the update$`, s.installsTheUpdate)
 			sc.Step(`^Coddy tries to install the update$`, s.triesToInstallTheUpdate)
 			sc.Step(`^Coddy reports that a package manager owns the installation$`, s.reportsPackageManagerOwnership)
 			sc.Step(`^Coddy names the command that upgrades the package$`, s.namesTheUpgradeCommand)
+			sc.Step(`^Coddy tells the user to run "([^"]*)"$`, s.tellsTheUserToRun)
 			sc.Step(`^the installed executable is left untouched$`, s.executableIsUntouched)
 			sc.Step(`^Coddy downloads the release package for this platform$`, s.downloadsTheReleasePackage)
 			sc.Step(`^Coddy hands the package to the system package manager$`, s.handsThePackageToTheManager)

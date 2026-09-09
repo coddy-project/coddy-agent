@@ -37,6 +37,9 @@ type systemPackage struct {
 	Name string
 	// Manager is the front-end used to install and upgrade the package.
 	Manager string
+	// Cask marks a Homebrew cask, as opposed to a formula. Both are brew
+	// installs, but only a cask is upgraded with the --cask flag.
+	Cask bool
 }
 
 // packageEnv is the host as the package flow sees it. Tests replace every field
@@ -98,8 +101,8 @@ func detectSystemPackage(ctx context.Context, env packageEnv, path string) (syst
 	if strings.TrimSpace(path) == "" {
 		return systemPackage{}, false
 	}
-	if name, ok := homebrewOwner(path); ok {
-		return systemPackage{Format: formatBrew, Name: name, Manager: "brew"}, true
+	if name, cask, ok := homebrewOwner(path); ok {
+		return systemPackage{Format: formatBrew, Name: name, Manager: "brew", Cask: cask}, true
 	}
 	if env.GOOS != "linux" {
 		return systemPackage{}, false
@@ -117,23 +120,30 @@ func detectSystemPackage(ctx context.Context, env packageEnv, path string) (syst
 // is a symlink into the Caskroom (casks) or the Cellar (formulae), and the
 // caller resolves symlinks before asking, so the prefix is visible in the path
 // itself - no `brew` process, and no answer that depends on brew being on PATH
-// at all. The directory below Caskroom or Cellar is the package name.
-func homebrewOwner(path string) (string, bool) {
+// at all. The directory below Caskroom or Cellar is the package name, and which
+// of the two markers matched is what tells a cask from a formula.
+func homebrewOwner(path string) (name string, cask bool, ok bool) {
 	// Homebrew is a Unix-only tool, but the path handed in comes from the host
 	// this process runs on, so normalise the separator before matching rather
 	// than assuming one.
 	path = filepath.ToSlash(path)
-	for _, marker := range []string{"/Caskroom/", "/Cellar/"} {
-		_, rest, ok := strings.Cut(path, marker)
-		if !ok {
+	for _, marker := range []struct {
+		segment string
+		cask    bool
+	}{
+		{"/Caskroom/", true},
+		{"/Cellar/", false},
+	} {
+		_, rest, found := strings.Cut(path, marker.segment)
+		if !found {
 			continue
 		}
-		name, _, _ := strings.Cut(rest, "/")
+		name, _, _ = strings.Cut(rest, "/")
 		if name = strings.TrimSpace(name); name != "" {
-			return name, true
+			return name, marker.cask, true
 		}
 	}
-	return "", false
+	return "", false, false
 }
 
 // debPackageOwner asks dpkg which package shipped path. dpkg-query prints
@@ -216,9 +226,16 @@ func packageInstallCommand(manager, file string) []string {
 // run. Repository front-ends can upgrade from a configured repository; dpkg and
 // rpm can only install a file, so those point back at `sudo coddy update`,
 // which downloads that file.
+//
+// Homebrew needs the artefact kind, because --cask is not a hint brew ignores:
+// `brew upgrade --cask coddy` on a formula install fails, there being no cask by
+// that name to upgrade. The hint therefore follows the marker the path carried.
 func packageUpgradeHint(pkg systemPackage) string {
 	if pkg.Format == formatBrew {
-		return fmt.Sprintf("brew upgrade --cask %s", pkg.Name)
+		if pkg.Cask {
+			return fmt.Sprintf("brew upgrade --cask %s", pkg.Name)
+		}
+		return fmt.Sprintf("brew upgrade %s", pkg.Name)
 	}
 	switch pkg.Manager {
 	case "apt-get", "apt":
