@@ -19,6 +19,7 @@ Short map for automation-friendly contributors.
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |
 | `external/cli` | Interactive console TUI (**`-tags cli`**): bare **`coddy`** on a terminal, pi-style rendering in **`external/cli/tui`**. Guide: **`docs/cli.md`**. |
+| `packaging` | Distribution package sources: the **nfpm** recipe (**`nfpm.yaml`**) for the Linux **`.deb`** and **`.rpm`**, the Homebrew cask template (**`homebrew/coddy.rb.tmpl`**), the man page (**`man/coddy.1`**), bash and zsh completions, and the post-install script. A package installs a binary and its documentation and nothing else - **no service, no system account, no `/etc`** - because Coddy's state lives in the invoking user's **`~/.coddy`**. Built by **`scripts/build-packages.sh`** and **`scripts/build-homebrew-cask.sh`** (**`make deb`**, **`make rpm`**, **`make brew`**) and published as release assets beside the archives. Guides: **`docs/install.md`**, **`docs/build.md`** (Distribution packages), **`docs/update.md`** (installations owned by a package manager). |
 | `external/gateway` | Messenger gateway (**`-tags gateway.telegram`** or **`-tags gateway`**): Telegram bot adapter, session store, proxy support. Full guide: **`docs/gateway.md`**, rules: **`.cursor/rules/gateway.mdc`**. |
 
 ## Builds
@@ -26,6 +27,8 @@ Short map for automation-friendly contributors.
 Run **`make build TAGS=http`** for the HTTP gateway only (**`coddy http`** REST and **`/docs`**, no **npm**). Run **`make build TAGS=cli`** for the interactive console (**bare `coddy`** on a terminal; see **`docs/cli.md`**). Run **`make build TAGS="http ui"`** to link the embedded SPA (**Makefile** runs **ui-build** before **go build**). Recommended full image matches **`Dockerfile`** (**`make build TAGS="http ui scheduler memory cli"`**). Default **`make build`** omits HTTPServer, scheduler, and memory to keep dependency surface lean.
 
 Primary conversational surface for bundled UI lives at **`POST /v1/responses`** with **`stream:true`**. Prefer it over **`POST /v1/chat/completions`** when shipping Coddy-hosted experiences.
+
+Run **`make deb`** / **`make rpm`** for the Linux packages (**`PKG_ARCHS`**, **`PKG_TAGS`**, **`DIST_DIR`** knobs; nfpm is fetched on demand, nothing to install) and **`make brew VERSION=X.Y.Z`** to render the Homebrew cask for a release. CI builds the Linux packages on every pull request.
 
 Swagger lives at **`/docs/`**, OpenAPI YAML at **`/openapi.yaml`**.
 
@@ -82,6 +85,13 @@ Codex code review reads this section and applies it to changed files. Keep entri
 
 - Do not read, merge, or execute project-local configuration (`.coddy/mcp.json`, MCP server definitions, hook scripts) without routing it through `TrustGate` in `internal/mcp`. Opening an untrusted checkout must not by itself grant code execution. Safe path: gate the read on the workspace trust decision and persist the approval through `TrustStore`.
 - The same holds for project-scope subagent definitions (`.coddy/agents`, `.claude/agents` under the workspace): they load and spawn only as `subagents.project_trust` allows, a receipt in `subagents.TrustStore` is bound to the file digest, and a definition must never widen what the parent could do - `permission_mode`, `tools` and `disallowed_tools` only narrow, and the mandatory exclusions stay. Safe path: resolve the definition once, decide trust on that value with `subagents.Decide`, and derive the child's tool set with `subagents.EffectiveTools`.
+
+### Packaging
+
+- Do not add or rename a CLI subcommand without updating **`packaging/man/coddy.1`** and **`packaging/completions/coddy.bash`** / **`coddy.zsh`** in the same change. The packages and the Homebrew cask ship those files as the documentation of the command set, and nothing else keeps them in step with **`printUsage`**.
+- Do not move **`/usr/bin/coddy`** or add a second packaged copy of the binary. **`coddy update`** asks **`dpkg-query -S`** / **`rpm -qf`** who owns the executable it is about to replace, and a packaged file that no database claims would be silently overwritten. Safe path: keep the single **`contents`** entry in **`packaging/nfpm.yaml`**.
+- Do not add a service unit, a system account, or files under **`/etc`** to a package. Coddy's state is per-user under **`~/.coddy`**; a packaged daemon would need a home of its own and a config nobody can edit. The package installs the binary, the man page, the completions and the licence, and the user decides what to run.
+- Do not add a file to the release **`.tar.gz`** layout without checking the Homebrew cask: **`packaging/homebrew/coddy.rb.tmpl`** links artefacts out of that archive by name.
 
 ### Embedded UI
 
