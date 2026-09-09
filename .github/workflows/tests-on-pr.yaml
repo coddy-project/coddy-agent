@@ -33,8 +33,32 @@ jobs:
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
+      # The grep and glob filesystem tools prefer system ripgrep and fall back
+      # to a built-in Go engine, so without rg on the runner the suite only ever
+      # exercises the fallback half. The runner image does not ship it, and
+      # installing it with apt costs an `apt-get update`, which refreshes every
+      # source the image carries - including third-party ones this project never
+      # uses. On 2026-09-09 Google's chrome-stable index started serving a
+      # Packages.gz whose hash did not match its Release file, apt exited 100,
+      # and every pull request died in twenty seconds before `make test` ran.
+      # A pinned release tarball needs only github.com, which the checkout
+      # already depends on, and hands every run the same rg build.
       - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+        env:
+          RIPGREP_VERSION: "15.2.0"
+          RIPGREP_SHA256: "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c"
+        run: |
+          set -euo pipefail
+          probe="$(command -v rg || true)"
+          echo "system rg before install: ${probe:-none}"
+          dir="ripgrep-${RIPGREP_VERSION}-x86_64-unknown-linux-musl"
+          cd "${RUNNER_TEMP}"
+          curl -fsSL --retry 3 --retry-all-errors -o "${dir}.tar.gz" \
+            "https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${dir}.tar.gz"
+          echo "${RIPGREP_SHA256}  ${dir}.tar.gz" | sha256sum --check --strict -
+          tar -xzf "${dir}.tar.gz" "${dir}/rg"
+          sudo install -m 0755 "${dir}/rg" /usr/local/bin/rg
+          rg --version
 
       - name: Run tests
         run: make test
