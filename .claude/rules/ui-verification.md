@@ -14,3 +14,12 @@ Before you tell the user that a UI change is complete or merge-ready:
 4. If anything is off, fix CSS and re-check before reporting done.
 
 This is required for changes to **`external/ui/src/styles.css`**, **`ChatScreen`**, **`Composer`**, or nav layout.
+
+## Safari and other WebKit reports
+
+A Safari-only report is reproducible without a Mac: Playwright's WebKit is the engine Safari is cut
+from and its version tracks Safari's. When the change touches a capped, scrollable or **`position:
+fixed`** surface, run **`external/ui/scripts/webkit-scroll-check.mjs`** against a live
+**`coddy http`** (setup and env vars in **`docs/ui.md`**, *Reproducing a Safari report without a
+Mac*), and run it again with **`CODDY_ENGINE=chromium`** to tell a WebKit-only regression from a
+layout bug every engine shares.

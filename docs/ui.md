@@ -150,7 +150,7 @@ Functional checklist for **Settings -> Logical models -> Reasoning levels**
 - **Wrapping**: the chips share one **`flex-wrap`** row (**`.composer-context-row`**) with the environment chip and the improve-prompt control; **`.composer-context-chips`** is **`display: contents`** so each chip wraps on its own. On a narrow viewport only the overflow moves down (e.g. environment+folder, then branch+worktree), and the worktree checkbox stays beside the branch until the branch name is long enough to push it.
 - Context loads from **`GET /coddy/workspace/context`** with **`X-Coddy-Session-ID`** whenever the viewed session changes; without a session the server default cwd is shown.
 - **Chosen once**: folder + branch + worktree are set before the conversation starts. Once the transcript has messages the chips lock (**`workspaceLocked`** — controls disabled, menus closed) and the server answers **409** to **`POST .../workspace`**.
-- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses.
+- **Folder chip** opens the **Recent** menu (Claude Desktop style): MRU folders from **`localStorage`** **`coddy_workspace_recents_v1`** (**`chat/workspaceRecents.ts`**), current workspace marked with **✓**, then **`Open folder…`** at the bottom which opens the **folder browser modal** (**`WorkspaceFolderModal.tsx`**) fed by **`GET /coddy/workspace/folders?path=`**: rows navigate into folders, **`..`** goes up, **Open** picks the currently browsed folder, **Cancel** dismisses. The folder list is the dialog's only scrollport: it is the one child allowed to shrink (**`min-height: 0`**), so **Cancel** / **Open** stay reachable on a short browser window instead of being clipped by the dialog's height cap, and a wheel gesture past the last folder stays in the list instead of scrolling the page behind it. Verified in WebKit with **`external/ui/scripts/webkit-scroll-check.mjs`** (see below).
 - **Leaving the drive (Windows)** — **`..`** from a drive root opens the **drive level** (**`?path=:drives:`**, **`drives:true`** in the response): one row per volume (**`C:`**, **`D:`**, …), no **`..`** above it, and **Open** disabled because it is a place to navigate, not a workspace. The **path row is an editable field** (**`workspace-modal-path`**): typing or pasting a path and pressing **Enter** jumps there, surrounding quotes from Explorer's *Copy as path* are stripped (**`cleanPathInput`**), and while the field holds an unvisited path the primary button reads **Go** instead of **Open**, so a pasted path is never mistaken for the folder being opened. The browser starts at **`pathParent(ctx.path)`**, which keeps the current drive (it used to collapse Windows paths to **`/`**). Picking calls **`POST /coddy/sessions/{id}/workspace`** **`{"path"}`** — the session cwd switches and persists; skills, project rules, and slash commands re-derive from the new cwd.
 - **Branch chip** opens the branch list (current first, marked selected). Picking one posts **`{"branch", "worktree": <checkbox>}`**: in-place checkout by default, a dedicated worktree under **`<home>/worktrees/<repo>/`** when the checkbox is on, or a jump to the worktree that already has the branch checked out (including back to the main checkout).
 - **Worktree checkbox** (**`composer-worktree-checkbox`**, real **`input[type=checkbox]`**) is the worktree preference; when the session already runs inside a linked worktree it shows checked and disabled.
@@ -695,6 +695,20 @@ Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 - Use `npm --prefix external/ui run dev` to iterate without rebuilding the Go binary.
 - Build and sync embed assets with `npm --prefix external/ui run build:go`.
 - **`make build TAGS="http ui"`** runs the UI build step (**make ui-build**) before linking the embedded bundle.
+
+### Reproducing a Safari report without a Mac
+
+Playwright ships the WebKit build Safari is cut from, and its version tracks Safari's (**`playwright install webkit`** pulls WebKit **26.x** for Safari **26.x**), so a Safari layout report is reproducible on Linux. **`external/ui/scripts/webkit-scroll-check.mjs`** drives a running **`coddy http`** in that engine and asserts the scroll invariants of the folder browser dialog across short viewports: nothing laid out past the dialog's height cap, the action buttons inside the dialog, the list scrolling on a wheel gesture, and the overscroll staying in the dialog.
+
+```bash
+cd external/ui && npm i --no-save playwright && npx playwright install webkit
+```
+
+```bash
+CODDY_URL=http://127.0.0.1:12345 CODDY_FOLDER=/a/folder/with/many/subdirs npm --prefix external/ui run check:webkit
+```
+
+**`CODDY_ENGINE=chromium`** runs the same assertions in Chromium, which separates a WebKit-only regression from a layout bug every engine shares. The script is not part of **`make test`**: it needs a browser download and a live server. **`npm ci`** and **`make ui-build`** prune the unsaved **`playwright`** install, so re-run the install line after a rebuild.
 
 ## Reference images
 
