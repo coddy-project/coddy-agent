@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/coddy-project/coddy-agent/refs/heads/main/docs/config.schema.json
+# yaml-language-server: $schema=https://coddy.dev/config.schema.json
 # Full field reference: docs/config-reference.md
 
 # .env file support
