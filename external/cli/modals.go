@@ -126,7 +126,9 @@ func (m *questionModal) buildQuestion() {
 	if q.Custom {
 		items = append(items, tui.SelectItem{Value: customAnswerValue, Label: "Custom answer..."})
 	}
-	m.list = tui.NewSelectList(items, min(len(items), 8), selectListTheme(th), tui.SelectListLayout{})
+	// Option texts are sentences, so the description belongs under the list,
+	// wrapped, not squeezed into a column beside a cut-off label.
+	m.list = tui.NewSelectList(items, min(len(items), 8), selectListTheme(th), tui.SelectListLayout{DescriptionBelow: true})
 	m.list.OnSelect = func(item tui.SelectItem) { m.confirm(item) }
 	m.list.OnCancel = func() {
 		if m.OnDone != nil {
