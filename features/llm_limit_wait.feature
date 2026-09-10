@@ -25,7 +25,7 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     And wait_for_limit_reset is on with a maximum of 300 ms
     When the user sends a turn
     Then the turn fails with the quota reset error after 1 provider call
-    And the turn took less than 300 ms
+    And the turn never waited on the limit
 
   Scenario: The retry wrapper's own verdict drives the wait
     Given an agent whose provider answers a 429 naming a reset in 1 s through the retry wrapper and then answers "done"
@@ -47,7 +47,7 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     And wait_for_limit_reset is on with a maximum of 300 ms
     When the user sends a turn
     Then the turn fails with the quota reset error after 1 provider call
-    And the turn took less than 300 ms
+    And the turn never waited on the limit
 
   Scenario: The retry wrapper's own sleeps count against the same maximum
     Given an agent whose provider answers a 429 naming a reset in 1 s twice through the retry wrapper and then answers "done"
@@ -55,21 +55,21 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     When the user sends a turn
     Then the turn fails with the quota reset error after 2 provider calls
     And the turn took at least 1 s
-    And the turn took less than 1500 ms
+    And the turn waited less than 1500 ms on the limit
 
   Scenario: An explicit zero never sleeps on a limit, the retry wrapper included
     Given an agent whose provider answers a 429 naming a reset in 1 s through the retry wrapper and then answers "done"
     And wait_for_limit_reset is on with a maximum of 0 ms
     When the user sends a turn
     Then the turn fails with the quota reset error after 1 provider call
-    And the turn took less than 300 ms
+    And the turn never waited on the limit
 
   Scenario: Stop during the wait ends the turn as cancelled
     Given an agent whose provider first reports a limit that lifts in 30 s and then answers "done"
     And wait_for_limit_reset is on
     When the user sends a turn and stops it while it waits
     Then the turn ends as cancelled after 1 provider call
-    And the turn took less than 1000 ms
+    And the turn waited less than 1000 ms on the limit
 
   Scenario: A retry sleep on a call that then succeeded counts against the same maximum
     Given an agent whose provider sleeps through a 429 naming a reset in 1 s, answers nothing, hits the limit again and then answers "done"
@@ -77,7 +77,7 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     When the user sends a turn
     Then the turn fails with the quota reset error after 3 provider calls
     And the turn took at least 1 s
-    And the turn took less than 1500 ms
+    And the turn waited less than 1500 ms on the limit
 
   Scenario: A 429 that names no pause never starts a wait
     Given an agent whose provider keeps answering 429 without naming a pause and would then answer "done"
@@ -92,4 +92,4 @@ Feature: Coddy waits for a hit usage limit to lift when asked to
     When the user sends a turn and the client goes away while it waits
     Then the turn fails with the quota reset error after 1 provider call
     And the error names the interrupted wait
-    And the turn took less than 1000 ms
+    And the turn waited less than 1000 ms on the limit
