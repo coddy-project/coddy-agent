@@ -27,3 +27,14 @@ All seven themes were checked at 390 × 900 and 1280 × 900. Header, transcript-
 | monokai | ![monokai before](before-monokai-390.png) | ![monokai after](after-monokai-390.png) |
 | nord | ![nord before](before-nord-390.png) | ![nord after](after-nord-390.png) |
 | rose-pine | ![rose-pine before](before-rose-pine-390.png) | ![rose-pine after](after-rose-pine-390.png) |
+
+## PostCSS language alias regression
+
+The `postcss` follow-up uses the same running components and stylesheet on both sides. Before disables only the new alias, reproducing the previously uncolored block; after enables it. Selectors, properties, numbers, and comments are tokenized, while the original source and `language-postcss` label are retained.
+
+| View | Before | After |
+| --- | --- | --- |
+| dark, 1280px | ![PostCSS before](postcss-before-dark-1280.png) | ![PostCSS after](postcss-after-dark-1280.png) |
+| light, 1280px | ![PostCSS before](postcss-before-light-1280.png) | ![PostCSS after](postcss-after-light-1280.png) |
+| dark, 390px | ![PostCSS before](postcss-before-dark-390.png) | ![PostCSS after](postcss-after-dark-390.png) |
+| light, 390px | ![PostCSS before](postcss-before-light-390.png) | ![PostCSS after](postcss-after-light-390.png) |

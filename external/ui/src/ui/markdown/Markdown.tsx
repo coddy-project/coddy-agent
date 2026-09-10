@@ -207,7 +207,7 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        rehypePlugins={[[rehypeHighlight, { aliases: { css: ["postcss"] } }]]}
         components={components}
         urlTransform={urlTransform}
       >

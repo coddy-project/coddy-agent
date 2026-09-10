@@ -24,6 +24,7 @@ test.each([
   ["js", 'const message = "hello";', ".hljs-keyword"],
   ["javascript", 'const message = "hello";', ".hljs-string"],
   ["css", ".card { color: red; }", ".hljs-attribute"],
+  ["postcss", ".table-wrapper { display: flex; }", ".hljs-attribute"],
   ["html", '<div class="card">Hello</div>', ".hljs-attr"],
   ["json", '{"enabled": true}', ".hljs-attr"],
   ["ts", "const count: number = 42;", ".hljs-number"],
@@ -64,6 +65,27 @@ test("streamed incomplete fences highlight and copy the original source", async 
   await waitFor(() =>
     expect(writeText).toHaveBeenCalledWith('const message = "hello";'),
   );
+});
+
+test("postcss fences highlight CSS tokens and copy the original source", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  const source =
+    ".table-container { width: 100%; flex: 1; /* container */ }\n.table-wrapper { display: flex; flex-direction: column; }";
+  const { container } = render(
+    <Markdown text={`\`\`\`postcss\n${source}\n\`\`\``} />,
+  );
+  const code = container.querySelector("pre code.language-postcss");
+  expect(code?.querySelector(".hljs-selector-class")?.textContent).toBe(
+    ".table-container",
+  );
+  expect(code?.querySelector(".hljs-attribute")?.textContent).toBe("width");
+  expect(code?.querySelector(".hljs-number")?.textContent).toBe("100%");
+  expect(code?.querySelector(".hljs-comment")?.textContent).toBe(
+    "/* container */",
+  );
+  fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
 });
 
 test("coddy-skill links render as chip spans", () => {
