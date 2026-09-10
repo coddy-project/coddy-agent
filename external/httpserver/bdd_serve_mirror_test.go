@@ -100,21 +100,43 @@ func (w *mirrorWorld) chatSenderAttached() error {
 // watch subscribes the way a browser does - the relay is an SSE stream, so the
 // watcher is an ordinary response writer - and collects what it saw once the
 // turn releases the mirror.
+//
+// It returns only once the subscriber is registered on the relay. A goroutine
+// that has merely started is not attached to anything: the caller goes on to
+// emit a frame and release the turn, and a subscriber that arrives after the
+// release finds a closed relay and reads nothing at all. That is a scheduling
+// race rather than a slow one - five milliseconds of delay reproduces it - so
+// waiting on the registration is the only thing that closes it.
 func (w *mirrorWorld) watch() (<-chan string, error) {
 	rel := w.srv.peekComposerRelay(w.sessionID)
 	if rel == nil {
 		return nil, fmt.Errorf("no relay was registered for %s", w.sessionID)
 	}
 	rec := httptest.NewRecorder()
-	attached := make(chan struct{})
 	out := make(chan string, 1)
 	go func() {
-		close(attached)
 		_ = rel.serveSubscriber(context.Background(), rec)
 		out <- rec.Body.String()
 	}()
-	<-attached
+	if err := waitForSubscriber(rel); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// waitForSubscriber blocks until the relay has the goroutine above on its list.
+func waitForSubscriber(rel *composerStreamRelay) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		rel.mu.Lock()
+		attached := len(rel.subs)
+		rel.mu.Unlock()
+		if attached > 0 {
+			return nil
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return fmt.Errorf("the watcher never attached to the relay")
 }
 
 func (w *mirrorWorld) mirrorAndEmit(text string) error {
