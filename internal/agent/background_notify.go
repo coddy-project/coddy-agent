@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // maxWakesPerSession bounds how many autonomous turns one session may be woken
@@ -26,9 +28,26 @@ const maxWakesPerSession = 50
 // easier for the model to act on than three turns that each see one.
 const wakeSettleDelay = 750 * time.Millisecond
 
-// RunTurnFunc runs an autonomous agent turn for a session. The implementation
-// is expected to take the composer turn lock, so a wake-up waits for a turn
-// already in flight rather than racing it.
+// How long a wake waits for a session whose turn is still in flight. See
+// startTurn for why that wait exists at all.
+const (
+	// wakeBusyRetryFirst is how long the first refusal waits.
+	wakeBusyRetryFirst = 1 * time.Second
+	// wakeBusyRetryMax caps the backoff, so a long turn is polled cheaply
+	// without leaving a finished task unreported for minutes after it ends.
+	wakeBusyRetryMax = 15 * time.Second
+	// wakeBusyGiveUpAfter bounds the whole wait. A turn still running after
+	// this is not going to end on its own, and one retry goroutine per session
+	// must not outlive the process.
+	wakeBusyGiveUpAfter = 30 * time.Minute
+)
+
+// RunTurnFunc runs an autonomous agent turn for a session.
+//
+// It takes the composer turn lock, which refuses rather than queues: a session
+// with a turn already in flight answers session.ErrSessionTurnBusy, and the
+// waker treats that as "try again shortly", not as a lost wake. Every other
+// error is the turn's own and ends the attempt.
 type RunTurnFunc func(ctx context.Context, sessionID, instruction string) error
 
 // BackgroundWaker turns finished background tasks into agent turns, so a
@@ -42,6 +61,13 @@ type BackgroundWaker struct {
 	run  RunTurnFunc
 	pool *bgtask.Pool
 
+	// busyRetryFirst, busyRetryMax and busyGiveUpAfter shape the wait for a
+	// session whose turn is still in flight. They are fields rather than
+	// constants so tests can compress the schedule.
+	busyRetryFirst  time.Duration
+	busyRetryMax    time.Duration
+	busyGiveUpAfter time.Duration
+
 	mu       sync.Mutex
 	pending  map[string][]bgtask.Snapshot
 	draining map[string]bool
@@ -54,11 +80,14 @@ func NewBackgroundWaker(log *slog.Logger, run RunTurnFunc) *BackgroundWaker {
 		log = slog.Default()
 	}
 	return &BackgroundWaker{
-		log:      log,
-		run:      run,
-		pending:  map[string][]bgtask.Snapshot{},
-		draining: map[string]bool{},
-		wakes:    map[string]int{},
+		log:             log,
+		run:             run,
+		busyRetryFirst:  wakeBusyRetryFirst,
+		busyRetryMax:    wakeBusyRetryMax,
+		busyGiveUpAfter: wakeBusyGiveUpAfter,
+		pending:         map[string][]bgtask.Snapshot{},
+		draining:        map[string]bool{},
+		wakes:           map[string]int{},
 	}
 }
 
@@ -99,7 +128,9 @@ func (w *BackgroundWaker) OnSnapshot(snap bgtask.Snapshot) {
 }
 
 // drain waits briefly for stragglers, then runs one turn per batch until the
-// queue for this session is empty.
+// queue for this session is empty. A batch is only ever given up on by
+// startTurn, never by the loop: a task that finished has an outcome the model
+// was promised.
 func (w *BackgroundWaker) drain(sessionID string) {
 	defer func() {
 		w.mu.Lock()
@@ -128,22 +159,94 @@ func (w *BackgroundWaker) drain(sessionID string) {
 		w.wakes[sessionID]++
 		w.mu.Unlock()
 
+		if !w.startTurn(sessionID, batch) {
+			return
+		}
+	}
+}
+
+// startTurn runs one wake turn, waiting out a session that already has a turn
+// in flight, and reports whether the drain loop should keep going.
+//
+// A busy session is the ordinary case: the model starts a task and keeps
+// talking, so anything that fails in its first seconds finishes inside the very
+// turn that launched it. The composer turn lock refuses rather than queues, and
+// treating that refusal as a lost wake is what left a failed task unreported -
+// the outcome the model was promised never arrived, and nothing said so.
+//
+// Anything else is the turn's own failure, not contention, and retrying it
+// would spin: the batch is dropped and the reason logged, as before.
+func (w *BackgroundWaker) startTurn(sessionID string, batch []bgtask.Snapshot) bool {
+	deadline := time.Now().Add(w.busyGiveUpAfter)
+	delay := w.busyRetryFirst
+
+	for attempt := 1; ; attempt++ {
 		// Shutdown stops tasks, and stopping them is itself a terminal status.
 		// Waking the model into a turn nobody will read, while the process is
 		// going away, is pure waste.
 		if w.pool != nil && w.pool.Draining() {
 			w.log.Info("background_wake_skipped_draining", "session_id", sessionID, "tasks", len(batch))
-			return
+			w.refundWake(sessionID)
+			return false
 		}
 
-		instruction := WakeInstruction(batch)
-		w.log.Info("background_wake_start", "session_id", sessionID, "tasks", len(batch))
-		if err := w.run(context.Background(), sessionID, instruction); err != nil {
+		// Whatever landed while the last attempt was refused belongs in this
+		// turn: a wait of minutes must not leave the model a stale batch and a
+		// second turn queued behind it.
+		batch = w.absorbPending(sessionID, batch)
+
+		w.log.Info("background_wake_start", "session_id", sessionID, "tasks", len(batch), "attempt", attempt)
+		err := w.run(context.Background(), sessionID, WakeInstruction(batch))
+		switch {
+		case err == nil:
+			w.log.Info("background_wake_finish", "session_id", sessionID)
+			return true
+		case !errors.Is(err, session.ErrSessionTurnBusy):
 			w.log.Warn("background_wake_failed", "session_id", sessionID, "error", err)
-			return
+			w.refundWake(sessionID)
+			return false
+		case time.Now().After(deadline):
+			// A turn still running after the whole window is not going to end
+			// on its own, and one retry goroutine per session must not outlive
+			// the process.
+			w.log.Warn("background_wake_abandoned",
+				"session_id", sessionID,
+				"tasks", len(batch),
+				"waited", w.busyGiveUpAfter,
+				"attempts", attempt)
+			w.refundWake(sessionID)
+			return false
 		}
-		w.log.Info("background_wake_finish", "session_id", sessionID)
+
+		w.log.Debug("background_wake_busy", "session_id", sessionID, "attempt", attempt, "retry_in", delay)
+		time.Sleep(delay)
+		delay = min(delay*2, w.busyRetryMax)
 	}
+}
+
+// absorbPending folds everything queued for the session into the batch in
+// flight, so a wait for a busy session costs one turn rather than one per
+// task that finished during it.
+func (w *BackgroundWaker) absorbPending(sessionID string, batch []bgtask.Snapshot) []bgtask.Snapshot {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	queued := w.pending[sessionID]
+	if len(queued) == 0 {
+		return batch
+	}
+	delete(w.pending, sessionID)
+	return append(batch, queued...)
+}
+
+// refundWake gives back the budget reserved for a turn that never ran. The cap
+// counts turns the model was actually woken into, so an attempt refused by a
+// busy session or by shutdown must not spend one.
+func (w *BackgroundWaker) refundWake(sessionID string) {
+	w.mu.Lock()
+	if w.wakes[sessionID] > 0 {
+		w.wakes[sessionID]--
+	}
+	w.mu.Unlock()
 }
 
 // WakeInstruction renders the user-role message a woken turn starts from. It

@@ -18,12 +18,15 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
+	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -3517,4 +3520,112 @@ func TestCoddySkillsListSessionHeaderErrors(t *testing.T) {
 	if code, body := get(""); code != http.StatusOK {
 		t.Fatalf("no header: status %d body %s", code, body)
 	}
+}
+
+// TestBackgroundWakeSurvivesATurnStillInFlight is the end-to-end half of
+// features/background_wake.feature, taken through the real composer turn lock
+// rather than a stand-in for it.
+//
+// The reported failure was a `git submodule update` that exited 1 three seconds
+// after the model handed it off: the task was still inside the turn that started
+// it, the turn lock refused the wake, and the outcome the model had been
+// promised never arrived. The waker harness could not have caught that - it
+// calls its runner directly - so the guard belongs here, where beginTurn and
+// flock are the real ones.
+func TestBackgroundWakeSurvivesATurnStillInFlight(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sessRoot := filepath.Join(root, "sessions")
+	if err := os.MkdirAll(sessRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	woken := make(chan string, 4)
+	release := make(chan struct{})
+	var turns atomic.Int32
+	runner := func(_ context.Context, _ *session.State, blocks []acp.ContentBlock, _ acp.UpdateSender) (string, error) {
+		var text strings.Builder
+		for _, b := range blocks {
+			text.WriteString(b.Text)
+		}
+		if turns.Add(1) == 1 {
+			// The operator's turn is still running while the task dies.
+			<-release
+			return string(acp.StopReasonEndTurn), nil
+		}
+		woken <- text.String()
+		return string(acp.StopReasonEndTurn), nil
+	}
+
+	cfg := &config.Config{
+		Paths:  config.Paths{Home: home, CWD: root},
+		Models: []config.ModelEntry{{Model: "openai/gpt-4o", MaxTokens: 100, Temperature: 0.2}},
+		Agent:  config.Agent{Model: "openai/gpt-4o"},
+	}
+	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), root, &session.FileStore{Root: sessRoot})
+	srv := New(cfg, mgr, slog.Default(), root)
+	defer srv.Drain()
+
+	res, err := mgr.HandleSessionNew(context.Background(), acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionID := res.SessionID
+	defer bgtask.Default().StopSession(sessionID)
+	bgtask.Default().SetSessionDir(sessionID, mgr.SessionByID(sessionID).GetPersistedSessionDir())
+
+	turnDone := make(chan struct{})
+	go func() {
+		defer close(turnDone)
+		_, _ = mgr.HandleSessionPrompt(context.Background(), acp.SessionPromptParams{
+			SessionID: sessionID,
+			Prompt:    []acp.ContentBlock{{Type: acp.ContentTypeText, Text: "update the submodules"}},
+		})
+	}()
+
+	// Wait for the turn to actually hold the lock before the task can finish.
+	deadline := time.Now().Add(5 * time.Second)
+	for turns.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if turns.Load() == 0 {
+		t.Fatal("the operator turn never started")
+	}
+
+	if _, err := bgtask.Default().Start(bgtask.Spec{
+		SessionID:       sessionID,
+		Kind:            bgtask.KindCommand,
+		Command:         bddFailingAuthCommand(),
+		CWD:             root,
+		ExpectedSeconds: 60,
+		NotifyOnFinish:  true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Give the waker time to be refused by the busy session, then end the turn.
+	time.Sleep(2 * time.Second)
+	close(release)
+	<-turnDone
+
+	select {
+	case text := <-woken:
+		if !strings.Contains(text, "failed") || !strings.Contains(text, "did not succeed") {
+			t.Fatalf("woken turn %q does not report the failure", text)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the failed task never woke the agent after the turn ended")
+	}
+}
+
+// bddFailingAuthCommand echoes the refusal git reports for an unusable SSH key
+// and exits non-zero, without needing git or a network.
+func bddFailingAuthCommand() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Error 'git@github.com: Permission denied (publickey).'; exit 1"
+	}
+	return "echo 'git@github.com: Permission denied (publickey).' >&2; exit 1"
 }

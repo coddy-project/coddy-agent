@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
+	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
 // recordingRunner captures the turns a waker starts.
@@ -225,5 +228,162 @@ func TestWakeInstructionCountsABatch(t *testing.T) {
 	}
 	if got := WakeInstruction(batch[:1]); !strings.HasPrefix(got, "A background task") {
 		t.Fatalf("instruction %q does not open in the singular", got)
+	}
+}
+
+// busyRunner refuses turns with the session manager's own busy error until it
+// is released, then records what it is finally handed.
+type busyRunner struct {
+	mu       sync.Mutex
+	busy     bool
+	attempts int
+	turns    []string
+	fail     error
+}
+
+func (r *busyRunner) run(_ context.Context, _, instruction string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.attempts++
+	if r.fail != nil {
+		return r.fail
+	}
+	if r.busy {
+		return fmt.Errorf("background wake: %w", session.ErrSessionTurnBusy)
+	}
+	r.turns = append(r.turns, instruction)
+	return nil
+}
+
+func (r *busyRunner) release() {
+	r.mu.Lock()
+	r.busy = false
+	r.mu.Unlock()
+}
+
+func (r *busyRunner) state() (int, []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.attempts, append([]string(nil), r.turns...)
+}
+
+func fastRetryWaker(run RunTurnFunc) *BackgroundWaker {
+	w := NewBackgroundWaker(slog.Default(), run)
+	w.busyRetryFirst = 10 * time.Millisecond
+	w.busyRetryMax = 20 * time.Millisecond
+	return w
+}
+
+// A task that dies while the turn that started it is still running is the
+// common case, not an exotic one: the wake has to survive a busy session
+// instead of being dropped on the floor.
+func TestWakeSurvivesABusySessionAndArrivesWhenTheTurnEnds(t *testing.T) {
+	runner := &busyRunner{busy: true}
+	w := fastRetryWaker(runner.run)
+
+	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusFailed, true))
+
+	// Wait until the busy session has actually refused at least once.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if attempts, _ := runner.state(); attempts > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if attempts, turns := runner.state(); attempts == 0 || len(turns) != 0 {
+		t.Fatalf("attempts=%d turns=%d, want a refused attempt and no turn yet", attempts, len(turns))
+	}
+
+	runner.release()
+
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, turns := runner.state(); len(turns) == 1 {
+			if !strings.Contains(turns[0], "bg_1") || !strings.Contains(turns[0], "failed") {
+				t.Fatalf("woken turn %q lost the outcome across the retry", turns[0])
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	_, turns := runner.state()
+	t.Fatalf("the wake never arrived after the turn ended, %d turns recorded", len(turns))
+}
+
+// Retrying a busy session must not spend the per-session wake budget, or a
+// single long turn would exhaust it before the first turn ever runs.
+func TestBusyRetriesDoNotSpendTheWakeBudget(t *testing.T) {
+	runner := &busyRunner{busy: true}
+	w := fastRetryWaker(runner.run)
+
+	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusFailed, true))
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if attempts, _ := runner.state(); attempts >= 5 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	attempts, _ := runner.state()
+	if attempts < 5 {
+		t.Fatalf("the waker retried %d times, want it to keep trying while the session is busy", attempts)
+	}
+
+	w.mu.Lock()
+	spent := w.wakes["s1"]
+	w.mu.Unlock()
+	if spent > 1 {
+		t.Fatalf("%d wakes charged for one pending batch, want at most 1", spent)
+	}
+
+	runner.release()
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, turns := runner.state(); len(turns) == 1 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the wake never arrived after the retries")
+}
+
+// A turn that fails for its own reasons is not a lock contention: retrying it
+// forever would spin, so the batch is dropped exactly as before.
+func TestWakeDropsABatchOnANonBusyFailure(t *testing.T) {
+	runner := &busyRunner{fail: errors.New("session not found: s1")}
+	w := fastRetryWaker(runner.run)
+
+	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusFailed, true))
+	time.Sleep(wakeSettleDelay + 500*time.Millisecond)
+
+	attempts, turns := runner.state()
+	if attempts != 1 {
+		t.Fatalf("the waker made %d attempts on a permanent failure, want 1", attempts)
+	}
+	if len(turns) != 0 {
+		t.Fatalf("recorded %d turns for a failing runner", len(turns))
+	}
+}
+
+// A session whose turn never ends must not keep a retry goroutine alive for the
+// life of the process.
+func TestWakeGivesUpOnASessionThatStaysBusy(t *testing.T) {
+	runner := &busyRunner{busy: true}
+	w := fastRetryWaker(runner.run)
+	w.busyGiveUpAfter = 150 * time.Millisecond
+
+	w.OnSnapshot(finished("bg_1", "s1", bgtask.StatusFailed, true))
+	time.Sleep(wakeSettleDelay + 1500*time.Millisecond)
+
+	before, _ := runner.state()
+	time.Sleep(500 * time.Millisecond)
+	after, _ := runner.state()
+	if after != before {
+		t.Fatalf("the waker was still retrying past its give-up window (%d -> %d attempts)", before, after)
+	}
+	if before == 0 {
+		t.Fatal("the waker never attempted a turn at all")
 	}
 }
