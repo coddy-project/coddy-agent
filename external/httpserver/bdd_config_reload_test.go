@@ -56,9 +56,13 @@ type eventsClient struct {
 }
 
 type configReloadState struct {
-	root string
-	ts   *httptest.Server
-	srv  *Server
+	root    string
+	cfgPath string
+	ts      *httptest.Server
+	srv     *Server
+
+	stopWatch context.CancelFunc
+	watchDone chan struct{}
 
 	browsers []*eventsClient
 }
@@ -69,6 +73,11 @@ func (s *configReloadState) reset() {
 }
 
 func (s *configReloadState) close() {
+	if s.stopWatch != nil {
+		s.stopWatch()
+		<-s.watchDone
+		s.stopWatch = nil
+	}
 	for _, b := range s.browsers {
 		b.close()
 	}
@@ -94,11 +103,11 @@ func (s *configReloadState) startServer() error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
-	cfgPath := filepath.Join(home, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte(configReloadBaseYAML), 0o644); err != nil {
+	s.cfgPath = filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(s.cfgPath, []byte(configReloadBaseYAML), 0o644); err != nil {
 		return err
 	}
-	cfg, err := config.Load(cfgPath)
+	cfg, err := config.Load(s.cfgPath)
 	if err != nil {
 		return err
 	}
@@ -108,7 +117,57 @@ func (s *configReloadState) startServer() error {
 	mgr := session.NewManager(cfg, noopSender{}, runner, slog.Default(), s.root, nil)
 	s.srv = New(cfg, mgr, slog.Default(), s.root)
 	s.ts = httptest.NewServer(s.srv.Handler())
+
+	// The daemon watches the file it loaded, which is how an edit made by
+	// somebody else - `coddy providers login` in another terminal, an operator
+	// with an editor - reaches the clients this feature is about. The interval
+	// is short because the scenario is waiting on it, not because anything
+	// depends on the exact value.
+	watch := &config.FileWatcher{
+		Paths:    cfg.Paths,
+		Interval: 20 * time.Millisecond,
+		Live:     mgr.Cfg,
+		Install:  mgr.ReplaceConfig,
+		Log:      slog.Default(),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.stopWatch = cancel
+	s.watchDone = make(chan struct{})
+	go func() {
+		defer close(s.watchDone)
+		_ = watch.Run(ctx)
+	}()
 	return nil
+}
+
+// addModelToConfigFile is somebody else rewriting config.yaml: a `coddy
+// providers login` that added a provider and its models, or an operator's
+// editor. Nothing tells the running process about it, which is why the file is
+// watched.
+func (s *configReloadState) addModelToConfigFile(model string) error {
+	provider, _, ok := strings.Cut(model, "/")
+	if !ok {
+		return fmt.Errorf("model %q names no provider", model)
+	}
+	added := fmt.Sprintf(`
+providers:
+  - name: openai
+    type: openai
+    api_key: "k"
+  - name: %[1]s
+    type: openai
+    api_key: "k2"
+
+models:
+  - model: "openai/gpt-4o"
+    max_tokens: 4096
+  - model: "%[2]s"
+    max_tokens: 16384
+
+agent:
+  model: "openai/gpt-4o"
+`, provider, model)
+	return os.WriteFile(s.cfgPath, []byte(added), 0o644)
 }
 
 // subscribe opens one events stream and drains the connect-time snapshot, so a later
@@ -240,6 +299,7 @@ func initializeConfigReloadScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a browser is subscribed to the server event stream$`, s.subscribe)
 	sc.Step(`^a second browser is subscribed to the server event stream$`, s.subscribe)
 	sc.Step(`^the configuration is saved with the model "([^"]*)" added$`, s.saveConfigWithModel)
+	sc.Step(`^another process adds the model "([^"]*)" to config\.yaml$`, s.addModelToConfigFile)
 	sc.Step(`^the browser is told the configuration reloaded$`, s.firstBrowserToldReloaded)
 	sc.Step(`^both browsers are told the configuration reloaded$`, s.allBrowsersToldReloaded)
 	sc.Step(`^the model list the browser reads after that event carries "([^"]*)"$`, s.modelsListAfterEventCarries)
