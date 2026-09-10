@@ -41,7 +41,18 @@ _coddy() {
                 skills)   _values 'subcommand' list enable disable add sync remove ;;
                 plugin)   _values 'subcommand' marketplace install remove enable disable ;;
                 mcp|agents|hooks) _values 'subcommand' list trust untrust ;;
-                providers) _values 'subcommand' list login logout ;;
+                providers)
+                    if (( CURRENT > 3 )); then
+                        _arguments \
+                            '--browser[neuraldeep: loopback browser callback instead of the device flow]' \
+                            '--device[neuraldeep: the device flow, which is the default]' \
+                            '--no-config[login: do not add the provider and its models to config.yaml]' \
+                            '--api-base[neuraldeep: endpoint to sign in against]:url:' \
+                            '--home[override CODDY_HOME]:dir:_files -/'
+                    else
+                        _values 'subcommand' list login logout
+                    fi
+                    ;;
                 rules)    _values 'subcommand' list ;;
                 update)
                     _arguments \

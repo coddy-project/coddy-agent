@@ -95,7 +95,7 @@ func TestProvidersLoginNeuralDeepStoresKeyAndWritesConfig(t *testing.T) {
 	}
 	defer func() { openBrowserFn = prevOpen }()
 
-	if err := runProviders([]string{"login", "neuraldeep", "--home", home}); err != nil {
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--browser"}); err != nil {
 		t.Fatalf("providers login: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestProvidersLoginAPIBaseSelectsTheDeployment(t *testing.T) {
 
 	// An endpoint outside the allowlist is refused up front: signing in against
 	// the wrong hub would only surface later, as rejected requests.
-	err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", "https://example.invalid/v1"})
+	err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", "https://example.invalid/v1", "--browser"})
 	if err == nil || !strings.Contains(err.Error(), "not a NeuralDeep endpoint") {
 		t.Fatalf("unknown --api-base must be refused, got %v", err)
 	}
@@ -147,7 +147,7 @@ func TestProvidersLoginAPIBaseSelectsTheDeployment(t *testing.T) {
 	}
 
 	mirror := "https://api.neuraldeep.tech/v1"
-	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", mirror}); err != nil {
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", mirror, "--browser"}); err != nil {
 		t.Fatalf("providers login --api-base: %v", err)
 	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
@@ -164,7 +164,7 @@ func TestProvidersLoginAPIBaseSelectsTheDeployment(t *testing.T) {
 
 	// Signing in again for the other deployment moves the existing row with
 	// it: the new key would otherwise be sent to the hub that never issued it.
-	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", "https://api.neuraldeep.ru/v1"}); err != nil {
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--api-base", "https://api.neuraldeep.ru/v1", "--browser"}); err != nil {
 		t.Fatalf("providers login --api-base (default): %v", err)
 	}
 	cfg, err = config.LoadFromCLI(config.CLIPaths{Home: home})
@@ -200,7 +200,7 @@ func TestProvidersLoginRepairsAnUnrecognizedAPIBase(t *testing.T) {
 	}
 	defer func() { openBrowserFn = prevOpen }()
 
-	if err := runProviders([]string{"login", "neuraldeep", "--home", home}); err != nil {
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--browser"}); err != nil {
 		t.Fatalf("providers login: %v", err)
 	}
 	cfg, err := config.LoadFromCLI(config.CLIPaths{Home: home})
@@ -230,7 +230,7 @@ func TestProvidersLoginNoConfigSkipsYAML(t *testing.T) {
 	}
 	defer func() { openBrowserFn = prevOpen }()
 
-	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--no-config"}); err != nil {
+	if err := runProviders([]string{"login", "neuraldeep", "--home", home, "--no-config", "--browser"}); err != nil {
 		t.Fatalf("providers login --no-config: %v", err)
 	}
 	if key, _ := llm.LoadNeuralDeepKey(config.NeuralDeepAuthPath(home, "neuraldeep")); key != "sk-noconf" {
@@ -298,5 +298,40 @@ func TestProvidersLoginRefusesPlainKeyTypes(t *testing.T) {
 	err := runProviders([]string{"login", "mine", "--home", home})
 	if err == nil || !strings.Contains(err.Error(), "api_key") {
 		t.Fatalf("login for a plain-key provider must point at api_key, got %v", err)
+	}
+}
+
+// ── flow selection: the edge cases the .feature spec deliberately leaves out ──
+
+func TestProvidersLoginRefusesBothFlowFlags(t *testing.T) {
+	home := t.TempDir()
+	err := runProviders([]string{"login", "neuraldeep", "--home", home, "--device", "--browser"})
+	if err == nil || !strings.Contains(err.Error(), "at most one") {
+		t.Fatalf("--device with --browser must be refused, got %v", err)
+	}
+}
+
+func TestProvidersLoginDeviceIsAcceptedForCompatibility(t *testing.T) {
+	// --device named the non-default flow before it became the default; scripts
+	// that still pass it must keep working. The hub here answers nothing, so
+	// the flow fails at the device start - which is already proof that the
+	// device flow, not the callback, is the one that ran.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/cli/device/start" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	t.Setenv(llm.EnvNeuralDeepHubURL, srv.URL)
+	home := t.TempDir()
+
+	err := runProviders([]string{"login", "neuraldeep", "--home", home, "--device"})
+	if err == nil || !strings.Contains(err.Error(), "device start") {
+		t.Fatalf("--device must still pick the device flow, got %v", err)
+	}
+	if _, statErr := os.Stat(config.NeuralDeepAuthPath(home, "neuraldeep")); !os.IsNotExist(statErr) {
+		t.Fatalf("a failed login must store nothing (stat err = %v)", statErr)
 	}
 }

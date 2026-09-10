@@ -605,3 +605,55 @@ func TestApplyNeuralDeepLoginMovesAnExistingRowToTheLoginEndpoint(t *testing.T) 
 		})
 	}
 }
+
+func TestStartNeuralDeepDeviceLoginReportsRateLimitWithTheWait(t *testing.T) {
+	// A 429 on the very first call is the whole login: the message has to say
+	// how long to wait instead of leaking a status code and a JSON body.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+	}))
+	defer srv.Close()
+
+	_, err := StartNeuralDeepDeviceLogin(context.Background(), srv.URL, srv.Client(), "coddy @ host")
+	if err == nil {
+		t.Fatal("a rate limited start must fail")
+	}
+	if !strings.Contains(err.Error(), "42s") || !strings.Contains(err.Error(), "rate limiting") {
+		t.Fatalf("error must name the wait, got %v", err)
+	}
+	if strings.Contains(err.Error(), "429") {
+		t.Fatalf("error must read as a sentence, not a status dump: %v", err)
+	}
+}
+
+func TestStartNeuralDeepDeviceLoginRateLimitWithoutRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := StartNeuralDeepDeviceLogin(context.Background(), srv.URL, srv.Client(), "coddy @ host")
+	if err == nil || !strings.Contains(err.Error(), "try again in a minute") {
+		t.Fatalf("a 429 without Retry-After must still advise a wait, got %v", err)
+	}
+}
+
+func TestPollNeuralDeepDeviceTokenTreatsThrottlingAsSlowDown(t *testing.T) {
+	// A throttled poll is not a failed login: the user may be about to confirm,
+	// and RFC 8628 already has a word for "poll less often".
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"rate limited"}`))
+	}))
+	defer srv.Close()
+
+	key, slowDown, err := PollNeuralDeepDeviceToken(context.Background(), srv.URL, srv.Client(), "dc")
+	if err != nil {
+		t.Fatalf("a 429 must not end the login: %v", err)
+	}
+	if key != "" || !slowDown {
+		t.Fatalf("key = %q, slowDown = %v, want empty key and a slow down", key, slowDown)
+	}
+}
