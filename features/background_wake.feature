@@ -27,3 +27,29 @@ Feature: A finished background task can wake the agent
     When three background tasks that asked to be notified finish together
     Then the agent is woken once
     And the woken turn names all three tasks
+
+  Scenario: A task that finishes while its own turn is still running is woken when that turn ends
+    Given a session with no woken turns
+    And an agent turn is already in flight for that session
+    When a background task that asked to be notified finishes as "failed"
+    And the turn in flight ends
+    Then the agent is woken once
+    And the woken turn tells the model the work did not succeed
+
+  @real-shell
+  Scenario: A task killed by its hard timeout wakes the agent
+    Given a session with no woken turns
+    When a notifying background task outlives its hard timeout
+    Then the agent is woken once
+    And the woken turn tells the model the work did not succeed
+
+  @real-shell
+  Scenario: A submodule clone refused by SSH wakes the agent with the failure
+    Given a session with no woken turns
+    And a checkout whose submodule remotes refuse the SSH key
+    And an agent turn is already in flight for that session
+    When the agent updates its submodules as a notifying background task
+    And the turn in flight ends
+    Then the agent is woken once
+    And the woken turn tells the model the work did not succeed
+    And the task output names the clone the remote refused
