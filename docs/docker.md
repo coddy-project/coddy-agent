@@ -1,6 +1,6 @@
 # Docker
 
-Run Coddy as **`coddy http`** inside a minimal **`scratch`** image. The default image ships the embedded web UI (**`ui`** build tag), OpenAI-compatible REST (**`http`**), scheduler (**`scheduler`**), and long-term memory (**`memory`**).
+Run Coddy as **`coddy serve`** inside a minimal **`scratch`** image. The default image ships the embedded web UI (**`ui`** build tag), OpenAI-compatible REST (**`http`**), scheduler (**`scheduler`**), and long-term memory (**`memory`**).
 
 Related files:
 
@@ -29,7 +29,7 @@ General build instructions without Docker - **[docs/build.md](build.md)**.
 
 ## Docker Compose
 
-Compose is the recommended way to run the published GHCR image or a locally built one. Both files define a **single service** named **`coddy`** - no database or Redis sidecar. The process is **`coddy http`** bound to **`0.0.0.0:12345`** inside the container; Compose maps that port to the host.
+Compose is the recommended way to run the published GHCR image or a locally built one. Both files define a **single service** named **`coddy`** - no database or Redis sidecar. The process is **`coddy serve`** bound to **`0.0.0.0:12345`** inside the container; Compose maps that port to the host.
 
 | File | When to use |
 |------|-------------|
@@ -124,17 +124,24 @@ docker compose -f docker-compose.dev.yml build coddy
 
 **`CODDY_BUILD_TAGS`** must stay comma-separated with **no spaces**, matching **`go build -tags=`**. The dev file defaults to **`http,scheduler,ui,memory,gateway`** (matching the [`Dockerfile`](../Dockerfile) **`BUILD_TAGS`** default) so the built image can run the messenger gateway; drop **`gateway`** to trim it.
 
-### Run another mode (messenger gateway)
+### Add the messenger gateway
 
-Both compose files run **`coddy http`** by default. Override the subcommand with **`CODDY_COMMAND`** (shell-split into args) to run any other mode - for the [messenger gateway](gateway.md):
+The bot is not a separate container or a separate command. **`coddy serve`** runs every subsystem the mounted **`config.yaml`** enables, so turning the bot on is one line in that file:
+
+```yaml
+gateways:
+  telegram:
+    enable: true
+```
 
 ```bash
 # Build from source: the dev image already includes the `gateway` tag.
 export TELEGRAM_BOT_TOKEN="<bot-token>"          # or leave in $CODDY_HOME/.env
-export CODDY_COMMAND="gateway --cwd /workspace"
 docker compose -f docker-compose.dev.yml up -d --build
 docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot connected"
 ```
+
+The bot and the web UI then share one session manager, so a Telegram conversation is a session you can open at **`http://localhost:12345`** and watch while it runs. **`CODDY_COMMAND`** still overrides the command line when you need different flags.
 
 Notes:
 
@@ -182,7 +189,7 @@ mkdir -p workspace coddy_home
 
 Edit **`config.yaml`**: configure at least one entry under **`providers`** and **`models`**, and set **`agent.model`** to a listed model id. You can leave **`api_key`** empty and pass **`OPENAI_API_KEY`** (or **`NAME_API_KEY`** for provider **`name`**) through compose **`environment`** instead.
 
-Optional: set **`httpserver.host`** to **`0.0.0.0`** and **`httpserver.port`** to **12345** in YAML. The container **`CMD`** already runs **`coddy http -H 0.0.0.0 -P 12345`**, so flags apply even if **`httpserver`** is omitted from the file.
+Optional: set **`httpserver.host`** to **`0.0.0.0`** and **`httpserver.port`** to **12345** in YAML. The container **`CMD`** already runs **`coddy serve -H 0.0.0.0 -P 12345`**, so flags apply even if **`httpserver`** is omitted from the file.
 
 **2. Start Coddy** (published image from GHCR):
 
@@ -225,7 +232,7 @@ curl -sS http://127.0.0.1:12345/v1/models | head
 docker compose logs -f coddy
 ```
 
-**Security:** **`coddy http`** has no application-level auth. Treat port **12345** like any admin API - bind to localhost, use a firewall, or put a reverse proxy with TLS and authentication in front for remote access.
+**Security:** the container runs **`coddy serve -H 0.0.0.0`**, which is what makes the mapped port reachable; outside a container the bind default is loopback. Without **`httpserver.auth_token`** (or **`--auth-token`** / **`CODDY_HTTP_TOKEN`**) the API has no authentication. Treat port **12345** like any admin API - bind to localhost, use a firewall, or put a reverse proxy with TLS and authentication in front for remote access.
 
 For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Docker Compose](#docker-compose) above.
 
@@ -233,10 +240,10 @@ For a local **`Dockerfile`** build, use **`docker-compose.dev.yml`** - see [Dock
 
 **`Dockerfile`** **`ARG BUILD_TAGS`** defaults to **`http,scheduler,ui,memory`** (comma-separated, same meaning as **`go build -tags=`**).
 
-- **`http`** - **`coddy http`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
+- **`http`** - **`coddy serve`** and REST gateway (see **[docs/http-api.md](http-api.md)**).
 - **`ui`** - embedded SPA on **`/`** (needs **`http`**).
 - **`scheduler`** - scheduler subsystem (**[docs/scheduler.md](scheduler.md)**).
-- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enabled`**.
+- **`memory`** - long-term memory copilot and session memory REST (**[external/memory/README.md](../external/memory/README.md)**); toggle runtime behavior via **`memory.enable`**.
 
 To build an image **without** memory or the embedded UI, override **`BUILD_TAGS`** (for example **`http,scheduler,ui`** or **`http,scheduler`**) via **`docker compose` `args`** or **`docker build --build-arg`**.
 

@@ -566,7 +566,7 @@ func initializeSubagentsHTTPScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a running coddy http server with a session$`, s.startServerWithSession)
+	sc.Step(`^a running coddy serve server with a session$`, s.startServerWithSession)
 	sc.Step(`^that session started a subagent task for "([^"]*)" backed by child session "([^"]*)"$`, s.startedSubagentTask)
 	sc.Step(`^a persisted child session "([^"]*)" spawned by that session$`, s.persistedChild)
 	sc.Step(`^a live child session "([^"]*)" of that session whose transcript says "([^"]*)"$`, s.liveChildSaying)

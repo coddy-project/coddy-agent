@@ -257,7 +257,7 @@ def run_acp(binary: Path, cfg_path: Path, home: Path, work: Path) -> int:
             str(home),
             "--cwd",
             str(work),
-            "--scheduler-enabled",
+            "--scheduler",
             "--sessions-dir",
             str(home / "sessions"),
         ],
@@ -377,7 +377,7 @@ def resolve_scheduler_global_log(home: Path, work: Path) -> Path:
 
 
 def run_http_scheduler_agent_e2e_existing(base_v1: str, home: Path, work: Path) -> int:
-    """Drive scheduler via HTTP chat against an already running coddy http (same home or cwd as process).
+    """Drive scheduler via HTTP chat against an already running coddy serve (same home or cwd as process).
 
     Expects BASE_URL-style ``base_v1`` ending in ``/v1``, scheduler dir under ``home/scheduler``,
     and job side effects under ``work``.
@@ -447,7 +447,7 @@ def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) ->
     proc = subprocess.Popen(
         [
             str(binary),
-            "http",
+            "serve",
             "--config",
             str(cfg_path),
             "--home",
@@ -456,7 +456,7 @@ def run_http(binary: Path, cfg_path: Path, home: Path, work: Path, port: int) ->
             str(work),
             "--sessions-dir",
             str(home / "sessions_http"),
-            "--scheduler-enabled",
+            "--scheduler",
             "-H",
             "127.0.0.1",
             "-P",
@@ -496,17 +496,17 @@ def validate_coddy_scheduler_bin(bin_path: Path, *, need_http_help: bool) -> int
 
     proc_help = subprocess.run([str(bin_path), "acp", "--help"], capture_output=True, text=True)
     help_txt = (proc_help.stdout or "") + (proc_help.stderr or "")
-    if "scheduler-enabled" not in help_txt:
+    if "scheduler" not in help_txt:
         print(
-            "Binary missing -scheduler-enabled (rebuild with: go build -tags=scheduler)",
+            "Binary missing -scheduler (rebuild with: go build -tags=scheduler)",
             flush=True,
         )
         return 97
 
     if need_http_help:
-        hp = subprocess.run([str(bin_path), "http", "--help"], capture_output=True, text=True)
+        hp = subprocess.run([str(bin_path), "serve", "--help"], capture_output=True, text=True)
         hh = (hp.stdout or "") + (hp.stderr or "")
-        if "scheduler-enabled" not in hh:
-            print("Binary missing scheduler on http command (need -tags http,scheduler)", flush=True)
+        if "scheduler" not in hh:
+            print("Binary missing scheduler on the serve command (need -tags http,scheduler)", flush=True)
             return 96
     return None

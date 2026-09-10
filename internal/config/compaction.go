@@ -33,7 +33,7 @@ const (
 type Compaction struct {
 	// Enabled toggles compaction (the manual command and the automatic trigger).
 	// A nil pointer means the default (true).
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 	// ThresholdPercent fires auto-compaction when the estimated context usage
 	// reaches this percent of the effective model's max_context_tokens
 	// (default 80, valid 1..100). Models without max_context_tokens skip
@@ -57,7 +57,7 @@ type Compaction struct {
 // so paging a large file or a wide search cannot pin dead lines in every later turn.
 type ResultEviction struct {
 	// Enabled toggles the projection. A nil pointer means the default (true).
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 	// KeepRecent is how many most recent evictable results stay intact as a
 	// working window. A nil pointer means the default (1); 0 keeps none.
 	KeepRecent *int `yaml:"keep_recent"`

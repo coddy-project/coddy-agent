@@ -6,8 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
@@ -18,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/rules"
+	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/update"
@@ -128,12 +129,8 @@ func main() {
 		err = runACP(args[1:])
 	case "cli":
 		err = runCLI(args[1:])
-	case "http":
-		err = runHTTP(args[1:])
-	case "gateway":
-		err = runGateway(args[1:])
-	case "swarm":
-		err = runSwarm(args[1:])
+	case "serve":
+		err = runServe(args[1:])
 	case "sessions":
 		err = runSessions(args[1:])
 	case "skills":
@@ -163,7 +160,7 @@ func main() {
 	}
 }
 
-func printUsage(w *os.File) {
+func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `Usage:
   %[1]s (no arguments on a terminal: interactive console, build tag cli)
   %[1]s -c | --continue (console: continue the latest session here)
@@ -172,9 +169,9 @@ func printUsage(w *os.File) {
   %[1]s -v | --version
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
-  %[1]s http [flags] (OpenAI-compatible HTTP)
-  %[1]s gateway [flags] (messenger gateway: Telegram etc.)
-  %[1]s swarm [flags] (stateless relay: nodes register, their sessions aggregate)
+  %[1]s serve [flags] (run every subsystem enabled in config.yaml:
+        the OpenAI-compatible HTTP API and web UI, the messenger gateway,
+        the swarm relay, the cron scheduler)
   %[1]s sessions list [flags]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list
@@ -212,9 +209,9 @@ func runACP(args []string) error {
 	acpCWD := fs.String("cwd", "", "default session cwd when the client sends an empty cwd (CODDY_CWD, default process cwd)")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root (empty uses config sessions.dir or ~/.coddy/sessions)")
 	persistedSession := fs.String("session-id", "", "if snapshots exist under this id, session/new restores them once (CLI UX); otherwise a new bundle uses this folder name")
-	remoteFlag := fs.String("remote", "", "serve ACP against a remote coddy http server (configured remote name, host:port, or http(s) URL)")
+	remoteFlag := fs.String("remote", "", "serve ACP against a remote coddy serve server (configured remote name, host:port, or http(s) URL)")
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")
-	schedulerEnabled := fs.Bool("scheduler-enabled", false, "set scheduler.enabled=true in this process (build with -tags scheduler)")
+	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	fs.Usage = func() {
@@ -274,7 +271,7 @@ func runACP(args []string) error {
 	}
 	if ropts != nil {
 		// Remote client mode: no local store, scheduler, or agent loop; every
-		// session call proxies to the remote coddy http server.
+		// session call proxies to the remote coddy serve server.
 		ropts.Log = log
 		if ropts.Insecure && ropts.Token != "" {
 			log.Warn("sending the bearer token over plain http", "remote", ropts.BaseURL, "hint", "prefer https or a trusted network")
@@ -340,37 +337,13 @@ func runACP(args []string) error {
 	return srv.Run(ctx, os.Stdin)
 }
 
-func ensureCoddyHomeLayout(home string) error {
-	if strings.TrimSpace(home) == "" {
-		return nil
-	}
-	for _, name := range []string{"sessions", "skills", "scheduler"} {
-		p := filepath.Join(home, name)
-		if err := os.MkdirAll(p, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", p, err)
-		}
-	}
-	return nil
-}
+// ensureCoddyHomeLayout and openSessionStore are the console's and ACP's view
+// of what `coddy serve` does for its own subsystems; one implementation keeps
+// every entrypoint agreeing on where state lives.
+func ensureCoddyHomeLayout(home string) error { return serve.EnsureHomeLayout(home) }
 
 func openSessionStore(flagValue string, cfg *config.Config) (*session.FileStore, error) {
-	raw := strings.TrimSpace(flagValue)
-	if raw != "" {
-		root, err := filepath.Abs(raw)
-		if err != nil {
-			return nil, fmt.Errorf("sessions-dir: %w", err)
-		}
-		if err := os.MkdirAll(root, 0o755); err != nil {
-			return nil, fmt.Errorf("sessions-dir mkdir: %w", err)
-		}
-		return &session.FileStore{Root: root}, nil
-	}
-
-	root := cfg.ResolvedSessionsRoot()
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, fmt.Errorf("sessions root mkdir: %w", err)
-	}
-	return &session.FileStore{Root: root}, nil
+	return serve.OpenSessionStore(flagValue, cfg)
 }
 
 func runSessions(args []string) error {

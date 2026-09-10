@@ -3,21 +3,21 @@
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
 #     Recommended full binary: make build TAGS="http ui scheduler memory cli gateway swarm"
-#     http     OpenAI-compatible gateway (coddy http)
+#     http     OpenAI-compatible gateway and web UI (coddy serve)
 #     ui       embedded SPA for GET / (combine with http); runs npm ui-build first
 #     scheduler       cron scheduler daemon and tools (see external/scheduler/)
 #     memory          long-term memory copilot and /coddy memory REST (see external/memory/)
-#     gateway.telegram  Telegram bot gateway only (coddy gateway; see external/gateway/)
+#     gateway.telegram  Telegram bot gateway only (coddy serve; see external/gateway/)
 #     gateway         all messenger gateways, currently Telegram (superset of gateway.telegram)
 #     cli      interactive console TUI (bare `coddy` on a terminal; see external/cli/)
-#     swarm    stateless relay that aggregates nodes (coddy swarm; see external/swarm/)
+#     swarm    stateless relay that aggregates nodes (coddy serve; see external/swarm/)
 #   Examples: make build TAGS=http
 #             make build TAGS="http ui"
 #             make build TAGS="http scheduler"
 #             make build TAGS="http ui scheduler memory"
 #             make build TAGS="gateway.telegram"
 #             make build TAGS="http ui scheduler memory cli gateway swarm"
-#   Omit memory (or other tags) for a slimmer binary; runtime memory.enabled only applies when built with memory.
+#   Omit memory (or other tags) for a slimmer binary; runtime memory.enable only applies when built with memory.
 #   VERSION / LDFLAGS   embedded version string (see print-version).
 
 # Prefer a tag that points at HEAD (semantically latest if several), else nearest tag from history,

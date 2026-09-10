@@ -43,7 +43,7 @@ type App struct {
 	mgr   backend
 	log   *slog.Logger
 
-	// remoteURL is set when mgr talks to a remote coddy http server.
+	// remoteURL is set when mgr talks to a remote coddy serve server.
 	remoteURL string
 	// configOpts is the last adopted session option set (model catalog).
 	configOpts []acp.ConfigOption

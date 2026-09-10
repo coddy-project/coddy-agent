@@ -25,7 +25,7 @@ import (
 	swarmdto "github.com/EvilFreelancer/coddy-agent/internal/swarm"
 )
 
-// stubAgent serves the session list surface of a coddy http node.
+// stubAgent serves the session list surface of a coddy serve node.
 type stubAgent struct {
 	mu       sync.Mutex
 	sessions []map[string]interface{}

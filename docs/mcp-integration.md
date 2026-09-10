@@ -53,7 +53,7 @@ the operator approves that exact declaration for that workspace.
 - `config.yaml` and `~/.coddy/mcp.json` are operator-authored and are **not** gated;
 - the policy is `mcp.project_trust` in `config.yaml`: `ask` (default), `allow` (start
   project servers automatically; only for workspaces you already trust), `deny` (never
-  load them, no approval path). `coddy acp` and `coddy http` also take
+  load them, no approval path). `coddy acp` and `coddy serve` also take
   `--mcp-project-trust ask|allow|deny`, which overrides the config for that process only -
   the flag is what a CI job or a container entrypoint uses instead of editing config.yaml.
   An unknown value fails the launch rather than falling back to a default;

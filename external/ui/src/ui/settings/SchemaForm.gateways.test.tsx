@@ -18,7 +18,7 @@ const gatewaysSchema: JsonSchema = {
           type: "object",
           title: "Telegram",
           properties: {
-            enabled: { type: "boolean", title: "Enabled" },
+            enable: { type: "boolean", title: "Enabled" },
             token: { type: "string", title: "Bot token" },
             rich_messages: { type: "boolean", title: "Rich messages" },
             admins: { type: "array", title: "Admins", items: { type: "integer" } },
@@ -40,7 +40,7 @@ const gatewaysSchema: JsonSchema = {
             },
           },
           "x-coddy-property-order": [
-            "enabled",
+            "enable",
             "token",
             "rich_messages",
             "admins",

@@ -523,7 +523,7 @@ agent:
   model: "openai/gpt-4o"
 
 memory:
-  enabled: false
+  enable: false
 `
 	path := filepath.Join(home, "config.yaml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -756,7 +756,7 @@ func TestHTTPServerCORSAndRemotesRoundTrip(t *testing.T) {
 	yaml := httpAuthBaseYAML +
 		"httpserver:\n" +
 		"  cors:\n" +
-		"    enabled: true\n" +
+		"    enable: true\n" +
 		"    allowed_origins: [\"http://localhost:5173\", \"*\"]\n" +
 		"  remotes:\n" +
 		"    - name: prod\n" +

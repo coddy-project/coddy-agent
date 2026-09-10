@@ -572,7 +572,7 @@
           "description": "Commands the agent runs detached in the session task pool instead of blocking a turn. The pool dies with the coddy process; each task's metadata and captured output stay in the session bundle, and a task interrupted by a restart is reported as orphaned.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": [
                 "boolean",
                 "null"
@@ -610,7 +610,7 @@
       "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": [
             "boolean",
             "null"
@@ -671,7 +671,7 @@
       "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See docs/hooks.md.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": [
             "boolean",
             "null"
@@ -805,7 +805,7 @@
       "description": "Summarizes older conversation history so long sessions keep fitting the model context window. Manual compact command plus automatic trigger at a percent of the model's max_context_tokens.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": [
             "boolean",
             "null"
@@ -840,7 +840,7 @@
           "description": "Collapses superseded read/grep tool results to short placeholders when building the LLM request (the persisted transcript is never rewritten), so paging a large file or a wide search cannot pin dead lines in every later turn. Only results the model marks (keep_result, or keep:true) or the most recent working window survive; a write to a file invalidates earlier reads/greps that covered it.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": [
                 "boolean",
                 "null"
@@ -876,7 +876,7 @@
       "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Turn on the memory copilot.",
           "default": false
@@ -919,14 +919,22 @@
       "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.",
       "additionalProperties": false,
       "properties": {
+        "enable": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": true,
+          "description": "Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm."
+        },
         "host": {
           "type": "string",
-          "description": "Default bind address when coddy http does not pass -H/--host. Empty falls back to 0.0.0.0.",
-          "default": ""
+          "description": "Bind address for the HTTP API. Empty means 127.0.0.1; set 0.0.0.0 to accept connections from other machines.",
+          "default": "127.0.0.1"
         },
         "port": {
           "type": "integer",
-          "description": "Default listen port when coddy http does not pass -P/--port. 0 falls back to 12345.",
+          "description": "Default listen port when coddy serve does not pass -P/--port. 0 falls back to 12345.",
           "default": 0,
           "minimum": 0,
           "maximum": 65535
@@ -952,7 +960,7 @@
           "description": "Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
               "default": false
@@ -969,7 +977,7 @@
         },
         "remotes": {
           "type": "array",
-          "description": "Remote coddy http servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote.",
+          "description": "Remote coddy serve servers offered in the UI environment selector. Tokens are not stored here; the UI keeps them client-side per remote.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -980,7 +988,7 @@
               },
               "url": {
                 "type": "string",
-                "description": "Base URL of the remote coddy http server, e.g. \"https://box.example:12345\"."
+                "description": "Base URL of the remote coddy serve server, e.g. \"https://box.example:12345\"."
               }
             }
           },
@@ -991,17 +999,22 @@
     "swarm": {
       "type": "object",
       "title": "Swarm relay",
-      "description": "Stateless relay that nodes register into and that chains into other relays (used only by binaries built with -tags swarm for the server side; the join list is honoured by coddy http too). See docs/swarm.md.",
+      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See docs/swarm.md.",
       "additionalProperties": false,
       "properties": {
+        "enable": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the swarm relay in this process. Independent of swarm.join, which is how an agent registers into a parent relay."
+        },
         "host": {
           "type": "string",
-          "description": "Bind address for coddy swarm when the CLI does not pass -H/--host. Empty falls back to 0.0.0.0.",
+          "description": "Bind address for the relay when the CLI does not pass --swarm-host. Empty falls back to 0.0.0.0.",
           "default": ""
         },
         "port": {
           "type": "integer",
-          "description": "Listen port for coddy swarm. 0 falls back to 12346.",
+          "description": "Listen port for the relay. 0 falls back to 12346.",
           "default": 0,
           "minimum": 0,
           "maximum": 65535
@@ -1048,7 +1061,7 @@
           "description": "Cross-origin access for the relay API. The SPA reaches a relay from another origin by construction, so this usually has to be on. Allow-Headers includes Last-Event-ID so an SSE stream can be resumed through the relay.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
               "description": "Handle CORS preflight and emit Access-Control-* headers for allowed origins.",
               "default": false
@@ -1152,7 +1165,7 @@
         },
         "join": {
           "type": "array",
-          "description": "Parent relays this process registers into on startup. Honoured by coddy http and coddy swarm alike, which is what lets relays chain.",
+          "description": "Parent relays this process registers into on startup. Honoured whether or not this process runs a relay of its own, which is what lets relays chain.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -1223,7 +1236,7 @@
       "description": "Controls the bundled single-page UI (only meaningful in binaries built with -tags http,ui).",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": [
             "boolean",
             "null"
@@ -1239,7 +1252,7 @@
       "description": "Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). Jobs are flat *.md files with YAML frontmatter under scheduler.dir; five-field crontab in UTC.",
       "additionalProperties": false,
       "properties": {
-        "enabled": {
+        "enable": {
           "type": "boolean",
           "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy acp|http -scheduler-enabled.",
           "default": false
@@ -1269,7 +1282,7 @@
     "gateways": {
       "type": "object",
       "title": "Messenger gateways",
-      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; run with coddy gateway). See docs/gateway.md.",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See docs/gateway.md.",
       "additionalProperties": false,
       "properties": {
         "telegram": {
@@ -1277,9 +1290,9 @@
           "description": "Telegram bot adapter.",
           "additionalProperties": false,
           "properties": {
-            "enabled": {
+            "enable": {
               "type": "boolean",
-              "description": "Activate the Telegram adapter when coddy gateway starts.",
+              "description": "Poll Telegram in this coddy serve process.",
               "default": false
             },
             "token": {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """End-to-end check that a fresh coddy cleans up after one that was killed.
 
-Self-contained: this harness boots its own ``build/coddy http`` instances, so it
+Self-contained: this harness boots its own ``build/coddy serve`` instances, so it
 does not depend on the server ``test_httpserver.sh`` starts.
 
 The story it drives is the one the hard timeout cannot cover. A coddy that is
@@ -155,7 +155,7 @@ def kill_pid(pid: int) -> None:
 
 def boot_server(binary: Path, home: Path, work: Path, port: int) -> Tuple[subprocess.Popen, str]:
     args = [
-        str(binary), "http",
+        str(binary), "serve",
         "--config", str(home / "config.yaml"),
         "--home", str(home),
         "--cwd", str(work),

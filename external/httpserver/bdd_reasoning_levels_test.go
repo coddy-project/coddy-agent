@@ -136,7 +136,7 @@ func TestReasoningLevelsFetchFeature(t *testing.T) {
 		Name: "reasoning_levels_fetch",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &reasoningLevelsWorld{}
-			sc.Step(`^a coddy gateway with an? "([^"]*)" provider named "([^"]*)"$`,
+			sc.Step(`^a coddy server with an? "([^"]*)" provider named "([^"]*)"$`,
 				func(providerType, providerName string) error {
 					return w.startGateway(t, providerType, providerName)
 				})

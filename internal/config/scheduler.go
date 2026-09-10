@@ -9,7 +9,7 @@ import (
 
 // SchedulerConfig controls the optional cron-driven scheduler
 type SchedulerConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 
 	// Dir is the filesystem root containing *.md job definitions. Empty defaults to ${CODDY_HOME}/scheduler.
 	Dir string `yaml:"dir"`

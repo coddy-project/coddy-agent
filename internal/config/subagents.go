@@ -41,7 +41,7 @@ const (
 type Subagents struct {
 	// Enabled registers the spawn_agent tool and renders the catalog. Unset
 	// means enabled.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// Dirs lists definition directories, lowest priority first; later entries
 	// override earlier ones by name. ${CODDY_HOME} expands at load time, ${CWD}

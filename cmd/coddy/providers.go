@@ -210,7 +210,7 @@ func neuralDeepWriteConfig(ctx context.Context, cfg *config.Config, name, hub, a
 		return nil
 	}
 	fmt.Printf("Updated %s: %s\n", cfg.Paths.ConfigPath, strings.Join(added, ", "))
-	fmt.Println("A running `coddy http` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
+	fmt.Println("A running `coddy serve` server keeps its loaded config; restart it (or edit settings in the UI) to pick the changes up.")
 	return nil
 }
 

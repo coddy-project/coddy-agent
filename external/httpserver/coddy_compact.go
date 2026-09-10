@@ -88,7 +88,7 @@ func (s *Server) coddySessionCompactPost(w http.ResponseWriter, r *http.Request)
 			"reason":    "nothing_to_compact",
 		})
 	case errors.Is(err, agent.ErrCompactionDisabled):
-		http.Error(w, `{"error":{"message":"compaction is disabled (compaction.enabled)"}}`, http.StatusBadRequest)
+		http.Error(w, `{"error":{"message":"compaction is disabled (compaction.enable)"}}`, http.StatusBadRequest)
 	case err != nil:
 		s.log.Error("compact: session compaction", "session", id, "error", err)
 		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusInternalServerError)

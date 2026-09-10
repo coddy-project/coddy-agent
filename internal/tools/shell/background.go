@@ -85,7 +85,7 @@ func requirePool(env *tooling.Env) (*bgtask.Pool, error) {
 		return nil, fmt.Errorf("background tasks are not available in this session")
 	}
 	if !env.BackgroundEnabled {
-		return nil, fmt.Errorf("background tasks are disabled (tools.background.enabled is false); run the command in the foreground instead")
+		return nil, fmt.Errorf("background tasks are disabled (tools.background.enable is false); run the command in the foreground instead")
 	}
 	if strings.TrimSpace(env.SessionDir) != "" {
 		env.Background.SetSessionDir(env.SessionID, env.SessionDir)

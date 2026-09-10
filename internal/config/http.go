@@ -8,9 +8,14 @@ import (
 
 // HTTPServerConfig controls the optional OpenAI-compatible HTTP gateway (built with -tags http). The embedded SPA requires -tags http,ui.
 type HTTPServerConfig struct {
-	// Host is the default bind address when coddy http does not override -H/--host (e.g. "127.0.0.1"). Empty falls back to 0.0.0.0 in the CLI.
+	// Enabled runs the HTTP API (and the embedded SPA) in this process. A nil
+	// pointer means the default, true: the API is the surface `coddy serve`
+	// exists for. Set `httpserver.enable: false` on a node that should only
+	// poll a messenger or relay a swarm.
+	Enabled *bool `yaml:"enable"`
+	// Host is the default bind address when `coddy serve` does not override -H/--host. Empty falls back to 127.0.0.1, so a process that was started for some other subsystem never opens the API to the network by accident.
 	Host string `yaml:"host"`
-	// Port is the default listen port when coddy http does not override -P/--port. Zero falls back to 12345 in the CLI.
+	// Port is the default listen port when `coddy serve` does not override -P/--port. Zero falls back to 12345.
 	Port int `yaml:"port"`
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
@@ -31,7 +36,7 @@ type HTTPServerConfig struct {
 // HTTPCORSConfig is the optional cross-origin policy for the HTTP gateway.
 type HTTPCORSConfig struct {
 	// Enabled turns on CORS handling (preflight + Access-Control-* headers).
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 	// AllowedOrigins are exact origins permitted to call the API (e.g. "http://localhost:5173").
 	// A single "*" allows any origin (bearer auth still applies).
 	AllowedOrigins []string `yaml:"allowed_origins"`
@@ -97,12 +102,23 @@ func (h *HTTPServerConfig) Validate() error {
 	return nil
 }
 
-// DefaultListenHost returns YAML host or the CLI fallback when omitted.
+// IsEnabled reports whether this process should serve the HTTP API. Unset means true.
+func (h *HTTPServerConfig) IsEnabled() bool {
+	return h == nil || h.Enabled == nil || *h.Enabled
+}
+
+// DefaultListenHost returns YAML host or the loopback fallback when omitted.
+//
+// The fallback is deliberately not 0.0.0.0: one process now starts every
+// subsystem the config enables, so an operator who asked only for a Telegram
+// bot must not find the agent API listening on every interface as a side
+// effect. Reaching it from another machine is an explicit `httpserver.host`
+// or -H away.
 func (h *HTTPServerConfig) DefaultListenHost() string {
 	if s := strings.TrimSpace(h.Host); s != "" {
 		return s
 	}
-	return "0.0.0.0"
+	return "127.0.0.1"
 }
 
 // DefaultListenPortString returns YAML port or the CLI fallback when zero.

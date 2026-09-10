@@ -56,12 +56,25 @@ type Bot struct {
 
 	seenSessions sync.Map     // tracks sessions that already received the formatting hint
 	draftSeq     atomic.Int64 // monotonic source of non-zero rich-message draft IDs
+
+	// inFlight counts the turns being generated right now, so a stop can wait
+	// for them instead of cutting them off mid-sentence.
+	inFlight sync.WaitGroup
+
+	// mirror publishes a chat turn where other surfaces can watch it. In a
+	// process that also serves the HTTP API this is what puts a Telegram
+	// conversation on a browser's screen as it happens; on its own the bot
+	// runs against a mirror that hands the sender straight back.
+	mirror session.TurnMirror
 }
 
 // New creates a Bot. cwd is the default working directory for agent sessions.
 // storePath is an optional path for persisting session IDs across restarts; pass "" for in-memory only.
-func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, log *slog.Logger, storePath string) *Bot {
+func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, log *slog.Logger, storePath string, mirror session.TurnMirror) *Bot {
 	store := sessionstore.NewPersisted(storePath)
+	if mirror == nil {
+		mirror = session.NopTurnMirror{}
+	}
 	b := &Bot{
 		cfg:     cfg,
 		runner:  runner,
@@ -69,6 +82,7 @@ func New(cfg *config.TelegramGatewayConfig, runner SessionRunner, cwd string, lo
 		log:     log,
 		store:   store,
 		workers: make(map[string]chan workerJob),
+		mirror:  mirror,
 	}
 	// Pre-populate seenSessions so a restart doesn't re-inject the formatting hint into existing sessions.
 	for _, id := range store.KnownIDs() {
@@ -112,22 +126,49 @@ func (b *Bot) Start(ctx context.Context) error {
 	u.Timeout = 30
 	updates := bot.GetUpdatesChan(u)
 
+	// Turns run under a context of their own so that stopping the bot stops
+	// intake first and generation second. A settings change that rotates the
+	// token restarts this adapter, and an answer half-written into a chat is
+	// the one thing the operator would notice.
+	turnCtx, cancelTurns := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelTurns()
+
 	for {
 		select {
 		case <-ctx.Done():
 			bot.StopReceivingUpdates()
+			b.drain()
 			return nil
 		case upd, ok := <-updates:
 			if !ok {
 				return fmt.Errorf("telegram: updates channel closed")
 			}
 			if upd.Message != nil {
-				b.dispatch(ctx, bot, upd.Message)
+				b.dispatch(turnCtx, bot, upd.Message)
 			}
 			if upd.CallbackQuery != nil {
-				go b.handleCallback(ctx, bot, upd.CallbackQuery)
+				go b.handleCallback(turnCtx, bot, upd.CallbackQuery)
 			}
 		}
+	}
+}
+
+// drainTimeout bounds the wait for turns still being generated when the bot is
+// asked to stop. It sits under the supervisor's own restart deadline, so a
+// wedged turn delays the replacement bot rather than blocking it forever.
+const drainTimeout = 20 * time.Second
+
+// drain waits for the turns already in flight to finish.
+func (b *Bot) drain() {
+	done := make(chan struct{})
+	go func() {
+		b.inFlight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(drainTimeout):
+		b.log.Warn("telegram: turns still running at stop", "waited", drainTimeout)
 	}
 }
 
@@ -185,7 +226,9 @@ func (b *Bot) sessionWorker(ctx context.Context, ch chan workerJob) {
 			if !ok {
 				return
 			}
+			b.inFlight.Add(1)
 			b.processMessage(ctx, job.bot, job.msg, job.key)
+			b.inFlight.Done()
 		case <-ctx.Done():
 			return
 		}
@@ -298,11 +341,17 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 		draftID:    b.draftSeq.Add(1),
 	})
 
+	// Anything else in this process that can show a session follows along.
+	// The chat stays in charge: permission prompts and questions never leave
+	// it, because it is the only surface with somebody reading.
+	mirrored, releaseMirror := session.Mirror(b.mirror, st.GetID(), sender)
+	defer releaseMirror()
+
 	// A chat has no status bar: no provider usage refresh at the end.
 	result, err := b.runner.HandleSessionPromptWithSender(ctx2, acp.SessionPromptParams{
 		SessionID: st.GetID(),
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: promptText}},
-	}, sender, &session.PromptRunOpts{SkipUsagePublish: true})
+	}, mirrored, &session.PromptRunOpts{SkipUsagePublish: true})
 	sender.Flush()
 
 	stopReason := ""

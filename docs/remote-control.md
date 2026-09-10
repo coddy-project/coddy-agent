@@ -9,16 +9,16 @@ codebase; their corrections are folded in and called out where they changed the 
 
 ### Implemented (this branch)
 
-The operator chose the **direct remote-API** direction: run `coddy http` on the remote box and
+The operator chose the **direct remote-API** direction: run `coddy serve` on the remote box and
 point the UI at it from another origin. Shipped:
 
-- **Optional bearer auth** for `coddy http` — a single `httpserver.auth_token` (also
+- **Optional bearer auth** for the HTTP API `coddy serve` exposes — a single `httpserver.auth_token` (also
   `--auth-token` / `CODDY_HTTP_TOKEN`), per-request gate, config-token redaction, hot reload
   (§3, simplified to one token instead of a list).
 - **CORS** (`httpserver.cors`) + a client **remotes** list (`httpserver.remotes`) + a
   route-scoped `?access_token=` on the composer-stream SSE GET.
 - **UI environment selector** (Settings → Environment): a global `fetch` shim points the SPA at a
-  remote `coddy http` + bearer token (stored client-side), or back to Local.
+  remote `coddy serve` + bearer token (stored client-side), or back to Local.
 - **e2e parity proof**: `features/remote_api.feature` (godog) +
   `examples/httpserver/http_e2e_remote.py` — remote == local for auth, cwd change, session load,
   streaming, config redaction, and local fallback.
@@ -33,7 +33,7 @@ point the UI at it from another origin. Shipped:
 
 ### Deferred (not built here)
 
-- **Optional TLS/encryption** for `coddy http` — designed in §3.4, kept for a follow-up.
+- **Optional TLS/encryption** for `coddy serve` — designed in §3.4, kept for a follow-up.
 - **Remote Control reverse tunnel** (`coddy rc` + hub + agent registry, §4) — deferred; the
   direct authenticated-API approach covers the operator's need without a relay service.
 - **SSH environment** (§7) and the **multi-agent ACP client** (§8) — think-only, not scheduled.
@@ -46,8 +46,8 @@ authentication and **optional** encryption throughout.
 
 | Environment            | What it is                                                | Status       |
 |------------------------|-----------------------------------------------------------|--------------|
-| Local                  | `coddy http` on loopback, UI + API                        | exists       |
-| Remote via API         | `coddy http` off-box + opt-in bearer auth + CORS; UI env selector | **shipped** (TLS deferred) |
+| Local                  | `coddy serve` on loopback (the bind default), UI + API      | exists       |
+| Remote via API         | `coddy serve` off-box + opt-in bearer auth + CORS; UI env selector | **shipped** (TLS deferred) |
 | Remote Control (tunnel)| `coddy rc` dials OUT to a hub; drive from a remote client  | deferred §4  |
 | SSH                    | drive a remote agent over SSH                             | think-only §7 |
 | Multi-agent ACP client | Coddy UI orchestrates several ACP agent processes         | think-only §8 |
@@ -75,7 +75,7 @@ caveats that bite a relay adapter directly:
 
 ## 2. Non-goals (v1) and scope guardrails
 
-- **No transparent remote `coddy http`.** The bundled SPA calls dozens of `/coddy/*`
+- **No transparent remote `coddy serve`.** The bundled SPA calls dozens of `/coddy/*`
   routes (sessions, messages, cancel, permission, composer-stream, plan, workspace,
   branches, stats, tool-calls, config, scheduler). A small frame protocol cannot preserve
   the full SPA experience. **v1 Remote Control targets a capability-limited, ACP-shaped
@@ -90,7 +90,7 @@ caveats that bite a relay adapter directly:
 - No OAuth / account system; no automatic self-signed certificates; no resume/replay of
   in-flight turns across reconnect in v1 (connection loss cancels owned work, §6.4).
 
-## 3. Phase 1 — Optional authentication & encryption for `coddy http`
+## 3. Phase 1 — Optional authentication & encryption for `coddy serve`
 
 Goal: make the existing REST/SSE API safe to expose beyond loopback, entirely opt-in and
 backward compatible (every new field defaults to "off"; existing tests stay green).
@@ -194,7 +194,10 @@ green; `openapi.go` gains a `bearerAuth` security scheme and the served spec mat
 
 ## 4. Phase 2 — Remote Control reverse tunnel (planned)
 
-Topology: `coddy rc` (agent, behind NAT) dials OUT to a hub on `coddy http --relay`; a remote
+> Superseded in practice by the swarm relay (see [swarm.md](swarm.md)), which ships the
+> reverse HTTP/2 tunnel this section designed. The notes below are kept for the reasoning.
+
+Topology: `coddy rc` (agent, behind NAT) dials OUT to a hub behind `--relay`; a remote
 client drives the agent through the hub. No inbound port on the agent.
 
 ### 4.1 Prerequisite refactors (land before the adapter)
@@ -297,9 +300,9 @@ The relay `Sender` (agent side) implements `acp.UpdateSender`:
 ### 4.8 CLI shape & build tags
 
 - `coddy rc` — the outbound agent (dedicated command; mirrors `claude rc`). Not a messenger
-  adapter and **not** folded into `coddy gateway` (that would make config/tags/help
+  adapter and **not** folded into the messenger gateway (that would make config/tags/help
   Telegram-centric).
-- Hub routes on `coddy http --relay`, gated `//go:build http && relay`, with an
+- Hub routes behind a `--relay` flag, gated `//go:build http && relay`, with an
   `http && !relay` registration stub. Do **not** name a server `coddy hub` (`gateway.Hub`
   already names the in-process supervisor).
 - Agent adapter under `external/gateway/relay` or a dedicated module, tagged so shared gateway
@@ -312,7 +315,7 @@ The relay `Sender` (agent side) implements `acp.UpdateSender`:
 ### 4.9 Config (planned)
 
 ```yaml
-# hub side (on coddy http)
+# hub side (on coddy serve)
 relay:
   enabled: true
   require_pairing: true
@@ -354,7 +357,8 @@ client auth which defaults off for backward compatibility.
 2. **Routing** — frame protocol first, ACP-shaped, versioned, capability-limited; v1 remote =
    programmatic client, not full SPA parity; a read-only HTTP proxy for the long tail is a
    later option.
-3. **CLI** — `coddy rc` + `coddy http --relay`; not `coddy hub`, not under `coddy gateway`.
+3. **CLI** — `coddy rc` + a `--relay` flag on the server; not `coddy hub`, not under the
+   messenger gateway.
 4. **Auth** — two credentials (client token + agent pairing) from the start; ACL maps
    principals → permitted agent IDs; shared all-access tokens allowed as an explicit
    convenience; `owner` ACL deferred until identities exist but the field is reserved.
@@ -367,8 +371,8 @@ client auth which defaults off for backward compatibility.
 
 ## 7. Think-only A — SSH environment
 
-- **Recommended, works today:** port-forward `coddy http` over SSH
-  (`ssh -L 12345:localhost:12345 host coddy http`) gives the local UI the *full* REST/SSE
+- **Recommended, works today:** port-forward `coddy serve` over SSH
+  (`ssh -L 12345:localhost:12345 host coddy serve`) gives the local UI the *full* REST/SSE
   surface of the remote agent with zero new code; Phase 1 auth+TLS makes it safe. The UI could
   automate the tunnel.
 - **ACP-over-SSH stdio** (closer to Claude Desktop) needs an ACP *client* in Coddy (§8) and
@@ -403,7 +407,7 @@ Phase 2 is designed so its registry and protocol slot in later without rework.
 5. Phase 1d: openapi + `docs/http-api.md` + config schema/reference/example/UISchema sync.
 6. Phase 2a: prerequisite refactors (§4.1) with tests.
 7. Phase 2b: protocol package + registry (leases, persistence).
-8. Phase 2c: `coddy http --relay` hub routes (`http,relay`) + SSE re-encode + tests.
+8. Phase 2c: `--relay` hub routes (`http,relay`) + SSE re-encode + tests.
 9. Phase 2d: `coddy rc` agent adapter + relay `Sender` + permission/question round-trip + tests.
 10. Phase 2e: Python `examples/relay/` harness + docs + openapi + `make test` tag matrix.
 11. Final per phase: `make test` (full matrix incl. relay tags) + `make lint`.

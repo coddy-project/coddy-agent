@@ -255,8 +255,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.tools.background.label": "Background tasks",
   "settings.schema.tools.background.desc":
     "Commands the agent runs detached in the session task pool instead of blocking a turn.",
-  "settings.schema.tools.background.enabled.label": "Enabled",
-  "settings.schema.tools.background.enabled.desc":
+  "settings.schema.tools.background.enable.label": "Enabled",
+  "settings.schema.tools.background.enable.desc":
     "Offer the background option on run_command and the background task tools (default true).",
   "settings.schema.tools.background.max_concurrent.label": "Max concurrent",
   "settings.schema.tools.background.max_concurrent.desc":
@@ -276,8 +276,8 @@ export const messagesEn: Record<string, string> = {
 
   "settings.schema.subagents.desc":
     "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript.",
-  "settings.schema.subagents.enabled.label": "Enabled",
-  "settings.schema.subagents.enabled.desc":
+  "settings.schema.subagents.enable.label": "Enabled",
+  "settings.schema.subagents.enable.desc":
     "Register the spawn_agent tool and list the subagent catalog in the system prompt (default true).",
   "settings.schema.subagents.dirs.label": "Definition directories",
   "settings.schema.subagents.dirs.desc":
@@ -301,8 +301,8 @@ export const messagesEn: Record<string, string> = {
 
   "settings.schema.hooks.desc":
     "Your own commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape; files found inside the workspace follow the trust policy.",
-  "settings.schema.hooks.enabled.label": "Enabled",
-  "settings.schema.hooks.enabled.desc":
+  "settings.schema.hooks.enable.label": "Enabled",
+  "settings.schema.hooks.enable.desc":
     "Load and run hooks at all (default true).",
   "settings.schema.hooks.files.label": "Definition files",
   "settings.schema.hooks.files.desc":
@@ -326,8 +326,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.skills.auto_discovery.desc":
     "Let the agent load a matching skill's full instructions on its own (model-driven load_skill tool), instead of only when you type /name. Defaults to on.",
 
-  "settings.schema.memory.enabled.label": "Enabled",
-  "settings.schema.memory.enabled.desc":
+  "settings.schema.memory.enable.label": "Enabled",
+  "settings.schema.memory.enable.desc":
     "Turns on the memory copilot for eligible builds.",
   "settings.schema.memory.model.label": "Memory model",
   "settings.schema.memory.model.desc":
@@ -348,8 +348,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.memory.max_search_hits.desc":
     "Maximum snippets returned by memory search tools.",
 
-  "settings.schema.compaction.enabled.label": "Enabled",
-  "settings.schema.compaction.enabled.desc":
+  "settings.schema.compaction.enable.label": "Enabled",
+  "settings.schema.compaction.enable.desc":
     "Master switch for compaction (manual command and automatic trigger). Defaults to true.",
   "settings.schema.compaction.threshold_percent.label": "Auto threshold (%)",
   "settings.schema.compaction.threshold_percent.desc":
@@ -364,8 +364,8 @@ export const messagesEn: Record<string, string> = {
     "Read/grep result eviction",
   "settings.schema.compaction.result_eviction.desc":
     "Collapse superseded read/grep results to placeholders when building the LLM request; the persisted transcript is untouched. Only marked (keep_result / keep:true) or most-recent results survive.",
-  "settings.schema.compaction.result_eviction.enabled.label": "Enabled",
-  "settings.schema.compaction.result_eviction.enabled.desc":
+  "settings.schema.compaction.result_eviction.enable.label": "Enabled",
+  "settings.schema.compaction.result_eviction.enable.desc":
     "Master switch for read/grep result eviction. Defaults to true.",
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Keep recent results",
@@ -377,8 +377,8 @@ export const messagesEn: Record<string, string> = {
     "Results at or below this size are never evicted (default 2000; 0 makes every result a candidate).",
 
   "settings.schema.system.scheduler.label": "Scheduler",
-  "settings.schema.system.scheduler.enabled.label": "Enabled",
-  "settings.schema.system.scheduler.enabled.desc":
+  "settings.schema.system.scheduler.enable.label": "Enabled",
+  "settings.schema.system.scheduler.enable.desc":
     "When true, this process may run the scheduler daemon and REST.",
   "settings.schema.system.scheduler.dir.label": "Jobs directory",
   "settings.schema.system.scheduler.dir.desc":
@@ -439,8 +439,8 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.gateways.telegram.label": "Telegram",
   "settings.schema.system.gateways.telegram.desc":
     "Telegram bot adapter settings.",
-  "settings.schema.system.gateways.telegram.enabled.label": "Enabled",
-  "settings.schema.system.gateways.telegram.enabled.desc":
+  "settings.schema.system.gateways.telegram.enable.label": "Enabled",
+  "settings.schema.system.gateways.telegram.enable.desc":
     "Run the Telegram bot (requires the gateway or gateway.telegram build tag).",
   "settings.schema.system.gateways.telegram.token.label": "Bot token",
   "settings.schema.system.gateways.telegram.token.desc":

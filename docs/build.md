@@ -14,9 +14,9 @@ Optional:
 
 ## Recommended full binary (HTTP, UI, scheduler, memory, console)
 
-Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enabled`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
+Build with **`memory`** to link long-term memory (`external/memory`). Enable behavior at runtime with **`memory.enable`** in config (see [`external/memory/README.md`](../external/memory/README.md)).
 
-The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`**, **`coddy gateway`** — see [`docs/gateway.md`](gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
+The **HTTP gateway**, **embedded SPA**, **scheduler**, **memory**, the **messenger gateway** (**`gateway`** — see [`docs/gateway.md`](gateway.md)), and the **interactive console** (**`cli`**, bare **`coddy`** on a terminal — see [`docs/cli.md`](cli.md)) are controlled by Go build tags. For a single binary that matches the default **Docker** image and includes every optional feature:
 
 ```bash
 make build TAGS="http ui scheduler memory cli gateway swarm"
@@ -197,11 +197,11 @@ Order does not matter for these tags.
 
 | Tag | Enables | Documentation |
 |-----|---------|----------------|
-| **`memory`** | Long-term memory copilot; with **`http`**, **`/coddy/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enabled`** | [`external/memory/README.md`](../external/memory/README.md) |
-| **`http`** | **`coddy http`**, OpenAI-shaped REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
+| **`memory`** | Long-term memory copilot; with **`http`**, **`/coddy/sessions/{id}/memory/*`** REST; toggle runtime behavior with **`memory.enable`** | [`external/memory/README.md`](../external/memory/README.md) |
+| **`http`** | The OpenAI-shaped REST gateway `coddy serve` runs under **`httpserver.enable`**, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/ui.md`](ui.md) · [`DESIGN.md`](../DESIGN.md) |
 | **`scheduler`** | Scheduler daemon hooks, **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
-| **`gateway.telegram`** | **`coddy gateway`** subcommand with Telegram bot adapter; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
+| **`gateway.telegram`** | Telegram bot adapter, started by **`coddy serve`** under **`gateways.telegram.enable`**; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
 
 **`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).

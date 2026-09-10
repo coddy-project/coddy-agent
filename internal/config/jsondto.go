@@ -36,7 +36,7 @@ type GatewaysJSON struct {
 
 // TelegramGatewayJSON mirrors TelegramGatewayConfig.
 type TelegramGatewayJSON struct {
-	Enabled          bool                    `json:"enabled,omitempty"`
+	Enabled          bool                    `json:"enable,omitempty"`
 	Token            string                  `json:"token,omitempty"`
 	Proxy            string                  `json:"proxy,omitempty"`
 	RichMessages     bool                    `json:"rich_messages,omitempty"`
@@ -173,7 +173,7 @@ type ToolsJSON struct {
 
 // ToolBackgroundJSON mirrors ToolBackground for JSON APIs.
 type ToolBackgroundJSON struct {
-	Enabled               *bool `json:"enabled,omitempty"`
+	Enabled               *bool `json:"enable,omitempty"`
 	MaxConcurrent         int   `json:"max_concurrent,omitempty"`
 	DefaultTimeoutSeconds int   `json:"default_timeout_seconds,omitempty"`
 	MaxTimeoutSeconds     int   `json:"max_timeout_seconds,omitempty"`
@@ -217,7 +217,7 @@ type SessionsJSON struct {
 // CompactionJSON mirrors Compaction. Pointer fields keep the unset/explicit
 // distinction (enabled defaults to true, keep_recent_turns to 2).
 type CompactionJSON struct {
-	Enabled          *bool              `json:"enabled,omitempty"`
+	Enabled          *bool              `json:"enable,omitempty"`
 	ThresholdPercent int                `json:"threshold_percent,omitempty"`
 	KeepRecentTurns  *int               `json:"keep_recent_turns,omitempty"`
 	Model            string             `json:"model,omitempty"`
@@ -227,14 +227,14 @@ type CompactionJSON struct {
 // ResultEvictionJSON mirrors ResultEviction. Pointer fields keep the
 // unset/explicit distinction (enabled defaults to true, keep_recent to 1).
 type ResultEvictionJSON struct {
-	Enabled        *bool `json:"enabled,omitempty"`
+	Enabled        *bool `json:"enable,omitempty"`
 	KeepRecent     *int  `json:"keep_recent,omitempty"`
 	MinResultBytes *int  `json:"min_result_bytes,omitempty"`
 }
 
 // MemoryJSON mirrors MemoryConfig.
 type MemoryJSON struct {
-	Enabled          bool   `json:"enabled,omitempty"`
+	Enabled          bool   `json:"enable,omitempty"`
 	Model            string `json:"model,omitempty"`
 	Dir              string `json:"dir,omitempty"`
 	RecallMaxTurns   int    `json:"recall_max_turns,omitempty"`
@@ -246,6 +246,7 @@ type MemoryJSON struct {
 // HTTPServerJSON mirrors HTTPServerConfig. AuthToken is write-only: ConfigToJSONDTO never
 // populates it (redacted), reporting only whether one is set via AuthConfigured.
 type HTTPServerJSON struct {
+	Enabled        *bool            `json:"enable,omitempty"`
 	Host           string           `json:"host,omitempty"`
 	Port           int              `json:"port,omitempty"`
 	AuthToken      string           `json:"auth_token,omitempty"`
@@ -258,7 +259,7 @@ type HTTPServerJSON struct {
 
 // HTTPCORSJSON mirrors HTTPCORSConfig.
 type HTTPCORSJSON struct {
-	Enabled        bool     `json:"enabled,omitempty"`
+	Enabled        bool     `json:"enable,omitempty"`
 	AllowedOrigins []string `json:"allowed_origins,omitempty"`
 }
 
@@ -272,6 +273,7 @@ type HTTPRemoteJSON struct {
 // config reports only whether one is set, the way HTTPServerJSON does, so an
 // authenticated endpoint never hands back the token that reached it.
 type SwarmJSON struct {
+	Enabled                  bool                `json:"enable,omitempty"`
 	Host                     string              `json:"host,omitempty"`
 	Port                     int                 `json:"port,omitempty"`
 	Name                     string              `json:"name,omitempty"`
@@ -330,7 +332,7 @@ type SwarmJoinJSON struct {
 
 // SubagentsJSON mirrors Subagents.
 type SubagentsJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Dirs                  []string `json:"dirs,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	MaxConcurrent         int      `json:"max_concurrent,omitempty"`
@@ -341,7 +343,7 @@ type SubagentsJSON struct {
 
 // HooksJSON mirrors Hooks.
 type HooksJSON struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
+	Enabled               *bool    `json:"enable,omitempty"`
 	Files                 []string `json:"files,omitempty"`
 	ProjectTrust          string   `json:"project_trust,omitempty"`
 	DefaultTimeoutSeconds int      `json:"default_timeout_seconds,omitempty"`
@@ -351,7 +353,7 @@ type HooksJSON struct {
 
 // SchedulerJSON mirrors SchedulerConfig.
 type SchedulerJSON struct {
-	Enabled        bool   `json:"enabled,omitempty"`
+	Enabled        bool   `json:"enable,omitempty"`
 	Dir            string `json:"dir,omitempty"`
 	MaxQueue       int    `json:"max_queue,omitempty"`
 	Timeout        string `json:"timeout,omitempty"`
@@ -464,6 +466,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		CopilotMaxTokens: c.Memory.CopilotMaxTokens, MaxSearchHits: c.Memory.MaxSearchHits,
 	}
 	out.HTTPServer = HTTPServerJSON{
+		Enabled:       c.HTTPServer.Enabled,
 		Host:          c.HTTPServer.Host,
 		Port:          c.HTTPServer.Port,
 		PublicDocs:    c.HTTPServer.PublicDocs,
@@ -479,6 +482,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		out.HTTPServer.Remotes = append(out.HTTPServer.Remotes, HTTPRemoteJSON(rm))
 	}
 	out.Swarm = SwarmJSON{
+		Enabled:                  c.Swarm.Enabled,
 		Host:                     c.Swarm.Host,
 		Port:                     c.Swarm.Port,
 		Name:                     c.Swarm.Name,
@@ -657,6 +661,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		CopilotMaxTokens: j.Memory.CopilotMaxTokens, MaxSearchHits: j.Memory.MaxSearchHits,
 	}
 	cfg.HTTPServer = HTTPServerConfig{
+		Enabled:       j.HTTPServer.Enabled,
 		Host:          j.HTTPServer.Host,
 		Port:          j.HTTPServer.Port,
 		AuthToken:     j.HTTPServer.AuthToken,
@@ -671,6 +676,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		cfg.HTTPServer.Remotes = append(cfg.HTTPServer.Remotes, HTTPRemote(rm))
 	}
 	cfg.Swarm = SwarmConfig{
+		Enabled:                  j.Swarm.Enabled,
 		Host:                     j.Swarm.Host,
 		Port:                     j.Swarm.Port,
 		Name:                     j.Swarm.Name,

@@ -6,7 +6,7 @@ import { SchemaForm, type JsonSchema } from "./SchemaForm";
 afterEach(cleanup);
 
 // A minimal schema with a single boolean field, mirroring what UISchemaMap() emits
-// for any on/off config option (e.g. skills.auto_discovery, gateways.telegram.enabled).
+// for any on/off config option (e.g. skills.auto_discovery, gateways.telegram.enable).
 const boolSchema: JsonSchema = {
   type: "object",
   properties: {

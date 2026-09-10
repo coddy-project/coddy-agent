@@ -23,6 +23,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [3. Implement acp.UpdateSender](#3-implement-acpupdatesender)
   - [4. Add a build tag](#4-add-a-build-tag)
   - [5. Wire into hub.Start()](#5-wire-into-hubstart)
+- [The same session in the chat and in the browser](#the-same-session-in-the-chat-and-in-the-browser)
 - [Session lifecycle](#session-lifecycle)
 - [Security notes](#security-notes)
 
@@ -41,7 +42,7 @@ Telegram / future messengers
   sessionstore               ← maps chat+user context → Coddy session ID
          │                     /clear command replaces the stored ID
          ▼
-  session.Manager            ← shared with coddy acp / coddy http
+  session.Manager            ← shared with coddy acp / coddy serve
     HandleSessionPromptWithSender(...)
          │
          ▼
@@ -53,6 +54,10 @@ Telegram / future messengers
 ```
 
 Multiple gateways (Telegram today, Discord/Slack tomorrow) run in the same process and share the same session store.
+
+They also share it with everything else `coddy serve` started. One process, one
+`session.Manager`: the chat conversations are ordinary Coddy sessions, listed
+and openable in the web UI while they are happening.
 
 ---
 
@@ -78,7 +83,7 @@ make build TAGS="gateway"
 make build TAGS="http ui scheduler memory cli gateway swarm"
 ```
 
-Without either tag the `coddy gateway` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.
+Without either tag the `coddy serve` subcommand is present in the binary but returns a "not compiled" error when invoked — all other subcommands are unaffected.
 
 ---
 
@@ -120,7 +125,7 @@ gateways:
 
 ```bash
 make build TAGS="gateway.telegram"
-./build/coddy gateway --config ~/.coddy/config.yaml
+./build/coddy serve --config ~/.coddy/config.yaml
 ```
 
 Open Telegram, find your bot, send a message. The agent replies in the same chat.
@@ -129,7 +134,7 @@ Open Telegram, find your bot, send a message. The agent replies in the same chat
 
 ## Configuration reference
 
-All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy http` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
+All gateway config lives under the `gateways` key in `config.yaml`. When running `coddy serve` with the bundled UI, the same fields are editable under **Settings → Messenger gateways → Telegram**; the `gateways` block round-trips through `GET`/`PUT /coddy/config`, so saving settings in the UI preserves it (the bot token is shown in full — use only on trusted networks).
 
 ```yaml
 gateways:
@@ -273,8 +278,17 @@ gateways:
 
 ## Running the gateway
 
+The gateway is not a command of its own. `coddy serve` runs every subsystem the
+configuration enables, and the bot is one of them:
+
+```yaml
+gateways:
+  telegram:
+    enable: true
+```
+
 ```bash
-coddy gateway [flags]
+coddy serve [flags]
 ```
 
 | Flag | Default | Description |
@@ -284,47 +298,42 @@ coddy gateway [flags]
 | `--cwd` | process cwd | Default session working directory |
 | `--sessions-dir` | `$CODDY_HOME/sessions` | Where session bundles are stored |
 | `--log-level` | from config | `debug\|info\|warn\|error` |
+| `--gateway` | from config | Override `gateways.telegram.enable` for this run |
+| `--http=false` | — | Run the bot without serving the HTTP API |
 
 Typical production invocation:
 
 ```bash
-coddy gateway \
+coddy serve \
   --config /etc/coddy/config.yaml \
   --home /var/lib/coddy \
   --sessions-dir /var/lib/coddy/sessions
 ```
 
-The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own goroutine with automatic restart on error (5-second backoff). Send `Ctrl+C` for a clean shutdown.
+That process serves the web UI on `127.0.0.1:12345` as well, because
+`httpserver.enable` defaults to true. A bot and nothing else is
+`--http=false`, or `httpserver.enable: false` in the file.
 
-**With Docker Compose** — the repo's compose files run `coddy http` by default and expose a `CODDY_COMMAND` override so the same service can run the gateway instead. Build from source (the dev image includes the `gateway` tag by default) and override the command:
+If the binary was built without a gateway tag, enabling the bot is a startup
+error naming the tag rather than a warning nobody reads.
+
+The process blocks until `SIGINT` or `SIGTERM`. Each adapter runs in its own goroutine with automatic restart on error (5-second backoff). On shutdown the poller stops taking new messages first and the turns already generating are given up to 20 seconds to finish, so an answer is not cut off mid-sentence.
+
+**With Docker Compose** — the repo's compose files run `coddy serve`, so turning
+the bot on is a line in the mounted `config.yaml`, not a second container:
 
 ```bash
 export TELEGRAM_BOT_TOKEN="<bot-token>"          # or leave it in $CODDY_HOME/.env
-export CODDY_COMMAND="gateway --cwd /workspace"
 docker compose -f docker-compose.dev.yml up -d --build
 docker compose -f docker-compose.dev.yml logs -f coddy   # expect: "telegram bot connected"
 ```
 
-To run a **dedicated** gateway service alongside the HTTP one, add a second service to a `docker-compose.override.yml` (the `ENTRYPOINT` is already `/bin/coddy`, so `command` holds only the subcommand):
+Running the bot as a service separate from the web UI is still possible - two
+`coddy serve` processes, one with `--http=false` and one with `--gateway=false`
+- but they then have separate session managers again, and a chat conversation
+is no longer live in the browser. Prefer one process unless you need the
+isolation.
 
-```yaml
-services:
-  gateway:
-    image: coddy-agent:dev            # built from Dockerfile with the gateway tag
-    command: ["gateway", "--cwd", "/workspace"]
-    working_dir: /workspace
-    environment:
-      CODDY_HOME: /home/user/.coddy
-      CODDY_CONFIG: /home/user/.coddy.yaml
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN-}
-    volumes:
-      - ./config.yaml:/home/user/.coddy.yaml:ro
-      - ./coddy_home:/home/user/.coddy
-      - ./workspace:/workspace
-    restart: unless-stopped
-```
-
-> Both the `Dockerfile` default and the published GHCR image include `gateway`, so gateway mode works out of the box with `docker-compose.yml` and with a from-source build (`docker-compose.dev.yml`); no custom image is needed. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
 
 ---
 
@@ -467,6 +476,35 @@ Update the `start.go` / `start_stub.go` constraint to include the new tag.
 `hub.Start()` accepts any `[]gateway.Adapter`. No changes to Hub itself are needed — just `append` your adapter before calling `hub.Start(ctx)`.
 
 ---
+
+## The same session in the chat and in the browser
+
+With `httpserver.enable` and `gateways.telegram.enable` both on, a Telegram
+conversation and the web UI are two views of one session.
+
+- **The chat session appears in the browser.** Gateway sessions are stored the
+  way every other session is, so `GET /coddy/sessions` lists them (their ids
+  carry a `gw_` prefix) and opening one loads the same transcript.
+- **A chat turn streams into the browser while it runs.** The gateway publishes
+  its turn into the session's composer relay - the same mechanism a background
+  task's wake turn uses - so a tab watching that session sees the tokens as
+  they arrive, not after the fact.
+- **The browser watches; the chat answers.** Session updates fan out to both
+  surfaces, but permission requests and questions go only to the chat, because
+  it is the only one with somebody reading. A watcher is a spectator.
+- **Continuing works in either direction.** Reply in the browser and the next
+  `/context` in Telegram shows it; reply in Telegram and the browser has it on
+  the next load. Only one turn runs at a time: the session's turn lock is a
+  file lock, so a message that arrives while a browser turn is in flight is
+  answered with a busy notice instead of interleaving.
+- **A turn already being watched is left alone.** If a browser turn is running
+  on the session, an arriving chat message does not take over its stream - the
+  chat message gets the busy answer a moment later anyway.
+
+If a session is deleted from the browser, the chat's mapping in
+`gateway_sessions.json` still points at that id; the next message finds no
+bundle and starts a fresh transcript under it. The conversation resets, which
+is what deleting it meant.
 
 ## Session lifecycle
 

@@ -11,12 +11,15 @@ services:
       dockerfile: Dockerfile
       args:
         VERSION: ${CODDY_VERSION:-dev}
-        # Includes `gateway` so the built image can run `coddy gateway` (see command override below).
+        # Includes `gateway` so one `coddy serve` can poll Telegram alongside the web UI.
         BUILD_TAGS: ${CODDY_BUILD_TAGS:-http,scheduler,ui,memory,gateway}
     image: coddy-agent:${CODDY_VERSION:-dev}
-    # Default runs `coddy http`. Override to run another mode, e.g. the messenger gateway:
-    #   CODDY_COMMAND="gateway --cwd /workspace" docker compose -f docker-compose.dev.yml up -d --build
-    command: ${CODDY_COMMAND:-http -H 0.0.0.0 -P 12345}
+    # Default runs `coddy serve`, which starts whatever config.yaml enables:
+    # the web UI, the Telegram bot, the swarm relay, the scheduler. Turning the
+    # bot on is `gateways.telegram.enable: true` in the mounted config, not a
+    # second container. Override only to change the flags:
+    #   CODDY_COMMAND="serve -H 0.0.0.0 -P 12345 --cwd /workspace" docker compose -f docker-compose.dev.yml up -d --build
+    command: ${CODDY_COMMAND:-serve -H 0.0.0.0 -P 12345}
     ports:
       - "${CODDY_HTTP_PORT:-12345}:12345"
     working_dir: /workspace

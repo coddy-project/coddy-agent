@@ -1,6 +1,6 @@
 .\" Manual page for coddy.
 .\" Keep the command list in sync with printUsage() in cmd/coddy/main.go.
-.TH CODDY 1 "2026-09-09" "Coddy" "User Commands"
+.TH CODDY 1 "2026-09-10" "Coddy" "User Commands"
 .SH NAME
 coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a messenger gateway
 .SH SYNOPSIS
@@ -19,11 +19,19 @@ coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a 
 .SH DESCRIPTION
 .B coddy
 is a coding agent built around a ReAct loop: the model reasons, calls tools, and
-observes the results. One agent core is reachable through four surfaces that all
-share the same sessions under
+observes the results. One agent core is reachable through several surfaces that
+all share the same sessions under
 .BR $CODDY_HOME :
 an interactive console, an Agent Client Protocol (ACP) server for editors, an
-OpenAI\-compatible HTTP gateway with an embedded web UI, and a messenger gateway.
+OpenAI\-compatible HTTP gateway with an embedded web UI, a messenger gateway,
+and a swarm relay.
+.PP
+The long\-running surfaces are not separate commands.
+.B coddy serve
+runs every one of them that
+.I config.yaml
+enables, in one process over one set of sessions: a conversation started in a
+chat is the same conversation a browser opens, while it is still going.
 .PP
 Run with no arguments on a terminal,
 .B coddy
@@ -40,20 +48,39 @@ on a terminal does the same.
 .B acp
 Agent Client Protocol server on stdio, for editors and ACP clients.
 .TP
-.B http
-OpenAI\-compatible HTTP gateway, REST API under
+.B serve
+Run every subsystem enabled in
+.IR config.yaml ,
+in one process:
+.IP \(bu 2
+.B httpserver
+\(em the OpenAI\-compatible HTTP gateway, the REST API under
 .IR /coddy ,
 Swagger UI at
 .IR /docs ,
 and the embedded web UI at
 .IR / .
-.TP
+Governed by
+.BR httpserver.enable ,
+which defaults to true.
+.IP \(bu 2
 .B gateway
-Messenger gateway (Telegram).
-.TP
+\(em the messenger gateway (Telegram). Governed by
+.BR gateways.telegram.enable .
+.IP \(bu 2
 .B swarm
-Stateless relay: nodes register themselves into it, it mounts each of them under
-its own address, and a client pointed at the relay drives any node behind it.
+\(em the stateless relay: nodes register themselves into it, it mounts each of
+them under its own address, and a client pointed at the relay drives any node
+behind it. Governed by
+.BR swarm.enable .
+.IP \(bu 2
+.B scheduler
+\(em the cron daemon. Governed by
+.BR scheduler.enable .
+.PP
+A subsystem enabled in the configuration but missing from the build is a startup
+error naming the tag to rebuild with, never a silent no\-op. A process with
+nothing enabled refuses to start.
 .TP
 .BI "sessions list"
 List stored sessions.
@@ -127,8 +154,8 @@ Console: run one prompt, print the answer, and exit.
 .B \-\-resume
 Console: pick a session to resume.
 .PP
-Flags shared by the long\-running surfaces
-.RB ( cli ", " acp ", " http ", " gateway )
+Flags shared by the long\-running commands
+.RB ( cli ", " acp ", " serve )
 include
 .BI \-\-config " PATH" ,
 .BI \-\-home " DIR" ,
@@ -138,8 +165,9 @@ and
 .BI \-\-remote " NAME|HOST:PORT|URL"
 with
 .BI \-\-remote\-token " TOKEN"
+.RB ( cli " and " acp " only)
 to drive a remote
-.B coddy http
+.B coddy serve
 server instead of a local agent.
 .SH SELF\-UPDATE
 .B coddy update
@@ -202,8 +230,8 @@ Configuration file to load. Default
 .IR $CODDY_HOME/config.yaml .
 .TP
 .B CODDY_HTTP_TOKEN
-Bearer token required by
-.BR "coddy http" .
+Bearer token required on the HTTP API served by
+.BR "coddy serve" .
 .TP
 .B CODDY_REMOTE_TOKEN
 Bearer token used by
@@ -244,10 +272,18 @@ Ask one question and exit:
 .B coddy \-p "what does internal/agent do?"
 .RE
 .PP
-Serve the web UI and REST API on the default port:
+Serve the web UI and REST API on the default port, plus whatever else
+.I config.yaml
+enables:
 .PP
 .RS 4
-.B coddy http
+.B coddy serve
+.RE
+.PP
+Serve the API to the network rather than to this machine only:
+.PP
+.RS 4
+.B coddy serve \-H 0.0.0.0 \-\-auth\-token "$TOKEN"
 .RE
 .PP
 Wire an editor to Coddy over ACP:

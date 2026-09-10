@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTP e2e: staged self-configuration (ACP twin: acp_e2e_config.py, CLI twin: cli_e2e_config.py).
 
-Runs the uci-like config tool family against the live `coddy http` server:
+Runs the uci-like config tool family against the live `coddy serve` server:
 
 1. ask the agent to change agent.max_turns - it must only STAGE the edit
    (active config untouched) and ask whether to save;

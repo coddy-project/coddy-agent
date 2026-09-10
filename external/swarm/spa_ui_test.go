@@ -79,6 +79,6 @@ func TestRelaySPAHonoursUIDisabled(t *testing.T) {
 		t.Fatalf("ui disabled GET / status %d want 404: %s", res.StatusCode, b)
 	}
 	if strings.Contains(string(b), "<title>Coddy Agent</title>") {
-		t.Fatal("ui.enabled false still served the SPA")
+		t.Fatal("ui.enable false still served the SPA")
 	}
 }

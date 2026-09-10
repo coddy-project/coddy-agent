@@ -419,7 +419,7 @@ func initializeAskModeE2EScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a coddy gateway backed by a streaming stub model that (reads|writes) a file, then answers$`, s.startServer)
+	sc.Step(`^a coddy server backed by a streaming stub model that (reads|writes) a file, then answers$`, s.startServer)
 	sc.Step(`^a client sends a streaming "([^"]+)" prompt over POST /v1/responses$`, s.sendStreamingPrompt)
 	sc.Step(`^the model was offered only read-only tools$`, s.offeredOnlyReadOnlyTools)
 	sc.Step(`^the model was offered the full agent tool set$`, s.offeredFullAgentToolSet)

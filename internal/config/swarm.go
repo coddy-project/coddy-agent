@@ -27,9 +27,13 @@ const (
 // a relay: what this process serves when started as `coddy swarm`, and which
 // parent relays this process joins, whether it is an agent or a relay itself.
 type SwarmConfig struct {
-	// Host is the bind address for `coddy swarm` when the CLI does not override it.
+	// Enabled runs the relay in this process. It is independent of Join: an
+	// agent registering into a parent relay does not itself relay, and a relay
+	// that chains into another one does both.
+	Enabled bool `yaml:"enable"`
+	// Host is the bind address for the relay when the CLI does not override it.
 	Host string `yaml:"host"`
-	// Port is the listen port for `coddy swarm`. Zero falls back to 12346.
+	// Port is the relay's listen port. Zero falls back to 12346.
 	Port int `yaml:"port"`
 	// Name labels this relay in topology views and in a child's node path.
 	Name string `yaml:"name"`

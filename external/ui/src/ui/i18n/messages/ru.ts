@@ -254,8 +254,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.tools.background.label": "Фоновые задачи",
   "settings.schema.tools.background.desc":
     "Команды, которые агент запускает отсоединённо в пуле задач сессии, не блокируя шаг.",
-  "settings.schema.tools.background.enabled.label": "Включено",
-  "settings.schema.tools.background.enabled.desc":
+  "settings.schema.tools.background.enable.label": "Включено",
+  "settings.schema.tools.background.enable.desc":
     "Показывать фоновую опцию у run_command и инструменты фоновых задач (по умолчанию включено).",
   "settings.schema.tools.background.max_concurrent.label":
     "Максимум одновременно",
@@ -276,8 +276,8 @@ export const messagesRu: Record<string, string> = {
 
   "settings.schema.subagents.desc":
     "Пользовательские дочерние агенты, которым модель может делегировать работу через spawn_agent. Определения хранятся в markdown-файлах с YAML-фронтматтером; каждый запуск выполняется как фоновая задача родительской сессии со своей дочерней сессией и транскриптом.",
-  "settings.schema.subagents.enabled.label": "Включено",
-  "settings.schema.subagents.enabled.desc":
+  "settings.schema.subagents.enable.label": "Включено",
+  "settings.schema.subagents.enable.desc":
     "Регистрировать инструмент spawn_agent и перечислять каталог субагентов в системном промпте (по умолчанию включено).",
   "settings.schema.subagents.dirs.label": "Каталоги определений",
   "settings.schema.subagents.dirs.desc":
@@ -301,8 +301,8 @@ export const messagesRu: Record<string, string> = {
 
   "settings.schema.hooks.desc":
     "Ваши команды в точках жизненного цикла сессии: до и после вызова инструмента, при отправке промпта, при остановке агента, на старте сессии и вокруг сжатия контекста. Определения лежат в JSON-файлах формата Claude Code; файлы внутри рабочей папки подчиняются политике доверия.",
-  "settings.schema.hooks.enabled.label": "Включено",
-  "settings.schema.hooks.enabled.desc":
+  "settings.schema.hooks.enable.label": "Включено",
+  "settings.schema.hooks.enable.desc":
     "Загружать и запускать хуки вообще (по умолчанию включено).",
   "settings.schema.hooks.files.label": "Файлы определений",
   "settings.schema.hooks.files.desc":
@@ -327,8 +327,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.skills.auto_discovery.desc":
     "Разрешить агенту самостоятельно загружать полные инструкции подходящего скила (инструмент load_skill, управляемый моделью), а не только по команде /скил. По умолчанию включено.",
 
-  "settings.schema.memory.enabled.label": "Включено",
-  "settings.schema.memory.enabled.desc":
+  "settings.schema.memory.enable.label": "Включено",
+  "settings.schema.memory.enable.desc":
     "Включает копилот памяти для подходящих сборок.",
   "settings.schema.memory.model.label": "Модель памяти",
   "settings.schema.memory.model.desc":
@@ -351,8 +351,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.memory.max_search_hits.desc":
     "Максимум фрагментов, возвращаемых инструментами поиска по памяти.",
 
-  "settings.schema.compaction.enabled.label": "Включено",
-  "settings.schema.compaction.enabled.desc":
+  "settings.schema.compaction.enable.label": "Включено",
+  "settings.schema.compaction.enable.desc":
     "Главный выключатель сжатия (ручная команда и автоматический триггер). По умолчанию включено.",
   "settings.schema.compaction.threshold_percent.label": "Порог авто-сжатия (%)",
   "settings.schema.compaction.threshold_percent.desc":
@@ -368,8 +368,8 @@ export const messagesRu: Record<string, string> = {
     "Вытеснение результатов read/grep",
   "settings.schema.compaction.result_eviction.desc":
     "Свёртывает устаревшие результаты read/grep в плейсхолдеры при сборке запроса LLM; сохранённый транскрипт не меняется. Выживают только помеченные (keep_result / keep:true) или самые свежие результаты.",
-  "settings.schema.compaction.result_eviction.enabled.label": "Включено",
-  "settings.schema.compaction.result_eviction.enabled.desc":
+  "settings.schema.compaction.result_eviction.enable.label": "Включено",
+  "settings.schema.compaction.result_eviction.enable.desc":
     "Главный выключатель вытеснения результатов read/grep. По умолчанию включено.",
   "settings.schema.compaction.result_eviction.keep_recent.label":
     "Сохранять последние результаты",
@@ -381,8 +381,8 @@ export const messagesRu: Record<string, string> = {
     "Результаты этого размера и меньше никогда не вытесняются (по умолчанию 2000; 0 — кандидат любой результат).",
 
   "settings.schema.system.scheduler.label": "Планировщик",
-  "settings.schema.system.scheduler.enabled.label": "Включено",
-  "settings.schema.system.scheduler.enabled.desc":
+  "settings.schema.system.scheduler.enable.label": "Включено",
+  "settings.schema.system.scheduler.enable.desc":
     "Когда включено, этот процесс может запускать демон планировщика и REST API.",
   "settings.schema.system.scheduler.dir.label": "Каталог заданий",
   "settings.schema.system.scheduler.dir.desc":
@@ -445,8 +445,8 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.gateways.telegram.label": "Telegram",
   "settings.schema.system.gateways.telegram.desc":
     "Настройки адаптера Telegram-бота.",
-  "settings.schema.system.gateways.telegram.enabled.label": "Включено",
-  "settings.schema.system.gateways.telegram.enabled.desc":
+  "settings.schema.system.gateways.telegram.enable.label": "Включено",
+  "settings.schema.system.gateways.telegram.enable.desc":
     "Запускать Telegram-бота (требуется сборочный тег gateway или gateway.telegram).",
   "settings.schema.system.gateways.telegram.token.label": "Токен бота",
   "settings.schema.system.gateways.telegram.token.desc":

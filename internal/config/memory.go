@@ -7,7 +7,7 @@ import (
 
 // MemoryConfig controls the optional long-term memory copilot (implementation in external/memory).
 type MemoryConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool `yaml:"enable"`
 
 	// Model selects cfg.models entry for the unified memory copilot (before the main agent). Empty uses agent.model.
 	Model string `yaml:"model"`

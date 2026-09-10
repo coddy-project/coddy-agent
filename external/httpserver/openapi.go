@@ -30,7 +30,7 @@ func openAPISpec() map[string]interface{} {
 		"servers": []interface{}{
 			map[string]interface{}{
 				"url":         "/",
-				"description": "Server root (same host/port as coddy http). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
+				"description": "Server root (same host/port as the API coddy serve exposes). **`GET /`**, **`/index.html`**, **`/app.js`**, **`/styles.css`**, and favicon paths (**`/coddy-favicon.svg`**, **`/favicon-32.png`**, **`/favicon.ico`**, **`/apple-touch-icon.png`**) set **`Cache-Control: no-cache`**.",
 			},
 		},
 		// Optional bearer auth: an empty requirement plus bearerAuth means requests may be
@@ -363,7 +363,7 @@ func openAPISpec() map[string]interface{} {
 			"/coddy/commands": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List built-in slash commands",
-					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enabled`** is true; **`export`** and **`plugin`** are always present. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
+					"description": "Returns the deterministic built-in commands (**`/compact`**, **`/export`**, **`/plugin`**) that run without an LLM turn, so the composer can show a **Commands** group alongside skills. **`compact`** appears only while **`compaction.enable`** is true; **`export`** and **`plugin`** are always present. Optional **`prefix`** filters by case-insensitive name prefix. These are intentionally not part of **`/coddy/slash-commands`** (skills only).",
 					"operationId": "listBuiltinCommands",
 					"parameters": []interface{}{
 						map[string]interface{}{

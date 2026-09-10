@@ -26,13 +26,13 @@ describe("applyModelsChange", () => {
   it("updates memory.model referencing the same old id", () => {
     const doc = baseDoc([{ model: "neuraldeep/gpt-120b-oss" }], {
       agent: { model: "neuraldeep/gpt-120b-oss" },
-      memory: { enabled: true, model: "neuraldeep/gpt-120b-oss" },
+      memory: { enable: true, model: "neuraldeep/gpt-120b-oss" },
     });
     const next = applyModelsChange(doc, [{ model: "neuraldeep/qwen-3.6" }]);
     expect((next.memory as Record<string, unknown>).model).toBe(
       "neuraldeep/qwen-3.6",
     );
-    expect((next.memory as Record<string, unknown>).enabled).toBe(true);
+    expect((next.memory as Record<string, unknown>).enable).toBe(true);
   });
 
   it("leaves memory.model pointing at a different id untouched", () => {

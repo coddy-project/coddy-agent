@@ -45,7 +45,7 @@ echo 'package main
 
 func main() {}' >"$WORK_DIR/main.go"
 
-"$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler-enabled -H 127.0.0.1 -P "$PORT" &
+"$BIN" http --config "$CODDY_CONFIG" --home "$HOME_DIR" --cwd "$WORK_DIR" --scheduler -H 127.0.0.1 -P "$PORT" &
 HTTP_PID=$!
 if ! kill -0 "$HTTP_PID" 2>/dev/null; then
   echo "http server failed to start" >&2
@@ -82,7 +82,7 @@ python3 "$HTTP_DIR/http_e2e_plan_files.py"
 python3 "$HTTP_DIR/http_e2e_ask_mode.py"
 # Stages, commits, and rolls back a config edit; leaves the server config unchanged.
 python3 "$HTTP_DIR/http_e2e_config.py"
-# Self-contained: boots its own authenticated + local coddy http instances.
+# Self-contained: boots its own authenticated + local coddy serve instances.
 python3 "$HTTP_DIR/http_e2e_remote.py"
 # Self-contained: boots its own coddy, kills it mid-task, and makes a fresh one
 # reap what the killed run left behind.

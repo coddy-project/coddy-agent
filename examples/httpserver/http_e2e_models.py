@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTP e2e: merged model list mirrors config, profiles can steer LLM via metadata.model.
 
-Prerequisites: ``coddy http`` is already listening (same host/port as BASE_URL).
+Prerequisites: ``coddy serve`` is already listening (same host/port as BASE_URL).
 
 Uses ``examples/config.demo.yaml`` (or ``CODDY_CONFIG``). One ``models[].model`` row is enough; when multiple exist, picks a different selector than ``agent.model`` when possible for the metadata echo check.
 

@@ -36,7 +36,7 @@
 | **Settings - MCP servers** (project trust gate) | **Background tasks** |
 | ![Settings MCP](docs/assets/screenshot-fullhd-settings-mcp.png) | ![Background tasks](docs/assets/screenshot-fullhd-tasks.png) |
 
-Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy http`). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
+Screenshots: desktop at **1920×1080**, mobile at **390×844** from the embedded UI (`coddy serve`). Spec and dev workflow: [`docs/ui.md`](docs/ui.md), layout tokens: [`DESIGN.md`](DESIGN.md).
 
 **Console TUI** (`-tags cli`) - bare **`coddy`** in a terminal, here in Konsole:
 
@@ -78,7 +78,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 ## Features
 
 - **Harness-first** - ACP server, session lifecycle, prompts, LLM backends, MCP merge, distroless-ready binary
-- **Four surfaces, one agent core** - **`coddy acp`** for editors, **`coddy http`** for the REST gateway and embedded web UI, bare **`coddy`** for the interactive console (**`-tags cli`**), and **`coddy gateway`** for messengers; all four share **`$CODDY_HOME`** sessions - see [Console](docs/cli.md), [HTTP API](docs/http-api.md)
+- **One process, every surface** - **`coddy serve`** runs whatever **`config.yaml`** enables: the REST gateway and embedded web UI (**`httpserver.enable`**), the Telegram bot (**`gateways.telegram.enable`**), the swarm relay (**`swarm.enable`**), the cron scheduler (**`scheduler.enable`**). They share one session manager, so a conversation started in a chat is live in the browser and can be continued in either. Bare **`coddy`** is the interactive console (**`-tags cli`**) and **`coddy acp`** serves editors; all of them share **`$CODDY_HOME`** sessions - see [Console](docs/cli.md), [HTTP API](docs/http-api.md), [Gateway](docs/gateway.md)
 - **Remote control** - point the console or ACP at a running server with **`--remote <name|host:port|url>`** (plus **`--remote-token`** / **`CODDY_REMOTE_TOKEN`**), and switch the web UI between local and remote from the composer environment chip - see [Remote control](docs/remote-control.md)
 - **Self-configuration** - the agent edits its own YAML through staged uci-like commands (**`config_get`** / **`config_set`** / **`config_changes`** / **`config_commit`** / **`config_revert`** / **`config_rollback`**): nothing touches the file until a commit you approve, which then validates, snapshots, and hot-reloads skills, rules, tools, and MCP servers - see [Configuration reference](docs/config-reference.md)
 - **ReAct loop** - LLM alternates between reasoning, acting (tool calls), and observing results (coding-agent persona out of the box)
@@ -100,7 +100,7 @@ Coddy is a distroless-friendly **harness**: drop it into minimal images (`scratc
 
 ## Editor and IDE integration
 
-Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`coddy http`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
+Coddy is an **ACP server** (`coddy acp`). **Obsidian**, **VS Code**, **Zed**, scripts, and the bundled **`coddy serve`** UI are clients that share the same **`CODDY_HOME`** sessions when configured with the same home directory.
 
 Configure clients with the **absolute path** to the binary rather than relying on `PATH` — some harnesses spawn the agent via `cmd /c` or `sh -c` without the user `PATH` (on Windows: `%LOCALAPPDATA%\Programs\coddy\coddy.exe`; see [`docs/install.md`](docs/install.md#windows)).
 
@@ -160,7 +160,7 @@ clears today.
 
 Prefer a package on a machine you administer: the files are tracked by the package manager, and **`coddy update`** defers to it instead of overwriting a tracked binary. Details: **[`docs/install.md`](docs/install.md#linux-packages-deb-rpm)**.
 
-Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy http`** for the UI, or **`coddy acp`** for an editor client.
+Then set a provider key in **`~/.coddy/config.yaml`** (or **`OPENAI_API_KEY`** in the environment) and run **`coddy serve`** for the UI, or **`coddy acp`** for an editor client.
 
 **Docker** - same full binary in **`ghcr.io/coddy-project/coddy-agent`**: **`docker compose up -d`** (see [Docker](#docker)).
 
@@ -181,7 +181,7 @@ Upgrade later with **`coddy update -y`** ([How to update](#how-to-update)).
 go install github.com/EvilFreelancer/coddy-agent/cmd/coddy@latest
 ```
 
-For **`coddy http`**, the bundled SPA, scheduler, and memory, use a **release binary** (install script above) or **build from source** below.
+For **`coddy serve`**, the bundled SPA, scheduler, and memory, use a **release binary** (install script above) or **build from source** below.
 
 **Recommended full binary from source**
 
@@ -221,12 +221,12 @@ Use **`Makefile`** variable **`TAGS`** with **spaces** (**`make build TAGS="http
 
 | Tag | Enables | Docs |
 |-----|---------|------|
-| **`memory`** | Long-term memory copilot (**`memory.enabled`** in YAML); with **`http`**, session memory REST under **`/coddy/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
-| **`http`** | **`coddy http`**, REST gateway, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
+| **`memory`** | Long-term memory copilot (**`memory.enable`** in YAML); with **`http`**, session memory REST under **`/coddy/sessions/{id}/memory/*`** | [`external/memory/README.md`](external/memory/README.md) |
+| **`http`** | The REST gateway `coddy serve` runs under **`httpserver.enable`**, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](docs/http-api.md) |
 | **`ui`** | Embedded SPA on **`/`** (needs **`http`**) | [`docs/ui.md`](docs/ui.md), [`DESIGN.md`](DESIGN.md) |
 | **`scheduler`** | Scheduler daemon and **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](docs/scheduler.md), [`external/scheduler/README.md`](external/scheduler/README.md) |
-| **`cli`** | Interactive console TUI — bare **`coddy`** on a terminal (or **`coddy cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees, a status bar with the NeuralDeep account usage (session and week windows, reset times, wallet), **`/usage`** for the full breakdown, and with **`agent.wait_for_limit_reset`** a turn that hits a limit waits it out and resumes by itself; **`coddy -c`** continues the latest session, **`coddy -p "..."`** runs one prompt non-interactively, **`--remote <name|host:port|url>`** (+ `--remote-token` / `CODDY_REMOTE_TOKEN`) drives a remote `coddy http` server — the same flags work on `coddy acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
-| **`gateway.telegram`** | Telegram bot adapter — **`coddy gateway`** subcommand, per-user sessions, access control | [`docs/gateway.md`](docs/gateway.md) |
+| **`cli`** | Interactive console TUI — bare **`coddy`** on a terminal (or **`coddy cli`**): chat with streaming, tool boxes, permission modals, **`!!<command>`** to run a shell command locally that the agent never sees, a status bar with the NeuralDeep account usage (session and week windows, reset times, wallet), **`/usage`** for the full breakdown, and with **`agent.wait_for_limit_reset`** a turn that hits a limit waits it out and resumes by itself; **`coddy -c`** continues the latest session, **`coddy -p "..."`** runs one prompt non-interactively, **`--remote <name|host:port|url>`** (+ `--remote-token` / `CODDY_REMOTE_TOKEN`) drives a remote `coddy serve` server — the same flags work on `coddy acp`. Visual design inspired by the [pi coding agent](https://github.com/badlogic/pi-mono) TUI (MIT, Mario Zechner) | [`docs/cli.md`](docs/cli.md) |
+| **`gateway.telegram`** | Telegram bot adapter — started by **`coddy serve`** when **`gateways.telegram.enable`** is true, per-user sessions, access control, live in the web UI | [`docs/gateway.md`](docs/gateway.md) |
 | **`gateway`** | All messenger adapters (superset of `gateway.telegram`; add Discord/Slack without changing the core) | [`docs/gateway.md`](docs/gateway.md) |
 
 Extended narrative and Docker alignment - **[docs/build.md](docs/build.md)**.
@@ -258,7 +258,7 @@ To **build the image locally** instead, use **`docker-compose.dev.yml`**: **`doc
 http://127.0.0.1:12345/
 ```
 
-The SPA is served on **`GET /`** by **`coddy http`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, or **ask** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
+The SPA is served on **`GET /`** by **`coddy serve`**. Pick a **model** in the composer (YAML backends from **`GET /v1/models`**), choose **agent**, **plan**, or **ask** mode, then send a message - the UI creates a session and streams the reply via **`POST /v1/responses`**. Agent files and shell tools use the mounted workspace (**`./workspace`** → **`/workspace`** in the container). Live YAML editing: **`http://127.0.0.1:12345/#/settings`**.
 
 Sanity check without a browser: **`curl -sS http://127.0.0.1:12345/v1/models | head`**.
 
@@ -346,7 +346,7 @@ coddy update -y       # no prompt
 
 ```bash
 coddy -v
-coddy http --help     # only when the binary includes -tags=http (release builds do)
+coddy serve --help     # subsystem flags; the surfaces themselves need their build tags
 ```
 
 **Common flags**
@@ -451,7 +451,7 @@ Later directories override earlier ones when the same skill name appears in mult
 
 - **[skills.sh](https://skills.sh)** — community registry, install with `npx skills add <owner/repo@skill>`
 - **[neuraldeep.ru/skills](https://neuraldeep.ru/skills)** — skillsbd registry curated for Coddy, install with `npx skillsbd install <name>`
-- **Settings → Skills** in the web UI (`coddy http`) — browse and install from the skillsbd registry without leaving the browser
+- **Settings → Skills** in the web UI (`coddy serve`) — browse and install from the skillsbd registry without leaving the browser
 
 **CLI:**
 
@@ -517,18 +517,18 @@ to a digest of the declaration, so rewriting the entry asks again. Servers in
 
 For a workspace you already trust (or a CI job), set `mcp.project_trust: allow`
 in `config.yaml`, or pass `--mcp-project-trust allow` to `coddy acp` /
-`coddy http` for that process only; `deny` never loads project servers at all.
+`coddy serve` for that process only; `deny` never loads project servers at all.
 Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
 
 See [MCP Integration Guide](docs/mcp-integration.md) for details.
 
 ## Messenger gateway
 
-Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters) to enable `coddy gateway`.
+Build with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters), then set `gateways.telegram.enable: true`. The bot comes up with the rest of `coddy serve` and its chats are ordinary sessions the web UI can watch and continue.
 
 ```bash
 make build TAGS="gateway.telegram"
-./build/coddy gateway --config ~/.coddy/config.yaml
+./build/coddy serve --config ~/.coddy/config.yaml
 ```
 
 Minimal config addition (`config.yaml`):
@@ -602,7 +602,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Updating Coddy](docs/update.md) - **`coddy update`**, release assets, **`PATH`** vs **`make install`**
 - [Docker](docs/docker.md) - GHCR image, **`docker compose`**, bundled UI at **`http://127.0.0.1:12345/`**
 - [Console TUI](docs/cli.md) - bare **`coddy`** in a terminal (**`-tags cli`**): layout, keys, flags, print mode, captures
-- [Remote control](docs/remote-control.md) - driving a remote **`coddy http`** server from the console, ACP, or the web UI
+- [Remote control](docs/remote-control.md) - driving a remote **`coddy serve`** server from the console, ACP, or the web UI
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
@@ -633,7 +633,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 
 ## Persistent sessions
 
-By default, `coddy acp` and `coddy http` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`**, **`coddy http --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
+By default, `coddy acp` and `coddy serve` store each session bundle under **`$CODDY_HOME/sessions/<sessionId>/`** (default **`~/.coddy/sessions/`**) with `session.json`, `messages.json`, an `assets/` directory, and `todos/active.md` (plus `todos/archive/` when completed lists are replaced). Override the root with **`coddy acp --sessions-dir`**, **`coddy serve --sessions-dir`**, or **`sessions.dir`** in **`config.yaml`**. If the sessions directory cannot be created, startup fails with an error.
 
 - **`coddy sessions list`** prints stored sessions (`--sessions-dir` and `--cwd` filters supported).
 - **`/export`** in any chat writes the current transcript to **`coddy-export-<timestamp>.md`** (or `html`, `json`, `jsonl`, or a path you name) inside the workspace; **`coddy sessions export <id> [--format ...] [--out PATH]`** does the same for a stored session from the shell, into the current directory or wherever `--out` points - see [Session export](docs/session-export.md).
