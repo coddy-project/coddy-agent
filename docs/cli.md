@@ -220,7 +220,10 @@ manager config-option API before the UI starts, in every launch mode
 dark|light|auto` (auto falls back COLORFGBG → dark). `--plain` disables
 terminal queries, modifyOtherKeys, titles, and OSC 8 for deterministic
 automation. Logging is forced away from the terminal into
-`<home>/logs/cli.log` (`--log-file`, `--log-level`).
+`<home>/logs/cli.log` (`--log-file`, `--log-level`). `--log-level` takes a
+bare level or a comma-separated spec that raises one subsystem on its own,
+for example `--log-level "info,agent=debug"` (see
+[config-reference.md](config-reference.md#logger)).
 
 ## One-shot print mode (`-p/--prompt`)
 

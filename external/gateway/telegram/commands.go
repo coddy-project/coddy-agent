@@ -4,6 +4,8 @@ package telegram
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 
@@ -20,9 +22,10 @@ import (
 func (b *Bot) handleModeCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
 	st, err := b.ensureSession(ctx, key)
 	if err != nil {
-		reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
+		b.reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
 		return
 	}
+	b.log.Debug("telegram: mode menu", "session", st.GetID(), "current", st.GetMode())
 	kb := buildModeKeyboard(st.GetMode())
 	m := tgbotapi.NewMessage(msg.Chat.ID, modeMenuText(st.GetMode()))
 	m.ReplyToMessageID = msg.MessageID
@@ -63,16 +66,21 @@ func buildModeKeyboard(current string) tgbotapi.InlineKeyboardMarkup {
 func (b *Bot) handleModelCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
 	cfg := b.runner.Cfg()
 	if len(cfg.Models) == 0 {
-		reply(bot, msg.Chat.ID, msg.MessageID, "⚠️ No models configured.")
+		b.reply(bot, msg.Chat.ID, msg.MessageID, "⚠️ No models configured.")
 		return
 	}
 	st, err := b.ensureSession(ctx, key)
 	if err != nil {
-		reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
+		b.reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
 		return
 	}
 	current := st.EffectiveModelID(cfg)
 	kb := buildModelKeyboard(cfg.Models, current)
+	b.log.Debug("telegram: model menu",
+		"session", st.GetID(),
+		"current", current,
+		"models", len(cfg.Models),
+	)
 	m := tgbotapi.NewMessage(msg.Chat.ID, modelMenuText(current))
 	m.ReplyToMessageID = msg.MessageID
 	m.ReplyMarkup = kb
@@ -92,16 +100,56 @@ func buildModelKeyboard(models []config.ModelEntry, current string) tgbotapi.Inl
 		if m.Model == current {
 			label = "✓ " + label
 		}
-		// Callback data must fit in 64 bytes; prefix "model:" = 6 chars.
-		data := "model:" + m.Model
-		if len(data) > 64 {
-			data = data[:64]
-		}
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(label, data),
+			tgbotapi.NewInlineKeyboardButtonData(label, callbackActionModel+":"+modelCallbackValue(m.Model)),
 		))
 	}
 	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// ── Callback payloads ────────────────────────────────────────────────────────
+
+const (
+	callbackActionMode  = "mode"
+	callbackActionModel = "model"
+
+	// telegramCallbackDataMax is Telegram's hard limit on callback_data.
+	telegramCallbackDataMax = 64
+	// modelDigestMarker prefixes the short form used for a model id that does
+	// not fit that limit.
+	modelDigestMarker = "#"
+)
+
+// modelCallbackValue returns the payload carried by a model button. An id that
+// fits travels as itself; a longer one travels as a digest, because truncating
+// it would send back a name nothing is configured under - the tap would be
+// rejected and the keyboard would look broken with nothing to explain it.
+func modelCallbackValue(model string) string {
+	if len(callbackActionModel)+1+len(model) <= telegramCallbackDataMax {
+		return model
+	}
+	sum := sha256.Sum256([]byte(model))
+	return modelDigestMarker + hex.EncodeToString(sum[:8])
+}
+
+// resolveModelCallback maps a payload back to a configured model id. A model
+// dropped from the configuration since the keyboard was sent resolves to
+// nothing, which is a better answer than applying a name that is gone.
+func resolveModelCallback(models []config.ModelEntry, payload string) (string, bool) {
+	for i := range models {
+		if models[i].Model == payload {
+			return payload, true
+		}
+	}
+	if !strings.HasPrefix(payload, modelDigestMarker) {
+		return "", false
+	}
+	for i := range models {
+		if modelCallbackValue(models[i].Model) == payload {
+			return models[i].Model, true
+		}
+	}
+	return "", false
 }
 
 // ── /context ─────────────────────────────────────────────────────────────────
@@ -109,12 +157,13 @@ func buildModelKeyboard(models []config.ModelEntry, current string) tgbotapi.Inl
 func (b *Bot) handleContextCommand(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, key string) {
 	st, err := b.ensureSession(ctx, key)
 	if err != nil {
-		reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
+		b.reply(bot, msg.Chat.ID, msg.MessageID, "❌ Session error: "+err.Error())
 		return
 	}
 	bd := st.GetLastContextBreakdown()
+	b.log.Debug("telegram: context command", "session", st.GetID(), "has_breakdown", bd != nil)
 	if bd == nil {
-		reply(bot, msg.Chat.ID, msg.MessageID,
+		b.reply(bot, msg.Chat.ID, msg.MessageID,
 			"📊 *Context usage*\n\nNo data yet — send a message first.")
 		return
 	}
@@ -161,7 +210,10 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 	// Always acknowledge immediately to dismiss the loading spinner.
 	_, _ = bot.Request(tgbotapi.NewCallback(cbq.ID, ""))
 
+	b.log.Debug("telegram: update", "kind", "callback", "id", cbq.ID, "data", cbq.Data)
+
 	if cbq.Data == "" || cbq.Message == nil || cbq.From == nil {
+		b.log.Debug("telegram: callback ignored", "reason", "incomplete update", "id", cbq.ID)
 		return
 	}
 
@@ -171,23 +223,56 @@ func (b *Bot) handleCallback(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgb
 
 	level := access.EffectiveAccess(chatID, b.cfg)
 	if !access.CanAccess(userID, level, b.cfg) {
+		b.log.Debug("telegram: callback ignored", "reason", "access denied", "user", userID, "chat", chatID)
+		return
+	}
+
+	action, payload, split := strings.Cut(cbq.Data, ":")
+	if !split || payload == "" || (action != callbackActionMode && action != callbackActionModel) {
+		b.log.Debug("telegram: callback ignored", "reason", "unrecognised payload",
+			"data", cbq.Data, "user", userID, "chat", chatID)
 		return
 	}
 
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
 	key := sessionstore.SessionKey(adapterName, chatID, userID, isolation, isGroup)
-	sessionID := b.store.Get(key)
 
-	parts := strings.SplitN(cbq.Data, ":", 2)
-	if len(parts) != 2 || parts[1] == "" {
+	// The keyboard outlives the process that sent it: a chat keeps showing the
+	// buttons long after a restart, and a tap then addresses a session that is
+	// on disk but not loaded. Only a live session can be configured, so load it
+	// here rather than handing the manager an id it will not recognise.
+	st, err := b.ensureSession(ctx, key)
+	if err != nil {
+		b.log.Warn("telegram: callback session", "err", err, "user", userID, "chat", chatID)
+		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ Session error: "+err.Error()))
 		return
 	}
+	sessionID := st.GetID()
 
-	switch parts[0] {
-	case "mode":
-		b.applyMode(ctx, bot, cbq, sessionID, parts[1])
-	case "model":
-		b.applyModel(ctx, bot, cbq, sessionID, parts[1])
+	value := payload
+	if action == callbackActionModel {
+		model, ok := resolveModelCallback(b.runner.Cfg().Models, payload)
+		if !ok {
+			b.log.Warn("telegram: callback model unknown", "payload", payload, "session", sessionID)
+			_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ That model is no longer configured."))
+			return
+		}
+		value = model
+	}
+
+	b.log.Debug("telegram: callback",
+		"action", action,
+		"value", value,
+		"session", sessionID,
+		"user", userID,
+		"chat", chatID,
+	)
+
+	switch action {
+	case callbackActionMode:
+		b.applyMode(ctx, bot, cbq, sessionID, value)
+	case callbackActionModel:
+		b.applyModel(ctx, bot, cbq, sessionID, value)
 	}
 }
 
@@ -197,10 +282,11 @@ func (b *Bot) applyMode(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotapi
 		ModeID:    newMode,
 	})
 	if err != nil {
-		b.log.Warn("telegram: set mode", "err", err)
+		b.log.Warn("telegram: set mode", "err", err, "session", sessionID, "mode", newMode)
 		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ "+err.Error()))
 		return
 	}
+	b.log.Info("telegram: mode applied", "session", sessionID, "mode", newMode)
 	// Update the keyboard in-place so the user sees the new selection immediately.
 	edit := tgbotapi.NewEditMessageTextAndMarkup(
 		cbq.Message.Chat.ID,
@@ -221,10 +307,11 @@ func (b *Bot) applyModel(ctx context.Context, bot *tgbotapi.BotAPI, cbq *tgbotap
 		Value:     newModel,
 	})
 	if err != nil {
-		b.log.Warn("telegram: set model", "err", err)
+		b.log.Warn("telegram: set model", "err", err, "session", sessionID, "model", newModel)
 		_, _ = bot.Request(tgbotapi.NewCallbackWithAlert(cbq.ID, "❌ "+err.Error()))
 		return
 	}
+	b.log.Info("telegram: model applied", "session", sessionID, "model", newModel)
 	cfg := b.runner.Cfg()
 	edit := tgbotapi.NewEditMessageTextAndMarkup(
 		cbq.Message.Chat.ID,

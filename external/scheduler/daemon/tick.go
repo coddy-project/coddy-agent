@@ -101,7 +101,7 @@ func doTickAtMinute(ctx context.Context, cfg *config.Config, log *slog.Logger, p
 			}(path, fm, body, slot)
 		default:
 			log.Warn("scheduler max_queue saturated, skipping job until a run finishes (raise scheduler.max_queue if needed)",
-				"job", path, "max_queue", maxQueue, "component", "scheduler")
+				"job", path, "max_queue", maxQueue)
 		}
 	}
 }

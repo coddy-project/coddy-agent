@@ -196,11 +196,18 @@ type ToolOutputLimitsJSON struct {
 
 // LoggerJSON mirrors Logger for JSON APIs.
 type LoggerJSON struct {
-	Level    string             `json:"level,omitempty"`
-	Outputs  []string           `json:"outputs,omitempty"`
-	File     string             `json:"file,omitempty"`
-	Format   string             `json:"format,omitempty"`
-	Rotation LoggerRotationJSON `json:"rotation,omitempty"`
+	Level    string                     `json:"level,omitempty"`
+	Levels   []LoggerComponentLevelJSON `json:"levels,omitempty"`
+	Outputs  []string                   `json:"outputs,omitempty"`
+	File     string                     `json:"file,omitempty"`
+	Format   string                     `json:"format,omitempty"`
+	Rotation LoggerRotationJSON         `json:"rotation,omitempty"`
+}
+
+// LoggerComponentLevelJSON mirrors LoggerComponentLevel.
+type LoggerComponentLevelJSON struct {
+	Component string `json:"component,omitempty"`
+	Level     string `json:"level,omitempty"`
 }
 
 // LoggerRotationJSON mirrors LoggerRotation.
@@ -446,6 +453,9 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 		File: c.Logger.File, Format: c.Logger.Format,
 		Rotation: LoggerRotationJSON{MaxSizeMB: c.Logger.Rotation.MaxSizeMB, MaxFiles: c.Logger.Rotation.MaxFiles},
 	}
+	for _, lv := range c.Logger.Levels {
+		out.Logger.Levels = append(out.Logger.Levels, LoggerComponentLevelJSON(lv))
+	}
 	out.Sessions = SessionsJSON{Dir: c.Sessions.Dir}
 	out.Compaction = CompactionJSON{
 		Enabled:          cloneBoolPtr(c.Compaction.Enabled),
@@ -638,6 +648,9 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 		Rotation: LoggerRotation{
 			MaxSizeMB: j.Logger.Rotation.MaxSizeMB, MaxFiles: j.Logger.Rotation.MaxFiles,
 		},
+	}
+	for _, lv := range j.Logger.Levels {
+		cfg.Logger.Levels = append(cfg.Logger.Levels, LoggerComponentLevel(lv))
 	}
 	cfg.Sessions = Sessions{Dir: j.Sessions.Dir}
 	cfg.Compaction = Compaction{

@@ -737,6 +737,36 @@
             "error"
           ]
         },
+        "levels": {
+          "type": "array",
+          "description": "Per-component minimum severity. A component is the dotted name a record carries in its \"component\" attribute (gateway, gateway.telegram, session, agent, scheduler); a parent name covers everything nested under it and the longest configured prefix wins. Records with no component follow \"level\".",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "component",
+              "level"
+            ],
+            "properties": {
+              "component": {
+                "type": "string",
+                "description": "Dotted component name, for example \"gateway.telegram\".",
+                "pattern": "^[a-z0-9_\\-]+(\\.[a-z0-9_\\-]+)*$"
+              },
+              "level": {
+                "type": "string",
+                "description": "Minimum severity for this component.",
+                "enum": [
+                  "debug",
+                  "info",
+                  "warn",
+                  "warning",
+                  "error"
+                ]
+              }
+            }
+          }
+        },
         "outputs": {
           "type": "array",
           "description": "Where log records go; any combination of stdout, stderr, file. Empty means stderr only.",

@@ -142,19 +142,30 @@ func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.
 	chatID := msg.Chat.ID
 	isGroup := msg.Chat.IsGroup() || msg.Chat.IsSuperGroup() || msg.Chat.IsChannel()
 
+	b.log.Debug("telegram: update",
+		"kind", "message",
+		"user", userID,
+		"chat", chatID,
+		"is_group", isGroup,
+		"command", strings.ToLower(msg.Command()),
+		"text_len", len(msg.Text),
+	)
+
 	level := access.EffectiveAccess(chatID, b.cfg)
 	if !access.CanAccess(userID, level, b.cfg) {
-		b.log.Debug("telegram: access denied", "user", userID, "chat", chatID)
+		b.log.Debug("telegram: update ignored", "reason", "access denied", "user", userID, "chat", chatID)
 		return
 	}
 
 	isolation := access.EffectiveIsolation(chatID, b.cfg)
 	if isGroup && isolation == config.IsolationAdmin && !b.cfg.IsAdmin(userID) {
+		b.log.Debug("telegram: update ignored", "reason", "admin-only chat", "user", userID, "chat", chatID)
 		return
 	}
 
 	text := strings.TrimSpace(msg.Text)
 	if isGroup && !b.shouldRespond(msg, text) {
+		b.log.Debug("telegram: update ignored", "reason", "not addressed to the bot", "user", userID, "chat", chatID)
 		return
 	}
 
@@ -172,7 +183,8 @@ func (b *Bot) dispatch(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.
 	select {
 	case ch <- workerJob{bot: bot, msg: msg, key: key}:
 	default:
-		reply(bot, chatID, msg.MessageID, "⏳ Still processing your previous message, please wait.")
+		b.log.Debug("telegram: update rejected", "reason", "worker queue full", "key", key, "cap", workerQueueCap)
+		b.reply(bot, chatID, msg.MessageID, "⏳ Still processing your previous message, please wait.")
 	}
 }
 
@@ -198,21 +210,32 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	text := strings.TrimSpace(msg.Text)
 
 	// --- Built-in commands ---
+	// Peek, not Get: a log line must not mint a session mapping for a chat that
+	// only ever typed /help. The session id is empty until something creates
+	// one, and the handlers below name it once they have.
+	if cmd := strings.ToLower(msg.Command()); msg.IsCommand() && cmd != "" {
+		b.log.Debug("telegram: command",
+			"command", cmd,
+			"session", b.store.Peek(key),
+			"user", userID,
+			"chat", chatID,
+		)
+	}
 	if isCommand(msg, "clear") {
 		oldID := b.store.Get(key)
 		newID := b.store.Reset(key)
 		b.runner.ForgetLiveSession(oldID)
-		reply(bot, chatID, msg.MessageID, "🔄 New session started.")
+		b.reply(bot, chatID, msg.MessageID, "🔄 New session started.")
 		b.log.Info("telegram: session cleared", "old", oldID, "new", newID, "user", userID)
 		return
 	}
 	if isCommand(msg, "start") {
-		reply(bot, chatID, msg.MessageID,
+		b.reply(bot, chatID, msg.MessageID,
 			"👋 Hi! I'm Coddy — an AI coding assistant.\n\nJust send me your question or task. Use /help to see available commands.")
 		return
 	}
 	if isCommand(msg, "help") {
-		reply(bot, chatID, msg.MessageID,
+		b.reply(bot, chatID, msg.MessageID,
 			"*Available commands:*\n\n"+
 				"/start — greeting and quick intro\n"+
 				"/mode — switch session mode (agent / plan / ask)\n"+
@@ -256,7 +279,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 	st, err := b.runner.EnsureHTTPSession(ctx2, sessionID, b.cwd)
 	if err != nil {
 		b.log.Warn("telegram: ensure session", "err", err)
-		reply(bot, chatID, msg.MessageID, "❌ Failed to start session: "+err.Error())
+		b.reply(bot, chatID, msg.MessageID, "❌ Failed to start session: "+err.Error())
 		return
 	}
 
@@ -315,7 +338,7 @@ func (b *Bot) processMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgb
 			"session", st.GetID(),
 			"stop_reason", stopReason,
 		)
-		reply(bot, chatID, msg.MessageID, "❌ Agent error: "+err.Error())
+		b.reply(bot, chatID, msg.MessageID, "❌ Agent error: "+err.Error())
 	} else {
 		b.log.Debug("telegram: agent turn done",
 			"session", st.GetID(),
@@ -356,12 +379,15 @@ func stripMention(text, botName string) string {
 	return strings.TrimSpace(s)
 }
 
-func reply(bot *tgbotapi.BotAPI, chatID int64, replyTo int, text string) {
+// reply sends one plain message back into the chat. It is a method so the
+// failure lands in the adapter's own logger: routed to the configured sink and
+// tagged with the component, rather than in whatever slog.Default happens to be.
+func (b *Bot) reply(bot *tgbotapi.BotAPI, chatID int64, replyTo int, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	if replyTo != 0 {
 		msg.ReplyToMessageID = replyTo
 	}
 	if _, err := bot.Send(msg); err != nil {
-		slog.Warn("telegram: send reply failed", "err", err)
+		b.log.Warn("telegram: send reply failed", "err", err, "chat", chatID)
 	}
 }

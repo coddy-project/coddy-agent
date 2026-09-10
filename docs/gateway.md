@@ -13,6 +13,7 @@ The messenger gateway lets you drive a Coddy agent directly from a chat applicat
   - [Per-chat overrides](#per-chat-overrides)
   - [User groups](#user-groups)
 - [Running the gateway](#running-the-gateway)
+- [Debugging a chat](#debugging-a-chat)
 - [Bot interaction model](#bot-interaction-model)
   - [Private chats](#private-chats)
   - [Group chats](#group-chats)
@@ -283,7 +284,7 @@ coddy gateway [flags]
 | `--home` | `~/.coddy` | Agent state directory (`CODDY_HOME`) |
 | `--cwd` | process cwd | Default session working directory |
 | `--sessions-dir` | `$CODDY_HOME/sessions` | Where session bundles are stored |
-| `--log-level` | from config | `debug\|info\|warn\|error` |
+| `--log-level` | from config | `debug\|info\|warn\|error`, or a comma-separated spec with per-component overrides such as `info,gateway.telegram=debug` (see [Debugging a chat](#debugging-a-chat)) |
 
 Typical production invocation:
 
@@ -325,6 +326,36 @@ services:
 ```
 
 > Both the `Dockerfile` default and the published GHCR image include `gateway`, so gateway mode works out of the box with `docker-compose.yml` and with a from-source build (`docker-compose.dev.yml`); no custom image is needed. If `gateways.telegram.proxy` targets a host-local proxy, use `host.docker.internal` or `network_mode: host` — `127.0.0.1` inside the container is the container itself. See [docs/docker.md](docker.md#run-another-mode-messenger-gateway).
+
+---
+
+## Debugging a chat
+
+A command that appears to do nothing - a `/model` tap that leaves the model unchanged, a message the bot never answers - leaves no trace at `info`. That level carries what succeeded (connecting, sessions loaded and cleared, a model or mode applied) and what failed loudly enough to warn; an update that was quietly dropped, or a tap that never arrived, is in neither list. `gateway.telegram` at `debug` records the whole path instead: every update as it arrives, why one was dropped (access denied, an admin-only chat, a group message not addressed to the bot, a full worker queue), each recognised command, each menu the bot builds with the session it belongs to, and each callback with the model or mode it resolved to and whether it applied.
+
+Raise that one component and leave the rest of the process alone:
+
+```yaml
+logger:
+  level: "info"
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
+```
+
+For a single restart under systemd, the flag carries the same spec and needs no edit to the config file:
+
+```bash
+coddy gateway --log-level "info,gateway.telegram=debug"
+```
+
+Every record keeps its `component` attribute, so a file that mixes subsystems still filters:
+
+```bash
+grep '"component":"gateway.telegram"' /var/log/coddy/coddy.log
+```
+
+A switch that lands is reported at `info`, so the confirmation is in the log without raising anything: `telegram: model applied` and `telegram: mode applied` name the session and the new value. A tap that reaches the bot and fails logs why at `warn`, equally visible: `telegram: callback session` when the session cannot be loaded, `telegram: callback model unknown` when the button names a model that is no longer configured, and `telegram: set model` when the manager refuses the change. Silence at `warn` and nothing at `debug` means the update never arrived - check the bot token, the ACL, and whether another process is polling the same bot, since Telegram delivers each update to one long poll only.
 
 ---
 

@@ -28,6 +28,7 @@ Configuration edits never apply immediately. The flow is always:
 |---|---|
 | `set agent.max_turns=40` | Set a scalar field |
 | `set logger.level=debug` | String fields take the literal text |
+| `add_list logger.levels={"component":"gateway.telegram","level":"debug"}` | Raise one subsystem without turning the whole process to debug |
 | `set mcp_servers[name=context7]={"command":"npx","args":["-y","@upstash/context7-mcp"]}` | Set (or append) a named sequence entry; value is JSON |
 | `add_list skills.dirs=/home/dev/.agents/skills` | Append to a list |
 | `del_list skills.dirs=/home/dev/.agents/skills` | Remove a matching list entry |
@@ -58,7 +59,7 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
 - `subagents` - child agents the model delegates to with `spawn_agent`: definition directories (`dirs`), the trust policy for definitions found inside the workspace (`project_trust`: `ask` refuses to spawn a project file until it is approved on the machine running coddy, with `coddy agents trust <name>` there or `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`; from a remote console prefer the POST route or stage `set subagents.project_trust=allow`; `allow` trusts them, `deny` never reads them), the process-wide pool size (`max_concurrent`), nesting (`max_depth`), the default run timeout and the child ReAct cap. To let a trusted checkout's definitions run without approvals, stage `set subagents.project_trust=allow`; to shrink the pool, `set subagents.max_concurrent=2`;
 - `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.coddy/hooks.json` plus the workspace's `.coddy/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running coddy with `coddy hooks trust <file>` there or `POST /coddy/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enabled=false`;
-- `logger` - level, outputs, rotation;
+- `logger` - root `level`, per-component overrides (`levels`, a list of `{component, level}` entries where a dotted name such as `gateway.telegram` raises or lowers one subsystem and a parent name covers what is nested under it), outputs, format, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);

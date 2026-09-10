@@ -19,6 +19,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/permission"
 	"github.com/EvilFreelancer/coddy-agent/internal/plans"
@@ -103,10 +104,12 @@ func NewAgent(cfg *config.Config, state SessionState, server acp.UpdateSender, l
 	}
 	environment := platform.CurrentEnvironment()
 	a := &Agent{
-		cfg:             cfg,
-		state:           state,
-		server:          server,
-		log:             log,
+		cfg:    cfg,
+		state:  state,
+		server: server,
+		// Tagged here rather than at every call site, so logger.levels can
+		// name "agent" whichever entrypoint built the loop.
+		log:             logger.Component(log, logger.ComponentAgent),
 		registry:        tools.NewRegistryForEnvironment(cfg, environment),
 		environment:     environment,
 		providerFactory: llm.NewProvider,

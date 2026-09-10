@@ -401,6 +401,14 @@ tools:
 
 logger:
   level: "info"
+  # Raise or lower one subsystem without turning the whole process to debug.
+  # A component is the dotted name a record carries in its "component" field
+  # (gateway, gateway.telegram, session, agent, scheduler); a parent name
+  # covers what is nested under it, and the longest match wins. The same spec
+  # works on the command line: --log-level "info,gateway.telegram=debug".
+  # levels:
+  #   - component: "gateway.telegram"
+  #     level: "debug"
   # outputs: ["stderr"]          # default when omitted
   # outputs: ["stdout", "file"] # example: tee to console and file
   # file: "${CODDY_HOME}/coddy.log"  # required when outputs includes "file"

@@ -28,7 +28,7 @@ func runGateway(args []string) error {
 	homeDir := fs.String("home", "", "agent state directory (CODDY_HOME, default ~/.coddy)")
 	gwCWD := fs.String("cwd", "", "default session working directory")
 	sessionsRoot := fs.String("sessions-dir", "", "sessions root directory")
-	logLevel := fs.String("log-level", "", "debug|info|warn|error")
+	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of gateway:\n")
 		fs.PrintDefaults()
