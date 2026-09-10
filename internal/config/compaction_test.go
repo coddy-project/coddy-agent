@@ -85,7 +85,7 @@ models:
 agent:
   model: fake/m
 compaction:
-  enabled: false
+  enable: false
   threshold_percent: 70
   keep_recent_turns: 3
   model: fake/m
@@ -95,7 +95,7 @@ compaction:
 		t.Fatal(err)
 	}
 	if cfg.Compaction.IsEnabled() {
-		t.Fatal("yaml enabled: false ignored")
+		t.Fatal("yaml enable: false ignored")
 	}
 	if cfg.Compaction.ThresholdPercent != 70 {
 		t.Fatalf("threshold = %d", cfg.Compaction.ThresholdPercent)
@@ -126,7 +126,7 @@ func TestResultEvictionExplicitValues(t *testing.T) {
 	zero := 0
 	r := ResultEviction{Enabled: &off, KeepRecent: &zero, MinResultBytes: &zero}
 	if r.IsEnabled() {
-		t.Fatal("explicit enabled:false must disable")
+		t.Fatal("explicit enable:false must disable")
 	}
 	if r.EffectiveKeepRecent() != 0 {
 		t.Fatalf("keep_recent = %d, want 0", r.EffectiveKeepRecent())

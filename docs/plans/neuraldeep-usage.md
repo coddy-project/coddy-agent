@@ -64,7 +64,7 @@ Coddy side:
   drops updates whose session id is not the adopted one.
 - Update fan-out differs per surface `[rev]`: under ACP stdio and the local
   console the manager-wide `acp.UpdateSender` (`m.server`) reaches the client;
-  under `coddy http` that sender is a `serverRef` with no ACP server behind it
+  under `coddy serve` that sender is a `serverRef` with no ACP server behind it
   (`cmd/coddy/http.go`), so it is a no-op, and the SSE bridge exists only as
   the `sender` argument of `HandleSessionPromptWithSender` while a turn
   streams. Out-of-turn server-wide events go to `GET /coddy/events`

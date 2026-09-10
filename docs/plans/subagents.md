@@ -217,7 +217,7 @@ Tool `spawn_agent`:
 | `background` | detach and return the task id at once; default false waits for the report |
 | `expected_seconds`, `notify_on_finish`, `timeout_seconds` | same semantics as `run_command` background; `[rev2]` `notify_on_finish` is forced off for a foreground spawn, whose report already comes back in the tool result |
 
-The tool is registered when `subagents.enabled` is on, offered in both agent
+The tool is registered when `subagents.enable` is on, offered in both agent
 and plan mode (a planner fans out investigation like Claude Code's Explore),
 and hidden from a child that has reached `max_depth`. The registry only sees
 one hook, `tooling.Env.SpawnAgent func(ctx, SpawnRequest) (SpawnResult,

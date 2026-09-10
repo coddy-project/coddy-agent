@@ -41,9 +41,19 @@ When adding or changing behavior (including words like feature, add, implement, 
    - Add **narrow (390px)** and **wide (1280px)** when layout differs between them, and **light** plus **dark** when the change adds or edits colors (the repo ships 7 themes; cover any whose tokens the change touches).
    - If a surface genuinely cannot be captured (no browser available, backend-gated screen), say so **explicitly** in the PR and state what was verified instead - do not silently omit it.
 6. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
-7. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`docs/config.schema.json`** and the tables in **`docs/config-reference.md`** to match. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift, but descriptions, defaults, enums-in-prose, and the reference tables are not auto-checked - keep them accurate by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well. The same change must also update the bundled self-configuration skill **`internal/skills/bundled/configure-coddy/SKILL.md`** (its "Configuration areas" catalog and command examples are the agent-facing view of the schema) - schema edits that skip the skill ship an agent that configures against a stale surface. The same JSON is published at **`https://coddy.dev/config.schema.json`** - the address Coddy writes into every config it saves - and served from the site repository **`coddy-project.github.io`** as a **verbatim copy** of **`docs/config.schema.json`**; refresh that copy in the same change, or editors validate saved configs against a stale schema.
-8. Update documentation and specs if needed.
-9. Run **`make lint`** (`golangci-lint`). Fix reported issues.
+7. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`docs/config.schema.json`** and the tables in **`docs/config-reference.md`** to match. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift, but descriptions, defaults, enums-in-prose, and the reference tables are not auto-checked - keep them accurate by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well. The same change must also update the bundled self-configuration skill **`internal/skills/bundled/configure-coddy/SKILL.md`** (its "Configuration areas" catalog and command examples are the agent-facing view of the schema) - schema edits that skip the skill ship an agent that configures against a stale surface.
+
+8. **Publish the schema to the site** - **`docs/config.schema.json`** is served at **`https://coddy.dev/config.schema.json`**, the address Coddy writes as a modeline into every config it saves, out of the site repository **`coddy-project.github.io`** as a **verbatim copy**. A schema change that stops in this repository leaves every editor validating saved configs against a schema the binary no longer matches.
+
+   ```bash
+   make site-schema        # copy into the site checkout (SITE_REPO=... if it is elsewhere)
+   make site-schema-check  # report drift without writing; non-zero when stale
+   ```
+
+   Then commit in the site repository. **Do not push it ahead of the release** when the change **renamed or removed** a key: the schema sets **`additionalProperties: false`**, so the new file marks the old key as an error in every config already on disk. Adding an optional key is safe to publish immediately. `gh pr create` returns 404 in that repository - commits go to `main`, or open a PR through a compare link.
+
+9. Update documentation and specs if needed.
+10. Run **`make lint`** (`golangci-lint`). Fix reported issues.
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched.
 
@@ -54,7 +64,7 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 3. Run **`make test`**.
 4. If the fix changes anything the user sees in the SPA, complete step 5 (UI screenshots) from the feature flow - a visual bug fix without before/after images in the PR is not reviewable.
 5. If the bug or fix touches the HTTP API surface, complete step 6 (OpenAPI and docs) from the feature flow.
-6. If it touches **`internal/config`** yaml-tagged structs, complete step 7 (config schema sync) from the feature flow.
+6. If it touches **`internal/config`** yaml-tagged structs, complete steps 7 and 8 (config schema sync, and publishing it to the site) from the feature flow.
 7. Run **`make lint`**.
 
 ## Before calling work done
@@ -62,6 +72,6 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **`make test`** green.
 - **Screenshots of every changed UI surface attached to the PR** when **`external/ui/**`** changed, or an explicit note saying why a surface could not be captured.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
-- **`docs/config.schema.json`**, **`docs/config-reference.md`**, and **`internal/skills/bundled/configure-coddy/SKILL.md`** updated when `internal/config` yaml fields changed, and the verbatim mirror at **`coddy-project.github.io/config.schema.json`** refreshed with it.
+- **`docs/config.schema.json`**, **`docs/config-reference.md`**, and **`internal/skills/bundled/configure-coddy/SKILL.md`** updated when `internal/config` yaml fields changed, and **`make site-schema-check`** clean so the copy published at **`coddy.dev/config.schema.json`** is not stale.
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.

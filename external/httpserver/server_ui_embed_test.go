@@ -115,7 +115,7 @@ func TestUIDisabledServesAPIOnly(t *testing.T) {
 	if strings.Contains(string(b), "<title>Coddy Agent</title>") {
 		t.Fatal("ui disabled should not serve the SPA index")
 	}
-	if !strings.Contains(string(b), "ui.enabled") {
+	if !strings.Contains(string(b), "ui.enable") {
 		t.Fatalf("expected the UI-disabled notice, got %q", b)
 	}
 

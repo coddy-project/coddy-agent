@@ -8,25 +8,25 @@ Feature: Settings fetches the reasoning levels a model id offers
   saved yet.
 
   Scenario: A Qwen3 model id offers the standard reasoning tiers
-    Given a coddy gateway with an "openai" provider named "valera"
+    Given a coddy server with an "openai" provider named "valera"
     When the settings form fetches the reasoning levels for "valera/qwen3.8-27b"
     Then the gateway answers with the levels "low,medium,high"
     And the answer reports the levels as detected
 
   Scenario: A codex-backed gpt-5 id offers none in place of minimal
-    Given a coddy gateway with a "codex" provider named "codex"
+    Given a coddy server with a "codex" provider named "codex"
     When the settings form fetches the reasoning levels for "codex/gpt-5.5"
     Then the gateway answers with the levels "none,low,medium,high"
     And the answer reports the levels as detected
 
   Scenario: A model without reasoning support answers with an empty list
-    Given a coddy gateway with an "openai" provider named "valera"
+    Given a coddy server with an "openai" provider named "valera"
     When the settings form fetches the reasoning levels for "valera/gpt-4o"
     Then the gateway answers with no levels
     And the answer reports the levels as not detected
 
   Scenario: A codex provider that is not saved yet already gets the codex tiers
-    Given a coddy gateway with an "openai" provider named "valera"
+    Given a coddy server with an "openai" provider named "valera"
     When the settings form fetches the reasoning levels for "brand-new/gpt-5.5" of a "codex" provider
     Then the gateway answers with the levels "none,low,medium,high"
     And the answer reports the levels as detected

@@ -67,6 +67,9 @@ type Server struct {
 	// events fans server-wide turn lifecycle events out to GET /coddy/events subscribers.
 	events             *serverEventsHub
 	removeTurnObserver func()
+	// removeConfigObserver detaches the observer that keeps this server's live
+	// config in step with the manager's.
+	removeConfigObserver func()
 	// removeUsageObserver detaches the provider usage observer that feeds
 	// provider_usage frames to the events stream.
 	removeUsageObserver func()
@@ -90,6 +93,9 @@ func (s *Server) Drain() {
 	}
 	if s.removeTurnObserver != nil {
 		s.removeTurnObserver()
+	}
+	if s.removeConfigObserver != nil {
+		s.removeConfigObserver()
 	}
 	s.cancelCodexAuthLogins()
 	s.cancelNeuralDeepAuthLogins()
@@ -125,6 +131,10 @@ func New(cfg *config.Config, mgr *session.Manager, log *slog.Logger, defaultCWD 
 	if mgr != nil {
 		s.removeTurnObserver = mgr.AddTurnObserver(s.publishTurnEvent)
 		s.removeUsageObserver = mgr.AddUsageObserver(s.publishProviderUsageEvent)
+		// The manager is the one place every reload path passes through - the
+		// settings screen, the agent's config_commit tool, the console - so
+		// following it is how the handlers see an edit no matter who made it.
+		s.removeConfigObserver = mgr.AddConfigObserver(s.ReplaceConfig)
 	}
 	// A fresh server means this process intends to serve again, so reopen the
 	// task pool a previous Drain closed.

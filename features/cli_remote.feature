@@ -1,6 +1,6 @@
 Feature: Console connected to a remote coddy server
   Bare coddy with --remote points the interactive console (and -p print runs)
-  at a remote coddy http server: turns execute remotely, the transcript
+  at a remote coddy serve server: turns execute remotely, the transcript
   streams back, and the remote model catalog drives the model selector.
 
   Scenario: A remote turn streams into the interactive transcript

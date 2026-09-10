@@ -22,7 +22,7 @@ Coddy is installed. Create your configuration:
 Then set a provider key in it and start a surface:
 
     coddy               # interactive console
-    coddy http          # web UI and REST API
+    coddy serve         # every subsystem config.yaml enables (web UI on by default)
 
 Manual: man coddy   Docs: https://coddy.dev
 

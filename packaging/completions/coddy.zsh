@@ -9,9 +9,7 @@ _coddy() {
     commands=(
         'cli:interactive console TUI'
         'acp:Agent Client Protocol server on stdio'
-        'http:OpenAI-compatible HTTP gateway and web UI'
-        'gateway:messenger gateway'
-        'swarm:stateless relay aggregating nodes'
+        'serve:run every subsystem enabled in config.yaml'
         'sessions:list or export stored sessions'
         'skills:manage skills'
         'plugin:manage plugins and marketplaces'
@@ -63,14 +61,34 @@ _coddy() {
                         '--repo[GitHub repository to take releases from]:repo:' \
                         '--no-restart[Windows only: do not start Coddy again]'
                     ;;
-                cli|acp|http|gateway|swarm)
+                cli|acp)
                     _arguments \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
                         '--log-level[debug|info|warn|error]:level:(debug info warn error)' \
-                        '--remote[drive a remote coddy http server]:remote:' \
+                        '--remote[drive a remote coddy serve server]:remote:' \
                         '--remote-token[bearer token for --remote]:token:'
+                    ;;
+                serve)
+                    _arguments \
+                        '--config[path to config.yaml]:file:_files' \
+                        '--home[agent state directory]:directory:_files -/' \
+                        '--cwd[default session working directory]:directory:_files -/' \
+                        '--sessions-dir[sessions root]:directory:_files -/' \
+                        '--log-level[debug|info|warn|error]:level:(debug info warn error)' \
+                        '-H[bind address for the HTTP API]:host:' \
+                        '-P[listen port for the HTTP API]:port:' \
+                        '--auth-token[bearer token for the HTTP API]:token:' \
+                        '--http[run the HTTP API]' \
+                        '--gateway[run the messenger gateway]' \
+                        '--swarm[run the swarm relay]' \
+                        '--scheduler[run the cron scheduler]' \
+                        '--swarm-host[bind address for the relay]:host:' \
+                        '--swarm-port[listen port for the relay]:port:' \
+                        '--swarm-auth-token[bearer token clients present to the relay]:token:' \
+                        '--swarm-pairing-token[credential nodes present to register]:token:' \
+                        '--swarm-allow-insecure[bind the relay off loopback without a token]'
                     ;;
             esac
             ;;

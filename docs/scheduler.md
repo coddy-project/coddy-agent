@@ -10,7 +10,7 @@ Pieces:
 - **`external/scheduler/daemon`** - poll loop, **`RunJobFile`**, and **`LaunchManualJob`** hook registration.
 - **`external/scheduler/storage`** - flat job discovery, YAML frontmatter, UTC cron, `.state` / `.lock` paths.
 - **`external/scheduler/service`** (**`schedservice`**) - shared CRUD, run tracker, pruning of old run sessions, HTTP and tool payloads (no cycles with **`internal/tools`**).
-- **`external/scheduler/tools`** - **`schedtools`** registers **`coddy_scheduler_*`** tools (one `*.go` file per tool under **`tools/`**) when **`scheduler.enabled`** is true.
+- **`external/scheduler/tools`** - **`schedtools`** registers **`coddy_scheduler_*`** tools (one `*.go` file per tool under **`tools/`**) when **`scheduler.enable`** is true.
 
 The cron parser uses **five fields** (**minute hour day month weekday**) in **UTC**. Fires are evaluated on **UTC minute boundaries** (second **0**, nanoseconds **0**), like **crond**: the daemon wakes once per UTC minute, scans **`scheduler.dir`**, and starts a job only when that minute matches the expression and the **`.state`** checkpoint is strictly before that minute. **`* * * * *`** therefore runs **at most once per UTC minute**. Step fields such as **`*/2 * * * *`** use the same minute grid as vixie cron (minutes **0,2,4,…** UTC); **`*/3 * * * *`** uses **0,3,6,…** UTC.
 
@@ -23,7 +23,7 @@ Changes to the **`schedule`** field in a job file are read on the next directory
 
 ### Enabling
 
-The scheduler daemon and tools are active when **`scheduler.enabled: true`** in config, or when you pass **`coddy acp -scheduler-enabled`** or **`coddy http -scheduler-enabled`**.
+The scheduler daemon and tools are active when **`scheduler.enable: true`** in config, or when you pass **`coddy acp -scheduler`** or **`coddy serve -scheduler`**.
 
 REST routes under **`/coddy/scheduler`** require **`-tags=http,scheduler`**; see **`docs/http-api.md`**.
 
@@ -69,7 +69,7 @@ Daemon process logging stays short (**`slog`**); full traces live in session sto
 
 ### HTTP API
 
-With **`-tags=http,scheduler`**, **`GET /coddy/scheduler/jobs`**, job CRUD, **`pause`** / **`resume`**, **`run`**, **`cancel`**, and **`…/runs`** mirror the **`schedservice`** layer. **`503`** if **`scheduler.enabled`** is false. OpenAPI merges these paths only when **scheduler** is linked (see **`external/httpserver/scheduler_http.go`** vs **`scheduler_http_stub.go`**).
+With **`-tags=http,scheduler`**, **`GET /coddy/scheduler/jobs`**, job CRUD, **`pause`** / **`resume`**, **`run`**, **`cancel`**, and **`…/runs`** mirror the **`schedservice`** layer. **`503`** if **`scheduler.enable`** is false. OpenAPI merges these paths only when **scheduler** is linked (see **`external/httpserver/scheduler_http.go`** vs **`scheduler_http_stub.go`**).
 
 ### Tools (when scheduler is enabled)
 

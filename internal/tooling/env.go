@@ -33,7 +33,7 @@ type Env struct {
 	Background *bgtask.Pool
 
 	// BackgroundEnabled reports whether the operator allows detached execution
-	// (tools.background.enabled).
+	// (tools.background.enable).
 	BackgroundEnabled bool
 
 	// ArchiveActiveMarkdown moves todos/active.md to todos/archive before starting a replacement list.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """HTTP e2e: model uses scheduler tools, on-disk jobs, and daemon runs a tick.
 
-Requires a **running** ``coddy http`` (same port as ``BASE_URL``) with ``--scheduler-enabled``,
+Requires a **running** ``coddy serve`` (same port as ``BASE_URL``) with ``--scheduler``,
 and the same ``CODDY_HOME`` and ``WORK_DIR`` the server was started with.
 
 Steps: chat instructs run_command marker, ``coddy_scheduler_job_create``, then the harness waits

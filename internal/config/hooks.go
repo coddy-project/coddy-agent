@@ -23,7 +23,7 @@ const (
 // the runner applies to every hook process.
 type Hooks struct {
 	// Enabled loads and runs hooks at all. Unset means enabled.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// Files lists definition files, lowest priority first (priority orders
 	// the catalog and the run order; every matching hook runs). ${CODDY_HOME}

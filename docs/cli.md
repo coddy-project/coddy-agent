@@ -238,7 +238,7 @@ note on stderr. The question tool returns empty answers. `--model`, `--mode`,
 ## Remote mode (`--remote`)
 
 `--remote <target>` points the console (interactive and `-p` print runs) at a
-remote `coddy http` server instead of running the agent in-process. The
+remote `coddy serve` server instead of running the agent in-process. The
 target is a configured remote name (`httpserver.remotes`), a bare
 `host:port` (scheme defaults to http), or a full http(s) URL. The bearer
 token comes from `--remote-token` or `CODDY_REMOTE_TOKEN`; tokens are

@@ -30,7 +30,7 @@ The opt-in is the point. The model decides which results are worth a turn, so a 
 - The woken turn starts from a plain statement of the outcome — id, status, exit code, runtime, and any error — and is told to read the output with `background_output` rather than having a wall of text pasted into the prompt. It is also told explicitly that a task which failed, timed out, or was stopped did not succeed.
 - **Tasks finishing together cost one turn.** A short settle window batches a burst, so three results arrive as one turn with three lines instead of three turns.
 - The turn goes through the session manager's normal prompt path, so it takes the **composer turn lock**: a wake waits for a turn already in flight instead of racing it.
-- Nobody is attached to a woken turn. On `coddy http` it is published to the session's **composer relay** (a watching SPA or `--remote` client can follow it) through a **non-interactive** sender: a gated tool call inside it is **denied** unless the server's own `tools.permission_mode` is `bypass`, exactly like a permission resume. Unattended work that needs gated tools runs under `bypass` or `accept_edits` on purpose, not by accident.
+- Nobody is attached to a woken turn. On `coddy serve` it is published to the session's **composer relay** (a watching SPA or `--remote` client can follow it) through a **non-interactive** sender: a gated tool call inside it is **denied** unless the server's own `tools.permission_mode` is `bypass`, exactly like a permission resume. Unattended work that needs gated tools runs under `bypass` or `accept_edits` on purpose, not by accident.
 - **Shutdown does not wake anything.** Drain stops running tasks, and a stop is terminal; without that guard every task killed by shutdown would start a turn nobody will read.
 - A woken turn can start another notifying task, which is a legitimate pattern for unattended work and also a way to burn a night of tokens on a loop. `maxWakesPerSession` (50 per process, `internal/agent/background_notify.go`) is the backstop; reaching it stops starting turns and logs `background_wake_capped`.
 
@@ -68,7 +68,7 @@ The notice leads and the output follows, because the tool output ceiling truncat
 
 From there the task is an ordinary one — `background_list`, `background_output`, `background_wait`, `background_stop` all reach it, `notify_on_finish` is off (the model is being told right now), and its elapsed time counts from the original foreground start rather than from the handover.
 
-The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enabled: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
+The command **is** terminated, process group and all, in the three cases where nothing can take ownership: the turn was cancelled, no pool is wired, or the pool refused (`tools.background.enable: false`, session at `max_concurrent`, process draining). The answer then names the exact reason and points at `background: true`.
 
 Implementation: `Pool.Adopt` (`internal/bgtask/pool.go`) shares the single scheduling path with `Pool.Start`; the shell side is `startForeground` and `adoptedHandle` in `internal/tools/shell/foreground.go`, with `switchWriter` holding the output until the pool takes it over. Exactly one `cmd.Wait` exists per command — the pool observes the same result rather than calling it again.
 

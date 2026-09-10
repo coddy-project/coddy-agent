@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ACP e2e: ``coddy acp --remote`` proxies the protocol to a remote coddy http server.
+"""ACP e2e: ``coddy acp --remote`` proxies the protocol to a remote coddy serve server.
 
-Boots a bearer-protected ``coddy http`` from the same binary, then drives
+Boots a bearer-protected ``coddy serve`` from the same binary, then drives
 ``coddy acp --remote <url> --remote-token <token>`` over stdio JSON-RPC:
 initialize, session/new, session/prompt. The streamed agent_message_chunk
 updates must carry the marker answer, and the session must persist on the
@@ -94,7 +94,7 @@ def wait_models(base: str, token: str, timeout: float = 45.0) -> None:
         except Exception as exc:  # noqa: BLE001 - connection refused while booting
             last = str(exc)
         time.sleep(0.3)
-    raise SystemExit(f"coddy http did not come up: {last}")
+    raise SystemExit(f"coddy serve did not come up: {last}")
 
 
 def session_dirs(home: Path) -> set[str]:
@@ -143,7 +143,7 @@ def main() -> int:
     env_srv = dict(os.environ)
     env_srv["CODDY_HOME"] = str(server_home)
     server = subprocess.Popen(
-        [coddy_bin(), "http", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token],
+        [coddy_bin(), "serve", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token],
         env=env_srv,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

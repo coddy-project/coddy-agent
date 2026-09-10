@@ -31,7 +31,7 @@ const (
 )
 
 // ErrCompactionDisabled is returned when compaction.enabled is false.
-var ErrCompactionDisabled = errors.New("compaction is disabled (compaction.enabled)")
+var ErrCompactionDisabled = errors.New("compaction is disabled (compaction.enable)")
 
 // CompactionResult reports what a successful compaction did.
 type CompactionResult struct {
@@ -166,7 +166,7 @@ func (a *Agent) runCompactCommand(ctx context.Context, instructions, rawCommand 
 	case errors.Is(err, ErrNothingToCompact):
 		text = "Nothing to compact: there is no earlier conversation to summarize yet."
 	case errors.Is(err, ErrCompactionDisabled):
-		text = "Compaction is disabled in the configuration (compaction.enabled: false)."
+		text = "Compaction is disabled in the configuration (compaction.enable: false)."
 	case err != nil:
 		return string(acp.StopReasonRefused), err
 	default:

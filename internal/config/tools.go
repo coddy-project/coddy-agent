@@ -48,7 +48,7 @@ type ToolBackground struct {
 	// Enabled exposes the background option on run_command and the background
 	// task tools. Unset means enabled; set it to false to keep every command in
 	// the foreground.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enable"`
 
 	// MaxConcurrent is how many background tasks one session may run at once.
 	MaxConcurrent int `yaml:"max_concurrent"`

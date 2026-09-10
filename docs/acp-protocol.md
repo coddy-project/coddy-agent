@@ -289,7 +289,7 @@ When the process is started with a writable sessions root (default **`$CODDY_HOM
 - `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
 - `plans/<slug>.plan.md` - design plan files (YAML frontmatter + markdown body), written in plan mode via **`plan_write`**
 
-The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy http`** open a **`FileStore`** at startup).
+The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy serve`** open a **`FileStore`** at startup).
 
 ### Design plans (plan mode)
 
@@ -368,7 +368,7 @@ Cancel an ongoing prompt turn (notification).
 }
 ```
 
-For a writable session bundle, Coddy also writes a small on-disk cancel signal so another **`coddy`** process (for example **`coddy http`** while **`coddy acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
+For a writable session bundle, Coddy also writes a small on-disk cancel signal so another **`coddy`** process (for example **`coddy serve`** while **`coddy acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
 
 ### `session/set_mode`
 
@@ -551,7 +551,7 @@ false`); such a row is never read and the update is never sent for it.
 
 ### `memory_phase` - Memory copilot phase boundary
 
-When `memory.enabled` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
+When `memory.enable` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
 
 Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`coddy_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
 

@@ -296,7 +296,7 @@ func initializeStreamToggleE2EScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a coddy gateway whose agent model is backed by a stub server that refuses streaming requests$`, s.startServer)
+	sc.Step(`^a coddy server whose agent model is backed by a stub server that refuses streaming requests$`, s.startServer)
 	sc.Step(`^a client sends a streaming prompt over POST /v1/responses$`, s.sendStreamingPrompt)
 	sc.Step(`^the stub server received only non-streaming chat completion requests$`, s.backendSawOnlyBlockingRequests)
 	sc.Step(`^the client received the answer over SSE$`, s.clientReceivedTheAnswerOverSSE)

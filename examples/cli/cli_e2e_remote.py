@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""CLI e2e: --remote points the console at a bearer-protected coddy http server.
+"""CLI e2e: --remote points the console at a bearer-protected coddy serve server.
 
-Boots ``coddy http`` with --auth-token from the same binary, then proves:
+Boots ``coddy serve`` with --auth-token from the same binary, then proves:
 - a one-shot ``-p`` run through --remote streams the answer and persists the
   session on the server, never in the client home;
 - a wrong token fails with the unauthorized hint;
@@ -49,7 +49,7 @@ def wait_models(base: str, token: str, timeout: float = 45.0) -> None:
         except Exception as exc:  # noqa: BLE001 - connection refused while booting
             last = str(exc)
         time.sleep(0.3)
-    raise SystemExit(f"coddy http did not come up: {last}")
+    raise SystemExit(f"coddy serve did not come up: {last}")
 
 
 def session_dirs(home: Path) -> set[str]:
@@ -108,7 +108,7 @@ def main() -> int:
     env = dict(os.environ)
     env["CODDY_HOME"] = str(server_home)
     server = subprocess.Popen(
-        [coddy_bin(), "http", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token],
+        [coddy_bin(), "serve", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token],
         cwd=str(server_work),
         env=env,
         stdout=subprocess.DEVNULL,

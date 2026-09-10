@@ -23,4 +23,4 @@ func mountSPARoot(s *Server) {
 	}))
 }
 
-const uiDisabledResponse = "Coddy swarm relay is running with the embedded web UI disabled (ui.enabled: false).\n"
+const uiDisabledResponse = "Coddy swarm relay is running with the embedded web UI disabled (ui.enable: false).\n"

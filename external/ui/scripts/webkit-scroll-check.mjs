@@ -5,7 +5,7 @@
  * Safari bugs are hard to act on without a Mac, but Playwright ships the same
  * WebKit build Safari is cut from (`playwright install webkit` pulls WebKit
  * 26.x for Safari 26.x), so a Linux box can reproduce them. This harness drives
- * a running `coddy http` server and asserts the invariants a scrollable dialog
+ * a running `coddy serve` server and asserts the invariants a scrollable dialog
  * has to keep on a short window.
  *
  * Usage, from external/ui:

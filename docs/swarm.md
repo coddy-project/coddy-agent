@@ -6,16 +6,17 @@ their session lists into one. It stores nothing of its own, so what it reports i
 live view of what the nodes told it.
 
 Built with `-tags swarm`, which is part of the shipped set (`FULL_TAGS` in the **Makefile**), so
-the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry
-`coddy swarm`. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm"`.
+the release binaries, the Docker image, the Linux packages and the Homebrew formula all carry the
+relay. Build it yourself with `make build TAGS="http ui scheduler memory cli gateway swarm"`.
 
-A binary built without the tag still works: `coddy swarm` prints the usual "not built in" message,
-the agent-side join hook is a stub that starts no goroutine and opens no connection, and the binary
-behaves exactly as it did before the feature existed.
+The relay is not a command of its own: `coddy serve` runs it when `swarm.enable` is true, next to
+whatever else the configuration enables. A binary built without the tag refuses `swarm.enable` at
+startup and names the tag; the agent-side join hook is a stub that starts no goroutine and opens no
+connection, and the binary otherwise behaves exactly as it did before the feature existed.
 
 ## Why
 
-Running `coddy http` on several machines already works, and `--remote` already drives one of
+Running `coddy serve` on several machines already works, and `--remote` already drives one of
 them. What it does not give you is one place to see everything, or a way in when the machine
 you want is somewhere you cannot dial.
 
@@ -45,10 +46,18 @@ connection.
 
 ## Running one
 
-```bash
+```yaml
 # a relay
-coddy swarm --auth-token "$CLIENT_TOKEN" --pairing-token "$PAIRING_TOKEN"
+swarm:
+  enable: true
 ```
+
+```bash
+coddy serve --swarm-auth-token "$CLIENT_TOKEN" --swarm-pairing-token "$PAIRING_TOKEN"
+```
+
+A relay that should do nothing else adds `--http=false`. One that is also an ordinary agent leaves
+the API on, and then serves both: its own sessions on `httpserver.port`, the fleet on `swarm.port`.
 
 A node joins by listing the relay in its own configuration:
 
@@ -62,7 +71,8 @@ swarm:
       token: "${NODE_OWN_TOKEN}"           # what the relay presents when it proxies
 ```
 
-Both `coddy http` and `coddy swarm` honour `swarm.join`, which is how relays chain.
+`swarm.join` is honoured by every `coddy serve` process, whether or not it runs a relay of its
+own. That symmetry is how relays chain.
 
 ## Two transports
 
@@ -219,8 +229,9 @@ opened from any node and pointed at the relay.
 
 | What | Where |
 |---|---|
-| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or `coddy swarm` flags |
-| Which relays this process joins | `swarm.join` in `config.yaml` - honoured by `coddy http` and `coddy swarm` alike |
+| Whether this process relays at all | `swarm.enable` in `config.yaml`, or `--swarm` / `--swarm=false` |
+| Relay's own deployment: bind address, client and pairing tokens, TLS, static upstreams | `swarm:` in `config.yaml`, or the `--swarm-*` flags |
+| Which relays this process joins | `swarm.join` in `config.yaml` - honoured whether or not this process relays |
 | Relays offered in the UI environment menu | `httpserver.remotes` (name and URL only; tokens stay in the browser) |
 | Credentials out of the file | `CODDY_SWARM_TOKEN`, `CODDY_SWARM_PAIRING_TOKEN`, `--auth-token`, `--pairing-token` |
 
@@ -309,7 +320,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
 
 ## Reference
 
-- `coddy swarm --help` - flags.
+- `coddy serve --help` - flags.
 - `docs/config-reference.md` - the `swarm:` block.
 - `features/swarm_*.feature` - the executable specifications.
 - `examples/swarm/` - a live stand: relays, agents, a ring, and a node that only dials out.

@@ -11,7 +11,7 @@ import (
 
 // backend is the session surface the console runs against: the in-process
 // *session.Manager, or *remote.Handler when --remote points the console at a
-// remote coddy http server. Both expose the same handler methods, so every
+// remote coddy serve server. Both expose the same handler methods, so every
 // console feature works identically in either mode; remote-specific
 // degradations are encoded in the nil returns (SessionByID, FileStore).
 type backend interface {

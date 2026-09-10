@@ -40,7 +40,7 @@ const (
 
 // TelegramGatewayConfig configures the Telegram bot adapter.
 type TelegramGatewayConfig struct {
-	Enabled bool   `yaml:"enabled"`
+	Enabled bool   `yaml:"enable"`
 	Token   string `yaml:"token"`
 
 	// Proxy is an optional outbound proxy for Telegram API requests.

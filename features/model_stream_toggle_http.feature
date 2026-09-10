@@ -5,7 +5,7 @@ Feature: The HTTP gateway serves a non-streaming model end to end
   the session transcript is written exactly as it is for a streamed model.
 
   Scenario: A ReAct turn on a non-streaming model streams to the client and runs its tools
-    Given a coddy gateway whose agent model is backed by a stub server that refuses streaming requests
+    Given a coddy server whose agent model is backed by a stub server that refuses streaming requests
     When a client sends a streaming prompt over POST /v1/responses
     Then the stub server received only non-streaming chat completion requests
     And the client received the answer over SSE
