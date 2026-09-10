@@ -81,12 +81,14 @@ coddy serve 1.0.19 is running
   since   2026-09-10T11:26:03+03:00
   config  /home/you/.coddy/config.yaml
   log     /home/you/.coddy/logs/serve.log
-  args    -H 0.0.0.0 --swarm
+  args    -H=0.0.0.0 -swarm=true
   worker  4713
 ```
 
 `restart` brings the daemon back with the arguments the record kept, so a daemon started
-with `-H 0.0.0.0 --swarm` comes back as that daemon rather than as a default one.
+with `-H 0.0.0.0 --swarm` comes back as that daemon rather than as a default one. They
+are recorded in their canonical `-name=value` form, which is why `status` shows them
+that way rather than as they were typed.
 
 `stop` stops the worker first and gives it up to 30 seconds to finish what it is doing,
 so a turn that is still generating is not cut off mid-sentence.
@@ -110,6 +112,11 @@ What happens next depends on what moved:
 | the Telegram token, the scheduler's directory or timeout | that subsystem alone is rebuilt in place |
 | a subsystem's `enable` | it is started or stopped |
 | a listen address (`httpserver.host` / `port`, `swarm.host` / `port`) | under a dispatcher the process restarts on the new address; in the foreground it is logged as needing a restart |
+
+Everything else a surface reads once when it is constructed - the relay's own
+credentials and TLS, the `swarm.join` registrations - still needs a restart you ask for,
+`coddy serve restart` or Ctrl-C and up again. Only the address is picked up on its own,
+because it is the one an operator changes from the screen that the address is serving.
 
 A file that is unparsable, or gone for a moment while an editor writes it, leaves the
 running configuration alone and is reported in the log. Comments and key order are not
