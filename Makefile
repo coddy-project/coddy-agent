@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check
+.PHONY: build build-acp test test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -125,6 +125,16 @@ brew-formula:
 
 brew-check:
 	scripts/check-homebrew-submission.sh --version "$(VERSION)"
+
+# Publish docs/config.schema.json to the site repository, which serves it at
+# coddy.dev/config.schema.json - the address Coddy writes into every config it
+# saves. Point SITE_REPO at your checkout if it is not beside this one.
+# site-schema-check reports drift without writing (for a pre-push look).
+site-schema:
+	scripts/sync-site-schema.sh
+
+site-schema-check:
+	CHECK=1 scripts/sync-site-schema.sh
 
 # Test the project plugin that attaches Cursor rules to OpenCode sessions.
 test-opencode-rules:

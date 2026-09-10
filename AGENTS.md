@@ -48,6 +48,8 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 
 Human prose for HTTP lives in **`docs/http-api.md`**. Visual spec for SPA lives in **`DESIGN.md`** (this repo root). Architectural narrative remains under **`docs/architecture.md`**.
 
+**`docs/config.schema.json`** leaves this repository: it is served at **`https://coddy.dev/config.schema.json`**, the address Coddy writes as a modeline into every config it saves, out of the site repository **`coddy-project.github.io`** as a verbatim copy. Touching the YAML config surface means **`make site-schema`** (and **`make site-schema-check`** to see whether the published copy is stale) - a schema that stops here leaves every editor validating against one the binary no longer matches. Hold the site push until the release when a key was renamed or removed: the schema sets **`additionalProperties: false`**, so the new file marks the old key as an error in configs already on disk. Full step: **`.claude/rules/workflow.md`**.
+
 All **code comments** plus **technical markdown authored for this repo** (including `docs/`, `DESIGN.md`, `AGENTS.md`) stay **English** unless an operator explicitly asks for another natural language.
 
 ## Codex, OpenCode, Cursor and ZCode rules
