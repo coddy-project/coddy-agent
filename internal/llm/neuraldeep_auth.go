@@ -48,15 +48,28 @@ const (
 	// hub's client allowlist; a hub that predates it silently falls back to
 	// the "coddy-cli" key name in the browser flow.
 	NeuralDeepClientID = "coddy"
-
-	neuralDeepLoginTimeout = 15 * time.Minute
 )
 
+// neuralDeepLoginTimeout bounds a sign-in wait. A variable, not a constant, so
+// a test can shrink a wait that would otherwise outlive `go test`'s own
+// timeout and take the whole package down with it.
+var neuralDeepLoginTimeout = 15 * time.Minute
+
+// SetNeuralDeepLoginTimeout replaces that deadline and returns the call that
+// restores it. Test-only seam: the CLI harnesses live in another package and
+// drive a whole sign-in, so a stuck flow would otherwise outlast `go test`.
+func SetNeuralDeepLoginTimeout(d time.Duration) func() {
+	prev := neuralDeepLoginTimeout
+	neuralDeepLoginTimeout = d
+	return func() { neuralDeepLoginTimeout = prev }
+}
+
 // Poll pacing for the device flow. Variables so tests can shrink the delays;
-// production keeps RFC-friendly values. The floor guards against a hub that
-// answers interval <= 0, which would otherwise busy-loop the poller.
+// production keeps RFC-friendly values. A hub that names no interval gets the
+// RFC default; the floor bounds one that asks for something smaller.
 var (
 	neuralDeepPollFloor    = time.Second
+	neuralDeepPollDefault  = 5 * time.Second
 	neuralDeepSlowDownStep = 5 * time.Second
 )
 
@@ -468,6 +481,14 @@ func StartNeuralDeepDeviceLogin(ctx context.Context, hub string, hc *http.Client
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// The hub throttles sign-in starts. This is the first thing a login
+		// does, so the raw status would be the whole user-facing message.
+		if wait := parseUsageRetryAfter(resp.Header.Get("Retry-After")); wait > 0 {
+			return nil, fmt.Errorf("neuraldeep auth: the hub is rate limiting sign-ins; try again in %s", wait.Round(time.Second))
+		}
+		return nil, errors.New("neuraldeep auth: the hub is rate limiting sign-ins; try again in a minute")
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, neuralDeepHTTPError("device start", resp)
 	}
@@ -525,6 +546,12 @@ func PollNeuralDeepDeviceToken(ctx context.Context, hub string, hc *http.Client,
 			return "", false, errors.New("neuraldeep auth: device token response had no access_token")
 		}
 		return ok.AccessToken, false, nil
+	}
+	// A hub that throttles polling is asking for a wider interval, which is
+	// what slow_down means in RFC 8628. Failing the login here would throw
+	// away a confirmation the user may be about to give.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", true, nil
 	}
 	var rfcErr struct {
 		Error string `json:"error"`
@@ -590,7 +617,13 @@ func CompleteNeuralDeepDeviceLoginWith(ctx context.Context, hub string, hc *http
 	}
 	ctx, cancel := context.WithTimeout(ctx, deadline)
 	defer cancel()
-	interval := max(time.Duration(login.Interval)*time.Second, neuralDeepPollFloor)
+	// RFC 8628 §3.5 puts the default at five seconds. A hub that names no
+	// interval used to be polled at the floor instead, which is 900 requests
+	// over a fifteen-minute wait now that this flow is every terminal login.
+	interval := neuralDeepPollDefault
+	if login.Interval > 0 {
+		interval = max(time.Duration(login.Interval)*time.Second, neuralDeepPollFloor)
+	}
 	for {
 		key, slowDown, err := PollNeuralDeepDeviceToken(ctx, hub, hc, login.DeviceCode)
 		if err != nil {
