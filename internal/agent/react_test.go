@@ -2086,3 +2086,142 @@ func TestNewAgentTagsItsLoggerWithTheAgentComponent(t *testing.T) {
 		t.Fatalf("component = %v, want %q", got, logger.ComponentAgent)
 	}
 }
+
+// silentLaneProvider never emits a chunk and returns only when the caller gives
+// up, the way a provider behaves against an upstream that accepts the request
+// and then sends nothing.
+type silentLaneProvider struct{ calls int }
+
+func (p *silentLaneProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *silentLaneProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDefinition, _ func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestFirstTokenGuardGivesUpAfterItsRetryBudget keeps the replay bounded: a lane
+// where every member is mute must still end the turn with the notice, not sit in
+// a retry loop until max_turns.
+func TestFirstTokenGuardGivesUpAfterItsRetryBudget(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_silent_lane",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &silentLaneProvider{}
+	ms := 100
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LLMFirstTokenTimeoutMS: &ms},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	stop, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}})
+	if err == nil || !strings.Contains(err.Error(), "did not respond") {
+		t.Fatalf("want the silence notice, got stop %q err %v", stop, err)
+	}
+	if stop != string(acp.StopReasonRefused) {
+		t.Fatalf("stop = %q, want refused", stop)
+	}
+	if want := maxFirstTokenRetries + 1; provider.calls != want {
+		t.Fatalf("provider called %d times, want %d (the first attempt plus its replays)", provider.calls, want)
+	}
+}
+
+// emptyThenNudgedProvider records what it was sent so a test can tell the plain
+// replay from the nudge that follows it.
+type emptyThenNudgedProvider struct {
+	calls int
+	seen  [][]llm.Message
+}
+
+func (p *emptyThenNudgedProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return nil, nil
+}
+
+func (p *emptyThenNudgedProvider) Stream(_ context.Context, messages []llm.Message, _ []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	p.calls++
+	p.seen = append(p.seen, append([]llm.Message(nil), messages...))
+	onChunk(llm.StreamChunk{ReasoningDelta: `We should read the file.{"path":"main.go"}`})
+	return &llm.Response{Content: "", StopReason: "end_turn"}, nil
+}
+
+// TestEmptyTurnNudgesOnlyAfterTheReplayDidNotHelp fixes the order of the two
+// recoveries: the identical request goes out first (a sick deployment answers
+// differently on the next draw), and only then is the model argued with. It also
+// pins the total, so neither recovery is skipped or doubled.
+func TestEmptyTurnNudgesOnlyAfterTheReplayDidNotHelp(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_empty_then_nudge",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &emptyThenNudgedProvider{}
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}}); err == nil {
+		t.Fatal("expected the no-reply notice once every recovery was spent")
+	}
+
+	if want := 1 + maxEmptyAssistantReissues + maxEmptyAssistantContinuations; provider.calls != want {
+		t.Fatalf("provider called %d times, want %d (first attempt, replays, nudges)", provider.calls, want)
+	}
+	carriesNudge := func(msgs []llm.Message) bool {
+		for _, m := range msgs {
+			if strings.Contains(m.Content, emptyAssistantContinuationNudge) {
+				return true
+			}
+		}
+		return false
+	}
+	if carriesNudge(provider.seen[1]) {
+		t.Fatal("the first recovery was a nudge; the plain replay must come first")
+	}
+	if len(provider.seen[1]) != len(provider.seen[0]) {
+		t.Fatalf("the replay is not the original request: %d messages vs %d",
+			len(provider.seen[1]), len(provider.seen[0]))
+	}
+	if !carriesNudge(provider.seen[2]) {
+		t.Fatal("the second recovery is not the nudge")
+	}
+}
+
+// TestFirstTokenGuardDoesNotReplayAfterOutput keeps the replay to the case it is
+// safe in: once reasoning has reached the client, re-issuing would stream it a
+// second time, so the turn must take the ordinary path instead.
+func TestFirstTokenGuardDoesNotReplayAfterOutput(t *testing.T) {
+	st := &session.State{
+		ID:         "sess_reasoned_then_silent",
+		CWD:        t.TempDir(),
+		Mode:       session.ModeAgent,
+		SessionDir: t.TempDir(),
+	}
+	provider := &emptyThenNudgedProvider{}
+	ms := 100
+	ag := NewAgent(&config.Config{
+		Providers: []config.ProviderConfig{{Name: "fake", Type: "openai", APIKey: "test"}},
+		Models:    []config.ModelEntry{{Model: "fake/model", MaxTokens: 100}},
+		Agent:     config.Agent{Model: "fake/model", MaxTurns: 20, LLMFirstTokenTimeoutMS: &ms},
+	}, st, resumePermissionSender{}, nil)
+	ag.providerFactory = func(llm.ProviderInput) (llm.Provider, error) { return provider, nil }
+
+	if _, err := ag.Run(context.Background(), []acp.ContentBlock{{Type: "text", Text: "do the thing"}}); err == nil {
+		t.Fatal("expected the no-reply notice")
+	}
+	// Every call produced reasoning, so only the empty-turn budgets applied; the
+	// first-token replay must not have added calls of its own.
+	if want := 1 + maxEmptyAssistantReissues + maxEmptyAssistantContinuations; provider.calls != want {
+		t.Fatalf("provider called %d times, want %d", provider.calls, want)
+	}
+}

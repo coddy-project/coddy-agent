@@ -291,7 +291,30 @@ func providersListLines(cfg *config.Config) []string {
 		prov := &cfg.Providers[i]
 		lines = append(lines, "  "+prov.Name+" ("+prov.Type+"): "+providerCredentialSummary(cfg, prov)+neuralDeepEndpointNote(prov))
 	}
+	for i := range cfg.Providers {
+		if w := providerAimWarning(&cfg.Providers[i]); w != "" {
+			lines = append(lines, w)
+		}
+	}
 	return lines
+}
+
+// providerAimWarning reports a provider that is aimed at the official OpenAI
+// endpoint by omission and cannot authenticate there. The configuration is
+// legal - it is what a real OpenAI user writes - so this is a warning and not
+// an error, but left alone every request ends in a 401 whose text says nothing
+// about which provider sent it. `config.example.yaml` ships exactly this shape,
+// so the warning is what a first run reads instead of a bare 401.
+func providerAimWarning(prov *config.ProviderConfig) string {
+	if prov.Type != "openai" || strings.TrimSpace(prov.APIBase) != "" {
+		return ""
+	}
+	if explicitKeySource(prov) != "" {
+		return ""
+	}
+	return "  ! " + prov.Name + ": no api_base, so requests go to " + llm.OpenAIDefaultAPIBase() +
+		", and no credential is configured; set api_base to your own endpoint, or provide a key via api_key, api_key_command or " +
+		config.ProviderAPIKeyEnvVarName(prov.Name)
 }
 
 // neuralDeepEndpointNote names the deployment when a row is not on the default

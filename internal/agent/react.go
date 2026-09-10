@@ -305,6 +305,22 @@ func (a *Agent) Run(ctx context.Context, prompt []acp.ContentBlock) (string, err
 // preventing an unbounded empty-turn loop.
 const maxEmptyAssistantContinuations = 2
 
+// maxEmptyAssistantReissues bounds how many times an empty turn is answered by
+// replaying the identical request before the model is talked to in words. One
+// model name at a proxy is usually a group of interchangeable deployments, and
+// a member that returns reasoning with neither text nor a tool call fails that
+// way per attempt: the replay lands on another member and comes back with the
+// tool call the first one lost. Only after that is the model itself nudged,
+// which is the recovery that helps when the model, not the lane, is at fault.
+const maxEmptyAssistantReissues = 1
+
+// maxFirstTokenRetries bounds how many times a streamed call the first-token
+// guard cut with nothing produced is re-issued before the turn gives up. Same
+// reasoning as maxEmptyAssistantReissues, and safe by construction: the cut
+// call emitted no chunk to the client and appended no message, so the replay
+// cannot show or store anything twice.
+const maxFirstTokenRetries = 1
+
 // emptyAssistantContinuationNudge is injected into the LLM-facing message slice (never
 // persisted to the transcript) to prompt the model to produce its answer or a tool call
 // after an empty turn.
@@ -349,6 +365,10 @@ func (a *Agent) runReActLoop(
 	var turnIndex int
 	var lastStatsWrite time.Time
 	var emptyContinuations int
+	// Replays of a request the lane, not the model, failed to answer. Both are
+	// reset alongside emptyContinuations once the model makes progress.
+	var emptyReissues int
+	var firstTokenRetries int
 	// Tracks whether any visible answer text was streamed to the user during this
 	// turn, so an all-reasoning turn that never answers surfaces a notice instead
 	// of dead-ending silently.
@@ -569,6 +589,17 @@ func (a *Agent) runReActLoop(
 			hasAnyOutput := response != nil && (strings.TrimSpace(response.Content) != "" ||
 				len(response.ToolCalls) > 0 || strings.TrimSpace(reasoningBuf.String()) != "")
 			if !hasAnyOutput {
+				// Nothing was emitted and nothing was appended, so the identical
+				// request can go out again: behind one model name there is often a
+				// group of deployments, and the silent one is not the whole lane.
+				// The iteration is repeated, not counted, like the wait on a limit.
+				if firstTokenRetries < maxFirstTokenRetries {
+					firstTokenRetries++
+					a.log.Warn("no first token from the model; re-issuing the same request",
+						"timeout", firstTokenTimeout, "attempt", firstTokenRetries)
+					turn--
+					continue
+				}
 				return string(acp.StopReasonRefused), fmt.Errorf("model did not respond (no output within %v)", firstTokenTimeout)
 			}
 		}
@@ -728,6 +759,19 @@ func (a *Agent) runReActLoop(
 		// Returning here would dead-end the conversation on a lone "thinking" bubble, so
 		// re-prompt the model a bounded number of times before giving up.
 		if len(response.ToolCalls) == 0 {
+			// First recovery is the plain replay: drop the empty turn from the
+			// LLM-facing slice so the request going out is byte for byte the one
+			// that failed, and let the proxy hand it to another deployment. The
+			// transcript keeps that turn, because the user watched its reasoning
+			// stream in. Words come next, once a replay has not helped.
+			if strings.TrimSpace(response.Content) == "" && emptyReissues < maxEmptyAssistantReissues &&
+				len(messages) > 0 && messages[len(messages)-1].Role == llm.RoleAssistant {
+				emptyReissues++
+				messages = messages[:len(messages)-1]
+				a.log.Warn("model answered with no text and no tool call; re-issuing the same request",
+					"attempt", emptyReissues)
+				continue
+			}
 			if strings.TrimSpace(response.Content) == "" && emptyContinuations < maxEmptyAssistantContinuations {
 				emptyContinuations++
 				// LLM-facing only; never persisted to the transcript.
@@ -850,8 +894,11 @@ func (a *Agent) runReActLoop(
 		// counter. The give-up notice is for CONSECUTIVE stalls (no answer and no
 		// tool call), not for a slow multi-step task that keeps acting between
 		// reasoning-only thoughts — otherwise a model that alternates thinking and
-		// tool calls (gpt-oss / harmony) is abandoned mid-task.
+		// tool calls (gpt-oss / harmony) is abandoned mid-task. The replay budgets
+		// follow the same rule: a lane that answered once earns a fresh one.
 		emptyContinuations = 0
+		emptyReissues = 0
+		firstTokenRetries = 0
 	}
 
 	return string(acp.StopReasonMaxTurns), nil
@@ -1533,6 +1580,7 @@ func (a *Agent) turnProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 
 func (a *Agent) llmProviderInput(rm *config.ResolvedLLM) llm.ProviderInput {
 	return llm.WithAgentResilience(llm.ProviderInput{
+		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,

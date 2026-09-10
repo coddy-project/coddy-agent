@@ -154,6 +154,16 @@ messages: [
    - Either case first nudges the model to change course, up to **`loop_nudge_max`**
      times, then -> DONE (stopReason: agent_refused) with a notice.
 
+   Lane replays run before any of that, because one model name at a proxy is
+   usually a group of deployments and a sick member fails per attempt:
+   - A streamed call the first-token guard cut with **nothing produced** is
+     re-issued once, and that iteration is not counted against **`max_turns`**.
+   - A turn with neither answer text nor a tool call is re-issued once as the
+     identical request (the empty turn is dropped from the LLM-facing messages,
+     but kept in the transcript). The wording nudge follows only if the replay
+     came back empty too, and the **`agent_refused`** notice only after that.
+   - Both budgets reset as soon as the model makes progress.
+
 7. FINAL_RESPONSE
    - Send session/prompt response with stopReason
 ```
