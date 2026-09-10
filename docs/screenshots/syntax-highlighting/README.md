@@ -38,3 +38,14 @@ The `postcss` follow-up uses the same running components and stylesheet on both 
 | light, 1280px | ![PostCSS before](postcss-before-light-1280.png) | ![PostCSS after](postcss-after-light-1280.png) |
 | dark, 390px | ![PostCSS before](postcss-before-dark-390.png) | ![PostCSS after](postcss-after-dark-390.png) |
 | light, 390px | ![PostCSS before](postcss-before-light-390.png) | ![PostCSS after](postcss-after-light-390.png) |
+
+## Vue language alias regression
+
+The Vue follow-up captures real component markup with a bound attribute, comments, script setup, and scoped CSS. Before disables only the Vue alias; after enables it. Standard JavaScript and CSS inside script/style tags are highlighted. Vue expressions and alternative language preprocessors do not have dedicated parsers.
+
+| View | Before | After |
+| --- | --- | --- |
+| dark, 1280px | ![Vue before](vue-before-dark-1280.png) | ![Vue after](vue-after-dark-1280.png) |
+| light, 1280px | ![Vue before](vue-before-light-1280.png) | ![Vue after](vue-after-light-1280.png) |
+| dark, 390px | ![Vue before](vue-before-dark-390.png) | ![Vue after](vue-after-dark-390.png) |
+| light, 390px | ![Vue before](vue-before-light-390.png) | ![Vue after](vue-after-light-390.png) |

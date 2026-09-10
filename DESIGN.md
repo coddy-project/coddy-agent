@@ -576,6 +576,7 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 
 - **`coddy-skill:`** chips appear only in the **composer mirror** while editing, not in persisted user bubbles.
 - Render fenced code blocks with syntax highlighting.
+- Treat `vue` as an HTML/XML grammar alias for component tags, attributes, and comments, with standard embedded JavaScript and CSS highlighting. This is not a Vue compiler: interpolation expressions and alternative `lang` preprocessors do not receive dedicated grammars.
 - Treat the `postcss` fence label as a CSS grammar alias; retain the original label and source for rendering and copying. Plugin-specific PostCSS extensions have CSS-level highlighting only.
 - Use the declared fence language (`js` / `javascript`, `ts`, `css`, `html`, `json`, `python`, `go`, and other bundled highlight.js common languages). Unknown or unlabelled fences remain literal text without language guessing; incomplete streamed fences still render safely.
 - Syntax colors use the `--syntax-*` semantic palette in each of the seven appearance themes. Keywords, strings, numbers, titles, attributes/selectors, types, comments, metadata, and deletions follow the active theme immediately, including already-rendered responses. Keep token selectors scoped to `.md-code`.

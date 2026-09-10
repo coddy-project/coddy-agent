@@ -25,6 +25,11 @@ test.each([
   ["javascript", 'const message = "hello";', ".hljs-string"],
   ["css", ".card { color: red; }", ".hljs-attribute"],
   ["postcss", ".table-wrapper { display: flex; }", ".hljs-attribute"],
+  [
+    "vue",
+    '<!-- before --> <VirtualCheckboxGroup :container-height="60" />',
+    ".hljs-name",
+  ],
   ["html", '<div class="card">Hello</div>', ".hljs-attr"],
   ["json", '{"enabled": true}', ".hljs-attr"],
   ["ts", "const count: number = 42;", ".hljs-number"],
@@ -84,6 +89,37 @@ test("postcss fences highlight CSS tokens and copy the original source", async (
   expect(code?.querySelector(".hljs-comment")?.textContent).toBe(
     "/* container */",
   );
+  fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
+});
+
+test("vue fences highlight markup and embedded JavaScript and CSS without executing them", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  const source = [
+    '<template><!-- before --><VirtualCheckboxGroup :container-height="60" /></template>',
+    '<script setup>const message = "hello";</script>',
+    "<style scoped>.table-wrapper { display: flex; }</style>",
+  ].join("\n");
+  const { container, rerender } = render(
+    <Markdown text={`\`\`\`vue\n${source}`} />,
+  );
+  expect(container.querySelector(".hljs-name")?.textContent).toBe("template");
+  rerender(<Markdown text={`\`\`\`vue\n${source}\n\`\`\``} />);
+  const code = container.querySelector("pre code.language-vue");
+  expect(code?.querySelector(".hljs-comment")?.textContent).toBe(
+    "<!-- before -->",
+  );
+  expect(code?.querySelector(".hljs-attr")?.textContent).toBe(
+    ":container-height",
+  );
+  expect(
+    code?.querySelector(".hljs-keyword")?.textContent,
+  ).toBe("const");
+  expect(
+    code?.querySelector(".hljs-attribute")?.textContent,
+  ).toBe("display");
+  expect(code?.querySelector("script, style, template")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
   await waitFor(() => expect(writeText).toHaveBeenCalledWith(source));
 });
