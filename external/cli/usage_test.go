@@ -636,3 +636,46 @@ func TestUnsupportedUpdateClearsTheActiveProvidersLine(t *testing.T) {
 		t.Fatal("a foreign row's unsupported answer must not blank the active line")
 	}
 }
+
+// A model the account may not call while everything else on the key answers.
+// 10.09.26: the hub refused every kimi-k2.6 request with a 429 for a month
+// ahead, and the footer read "Pro • 3h 3% • week 7%" - green, because the
+// account decision was green and only the model was gated.
+func TestUsageFooterNamesAModelBlockedOnAGreenAccount(t *testing.T) {
+	th := newTheme("dark")
+	u := usageFixtureUpdate()
+	u.BlockedModels = []acp.UsageBlockedModel{{
+		Model: "kimi-k2.6", Blocker: "kimi_budget_exhausted",
+		RetryAt: "2026-10-09T20:15:41Z", RetryInSec: 2860119,
+	}}
+
+	segs := usageFooterSegments(u, "neuraldeep/kimi-k2.6", usageNow)
+	got := plain(renderUsageLine(th, segs, 120))
+	if !strings.Contains(got, "kimi-k2.6 blocked") || !strings.Contains(got, "Oct 9") {
+		t.Fatalf("selected model is refused, the footer must say so: %q", got)
+	}
+	if segs[1].role != roleError {
+		t.Fatalf("blocked model segment role = %q", segs[1].role)
+	}
+
+	// Another model on the same key is unaffected: the account is fine.
+	other := plain(renderUsageLine(th, usageFooterSegments(u, "neuraldeep/qwen3.8-27b", usageNow), 120))
+	if strings.Contains(other, "blocked") {
+		t.Fatalf("a model gate must not colour a model it does not cover: %q", other)
+	}
+}
+
+func TestModelBlockedMatchesTheSelectorSuffixOnly(t *testing.T) {
+	u := &acp.ProviderUsageUpdate{BlockedModels: []acp.UsageBlockedModel{
+		{Model: "Kimi-K2.6", Blocker: "kimi_budget_exhausted"},
+	}}
+	if b := modelBlocked(u, "neuraldeep/kimi-k2.6"); b == nil {
+		t.Fatal("model ids are compared case-insensitively, as unlimitedModels are")
+	}
+	if b := modelBlocked(u, "neuraldeep/qwen3.8-27b"); b != nil {
+		t.Fatalf("unrelated model matched: %+v", b)
+	}
+	if b := modelBlocked(nil, "neuraldeep/kimi-k2.6"); b != nil {
+		t.Fatalf("no snapshot, no verdict: %+v", b)
+	}
+}

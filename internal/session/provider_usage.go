@@ -836,6 +836,22 @@ func mapNeuralDeepUsage(u *llm.NeuralDeepUsage, providerName string, fetchedAt t
 			}
 		}
 	}
+	for _, b := range u.BlockedModels {
+		model := strings.TrimSpace(b.Model)
+		if model == "" {
+			// A nameless entry blocks nothing a client could match; carrying
+			// it would only widen a banner over a model no one named.
+			continue
+		}
+		row := acp.UsageBlockedModel{Model: model, Blocker: strings.TrimSpace(b.Blocker)}
+		if at, err := time.Parse(time.RFC3339, strings.TrimSpace(b.ResetsAt)); err == nil {
+			row.RetryAt = at.UTC().Format(time.RFC3339)
+		}
+		if b.ResetInSec != nil && *b.ResetInSec > 0 {
+			row.RetryInSec = *b.ResetInSec
+		}
+		out.BlockedModels = append(out.BlockedModels, row)
+	}
 	out.Blocked = !u.Decision.CanRequest
 	for _, b := range u.Decision.Blockers {
 		if b = strings.TrimSpace(b); b != "" {

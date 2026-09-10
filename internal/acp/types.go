@@ -460,6 +460,12 @@ type ProviderUsageUpdate struct {
 	// of its model selector after the first slash with this list.
 	Unlimited       bool     `json:"unlimited,omitempty"`
 	UnlimitedModels []string `json:"unlimitedModels,omitempty"`
+	// BlockedModels lists upstream model ids the key may not call now, with
+	// the reason and when the gate lifts. Unlike Blocked, which speaks for
+	// the whole chat class, these gates cover part of the catalogue: the
+	// account keeps answering for every other model, so a client must check
+	// the list against its own selector rather than read Blocked alone.
+	BlockedModels []UsageBlockedModel `json:"blockedModels,omitempty"`
 	// Stale marks windows carried over from an earlier successful fetch
 	// because the latest one failed (see Error).
 	Stale bool `json:"stale,omitempty"`
@@ -512,6 +518,17 @@ type UsageRate struct {
 	Limit      int `json:"limit"`
 	Remaining  int `json:"remaining"`
 	ResetInSec int `json:"resetInSec"`
+}
+
+// UsageBlockedModel is one model refused right now while the account itself
+// is fine: the provider's own reason and the moment it lifts.
+type UsageBlockedModel struct {
+	Model   string `json:"model"`
+	Blocker string `json:"blocker,omitempty"`
+	// RetryAt is when the gate lifts (provider clock); RetryInSec the same
+	// as a relative duration.
+	RetryAt    string `json:"retryAt,omitempty"`
+	RetryInSec int    `json:"retryInSec,omitempty"`
 }
 
 // UsageWallet is the account's own money on the provider, in rubles. The

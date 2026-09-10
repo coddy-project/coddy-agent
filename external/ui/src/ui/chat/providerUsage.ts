@@ -19,6 +19,13 @@ export type UsageWindow = {
   resetInSec?: number;
 };
 
+export type UsageBlockedModel = {
+  model: string;
+  blocker?: string;
+  retryAt?: string;
+  retryInSec?: number;
+};
+
 export type ProviderUsage = {
   sessionUpdate?: string;
   provider: string;
@@ -37,6 +44,10 @@ export type ProviderUsage = {
   retryInSec?: number;
   unlimited?: boolean;
   unlimitedModels?: string[];
+  /** Models the key may not call now, while the account itself answers for
+   *  every other model. `blocked` stays false for these, so a client must
+   *  match this list against its own selector. */
+  blockedModels?: UsageBlockedModel[];
   stale?: boolean;
   error?: string;
   unsupported?: boolean;
@@ -84,6 +95,26 @@ export function modelUnlimited(
   if (!want) return false;
   return (u.unlimitedModels ?? []).some(
     (m) => (m ?? "").trim().toLowerCase() === want,
+  );
+}
+
+/**
+ * The entry refusing the active model, or null. A model gate covers part of
+ * the catalogue, so `blocked` stays false and the account keeps answering for
+ * everything else - reading `blocked` alone showed a green composer while
+ * every request to the selected model came back 429 (10.09.26).
+ */
+export function modelBlocked(
+  u: ProviderUsage | null | undefined,
+  modelId: string,
+): UsageBlockedModel | null {
+  if (!u) return null;
+  const want = usageModelOf(modelId).toLowerCase();
+  if (!want) return null;
+  return (
+    (u.blockedModels ?? []).find(
+      (b) => (b?.model ?? "").trim().toLowerCase() === want,
+    ) ?? null
   );
 }
 
@@ -192,6 +223,8 @@ export type UsageSummary =
       retryAt?: string;
       retryInSec?: number;
       blocker?: string;
+      /** Set when only this model is refused and the account is fine. */
+      model?: string;
     }
   | {
       kind: "metered";
@@ -221,6 +254,19 @@ export function summarizeUsage(
       ...(u.retryAt ? { retryAt: u.retryAt } : {}),
       ...(typeof u.retryInSec === "number" ? { retryInSec: u.retryInSec } : {}),
       ...(u.blockers && u.blockers[0] ? { blocker: u.blockers[0] } : {}),
+    };
+  }
+  const blockedModel = modelBlocked(u, modelId);
+  if (blockedModel) {
+    return {
+      kind: "blocked",
+      block: "window",
+      model: blockedModel.model,
+      ...(blockedModel.retryAt ? { retryAt: blockedModel.retryAt } : {}),
+      ...(typeof blockedModel.retryInSec === "number"
+        ? { retryInSec: blockedModel.retryInSec }
+        : {}),
+      ...(blockedModel.blocker ? { blocker: blockedModel.blocker } : {}),
     };
   }
   if (modelUnlimited(u, modelId)) {
@@ -300,10 +346,19 @@ export function usagePassedResetKey(u: ProviderUsage | null | undefined): string
  * window and its period, so dismissing one account's notice never hides
  * another row's notice with the same reset time.
  */
-export function usageBannerKey(u: ProviderUsage | null | undefined): string {
+export function usageBannerKey(
+  u: ProviderUsage | null | undefined,
+  modelId = "",
+): string {
   if (!u) return "";
   if (u.blocked) {
     return `${u.provider}@blocked@${u.retryAt ?? ""}@${(u.blockers ?? []).join(",")}`;
+  }
+  // A model gate has its own notice and its own dismissal: it lifts on its
+  // own clock, and it must not be hidden by a window notice dismissed earlier.
+  const bm = modelBlocked(u, modelId);
+  if (bm) {
+    return `${u.provider}@model@${bm.model}@${bm.retryAt ?? ""}`;
   }
   const w = usageWarnWindow(u);
   return w ? `${u.provider}@${w.id}@${w.resetsAt ?? ""}` : "";
