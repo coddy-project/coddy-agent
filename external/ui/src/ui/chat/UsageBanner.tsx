@@ -29,7 +29,7 @@ export function UsageBanner(props: {
   const { t, locale } = useT();
   const summary = summarizeUsage(props.usage, props.modelId);
   const now = props.now ?? new Date();
-  const key = usageBannerKey(props.usage);
+  const key = usageBannerKey(props.usage, props.modelId);
   if (!key || props.dismissedKey === key) return null;
   const u = props.usage as ProviderUsage;
   const brand = u.providerType === "neuraldeep" ? "NeuralDeep" : u.provider;

@@ -530,7 +530,9 @@ define; a client that ignores unknown kinds keeps working.
   "rate": {"used": 2, "limit": 120, "remaining": 118, "resetInSec": 58},
   "wallet": {"balanceRub": -1229.24, "spentRub30d": 2000.74},
   "blocked": false,
-  "unlimitedModels": ["qwen3.6-35b-a3b"]
+  "unlimitedModels": ["qwen3.6-35b-a3b"],
+  "blockedModels": [{"model": "kimi-k2.6", "blocker": "kimi_budget_exhausted",
+                     "retryAt": "2026-10-09T20:15:41Z", "retryInSec": 2860119}]
 }
 ```
 
@@ -540,7 +542,13 @@ define; a client that ignores unknown kinds keeps working.
 `user_blocked`) and, for the timed ones, `retryAt` / `retryInSec`.
 `unlimited: true` marks a key without volume windows; `unlimitedModels` lists
 upstream model ids that bypass them on a metered key (a client compares the
-part of the model selector after the first `/`). A failed read keeps the
+part of the model selector after the first `/`). `blockedModels` is the mirror
+image: model ids the key may **not** call now, each with its `blocker` and,
+when the gate is timed, `retryAt` / `retryInSec`. Such a gate covers part of
+the catalogue rather than the chat class, so `blocked` stays `false` and the
+account answers for every other model - a client that reads `blocked` alone
+shows a healthy account while every request to the selected model is refused.
+Match the list the way `unlimitedModels` is matched. A failed read keeps the
 previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
 except a rejected key: `error: unauthorized` comes without windows, since
 numbers read with a key the hub no longer honours are not the account's

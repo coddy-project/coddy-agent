@@ -166,7 +166,7 @@ export function useProviderUsage(params: {
     writeDismissed(key);
   }, []);
 
-  const bannerKey = usageBannerKey(usage);
+  const bannerKey = usageBannerKey(usage, params.llmModel);
   return {
     usage,
     applyPushed,

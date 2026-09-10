@@ -3,6 +3,7 @@ import {
   fetchProviderUsage,
   formatResetTime,
   formatRub,
+  modelBlocked,
   modelUnlimited,
   summarizeUsage,
   usageBannerKey,
@@ -171,5 +172,45 @@ describe("providerUsage helpers", () => {
     expect(!stale.ok && "error" in stale && stale.error).toBe("unavailable");
     expect(!stale.ok && "usage" in stale && stale.usage?.stale).toBe(true);
     expect(calls[3]).toBe("/coddy/providers/neuraldeep/usage?refresh=1");
+  });
+});
+
+/* A model gate on a healthy account (10.09.26). The hub refuses one model of
+ * the catalogue and leaves the rest working, so `blocked` stays false and only
+ * `blockedModels[]` says the selected model is out. Without reading it the
+ * composer showed a green account while every request came back 429. */
+describe("a model blocked on a green account", () => {
+  const blocked = (): ProviderUsage => ({
+    ...fixture(),
+    blockedModels: [{
+      model: "kimi-k2.6",
+      blocker: "kimi_budget_exhausted",
+      retryAt: "2026-10-09T20:15:41Z",
+      retryInSec: 2860119,
+    }],
+  });
+
+  test("the selector suffix is matched case-insensitively", () => {
+    expect(modelBlocked(blocked(), "neuraldeep/KIMI-K2.6")?.blocker).toBe("kimi_budget_exhausted");
+    expect(modelBlocked(blocked(), "neuraldeep/qwen3.8-27b")).toBeNull();
+    expect(modelBlocked(null, "neuraldeep/kimi-k2.6")).toBeNull();
+  });
+
+  test("the summary reports the block with its reset time", () => {
+    const s = summarizeUsage(blocked(), "neuraldeep/kimi-k2.6");
+    expect(s.kind).toBe("blocked");
+    if (s.kind !== "blocked") return;
+    expect(s.blocker).toBe("kimi_budget_exhausted");
+    expect(s.retryAt).toBe("2026-10-09T20:15:41Z");
+    expect(s.model).toBe("kimi-k2.6");
+  });
+
+  test("another model on the same key stays metered", () => {
+    expect(summarizeUsage(blocked(), "neuraldeep/qwen3.8-27b").kind).toBe("metered");
+  });
+
+  test("the banner key follows the blocked model, so a new block is announced", () => {
+    expect(usageBannerKey(blocked(), "neuraldeep/kimi-k2.6"))
+      .not.toBe(usageBannerKey(fixture(), "neuraldeep/kimi-k2.6"));
   });
 });

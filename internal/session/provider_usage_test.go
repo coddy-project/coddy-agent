@@ -1445,3 +1445,54 @@ func TestProviderUsageSwitchedOffPanelIsNeverRead(t *testing.T) {
 		t.Fatalf("the other row's read must reach the hub once, got %d", stand.calls.Load())
 	}
 }
+
+// A model-level refusal: the hub's blocked_models[]. The account decision is
+// green (other models on the key answer normally), so nothing else in the
+// snapshot says the selected model is refused. 10.09.26: without this the
+// monitor showed a healthy account while every kimi-k2.6 request came back
+// 429, and the operator spent the afternoon looking for a fault that was not
+// there.
+func TestMapNeuralDeepUsageCarriesBlockedModels(t *testing.T) {
+	fetchedAt := time.Date(2026, 9, 6, 17, 47, 10, 0, time.UTC)
+	body := `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"starter","fair_use":true,
+	 "key":{"name":"coddy","status":"ok","billing_mode":"subscription"},
+	 "decision":{"scope":"chat","can_request":true,"blockers":[],"retry_after_sec":null},
+	 "blocked_models":[{"model":"kimi-k2.6","blocker":"kimi_budget_exhausted",
+	                    "resets_at":"2026-10-09T20:15:41+00:00","reset_in_sec":2860119}],
+	 "chat":{"session":{"used":1,"limit":3000,"remaining":2999,"reset_in_sec":10,"window":"3h"},
+	         "week":{"used":1,"limit":15000,"remaining":14999,"reset_in_sec":10,"window":"iso-week"},
+	         "rpm":{"used":0,"limit":60,"remaining":60,"reset_in_sec":58},"cooldown_sec":0}}`
+	u := mapNeuralDeepUsage(decodeUsageFixture(t, body), "neuraldeep", fetchedAt)
+	if u.Blocked {
+		t.Fatalf("account must stay unblocked, a model gate is not an account gate: %+v", u)
+	}
+	if len(u.BlockedModels) != 1 {
+		t.Fatalf("blocked models = %+v", u.BlockedModels)
+	}
+	b := u.BlockedModels[0]
+	if b.Model != "kimi-k2.6" || b.Blocker != "kimi_budget_exhausted" {
+		t.Fatalf("blocked model = %+v", b)
+	}
+	if b.RetryAt != "2026-10-09T20:15:41Z" || b.RetryInSec != 2860119 {
+		t.Fatalf("reset = %q %d", b.RetryAt, b.RetryInSec)
+	}
+}
+
+func TestMapNeuralDeepUsageDropsMalformedBlockedModels(t *testing.T) {
+	fetchedAt := time.Date(2026, 9, 6, 17, 47, 10, 0, time.UTC)
+	body := `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"starter","fair_use":true,
+	 "key":{"name":"coddy","status":"ok","billing_mode":"subscription"},
+	 "decision":{"scope":"chat","can_request":true,"blockers":[],"retry_after_sec":null},
+	 "blocked_models":[{"model":"  ","blocker":"kimi_budget_exhausted"},
+	                   {"model":"kimi-k2.6","blocker":"","resets_at":"nonsense"}],
+	 "chat":{"session":{"used":1,"limit":3000,"remaining":2999,"reset_in_sec":10,"window":"3h"},
+	         "week":{"used":1,"limit":15000,"remaining":14999,"reset_in_sec":10,"window":"iso-week"},
+	         "rpm":{"used":0,"limit":60,"remaining":60,"reset_in_sec":58},"cooldown_sec":0}}`
+	u := mapNeuralDeepUsage(decodeUsageFixture(t, body), "neuraldeep", fetchedAt)
+	if len(u.BlockedModels) != 1 || u.BlockedModels[0].Model != "kimi-k2.6" {
+		t.Fatalf("a nameless entry blocks nothing and must be dropped: %+v", u.BlockedModels)
+	}
+	if u.BlockedModels[0].RetryAt != "" {
+		t.Fatalf("an unparsable reset must be dropped, not passed through: %q", u.BlockedModels[0].RetryAt)
+	}
+}
