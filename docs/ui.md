@@ -534,6 +534,8 @@ Automated checks:
 - **User** messages are plain text with preserved line breaks (**`UserMessage`**).
 - **Assistant** messages may contain Markdown.
 - UI renders Markdown with fenced code blocks and syntax highlighting.
+- Label fences with the language (for example `js`, `css`, `html`, `json`, `ts`, `python`, or `go`) to enable highlighting. Unlabelled or unsupported languages stay plain text. Highlighting also works while an answer is streaming.
+- Code colors follow all seven appearance themes immediately when switching themes. Each theme defines the shared `--syntax-*` palette in `external/ui/src/styles.css`; no separate syntax-theme setting is needed.
 - Each code block has a copy button that copies only that block content.
 
 ## Markdown line editor (shared)

@@ -576,6 +576,8 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 
 - **`coddy-skill:`** chips appear only in the **composer mirror** while editing, not in persisted user bubbles.
 - Render fenced code blocks with syntax highlighting.
+- Use the declared fence language (`js` / `javascript`, `ts`, `css`, `html`, `json`, `python`, `go`, and other bundled highlight.js common languages). Unknown or unlabelled fences remain literal text without language guessing; incomplete streamed fences still render safely.
+- Syntax colors use the `--syntax-*` semantic palette in each of the seven appearance themes. Keywords, strings, numbers, titles, attributes/selectors, types, comments, metadata, and deletions follow the active theme immediately, including already-rendered responses. Keep token selectors scoped to `.md-code`.
 - Each code block has a copy button in the top right corner that copies only the block contents.
 
 ### Memory tree (deferred explorer)

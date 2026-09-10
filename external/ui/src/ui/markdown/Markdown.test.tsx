@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { Markdown } from "./Markdown";
 
@@ -13,6 +19,52 @@ const stylesPath = join(
 );
 
 afterEach(() => cleanup());
+
+test.each([
+  ["js", 'const message = "hello";', ".hljs-keyword"],
+  ["javascript", 'const message = "hello";', ".hljs-string"],
+  ["css", ".card { color: red; }", ".hljs-attribute"],
+  ["html", '<div class="card">Hello</div>', ".hljs-attr"],
+  ["json", '{"enabled": true}', ".hljs-attr"],
+  ["ts", "const count: number = 42;", ".hljs-number"],
+  ["python", "def greet():\n    return True", ".hljs-keyword"],
+  ["go", "package main\nfunc main() {}", ".hljs-keyword"],
+])("highlights an explicitly labelled %s block", (language, source, token) => {
+  const { container } = render(
+    <Markdown text={`\`\`\`${language}\n${source}\n\`\`\``} />,
+  );
+  const code = container.querySelector("pre code");
+  expect(code?.querySelector(token)).not.toBeNull();
+  expect(code?.textContent).toBe(`${source}\n`);
+});
+
+test.each(["", "unknown-language", "text"])(
+  "keeps %s code literal without guessing",
+  (language) => {
+    const source = '<script>alert("hello")</script>';
+    const { container } = render(
+      <Markdown text={`\`\`\`${language}\n${source}\n\`\`\``} />,
+    );
+    expect(container.querySelector("pre code")?.textContent).toBe(
+      `${source}\n`,
+    );
+    expect(container.querySelector("pre code span, script")).toBeNull();
+  },
+);
+
+test("streamed incomplete fences highlight and copy the original source", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  const { container, rerender } = render(
+    <Markdown text={'```js\nconst message = "hel'} />,
+  );
+  expect(container.querySelector(".hljs-keyword")?.textContent).toBe("const");
+  rerender(<Markdown text={'```js\nconst message = "hello";\n```'} />);
+  fireEvent.click(screen.getByRole("button", { name: /copy code/i }));
+  await waitFor(() =>
+    expect(writeText).toHaveBeenCalledWith('const message = "hello";'),
+  );
+});
 
 test("coddy-skill links render as chip spans", () => {
   render(<Markdown text="Try [/demo](coddy-skill:demo) now." />);
@@ -29,11 +81,7 @@ test("fenced code block wrapper keeps symmetric vertical margin in styles", () =
 });
 
 test("tables render inside horizontal scroll wrapper", () => {
-  render(
-    <Markdown
-      text={`| A | B |\n| --- | --- |\n| one | two |`}
-    />,
-  );
+  render(<Markdown text={`| A | B |\n| --- | --- |\n| one | two |`} />);
   const wrap = document.querySelector(".md-table-scroll");
   expect(wrap).not.toBeNull();
   expect(wrap?.querySelector("table")).not.toBeNull();
