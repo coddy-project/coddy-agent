@@ -24,6 +24,11 @@ var topLevelCommands = []string{
 // documentation is a promise the binary cannot keep.
 var removedCommands = []string{"http", "gateway", "swarm"}
 
+// serveVerbs control a daemon that is already running. They are subcommands of
+// `serve` rather than commands of their own, so the top-level assertions above
+// say nothing about them - and the same three files still have to carry them.
+var serveVerbs = []string{"status", "stop", "restart"}
+
 func TestUsageListsEveryCommand(t *testing.T) {
 	var buf bytes.Buffer
 	printUsage(&buf)
@@ -61,6 +66,44 @@ func TestPackagingFilesTrackTheCommandSet(t *testing.T) {
 	for _, cmd := range removedCommands {
 		if offered[cmd] {
 			t.Errorf("packaging/completions/coddy.bash still offers the removed %q command", cmd)
+		}
+	}
+}
+
+func TestPackagingFilesTrackTheServeVerbs(t *testing.T) {
+	usage := func() string {
+		var buf bytes.Buffer
+		printUsage(&buf)
+		return buf.String()
+	}()
+	completions := readRepoFile(t, "../../packaging/completions/coddy.bash")
+	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
+	man := readRepoFile(t, "../../packaging/man/coddy.1")
+
+	for _, verb := range serveVerbs {
+		if !strings.Contains(usage, verb) {
+			t.Errorf("usage does not mention `serve %s`", verb)
+		}
+		if !strings.Contains(completions, verb) {
+			t.Errorf("packaging/completions/coddy.bash does not offer `serve %s`", verb)
+		}
+		if !strings.Contains(zsh, verb) {
+			t.Errorf("packaging/completions/coddy.zsh does not offer `serve %s`", verb)
+		}
+		if !strings.Contains(man, "serve "+verb) {
+			t.Errorf("packaging/man/coddy.1 does not document `serve %s`", verb)
+		}
+	}
+	// The background form is what the verbs are about, so it is asserted with
+	// them rather than left to a reader to notice it went missing.
+	for name, body := range map[string]string{
+		"the usage text":                   usage,
+		"packaging/completions/coddy.bash": completions,
+		"packaging/completions/coddy.zsh":  zsh,
+		"packaging/man/coddy.1":            man,
+	} {
+		if !strings.Contains(body, "daemon") {
+			t.Errorf("%s does not mention `serve --daemon`", name)
 		}
 	}
 }

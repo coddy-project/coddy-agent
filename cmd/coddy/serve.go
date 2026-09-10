@@ -35,6 +35,19 @@ const httpTokenEnvVar = "CODDY_HTTP_TOKEN"
 // browser. Here they are goroutines sharing one manager, and turning one on is
 // a line of YAML.
 func runServe(args []string) error {
+	// The control verbs come before the flag set, because they are about a
+	// daemon that is already running and share none of its options.
+	if len(args) > 0 {
+		switch args[0] {
+		case "status":
+			return runServeStatus(args[1:])
+		case "stop":
+			return runServeStop(args[1:])
+		case "restart":
+			return runServeRestart(args[1:])
+		}
+	}
+
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)")
@@ -63,6 +76,9 @@ func runServe(args []string) error {
 	gatewayOn := fs.Bool("gateway", false, "run the messenger gateway; overrides gateways.*.enable")
 	swarmOn := fs.Bool("swarm", false, "run the swarm relay; overrides swarm.enable")
 	schedulerOn := fs.Bool("scheduler", false, "run the cron scheduler; overrides scheduler.enable")
+
+	daemon := fs.Bool("daemon", false, "run in the background under a dispatcher that restarts the process if it dies (see `coddy serve status|stop|restart`)")
+	fs.BoolVar(daemon, "d", false, "alias of --daemon")
 
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
@@ -95,51 +111,74 @@ func runServe(args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	// applyProcessOverrides re-applies everything the operator decided outside
+	// config.yaml: the flags they typed and the credentials they kept in the
+	// environment. It runs on the document this process loaded and again on
+	// every document the watcher picks up off the disk, because a reload that
+	// dropped `--gateway` or `-H 0.0.0.0` would take away, on somebody else's
+	// unrelated save, a decision only the command line carries.
+	//
 	// Flags override the file only where the operator actually typed one, so a
 	// default in the flag set never silently outvotes a decision in config.yaml.
-	applySubsystemFlags(fs, cfg, subsystemFlags{
-		http: httpOn, gateway: gatewayOn, swarm: swarmOn, scheduler: schedulerOn,
-	})
-	if *swarmInsecure {
-		cfg.Swarm.AllowInsecure = true
+	applyProcessOverrides := func(c *config.Config) error {
+		applySubsystemFlags(fs, c, subsystemFlags{
+			http: httpOn, gateway: gatewayOn, swarm: swarmOn, scheduler: schedulerOn,
+		})
+		if *swarmInsecure {
+			c.Swarm.AllowInsecure = true
+		}
+		if t := firstNonEmpty(strings.TrimSpace(*swarmPairing), os.Getenv(swarm.PairingEnvVar)); t != "" {
+			c.Swarm.PairingTokens = append(c.Swarm.PairingTokens, t)
+		}
+		config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+		if err := config.ApplyProjectTrustFlag(fs, c, projectTrust); err != nil {
+			return err
+		}
+		c.Swarm.Normalize()
+		if err := c.Swarm.Validate(); err != nil {
+			return err
+		}
+		if err := c.Scheduler.Validate(c); err != nil {
+			return fmt.Errorf("scheduler: %w", err)
+		}
+		c.Logger.ApplyOverrides(config.LoggerCLIOverrides{
+			Level:  strings.TrimSpace(*logLevel),
+			Output: strings.TrimSpace(*logOutput),
+			File:   strings.TrimSpace(*logFile),
+			Format: strings.TrimSpace(*logFormat),
+		})
+		// Where the relay actually listens decides what it is willing to dial,
+		// and the flag is part of that answer: a relay told to bind loopback on
+		// the command line is a development relay whatever the file says.
+		c.Swarm.Host = firstNonEmpty(strings.TrimSpace(*swarmHost), c.Swarm.EffectiveHost())
+		return nil
 	}
-	if t := firstNonEmpty(strings.TrimSpace(*swarmPairing), os.Getenv(swarm.PairingEnvVar)); t != "" {
-		cfg.Swarm.PairingTokens = append(cfg.Swarm.PairingTokens, t)
-	}
-	config.ApplySkillsAutoDiscoveryFlag(fs, cfg, skillsAutoDiscovery)
-	if err := config.ApplyProjectTrustFlag(fs, cfg, projectTrust); err != nil {
+	if err := applyProcessOverrides(cfg); err != nil {
 		return err
-	}
-	cfg.Swarm.Normalize()
-	if err := cfg.Swarm.Validate(); err != nil {
-		return err
-	}
-	if err := cfg.Scheduler.Validate(cfg); err != nil {
-		return fmt.Errorf("scheduler: %w", err)
 	}
 
-	cfg.Logger.ApplyOverrides(config.LoggerCLIOverrides{
-		Level:  strings.TrimSpace(*logLevel),
-		Output: strings.TrimSpace(*logOutput),
-		File:   strings.TrimSpace(*logFile),
-		Format: strings.TrimSpace(*logFormat),
-	})
 	log, logCloser, err := logger.New(cfg.Logger)
 	if err != nil {
 		return fmt.Errorf("log: %w", err)
 	}
 	defer func() { _ = logCloser.Close() }()
 
-	httpAddr := net.JoinHostPort(
-		firstNonEmpty(strings.TrimSpace(*host), cfg.HTTPServer.DefaultListenHost()),
-		firstNonEmpty(strings.TrimSpace(*port), cfg.HTTPServer.DefaultListenPortString()),
-	)
-	swarmBindHost := firstNonEmpty(strings.TrimSpace(*swarmHost), cfg.Swarm.EffectiveHost())
-	swarmAddr := net.JoinHostPort(swarmBindHost, firstNonEmpty(strings.TrimSpace(*swarmPort), strconv.Itoa(cfg.Swarm.EffectivePort())))
-	// Where the relay actually listens decides what it is willing to dial, and
-	// the flag is part of that answer: a relay told to bind loopback on the
-	// command line is a development relay whatever the file says.
-	cfg.Swarm.Host = swarmBindHost
+	// The listen addresses are read from a configuration rather than captured,
+	// because the supervisor asks the same questions of a reloaded one: an
+	// address that moved is the one change a running process cannot adopt, and
+	// answering it needs the flags weighed against the new file exactly as they
+	// were against the old.
+	httpListenAddr := func(c *config.Config) string {
+		return net.JoinHostPort(
+			firstNonEmpty(strings.TrimSpace(*host), c.HTTPServer.DefaultListenHost()),
+			firstNonEmpty(strings.TrimSpace(*port), c.HTTPServer.DefaultListenPortString()),
+		)
+	}
+	swarmListenAddr := func(c *config.Config) string {
+		return net.JoinHostPort(c.Swarm.Host, firstNonEmpty(strings.TrimSpace(*swarmPort), strconv.Itoa(c.Swarm.EffectivePort())))
+	}
+	httpAddr := httpListenAddr(cfg)
+	swarmAddr := swarmListenAddr(cfg)
 
 	httpTokens := outOfBandTokens(*authToken, httpTokenEnvVar)
 
@@ -147,6 +186,8 @@ func runServe(args []string) error {
 	all := subsystems(rt, subsystemDeps{
 		httpAddr:        httpAddr,
 		swarmAddr:       swarmAddr,
+		httpListenAddr:  httpListenAddr,
+		swarmListenAddr: swarmListenAddr,
 		home:            paths.Home,
 		httpAuthTokens:  httpTokens,
 		swarmAuthTokens: outOfBandTokens(*swarmAuthToken, swarm.TokenEnvVar),
@@ -156,6 +197,36 @@ func runServe(args []string) error {
 	enabled, err := serve.Resolve(cfg, all)
 	if err != nil {
 		return err
+	}
+
+	// Resolve doubles as the pre-flight for the background forms below: a
+	// configuration this binary cannot honour is refused in the terminal that
+	// typed the command, not in a log file nobody is tailing yet.
+	daemonOpts := serve.DaemonOptions{
+		Home:   paths.Home,
+		Config: paths.ConfigPath,
+		Args:   typedServeFlags(fs),
+		Log:    log,
+	}
+	switch {
+	case serve.Role() == serve.RoleDispatcher:
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return serve.RunDispatcher(ctx, daemonOpts)
+	case *daemon:
+		rec, err := serve.StartDetached(daemonOpts)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "coddy serve %s is running in the background\n  pid     %d\n  config  %s\n  log     %s\n",
+			rec.Version, rec.PID, rec.Config, rec.Log)
+		if !rec.Serving() {
+			// The dispatcher is up and will keep trying, which is the whole
+			// point of it - but nothing is being served yet, and saying only
+			// "running" would send the operator looking in the wrong place.
+			fmt.Fprintf(os.Stderr, "warning: no surface is up yet: %s\n  the dispatcher keeps retrying; `coddy serve status` reports when one comes up\n", rec.LastError)
+		}
+		return nil
 	}
 
 	if err := rt.Init(serve.Options{
@@ -199,11 +270,55 @@ func runServe(args []string) error {
 			}
 		})
 		defer removeObserver()
+
+		// Not every writer of config.yaml is this process. `coddy providers
+		// login` adds a provider and its models from another terminal, an
+		// operator edits the file by hand, a deployment drops a new one in.
+		// Watching the file turns all of those into the same swap the settings
+		// screen makes, so an open model picker, a chat surface and the
+		// supervisor see them together.
+		watcher := &config.FileWatcher{
+			Paths:   paths,
+			Live:    rt.Mgr.Cfg,
+			Install: rt.Mgr.ReplaceConfig,
+			Adjust:  applyProcessOverrides,
+			Log:     log,
+		}
+		go func() { _ = watcher.Run(ctx) }()
 	}
 
 	// The supervisor is handed every descriptor, not just the enabled ones, so
 	// a later configuration change can turn a surface on as well as off.
-	return serve.NewSupervisor(log, all).Run(ctx, cfg, reloads)
+	sup := serve.NewSupervisor(log, all)
+	// Only a process with something waiting to start it again may end itself
+	// over a configuration change. In the foreground the operator is the only
+	// one who would bring it back, so they are told instead.
+	sup.Restartable = serve.Supervised()
+	err = sup.Run(ctx, cfg, reloads)
+	if errors.Is(err, serve.ErrRestartRequested) {
+		log.Info("exiting so the dispatcher can start a process with the new listen settings")
+		return serve.ExitCodeError{Code: serve.ExitRestart, Err: err}
+	}
+	return err
+}
+
+// typedServeFlags rebuilds the command line for the processes this one starts:
+// every flag the operator actually typed, minus the switch that asked for the
+// background, which only makes sense once.
+//
+// It is rebuilt from the parsed flag set rather than filtered out of the raw
+// arguments, because the raw form is ambiguous - `-home -d` puts "-d" in the
+// value position - and because a canonical `-name=value` is what a record has to
+// keep for `coddy serve restart` to bring back the same daemon a week later.
+func typedServeFlags(fs *flag.FlagSet) []string {
+	var out []string
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "d" || f.Name == "daemon" {
+			return
+		}
+		out = append(out, "-"+f.Name+"="+f.Value.String())
+	})
+	return out
 }
 
 // subsystemFlags collects the explicit on/off switches.
@@ -230,8 +345,13 @@ func applySubsystemFlags(fs *flag.FlagSet, cfg *config.Config, f subsystemFlags)
 
 // subsystemDeps are the already-resolved values the descriptors close over.
 type subsystemDeps struct {
-	httpAddr        string
-	swarmAddr       string
+	httpAddr  string
+	swarmAddr string
+	// httpListenAddr and swarmListenAddr answer where a surface would bind under
+	// some other configuration, which is what tells a reload that moved an
+	// address from one that left it alone.
+	httpListenAddr  func(*config.Config) string
+	swarmListenAddr func(*config.Config) string
 	home            string
 	httpAuthTokens  []string
 	swarmAuthTokens []string
@@ -251,7 +371,11 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			Available: httpserver.Available,
 			Enabled:   func(c *config.Config) bool { return c.HTTPServer.IsEnabled() },
 			// No Fingerprint: the listener is what the caller is talking
-			// through, so it is not rebuilt underneath them.
+			// through, so it is not rebuilt underneath them. Moving it takes a
+			// fresh process, which under a dispatcher is exactly what happens -
+			// that is how an operator changes the port of the very server whose
+			// settings screen they are typing into.
+			RestartKey: deps.httpListenAddr,
 			Run: func(ctx context.Context) error {
 				return httpserver.Serve(ctx, httpserver.Options{
 					Cfg: rt.Cfg(), Mgr: rt.Mgr, Log: rt.Log,
@@ -285,11 +409,12 @@ func subsystems(rt *serve.Runtime, deps subsystemDeps) []serve.Subsystem {
 			},
 		},
 		{
-			Kind:      serve.KindSwarm,
-			ConfigKey: "swarm.enable",
-			BuildTag:  "swarm",
-			Available: swarm.Available,
-			Enabled:   func(c *config.Config) bool { return c.Swarm.Enabled },
+			Kind:       serve.KindSwarm,
+			ConfigKey:  "swarm.enable",
+			BuildTag:   "swarm",
+			Available:  swarm.Available,
+			Enabled:    func(c *config.Config) bool { return c.Swarm.Enabled },
+			RestartKey: deps.swarmListenAddr,
 			Run: func(ctx context.Context) error {
 				return swarm.Serve(ctx, swarm.Options{
 					Cfg: rt.Cfg(), Log: rt.Log, Home: deps.home,

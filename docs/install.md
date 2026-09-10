@@ -160,8 +160,14 @@ If macOS blocks the first run because the binary is not notarised, clear the qua
 export PATH="$HOME/.local/bin:$PATH"
 coddy -v
 # edit ~/.coddy/config.yaml
-coddy serve
+coddy serve            # in this terminal
+coddy serve --daemon   # in the background, restarted if it dies
 ```
+
+The packages install no service unit, because Coddy's state is per-user under
+**`~/.coddy`**. **`coddy serve --daemon`** is the built-in way to keep it running without
+one; under a supervisor that already owns process lifetimes (`systemd`, Docker) use the
+foreground form and let that supervisor restart it. See [the daemon guide](serve.md).
 
 ## Windows
 
