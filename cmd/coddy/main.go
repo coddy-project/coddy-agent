@@ -156,6 +156,14 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		// A command may want a status of its own: a `coddy serve` worker that
+		// exits because a listen address moved is asking its dispatcher for a
+		// replacement, and reporting that as a plain failure would make the
+		// dispatcher wait out a backoff for a change the operator just made.
+		var coded serve.ExitCodeError
+		if errors.As(err, &coded) {
+			os.Exit(coded.Code)
+		}
 		os.Exit(1)
 	}
 }
@@ -172,6 +180,9 @@ func printUsage(w io.Writer) {
   %[1]s serve [flags] (run every subsystem enabled in config.yaml:
         the OpenAI-compatible HTTP API and web UI, the messenger gateway,
         the swarm relay, the cron scheduler)
+  %[1]s serve -d | --daemon (the same, in the background under a dispatcher
+        that starts it again if it dies)
+  %[1]s serve status | stop | restart [--home DIR]
   %[1]s sessions list [flags]
   %[1]s sessions export <id> [--format md|html|json|jsonl] [--out PATH] [--no-tools] [--no-thinking]
   %[1]s skills list

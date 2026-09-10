@@ -127,3 +127,63 @@ func waitForProcessGroupExit(pgid int, grace time.Duration) bool {
 	}
 	return errors.Is(syscall.Kill(pgid, 0), syscall.ESRCH)
 }
+
+// ProcessAlive reports whether one process is still running, as opposed to the
+// process group ProcessGroupAlive probes.
+//
+// A daemon's pid file names one process, and that process is usually not a group
+// leader - it is whatever the operator's terminal, service manager or launcher
+// put it in. Asking about its group would answer about strangers, or about
+// nobody at all. The recorded start time is accepted and unused for the same
+// reason it is unused above: unix has no cheap, portable way to read it, and the
+// pid of a live process is not reused while it lives.
+func ProcessAlive(pid int, _ time.Time) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	// EPERM means a process with that pid exists and belongs to somebody else,
+	// which is still alive for the purpose of "is the daemon running".
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+// StopProcess asks one process to exit and escalates to a forced kill when grace
+// elapses. A process that is already gone is not an error.
+func StopProcess(pid int, startedAt time.Time, grace time.Duration) error {
+	if pid <= 0 {
+		return nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return err
+	}
+	deadline := time.Now().Add(grace)
+	for grace > 0 && time.Now().Before(deadline) {
+		if !ProcessAlive(pid, startedAt) {
+			return nil
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !ProcessAlive(pid, startedAt) {
+		return nil
+	}
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	return nil
+}
+
+// DetachFromTerminal prepares a command that must outlive the shell that starts
+// it: a new session, so it has no controlling terminal and never receives the
+// SIGHUP or the Ctrl-C meant for the foreground job.
+func DetachFromTerminal(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
+}

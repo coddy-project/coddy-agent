@@ -207,3 +207,31 @@ func TerminateProcessGroupByPID(pid int, startedAt time.Time, grace time.Duratio
 		return nil
 	}
 }
+
+// ProcessAlive reports whether one process is still running. On Windows this is
+// the same question ProcessGroupAlive answers - there is no group to probe, only
+// the process object and its creation time - so the two share an implementation.
+func ProcessAlive(pid int, startedAt time.Time) bool {
+	return ProcessGroupAlive(pid, startedAt)
+}
+
+// StopProcess ends one process and the tree below it. Windows offers no
+// graceful signal a non-console process can be relied on to handle, so grace
+// only bounds how long taskkill is given; the process is gone either way.
+func StopProcess(pid int, startedAt time.Time, grace time.Duration) error {
+	return TerminateProcessGroupByPID(pid, startedAt, grace)
+}
+
+// DetachFromTerminal prepares a command that must outlive the console that
+// starts it: no console of its own, and its own process group, so a Ctrl-C in
+// the operator's window is not delivered to it.
+func DetachFromTerminal(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= syscall.CREATE_NEW_PROCESS_GROUP | windows.DETACHED_PROCESS
+	cmd.SysProcAttr.HideWindow = true
+}

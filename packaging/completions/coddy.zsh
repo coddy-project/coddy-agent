@@ -61,6 +61,8 @@ _coddy() {
                     ;;
                 serve)
                     _arguments \
+                        '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher"))' \
+                        '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \

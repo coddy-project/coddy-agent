@@ -18,11 +18,23 @@ import (
 // that was the point of the restart.
 const restartDrain = 30 * time.Second
 
+// ErrRestartRequested ends Run when the configuration moved something no running
+// process can adopt - the address a listener is bound to - and there is a
+// dispatcher behind this one to bring a replacement up on the new value.
+var ErrRestartRequested = errors.New("configuration change needs a fresh process")
+
 // Supervisor runs a set of subsystems until the context ends, and rebuilds the
 // ones whose configuration moved underneath them.
 type Supervisor struct {
 	log  *slog.Logger
 	subs []Subsystem
+
+	// Restartable is whether something is waiting to start this process again.
+	// With a dispatcher behind it, a configuration change a listener cannot
+	// adopt ends the process and comes back on the new address; without one,
+	// exiting would take the daemon down for good, so the change is reported
+	// and the operator restarts when it suits them.
+	Restartable bool
 
 	mu      sync.Mutex
 	running map[Kind]*instance
@@ -34,6 +46,7 @@ type instance struct {
 	cancel      context.CancelFunc
 	done        chan struct{}
 	fingerprint string
+	restartKey  string
 }
 
 // NewSupervisor prepares a supervisor over every subsystem this binary knows
@@ -87,7 +100,14 @@ func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan
 				reloads = nil
 				continue
 			}
-			s.applyConfig(ctx, next, failures)
+			if s.applyConfig(ctx, next, failures) {
+				// The surfaces are stopped in the same order a signal stops
+				// them, and the request is what the caller exits with.
+				if err := s.shutdown(runErr); err != nil {
+					return err
+				}
+				return ErrRestartRequested
+			}
 		}
 	}
 }
@@ -95,7 +115,12 @@ func (s *Supervisor) Run(ctx context.Context, cfg *config.Config, reloads <-chan
 // start launches one subsystem under its own child context.
 func (s *Supervisor) start(ctx context.Context, sub Subsystem, cfg *config.Config, failures chan<- error) {
 	child, cancel := context.WithCancel(ctx)
-	inst := &instance{cancel: cancel, done: make(chan struct{}), fingerprint: sub.fingerprint(cfg)}
+	inst := &instance{
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		fingerprint: sub.fingerprint(cfg),
+		restartKey:  sub.restartKey(cfg),
+	}
 	s.mu.Lock()
 	s.running[sub.Kind] = inst
 	s.mu.Unlock()
@@ -143,9 +168,9 @@ func runGuarded(ctx context.Context, sub Subsystem) (err error) {
 // the daemon exit would be holding a remote kill switch. So a surface this
 // binary cannot run is refused loudly and skipped, where the same configuration
 // at startup is a hard error.
-func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failures chan<- error) {
+func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failures chan<- error) (restart bool) {
 	if cfg == nil {
-		return
+		return false
 	}
 	for _, sub := range s.subs {
 		s.mu.Lock()
@@ -178,17 +203,28 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 			}
 			s.log.Info("subsystem disabled by a configuration change", "subsystem", string(sub.Kind))
 			s.stop(sub.Kind, inst)
-		case sub.Fingerprint == nil:
+		case sub.restartKey(cfg) != inst.restartKey:
 			// A listener cannot be moved under the caller that is talking
-			// through it; say so instead of pretending the edit took effect.
-			s.log.Info("subsystem settings may have changed, restart required",
+			// through it. With a dispatcher behind this process the whole thing
+			// comes back on the new address, which is how an operator moves a
+			// port from the settings screen of the very server they are moving.
+			if s.Restartable {
+				s.log.Info("subsystem listen settings changed, restarting the process",
+					"subsystem", string(sub.Kind))
+				return true
+			}
+			s.log.Info("subsystem listen settings changed, restart required",
 				"subsystem", string(sub.Kind), "hint", "restart coddy serve to apply")
+		case sub.Fingerprint == nil:
+			// Nothing about this surface can be adopted in place and nothing
+			// about it needs a fresh process either, so there is nothing to do.
 		case sub.fingerprint(cfg) != inst.fingerprint:
 			s.log.Info("subsystem settings changed, restarting", "subsystem", string(sub.Kind))
 			s.stop(sub.Kind, inst)
 			s.start(ctx, sub, cfg, failures)
 		}
 	}
+	return false
 }
 
 // runningCount reports how many subsystems are live right now.

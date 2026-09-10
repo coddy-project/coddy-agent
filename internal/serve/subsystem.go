@@ -56,8 +56,14 @@ type Subsystem struct {
 	// Fingerprint returns the part of the configuration the surface is built
 	// from. When it changes under a reload the supervisor restarts the surface.
 	// A nil Fingerprint means the surface cannot be rebuilt in place - it owns a
-	// listener the caller may be talking through - and a change is only logged.
+	// listener the caller may be talking through.
 	Fingerprint func(*config.Config) string
+	// RestartKey returns the part of the configuration that can only be honoured
+	// by a fresh process: the address a listener is bound to. A surface cannot
+	// move its own listener out from under the caller who is talking through it,
+	// so when this changes the whole process asks to be replaced instead. A nil
+	// RestartKey means nothing about this surface needs that.
+	RestartKey func(*config.Config) string
 	// Run blocks until ctx is cancelled or the surface fails.
 	Run func(ctx context.Context) error
 }
@@ -67,13 +73,22 @@ func (s Subsystem) enabled(cfg *config.Config) bool {
 	return s.Enabled != nil && s.Enabled(cfg)
 }
 
-// fingerprint reads the restart key, or "" when the surface has none or there
+// fingerprint reads the rebuild key, or "" when the surface has none or there
 // is no configuration to read it from.
 func (s Subsystem) fingerprint(cfg *config.Config) string {
 	if s.Fingerprint == nil || cfg == nil {
 		return ""
 	}
 	return s.Fingerprint(cfg)
+}
+
+// restartKey reads the process-restart key, or "" when the surface has none or
+// there is no configuration to read it from.
+func (s Subsystem) restartKey(cfg *config.Config) string {
+	if s.RestartKey == nil || cfg == nil {
+		return ""
+	}
+	return s.RestartKey(cfg)
 }
 
 // ErrNothingEnabled is returned when the configuration asks for no surface at

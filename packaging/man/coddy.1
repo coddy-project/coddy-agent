@@ -81,6 +81,36 @@ behind it. Governed by
 A subsystem enabled in the configuration but missing from the build is a startup
 error naming the tag to rebuild with, never a silent no\-op. A process with
 nothing enabled refuses to start.
+.PP
+The configuration file is watched while the process runs, so a change made
+outside it \(em a
+.B coddy providers login
+in another terminal, an edit by hand, a deployment \(em reaches every surface the
+way a save from the settings screen does. A change no running process can adopt,
+such as a listen address, restarts the process when it has a dispatcher behind
+it, and is reported as needing a restart when it does not.
+.TP
+.BR "serve \-d" ", " "serve \-\-daemon"
+Run in the background under a dispatcher that starts the subsystems in a worker
+process and starts a new one whenever that process goes away for any reason
+other than being told to stop. Repeated failures are waited out with a growing
+pause rather than retried in a loop, and the pause returns to its shortest value
+once a worker has stayed up. The dispatcher records itself in
+.I ~/.coddy/serve.json
+and writes to
+.IR ~/.coddy/logs/serve.log .
+.TP
+.B "serve status"
+Report the background dispatcher for this agent home: its process, when it
+started, the configuration and log it is using, whether a worker is up right
+now, and why the last one went away.
+.TP
+.B "serve stop"
+Stop the background dispatcher and the worker under it.
+.TP
+.B "serve restart"
+Stop the background dispatcher and start it again with the arguments it was
+started with the first time.
 .TP
 .BI "sessions list"
 List stored sessions.

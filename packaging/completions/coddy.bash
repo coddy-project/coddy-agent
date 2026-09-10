@@ -50,7 +50,7 @@ _coddy() {
             COMPREPLY=($(compgen -W "--config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))
             ;;
         serve)
-            COMPREPLY=($(compgen -W "--config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
+            COMPREPLY=($(compgen -W "status stop restart -d --daemon --config --home --cwd --sessions-dir --session-id --log-level --log-output --log-file --log-format -H --host -P --port --auth-token --http --gateway --swarm --scheduler --swarm-host --swarm-port --swarm-auth-token --swarm-pairing-token --swarm-allow-insecure" -- "${cur}"))
             ;;
     esac
 }
