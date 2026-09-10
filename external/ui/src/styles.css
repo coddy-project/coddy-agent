@@ -1,5 +1,15 @@
 :root,
 [data-theme="dark"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #9ca3af;
+  --syntax-keyword: #c4b5fd;
+  --syntax-string: #6ee7b7;
+  --syntax-number: #93c5fd;
+  --syntax-title: #fcd34d;
+  --syntax-attribute: #7dd3fc;
+  --syntax-type: #67e8f9;
+  --syntax-meta: #f9a8d4;
+  --syntax-deletion: #fca5a5;
   --bg: #121212;
   --diff-add-bg: rgba(46, 160, 67, 0.13);
   --diff-del-bg: rgba(248, 81, 73, 0.13);
@@ -98,6 +108,16 @@
 }
 
 [data-theme="light"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #62626b;
+  --syntax-keyword: #6d28d9;
+  --syntax-string: #116931;
+  --syntax-number: #0d5cad;
+  --syntax-title: #79520c;
+  --syntax-attribute: #075985;
+  --syntax-type: #0e646e;
+  --syntax-meta: #93306a;
+  --syntax-deletion: #b91c1c;
   --bg: #f8f8fa;
   --diff-add-bg: rgba(46, 160, 67, 0.09);
   --diff-del-bg: rgba(248, 81, 73, 0.09);
@@ -167,6 +187,16 @@
 
 /* ── Midnight ── deep indigo-blue dark ─────────────────────────────────────── */
 [data-theme="midnight"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #9aa8c7;
+  --syntax-keyword: #c4b5fd;
+  --syntax-string: #86efac;
+  --syntax-number: #93c5fd;
+  --syntax-title: #fde68a;
+  --syntax-attribute: #a5b4fc;
+  --syntax-type: #67e8f9;
+  --syntax-meta: #f0abfc;
+  --syntax-deletion: #fda4af;
   --bg: #0d1117;
   --diff-add-bg: rgba(46, 160, 67, 0.13);
   --diff-del-bg: rgba(248, 81, 73, 0.13);
@@ -257,6 +287,16 @@
 
 /* ── Solarized Dark ─────────────────────────────────────────────────────────── */
 [data-theme="solarized-dark"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #93a1a1;
+  --syntax-keyword: #b6c44a;
+  --syntax-string: #2fc3b5;
+  --syntax-number: #d6a8e6;
+  --syntax-title: #e0b54a;
+  --syntax-attribute: #69b8e8;
+  --syntax-type: #a8c75a;
+  --syntax-meta: #ed9870;
+  --syntax-deletion: #f18483;
   --bg: #002b36;
   --diff-add-bg: rgba(133, 153, 0, 0.18);
   --diff-del-bg: rgba(220, 50, 47, 0.18);
@@ -347,6 +387,16 @@
 
 /* ── Monokai ── warm charcoal with orange/green ─────────────────────────────── */
 [data-theme="monokai"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #a6a69c;
+  --syntax-keyword: #f92672;
+  --syntax-string: #e6db74;
+  --syntax-number: #ae81ff;
+  --syntax-title: #a6e22e;
+  --syntax-attribute: #a6e22e;
+  --syntax-type: #66d9ef;
+  --syntax-meta: #fd971f;
+  --syntax-deletion: #ff6188;
   --bg: #272822;
   --diff-add-bg: rgba(166, 226, 46, 0.13);
   --diff-del-bg: rgba(249, 38, 114, 0.14);
@@ -437,6 +487,16 @@
 
 /* ── Nord ── polar night cool blue-grey ─────────────────────────────────────── */
 [data-theme="nord"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #98a6bc;
+  --syntax-keyword: #81a1c1;
+  --syntax-string: #a3be8c;
+  --syntax-number: #b48ead;
+  --syntax-title: #88c0d0;
+  --syntax-attribute: #8fbcbb;
+  --syntax-type: #8fbcbb;
+  --syntax-meta: #ebcb8b;
+  --syntax-deletion: #e399a1;
   --bg: #2e3440;
   --diff-add-bg: rgba(163, 190, 140, 0.14);
   --diff-del-bg: rgba(191, 97, 106, 0.14);
@@ -527,6 +587,16 @@
 
 /* ── Rosé Pine ── warm plum dark ────────────────────────────────────────────── */
 [data-theme="rose-pine"] {
+  /* Syntax palette: shared by all explicitly labelled Markdown code blocks. */
+  --syntax-comment: #908caa;
+  --syntax-keyword: #c4a7e7;
+  --syntax-string: #f6c177;
+  --syntax-number: #ebbcba;
+  --syntax-title: #9ccfd8;
+  --syntax-attribute: #ebbcba;
+  --syntax-type: #9ccfd8;
+  --syntax-meta: #c4a7e7;
+  --syntax-deletion: #eb6f92;
   --bg: #191724;
   --diff-add-bg: rgba(49, 116, 143, 0.15);
   --diff-del-bg: rgba(235, 111, 146, 0.15);
@@ -3171,80 +3241,76 @@ a.rail-brand {
   line-height: 1.5;
 }
 
-/* Minimal highlight theme */
-.hljs {
-  color: color-mix(in srgb, var(--text) 92%, var(--coddy-blend-base));
-}
-.hljs-comment,
-.hljs-quote {
-  color: rgba(156, 163, 175, 0.85);
-}
-.hljs-keyword,
-.hljs-selector-tag,
-.hljs-subst {
-  color: rgba(167, 139, 250, 0.95);
-}
-.hljs-string,
-.hljs-title,
-.hljs-section,
-.hljs-attribute,
-.hljs-literal,
-.hljs-template-tag,
-.hljs-template-variable,
-.hljs-type,
-.hljs-addition {
-  color: rgba(52, 211, 153, 0.95);
-}
-.hljs-number,
-.hljs-symbol,
-.hljs-bullet,
-.hljs-variable,
-.hljs-built_in,
-.hljs-builtin-name {
-  color: rgba(96, 165, 250, 0.95);
-}
-.hljs-deletion,
-.hljs-meta {
-  color: rgba(248, 113, 113, 0.9);
+/* Token colors inherit the active appearance without re-highlighting code. */
+.md-code .hljs,
+.md-code .hljs-subst {
+  color: var(--text);
 }
 
-[data-theme="light"] .hljs-comment,
-[data-theme="light"] .hljs-quote {
-  color: rgba(113, 113, 122, 0.92);
+.md-code .hljs-comment,
+.md-code .hljs-quote {
+  color: var(--syntax-comment);
 }
 
-[data-theme="light"] .hljs-keyword,
-[data-theme="light"] .hljs-selector-tag,
-[data-theme="light"] .hljs-subst {
-  color: rgba(109, 40, 217, 0.95);
+.md-code .hljs-keyword,
+.md-code .hljs-name,
+.md-code .hljs-selector-tag,
+.md-code .hljs-doctag {
+  color: var(--syntax-keyword);
 }
 
-/* Light theme: the dark-theme green/blue/red are too bright and low-contrast
-   on the pale code surface; use darker, less saturated tokens. */
-[data-theme="light"] .hljs-string,
-[data-theme="light"] .hljs-title,
-[data-theme="light"] .hljs-section,
-[data-theme="light"] .hljs-attribute,
-[data-theme="light"] .hljs-literal,
-[data-theme="light"] .hljs-template-tag,
-[data-theme="light"] .hljs-template-variable,
-[data-theme="light"] .hljs-type,
-[data-theme="light"] .hljs-addition {
-  color: rgba(17, 105, 49, 0.95);
+.md-code .hljs-string,
+.md-code .hljs-regexp,
+.md-code .hljs-addition {
+  color: var(--syntax-string);
 }
 
-[data-theme="light"] .hljs-number,
-[data-theme="light"] .hljs-symbol,
-[data-theme="light"] .hljs-bullet,
-[data-theme="light"] .hljs-variable,
-[data-theme="light"] .hljs-built_in,
-[data-theme="light"] .hljs-builtin-name {
-  color: rgba(13, 92, 173, 0.95);
+.md-code .hljs-number,
+.md-code .hljs-literal,
+.md-code .hljs-symbol,
+.md-code .hljs-bullet {
+  color: var(--syntax-number);
 }
 
-[data-theme="light"] .hljs-deletion,
-[data-theme="light"] .hljs-meta {
-  color: rgba(185, 28, 28, 0.95);
+.md-code .hljs-title,
+.md-code .hljs-section {
+  color: var(--syntax-title);
+}
+
+.md-code .hljs-attr,
+.md-code .hljs-property,
+.md-code .hljs-attribute,
+.md-code .hljs-selector-id,
+.md-code .hljs-selector-class,
+.md-code .hljs-selector-attr,
+.md-code .hljs-selector-pseudo {
+  color: var(--syntax-attribute);
+}
+
+.md-code .hljs-type,
+.md-code .hljs-built_in,
+.md-code .hljs-builtin-name {
+  color: var(--syntax-type);
+}
+
+.md-code .hljs-meta,
+.md-code .hljs-operator,
+.md-code .hljs-variable,
+.md-code .hljs-template-tag,
+.md-code .hljs-template-variable {
+  color: var(--syntax-meta);
+}
+
+.md-code .hljs-deletion {
+  color: var(--syntax-deletion);
+}
+
+.md-code .hljs-emphasis {
+  font-style: italic;
+}
+
+.md-code .hljs-strong {
+  font-weight: 700;
 }
 
 .md-copy {
