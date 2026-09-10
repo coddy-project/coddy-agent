@@ -3278,6 +3278,7 @@ a.rail-brand {
 }
 
 .md-code .hljs-attr,
+.md-code .hljs-property,
 .md-code .hljs-attribute,
 .md-code .hljs-selector-id,
 .md-code .hljs-selector-class,

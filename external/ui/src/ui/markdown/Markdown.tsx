@@ -1,6 +1,7 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { syntaxHighlightOptions } from "./syntaxLanguages";
 import {
   createContext,
   isValidElement,
@@ -207,7 +208,7 @@ export const Markdown = memo(function Markdown(props: { text: string }) {
     <div className="md">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[[rehypeHighlight, { aliases: { css: ["postcss"], xml: ["vue"] } }]]}
+        rehypePlugins={[[rehypeHighlight, syntaxHighlightOptions]]}
         components={components}
         urlTransform={urlTransform}
       >

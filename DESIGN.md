@@ -576,6 +576,7 @@ Use these to regress behaviour after CSS or **`Composer`** edits. **Vitest** row
 
 - **`coddy-skill:`** chips appear only in the **composer mirror** while editing, not in persisted user bubbles.
 - Render fenced code blocks with syntax highlighting.
+- The explicit language registry and aliases live in `external/ui/src/ui/markdown/syntaxLanguages.ts`. It extends the common grammars with the languages covered in [the NeuralDeep audit](docs/syntax-highlighting-audit.md); six additional grammars retain pinned upstream sources and licenses under `ui/markdown/grammars/`. PL/SQL, OpenCL, and CUDA use base SQL/C/C++ highlighting. Unsupported labels remain literal text; never guess a related language silently.
 - Treat `vue` as an HTML/XML grammar alias for component tags, attributes, and comments, with standard embedded JavaScript and CSS highlighting. This is not a Vue compiler: interpolation expressions and alternative `lang` preprocessors do not receive dedicated grammars.
 - Treat the `postcss` fence label as a CSS grammar alias; retain the original label and source for rendering and copying. Plugin-specific PostCSS extensions have CSS-level highlighting only.
 - Use the declared fence language (`js` / `javascript`, `ts`, `css`, `html`, `json`, `python`, `go`, and other bundled highlight.js common languages). Unknown or unlabelled fences remain literal text without language guessing; incomplete streamed fences still render safely.
