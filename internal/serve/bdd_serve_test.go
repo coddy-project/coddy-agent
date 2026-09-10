@@ -153,6 +153,12 @@ func (s *serveFeatureState) runningRuntime() error {
 	s.reset()
 	s.cfg.Gateways.Telegram.Enabled = true
 	s.cfg.Gateways.Telegram.Token = "first-token"
+	return s.launch()
+}
+
+// launch resolves the current config and runs the supervisor over every
+// descriptor, the way the CLI does.
+func (s *serveFeatureState) launch() error {
 	ready, err := Resolve(s.cfg, s.subs)
 	if err != nil {
 		return err
@@ -169,11 +175,32 @@ func (s *serveFeatureState) runningRuntime() error {
 		_ = s.sup.Run(ctx, s.cfg, s.reloads)
 	}()
 	return waitFor(func() bool {
-		return s.startCount(KindHTTP) == 1 && s.startCount(KindGateway) == 1
+		for _, sub := range ready {
+			if s.startCount(sub.Kind) != 1 {
+				return false
+			}
+		}
+		return true
 	})
 }
 
 // --- When ---
+
+func (s *serveFeatureState) runningRuntimeHTTPOnly() error {
+	s.reset()
+	return s.launch()
+}
+
+func (s *serveFeatureState) httpDisabled() error {
+	s.reload(func(c *config.Config) {
+		off := false
+		c.HTTPServer.Enabled = &off
+	})
+	// Nothing should happen, so there is no edge to wait for; give the
+	// supervisor a moment to have done the wrong thing if it were going to.
+	time.Sleep(200 * time.Millisecond)
+	return nil
+}
 
 func (s *serveFeatureState) resolveSubsystems() error {
 	s.ready, s.err = Resolve(s.cfg, s.subs)
@@ -343,12 +370,14 @@ func initializeServeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a binary built without gateway support$`, s.binaryWithoutGateway)
 	sc.Step(`^a config with every subsystem disabled$`, s.configWithEverythingDisabled)
 	sc.Step(`^a running runtime with the httpserver and the telegram gateway enabled$`, s.runningRuntime)
+	sc.Step(`^a running runtime with only the httpserver enabled$`, s.runningRuntimeHTTPOnly)
 
 	sc.Step(`^the runtime resolves which subsystems to start$`, s.resolveSubsystems)
 	sc.Step(`^the runtime resolves the httpserver listen address$`, s.resolveListenAddress)
 	sc.Step(`^the telegram token is changed through the configuration$`, s.tokenChanged)
 	sc.Step(`^the scheduler is enabled through the configuration$`, s.schedulerEnabled)
 	sc.Step(`^the telegram gateway is disabled through the configuration$`, s.gatewayDisabled)
+	sc.Step(`^the httpserver is disabled through the configuration$`, s.httpDisabled)
 
 	sc.Step(`^the "([^"]*)" subsystem is enabled$`, s.subsystemEnabled)
 	sc.Step(`^the "([^"]*)" subsystem is disabled$`, s.subsystemDisabled)

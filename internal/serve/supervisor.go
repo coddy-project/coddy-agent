@@ -166,6 +166,16 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 			s.log.Info("subsystem enabled by a configuration change", "subsystem", string(sub.Kind))
 			s.start(ctx, sub, cfg, failures)
 		case inst != nil && !want:
+			// Stopping the last one would leave a process that runs nothing
+			// and can no longer be reached to say otherwise - the state
+			// Resolve refuses at startup. Keep it and say so instead, the way
+			// a listener whose bind address moved is kept.
+			if s.runningCount() == 1 {
+				s.log.Error("refusing to stop the only running subsystem",
+					"subsystem", string(sub.Kind), "key", sub.ConfigKey,
+					"hint", "a process with nothing enabled cannot be reached; enable another subsystem first, or restart coddy serve")
+				continue
+			}
 			s.log.Info("subsystem disabled by a configuration change", "subsystem", string(sub.Kind))
 			s.stop(sub.Kind, inst)
 		case sub.Fingerprint == nil:
@@ -179,6 +189,13 @@ func (s *Supervisor) applyConfig(ctx context.Context, cfg *config.Config, failur
 			s.start(ctx, sub, cfg, failures)
 		}
 	}
+}
+
+// runningCount reports how many subsystems are live right now.
+func (s *Supervisor) runningCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.running)
 }
 
 // stop cancels one instance and waits for its goroutine, bounded by restartDrain.

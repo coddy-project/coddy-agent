@@ -57,3 +57,8 @@ Feature: coddy serve runs the subsystems the config enables
     When the telegram gateway is disabled through the configuration
     Then the "gateway" subsystem is stopped
     And the "httpserver" subsystem keeps running
+
+  Scenario: the last running surface is not turned off underneath the operator
+    Given a running runtime with only the httpserver enabled
+    When the httpserver is disabled through the configuration
+    Then the "httpserver" subsystem is running
