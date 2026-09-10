@@ -133,7 +133,7 @@ Built-in implementations are grouped in subfolders under **`internal/tools/`**:
   **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
   **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
 - **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
-  (registered when **`subagents.enabled`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  (registered when **`subagents.enable`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
   that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
   trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
   **`internal/session`**. See **`docs/subagents.md`**.
@@ -149,9 +149,9 @@ Agents see:
 
 ### Messenger Gateway (`external/gateway`)
 
-The gateway is a separate process entry point (`coddy gateway`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop used by `coddy acp` and `coddy http`.
+The gateway is a subsystem of `coddy serve` (`gateways.telegram.enable`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop the HTTP API and `coddy acp` use. When the HTTP surface is on in the same process, a chat turn is also published into that session's composer relay, so a browser can watch it while it runs.
 
-Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags the `coddy gateway` subcommand is present but returns a "not compiled" error.
+Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags, `gateways.telegram.enable: true` is a startup error naming the tag.
 
 **Key packages:**
 
@@ -282,4 +282,4 @@ Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is 
 └── README.md
 ```
 
-Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enabled`** when the binary was built with **`memory`**.
+Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enable`** when the binary was built with **`memory`**.

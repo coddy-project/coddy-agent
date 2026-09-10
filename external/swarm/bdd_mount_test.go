@@ -3,7 +3,7 @@
 package swarm
 
 // Godog harness for features/swarm_mount.feature. A real httptest node stands
-// in for `coddy http`, and every step goes over the relay's real HTTP surface,
+// in for a `coddy serve` node, and every step goes over the relay's real HTTP surface,
 // so the spec covers the proxy contract rather than its internals.
 
 import (

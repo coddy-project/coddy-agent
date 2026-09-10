@@ -8,7 +8,7 @@ A machine-readable [JSON Schema](config.schema.json) accompanies this reference,
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json
 ```
 
-VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and Coddy writes it into every `config.yaml` it saves (see [config.md](config.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enabled`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form Coddy writes for everything you never set, so a saved config validates clean.
+VS Code (with the YAML extension), Zed, Neovim and Helix pick this comment up automatically, and Coddy writes it into every `config.yaml` it saves (see [config.md](config.md)); JetBrains IDEs do not read it and need the URL registered under **JSON Schema Mappings** instead. The schema is kept in sync with the Go config structs by `TestDocsConfigSchemaMatchesStructs` in `internal/config/docs_schema_test.go`. Optional tri-state fields (for example `compaction.enable`, `models[].stream`, `tools.output_limits.*`) accept `null` as well as a value: `null` means unset, and that is the form Coddy writes for everything you never set, so a saved config validates clean.
 
 Every field is optional unless marked **required**; an empty `config.yaml` (or none at all) is valid and uses built-in defaults. Any string value may reference environment variables with `${VAR_NAME}` (expanded when the file is loaded). To keep a **literal `$`** in a value (e.g. a secret like `$2y$10$…`), double it as `$$` — the UI does this automatically for the `proxy` fields. `${CODDY_HOME}` is expanded by the loader; `${CWD}` stays in the loaded value and is expanded per session by whatever reads the path, except in the process-scoped `sessions.dir`, `scheduler.dir`, `memory.dir`, and `logger.file` (see [config.md](config.md#environment-variable-references)).
 
@@ -117,7 +117,7 @@ coddy providers logout codex   # removes the Coddy-managed credential (leaves th
 
 (Up to 1.0.11 the same flow also had a codex-only command, `coddy codex login | status | logout`. It was removed in favour of the commands above, which cover every backend; `coddy providers list` reports what `codex status` used to.)
 
-A successful login also publishes the subscription catalog into `config.yaml`, the way `coddy providers login neuraldeep` publishes its tier models (the Settings button stores the credential only): it adds the `codex` provider row when it is missing, one `models[]` entry per catalog model Codex lists (the ids Codex hides from its own picker, such as `gpt-reserve` and `codex-auto-review`, are left out), and `agent.model` when nothing is set yet - Codex's own top-ranked model. Nothing already in the file is rewritten: an existing provider row, an already listed model, and a chosen `agent.model` survive untouched, so a repeated login is a no-op. `--no-config` stores only the credential. Entries carry no `max_tokens`, because the Codex backend rejects `max_output_tokens`. A running `coddy http` keeps its loaded config, so restart it to pick the new models up.
+A successful login also publishes the subscription catalog into `config.yaml`, the way `coddy providers login neuraldeep` publishes its tier models (the Settings button stores the credential only): it adds the `codex` provider row when it is missing, one `models[]` entry per catalog model Codex lists (the ids Codex hides from its own picker, such as `gpt-reserve` and `codex-auto-review`, are left out), and `agent.model` when nothing is set yet - Codex's own top-ranked model. Nothing already in the file is rewritten: an existing provider row, an already listed model, and a chosen `agent.model` survive untouched, so a repeated login is a no-op. `--no-config` stores only the credential. Entries carry no `max_tokens`, because the Codex backend rejects `max_output_tokens`. A running `coddy serve` keeps its loaded config, so restart it to pick the new models up.
 
 Both paths use the same storage; the provider name is the argument, so `coddy providers login <name>` targets a specific codex row when `config.yaml` defines several (a row under a name other than `codex` has to exist in `config.yaml` first). Coddy uses the official device authorization flow and stores refreshable credentials at `$CODDY_HOME/providers/<provider-name>/codex-auth.json` with restrictive file permissions; tokens never enter `config.yaml`. `api_key`, `api_key_command`, and `api_base` are ignored for Codex, while `proxy` applies to OAuth and provider requests. The model picker reads the catalog from the official Codex backend with the saved token. If no Coddy-managed credential exists, Coddy remains compatible with a Codex CLI login in `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`). Codex requests always target the official backend; the process-level `CODDY_CODEX_BASE_URL` is the only override (tests and self-hosted gateways), so a settings document can never redirect an OAuth token on its own.
 
@@ -125,7 +125,7 @@ Codex is only a model backend: the agent keeps Coddy's own system prompt, tool c
 
 **Token lifetime.** The access token is refreshed transparently shortly before it expires, and the refreshed tokens are written back to the file they came from. When the credential is the Codex CLI login, that file is `~/.codex/auth.json` itself - the same file the `codex` CLI reads, so both tools keep working off one login, and a refresh performed by Coddy is visible to the CLI (and vice versa). A Coddy-managed credential is refreshed in place under `$CODDY_HOME/providers/<name>/` and never touches the CLI login. Signing out (`coddy providers logout codex`, or **Sign Out** in Settings) removes only the Coddy-managed file.
 
-**Startup report.** When at least one `type: codex` provider is configured, `coddy acp` and `coddy http` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `coddy providers login <name>`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
+**Startup report.** When at least one `type: codex` provider is configured, `coddy acp` and `coddy serve` log one `codex credential` line per provider at startup: where the credential came from and how long the access token is still valid. A missing credential, an unusable `auth_mode`, or an expired token with no refresh token left is logged as a **warning** naming `coddy providers login <name>`; an expired but refreshable token is only an informational line, since the next request renews it. Setups without a codex provider log nothing.
 
 **Reasoning.** The Codex backend serves `gpt-5*` and `gpt-6*` model ids but accepts only `none`, `low`, `medium`, `high`, and `xhigh`, so codex-backed models offer **`none`** where other providers offer `minimal` (an explicit `reasoning_levels: [minimal]` is remapped as well). Reasoning turns request summaries (`summary: auto`) so thinking streams into the UI, and encrypted reasoning (`include: reasoning.encrypted_content`) so the model's own chain of thought is replayed verbatim on the next request of the same turn - the same flow the Codex CLI uses. Replayed reasoning is tagged with the model that produced it and is skipped when the session switches models. The items are stored opaquely in `messages.json` (`reasoning_signature`, ~1 KB per assistant turn) and are not exposed by `GET /coddy/sessions/{id}/messages`.
 
@@ -260,7 +260,7 @@ MCP settings that are not tied to a single server entry (`config.MCP`, `internal
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.coddy/mcp.json`, which travels with the checkout and therefore picks the command a session would start. `ask` — its servers stay cold until the operator approves that exact declaration for that workspace; `allow` — start them automatically (workspaces you already trust); `deny` — never load them, with no approval path. Overridable per process with `coddy acp --mcp-project-trust <value>` / `coddy http --mcp-project-trust <value>`. |
+| `project_trust` | string | no | `ask` | Trust policy for the project-local `<workspace>/.coddy/mcp.json`, which travels with the checkout and therefore picks the command a session would start. `ask` — its servers stay cold until the operator approves that exact declaration for that workspace; `allow` — start them automatically (workspaces you already trust); `deny` — never load them, with no approval path. Overridable per process with `coddy acp --mcp-project-trust <value>` / `coddy serve --mcp-project-trust <value>`. |
 
 Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80).
 Approvals are recorded in `~/.coddy/mcp-trust.json`, keyed by the canonical workspace path
@@ -371,7 +371,7 @@ A component is the dotted name a subsystem tags its logger with, and it stays on
 `--log-level` accepts the same spec as a comma-separated list, which is how an operator running under systemd raises one subsystem for a single restart without editing the file:
 
 ```bash
-coddy gateway --log-level "info,gateway.telegram=debug"
+coddy serve --log-level "info,gateway.telegram=debug"
 ```
 
 A bare `--log-level debug` sets only the root level and leaves the configured entries alone; a spec that names components replaces them, so the flag is a complete statement of what to log.
@@ -426,24 +426,26 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `host` | string | no | `""` → `0.0.0.0` | Default bind address when `coddy http` does not pass `-H/--host`. |
-| `port` | int | no | `0` → `12345` | Default listen port when `coddy http` does not pass `-P/--port`. Range 0–65535. |
+| `enable` | bool \| null | no | `null` → `true` | Serve the HTTP API and the embedded SPA in this `coddy serve` process. Set `false` on a node that should only poll a messenger or relay a swarm. Overridable per run with `--http` / `--http=false`. |
+| `host` | string | no | `""` → `127.0.0.1` | Default bind address when `coddy serve` does not pass `-H/--host`. The fallback is loopback, not `0.0.0.0`: one process now starts every enabled subsystem, so asking for a Telegram bot must not open the agent API to the network as a side effect. Set `0.0.0.0` (or a specific interface) to accept connections from other machines. |
+| `port` | int | no | `0` → `12345` | Default listen port when `coddy serve` does not pass `-P/--port`. Range 0–65535. |
 | `auth_token` | string | no | `""` | Optional bearer credential. Empty means no auth (historical default). Enables auth on `/v1/*` and `/coddy/*`. Supports `${ENV}`. Never returned by `GET /coddy/config`. Prefer `--auth-token` / `CODDY_HTTP_TOKEN`. |
 | `public_docs` | bool | no | `false` | When auth is enabled, keep `/docs` and `/openapi.*` reachable without a token. |
 | `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
 | `cors.enabled` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the API (e.g. `http://localhost:12345`). A single `*` allows any origin; bearer auth still applies. |
 | `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
-| `remotes[].url` | string | yes* | - | Base URL of a remote `coddy http` server (*required per entry). Tokens are kept client-side, not here. |
+| `remotes[].url` | string | yes* | - | Base URL of a remote `coddy serve` server (*required per entry). Tokens are kept client-side, not here. |
 
 ## `swarm`
 
-Stateless relay that nodes register into and that chains into other relays (`config.SwarmConfig`, `internal/config/swarm.go`; `swarm` build tag for the server side, though `swarm.join` is honoured by `coddy http` too). See [swarm.md](swarm.md).
+Stateless relay that nodes register into and that chains into other relays (`config.SwarmConfig`, `internal/config/swarm.go`; `swarm` build tag for the server side, though `swarm.join` is honoured by every `coddy serve` process). See [swarm.md](swarm.md).
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `host` | string | no | `""` → `0.0.0.0` | Bind address for `coddy swarm` when the CLI does not pass `-H/--host`. |
-| `port` | int | no | `0` → `12346` | Listen port for `coddy swarm`. Range 0–65535. |
+| `enable` | bool | no | `false` | Run the relay in this `coddy serve` process. Independent of `swarm.join`: joining a parent relay is what an agent node does, running a relay is what a hub does, and one process may do both. Overridable per run with `--swarm` / `--swarm=false`. |
+| `host` | string | no | `""` → `0.0.0.0` | Bind address for the relay when the CLI does not pass `--swarm-host`. |
+| `port` | int | no | `0` → `12346` | Relay listen port when the CLI does not pass `--swarm-port`. Range 0–65535. It sits next to the API's 12345 so one process can serve both. |
 | `name` | string | no | `""` | Label for this relay in topology views and in a child's node path. |
 | `auth_token` | string | no | `""` | Bearer credential clients present. A relay reaches every node with that node's own credential, so binding off loopback without one refuses to start unless `allow_insecure` is set. Never returned by config reads. |
 | `pairing_tokens` | []string | no | `[]` | Credentials a node must present to register. Empty closes registration unless `insecure_open_registration`. Never returned by config reads. |
@@ -485,7 +487,7 @@ Cron scheduler (`config.SchedulerConfig`, `internal/config/scheduler.go`; `sched
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `false` | Run the scheduler daemon and expose `coddy_scheduler_*` tools. `coddy acp\|http -scheduler-enabled` forces it per process. |
+| `enabled` | bool | no | `false` | Run the scheduler daemon and expose `coddy_scheduler_*` tools. `coddy acp\|http -scheduler` forces it per process. |
 | `dir` | string | no | `""` → `${CODDY_HOME}/scheduler` | Directory with flat `*.md` job definitions. |
 | `max_queue` | int | no | `10` | Concurrent scheduled runs; extra firings are skipped when saturated. |
 | `timeout` | string | no | `"30m"` | Per-run wall-clock limit (Go duration, e.g. `1h30m`). |
@@ -493,7 +495,7 @@ Cron scheduler (`config.SchedulerConfig`, `internal/config/scheduler.go`; `sched
 
 ## `gateways`
 
-Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gateway` or `gateway.telegram` build tag; run with `coddy gateway`). See [gateway.md](gateway.md).
+Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gateway` or `gateway.telegram` build tag; run with `coddy serve`). See [gateway.md](gateway.md).
 
 ### `gateways.telegram`
 
@@ -518,7 +520,7 @@ These control config discovery itself, not individual fields (see [config.md](co
 | `CODDY_HOME` | `--home` | Agent state directory (default `~/.coddy`). |
 | `CODDY_CWD` | `--cwd` | Default session working directory. |
 | `CODDY_CONFIG` | `--config` | Explicit path to `config.yaml`. |
-| `CODDY_SWARM_TOKEN` | `--auth-token` (swarm) | Client credential for `coddy swarm` (see [`swarm`](#swarm)). |
-| `CODDY_SWARM_PAIRING_TOKEN` | `--pairing-token` | Registration credential for `coddy swarm` (see [`swarm`](#swarm)). |
+| `CODDY_SWARM_TOKEN` | `--auth-token` (swarm) | Client credential for `coddy serve` (see [`swarm`](#swarm)). |
+| `CODDY_SWARM_PAIRING_TOKEN` | `--pairing-token` | Registration credential for `coddy serve` (see [`swarm`](#swarm)). |
 | `NAME_API_KEY` | — | Per-provider API key fallback (see [`providers`](#providers)). |
 | `TELEGRAM_BOT_TOKEN` | — | Telegram bot token fallback (see [`gateways.telegram`](#gatewaystelegram)). |

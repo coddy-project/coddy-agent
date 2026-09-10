@@ -102,7 +102,7 @@ def main() -> int:
         return 2
     if code == 503:
         print(
-            "scheduler disabled (503). Use scheduler.enabled in config and --scheduler-enabled if needed.",
+            "scheduler disabled (503). Use scheduler.enable in config and --scheduler if needed.",
             file=sys.stderr,
         )
         return 3

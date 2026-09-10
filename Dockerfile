@@ -22,7 +22,8 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
-# Default build includes the messenger gateway so the image can run `coddy gateway`
+# Default build includes every surface, so one `coddy serve` can run whichever
+# of them the mounted config.yaml enables
 # by overriding CMD (see docker-compose command override). Pass --build-arg BUILD_TAGS
 # to trim it. CI (docker-build-push.yaml) sets its own BUILD_TAGS for the published image.
 ARG BUILD_TAGS=http,scheduler,ui,memory,gateway,cli,swarm
@@ -71,6 +72,7 @@ ENV CODDY_CONFIG=/home/user/.coddy.yaml
 EXPOSE 12345
 
 ENTRYPOINT ["/bin/coddy"]
-# Default subcommand. Override to run another mode, e.g. `docker run ... gateway --cwd /workspace`
-# or via compose `command:` / the CODDY_COMMAND override in docker-compose(.dev).yml.
-CMD ["http","-H","0.0.0.0","-P","12345"]
+# Default subcommand. `serve` starts every subsystem config.yaml enables; the
+# bind address is explicit because a container has to accept connections from
+# outside itself, where the loopback default would leave the port unreachable.
+CMD ["serve","-H","0.0.0.0","-P","12345"]

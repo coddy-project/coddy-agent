@@ -205,7 +205,7 @@ func (w *modelSwitchWorld) buildBot() error {
 	w.bot = New(&config.TelegramGatewayConfig{
 		Enabled: true, Token: "t", DefaultAccess: config.AccessAll, DefaultIsolation: config.IsolationIndividual,
 	},
-		w.runner, dir, logger.Component(base, logger.ComponentGatewayTelegram), "")
+		w.runner, dir, logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 	return nil
 }
 

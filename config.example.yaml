@@ -180,7 +180,7 @@ skills:
   # later entries win on name conflicts. When empty, defaults are
   # ~/.agents/skills, ${CODDY_HOME}/skills, ${CWD}/.coddy/skills.
   # ${CWD} is the session workspace, resolved when a session loads its
-  # skills, so it is safe to write here even for a shared coddy http server.
+  # skills, so it is safe to write here even for a shared coddy serve server.
   dirs: []
   # sources lists remote skill sources installed on demand with `coddy skills sync`
   # (never fetched automatically). Each entry is a GitHub repo (owner/repo[@ref]),
@@ -193,7 +193,7 @@ skills:
   # catalogued skill's full instructions into a turn on its own when the request
   # matches (like Codex / Claude Code / Cursor), instead of only when you type /name.
   # Defaults to true; set false to keep skills manual-only. Also settable via the
-  # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy http`.
+  # `--skills-auto-discovery=false` CLI flag on `coddy acp` / `coddy serve`.
   auto_discovery: true
 
 # MCP servers connected for every new session (the "global" scope, together with
@@ -322,7 +322,13 @@ tools:
 #   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
 
 # OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
+# Run it with `coddy serve`, which starts every subsystem enabled below in one
+# process over one set of sessions.
 # httpserver:
+#   enable: true          # omitted means true; set false for a node that only polls a bot or relays a swarm
+#   # Empty means 127.0.0.1. One process now starts every enabled subsystem, so
+#   # asking for a Telegram bot must not open the agent API to the network as a
+#   # side effect. Set 0.0.0.0 to accept connections from other machines.
 #   host: "127.0.0.1"
 #   port: 8080
 #   # Optional bearer auth. Empty = no auth (default). When set, /v1/* and /coddy/* require
@@ -336,7 +342,7 @@ tools:
 #   cors:
 #     enabled: false
 #     allowed_origins: ["http://localhost:12345"]
-#   # Remote coddy http servers offered in the UI environment selector. Tokens are NOT stored here;
+#   # Remote coddy serve servers offered in the UI environment selector. Tokens are NOT stored here;
 #   # the UI keeps them client-side per remote.
 #   remotes:
 #     - name: "prod box"
@@ -352,14 +358,14 @@ tools:
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
 # (5-field crontab, UTC), optional cwd, model, mode; markdown body is the one-shot agent instruction. Sidecars: basename.state,
 # basename.lock during a run.
-# Enable with scheduler.enabled and/or coddy acp|http -scheduler-enabled.
+# Enable with scheduler.enable, or per run with `coddy serve --scheduler`.
 # scheduler:
 #   enabled: false
 #   dir: ""              # empty = ${CODDY_HOME}/scheduler
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
 
-# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enabled.
+# Long-term memory copilot (external/memory; always in the binary). Toggle with memory.enable.
 # Stores markdown under memory.dir (default ${CODDY_HOME}/memory) and <session cwd>/memory (project). Injects text into the
 # same {{.Memory}} section as session notes; main agent never sees memory_* tools.
 # memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
@@ -374,7 +380,10 @@ tools:
 #   max_search_hits: 8
 
 # Messenger gateways (external/gateway/; build with: go build -tags gateway.telegram or -tags gateway).
-# Run the bot with: coddy gateway --config config.yaml
+# The bot is not a command of its own: set enable: true and `coddy serve` polls
+# Telegram alongside whatever else is on. With httpserver.enable the chats are
+# live sessions in the web UI - watchable while they run, continuable in either
+# place. See docs/gateway.md.
 # gateways:
 #   telegram:
 #     enabled: false
@@ -419,11 +428,13 @@ logger:
 
 # ----------------------------------------------------------------------------
 # swarm - a relay that nodes register into, and that chains into other relays.
-# Server side needs -tags swarm; the join list below is honoured by coddy http
-# too, which is what lets an ordinary agent be reached through a relay.
+# Server side needs -tags swarm and swarm.enable; the join list below is
+# honoured by every coddy serve process, which is what lets an ordinary agent be
+# reached through a relay.
 # Full reference: docs/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
+#   enable: false        # run the relay here; independent of the join list below
 #   name: "outer"
 #   host: "0.0.0.0"
 #   port: 12346
@@ -446,8 +457,8 @@ logger:
 #       url: "https://nas02:12345"
 #       kind: "agent"          # agent (default) or relay
 #       token: "${NAS02_TOKEN}"
-#   # Relays this process registers into. Both coddy http and coddy swarm honour
-#   # it, which is the whole of relay chaining.
+#   # Relays this process registers into, whether or not it relays itself.
+#   # That symmetry is the whole of relay chaining.
 #   join:
 #     - url: "https://relay.example"
 #       name: "nas02"

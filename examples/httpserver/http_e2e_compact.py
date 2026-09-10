@@ -5,7 +5,7 @@ ACP twin: ``examples/acp/acp_e2e_compact.py`` (which also covers the auto
 threshold with a tiny-window config; here the shared server keeps the demo
 config, so this harness exercises the manual surfaces).
 
-Needs a running ``coddy http`` (see ``examples/httpserver/test_httpserver.sh``).
+Needs a running ``coddy serve`` (see ``examples/httpserver/test_httpserver.sh``).
 Calls a real configured LLM via ``POST /v1/responses`` (``model``: ``agent``).
 
 Checks:

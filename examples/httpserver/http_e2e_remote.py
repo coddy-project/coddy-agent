@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""HTTP e2e: connect to a remote, authenticated ``coddy http`` like a local one.
+"""HTTP e2e: connect to a remote, authenticated ``coddy serve`` like a local one.
 
-Self-contained: this harness boots two ``build/coddy http`` instances on loopback -
+Self-contained: this harness boots two ``build/coddy serve`` instances on loopback -
 a REMOTE one protected by ``--auth-token`` and a LOCAL one with no auth - then acts
 as the client the Coddy UI would be. It proves the bearer token gates the API, that
 the token is never returned by ``GET /coddy/config``, that authenticated workspace /
@@ -79,7 +79,7 @@ def boot_server(binary: Path, port: int, token: str | None) -> Tuple[subprocess.
     home = Path(tempfile.mkdtemp(prefix=f"coddy-remote-{port}-"))
     (home / "config.yaml").write_text(MINIMAL_CONFIG, encoding="utf-8")
     work = Path(tempfile.mkdtemp(prefix=f"coddy-remote-work-{port}-"))
-    args = [str(binary), "http", "--config", str(home / "config.yaml"),
+    args = [str(binary), "serve", "--config", str(home / "config.yaml"),
             "--home", str(home), "--cwd", str(work), "-H", "127.0.0.1", "-P", str(port)]
     if token:
         args += ["--auth-token", token]

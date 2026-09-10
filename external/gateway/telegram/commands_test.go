@@ -129,7 +129,7 @@ func TestBotLoggerCarriesTheTelegramComponent(t *testing.T) {
 	var buf bytes.Buffer
 	base := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	b := New(&config.TelegramGatewayConfig{}, nil, "",
-		logger.Component(base, logger.ComponentGatewayTelegram), "")
+		logger.Component(base, logger.ComponentGatewayTelegram), "", nil)
 
 	b.log.Debug("probe")
 

@@ -69,7 +69,7 @@ func TestTelegramGatewayProxyDollarPasswordSurvivesSaveLoad(t *testing.T) {
 			{"model": "openai/gpt-4o", "max_tokens": 4096, "temperature": 0.1, "multimodal": true}
 		],
 		"agent": {"model": "openai/gpt-4o", "max_turns": 35},
-		"gateways": {"telegram": {"enabled": true, "token": "t", "proxy": "` + proxy + `"}}
+		"gateways": {"telegram": {"enable": true, "token": "t", "proxy": "` + proxy + `"}}
 	}`
 
 	cfg, err := config.ParseAndValidateConfigJSON([]byte(body), config.Paths{})

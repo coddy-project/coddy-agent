@@ -7,7 +7,7 @@ paths:
 
 # Messenger Gateway (`external/gateway`)
 
-Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). Without these tags `coddy gateway` is present in the binary but returns a "not compiled" error.
+Built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). Without these tags `coddy serve` is present in the binary but returns a "not compiled" error.
 
 ## Package layout
 

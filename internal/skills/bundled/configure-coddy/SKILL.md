@@ -58,15 +58,23 @@ The active YAML file covers these areas (full field tables: `docs/config-referen
 - `mcp` - trust policy for project-local `.coddy/mcp.json` declarations (`project_trust`);
 - `tools` - permission mode, command allowlist, background execution, output limits, SSH timeouts;
 - `subagents` - child agents the model delegates to with `spawn_agent`: definition directories (`dirs`), the trust policy for definitions found inside the workspace (`project_trust`: `ask` refuses to spawn a project file until it is approved on the machine running coddy, with `coddy agents trust <name>` there or `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`; from a remote console prefer the POST route or stage `set subagents.project_trust=allow`; `allow` trusts them, `deny` never reads them), the process-wide pool size (`max_concurrent`), nesting (`max_depth`), the default run timeout and the child ReAct cap. To let a trusted checkout's definitions run without approvals, stage `set subagents.project_trust=allow`; to shrink the pool, `set subagents.max_concurrent=2`;
-- `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.coddy/hooks.json` plus the workspace's `.coddy/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running coddy with `coddy hooks trust <file>` there or `POST /coddy/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enabled=false`;
+- `hooks` - operator commands run at lifecycle points of a session (before and after a tool call: deny it, approve it past the permission prompt, rewrite its arguments, add context): the definition files (`files`, Claude Code's JSON shape, `~/.coddy/hooks.json` plus the workspace's `.coddy/hooks.json` and `.claude/settings*.json`), the trust policy for files found inside the workspace (`project_trust`: `ask` lists them but runs nothing until the file is approved on the machine running coddy with `coddy hooks trust <file>` there or `POST /coddy/hooks/trust`; `allow` runs them like the operator's own file; `deny` never reads them), the per-hook default timeout (`default_timeout_seconds`), the Stop-hook loop cap (`stop_loop_limit`) and the output cap (`max_output_chars`). To let a trusted checkout's hooks run without approvals, stage `set hooks.project_trust=allow`; to switch hooks off, `set hooks.enable=false`;
 - `logger` - root `level`, per-component overrides (`levels`, a list of `{component, level}` entries where a dotted name such as `gateway.telegram` raises or lowers one subsystem and a parent name covers what is nested under it), outputs, format, rotation;
 - `sessions` - session bundle storage;
 - `compaction` - context compaction thresholds;
 - `memory` - long-term memory copilot (binaries built with the `memory` tag);
-- `httpserver` - OpenAI-compatible HTTP API defaults, auth token, CORS, UI (tag `http`);
-- `swarm` - relay that nodes register into and that chains into other relays: bind address, client and pairing tokens, TLS, upstreams, and the `join` list this process registers itself into (tag `swarm`; `join` is honoured by `coddy http` too);
-- `scheduler` - cron scheduler (tag `scheduler`);
-- `gateways` - messenger bots such as Telegram (tag `gateway`).
+- `httpserver` - OpenAI-compatible HTTP API: `enable` (omitted means true), bind address (empty means 127.0.0.1), auth token, CORS, UI (tag `http`);
+- `swarm` - relay that nodes register into and that chains into other relays: `enable`, bind address, client and pairing tokens, TLS, upstreams, and the `join` list this process registers itself into (tag `swarm`; `join` is honoured whether or not this process relays);
+- `scheduler` - cron scheduler: `enable`, job directory, limits (tag `scheduler`);
+- `gateways` - messenger bots such as Telegram: `gateways.telegram.enable`, token, access control (tag `gateway`).
+
+These four are the subsystems `coddy serve` runs. Each is governed by its own
+`enable`, and one process runs every one that is on, sharing a single session
+manager: a Telegram conversation is a session the web UI can watch while it
+happens and continue afterwards. Turning one on that the running binary was not
+built with is refused at startup with the build tag named; a configuration
+change that enables one is applied to the running process where it can be, and
+logged as needing a restart where it cannot (the HTTP and relay listeners).
 
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
@@ -84,7 +92,7 @@ The selector forces the stored `name` to match. After the user confirms and `con
 
 ## Skills
 
-Coddy discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${CODDY_HOME}/skills`, and `${CWD}/.coddy/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `coddy http` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
+Coddy discovers skills from `skills.dirs`. Defaults are `~/.agents/skills`, `${CODDY_HOME}/skills`, and `${CWD}/.coddy/skills`. `${CWD}` stands for the workspace of each session and is resolved when that session loads its skills, so keep it literal when you stage `skills.dirs` (never replace it with the current absolute path: a `coddy serve` server serves sessions rooted in different folders). `skills.sources` registers GitHub, git, or agents-standard marketplace sources but does not download them.
 
 Prefer Coddy's installer for remote sources:
 

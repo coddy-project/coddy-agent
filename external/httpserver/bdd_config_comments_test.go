@@ -201,13 +201,13 @@ func TestConfigSchemaCommentsFeature(t *testing.T) {
 		Name: "config_schema_comments",
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &configCommentsWorld{}
-			sc.Step(`^a coddy gateway whose config\.yaml carries operator comments$`, func() error {
+			sc.Step(`^a coddy server whose config\.yaml carries operator comments$`, func() error {
 				return w.startGateway(t, commentedConfigYAML)
 			})
-			sc.Step(`^a coddy gateway whose config\.yaml has no schema header$`, func() error {
+			sc.Step(`^a coddy server whose config\.yaml has no schema header$`, func() error {
 				return w.startGateway(t, bareConfigYAML)
 			})
-			sc.Step(`^a coddy gateway whose config\.yaml points its editor at "([^"]*)"$`, func(ref string) error {
+			sc.Step(`^a coddy server whose config\.yaml points its editor at "([^"]*)"$`, func(ref string) error {
 				return w.startGateway(t, "# yaml-language-server: $schema="+ref+"\n"+bareConfigYAML)
 			})
 			sc.Step(`^the settings screen saves the config with "([^"]*)" set to (\d+)$`, w.saveWithAgentField)

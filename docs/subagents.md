@@ -109,7 +109,7 @@ Rewriting an approved file changes its digest and the receipt stops matching, so
 Approval surfaces:
 
 - **CLI**: `coddy agents list [--cwd DIR]` prints the workspace, the effective policy and the catalog with scope, trust state and flags, followed by a hint when project definitions await approval; `coddy agents trust <name> [--cwd DIR]` prints the effective declaration first (file, model, mode, permission mode, tool lists, digest, receipt path) and then records a receipt for the file as it is on disk right now; `coddy agents untrust <name> [--cwd DIR]` withdraws it. A built-in or user-scope name needs no approval and the command says so. `--cwd` defaults to the process working directory, resolved like `coddy mcp`.
-- **HTTP** (`coddy http`): `GET /coddy/subagents?cwd=<dir>` returns the catalog; `POST /coddy/subagents/{name}/trust` and `POST /coddy/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the server's own working directory. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin` and `hidden`. Details in `docs/http-api.md`.
+- **HTTP** (`coddy serve`): `GET /coddy/subagents?cwd=<dir>` returns the catalog; `POST /coddy/subagents/{name}/trust` and `POST /coddy/subagents/{name}/untrust` with body `{"cwd": "<dir>"}` write and remove receipts. `cwd` must be absolute and defaults to the server's own working directory. Catalog rows carry `scope`, `trust` (`trusted` / `needs_approval`), the booleans `trusted` and `needs_approval`, `digest`, `path`, `builtin` and `hidden`. Details in `docs/http-api.md`.
 - **Policy**: a checkout you already trust can run its definitions without receipts by setting `subagents.project_trust: allow`, in `config.yaml`, under **Settings → Subagents** in the web UI (the `subagents` config section: policy and pool bounds), or through the bundled `configure-coddy` skill, which documents the key so the agent can stage `set subagents.project_trust=allow` and commit it through the ordinary permission-gated config commit.
 
 A Settings surface that lists definitions and records approvals is a follow-up; the three surfaces above cover approval today.
@@ -126,7 +126,7 @@ A Settings surface that lists definitions and records approvals is a follow-up; 
 | `timeout_seconds` | Hard limit for the run. |
 | `notify_on_finish` | For a background run: wake the parent with the outcome when the child finishes (see `docs/background-tasks.md`). Forced **off** for a foreground spawn, whose report already comes back in the tool result, and for any spawn made by a child. |
 
-The tool is registered when `subagents.enabled` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
+The tool is registered when `subagents.enable` is on and offered in `agent` and `plan` mode, never in `ask` mode. It needs **no permission prompt of its own**: launching a child changes nothing by itself, every tool call the child makes is gated on its own, and project trust is decided inside the runtime hook before anything starts.
 
 A **foreground** spawn (the default) blocks the tool call until the child's turn ends and returns the report in an envelope:
 
@@ -151,7 +151,7 @@ Keep working; follow it with background_list or background_output, and collect t
 
 With `notify_on_finish: true` the last line instead tells the model it will be woken with the outcome. From here the run is an ordinary task: `background_list` shows it, `background_output` streams the child's progress log, `background_wait` blocks for it and returns the log ending in the report block, and `background_stop` cancels the child.
 
-Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enabled: false` the tool is not registered at all. A surface without a session manager (a scheduled run) is never advertised the tool, and a call anyway answers that subagents are not available in this session.
+Refusals are returned as tool errors that name the knob that applies: an unknown name (with the list of visible definitions), a project file without a receipt (with the approval commands), `subagents.max_depth` reached, a prompt over 32 KiB, `subagents.max_concurrent` runs already in flight, the pool's own per-session limit (`tools.background.max_concurrent`), and the pool draining for shutdown. With `subagents.enable: false` the tool is not registered at all. A surface without a session manager (a scheduled run) is never advertised the tool, and a call anyway answers that subagents are not available in this session.
 
 ## How capabilities narrow
 
@@ -227,7 +227,7 @@ agent: explore | task: bg_3 | session: sub_9f1c… | outcome: end_turn | turns: 
 
 ## Remote mode
 
-Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/cli.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy http` host:
+Subagents live where the session manager lives. With the console or `coddy acp` in `--remote` mode (`docs/cli.md`, Remote mode) the manager, the child sessions, the pool tasks and the trust receipts are all on the `coddy serve` host:
 
 - definitions are read from the **server's** `subagents.dirs` (`${CODDY_HOME}/agents` of the server home and the `.claude/agents` / `.coddy/agents` of the session's cwd on the server);
 - a project definition is approved **on the server**: `coddy agents trust <name> --cwd <workspace>` on that host, or `POST /coddy/subagents/{name}/trust` with the bearer token. The local `coddy agents` subcommands read and write the local home only and know nothing about `--remote`;

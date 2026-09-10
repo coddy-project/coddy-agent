@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ACP e2e: a subagent spawned on a remote coddy http server, driven through ``coddy acp --remote``.
+"""ACP e2e: a subagent spawned on a remote coddy serve server, driven through ``coddy acp --remote``.
 
-Boots a bearer-protected ``coddy http`` whose working directory carries the
+Boots a bearer-protected ``coddy serve`` whose working directory carries the
 project-scope ``marker-reporter`` definition (``examples/agents_fixture``),
 approves that definition on the SERVER through ``POST /coddy/subagents/{name}/trust``
 (the receipt lives in the server home: ``coddy agents trust`` on the client
@@ -98,7 +98,7 @@ def main() -> int:
     env_srv = dict(os.environ)
     env_srv["CODDY_HOME"] = str(server_home)
     server = subprocess.Popen(
-        [coddy_bin(), "http", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token, "--cwd", str(server_work)],
+        [coddy_bin(), "serve", "-H", "127.0.0.1", "-P", str(port), "--auth-token", token, "--cwd", str(server_work)],
         env=env_srv,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

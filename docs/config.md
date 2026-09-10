@@ -144,7 +144,7 @@ prompts:
   #   {{.Tools}}    - markdown list of tool names and short descriptions for the current mode
   #   {{.Skills}}   - markdown block for active skills (omit section when empty via {{if .Skills}})
   #   {{.TodoList}} - current session todo checklist as markdown lines (empty until coddy todo tools update state)
-  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enabled is true
+  #   {{.Memory}}   - session agent memory plus optional long-term recall when memory.enable is true
   #   {{.UTCNow}}   - date and time in UTC (RFC3339), refreshed whenever the system prompt is rendered
   #
   # Built-in templates order: Tools, Skills, optional TodoList block, Memory (session notes plus optional recall), trailing Current UTC time.
@@ -171,7 +171,7 @@ compaction:
   model: ""                # models[].model for the summarizer; empty = session model
 
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
-# Implementation is always linked; enable at runtime with memory.enabled.
+# Implementation is always linked; enable at runtime with memory.enable.
 memory:
   enabled: false
   # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
@@ -320,7 +320,7 @@ The tool requires user permission (same as `run_command`) and returns combined s
 
 ## HTTP gateway (optional build)
 
-The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy http`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
+The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`) is ignored unless you use a binary built with **`-tags http`**. It sets default **`host`** and **`port`** when **`coddy serve`** is still at the built-in flag defaults (`0.0.0.0` and `12345`). See **`docs/http-api.md`**.
 
 ## Scheduler (optional build)
 
@@ -329,12 +329,12 @@ The **`httpserver`** key (`config.HTTPServerConfig` in `internal/config/http.go`
 The **`mcp.project_trust`** key decides whether the project-local **`<workspace>/.coddy/mcp.json`** may start
 its servers: **`ask`** (default) holds them until the operator approves each declaration for that workspace,
 **`allow`** starts them automatically, **`deny`** never loads them. Pass **`coddy acp --mcp-project-trust <value>`**
-or **`coddy http --mcp-project-trust <value>`** to override it for one process, which is what CI jobs and
+or **`coddy serve --mcp-project-trust <value>`** to override it for one process, which is what CI jobs and
 container entrypoints use instead of editing the config file. An unknown value fails the launch.
 Added for [issue #80](https://github.com/coddy-project/coddy-agent/issues/80); full guide in
 [docs/mcp-integration.md](mcp-integration.md).
 
-The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enabled: true`** in YAML or pass **`coddy acp -scheduler-enabled`** / **`coddy http -scheduler-enabled`** to set **`scheduler.enabled`** for that process without editing the config file.
+The **`scheduler`** key (`config.SchedulerConfig` in `internal/config/scheduler.go`) is used only when you build with **`-tags scheduler`**. Set **`scheduler.enable: true`** in YAML or pass **`coddy acp -scheduler`** / **`coddy serve -scheduler`** to set **`scheduler.enable`** for that process without editing the config file.
 
 Jobs are flat **`*.md`** files under **`scheduler.dir`** (default **`${CODDY_HOME}/scheduler`** when **`dir`** is empty). Each file has YAML frontmatter with **`description`**, **`schedule`** (five cron fields, **UTC**), optional **`cwd`** (defaults to the directory where **`coddy`** was started), **`model`**, **`mode`** (`agent`, `plan`, or `ask`), optional **`paused`** (when true, cron and manual run are skipped until resume). The markdown body is the one-shot instruction for the sub-agent. Sidecars **`basename.state`** (last fired slot) and **`basename.lock`** (run in progress) sit next to **`basename.md`**.
 
@@ -344,14 +344,14 @@ When the scheduler is effectively enabled, **`coddy_scheduler_*`** tools cover l
 
 ## Messenger Gateway (`gateways`)
 
-Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `coddy gateway` subcommand reads this block.
+Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`-tags gateway`** (all adapters). The `coddy serve` subcommand reads this block.
 
 ```yaml
 # Messenger gateways (external/gateway/; build with -tags gateway.telegram or -tags gateway).
 # Full guide: docs/gateway.md
 gateways:
   telegram:
-    # Set to true to activate the Telegram adapter when coddy gateway starts.
+    # Set to true to activate the Telegram adapter when coddy serve starts.
     enabled: false
 
     # Bot token from @BotFather. Never hard-code; always use an env reference.
@@ -458,7 +458,7 @@ write `$$` by hand.
 Two placeholders are not environment variables:
 
 - **`${CODDY_HOME}`** - the resolved `CODDY_HOME` directory, substituted when the file is read.
-- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server command, arguments, URL, environment and headers. One **`coddy http`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.coddy/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`CODDY_CWD`**) at load time, since no session owns them.
+- **`${CWD}`** - the **session** working directory. It is **not** substituted when the file is read: it stays in the loaded value and whatever uses the path expands it against the session that asks - skill loading, subagent and hook discovery, prompt templates (**`prompts.dir`**), MCP server command, arguments, URL, environment and headers. One **`coddy serve`** process therefore serves many workspaces, and a session rooted in a project sees that project's **`${CWD}/.coddy/skills`** (or any entry you write, such as **`${CWD}/.agents/skills`**) regardless of the directory the server was started from. Only the process-scoped locations (**`sessions.dir`**, **`scheduler.dir`**, **`memory.dir`**, **`logger.file`**) expand **`${CWD}`** against the default working directory (**`CODDY_CWD`**) at load time, since no session owns them.
 
 An environment variable named **`CWD`** does not replace the placeholder (a bare **`$CWD`** without braces is still an ordinary environment reference, as before), and **`GET /coddy/config`**, the Settings UI, and **`config_get`** report the entry exactly as written. The placeholder is honoured only in the fields listed above; in any other string value it stays as written (prompt templates use **`{{.CWD}}`** instead). Releases up to 1.0.5 substituted **`${CWD}`** with the process directory when the file was read, so a Settings save made in that version may have stored an absolute path such as **`/home/you/.agents/skills`** where you wrote **`${CWD}/.agents/skills`**; put the placeholder back by hand to get per-session resolution.
 

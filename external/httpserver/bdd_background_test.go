@@ -371,7 +371,7 @@ func initializeBackgroundHTTPScenario(sc *godog.ScenarioContext) {
 		return ctx, nil
 	})
 
-	sc.Step(`^a running coddy http server with a session$`, s.startServerWithSession)
+	sc.Step(`^a running coddy serve server with a session$`, s.startServerWithSession)
 	sc.Step(`^that session started a long background command$`, s.startLongTask)
 	sc.Step(`^that session started a background command printing "([^"]*)"$`, s.startPrintingTask)
 	sc.Step(`^the session bundle records a background task that was still running$`, s.recordInterruptedTask)

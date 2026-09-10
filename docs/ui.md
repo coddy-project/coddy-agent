@@ -6,7 +6,7 @@ This page captures the original UI requirements and the intended end state. It i
 
 - UI ships as static assets embedded into the `coddy` binary (build tag `http`).
 - Runtime has no auth and no API key checks for the UI.
-- UI must work over the same origin as `coddy http`.
+- UI must work over the same origin as `coddy serve`.
 - UI localization is registry-driven; English is the default and **Russian (RU)** ships today, selectable from **Settings → Appearance → Language** (see below).
 - Favicon matches [coddy.dev](https://coddy.dev/) (**`/coddy-favicon.svg`**, same mark as **`docs/assets/coddy-logo-mark-flat.svg`**, plus PNG/ICO fallbacks embedded with the SPA).
 
@@ -61,7 +61,7 @@ This page captures the original UI requirements and the intended end state. It i
 - **Workspace-row chip:** an environment selector sits in the composer workspace-context row above the input, next to the folder / branch / worktree chips (**`EnvironmentChip.tsx`**, rendered inside **`.composer-context-row`**, styled as a **`.workspace-chip--env`**, **`data-testid="composer-env-btn"`**), Claude-Code style — **not** in Settings. The chip shows **`Local`** or the remote's name. It opens a portal menu (**`data-testid="composer-env-menu"`**, mode-menu family; bottom sheet on mobile) with an **Environment** section (**Local**) and a **Remote** section (configured remotes + **`+ Add remote…`**).
 - **Select = connect:** choosing **Local** or a remote connects **immediately** (no confirm step) and reloads; there is no per-select token prompt. A **bearer token** is entered only in **`+ Add remote…`** (name / URL / token) and remembered per-remote.
 - **Reachability dots:** each remote shows a status dot probed on menu open — **green** reachable+authorized (a cross-origin **`GET /v1/models`**), **red** unreachable / CORS-blocked / unauthorized, **amber** while probing. **Local** is always green.
-- **Purpose:** point the UI at a remote, already-running **`coddy http`** server, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url}]`**); **`+ Add remote…`** takes an ad-hoc name/URL/token.
+- **Purpose:** point the UI at a remote, already-running **`coddy serve`** server, or use the local one. Offered remotes come from the local server's **`httpserver.remotes`** (**`[{name, url}]`**); **`+ Add remote…`** takes an ad-hoc name/URL/token.
 - **Client-side state:** the active env lives in **`localStorage`** key **`coddy_env`**; per-remote tokens in **`coddy_env_tokens`**. Never persisted to server config; leave empty for a remote without auth. Workspace **folder recents** are namespaced per environment (**`envStorageSuffix()`**) so each remote remembers its own last paths; **models** and defaults come from the remote's **`GET /v1/models`** after the reload.
 - **Mechanism:** a global **`fetch`** shim (**`external/ui/src/ui/env/remoteEnv.ts`**, installed in **`main.tsx`**) rewrites same-origin API requests (**`/v1/*`**, **`/coddy/*`**, **`/openapi*`**) to the selected remote base URL and adds **`Authorization: Bearer <token>`**. Local mode is a transparent pass-through. Selecting an entry persists the choice and reloads so all state re-fetches from the chosen backend; the SPA shell always loads from the local origin, so you can always switch back to **Local** from the chip even if the remote is down.
 - **CORS:** the remote must allow the UI's origin via **`httpserver.cors`** (see [http-api.md](http-api.md)). SSE re-attach (**`GET /coddy/sessions/{id}/composer-stream`**) is fetched (not `EventSource`), so the bearer header applies; that route also accepts **`?access_token=`** for external `EventSource` clients.
@@ -310,7 +310,7 @@ Verification use cases
 | UC6 | User bubble keeps **`hi /demo there`** plain (no **`coddy-skill-span`**) | **`UserMessage.test.tsx`** |
 | UC7 | Multiline YAML / paths keep **`\\n`** layout in **`user-message-body`** | **`UserMessage.test.tsx`** |
 | UC7b | Display-only **`slugSlashes`** (plain **`/`** and legacy mix) | **`segmentComposerSlashSpans.test.ts`** (`slugSlashesForUserBubbleMarkdown …`; composer / legacy only, not transcript) |
-| UC8 | Live **`coddy http`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
+| UC8 | Live **`coddy serve`**: **`fontFamily`** parity chip vs **`#composer`**, caret **`selectionStart === value.length`** at EOL after fill | **Playwright MCP** **`browser_evaluate`** after **`make build TAGS="http ui"`** |
 | UC9 | User bubble hides **`coddy_attachment`** bodies, shows **`@path`** only | **`UserMessage.test.tsx`**, **`stripCoddyAttachments.test.ts`** |
 
 ## Composer **`@`** workspace files
@@ -713,7 +713,7 @@ Guide: `docs/swarm.md`. Visual contract: `DESIGN.md` (**Swarm screen**).
 
 ### Reproducing a Safari report without a Mac
 
-Playwright ships the WebKit build Safari is cut from, and its version tracks Safari's (**`playwright install webkit`** pulls WebKit **26.x** for Safari **26.x**), so a Safari layout report is reproducible on Linux. **`external/ui/scripts/webkit-scroll-check.mjs`** drives a running **`coddy http`** in that engine and asserts the scroll invariants of the folder browser dialog across short viewports: nothing laid out past the dialog's height cap, the action buttons inside the dialog, the list scrolling on a wheel gesture, and the overscroll staying in the dialog.
+Playwright ships the WebKit build Safari is cut from, and its version tracks Safari's (**`playwright install webkit`** pulls WebKit **26.x** for Safari **26.x**), so a Safari layout report is reproducible on Linux. **`external/ui/scripts/webkit-scroll-check.mjs`** drives a running **`coddy serve`** in that engine and asserts the scroll invariants of the folder browser dialog across short viewports: nothing laid out past the dialog's height cap, the action buttons inside the dialog, the list scrolling on a wheel gesture, and the overscroll staying in the dialog.
 
 ```bash
 cd external/ui && npm i --no-save playwright && npx playwright install webkit
@@ -736,7 +736,7 @@ When describing a specific element, link to the relevant image file.
 - Mobile UI tour (README): `docs/assets/screenshot-mobile-start.png`, `screenshot-mobile-chat.png`
 - Console TUI (`-tags cli`, real Konsole window): `docs/assets/screenshot-console-start.png`, `screenshot-console-models.png`, `screenshot-console-chat.png` - see `docs/cli.md`
 
-The UI tour is captured against `coddy http` with the embedded SPA, desktop at **1920×1080** and mobile at **390×844**, dark theme, browser locale **en-US**. Settings screenshots skip the LLM provider **detail** pane on purpose: it renders API keys in full.
+The UI tour is captured against `coddy serve` with the embedded SPA, desktop at **1920×1080** and mobile at **390×844**, dark theme, browser locale **en-US**. Settings screenshots skip the LLM provider **detail** pane on purpose: it renders API keys in full.
 - Home layout: `docs/assets/ref-home-1.png`, `ref-home-2.png`, `ref-home-3.png`
 - Home scroll state: `docs/assets/ref-home-scroll.png`
 - Composer state: `docs/assets/ref-home-composer.png`
@@ -791,10 +791,10 @@ These scenarios are intended to be automated via Playwright against the Vite dev
   - Then the token usage HUD shows the persisted totals
 
 - Memory copilot row (Playwright MCP)
-  - Given **`memory.enabled: true`** on the **`coddy http`** process and at least one Markdown file under global or workspace memory so recall can run
+  - Given **`memory.enable: true`** on the **`coddy serve`** process and at least one Markdown file under global or workspace memory so recall can run
   - When the user sends a chat message that completes a full ReAct turn
   - Then an element with **`data-testid="memory-copilot-row"`** appears after that user bubble for the turn (grey **memory** foldout, same visual language as **thinking** per `DESIGN.md`)
   - When the user opens the details element
   - Then the streamed **memory** body shows the text merged into the main agent prompt for that turn (and optional saved-note preview when the copilot wrote `coddy_memory_save`)
 
-For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/coddy http`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.
+For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`** then **`./build/coddy serve`** with a disposable **`--home`** so config can enable memory; open **`http://127.0.0.1:<port>/`**, navigate to a session, send a prompt, assert the snapshot contains **memory-copilot-row** and folded body text after expand.

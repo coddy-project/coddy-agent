@@ -95,6 +95,9 @@ type stubDirective struct {
 	preview string
 	err     error
 	blockCh chan struct{}
+	// taken is closed by the turn that pops this directive, so a step can wait
+	// for the hand-off instead of guessing at it with a pause.
+	taken   chan struct{}
 	qParams *acp.QuestionRequestParams
 }
 
@@ -327,6 +330,9 @@ func (s *cliTUIState) stubRunner(ctx context.Context, st *session.State, prompt 
 					Content: []acp.ToolCallResultItem{{Type: "content", Content: acp.ContentBlock{Type: "text", Text: string(result)}}},
 				})
 			case "block":
+				if d.taken != nil {
+					close(d.taken)
+				}
 				s.blockedCh = d.blockCh
 				select {
 				case <-ctx.Done():
@@ -746,10 +752,26 @@ func (s *cliTUIState) stubObservesPermissionOutcome(outcome, option string) erro
 	return nil
 }
 
+// stubBlockTakeTimeout bounds the wait for a turn to take the block directive.
+var stubBlockTakeTimeout = 5 * time.Second
+
+// stubBlocksUntilCancelled parks the running turn inside the stub until
+// something cancels it.
+//
+// It returns only once that turn has actually taken the directive. The
+// directives channel is shared by every turn, so a step that returned on a
+// timer left the directive queued whenever the machine was busy: the next turn
+// popped it and waited on a channel nobody would close, and the console sat on
+// "Waiting for the model" with the rest of the script stranded behind it.
 func (s *cliTUIState) stubBlocksUntilCancelled() error {
-	s.directives <- stubDirective{kind: "block", blockCh: make(chan struct{})}
-	time.Sleep(100 * time.Millisecond)
-	return nil
+	taken := make(chan struct{})
+	s.directives <- stubDirective{kind: "block", blockCh: make(chan struct{}), taken: taken}
+	select {
+	case <-taken:
+		return nil
+	case <-time.After(stubBlockTakeTimeout):
+		return fmt.Errorf("no turn took the block directive within %s", stubBlockTakeTimeout)
+	}
 }
 
 func (s *cliTUIState) operatorPressesEscape() error {

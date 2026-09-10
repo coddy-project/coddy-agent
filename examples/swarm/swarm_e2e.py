@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Swarm e2e: a ring of three relays, two agents, and one that only dials out.
 
-Self-contained. It boots real processes - three ``coddy swarm`` relays and two
-``coddy http`` agents - wires them into the topology below, and then acts as the
+Self-contained. It boots real processes - three ``coddy serve`` relays and two
+``coddy serve`` agents - wires them into the topology below, and then acts as the
 client would.
 
     client -> outer --+-> middle --+-> agent8   (reachable, dialled by middle)
@@ -169,9 +169,11 @@ def wait_ready(url: str, token: str | None, want: tuple[int, ...] = (200,)) -> N
 
 def boot_relay(binary: Path, name: str, port: int, client_token: str, config: str | None) -> str:
     home = workdir(f"coddy-swarm-{name}-")
-    args = [str(binary), "swarm", "--home", str(home),
-            "-H", "127.0.0.1", "-P", str(port),
-            "--auth-token", client_token, "--pairing-token", PAIRING]
+    # A relay-only process: the agent API stays off, so every flag here is the
+    # relay's own.
+    args = [str(binary), "serve", "--swarm", "--http=false", "--home", str(home),
+            "--swarm-host", "127.0.0.1", "--swarm-port", str(port),
+            "--swarm-auth-token", client_token, "--swarm-pairing-token", PAIRING]
     if config:
         cfg = home / "config.yaml"
         cfg.write_text(config, encoding="utf-8")
@@ -187,7 +189,7 @@ def boot_agent(binary: Path, name: str, port: int, config: str, token: str) -> t
     cfg = home / "config.yaml"
     cfg.write_text(config, encoding="utf-8")
     work = workdir(f"coddy-work-{name}-")
-    proc = spawn([str(binary), "http", "--home", str(home), "--config", str(cfg),
+    proc = spawn([str(binary), "serve", "--home", str(home), "--config", str(cfg),
                   "--cwd", str(work), "-H", "127.0.0.1", "-P", str(port),
                   "--auth-token", token])
     base = f"http://127.0.0.1:{port}"

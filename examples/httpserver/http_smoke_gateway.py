@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal HTTP probe for a running `coddy http` (OpenAI-shaped routes).
+"""Minimal HTTP probe for a running `coddy serve` (OpenAI-shaped routes).
 
 Environment: ``BASE_URL`` (default ``http://127.0.0.1:19876/v1``), ``MODEL`` (YAML selector from config).
 Requires a working LLM backend for chat and responses steps.

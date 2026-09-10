@@ -463,7 +463,7 @@ func (a *Agent) spawnSubagentInMode(ctx context.Context, req tooling.SpawnReques
 	}
 	cfg := a.cfg
 	if !cfg.Subagents.ResolvedEnabled() {
-		return "", fmt.Errorf("subagents are disabled (subagents.enabled is false)")
+		return "", fmt.Errorf("subagents are disabled (subagents.enable is false)")
 	}
 	maxDepth := cfg.Subagents.EffectiveMaxDepth()
 	if a.subagentDepth() >= maxDepth {

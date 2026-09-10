@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke coddy http inside docker compose (see repo docker-compose.dev.yml). Needs docker and docker compose.
+# Smoke coddy serve inside docker compose (see repo docker-compose.dev.yml). Needs docker and docker compose.
 
 set -euo pipefail
 

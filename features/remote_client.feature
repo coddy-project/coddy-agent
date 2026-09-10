@@ -1,5 +1,5 @@
 Feature: Remote client for the coddy HTTP API
-  A coddy process can act as a client of a remote coddy http server: the
+  A coddy process can act as a client of a remote coddy serve server: the
   console and ACP surfaces create sessions, stream prompts, replay
   transcripts, and answer permission requests over HTTP instead of running
   the agent locally.

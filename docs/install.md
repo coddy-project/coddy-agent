@@ -160,7 +160,7 @@ If macOS blocks the first run because the binary is not notarised, clear the qua
 export PATH="$HOME/.local/bin:$PATH"
 coddy -v
 # edit ~/.coddy/config.yaml
-coddy http
+coddy serve
 ```
 
 ## Windows

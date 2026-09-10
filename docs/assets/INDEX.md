@@ -12,7 +12,7 @@ Implementation note: **Coddy does not render a circle or logo glyph** before the
 
 ## Playwright MCP (verification, May 2026)
 
-Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
+Captured from local `vite` + `coddy serve` with `CODDY_UI_BACKEND`.
 
 - `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
 - `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
@@ -23,7 +23,7 @@ Captured from local `vite` + `coddy http` with `CODDY_UI_BACKEND`.
 
 ## Full HD tour (README, re-captured August 2026)
 
-Captured at **1920×1080** through Playwright against the embedded SPA (`make build TAGS="http ui scheduler memory cli"` + `coddy http` on a disposable `CODDY_HOME`), mobile at **390×844**, default **Dark** theme, browser locale **en-US** so no shot lands in another language. Re-captured **2026-08-17** on **0.9.71**: the composer carries the attach button and the improve-prompt wand, chips wrap individually on narrow viewports, Appearance holds the language picker, and the scheduler job editor uses the shared markdown line editor.
+Captured at **1920×1080** through Playwright against the embedded SPA (`make build TAGS="http ui scheduler memory cli"` + `coddy serve` on a disposable `CODDY_HOME`), mobile at **390×844**, default **Dark** theme, browser locale **en-US** so no shot lands in another language. Re-captured **2026-08-17** on **0.9.71**: the composer carries the attach button and the improve-prompt wand, chips wrap individually on narrow viewports, Appearance holds the language picker, and the scheduler job editor uses the shared markdown line editor.
 
 The disposable home lives at a presentable path (`/home/pasha/demo/coddy-home` at capture time) because the Skills tab prints the resolved `skills.dirs`. **Never capture the LLM provider detail pane**: it renders `api_key` values in full. The provider master list (names only) is safe, which is why the `providers` tab is not part of this set.
 
@@ -86,7 +86,7 @@ Files named `ref-image-*.png` are direct uploads from chat. They are kept as sou
 
 ## Open folder dialog scroll (issue #159, September 2026)
 
-Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut from - against `coddy http` with the SPA embedded, workspace `/home/pasha/demo/coddy-workspace` (30 subfolders, so the list overflows). `before-*` is `main`, `after-*` is the fix. The two short viewports carry the change; **1280x800** and **390x720** are there to show the dialog is untouched where it already fit.
+Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut from - against `coddy serve` with the SPA embedded, workspace `/home/pasha/demo/coddy-workspace` (30 subfolders, so the list overflows). `before-*` is `main`, `after-*` is the fix. The two short viewports carry the change; **1280x800** and **390x720** are there to show the dialog is untouched where it already fit.
 
 - `issue-159-folder-dialog-{before,after}-{dark,light}-786x420.png` - the reporter's viewport: before, the dialog's bottom padding is clipped and the buttons sit flush on the border; after, the list gives up those pixels instead
 - `issue-159-folder-dialog-{before,after}-{dark,light}-786x340.png` - shorter window: before, **Cancel** / **Open** are laid out past the height cap and clipped away entirely; after, they stay in the dialog
@@ -95,7 +95,7 @@ Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut fro
 
 ## Open folder dialog: New folder (issue #157, September 2026)
 
-In `ui-folder-picker/`. Captured through Playwright against `coddy http` with the SPA embedded
+In `ui-folder-picker/`. Captured through Playwright against `coddy serve` with the SPA embedded
 (`make build TAGS="http ui"`), demo workspace holding `codex` and `tmp` so the listing matches the
 screenshot in the issue. `before-*` is the dialog built from the pre-change sources.
 

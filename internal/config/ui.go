@@ -6,8 +6,8 @@ package config
 // bearer token when httpserver.auth_token is set).
 type UIConfig struct {
 	// Enabled toggles serving the embedded SPA at GET /. A nil pointer means the default (true),
-	// so existing configs and builds are unchanged; set `ui.enabled: false` to disable it.
-	Enabled *bool `yaml:"enabled"`
+	// so existing configs and builds are unchanged; set `ui.enable: false` to disable it.
+	Enabled *bool `yaml:"enable"`
 }
 
 // IsEnabled reports whether the embedded SPA should be served. It defaults to true when unset.
