@@ -127,6 +127,7 @@ type limitWaitState struct {
 	sender     *limitWaitSender
 	cfg        *config.Config
 	state      *session.State
+	ag         *Agent
 	tmp        []string
 
 	started time.Time
@@ -143,6 +144,7 @@ func (s *limitWaitState) reset() error {
 	s.sender = &limitWaitSender{}
 	s.cfg = nil
 	s.state = nil
+	s.ag = nil
 	s.took = 0
 	s.reply = ""
 	s.stop = ""
@@ -330,6 +332,7 @@ func (s *limitWaitState) theTurnEndsAsCancelledAfterCalls(calls int) error {
 
 func (s *limitWaitState) agent() *Agent {
 	ag := NewAgent(s.cfg, s.state, s.sender, nil)
+	s.ag = ag
 	ag.providerFactory = func(in llm.ProviderInput) (llm.Provider, error) {
 		if !s.viaWrapper {
 			return s.provider, nil
@@ -378,6 +381,11 @@ func (s *limitWaitState) theTurnEndsWithAfterCalls(reply string, calls int) erro
 	return nil
 }
 
+// theTurnTookAtLeast stays on the turn's wall clock: a lower bound only ever
+// grows on a slow machine, and it is the honest proof that the wait really
+// happened. The ledger is no good for it - the loop's wait runs to a ResetAt
+// the provider stamped before the error travelled up, so it books slightly
+// less than the pause the scenario names.
 func (s *limitWaitState) theTurnTookAtLeast(sec int) error {
 	if s.took < time.Duration(sec)*time.Second {
 		return fmt.Errorf("turn took %v, want at least %ds", s.took, sec)
@@ -385,9 +393,29 @@ func (s *limitWaitState) theTurnTookAtLeast(sec int) error {
 	return nil
 }
 
-func (s *limitWaitState) theTurnTookLessThan(ms int) error {
-	if s.took >= time.Duration(ms)*time.Millisecond {
-		return fmt.Errorf("turn took %v, want less than %dms", s.took, ms)
+// waited is what the turn charged against its wait_for_limit_reset maximum:
+// every sleep the retry wrapper took after a 429 plus every wait the loop
+// spent on a reset, each booked as the time it really took. That ledger, not
+// the turn's wall clock, is what the maximum bounds, and reading it keeps the
+// upper bounds below free of the harness's own setup time - on a loaded CI
+// runner that overhead alone used to overrun them.
+func (s *limitWaitState) waited() time.Duration {
+	if s.ag == nil {
+		return 0
+	}
+	return s.ag.limitLedgerFor().Spent()
+}
+
+func (s *limitWaitState) theTurnWaitedLessThan(ms int) error {
+	if got := s.waited(); got >= time.Duration(ms)*time.Millisecond {
+		return fmt.Errorf("turn waited %v on the limit, want less than %dms", got, ms)
+	}
+	return nil
+}
+
+func (s *limitWaitState) theTurnNeverWaited() error {
+	if got := s.waited(); got != 0 {
+		return fmt.Errorf("turn waited %v on the limit, want no wait at all", got)
 	}
 	return nil
 }
@@ -457,7 +485,8 @@ func initializeLimitWaitScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the turn ends as cancelled after (\d+) provider calls?$`, s.theTurnEndsAsCancelledAfterCalls)
 	sc.Step(`^the turn ends with "([^"]+)" after (\d+) provider calls$`, s.theTurnEndsWithAfterCalls)
 	sc.Step(`^the turn took at least (\d+) s$`, s.theTurnTookAtLeast)
-	sc.Step(`^the turn took less than (\d+) ms$`, s.theTurnTookLessThan)
+	sc.Step(`^the turn waited less than (\d+) ms on the limit$`, s.theTurnWaitedLessThan)
+	sc.Step(`^the turn never waited on the limit$`, s.theTurnNeverWaited)
 	sc.Step(`^the client saw a resuming usage update with the reset time$`, s.theClientSawAResumingUpdate)
 	sc.Step(`^the client saw no resuming usage update$`, s.theClientSawNoResumingUpdate)
 	sc.Step(`^the turn fails with the quota reset error after (\d+) provider calls?$`, s.theTurnFailsWithTheQuotaResetErrorAfterCalls)
