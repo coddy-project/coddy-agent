@@ -74,6 +74,15 @@ func (s *Store) Get(key string) string {
 	return id
 }
 
+// Peek returns the Coddy session ID mapped to key, or "" when the key has none.
+// Unlike Get it never mints one, so a caller that only reports what exists -
+// a log line, a status listing - leaves the store unchanged.
+func (s *Store) Peek(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data[key]
+}
+
 // Reset replaces the session ID for key with a fresh one and returns it.
 // Used by the /clear command.
 func (s *Store) Reset(key string) string {

@@ -576,13 +576,35 @@ func UISchemaMap() map[string]interface{} {
 			},
 			[]string{"files"},
 			nil),
-		"logger": objectSchema("Logger", "Process log level, outputs, and rotation.",
+		"logger": objectSchema("Logger", "Process log level, per-component overrides, outputs, and rotation.",
 			map[string]interface{}{
 				"level": map[string]interface{}{
 					"type":        "string",
 					"title":       "Level",
 					"description": "Minimum severity written to configured outputs.",
 					"enum":        []string{"debug", "info", "warn", "error", "warning"},
+				},
+				"levels": map[string]interface{}{
+					"type":  "array",
+					"title": "Component levels",
+					"description": "Raise or lower one subsystem on its own. A parent name covers what is " +
+						"nested under it (gateway reaches gateway.telegram), and the longest match wins.",
+					"items": objectSchema("", "",
+						map[string]interface{}{
+							"component": strProp("Component", "Dotted name, for example gateway.telegram."),
+							"level": map[string]interface{}{
+								"type":        "string",
+								"title":       "Level",
+								"description": "Minimum severity for this component.",
+								"enum":        []string{"debug", "info", "warn", "error", "warning"},
+								// Raising a subsystem is the reason to add a row,
+								// so a new one starts there and only the component
+								// name is left to fill in.
+								"default": LogLevelDebug,
+							},
+						},
+						[]string{"component", "level"},
+						[]string{"component", "level"}),
 				},
 				"outputs": map[string]interface{}{
 					"type":        "array",
@@ -608,7 +630,7 @@ func UISchemaMap() map[string]interface{} {
 					[]string{"max_size_mb", "max_files"},
 					nil),
 			},
-			[]string{"level", "outputs", "file", "format", "rotation"},
+			[]string{"level", "levels", "outputs", "file", "format", "rotation"},
 			nil),
 		"sessions": objectSchema("Sessions", "Where persisted chat bundles are stored.",
 			map[string]interface{}{

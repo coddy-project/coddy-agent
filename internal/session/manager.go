@@ -17,6 +17,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/skills"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -101,7 +102,9 @@ func NewManager(cfg *config.Config, server acp.UpdateSender, runner AgentRunner,
 		server:     server,
 		runner:     runner,
 		skillsLoad: skills.NewLoader(skillsDirs),
-		log:        log,
+		// Tagged here rather than at every call site, so logger.levels can
+		// name "session" whichever entrypoint built the manager.
+		log:        logger.Component(log, logger.ComponentSession),
 		defaultCWD: defaultCWD,
 		store:      store,
 		sessions:   make(map[string]*State),

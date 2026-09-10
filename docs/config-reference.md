@@ -347,12 +347,34 @@ Logging (`config.Logger`, `internal/config/logger.go`). ACP flags `--log-level`,
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). |
+| `level` | string | no | `info` | `debug`, `info`, `warn`, `error` (`warning` accepted as alias of `warn`). Applies to records that carry no component. |
+| `levels[].component` | string | **yes** (within an entry) | — | Dotted component name: `gateway`, `gateway.telegram`, `session`, `agent`, `scheduler`. Matched case-insensitively after trimming. |
+| `levels[].level` | string | **yes** (within an entry) | — | Minimum severity for that component; same values as `level`. |
 | `outputs` | string list | no | `["stderr"]` | Any combination of `stdout`, `stderr`, `file`. |
 | `file` | string | required when `outputs` includes `file` | `""` | Path for the file sink. Supports `${CODDY_HOME}`. |
 | `format` | string | no | `text` | `text` or `json`. |
 | `rotation.max_size_mb` | int | no | `0` | Rotate after this size in MB; `0` disables size-based rotation. |
 | `rotation.max_files` | int | no | `0` | Rotated backups to keep when `max_size_mb > 0`. |
+
+`levels` raises or lowers verbosity one subsystem at a time, so chasing a Telegram command that does not work no longer means turning the whole process to `debug` and reading it out of everything else:
+
+```yaml
+logger:
+  level: "info"
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
+```
+
+A component is the dotted name a subsystem tags its logger with, and it stays on every record that subsystem writes, so a file can also be filtered by subsystem after the fact. A parent name covers everything nested under it and the longest configured prefix wins: `gateway` reaches `gateway.telegram` unless that name carries its own entry. A record from an untagged part of the process has no component and follows `level`. Configuring one component twice is an error rather than a silent winner.
+
+`--log-level` accepts the same spec as a comma-separated list, which is how an operator running under systemd raises one subsystem for a single restart without editing the file:
+
+```bash
+coddy serve --log-level "info,gateway.telegram=debug"
+```
+
+A bare `--log-level debug` sets only the root level and leaves the configured entries alone; a spec that names components replaces them, so the flag is a complete statement of what to log.
 
 ## `sessions`
 

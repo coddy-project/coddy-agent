@@ -271,6 +271,13 @@ tools:
 # Logging (Go: config.Logger, internal/config/logger.go)
 logger:
   level: "info"           # debug | info | warn | error
+  # Raise or lower one subsystem on its own. A component is the dotted name a
+  # record carries in its "component" field (gateway, gateway.telegram,
+  # session, agent, scheduler); a parent name covers what is nested under it
+  # and the longest match wins. Omitted = every record follows level above.
+  levels:
+    - component: "gateway.telegram"
+      level: "debug"
   # Where records go: any combination of stdout, stderr, file. Omitted or empty = stderr only.
   outputs: []
   # Path for the file sink; required when outputs includes file.
@@ -282,7 +289,7 @@ logger:
     max_files: 0          # rotated backups to keep when max_size_mb > 0
 ```
 
-ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults.
+ACP flags override the same knobs when set: **`--log-level`**, **`--log-output`** (stdout, stderr, file, both), **`--log-file`**, **`--log-format`**. Empty flag values keep the YAML (or built-in) defaults. **`--log-level`** also takes the per-component spec as a comma-separated list (**`--log-level "info,gateway.telegram=debug"`**); a bare level leaves the configured **`levels`** entries alone, and a spec that names components replaces them.
 
 If the older two-field style had **`file`** set under **`logger`** but no **`outputs`**, the loader expands to **`stderr`** plus **`file`** so file logging takes effect.
 

@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,6 +18,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks"
 	"github.com/EvilFreelancer/coddy-agent/internal/hooks/hooktest"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/mcp"
 	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -2061,5 +2065,24 @@ func TestRunExportCommandOptionsTrimToolsAndThinking(t *testing.T) {
 		if strings.Contains(md, unwanted) {
 			t.Errorf("export still holds %q:\n%s", unwanted, md)
 		}
+	}
+}
+
+// The loop tags its own logger, so logger.levels can name "agent" whichever
+// entrypoint built it. Without the tag the component key is absent and a
+// configured override for "agent" scopes nothing.
+func TestNewAgentTagsItsLoggerWithTheAgentComponent(t *testing.T) {
+	var buf bytes.Buffer
+	base := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	a := NewAgent(&config.Config{}, &session.State{ID: "sess_probe"}, nil, base)
+
+	a.log.Info("probe")
+
+	var rec map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+		t.Fatalf("log line is not JSON: %v\n%s", err, buf.String())
+	}
+	if got := rec[logger.ComponentKey]; got != logger.ComponentAgent {
+		t.Fatalf("component = %v, want %q", got, logger.ComponentAgent)
 	}
 }

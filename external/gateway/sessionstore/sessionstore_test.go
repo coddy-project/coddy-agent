@@ -3,6 +3,8 @@
 package sessionstore_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/EvilFreelancer/coddy-agent/external/gateway/sessionstore"
@@ -56,5 +58,28 @@ func TestStore_GetAndReset(t *testing.T) {
 	}
 	if s.Get("tg:user:1") != id2 {
 		t.Fatal("Get after Reset should return new ID")
+	}
+}
+
+// Peek reports a mapping without creating one: a log line that names the
+// session must not persist a new entry for a chat that only typed /help.
+func TestPeekDoesNotMintAMapping(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gateway_sessions.json")
+	s := sessionstore.NewPersisted(path)
+
+	if got := s.Peek("tg:user:1"); got != "" {
+		t.Fatalf("Peek on an unknown key = %q, want empty", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("Peek wrote the store file: %v", err)
+	}
+
+	id := s.Get("tg:user:1")
+	if id == "" {
+		t.Fatal("Get returned no id")
+	}
+	if got := s.Peek("tg:user:1"); got != id {
+		t.Fatalf("Peek = %q, want the id Get minted (%q)", got, id)
 	}
 }

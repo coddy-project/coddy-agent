@@ -66,7 +66,7 @@ _coddy() {
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
-                        '--log-level[debug|info|warn|error]:level:(debug info warn error)' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
                         '--remote[drive a remote coddy serve server]:remote:' \
                         '--remote-token[bearer token for --remote]:token:'
                     ;;
@@ -78,7 +78,7 @@ _coddy() {
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
                         '--sessions-dir[sessions root]:directory:_files -/' \
-                        '--log-level[debug|info|warn|error]:level:(debug info warn error)' \
+                        '--log-level[level, or a spec such as info,gateway.telegram=debug]:level:(debug info warn error)' \
                         '-H[bind address for the HTTP API]:host:' \
                         '-P[listen port for the HTTP API]:port:' \
                         '--auth-token[bearer token for the HTTP API]:token:' \

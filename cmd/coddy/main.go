@@ -212,7 +212,7 @@ func runACP(args []string) error {
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	cfgPath := fs.String("config", "", "path to config.yaml (CODDY_CONFIG, else <home>/config.yaml or legacy search paths)")
-	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
+	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	logOutput := fs.String("log-output", "", "stdout|stderr|file|both (default from config)")
 	logFile := fs.String("log-file", "", "log file path when output includes file (default from config)")
 	logFormat := fs.String("log-format", "", "text|json (default from config)")

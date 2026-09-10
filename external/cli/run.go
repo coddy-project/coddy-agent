@@ -55,7 +55,7 @@ func Run(args []string, deps CommandDeps) error {
 	remoteToken := fs.String("remote-token", "", "bearer token for --remote (default from CODDY_REMOTE_TOKEN)")
 	themeFlag := fs.String("theme", "auto", "color theme: dark|light|auto")
 	plainFlag := fs.Bool("plain", false, "deterministic rendering for tests: no terminal queries or protocol negotiation")
-	logLevel := fs.String("log-level", "", "debug|info|warn|error (default from config)")
+	logLevel := fs.String("log-level", "", "log level: a bare level (debug|info|warn|error), or a comma-separated spec with per-component overrides such as info,gateway.telegram=debug (default from config)")
 	logFile := fs.String("log-file", "", "log file path (default <home>/logs/cli.log)")
 	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")

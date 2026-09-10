@@ -2,6 +2,7 @@ package logger
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -210,5 +211,98 @@ func TestParseSkipsMalformed(t *testing.T) {
 	}
 	if recs[0].Attrs["component"] != "x" {
 		t.Fatalf("attr lost: %+v", recs[0].Attrs)
+	}
+}
+
+// The component tag reaches the output as an ordinary attribute, so a file can
+// still be filtered by subsystem after the fact.
+func TestComponentTagIsWrittenToOutput(t *testing.T) {
+	var buf bytes.Buffer
+	base := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelInfo,
+		Levels: []config.LoggerComponentLevel{{Component: "gateway.telegram", Level: config.LogLevelDebug}},
+		Format: config.LogFormatJSON,
+	}))
+	Component(base, "gateway.telegram").Debug("callback received", "data", "model:x")
+
+	var raw map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &raw); err != nil {
+		t.Fatalf("output is not JSON: %v\n%s", err, buf.String())
+	}
+	if raw[ComponentKey] != "gateway.telegram" {
+		t.Fatalf("component attr = %v, want gateway.telegram", raw[ComponentKey])
+	}
+	if raw["msg"] != "callback received" {
+		t.Fatalf("msg = %v", raw["msg"])
+	}
+}
+
+// Without overrides the wrapper is not inserted at all, so the plain path keeps
+// the format handler's own threshold and pays nothing per record.
+func TestNoOverridesLeavesTheFormatHandlerUnwrapped(t *testing.T) {
+	var buf bytes.Buffer
+	h := newHandler(&buf, config.Logger{Level: config.LogLevelWarn, Format: config.LogFormatText})
+	if _, wrapped := h.(*componentHandler); wrapped {
+		t.Fatal("component handler inserted with no logger.levels configured")
+	}
+	slog.New(h).Info("dropped")
+	if buf.Len() != 0 {
+		t.Fatalf("record below root level reached the output: %s", buf.String())
+	}
+}
+
+// Component names are matched after canonicalisation, so a name written with
+// odd spacing or case on either side still lines up with the other.
+func TestComponentNameMatchingIsCanonical(t *testing.T) {
+	var buf bytes.Buffer
+	base := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelInfo,
+		Levels: []config.LoggerComponentLevel{{Component: "Gateway.Telegram", Level: config.LogLevelDebug}},
+	}))
+	Component(base, " gateway . TELEGRAM ").Debug("matched")
+	if !strings.Contains(buf.String(), "matched") {
+		t.Fatalf("canonical names did not match; got: %s", buf.String())
+	}
+}
+
+// A record handed straight to the handler bypasses Enabled, so Handle re-checks
+// rather than trusting that slog already filtered it.
+func TestHandleRechecksTheLevel(t *testing.T) {
+	var buf bytes.Buffer
+	h := newHandler(&buf, config.Logger{
+		Level:  config.LogLevelInfo,
+		Levels: []config.LoggerComponentLevel{{Component: "session", Level: config.LogLevelError}},
+	}).WithAttrs([]slog.Attr{slog.String(ComponentKey, "session")})
+
+	rec := slog.NewRecord(time.Now(), slog.LevelWarn, "below the component level", 0)
+	if err := h.Handle(context.Background(), rec); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("Handle wrote a record below the component level: %s", buf.String())
+	}
+}
+
+// A group changes where later attributes nest, so a component set before it
+// keeps deciding the level rather than being lost with the flat key.
+func TestWithGroupKeepsTheResolvedComponent(t *testing.T) {
+	var buf bytes.Buffer
+	base := slog.New(newHandler(&buf, config.Logger{
+		Level:  config.LogLevelError,
+		Levels: []config.LoggerComponentLevel{{Component: "gateway", Level: config.LogLevelDebug}},
+	}))
+	Component(base, "gateway").WithGroup("tg").Debug("still enabled", "chat", 1)
+	if !strings.Contains(buf.String(), "still enabled") {
+		t.Fatalf("component level lost across WithGroup; got: %s", buf.String())
+	}
+}
+
+func TestMinLevelIsTheLowestAnyComponentAsksFor(t *testing.T) {
+	got := minLevel(config.Logger{
+		Level:  config.LogLevelWarn,
+		Levels: []config.LoggerComponentLevel{{Component: "gateway", Level: config.LogLevelDebug}, {Component: "session", Level: config.LogLevelError}},
+	})
+	if got != slog.LevelDebug {
+		t.Fatalf("minLevel = %v, want debug", got)
 	}
 }
