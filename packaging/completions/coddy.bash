@@ -33,7 +33,7 @@ _coddy() {
             ;;
         providers)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list login logout" -- "${cur}"))
-            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--device --no-config --home" -- "${cur}"))
+            [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--browser --device --no-config --api-base --home" -- "${cur}"))
             ;;
         rules)
             [ "${COMP_CWORD}" -eq 2 ] && COMPREPLY=($(compgen -W "list" -- "${cur}"))

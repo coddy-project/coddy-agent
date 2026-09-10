@@ -97,6 +97,21 @@ Feature: Interactive console TUI
     And the operator chooses the custom answer and types "my own words"
     Then the stub turn observes the question answer "my own words"
 
+  Scenario: A question with long options reads in full
+    When the console app starts
+    And the operator submits the prompt "ask me something"
+    And the stub turn asks a question whose options carry long descriptions
+    Then the question modal shows the whole label of the first option
+    And the question modal wraps the selected option's description below the list
+
+  Scenario: An answered question renders as the question and the answer
+    When the console app starts
+    And the operator submits the prompt "ask me something"
+    And the stub turn asks a question whose options carry long descriptions
+    And the operator chooses the highlighted option
+    Then the transcript shows the question "Where should the relay live?" answered with "Relay and node both on nas02 (recommended)"
+    And the transcript does not show "answers"
+
   Scenario: A failed prompt reports the error and the editor recovers
     When the console app starts
     And the operator submits the prompt "boom"

@@ -17,10 +17,10 @@ function cssText(): string {
 test("light theme overrides bright syntax green and blue", () => {
   const css = cssText();
   expect(css).toMatch(
-    /\[data-theme="light"\]\s*\.hljs-string[^{]*\{[^}]*color:/s,
+    /\[data-theme="light"\]\s*\{[^}]*--syntax-string:\s*#116931/s,
   );
   expect(css).toMatch(
-    /\[data-theme="light"\]\s*\.hljs-number[^{]*\{[^}]*color:/s,
+    /\[data-theme="light"\]\s*\{[^}]*--syntax-number:\s*#0d5cad/s,
   );
 });
 

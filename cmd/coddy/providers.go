@@ -2,18 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/platform"
 )
 
 // neuralDeepLogoutTimeout bounds the best-effort server-side key revoke.
@@ -43,7 +44,8 @@ func runProviders(args []string) error {
 	fs := flag.NewFlagSet("providers", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	home := fs.String("home", "", "override CODDY_HOME")
-	device := fs.Bool("device", false, "neuraldeep: use the device flow (headless machines, remote browsers)")
+	device := fs.Bool("device", false, "neuraldeep: the device flow, which is the default (accepted for compatibility)")
+	browser := fs.Bool("browser", false, "neuraldeep: sign in through a loopback browser callback instead of the device flow")
 	noConfig := fs.Bool("no-config", false, "login: do not add the provider and its models to config.yaml after login")
 	apiBase := fs.String("api-base", "", "neuraldeep: API endpoint to sign in against, one of "+strings.Join(llm.NeuralDeepAPIBases(), ", ")+" (default: the provider's api_base, else the first)")
 	if err := fs.Parse(rest); err != nil {
@@ -62,7 +64,7 @@ func runProviders(args []string) error {
 		}
 		return nil
 	case "login":
-		return providersLogin(cfg, name, *device, *noConfig, *apiBase)
+		return providersLogin(cfg, name, *device, *browser, *noConfig, *apiBase)
 	case "logout":
 		return providersLogout(cfg, name)
 	default:
@@ -71,7 +73,7 @@ func runProviders(args []string) error {
 }
 
 func providersUsageErr() error {
-	return fmt.Errorf("usage: %s providers list | login <name> [--device] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
+	return fmt.Errorf("usage: %s providers list | login <name> [--browser] [--no-config] [--api-base URL] | logout <name> [--home DIR]", os.Args[0])
 }
 
 // resolveLoginProvider picks the provider entry for login/logout. A name
@@ -93,7 +95,10 @@ func resolveLoginProvider(cfg *config.Config, name string) (*config.ProviderConf
 	return nil, fmt.Errorf("provider %q is not in config.yaml; add it first or use the conventional names \"neuraldeep\" / \"codex\"", name)
 }
 
-func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiBase string) error {
+func providersLogin(cfg *config.Config, name string, device, browser, noConfig bool, apiBase string) error {
+	if device && browser {
+		return errors.New("providers login: --device and --browser ask for different flows; pass at most one")
+	}
 	prov, err := resolveLoginProvider(cfg, name)
 	if err != nil {
 		return err
@@ -106,7 +111,7 @@ func providersLogin(cfg *config.Config, name string, device, noConfig bool, apiB
 		}
 		return codexLogin(cfg, prov, prov.Name, authPath, noConfig)
 	case "neuraldeep":
-		return neuralDeepLogin(cfg, prov, device, noConfig, apiBase)
+		return neuralDeepLogin(cfg, prov, browser, noConfig, apiBase)
 	default:
 		return fmt.Errorf("provider %q has type %q: it authenticates with api_key (or the %s env var), browser sign-in exists only for neuraldeep and codex",
 			prov.Name, prov.Type, config.ProviderAPIKeyEnvVarName(prov.Name))
@@ -138,7 +143,14 @@ func resolveNeuralDeepAPIBase(flagValue, configured string) (string, error) {
 	return "", nil
 }
 
-func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, noConfig bool, apiBase string) error {
+// neuralDeepLogin signs in to the hub. The device flow is the default: the
+// loopback callback only completes when a browser can reach this process's own
+// 127.0.0.1, which is false for every machine reached over SSH, in a container,
+// or in CI - and that failure is silent, a browser page that never comes back.
+// The device flow costs one confirmation click and works from any browser, so
+// --browser is the opt-in rather than the other way round (Codex sign-in has
+// been device-only from the start for the same reason).
+func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, browser, noConfig bool, apiBase string) error {
 	// The endpoint decides which hub mints the key, so it has to be settled
 	// before the flow starts: --api-base wins, then the provider row, then the
 	// default deployment. A fresh install outside Russia has no row yet.
@@ -160,19 +172,32 @@ func neuralDeepLogin(cfg *config.Config, prov *config.ProviderConfig, device, no
 
 	hub := llm.NeuralDeepHubFor(endpoint)
 	var key string
-	if device {
-		key, err = llm.NeuralDeepDeviceSignIn(ctx, hub, client, authPath, neuralDeepDeviceLabel(), func(l llm.NeuralDeepDeviceLogin) {
-			fmt.Printf("Open %s and enter the code %s\n", l.VerificationTarget(), l.UserCode)
-			fmt.Println("Only continue in the browser if you started this login yourself.")
-			fmt.Println("Waiting for confirmation...")
-			_ = openBrowserFn(l.VerificationTarget())
-		})
-	} else {
+	if browser {
 		key, err = llm.NeuralDeepSignIn(ctx, hub, client, authPath, func(p llm.NeuralDeepLoginPrompt) {
 			fmt.Printf("Open %s\n", p.AuthURL)
+			fmt.Println("The page comes back to this machine, so open it in a browser running here.")
 			fmt.Println("Waiting for the browser sign-in to finish...")
 			// Best-effort: the printed URL is the contract, a browser is a bonus.
 			_ = openBrowserFn(p.AuthURL)
+		})
+	} else {
+		// No terminal check here on purpose: `ssh host 'coddy providers login
+		// neuraldeep'` has no pty, and its output still reaches the person who
+		// typed it. Refusing there would close the door on the very setup this
+		// flow exists for; a login nobody answers ends on the hub's own
+		// fifteen-minute deadline, and Ctrl-C ends it sooner.
+		key, err = llm.NeuralDeepDeviceSignIn(ctx, hub, client, authPath, neuralDeepDeviceLabel(), func(l llm.NeuralDeepDeviceLogin) {
+			fmt.Printf("Open %s\n", l.VerificationTarget())
+			fmt.Printf("and confirm the code %s\n", l.UserCode)
+			fmt.Println("Any browser will do, including one on your phone; the page asks you to sign in first.")
+			fmt.Println("Only continue in the browser if you started this login yourself.")
+			fmt.Println("Waiting for confirmation...")
+			// Opening a browser here is a convenience for a desktop; on a
+			// machine reached over SSH there is nothing to open, and the
+			// printed URL is what the user carries to their own browser.
+			if localBrowserAvailableFn() {
+				_ = openBrowserFn(l.VerificationTarget())
+			}
 		})
 	}
 	if err != nil {
@@ -353,12 +378,20 @@ func neuralDeepDeviceLabel() string {
 var openBrowserFn = openBrowser
 
 func openBrowser(url string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", url).Start()
-	case "windows":
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
-	default:
-		return exec.Command("xdg-open", url).Start()
+	argv := platform.BrowserOpenArgv(url)
+	if len(argv) == 0 {
+		return errors.New("no browser opener found in PATH")
 	}
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // argv comes from a fixed list of openers
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// A sign-in waits for up to fifteen minutes; an unreaped opener would sit
+	// as a zombie for all of it.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
+
+// localBrowserAvailableFn is a variable so tests can decide what the machine
+// looks like without touching the environment.
+var localBrowserAvailableFn = platform.LocalBrowserAvailable

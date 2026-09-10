@@ -197,6 +197,13 @@ comes from the agent's `permission.Options`), the question tool (single or
 multi-select via space, custom free-text answers), model/mode/theme/session
 selectors (`→ ` cursor, type-to-filter, `(i/n)` scroll indicator).
 
+The question modal spends every row on its option label and prints the
+description of the highlighted option under the list, word-wrapped over the
+whole width, so a sentence-long answer stays readable instead of being cut at
+a column boundary. When the question is answered, its tool block shows the
+questions with the chosen answers (`→ answer`, `→ (no answer)` for a dismissed
+one) rather than the JSON the tool hands the model.
+
 ## Flags
 
 `--config --home --cwd --sessions-dir` mirror the other subcommands.

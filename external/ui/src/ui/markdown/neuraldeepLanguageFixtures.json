@@ -1,0 +1,380 @@
+[
+  {
+    "language": "React (JSX)",
+    "label": "jsx",
+    "markdown": "```jsx\n// Simple React component\nfunction Greeting({ name }) {\n  return <h1>Hello, {name}!</h1>;\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Java",
+    "label": "java",
+    "markdown": "```java\npublic class Main {\n    public static void main(String[] args) {\n        int x = 10; // Example variable\n        if (x > 5) {\n            System.out.println(\"Hello, Java!\");\n        }\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "TypeScript",
+    "label": "typescript",
+    "markdown": "```typescript\n// Calculate the area of a circle\nfunction area(radius: number): number {\n  return Math.PI * radius ** 2;\n}\n\nconst result: number = area(5);\nconsole.log(`Area: ${result}`);\n```",
+    "highlight": true
+  },
+  {
+    "language": "PHP",
+    "label": "php",
+    "markdown": "```php\n<?php\n// Calculate the square of a number\nfunction square($num) {\n    return $num * $num;\n}\necho square(5);\n?>\n```",
+    "highlight": true
+  },
+  {
+    "language": "Python",
+    "label": "python",
+    "markdown": "```python\n# Calculate the square of a number\ndef square(n):\n    return n * n\n\nresult = square(5)\nprint(f\"The square of 5 is {result}\")\n```",
+    "highlight": true
+  },
+  {
+    "language": "C++",
+    "label": "cpp",
+    "markdown": "```cpp\n#include <iostream>\n\nint main() {\n    int x = 42; // A sample integer\n    if (x > 0) {\n        std::cout << \"Positive\" << std::endl;\n    }\n    return 0;\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "x86 assembly (Intel syntax)",
+    "label": "asm",
+    "markdown": "```asm\nsection .data\n    msg db \"Hello, World!\", 0\n\nsection .text\n    global _start\n_start:\n    mov eax, 4          ; sys_write\n    mov ebx, 1          ; stdout\n    mov ecx, msg        ; pointer to string\n    mov edx, 14         ; length of string\n    int 0x80            ; invoke kernel\n    mov eax, 1          ; sys_exit\n    xor ebx, ebx        ; exit code 0\n    int 0x80\n```",
+    "highlight": true
+  },
+  {
+    "language": "C#",
+    "label": "csharp",
+    "markdown": "```csharp\n// Example C# snippet\nint number = 42;\nif (number > 0)\n{\n    Console.WriteLine($\"Value: {number}\");\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Go",
+    "label": "go",
+    "markdown": "```go\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n    // Greeting\n    fmt.Println(\"Hello, World!\")\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Rust",
+    "label": "rust",
+    "markdown": "```rust\nfn main() {\n    let x: i32 = 42; // A simple integer\n    if x > 0 {\n        println!(\"Positive: {}\", x);\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "C",
+    "label": "c",
+    "markdown": "```c\n#include <stdio.h>\n\nint main() {\n    int x = 42; // A sample integer\n    if (x > 0) {\n        printf(\"Positive: %d\\n\", x);\n    }\n    return 0;\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "XHTML",
+    "label": "xhtml",
+    "markdown": "```xhtml\n<!DOCTYPE html>\n<html>\n<head><title>Example</title></head>\n<body>\n  <!-- A simple greeting -->\n  <p>Hello, World!</p>\n</body>\n</html>\n```",
+    "highlight": true
+  },
+  {
+    "language": "XML",
+    "label": "xml",
+    "markdown": "```xml\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- Sample XML document -->\n<root>\n    <item id=\"1\">\n        <name>Widget</name>\n        <price>9.99</price>\n    </item>\n</root>\n```",
+    "highlight": true
+  },
+  {
+    "language": "XSLT",
+    "label": "xslt",
+    "markdown": "```xslt\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">\n  <!-- Example: Sum values if greater than 10 -->\n  <xsl:template match=\"item\">\n    <xsl:if test=\"value &gt; 10\">\n      <xsl:value-of select=\"value + 5\"/>\n    </xsl:if>\n  </xsl:template>\n</xsl:stylesheet>\n```",
+    "highlight": true
+  },
+  {
+    "language": "XSL",
+    "label": "xml",
+    "markdown": "```xml\n<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">\n  <!-- Example: Sum of two numbers -->\n  <xsl:template match=\"/\">\n    <xsl:value-of select=\"10 + 20\"/>\n  </xsl:template>\n</xsl:stylesheet>\n```",
+    "highlight": true
+  },
+  {
+    "language": "Pascal",
+    "label": "pascal",
+    "markdown": "```pascal\nprogram Hello;\nvar\n  name: string;\nbegin\n  name := 'World';\n  if name <> '' then\n    WriteLn('Hello, ', name);\nend.\n```",
+    "highlight": true
+  },
+  {
+    "language": "Object Pascal",
+    "label": "pascal",
+    "markdown": "```pascal\nprogram Hello;\nvar\n  Name: string;\nbegin\n  Name := 'World'; // Greeting\n  if Name <> '' then\n    WriteLn('Hello, ', Name);\nend.\n```",
+    "highlight": true
+  },
+  {
+    "language": "GameMaker Language (GML)",
+    "label": "gml",
+    "markdown": "```gml\n// Initialize player speed\nvar speed = 5;\n\nif (keyboard_check(vk_space)) {\n    speed *= 2;\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Common Lisp",
+    "label": "lisp",
+    "markdown": "```lisp\n;; Calculate the square of a number\n(defun square (n)\n  \"Return the square of N.\"\n  (if (numberp n)\n      (* n n)\n      (error \"Not a number: ~A\" n)))\n```",
+    "highlight": true
+  },
+  {
+    "language": "Prolog",
+    "label": "prolog",
+    "markdown": "```prolog\n% Example Prolog predicate\nparent(tom, bob).\nparent(tom, liz).\n\n% Query: Is tom a parent of bob?\n?- parent(tom, bob).\n```",
+    "highlight": true
+  },
+  {
+    "language": "Delphi",
+    "label": "delphi",
+    "markdown": "```delphi\nprocedure Calculate;\nvar\n  x: Integer;\nbegin\n  x := 10; // Assign a number\n  if x > 5 then\n    WriteLn('Greater than 5');\nend;\n```",
+    "highlight": true
+  },
+  {
+    "language": "Swift",
+    "label": "swift",
+    "markdown": "```swift\n// Calculate the square of a number\nfunc square(_ n: Int) -> Int {\n    return n * n\n}\n\nlet result = square(5)\nprint(\"The square is \\(result)\")\n```",
+    "highlight": true
+  },
+  {
+    "language": "Dart",
+    "label": "dart",
+    "markdown": "```dart\n// A simple Dart function\nint add(int a, int b) {\n  return a + b;\n}\n\nvoid main() {\n  print(add(2, 3));\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Ruby",
+    "label": "ruby",
+    "markdown": "```ruby\n# Calculate the square of a number\ndef square(n)\n  n * n\nend\n\nputs square(5)\n```",
+    "highlight": true
+  },
+  {
+    "language": "Kotlin",
+    "label": "kotlin",
+    "markdown": "```kotlin\nfun main() {\n    val number = 42 // A sample integer\n    if (number > 0) {\n        println(\"Positive: $number\")\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Ada",
+    "label": "ada",
+    "markdown": "```ada\nwith Ada.Text_IO; use Ada.Text_IO;\n\nprocedure Hello is\n   Name : constant String := \"Ada\";\nbegin\n   Put_Line (\"Hello, \" & Name & \"!\");\nend Hello;\n```",
+    "highlight": true
+  },
+  {
+    "language": "Objective-C",
+    "label": "objectivec",
+    "markdown": "```objectivec\n// Example Objective-C snippet\n- (void)greet:(NSString *)name {\n    if (name.length > 0) {\n        NSLog(@\"Hello, %@!\", name);\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "VBA",
+    "label": "vba",
+    "markdown": "```vba\nSub CalculateTotal()\n    Dim price As Double\n    Dim quantity As Integer\n    price = 19.99\n    quantity = 3\n    ' Calculate the total cost\n    MsgBox \"Total: \" & (price * quantity)\nEnd Sub\n```",
+    "highlight": true
+  },
+  {
+    "language": "MATLAB",
+    "label": "matlab",
+    "markdown": "```matlab\n% Calculate the area of a circle\nradius = 5;\narea = pi * radius^2;\nif area > 50\n    fprintf('Area is large: %.2f\\n', area);\nend\n```",
+    "highlight": true
+  },
+  {
+    "language": "Elixir",
+    "label": "elixir",
+    "markdown": "```elixir\ndefmodule Greeter do\n  # Greet a user by name\n  def greet(name) do\n    \"Hello, #{name}!\"\n  end\nend\n```",
+    "highlight": true
+  },
+  {
+    "language": "Scala",
+    "label": "scala",
+    "markdown": "```scala\n// A simple greeting function\ndef greet(name: String): String = {\n  if (name.isEmpty) \"Hello, World!\"\n  else s\"Hello, $name!\"\n}\n\nprintln(greet(\"Alice\"))\n```",
+    "highlight": true
+  },
+  {
+    "language": "SQL",
+    "label": "sql",
+    "markdown": "```sql\n-- Calculate total order value\nSELECT \n    order_id,\n    SUM(quantity * price) AS total_value\nFROM \n    order_items\nGROUP BY \n    order_id\nHAVING \n    SUM(quantity * price) > 100;\n```",
+    "highlight": true
+  },
+  {
+    "language": "Perl",
+    "label": "perl",
+    "markdown": "```perl\n#!/usr/bin/perl\nuse strict;\nuse warnings;\n\nmy $name = \"World\";\nif ($name eq \"World\") {\n    print \"Hello, $name!\\n\";\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Fortran",
+    "label": "fortran",
+    "markdown": "```fortran\nprogram example\n  implicit none\n  integer :: x\n  x = 10\n  if (x > 5) then\n    print *, \"x is greater than 5\"\n  end if\nend program example\n```",
+    "highlight": true
+  },
+  {
+    "language": "COBOL",
+    "label": "cobol",
+    "markdown": "```cobol\nIDENTIFICATION DIVISION.\nPROGRAM-ID. HELLO.\nDATA DIVISION.\nWORKING-STORAGE SECTION.\n01  GREETING PIC X(10) VALUE \"HELLO\".\nPROCEDURE DIVISION.\n    DISPLAY GREETING.\n    STOP RUN.\n```",
+    "highlight": true
+  },
+  {
+    "language": "Scheme",
+    "label": "scheme",
+    "markdown": "```scheme\n;; Calculate the square of a number\n(define (square x)\n  (* x x))\n\n(display (square 5))\n```",
+    "highlight": true
+  },
+  {
+    "language": "Tcl",
+    "label": "tcl",
+    "markdown": "```tcl\n# Calculate the square of a number\nproc square {n} {\n    return [expr {$n * $n}]\n}\n\nset result [square 5]\nputs \"The square is: $result\"\n```",
+    "highlight": true
+  },
+  {
+    "language": "F#",
+    "label": "fsharp",
+    "markdown": "```fsharp\n// Calculate the square of a number\nlet square x = x * x\n\nlet result = square 5\nprintfn \"The square of 5 is %d\" result\n```",
+    "highlight": true
+  },
+  {
+    "language": "OCaml",
+    "label": "ocaml",
+    "markdown": "```ocaml\n(* A simple function to check if a number is even *)\nlet is_even n =\n  if n mod 2 = 0 then \"even\" else \"odd\"\n\nlet () =\n  print_endline (is_even 4)\n```",
+    "highlight": true
+  },
+  {
+    "language": "Visual Basic .NET",
+    "label": "vbnet",
+    "markdown": "```vbnet\n' Calculate the square of a number\nFunction Square(n As Integer) As Integer\n    Return n * n\nEnd Function\n\nDim result As Integer = Square(5)\nConsole.WriteLine(result)\n```",
+    "highlight": true
+  },
+  {
+    "language": "Haskell",
+    "label": "haskell",
+    "markdown": "```haskell\n-- A simple function to double a number\ndouble :: Int -> Int\ndouble x = x * 2\n\nmain :: IO ()\nmain = print (double 5)\n```",
+    "highlight": true
+  },
+  {
+    "language": "SVG",
+    "label": "svg",
+    "markdown": "```svg\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\">\n  <!-- A simple circle -->\n  <circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"blue\" />\n</svg>\n```",
+    "highlight": true
+  },
+  {
+    "language": "GDScript (Godot)",
+    "label": "gdscript",
+    "markdown": "```gdscript\n# A simple Godot script\nfunc _ready():\n    var score: int = 10\n    if score > 5:\n        print(\"High score!\")\n```",
+    "highlight": true
+  },
+  {
+    "language": "Lua",
+    "label": "lua",
+    "markdown": "```lua\n-- Calculate the area of a circle\nlocal function area(radius)\n    return 3.14159 * radius * radius\nend\n\nlocal r = 5\nprint(area(r))\n```",
+    "highlight": true
+  },
+  {
+    "language": "Bash",
+    "label": "bash",
+    "markdown": "```bash\n#!/bin/bash\n# Greet the user\nname=\"World\"\nif [ -n \"$name\" ]; then\n    echo \"Hello, $name!\"\nfi\n```",
+    "highlight": true
+  },
+  {
+    "language": "POSIX sh",
+    "label": "sh",
+    "markdown": "```sh\n#!/bin/sh\n# Example POSIX shell script\ncount=5\nif [ \"$count\" -gt 3 ]; then\n    echo \"Count is greater than 3\"\nfi\n```",
+    "highlight": true
+  },
+  {
+    "language": "Zsh",
+    "label": "zsh",
+    "markdown": "```zsh\n#!/bin/zsh\n# Example Zsh script\ntypeset -i count=5\nif (( count > 3 )); then\n    echo \"Count is greater than 3\"\nfi\n```",
+    "highlight": true
+  },
+  {
+    "language": "PowerShell",
+    "label": "powershell",
+    "markdown": "```powershell\n# Calculate the square of a number\nfunction Get-Square {\n    param([int]$Number)\n    return $Number * $Number\n}\n\n$result = Get-Square -Number 5\nWrite-Host \"The square is: $result\"\n```",
+    "highlight": true
+  },
+  {
+    "language": "R",
+    "label": "r",
+    "markdown": "```r\n# Calculate the square of a number\nsquare <- function(x) {\n  x^2\n}\nresult <- square(5)\nprint(result)\n```",
+    "highlight": true
+  },
+  {
+    "language": "Haxe",
+    "label": "haxe",
+    "markdown": "```haxe\nclass Main {\n    static function main() {\n        var name: String = \"Haxe\";\n        if (name.length > 3) trace(\"Hello, $name!\");\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Oracle PL/SQL",
+    "label": "plsql",
+    "markdown": "```plsql\nDECLARE\n    v_name VARCHAR2(50) := 'Oracle';\nBEGIN\n    DBMS_OUTPUT.PUT_LINE('Hello, ' || v_name);\nEND;\n```",
+    "highlight": true
+  },
+  {
+    "language": "Transact-SQL",
+    "label": "sql",
+    "markdown": "```sql\nDECLARE @Count INT = 10;\nIF @Count > 5\nBEGIN\n    PRINT 'Count is greater than 5';\nEND\nELSE\nBEGIN\n    PRINT 'Count is 5 or less';\nEND\n```",
+    "highlight": true
+  },
+  {
+    "language": "UnrealScript",
+    "label": "unrealscript",
+    "markdown": "```unrealscript\nclass MyActor extends Actor;\n\nvar int Health;\n\nfunction void TakeDamage(int Amount)\n{\n    // Reduce health by the damage amount\n    Health -= Amount;\n}\n```",
+    "highlight": false
+  },
+  {
+    "language": "GLSL",
+    "label": "glsl",
+    "markdown": "```glsl\n// Simple fragment shader\nvoid main() {\n    float brightness = 0.5;\n    if (brightness > 0.25) {\n        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "HLSL",
+    "label": "hlsl",
+    "markdown": "```hlsl\n// Simple pixel shader\nfloat4 main() : SV_Target\n{\n    return float4(1.0, 0.5, 0.25, 1.0);\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "OpenCL C",
+    "label": "opencl",
+    "markdown": "```opencl\n__kernel void add(__global const float* a, __global const float* b, __global float* c) {\n    int i = get_global_id(0);\n    if (i < 1024) {\n        c[i] = a[i] + b[i]; // Element-wise addition\n    }\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "CUDA C++",
+    "label": "cuda",
+    "markdown": "```cuda\n#include <cuda_runtime.h>\n\n__global__ void add(float *a, float *b, float *c) {\n    int i = threadIdx.x;\n    c[i] = a[i] + b[i]; // Element-wise addition\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "TADS 3",
+    "label": "tads",
+    "markdown": "```tads\n+room: Room\n    name = 'Main Room'\n    desc = 'A small, quiet room. '\n    exits = [north: northRoom, south: southRoom]\n```",
+    "highlight": false
+  },
+  {
+    "language": "URQ",
+    "label": "urql",
+    "markdown": "```urql\n# A simple URQL query example\nquery GetUser($id: ID!) {\n  user(id: $id) {\n    name\n    email\n  }\n}\n```",
+    "highlight": false
+  },
+  {
+    "language": "WGSL",
+    "label": "wgsl",
+    "markdown": "```wgsl\n@group(0) @binding(0) var<uniform> data: vec4f;\n\n@fragment\nfn main() -> @location(0) vec4f {\n    // Simple color mix\n    return mix(vec4f(1.0), data, 0.5);\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "Vue single-file component",
+    "label": "vue",
+    "markdown": "```vue\n<template>\n  <div>{{ message }}</div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return { message: 'Hello Vue' } // Initial state\n  }\n}\n</script>\n```",
+    "highlight": true
+  },
+  {
+    "language": "PostCSS",
+    "label": "postcss",
+    "markdown": "```postcss\n/* Example PostCSS plugin */\n@plugin \"postcss-preset-env\";\n\na {\n  color: #333;\n}\n```",
+    "highlight": true
+  },
+  {
+    "language": "React TypeScript (TSX)",
+    "label": "tsx",
+    "markdown": "```tsx\n// Simple React component\nfunction Greeting({ name }: { name: string }) {\n  return <h1>Hello, {name}!</h1>;\n}\n```",
+    "highlight": true
+  }
+]

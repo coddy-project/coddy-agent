@@ -474,3 +474,75 @@ func TestConsoleAdoptsTheConfigAfterCommit(t *testing.T) {
 		t.Fatalf("model catalog after the reload = %v", ids)
 	}
 }
+
+// toolBoxText renders a tool box and strips styling, so assertions read what
+// the operator reads.
+func toolBoxText(t *testing.T, tb *toolBox, width int) string {
+	t.Helper()
+	return tui.StripTerminalSequences(strings.Join(tb.Render(width), "\n"))
+}
+
+// The question tool answers the model in JSON. Printing that JSON into the
+// transcript hands the operator `{"answers":[["..."]]}` for a decision they
+// just made; the box shows the question with the answer instead, the way the
+// SPA timeline does.
+func TestQuestionToolBoxShowsTheAnsweredQuestions(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-1", "question", "other", nil)
+	tb.SetArgs(`{"questions":[` +
+		`{"header":"Swarm topology","question":"Where should the relay live?","options":[{"label":"On nas02"}]},` +
+		`{"question":"How is the node started?","options":[{"label":"A systemd service"}]}]}`)
+	tb.SetStatus("completed", `{"answers":[["On nas02"],["A systemd service"]]}`, 0, 0)
+
+	text := toolBoxText(t, tb, 80)
+	for _, want := range []string{
+		"Where should the relay live?", "On nas02",
+		"How is the node started?", "A systemd service",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("%q missing from the box:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "answers") || strings.Contains(text, "[[") {
+		t.Fatalf("raw result JSON still reaches the transcript:\n%s", text)
+	}
+
+	// The arguments also travel behind an "Arguments:" label, and a model may
+	// hand the question list over as one object instead of an array.
+	labelled := newToolBox(newTheme("dark"), "call-1b", "question", "other", nil)
+	labelled.SetArgs(`Arguments: {"questions":{"question":"Where should the relay live?","options":[{"label":"On nas02"}]}}`)
+	labelled.SetStatus("completed", `{"answers":[["On nas02"]]}`, 0, 0)
+	if text := toolBoxText(t, labelled, 80); !strings.Contains(text, "Where should the relay live?") {
+		t.Fatalf("labelled arguments lost the question:\n%s", text)
+	}
+}
+
+// A dismissed question answers with a null list: say so rather than print it.
+func TestQuestionToolBoxReportsADismissedQuestion(t *testing.T) {
+	tb := newToolBox(newTheme("dark"), "call-2", "question", "other", nil)
+	tb.SetArgs(`{"questions":[{"question":"Pick one","options":[{"label":"A"}]}]}`)
+	tb.SetStatus("completed", `{"answers":null}`, 0, 0)
+
+	text := toolBoxText(t, tb, 80)
+	if !strings.Contains(text, "Pick one") || !strings.Contains(text, "no answer") {
+		t.Fatalf("dismissed question renders as %q", text)
+	}
+	if strings.Contains(text, "null") {
+		t.Fatalf("raw result JSON still reaches the transcript:\n%s", text)
+	}
+}
+
+// Only the question tool is reformatted, and only when its result parses: any
+// other body reaches the box unchanged.
+func TestToolBoxLeavesOtherResultsAlone(t *testing.T) {
+	other := newToolBox(newTheme("dark"), "call-3", "read", "read", nil)
+	other.SetStatus("completed", `{"answers":[["A"]]}`, 0, 0)
+	if text := toolBoxText(t, other, 80); !strings.Contains(text, `{"answers":[["A"]]}`) {
+		t.Fatalf("a read result was rewritten:\n%s", text)
+	}
+
+	broken := newToolBox(newTheme("dark"), "call-4", "question", "other", nil)
+	broken.SetStatus("failed", "questions must be non-empty", 0, 0)
+	if text := toolBoxText(t, broken, 80); !strings.Contains(text, "questions must be non-empty") {
+		t.Fatalf("a question error was rewritten:\n%s", text)
+	}
+}
