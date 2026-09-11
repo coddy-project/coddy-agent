@@ -21,6 +21,7 @@ func runUpdate(args []string) error {
 	version := fs.String("version", "", "install a specific release tag (X.Y.Z) instead of latest")
 	repo := fs.String("repo", update.DefaultRepo, "GitHub repository owner/name for releases")
 	noRestart := fs.Bool("no-restart", false, "Windows only: install the update but do not start Coddy again")
+	noNotes := fs.Bool("no-notes", false, "do not print what changed after the update (also "+update.NotesEnvVar+"=0)")
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of update:\n")
 		fs.PrintDefaults()
@@ -38,6 +39,7 @@ func runUpdate(args []string) error {
 		CheckOnly:     *check,
 		Yes:           yes,
 		NoRestart:     *noRestart,
+		NoNotes:       *noNotes || update.NotesDisabledByEnv(),
 		Stdout:        os.Stdout,
 	})
 	if errors.Is(err, update.ErrUpdateAvailable) {

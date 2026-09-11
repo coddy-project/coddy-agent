@@ -263,6 +263,21 @@ Take releases from another GitHub repository.
 .TP
 .B \-\-no\-restart
 Windows only: install the update but do not start Coddy again.
+.TP
+.B \-\-no\-notes
+Do not report what changed after the install. The environment variable
+.B CODDY_UPDATE_NOTES
+set to
+.B 0
+has the same effect.
+.PP
+Once the update is in,
+.B coddy update
+lists every release between the version that was running and the one it
+installed, oldest first, with its release notes, and ends with the GitHub
+comparison for the whole range. The report is capped at 20 lines, is printed
+only when something was installed, and cannot fail the update: a release list
+that cannot be fetched leaves the comparison link alone.
 .PP
 When the executable belongs to a
 .BR deb (5)
@@ -307,6 +322,15 @@ Bearer token required on the HTTP API served by
 .B CODDY_REMOTE_TOKEN
 Bearer token used by
 .BI \-\-remote .
+.TP
+.B CODDY_UPDATE_NOTES
+Set to
+.BR 0 ", " false ", " no " or " off
+to keep
+.B coddy update
+from reporting what changed after an install, as
+.B \-\-no\-notes
+does.
 .PP
 Provider keys are read from the environment as well
 .RB ( OPENAI_API_KEY

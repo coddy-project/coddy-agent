@@ -111,6 +111,8 @@ func (s *packageFeatureState) installedFromPackage(format packageFormat, manager
 		case "/repos/" + DefaultRepo + "/releases/latest":
 			_, _ = fmt.Fprintf(w, `{"tag_name":%q,"assets":[{"name":%q,"browser_download_url":"http://%s/asset"},{"name":%q,"browser_download_url":"http://%s/sums"}]}`,
 				featureReleaseTag, assetName, r.Host, checksumAssetName, r.Host)
+		case "/repos/" + DefaultRepo + "/releases":
+			_, _ = w.Write([]byte(featureReleaseList()))
 		case "/asset":
 			s.served++
 			_, _ = w.Write(s.body)
@@ -177,7 +179,7 @@ func (s *packageFeatureState) run() error {
 	s.runErr = Run(context.Background(), Options{
 		APIBase:        s.server.URL,
 		Repo:           DefaultRepo,
-		CurrentVersion: "0.9.67",
+		CurrentVersion: featureInstalledVersion,
 		GOOS:           "linux",
 		GOARCH:         "amd64",
 		InstallPath:    s.dest,
@@ -267,6 +269,14 @@ func (s *packageFeatureState) reportsTheInstalledRelease() error {
 	return nil
 }
 
+func (s *packageFeatureState) listsTheReleasesSinceTheInstalledVersion() error {
+	return checkReleasesListed(s.out.String())
+}
+
+func (s *packageFeatureState) linksTheFullChangelog() error {
+	return checkChangelogLinked(s.out.String())
+}
+
 func TestUpdatePackagesFeature(t *testing.T) {
 	s := &packageFeatureState{}
 	t.Cleanup(s.reset)
@@ -292,6 +302,8 @@ func TestUpdatePackagesFeature(t *testing.T) {
 			sc.Step(`^Coddy downloads the release package for this platform$`, s.downloadsTheReleasePackage)
 			sc.Step(`^Coddy hands the package to the system package manager$`, s.handsThePackageToTheManager)
 			sc.Step(`^Coddy reports the release it installed$`, s.reportsTheInstalledRelease)
+			sc.Step(`^Coddy lists every release since the installed version with its notes$`, s.listsTheReleasesSinceTheInstalledVersion)
+			sc.Step(`^Coddy links the full changelog between the two versions on GitHub$`, s.linksTheFullChangelog)
 		},
 		Options: &godog.Options{
 			Format: "progress",

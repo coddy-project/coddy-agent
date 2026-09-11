@@ -30,6 +30,7 @@ type Options struct {
 	CheckOnly      bool
 	Yes            bool
 	NoRestart      bool // Windows only: install the update but do not start Coddy again
+	NoNotes        bool // do not report what changed once the update is in
 	Stdout         io.Writer
 	HTTPClient     *http.Client
 
@@ -101,7 +102,11 @@ func Run(ctx context.Context, opts Options) error {
 			if pkg.Format == formatBrew || env.Geteuid() != 0 {
 				return packageManagedError(pkg, opts.CurrentVersion, latest, dest)
 			}
-			return installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client)
+			if err := installSystemPackage(ctx, opts, env, pkg, rel, latest, out, client); err != nil {
+				return err
+			}
+			reportChanges(ctx, client, opts, rel, out)
+			return nil
 		}
 	}
 
@@ -162,9 +167,14 @@ func Run(ctx context.Context, opts Options) error {
 		} else {
 			_, _ = fmt.Fprintf(out, "Update downloaded. A helper will install %s after Coddy exits.\n", latest)
 		}
+		reportChanges(ctx, client, opts, rel, out)
 		return nil
 	}
-	return installRelease(data, asset.Name, dest, latest, out)
+	if err := installRelease(data, asset.Name, dest, latest, out); err != nil {
+		return err
+	}
+	reportChanges(ctx, client, opts, rel, out)
+	return nil
 }
 
 // resolveExecutablePath returns the path to replace (symlink-resolved).

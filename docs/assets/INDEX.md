@@ -117,3 +117,9 @@ empty state. `before-*` is built from the pre-change sources.
 
 - `scheduler-disabled-{before,after}-en-dark-560x260.png` - before, the notice names `scheduler.enabled` and a `-scheduler-enabled` flag, neither of which exists; after, `scheduler.enable` and `coddy serve --scheduler`
 - `scheduler-disabled-{before,after}-ru-dark-560x260.png` - the same string in the Russian dictionary, which carried the same two errors
+
+## Self-update report (issue #195, September 2026)
+
+Captured **2026-09-12** from a real **Konsole** window on an isolated Xvfb `:99` (the same stand as the console captures above), 1920 px wide and cropped to the used rows. A binary labelled **1.0.29** in a disposable `~/demo/bin` ran `./coddy update -y` against the live GitHub releases, so every line is what the command printed.
+
+- `issue-195-update-notes-dark-1920x890.png` - the install lines, then the report: every release from 1.0.30 to 1.1.0 with its notes, the 20-line cap, and the comparison link
