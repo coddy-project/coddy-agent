@@ -123,6 +123,12 @@ func Run(args []string, deps CommandDeps) error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	// The first interrupt cancels the context so the startup can unwind
+	// through every step that watches it. The second must not be swallowed
+	// while a step that does not (a directory walk, a server that never
+	// answers) is still running: once the context is done the handler is
+	// unregistered, and the next ctrl+c ends the process the default way.
+	context.AfterFunc(ctx, cancel)
 
 	// Flag conflicts shared by both modes.
 	if *resume && strings.TrimSpace(*sessionID) != "" {

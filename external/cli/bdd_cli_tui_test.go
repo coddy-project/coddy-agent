@@ -29,6 +29,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
+	"github.com/EvilFreelancer/coddy-agent/internal/rules"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -212,6 +213,43 @@ func (s *cliTUIState) shutdown() {
 		_ = os.Setenv("NEURALDEEP_API_KEY", s.prevKeyEnv)
 		s.usageEnvSet = false
 	}
+}
+
+// --- rules discovery reads nothing at start ---
+
+// workspaceHoldsUntouchedNestedAgents puts a nested AGENTS.md into the
+// session workspace. No tool enters that folder in the scenario, so nothing
+// may read it: a session start that walked the tree would list it.
+func (s *cliTUIState) workspaceHoldsUntouchedNestedAgents() error {
+	dir := filepath.Join(s.cwd, "pkg")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("notes nobody asked for"), 0o644)
+}
+
+// rulesDiscoveryOn flips the shared configuration the manager reads at
+// session start; the Background built the app with discovery off.
+func (s *cliTUIState) rulesDiscoveryOn() error {
+	if s.cfg == nil {
+		return fmt.Errorf("no console app to switch rules discovery on for")
+	}
+	on := true
+	s.cfg.Rules.AutoDiscover = &on
+	return nil
+}
+
+func (s *cliTUIState) catalogHoldsNoNestedAgents() error {
+	st := s.mgr.SessionByID(s.app.sessionID)
+	if st == nil {
+		return fmt.Errorf("no live session %q", s.app.sessionID)
+	}
+	for _, r := range st.GetRulesCatalog() {
+		if r.Source == rules.SourceAgents {
+			return fmt.Errorf("the session start read a nested AGENTS.md nobody touched: %s", r.FilePath)
+		}
+	}
+	return nil
 }
 
 // stubRunner executes scripted directives against the sender, mirroring what
@@ -1150,6 +1188,9 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a coddy console app over a stub agent runner$`, s.aConsoleAppOverStubRunner)
+	sc.Step(`^the workspace holds a nested AGENTS\.md in a folder no tool has entered$`, s.workspaceHoldsUntouchedNestedAgents)
+	sc.Step(`^rules discovery is switched on for that app$`, s.rulesDiscoveryOn)
+	sc.Step(`^the session catalog holds no nested AGENTS\.md$`, s.catalogHoldsNoNestedAgents)
 	sc.Step(`^the console app starts$`, s.theConsoleAppStarts)
 	sc.Step(`^the screen shows the coddy version header$`, s.screenShowsVersionHeader)
 	sc.Step(`^the screen shows the editor between horizontal borders$`, s.screenShowsEditorBorders)

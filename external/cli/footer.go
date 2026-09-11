@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -169,9 +170,20 @@ func (f *footer) Render(width int) []string {
 	return lines
 }
 
+// gitBranchTimeout bounds the git call behind the footer's branch label. The
+// footer is built before the first frame, and the label is decoration: a git
+// that does not answer (a credential helper waiting on a prompt, the macOS
+// developer-tools stub behind its install dialog) must not hold the console.
+var gitBranchTimeout = 3 * time.Second
+
 func detectGitBranch(cwd string) string {
-	cmd := exec.Command("git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	ctx, cancel := context.WithTimeout(context.Background(), gitBranchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Stderr = nil // never inherit the tty; raw mode must stay clean
+	// A helper git left behind (a credential prompt) still holds the output
+	// pipe after the timeout killed git itself; do not wait for it either.
+	cmd.WaitDelay = time.Second
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

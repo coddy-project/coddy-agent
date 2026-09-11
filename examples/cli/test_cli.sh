@@ -43,6 +43,7 @@ if ! python3 -c "import pexpect, pyte" 2>/dev/null; then
 fi
 
 CORE_SCRIPTS=(
+  cli_e2e_startup.py
   cli_smoke.py
   cli_e2e_print.py
   cli_e2e_remote.py
@@ -53,6 +54,7 @@ CORE_SCRIPTS=(
   cli_e2e_toolcalls_persist.py
 )
 ALL_SCRIPTS=(
+  cli_e2e_startup.py
   cli_smoke.py
   cli_e2e_print.py
   cli_e2e_remote.py

@@ -39,6 +39,18 @@ jobs:
       - name: Run tests
         run: make test
 
+      # The console suite above drives the app over a fake terminal. This
+      # step opens the real binary on a real pty and checks the first frame,
+      # the keyboard and the exit, so the tty path is proven on Linux too.
+      - name: Build the console
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
+
   # The suite above runs on Linux, so nothing behind //go:build windows is ever
   # compiled by it. This job type-checks that half across every tag combination
   # for the price of a cross-build, and catches a shared signature that only one
@@ -87,6 +99,41 @@ jobs:
 
       - name: Run console TUI tests (fake terminal, no pty)
         run: go test -tags=cli ./external/cli/...
+
+  # The console is a raw-mode terminal program, and nothing above runs it on
+  # macOS, where bare `coddy` opens on a Terminal.app pty. A hang there was
+  # reported by users before it was seen in any test. This job runs the
+  # platform packages and the console suite on a macOS runner, then builds
+  # the console and drives the binary through a real pty: first frame, keys,
+  # exit and the restored terminal.
+  test-macos:
+    name: Test suite (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run platform tests
+        run: go test ./internal/platform/... ./internal/bgtask/... ./internal/tools/shell/... ./internal/update/... ./internal/hooks/... ./internal/rules/...
+
+      - name: Run console TUI tests (fake terminal, no pty)
+        run: go test -tags=cli ./external/cli/...
+
+      - name: Build the console
+        run: make build TAGS=cli
+
+      - name: Drive the console through a real pty
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r examples/cli/requirements.txt
+          CODDY_BIN="$PWD/build/coddy" .venv/bin/python examples/cli/cli_e2e_startup.py
 
   # The packages are only built on a release tag, so without this job a broken
   # nfpm recipe would first be seen by whoever cuts the release. Lean build tags:

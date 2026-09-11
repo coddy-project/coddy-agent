@@ -82,7 +82,8 @@ type Rule struct {
 	// ScopeDir, when non-empty, restricts an auto rule to a directory subtree.
 	// The rule enters the prompt on the first turn a context path is ScopeDir
 	// itself or lives under it, then sticks for the session (see UnionStable).
-	// Set by AgentsProvider for nested AGENTS.md; empty for every other source.
+	// Set for nested AGENTS.md files read on demand (AgentsForPaths); empty
+	// for every other source.
 	ScopeDir string
 }
 

@@ -29,8 +29,10 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 		return err
 	}
 	if len(rules) == 0 {
-		_, err := fmt.Fprintln(w, "No rules found.")
-		return err
+		if _, err := fmt.Fprintln(w, "No rules found."); err != nil {
+			return err
+		}
+		return renderAgentsNote(w, systems)
 	}
 	t := table.NewWriter()
 	t.SetOutputMirror(w)
@@ -66,7 +68,22 @@ func RenderCatalog(w io.Writer, cwd string, f *Factory, systems []Source) error 
 	style.Format.Header = text.FormatUpper
 	t.SetStyle(style)
 	t.Render()
-	_, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), cwd)
+	if _, err = fmt.Fprintf(w, "\n%d rule(s) under %s\n", len(rules), cwd); err != nil {
+		return err
+	}
+	return renderAgentsNote(w, systems)
+}
+
+// agentsOnDemandNote tells a reader of the catalog why no nested AGENTS.md
+// appears in it: the listing would have to walk the whole workspace to find
+// them, and a session never does.
+const agentsOnDemandNote = "Nested AGENTS.md files are not listed: they are read on demand, from the folders a tool enters (the root AGENTS.md is the project docs preamble)."
+
+func renderAgentsNote(w io.Writer, systems []Source) error {
+	if !AgentsOnDemand(systems) {
+		return nil
+	}
+	_, err := fmt.Fprintln(w, agentsOnDemandNote)
 	return err
 }
 

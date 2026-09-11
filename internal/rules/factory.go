@@ -12,10 +12,11 @@ type Factory struct {
 
 // DefaultFactory returns built-in providers in discover precedence order
 // (later wins on dedupe): coddy's own folder, then the tool-neutral
-// .agents/rules, then the other tools' folders, then nested AGENTS.md.
+// .agents/rules, then the other tools' folders. Nested AGENTS.md files have
+// no provider: they are never walked, only read for the folders a tool
+// enters (AgentsForPaths).
 func DefaultFactory() *Factory {
 	return NewFactory(
-		&AgentsProvider{},
 		NewMarkdownProvider(SourceCodex, ".codex/rules"),
 		NewMarkdownProvider(SourceClaude, ".claude/rules"),
 		NewMarkdownProvider(SourceCursor, ".cursor/rules"),
