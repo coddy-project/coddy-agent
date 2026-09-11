@@ -91,7 +91,10 @@ func TestProcessGroupAliveIsRepeatable(t *testing.T) {
 }
 
 // A reaped process is gone on both platforms: its group is empty on unix, and
-// on Windows nothing holds its object open any more.
+// on Windows nothing holds its object open any more. On Darwin the group of a
+// process that exited but was not yet waited for answers EPERM rather than
+// ESRCH, which termination has to read as "nobody left" or it waits out its
+// whole grace and then reports the SIGKILL as refused.
 func TestProcessGroupAliveRejectsAProcessThatExited(t *testing.T) {
 	cmd, pid, started := startProbeHelper(t)
 

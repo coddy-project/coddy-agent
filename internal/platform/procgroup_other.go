@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"runtime"
 	"syscall"
 	"time"
 )
@@ -101,7 +102,7 @@ func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error
 	pgid := -pid
 
 	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
-		if errors.Is(err, syscall.ESRCH) {
+		if nobodyToSignal(err) {
 			return nil
 		}
 		return err
@@ -109,7 +110,7 @@ func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error
 	if grace > 0 && waitForProcessGroupExit(pgid, grace) {
 		return nil
 	}
-	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && !nobodyToSignal(err) {
 		return err
 	}
 	return nil
@@ -120,12 +121,32 @@ func TerminateProcessGroupByPID(pid int, _ time.Time, grace time.Duration) error
 func waitForProcessGroupExit(pgid int, grace time.Duration) bool {
 	deadline := time.Now().Add(grace)
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pgid, 0); errors.Is(err, syscall.ESRCH) {
+		if nobodyToSignal(syscall.Kill(pgid, 0)) {
 			return true
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return errors.Is(syscall.Kill(pgid, 0), syscall.ESRCH)
+	return nobodyToSignal(syscall.Kill(pgid, 0))
+}
+
+// nobodyToSignal reports whether a signal sent to a process group reached no
+// process at all, which is what termination waits for. Linux says ESRCH. On
+// Darwin ESRCH comes only once the group itself is deleted, and that happens
+// when its last member is reaped: a group whose members have all exited but
+// not yet been waited for is still on the books, XNU's killpg1 skips the
+// zombies and finds nobody, and under the POSIX kill() the Go runtime uses
+// that is spelled EPERM. Both spellings mean the same thing here. Only the
+// termination path reads EPERM this way: ProcessGroupAlive keeps counting a
+// group of exited-but-unreaped processes as present, as it does on Linux,
+// where signalling such a group succeeds.
+func nobodyToSignal(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		return true
+	}
+	return runtime.GOOS == "darwin" && errors.Is(err, syscall.EPERM)
 }
 
 // ProcessAlive reports whether one process is still running, as opposed to the
