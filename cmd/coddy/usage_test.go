@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -10,19 +11,17 @@ import (
 // topLevelCommands is what `coddy <command>` dispatches. The packaging rule ties
 // three files to this set - the usage text, the man page and the shell
 // completions - and nothing else keeps them together, so the list is asserted
-// against all of them here.
+// against all of them here, in both directions: a command the usage text has
+// and a completion lacks, and a name a completion still offers after the
+// binary stopped answering it (`http` and `gateway` after `serve` took over,
+// issue #188), both fail.
 //
-// Adding a command means adding it below, which then fails until the man page
-// and the completions carry it too.
+// Adding a command means adding it below, which then fails until the usage
+// text, the man page and the completions carry it too.
 var topLevelCommands = []string{
 	"acp", "cli", "serve", "sessions", "skills", "plugin",
 	"mcp", "providers", "rules", "agents", "hooks", "update",
 }
-
-// removedCommands are names that must not come back by accident. `serve` runs
-// every long-running surface now; a stray reference to one of these in the
-// documentation is a promise the binary cannot keep.
-var removedCommands = []string{"http", "gateway", "swarm"}
 
 // serveVerbs control a daemon that is already running. They are subcommands of
 // `serve` rather than commands of their own, so the top-level assertions above
@@ -30,42 +29,65 @@ var removedCommands = []string{"http", "gateway", "swarm"}
 var serveVerbs = []string{"status", "stop", "restart"}
 
 func TestUsageListsEveryCommand(t *testing.T) {
-	var buf bytes.Buffer
-	printUsage(&buf)
-	usage := buf.String()
-	for _, cmd := range topLevelCommands {
-		if !strings.Contains(usage, " "+cmd+" ") && !strings.Contains(usage, " "+cmd+"\n") {
-			t.Errorf("usage does not mention the %q command", cmd)
-		}
-	}
+	assertSameSet(t, "the usage text", usageCommands(t), "topLevelCommands", topLevelCommands)
 }
 
 func TestPackagingFilesTrackTheCommandSet(t *testing.T) {
 	completions := readRepoFile(t, "../../packaging/completions/coddy.bash")
 	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
 	man := readRepoFile(t, "../../packaging/man/coddy.1")
+	usage := usageCommands(t)
 
-	// The bash completion enumerates the commands on one line, so that line is
-	// the thing to assert against - the word appearing anywhere else in the
-	// file (a per-command flag case, a comment) proves nothing.
-	offered := commandWords(t, completions)
-	for _, cmd := range topLevelCommands {
-		if !offered[cmd] {
-			t.Errorf("packaging/completions/coddy.bash does not offer %q", cmd)
-		}
-		if !strings.Contains(zsh, "'"+cmd+":") && !strings.Contains(zsh, cmd+")") {
-			t.Errorf("packaging/completions/coddy.zsh does not offer %q", cmd)
-		}
+	// The bash completion enumerates the commands on one line, and the zsh one
+	// in its commands=( ... ) array, so those are the things to assert against
+	// - the word appearing anywhere else in the file (a per-command flag case,
+	// a comment) proves nothing. Both are compared as sets with the usage
+	// text, so a name lingering after its command went is caught as well.
+	assertSameSet(t, "packaging/completions/coddy.bash", commandWords(t, completions), "the usage text", usage)
+	assertSameSet(t, "packaging/completions/coddy.zsh", zshCommandWords(t, zsh), "the usage text", usage)
+	for _, cmd := range usage {
 		if !strings.Contains(man, "\n.B "+cmd+"\n") && !strings.Contains(man, "\n.B \""+cmd+" ") && !strings.Contains(man, "\n.BI \""+cmd+" ") {
 			t.Errorf("packaging/man/coddy.1 does not document %q", cmd)
 		}
 	}
+}
 
-	// A removed name left in the completion list completes to something that no
-	// longer exists.
-	for _, cmd := range removedCommands {
-		if offered[cmd] {
-			t.Errorf("packaging/completions/coddy.bash still offers the removed %q command", cmd)
+// usageCommands derives the command set from the usage text itself: the word
+// after the program name on every usage line, minus the flag forms and the
+// bare invocation. The test binary is the program name here.
+func usageCommands(t *testing.T) []string {
+	t.Helper()
+	var buf bytes.Buffer
+	printUsage(&buf)
+	var out []string
+	for _, line := range strings.Split(buf.String(), "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), os.Args[0]+" ")
+		if !ok {
+			continue
+		}
+		word := strings.Fields(rest)[0]
+		if strings.HasPrefix(word, "-") || strings.HasPrefix(word, "(") || slices.Contains(out, word) {
+			continue
+		}
+		out = append(out, word)
+	}
+	if len(out) == 0 {
+		t.Fatal("no command lines found in the usage text")
+	}
+	return out
+}
+
+// assertSameSet reports every name one side has and the other lacks.
+func assertSameSet(t *testing.T, gotName string, got []string, wantName string, want []string) {
+	t.Helper()
+	for _, w := range want {
+		if !slices.Contains(got, w) {
+			t.Errorf("%s does not offer %q, which %s lists", gotName, w, wantName)
+		}
+	}
+	for _, g := range got {
+		if !slices.Contains(want, g) {
+			t.Errorf("%s offers %q, which %s does not list", gotName, g, wantName)
 		}
 	}
 }
@@ -109,7 +131,7 @@ func TestPackagingFilesTrackTheServeVerbs(t *testing.T) {
 }
 
 // commandWords reads the words of the bash completion's commands= line.
-func commandWords(t *testing.T, completions string) map[string]bool {
+func commandWords(t *testing.T, completions string) []string {
 	t.Helper()
 	for _, line := range strings.Split(completions, "\n") {
 		_, rest, ok := strings.Cut(line, `commands="`)
@@ -120,14 +142,34 @@ func commandWords(t *testing.T, completions string) map[string]bool {
 		if !ok {
 			t.Fatalf("unterminated commands= line: %s", line)
 		}
-		out := map[string]bool{}
-		for _, w := range strings.Fields(list) {
-			out[w] = true
-		}
-		return out
+		return strings.Fields(list)
 	}
 	t.Fatal("packaging/completions/coddy.bash has no commands= line")
 	return nil
+}
+
+// zshCommandWords reads the 'name:description' entries of the zsh completion's
+// commands=( ... ) array.
+func zshCommandWords(t *testing.T, zsh string) []string {
+	t.Helper()
+	_, body, ok := strings.Cut(zsh, "commands=(")
+	if !ok {
+		t.Fatal("packaging/completions/coddy.zsh has no commands=( array")
+	}
+	body, _, ok = strings.Cut(body, ")")
+	if !ok {
+		t.Fatal("packaging/completions/coddy.zsh: unterminated commands=( array")
+	}
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		entry := strings.Trim(strings.TrimSpace(line), "'")
+		name, _, ok := strings.Cut(entry, ":")
+		if !ok || name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 func readRepoFile(t *testing.T, rel string) string {

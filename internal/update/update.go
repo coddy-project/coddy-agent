@@ -164,11 +164,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		return nil
 	}
-	if err := installFromArchive(data, asset.Name, dest); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "Installed %s (%s)\n", latest, dest)
-	return nil
+	return installRelease(data, asset.Name, dest, latest, out)
 }
 
 // resolveExecutablePath returns the path to replace (symlink-resolved).

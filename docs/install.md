@@ -30,6 +30,9 @@ one guarded block to the rc file of your login shell:
 | prepends the completions directory to zsh's **`fpath`** and registers **`_coddy`** | zsh searches system directories only |
 | sources the bash completion file | **`bash-completion`** may not be installed |
 
+**`coddy update`** refreshes those files along with the binary, so **`man coddy`** and Tab completion
+never fall behind the release that is running (see [update.md](update.md#the-man-page-and-the-completions-beside-it)).
+
 The block is rewritten between its markers on every run rather than appended to, so re-running the
 installer never duplicates it. Skip it with **`--no-shell-setup`**. A system prefix
 (**`--install-dir /usr/local/bin`**) gets no block at all: those directories are already on
