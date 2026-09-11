@@ -9,18 +9,16 @@ import (
 	"testing"
 )
 
-// docsSchemaPath is the published editor-facing JSON Schema for config.yaml.
-const docsSchemaPath = "../../docs/config.schema.json"
+// schemaFile is where the editor-facing JSON Schema for config.yaml lives. It
+// is embedded into the binary (see schema.go), so -t / --test-config checks a
+// file against the same document editors and the site publish.
+const schemaFile = "internal/config/config.schema.json"
 
 func loadDocsSchema(t *testing.T) map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Clean(docsSchemaPath))
-	if err != nil {
-		t.Fatalf("read %s: %v (the schema must be committed alongside the config structs)", docsSchemaPath, err)
-	}
 	var doc map[string]interface{}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		t.Fatalf("parse %s: %v", docsSchemaPath, err)
+	if err := json.Unmarshal(ConfigSchemaJSON(), &doc); err != nil {
+		t.Fatalf("parse %s: %v", schemaFile, err)
 	}
 	return doc
 }
@@ -116,7 +114,7 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 		for name, ft := range want {
 			sub, ok := props[name].(map[string]interface{})
 			if !ok {
-				t.Errorf("%s: schema missing property %q (add it to docs/config.schema.json)", path, name)
+				t.Errorf("%s: schema missing property %q (add it to internal/config/config.schema.json)", path, name)
 				continue
 			}
 			checkSchemaNodeMatchesType(t, path+"."+name, ft, sub)
@@ -129,7 +127,7 @@ func checkSchemaNodeMatchesType(t *testing.T, path string, goType reflect.Type, 
 	}
 }
 
-// TestDocsConfigSchemaMatchesStructs keeps docs/config.schema.json in sync with the
+// TestDocsConfigSchemaMatchesStructs keeps config.schema.json in sync with the
 // yaml-tagged config structs: every YAML key must appear in the schema with the right
 // type, and the schema must not describe keys the loader does not know.
 func TestDocsConfigSchemaMatchesStructs(t *testing.T) {
@@ -232,7 +230,7 @@ func TestDocsConfigSchemaEnums(t *testing.T) {
 // servers must be able to resolve without a local checkout. It is served from the
 // project site, which keeps the address stable and independent of the branch,
 // path and hosting a repository file happens to have; the copy behind it is a
-// verbatim mirror of docs/config.schema.json kept in the site repository.
+// verbatim mirror of internal/config/config.schema.json kept in the site repository.
 const canonicalSchemaURL = "https://coddy.dev/config.schema.json"
 
 // staleSchemaURLs are addresses the schema used to be published under. A config
@@ -250,7 +248,7 @@ func TestConfigSchemaURLIsCanonical(t *testing.T) {
 	// The schema's own identifier.
 	schema := loadDocsSchema(t)
 	if got, _ := schema["$id"].(string); got != canonicalSchemaURL {
-		t.Errorf("docs/config.schema.json $id = %q, want %q", got, canonicalSchemaURL)
+		t.Errorf("%s $id = %q, want %q", schemaFile, got, canonicalSchemaURL)
 	}
 
 	// The modeline the agent writes into every config it saves is the same address,

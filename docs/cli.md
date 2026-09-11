@@ -207,6 +207,11 @@ one) rather than the JSON the tool hands the model.
 ## Flags
 
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
+`-t/--test-config` checks the config file the console would load against the
+schema and the loader's rules, prints each problem with its line and how to fix
+it, and exits with status 1 on errors (see
+[config.md](config.md#checking-the-file-from-the-command-line)); it works in
+lean builds without the `cli` tag as well.
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `-c/--continue` reopens the most recent session recorded for this
 folder (errors when none exists; mutually exclusive with `--session-id` and

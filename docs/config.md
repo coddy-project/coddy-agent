@@ -3,7 +3,7 @@
 This page is the narrative guide. Two companion artifacts cover the full key list:
 
 - **[config-reference.md](config-reference.md)** - field-by-field tables: type, default, env-var fallback, required/optional, examples.
-- **[config.schema.json](config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://coddy.dev/config.schema.json** so an editor resolves it without a checkout. Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
+- **[config.schema.json](../internal/config/config.schema.json)** - JSON Schema (draft-07) for editor autocomplete and validation, published at **https://coddy.dev/config.schema.json** so an editor resolves it without a checkout, and embedded into the binary so `coddy -t` checks a file against the same document (see [Checking the file from the command line](#checking-the-file-from-the-command-line)). Any editor with a YAML language server (VS Code YAML extension, Zed, Neovim, Helix) validates keys and values as you type once the file carries this header line:
 
 ```yaml
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json
@@ -32,6 +32,28 @@ If no **`--config`** is given, the loader uses **`$CODDY_HOME/config.yaml`** (de
 When the primary file exists but is invalid (YAML parse or validation error), the loader automatically recovers from **`config.yaml.bak`** in the same directory (see **`internal/config/recovery.go`**). After every successful load the server writes **`config.yaml.bak`**. The HTTP **`PUT /coddy/config`** route (see **`docs/http-api.md`**) also snapshots the current file to **`config.yaml.bak`** before overwriting, so a failed reload can be rolled back.
 
 The `coddy acp` subcommand also accepts **`--home`** (override `CODDY_HOME`), **`--sessions-dir`**, and **`--session-id`**. Optional **`sessions.dir`** in the YAML overrides the sessions root when **`--sessions-dir`** is not set (default **`$CODDY_HOME/sessions`**).
+
+## Checking the file from the command line
+
+Every command that loads `config.yaml` also takes `-t` (long form `--test-config`): bare `coddy -t`, `coddy cli -t`, `coddy acp -t` and `coddy serve -t`. The flag checks the file that command would load - `--config PATH` and `--home DIR` pick it exactly as they do for a start, `~/.coddy/.env` is loaded and `${VAR}` references are expanded first - and exits without starting anything. It never writes: the recovery from `config.yaml.bak` that a normal load performs on a broken file (see above) does not run, so the file you are told about is the file on disk. The flag works in every build, the lean one without the `cli` tag included.
+
+The check has two stages. First the document is validated against the JSON Schema above, the same one editors use, embedded into the binary. This is what catches the mistakes the loader accepts silently: `config.yaml` is decoded leniently, so an unknown or misspelled key (`enabled` for `enable`) is ignored rather than rejected, and a value of the wrong shape, a value outside an enum or a range, a missing required key or a duplicate key surfaces later as odd behaviour. Then the loader's own rules run on the parsed document: a model naming a provider that does not exist, a `file` output without `logger.file`, `agent.model` missing from `models`. Every problem is printed as `file:line:column: what is wrong`, with an indented `fix:` line saying how to correct it and, where the schema has one, a `doc:` line carrying the field's description:
+
+```text
+$ coddy serve -t
+/home/me/.coddy/config.yaml:13:3: httpserver.enabled: unknown key "enabled" (the loader ignores it, so it has no effect)
+    fix: did you mean "enable"? keys allowed under httpserver: allow_insecure, auth_token, cors, enable, host, port, public_docs, remotes
+    doc: Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm.
+/home/me/.coddy/config.yaml:16:10: logger.level: "verbose" is not an allowed value
+    fix: use one of debug, info, warn, warning, error
+    doc: Minimum severity written to the configured outputs ("warning" is accepted as an alias of "warn").
+/home/me/.coddy/config.yaml:18:11: warning: subagents.enable: "yes" is read as the boolean true, but the schema and editors expect true or false
+    fix: write enable: true (true or false, unquoted)
+/home/me/.coddy/config.yaml: 2 errors, 1 warning
+config test failed
+```
+
+The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
 ## Full Configuration Schema
 

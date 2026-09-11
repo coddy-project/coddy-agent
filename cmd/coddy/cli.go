@@ -11,6 +11,7 @@ func runCLI(args []string) error {
 	return cli.Run(args, cli.CommandDeps{
 		EnsureHome: ensureCoddyHomeLayout,
 		OpenStore:  openSessionStore,
+		TestConfig: runConfigTest,
 	})
 }
 

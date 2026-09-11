@@ -188,6 +188,18 @@ Console: run one prompt, print the answer, and exit.
 .TP
 .B \-\-resume
 Console: pick a session to resume.
+.TP
+.BR \-t ", " \-\-test\-config
+Check the configuration file against the published JSON Schema and the
+loader's own rules, print every problem with its line, what is wrong and how
+to fix it, then exit without starting anything. Nothing is written: the
+backup recovery a normal load performs on a broken file does not run. Exit
+status 1 when the file has errors; warnings alone leave it at 0. Accepted
+before any command and by
+.BR cli ", " acp " and " serve ,
+where
+.BR \-\-config " and " \-\-home
+pick the file exactly as they do for a start.
 .PP
 Flags shared by the long\-running commands
 .RB ( cli ", " acp ", " serve )
@@ -326,13 +338,21 @@ Wire an editor to Coddy over ACP:
 .RS 4
 .B coddy acp
 .RE
+.PP
+Check the configuration a daemon would load before restarting it:
+.PP
+.RS 4
+.B coddy serve \-t \-\-home /srv/coddy
+.RE
 .SH EXIT STATUS
 .TP
 .B 0
 Success.
 .TP
 .B 1
-A command failed, or
+A command failed,
+.B coddy \-\-test\-config
+found errors in the configuration file, or
 .B coddy update \-\-check
 found a newer release.
 .SH SEE ALSO

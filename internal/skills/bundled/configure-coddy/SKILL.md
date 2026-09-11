@@ -78,7 +78,7 @@ logged as needing a restart where it cannot (the HTTP and relay listeners).
 
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
-Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `docs/config.schema.json` and `docs/config-reference.md` (see the workflow rules).
+Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and `docs/config-reference.md` (see the workflow rules).
 
 ## MCP servers
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# sync-site-schema.sh — publish docs/config.schema.json to the site repository.
+# sync-site-schema.sh — publish internal/config/config.schema.json to the site repository.
 #
 # Coddy writes a modeline into every config.yaml it saves pointing editors at
 # https://coddy.dev/config.schema.json. That URL is served from the site
-# repository as a byte-for-byte copy of docs/config.schema.json, so a schema
+# repository as a byte-for-byte copy of internal/config/config.schema.json (the
+# schema embedded into the binary for -t / --test-config), so a schema
 # change that stops here leaves every editor validating saved configs against a
 # schema the binary no longer matches.
 #
@@ -22,7 +23,7 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_schema="$repo_root/docs/config.schema.json"
+source_schema="$repo_root/internal/config/config.schema.json"
 
 # The sibling is the sibling of the MAIN checkout: inside a git worktree
 # $repo_root points somewhere under .git/worktrees, whose parent holds no
@@ -67,7 +68,7 @@ if [ "$check_only" = "1" ]; then
 fi
 
 cp "$source_schema" "$target_schema"
-echo "sync-site-schema: copied docs/config.schema.json -> $target_schema"
+echo "sync-site-schema: copied internal/config/config.schema.json -> $target_schema"
 echo
 echo "Next, in $site_repo:"
 echo "  git add config.schema.json && git commit"
