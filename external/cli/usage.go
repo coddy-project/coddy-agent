@@ -107,6 +107,40 @@ func modelUnlimited(u *acp.ProviderUsageUpdate, modelID string) bool {
 	return false
 }
 
+// modelBlocked returns the entry refusing the active model, or nil. A model
+// gate covers part of the catalogue, so the account snapshot stays green -
+// Blocked speaks for the chat class as a whole and says nothing here. The
+// selector suffix is compared the way unlimitedModels is.
+//
+// 10.09.26: without this the footer read a healthy account while every
+// request to the selected model came back 429 for a month ahead.
+func modelBlocked(u *acp.ProviderUsageUpdate, modelID string) *acp.UsageBlockedModel {
+	if u == nil {
+		return nil
+	}
+	want := usageModelOf(modelID)
+	if want == "" {
+		return nil
+	}
+	for i := range u.BlockedModels {
+		if strings.EqualFold(strings.TrimSpace(u.BlockedModels[i].Model), want) {
+			return &u.BlockedModels[i]
+		}
+	}
+	return nil
+}
+
+// blockedModelSegment names the refused model and when it comes back. The
+// model is named because the account is fine: "limit reached" alone would
+// read as the whole key being out, and the operator would stop working
+// instead of switching models.
+func blockedModelSegment(b *acp.UsageBlockedModel, now time.Time) usageSegment {
+	return usageSegment{
+		text: tui.SanitizeText(strings.TrimSpace(b.Model)) + " blocked" + resetPhrase(b.RetryAt, now),
+		role: roleError,
+	}
+}
+
 // usagePercent rounds a percentage for display.
 func usagePercent(pct float64) int {
 	if pct < 0 || math.IsNaN(pct) {
@@ -292,9 +326,12 @@ func usageFooterSegments(u *acp.ProviderUsageUpdate, modelID string, now time.Ti
 	if plan := usagePlanLabel(u.Plan); plan != "" {
 		segs = append(segs, usageSegment{text: plan, role: roleDim, drop: dropPlan})
 	}
+	blockedModel := modelBlocked(u, modelID)
 	switch {
 	case u.Blocked:
 		segs = append(segs, blockedSegment(u, now))
+	case blockedModel != nil:
+		segs = append(segs, blockedModelSegment(blockedModel, now))
 	case modelUnlimited(u, modelID):
 		segs = append(segs, usageSegment{text: "∞ volume", role: roleDim})
 	default:
@@ -408,6 +445,8 @@ func usageReportLines(u *acp.ProviderUsageUpdate, modelID string, now time.Time)
 	}
 	if u.Blocked {
 		head += " · " + blockedSegment(u, now).text
+	} else if b := modelBlocked(u, modelID); b != nil {
+		head += " · " + blockedModelSegment(b, now).text
 	}
 	lines := []string{head}
 	if u.Error == "unauthorized" {
@@ -581,6 +620,14 @@ func (a *App) noticeUsage(u *acp.ProviderUsageUpdate) {
 		if !a.usageNotified[key] {
 			a.usageNotified[key] = true
 			a.appendStatus(roleError, blockedNotice(seg.text))
+		}
+		return
+	}
+	if b := modelBlocked(u, a.modelID); b != nil {
+		key := "model@" + b.Model + "@" + b.RetryAt
+		if !a.usageNotified[key] {
+			a.usageNotified[key] = true
+			a.appendStatus(roleError, blockedNotice(blockedModelSegment(b, now).text))
 		}
 		return
 	}

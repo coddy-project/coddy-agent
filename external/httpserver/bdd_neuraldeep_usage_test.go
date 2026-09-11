@@ -39,12 +39,13 @@ type neuralDeepUsageBDDState struct {
 	server *Server
 	ts     *httptest.Server
 
-	mu          sync.Mutex
-	sessionUsed int
-	pendingUsed int
-	auths       []string
-	lastBody    []byte
-	lastStatus  int
+	mu           sync.Mutex
+	sessionUsed  int
+	pendingUsed  int
+	refusedModel string
+	auths        []string
+	lastBody     []byte
+	lastStatus   int
 
 	events *eventsSubscriber
 
@@ -55,6 +56,10 @@ type neuralDeepUsageBDDState struct {
 
 const neuralDeepUsageBDDKey = "sk-bdd-usage-key-0123456789abcdef"
 
+// neuralDeepUsageBDDModelReset is when a refused model comes back: a month
+// out, the shape of a subscription period rather than a minute of throttling.
+const neuralDeepUsageBDDModelReset = "2026-10-09T20:15:41+00:00"
+
 func (s *neuralDeepUsageBDDState) reset() error {
 	var err error
 	s.home, err = os.MkdirTemp("", "coddy-nd-usage-bdd-*")
@@ -62,6 +67,7 @@ func (s *neuralDeepUsageBDDState) reset() error {
 		return err
 	}
 	s.sessionUsed, s.pendingUsed = 407, -1
+	s.refusedModel = ""
 	s.auths, s.lastBody, s.lastStatus = nil, nil, 0
 	s.api = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/limits" {
@@ -71,10 +77,11 @@ func (s *neuralDeepUsageBDDState) reset() error {
 		s.mu.Lock()
 		s.auths = append(s.auths, r.Header.Get("Authorization"))
 		used := s.sessionUsed
+		refused := s.refusedModel
 		s.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = fmt.Fprint(w, neuralDeepUsagePayload(used))
+		_, _ = fmt.Fprint(w, neuralDeepUsagePayload(used, refused))
 	}))
 	s.prevBaseEnv = os.Getenv(llm.EnvNeuralDeepBaseURL)
 	s.prevKeyEnv = os.Getenv("NEURALDEEP_API_KEY")
@@ -116,8 +123,16 @@ func (s *neuralDeepUsageBDDState) close() {
 
 // neuralDeepUsagePayload renders the hub's schema-1 answer for a pro wallet
 // key with the session counter at used (limit 15000, week 9981 of 150000).
-func neuralDeepUsagePayload(used int) string {
-	return `{"schema":1,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","tier_expires_at":null,
+// refusedModel, when set, is a model gate: the account keeps answering for
+// every other model, so the decision stays green and only blocked_models says
+// this one is out.
+func neuralDeepUsagePayload(used int, refusedModel string) string {
+	blocked := "[]"
+	if refusedModel != "" {
+		blocked = `[{"model":"` + refusedModel + `","blocker":"kimi_budget_exhausted",` +
+			`"resets_at":"` + neuralDeepUsageBDDModelReset + `","reset_in_sec":2860119}]`
+	}
+	return `{"schema":1,"blocked_models":` + blocked + `,"observed_at":"2026-09-06T17:47:02Z","tier":"pro","tier_expires_at":null,
  "unlimited_volume":false,"options":[],"bypass":false,"fair_use":true,
  "key":{"name":"coddy","status":"ok","billing_mode":"wallet","cap":null},
  "decision":{"scope":"chat","can_request":true,"blockers":[],"retry_after_sec":null},
@@ -565,6 +580,9 @@ func initializeNeuralDeepUsageScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the usage answer marks the provider as unsupported because its usage limits panel is switched off$`, s.thenAnswerMarksUnsupportedBecauseDisabled)
 	sc.Step(`^the stand-in limits API was never asked$`, s.thenAPIWasNeverAsked)
 	sc.Step(`^the server-wide events stream announces no usage$`, s.thenEventsStreamAnnouncesNoUsage)
+	sc.Step(`^the stand-in limits API refuses the model "([^"]*)" until the period rolls over$`, s.givenAPIRefusesModel)
+	sc.Step(`^the usage marks "([^"]*)" blocked with the moment it comes back$`, s.thenUsageMarksModelBlocked)
+	sc.Step(`^the usage still reports the account itself as able to request$`, s.thenUsageReportsAccountUnblocked)
 }
 
 func TestNeuralDeepUsageFeature(t *testing.T) {
@@ -582,4 +600,49 @@ func TestNeuralDeepUsageFeature(t *testing.T) {
 	if suite.Run() != 0 {
 		t.Fatal("neuraldeep usage feature suite failed")
 	}
+}
+
+// givenAPIRefusesModel makes the stand-in report a model gate: that model is
+// refused, the account decision stays green.
+func (s *neuralDeepUsageBDDState) givenAPIRefusesModel(model string) error {
+	s.mu.Lock()
+	s.refusedModel = model
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *neuralDeepUsageBDDState) thenUsageMarksModelBlocked(model string) error {
+	usage, err := s.lastUsage()
+	if err != nil {
+		return err
+	}
+	rows, _ := usage["blockedModels"].([]interface{})
+	for _, raw := range rows {
+		row, _ := raw.(map[string]interface{})
+		if row == nil || row["model"] != model {
+			continue
+		}
+		if row["blocker"] != "kimi_budget_exhausted" {
+			return fmt.Errorf("blocker = %v", row["blocker"])
+		}
+		if want := "2026-10-09T20:15:41Z"; row["retryAt"] != want {
+			return fmt.Errorf("retryAt = %v, want %q", row["retryAt"], want)
+		}
+		if sec, _ := row["retryInSec"].(float64); sec <= 0 {
+			return fmt.Errorf("retryInSec = %v", row["retryInSec"])
+		}
+		return nil
+	}
+	return fmt.Errorf("%q is not among the blocked models %v", model, usage["blockedModels"])
+}
+
+func (s *neuralDeepUsageBDDState) thenUsageReportsAccountUnblocked() error {
+	usage, err := s.lastUsage()
+	if err != nil {
+		return err
+	}
+	if blocked, _ := usage["blocked"].(bool); blocked {
+		return fmt.Errorf("a model gate must not read as an account block: %v", usage["blockers"])
+	}
+	return nil
 }

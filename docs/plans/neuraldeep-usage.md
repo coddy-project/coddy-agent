@@ -197,6 +197,7 @@ type ProviderUsageUpdate struct {
     RetryInSec    int           `json:"retryInSec,omitempty"`  // retry_after_sec as received
     Unlimited     bool          `json:"unlimited,omitempty"`   // no volume windows for this key
     UnlimitedModels []string    `json:"unlimitedModels,omitempty"` // options[].models, upstream ids
+    BlockedModels []UsageBlockedModel `json:"blockedModels,omitempty"` // blocked_models[], model gates [rev5]
     Stale         bool          `json:"stale,omitempty"`       // windows come from an earlier fetch
     Error         string        `json:"error,omitempty"`       // unauthorized | unavailable | invalid
     Unsupported   bool          `json:"unsupported,omitempty"` // provider type has no usage source [rev2]
@@ -939,3 +940,36 @@ against sections 4.3 and 4.4 above, which describe the plan before the code:
   the refresh owes move with it. A fetch that a save cancelled counts as an
   attempt, since the request may have reached the hub: its replacement
   waits for the floor and the hub's pause instead of doubling the read.
+
+## rev5 - model gates (10.09.26)
+
+A gate that covers part of the catalogue instead of the chat class had no place
+in this snapshot. The hub's `decision` answers for chat as a whole, so an
+account whose Kimi budget for the period was spent still reported
+`can_request: true` - correctly, because every other model on the same key kept
+answering. Coddy read that as a healthy account and showed it, while each
+request to the selected model came back `429` with a reset a month out. On
+10.09.26 an operator granted the user limit resets over that (they clear the
+session and week counters and never touched this budget), the user spent them,
+and the afternoon went into looking for a fault that did not exist.
+
+The hub now sends `blocked_models[]` next to `decision`: `{model, blocker,
+resets_at, reset_in_sec}`, empty when nothing is gated, and the field is always
+present so its absence means an older deployment rather than "nothing blocked".
+`can_request` deliberately stays green - flipping it would stop an agent that
+has no business stopping.
+
+Coddy carries the list through as `BlockedModels` and matches it against the
+selector suffix, the way `UnlimitedModels` is matched:
+
+- the console footer names the model and when it comes back ("kimi-k2.6 blocked
+  (resets Oct 9)") instead of the account's windows, and `/usage` says the same
+  in its head. Naming the model matters: bare "limit reached" reads as the whole
+  key being out, and the operator stops working rather than switching models;
+- the transcript notice fires once per model and reset time;
+- the composer summary returns `kind: "blocked"` for that model only, so the SPA
+  banner appears with its existing wording while every other model stays metered.
+
+An entry without a model name is dropped on mapping (it names nothing a client
+could match), and an unparsable `resets_at` is dropped rather than passed
+through as a bogus deadline.

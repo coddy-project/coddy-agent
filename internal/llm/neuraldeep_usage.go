@@ -89,6 +89,20 @@ type NeuralDeepUsage struct {
 	Chat          *NeuralDeepUsageChat     `json:"chat"`
 	DailyCapacity *NeuralDeepUsageDaily    `json:"daily_capacity"`
 	Wallet        *NeuralDeepUsageWallet   `json:"wallet"`
+	// BlockedModels are refusals the Decision cannot express: a gate that
+	// covers part of the catalogue rather than the chat class as a whole,
+	// so the account stays able to request and only these models do not.
+	BlockedModels []NeuralDeepUsageBlockedModel `json:"blocked_models"`
+}
+
+// NeuralDeepUsageBlockedModel is one model the key may not call right now,
+// with the reason and the moment the gate lifts. The hub added the field on
+// 10.09.26, so an older deployment sends none and the list stays empty.
+type NeuralDeepUsageBlockedModel struct {
+	Model      string `json:"model"`
+	Blocker    string `json:"blocker"`
+	ResetsAt   string `json:"resets_at"`
+	ResetInSec *int   `json:"reset_in_sec"`
 }
 
 // NeuralDeepUsageOption is an option enabled on the key (Qwen ∞): its models

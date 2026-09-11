@@ -467,7 +467,9 @@ popover, and a banner speaks up only when something needs the user.
   frame that crossed a later read, never brings older numbers back, and
   only the latest read issued applies. A row that answered "unsupported" is
   left alone for five minutes. The snapshot is account-wide; the model's
-  selector suffix is compared with `unlimitedModels` client-side.
+  selector suffix is compared with `unlimitedModels` client-side, and with
+  `blockedModels` the same way: a model the account may not call right now
+  reads as blocked even while the account itself is healthy.
 
 ### Composer primary action (**Send** **/** **Stop**)
 

@@ -39,3 +39,11 @@ Feature: NeuralDeep account usage on every surface
     When a prompt turn finishes on the server
     Then the stand-in limits API was never asked
     And the server-wide events stream announces no usage
+
+  @http
+  Scenario: A model the account may not call is named while the account stays healthy
+    Given a coddy HTTP server with a neuraldeep provider, a stored hub login and a stand-in limits API
+    And the stand-in limits API refuses the model "kimi-k2.6" until the period rolls over
+    When I read the neuraldeep provider usage over REST
+    Then the usage marks "kimi-k2.6" blocked with the moment it comes back
+    And the usage still reports the account itself as able to request
