@@ -126,6 +126,11 @@ type Provider interface {
 
 // ProviderInput selects an LLM backend and connection parameters.
 type ProviderInput struct {
+	// Name is the providers[].name entry this input came from. It is
+	// diagnostic only: every error the provider returns is prefixed with it
+	// and the address it reached, so a user running several providers can
+	// tell which entry of their config failed. Empty leaves errors bare.
+	Name     string
 	Type     string
 	Model    string
 	APIKey   string
@@ -236,7 +241,9 @@ func NewProvider(p ProviderInput) (Provider, error) {
 		// emitted nothing yet, instead of replaying deltas a caller already consumed.
 		inner = newBlockingProvider(inner)
 	}
-	return applyResilientWrap(inner, p), nil
+	// Outside the resilient wrap: retry classification reads the untouched
+	// upstream error, and only what leaves for the caller carries the label.
+	return labelProvider(applyResilientWrap(inner, p), p), nil
 }
 
 // UnsupportedProviderError is returned when the provider type is unknown.

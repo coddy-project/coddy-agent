@@ -335,3 +335,81 @@ func TestProvidersLoginDeviceIsAcceptedForCompatibility(t *testing.T) {
 		t.Fatalf("a failed login must store nothing (stat err = %v)", statErr)
 	}
 }
+
+// TestProviderAimWarningOnlyForUnusableOpenAIRow keeps the warning off every
+// legal shape: a provider with its own endpoint, one with a credential, and any
+// backend that resolves its address itself. It fires only where a request would
+// silently leave for api.openai.com with nothing to authenticate with.
+func TestProviderAimWarningOnlyForUnusableOpenAIRow(t *testing.T) {
+	cases := []struct {
+		name string
+		prov config.ProviderConfig
+		env  string
+		want bool
+	}{
+		{
+			name: "openai with neither api_base nor key",
+			prov: config.ProviderConfig{Name: "openai", Type: "openai"},
+			want: true,
+		},
+		{
+			name: "own endpoint, no key",
+			prov: config.ProviderConfig{Name: "rpa", Type: "openai", APIBase: "https://api.rpa.icu/v1"},
+			want: false,
+		},
+		{
+			name: "no api_base but an inline key",
+			prov: config.ProviderConfig{Name: "openai", Type: "openai", APIKey: "sk-test"},
+			want: false,
+		},
+		{
+			name: "no api_base but a credential helper",
+			prov: config.ProviderConfig{Name: "openai", Type: "openai", APIKeyCommand: "print-token"},
+			want: false,
+		},
+		{
+			name: "no api_base but the env var is exported",
+			prov: config.ProviderConfig{Name: "openai", Type: "openai"},
+			env:  "sk-from-env",
+			want: false,
+		},
+		{
+			name: "another backend resolves its own address",
+			prov: config.ProviderConfig{Name: "neuraldeep", Type: "neuraldeep"},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(config.ProviderAPIKeyEnvVarName(tc.prov.Name), tc.env)
+			got := providerAimWarning(&tc.prov)
+			if (got != "") != tc.want {
+				t.Fatalf("providerAimWarning = %q, want warning: %v", got, tc.want)
+			}
+			if tc.want && !strings.Contains(got, tc.prov.Name) {
+				t.Fatalf("the warning does not name the provider: %q", got)
+			}
+		})
+	}
+}
+
+// TestProvidersListWarningFollowsTheRows keeps the warning a separate line
+// after the inventory, so the row layout `providers list` has always had stays
+// readable and the warning cannot be mistaken for one more provider.
+func TestProvidersListWarningFollowsTheRows(t *testing.T) {
+	t.Setenv(config.ProviderAPIKeyEnvVarName("openai"), "")
+	cfg := &config.Config{Providers: []config.ProviderConfig{
+		{Name: "rpa", Type: "openai", APIBase: "https://api.rpa.icu/v1", APIKey: "sk-test"},
+		{Name: "openai", Type: "openai"},
+	}}
+	lines := providersListLines(cfg)
+	if len(lines) != 3 {
+		t.Fatalf("want two rows and one warning, got %d lines: %v", len(lines), lines)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(lines[2]), "!") {
+		t.Fatalf("the last line is not the warning: %q", lines[2])
+	}
+	if strings.Contains(lines[0], "!") || strings.Contains(lines[1], "!") {
+		t.Fatalf("a provider row was turned into a warning: %v", lines[:2])
+	}
+}

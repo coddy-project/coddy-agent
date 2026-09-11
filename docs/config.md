@@ -175,7 +175,7 @@ compaction:
 memory:
   enabled: false
   # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
-  # Example: "rpa/gpt-oss:120b". Empty means fall back to agent.model / session override.
+  # Example: "rpa/qwen3.6-35b-a3b". Empty means fall back to agent.model / session override.
   model: ""
   dir: "" # long-term memory root; empty = $CODDY_HOME/memory. Supports ${CODDY_HOME} and ~ when set.
   recall_max_turns: 6

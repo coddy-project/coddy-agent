@@ -198,6 +198,7 @@ func defaultProviderFromAgentModel(cfg *config.Config) (llm.Provider, error) {
 		maxTok = 96
 	}
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,
@@ -225,6 +226,7 @@ func defaultMakeLLMFromYAML(cfg *config.Config, yamlSel string) (llm.Provider, e
 	}
 	maxTok := resolveDirectYAMLMaxTokens(rm)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,

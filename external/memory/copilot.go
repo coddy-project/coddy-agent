@@ -95,6 +95,7 @@ func newCopilotProvider(cfg *config.Config, modelRef string) (llm.Provider, erro
 	cap := cfg.Memory.CopilotMaxTokens
 	clampProviderMax(rm, cap)
 	return llm.NewProvider(llm.WithAgentResilience(llm.ProviderInput{
+		Name:          rm.ProviderName,
 		Type:          rm.ProviderType,
 		Model:         rm.Model,
 		APIKey:        rm.APIKey,

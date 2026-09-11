@@ -939,3 +939,86 @@ func TestBlockingProviderStopsReplayOnMidReplayCancel(t *testing.T) {
 		t.Fatalf("resp = %+v, want no undelivered content or tool calls", resp)
 	}
 }
+
+// TestProviderEndpointResolvesDefaults covers the addresses a provider reaches
+// when api_base is left out: the label on an error must name the real
+// destination, and for openai and anthropic that is the vendor's own endpoint
+// rather than nothing at all.
+func TestProviderEndpointResolvesDefaults(t *testing.T) {
+	cases := []struct {
+		name       string
+		provType   string
+		configured string
+		want       string
+	}{
+		{"openai without api_base", "openai", "", OpenAIDefaultAPIBase()},
+		{"openai with api_base", "openai", "https://api.rpa.icu/v1", "https://api.rpa.icu/v1"},
+		{"openai trims blanks", "openai", "  https://proxy.test/v1  ", "https://proxy.test/v1"},
+		{"anthropic without api_base", "anthropic", "", "https://api.anthropic.com"},
+		{"neuraldeep pins its deployment", "neuraldeep", "", NeuralDeepDefaultAPIBase()},
+		{"unknown type reports nothing", "made-up", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ProviderEndpoint(tc.provType, tc.configured); got != tc.want {
+				t.Fatalf("ProviderEndpoint(%q, %q) = %q, want %q", tc.provType, tc.configured, got, tc.want)
+			}
+		})
+	}
+}
+
+// labelTestProvider fails every call with the error it was given.
+type labelTestProvider struct{ err error }
+
+func (p *labelTestProvider) Complete(context.Context, []Message, []ToolDefinition) (*Response, error) {
+	return nil, p.err
+}
+
+func (p *labelTestProvider) Stream(context.Context, []Message, []ToolDefinition, func(StreamChunk)) (*Response, error) {
+	return nil, p.err
+}
+
+// TestLabelProviderKeepsErrorIdentity guards the property the whole decorator
+// rests on: the label is a prefix, not a replacement, so every errors.Is and
+// errors.As the loop performs on an LLM error still finds its cause.
+func TestLabelProviderKeepsErrorIdentity(t *testing.T) {
+	inner := &labelTestProvider{err: fmt.Errorf("openai stream: %w", context.Canceled)}
+	p := labelProvider(inner, ProviderInput{Name: "rpa", Type: "openai", BaseURL: "https://api.rpa.icu/v1"})
+
+	_, err := p.Stream(context.Background(), nil, nil, func(StreamChunk) {})
+	if err == nil {
+		t.Fatal("expected the inner error to survive")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("errors.Is lost the cause: %v", err)
+	}
+	if !strings.Contains(err.Error(), `provider "rpa"`) {
+		t.Fatalf("error does not name the provider: %v", err)
+	}
+	if !strings.Contains(err.Error(), "https://api.rpa.icu/v1") {
+		t.Fatalf("error does not name the endpoint: %v", err)
+	}
+}
+
+// TestLabelProviderLeavesUnnamedProviderAlone keeps helpers that build a
+// provider ad hoc (no config entry behind them) free of an empty label.
+func TestLabelProviderLeavesUnnamedProviderAlone(t *testing.T) {
+	inner := &labelTestProvider{err: errors.New("boom")}
+	p := labelProvider(inner, ProviderInput{Type: "openai"})
+	if p != Provider(inner) {
+		t.Fatal("an unnamed provider must not be wrapped")
+	}
+	if _, err := p.Complete(context.Background(), nil, nil); err == nil || err.Error() != "boom" {
+		t.Fatalf("error text changed: %v", err)
+	}
+}
+
+// TestLabelProviderPassesSuccessThrough keeps the decorator out of the way when
+// nothing failed.
+func TestLabelProviderPassesSuccessThrough(t *testing.T) {
+	inner := &labelTestProvider{err: nil}
+	p := labelProvider(inner, ProviderInput{Name: "rpa", Type: "openai"})
+	if _, err := p.Complete(context.Background(), nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
