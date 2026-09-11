@@ -255,6 +255,6 @@ make build TAGS=http
 make build TAGS="http ui"
 ```
 
-`go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then **`http`** and **`http,ui`** and scheduler combinations).
+`go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then a single **`go test`** with every tag; the per-combination matrix is **`make test-matrix`**, which CI runs).
 
 For a manual gateway check against a disposable **`coddy serve`** process, **`examples/test_httpserver.sh`** runs the Python demos under **`examples/httpserver/`** (see **`examples/README.md`**). Steps that call chat or responses expect a working **`models`** backend.
