@@ -25,8 +25,8 @@ import (
 
 // SchemaURL is the hosted JSON Schema for config.yaml. It is published on the project
 // site rather than served from a repository path so the address stays stable and any
-// editor can resolve it without a checkout; docs/config.schema.json is the source the
-// site mirrors.
+// editor can resolve it without a checkout; internal/config/config.schema.json, embedded
+// into the binary for -t / --test-config, is the source the site mirrors.
 const SchemaURL = "https://coddy.dev/config.schema.json"
 
 // schemaModelineMarker is the directive a YAML language server looks for in a comment.

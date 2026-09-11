@@ -2,7 +2,7 @@
 
 Field-by-field reference for `~/.coddy/config.yaml`. For narrative documentation (file discovery, `.env`, provider guides) see [config.md](config.md).
 
-A machine-readable [JSON Schema](config.schema.json) accompanies this reference, published at **https://coddy.dev/config.schema.json**. Point your editor's YAML language server at it to get autocomplete and typo checking:
+A machine-readable [JSON Schema](../internal/config/config.schema.json) accompanies this reference, published at **https://coddy.dev/config.schema.json** and embedded into the binary, where `coddy -t` / `--test-config` checks a file against it from the command line (see [config.md](config.md#checking-the-file-from-the-command-line)). Point your editor's YAML language server at it to get autocomplete and typo checking:
 
 ```yaml
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json

@@ -93,6 +93,18 @@ that way rather than as they were typed.
 `stop` stops the worker first and gives it up to 30 seconds to finish what it is doing,
 so a turn that is still generating is not cut off mid-sentence.
 
+## Checking the configuration first
+
+```bash
+coddy serve -t            # or --test-config; --home and --config pick the file as for a start
+```
+
+The flag checks the file this command would load against the published JSON Schema and the
+loader's rules, prints every problem with its line and how to fix it, and exits with status 1
+when there are errors. Nothing starts and nothing is written, so it belongs in a deploy script
+right before `coddy serve restart`. The report format and what counts as a warning are
+described in [config.md](config.md#checking-the-file-from-the-command-line).
+
 ## Picking up a configuration change
 
 The running process watches the file it loaded. A change made **outside** it lands the

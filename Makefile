@@ -126,7 +126,8 @@ brew-formula:
 brew-check:
 	scripts/check-homebrew-submission.sh --version "$(VERSION)"
 
-# Publish docs/config.schema.json to the site repository, which serves it at
+# Publish internal/config/config.schema.json (the schema embedded into the
+# binary for -t / --test-config) to the site repository, which serves it at
 # coddy.dev/config.schema.json - the address Coddy writes into every config it
 # saves. Point SITE_REPO at your checkout if it is not beside this one.
 # site-schema-check reports drift without writing (for a pre-push look).

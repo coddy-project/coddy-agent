@@ -82,6 +82,7 @@ func runServe(args []string) error {
 
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of serve (runs every subsystem enabled in config.yaml):\n")
@@ -98,6 +99,11 @@ func runServe(args []string) error {
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*serveCWD),
 		Config: strings.TrimSpace(*cfgPath),
+	}
+	// A config check reports on the file and leaves: nothing is created under
+	// the home and no subsystem starts.
+	if *testConfig {
+		return runConfigTest(cli)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {

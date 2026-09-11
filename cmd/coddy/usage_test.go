@@ -138,3 +138,26 @@ func readRepoFile(t *testing.T, rel string) string {
 	}
 	return string(b)
 }
+
+// TestPackagingFilesCarryTheConfigTestFlag ties -t / --test-config to the same
+// three files: the flag is offered on the console, on acp and on serve, so the
+// completions must list it for each of them and the man page must explain it.
+func TestPackagingFilesCarryTheConfigTestFlag(t *testing.T) {
+	var buf bytes.Buffer
+	printUsage(&buf)
+	if !strings.Contains(buf.String(), "--test-config") {
+		t.Error("usage does not mention --test-config")
+	}
+	completions := readRepoFile(t, "../../packaging/completions/coddy.bash")
+	if strings.Count(completions, "--test-config") < 2 {
+		t.Error("packaging/completions/coddy.bash must offer --test-config for cli|acp and for serve")
+	}
+	zsh := readRepoFile(t, "../../packaging/completions/coddy.zsh")
+	if strings.Count(zsh, "--test-config") < 2 {
+		t.Error("packaging/completions/coddy.zsh must offer --test-config for cli|acp and for serve")
+	}
+	man := readRepoFile(t, "../../packaging/man/coddy.1")
+	if !strings.Contains(man, `\-\-test\-config`) {
+		t.Error("packaging/man/coddy.1 does not document --test-config")
+	}
+}

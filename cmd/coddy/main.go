@@ -175,6 +175,9 @@ func printUsage(w io.Writer) {
   %[1]s -p | --prompt "..." (console: one-shot prompt, print the answer)
   %[1]s -h | --help
   %[1]s -v | --version
+  %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
+        the schema and the loader's rules, print each problem with its line and
+        how to fix it, then exit; cli, acp and serve take the same flag)
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s serve [flags] (run every subsystem enabled in config.yaml:
@@ -225,6 +228,7 @@ func runACP(args []string) error {
 	schedulerEnabled := fs.Bool("scheduler", false, "run the cron scheduler in this process; overrides scheduler.enable (build with -tags scheduler)")
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
+	testConfig := config.AddCheckFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -240,6 +244,9 @@ func runACP(args []string) error {
 		Home:   strings.TrimSpace(*homeDir),
 		CWD:    strings.TrimSpace(*acpCWD),
 		Config: strings.TrimSpace(*cfgPath),
+	}
+	if *testConfig {
+		return runConfigTest(cli)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {

@@ -552,7 +552,7 @@ Full guide — access levels, group isolation modes, per-chat overrides, and how
 
 ## Configuration
 
-Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](docs/config.schema.json), published at <https://coddy.dev/config.schema.json>, enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header. Coddy writes that header into every `config.yaml` it saves and keeps the comments already in the file (see `config.example.yaml`).
+Full configuration reference in [docs/config.md](docs/config.md); field-by-field tables in [docs/config-reference.md](docs/config-reference.md). A [JSON Schema](internal/config/config.schema.json), published at <https://coddy.dev/config.schema.json>, enables editor autocomplete and validation via a `# yaml-language-server: $schema=...` header. Coddy writes that header into every `config.yaml` it saves and keeps the comments already in the file (see `config.example.yaml`). The same schema is embedded into the binary: **`coddy -t`** (also `coddy serve -t`, `coddy acp -t`) checks the file a start would load against it and the loader's rules, printing each problem with its line and how to fix it, and exits with status 1 on errors (see [docs/config.md](docs/config.md#checking-the-file-from-the-command-line)).
 
 Key settings:
 
@@ -607,7 +607,7 @@ See [Architecture docs](docs/architecture.md) for full details.
 - [Architecture](docs/architecture.md) - system design and component overview
 - [ACP Protocol](docs/acp-protocol.md) - protocol reference and message formats
 - [ReAct Agent](docs/react-agent.md) - ReAct loop design and tool specifications
-- [Configuration](docs/config.md) - full config file reference; [field tables](docs/config-reference.md) and [JSON Schema](docs/config.schema.json) for editor validation
+- [Configuration](docs/config.md) - full config file reference; [field tables](docs/config-reference.md) and [JSON Schema](internal/config/config.schema.json) for editor validation and `coddy -t`
 - [HTTP API](docs/http-api.md) - REST gateway (**`-tags=http`**) and embedded UI (**`-tags=http,ui`**); includes **`/coddy/config`** for live YAML editing from the SPA (**#/settings**).
 - [Embedded UI](docs/ui.md) - functional spec, Vite dev workflow, build tags
 - [DESIGN.md](DESIGN.md) - UI tokens and layout (English)

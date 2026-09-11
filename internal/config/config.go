@@ -10,15 +10,25 @@ import (
 
 // LoadFromCLI resolves paths, optionally falls back to $CWD/config.yaml when $CODDY_HOME/config.yaml is missing, and loads YAML.
 func LoadFromCLI(cli CLIPaths) (*Config, error) {
-	paths, err := Resolve(cli)
+	paths, err := resolveConfigFile(cli)
 	if err != nil {
 		return nil, err
 	}
-	// Load $CODDY_HOME/.env before config.yaml is parsed so that ${VAR} references in YAML see the values.
-	// Existing process environment always takes precedence over .env.
+	return readConfigFile(paths, strings.TrimSpace(cli.Config) != "")
+}
+
+// resolveConfigFile resolves the paths and picks the file the loader reads: an
+// explicit --config, else <home>/config.yaml, else <cwd>/config.yaml when the
+// home has none. <home>/.env is loaded first so ${VAR} references in the file
+// see its values; the process environment always takes precedence over .env.
+// Check uses the same resolution, so -t reports on the file a start would load.
+func resolveConfigFile(cli CLIPaths) (Paths, error) {
+	paths, err := Resolve(cli)
+	if err != nil {
+		return Paths{}, err
+	}
 	loadDotEnv(paths.Home)
-	explicitConfig := strings.TrimSpace(cli.Config) != ""
-	if !explicitConfig {
+	if strings.TrimSpace(cli.Config) == "" {
 		if _, err := os.Stat(paths.ConfigPath); errors.Is(err, os.ErrNotExist) {
 			cwdCfg := filepath.Join(paths.CWD, defaultConfigName)
 			if _, err := os.Stat(cwdCfg); err == nil {
@@ -26,7 +36,7 @@ func LoadFromCLI(cli CLIPaths) (*Config, error) {
 			}
 		}
 	}
-	return readConfigFile(paths, explicitConfig)
+	return paths, nil
 }
 
 // Load reads config from the given path, or resolves $CODDY_HOME/config.yaml (and optional $CWD/config.yaml).
