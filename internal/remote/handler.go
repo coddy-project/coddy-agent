@@ -1,4 +1,4 @@
-// Package remote implements a client for a remote coddy http server: it
+// Package remote implements a client for a remote coddy serve server: it
 // speaks the OpenAI-compatible SSE surface plus the /coddy REST routes and
 // exposes them behind the same handler methods session.Manager offers, so the
 // console and ACP surfaces can run against a remote agent unchanged.

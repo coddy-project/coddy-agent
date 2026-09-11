@@ -39,9 +39,10 @@ type StartJoinsOptions struct {
 // StartJoins registers this process into every relay listed in swarm.join and
 // keeps those registrations alive until Stop.
 //
-// Both `coddy http` and `coddy swarm` call it: an agent joins a relay, and a
-// relay joins another relay exactly the same way. That symmetry is what makes a
-// chain of relays work without a second mechanism.
+// Every `coddy serve` process calls it, whether or not it runs a relay of its
+// own: an agent joins a relay, and a relay joins another relay exactly the same
+// way. That symmetry is what makes a chain of relays work without a second
+// mechanism.
 func StartJoins(ctx context.Context, cfg *config.Config, opts StartJoinsOptions) (*JoinSet, error) {
 	kind, home, handler, log := opts.Kind, opts.Home, opts.Handler, opts.Log
 	if cfg == nil || len(cfg.Swarm.Join) == 0 {

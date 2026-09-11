@@ -185,7 +185,7 @@ Several matching hooks run one after another, in catalog order; each sees the in
 
 ```yaml
 hooks:
-  enabled: true
+  enable: true
   files:
     - "${CODDY_HOME}/hooks.json"
     - "${CWD}/.claude/settings.json"
@@ -199,7 +199,7 @@ hooks:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `true` | load and run hooks at all |
+| `enable` | `true` | load and run hooks at all |
 | `files` | the four above | definition files, lowest priority first |
 | `project_trust` | `ask` | what a project-scope file may do: `ask` (listed, held until approved), `allow` (runs like your own file), `deny` (never read) |
 | `default_timeout_seconds` | `60` | per handler when the definition gives no `timeout` |

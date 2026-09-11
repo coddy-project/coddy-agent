@@ -120,8 +120,8 @@ def _render_config_into(home: Path, model: str) -> None:
         'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{model}"\n  max_turns'
     )
     resolved = resolved.replace(
-        'memory:\n  enabled: true\n  model: "rpa/gpt-oss:120b"',
-        f'memory:\n  enabled: true\n  model: "{model}"',
+        'memory:\n  enable: true\n  model: "rpa/gpt-oss:120b"',
+        f'memory:\n  enable: true\n  model: "{model}"',
     )
     (home / "config.yaml").write_text(resolved)
     (home / "sessions").mkdir(exist_ok=True)

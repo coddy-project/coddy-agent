@@ -45,7 +45,7 @@ tools:
   permission_mode: bypass
 
 memory:
-  enabled: true
+  enable: true
   model: "rpa/gpt-oss:120b"
 
 httpserver:
@@ -53,7 +53,7 @@ httpserver:
   port: 19946
 
 scheduler:
-  enabled: true
+  enable: true
   dir: ""
   max_queue: 10
   timeout: "6m"

@@ -108,3 +108,12 @@ screenshot in the issue. `before-*` is the dialog built from the pre-change sour
 - `folder-picker-{after,new-row}-dark-390.png` - narrow shell: the three-button footer and the name row still fit
 - `folder-picker-new-row-dark-1024x300.png` - the shortest viewport `webkit-scroll-check.mjs` drives, name row open: the list has shrunk to nothing and the row plus all three buttons are still whole (issue #159's invariant, which is why the row is a sibling of the list rather than a child of it)
 
+
+## Scheduler disabled notice (rename sweep, September 2026)
+
+In `scheduler-disabled-notice/`. Captured through Playwright against `coddy serve`
+(`make build TAGS="http ui scheduler"`) with `scheduler.enable: false`, so the drawer renders its
+empty state. `before-*` is built from the pre-change sources.
+
+- `scheduler-disabled-{before,after}-en-dark-560x260.png` - before, the notice names `scheduler.enabled` and a `-scheduler-enabled` flag, neither of which exists; after, `scheduler.enable` and `coddy serve --scheduler`
+- `scheduler-disabled-{before,after}-ru-dark-560x260.png` - the same string in the Russian dictionary, which carried the same two errors

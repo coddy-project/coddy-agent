@@ -53,8 +53,8 @@ def prepare_home(name: str) -> Path:
         'model: "rpa/gpt-oss:120b"\n  max_turns', f'model: "{DEFAULT_MODEL}"\n  max_turns'
     )
     resolved = resolved.replace(
-        'memory:\n  enabled: true\n  model: "rpa/gpt-oss:120b"',
-        f'memory:\n  enabled: true\n  model: "{DEFAULT_MODEL}"',
+        'memory:\n  enable: true\n  model: "rpa/gpt-oss:120b"',
+        f'memory:\n  enable: true\n  model: "{DEFAULT_MODEL}"',
     )
     (home / "config.yaml").write_text(resolved)
     (home / "sessions").mkdir(exist_ok=True)
