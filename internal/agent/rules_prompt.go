@@ -20,10 +20,18 @@ type rulesState interface {
 	SetLastContextBreakdown(*session.ContextBreakdown)
 }
 
-func buildRulesPromptMarkdown(st rulesState, contextFiles []string, userText string) string {
+// buildRulesPromptMarkdown renders the {{.Rules}} block for one request. With
+// agentsOnDemand the nested AGENTS.md files on the chain down to every
+// attached file:// path are read here, the same way a filesystem tool call
+// reads them (activateScopedRulesForToolCall); both stick for the session.
+func buildRulesPromptMarkdown(st rulesState, contextFiles []string, userText string, agentsOnDemand bool) string {
 	catalog := st.GetRulesCatalog()
+	active := st.GetActiveAutoRules()
 	newAuto := rules.MatchAuto(catalog, contextFiles)
-	sticky := rules.UnionStable(st.GetActiveAutoRules(), newAuto)
+	if agentsOnDemand {
+		newAuto = append(newAuto, rules.AgentsForPaths(st.GetCWD(), contextFiles, active)...)
+	}
+	sticky := rules.UnionStable(active, newAuto)
 	st.SetActiveAutoRules(sticky)
 	mentioned := rules.SelectMentioned(catalog, userText)
 	return rules.RenderPrompt(st.GetCWD(), sticky, mentioned)

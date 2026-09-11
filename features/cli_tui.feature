@@ -12,6 +12,13 @@ Feature: Interactive console TUI
     And the screen shows the editor between horizontal borders
     And the footer names the configured default model
 
+  Scenario: The console starts without reading the workspace tree
+    Given the workspace holds a nested AGENTS.md in a folder no tool has entered
+    And rules discovery is switched on for that app
+    When the console app starts
+    Then the screen shows the coddy version header
+    And the session catalog holds no nested AGENTS.md
+
   Scenario: A prompt streams into the transcript
     When the console app starts
     And the operator submits the prompt "hello there"

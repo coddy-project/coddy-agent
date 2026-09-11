@@ -95,7 +95,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	rulesMD := ""
 	if rs, ok := a.state.(rulesState); ok {
-		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText)
+		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText, a.agentsOnDemand())
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
 	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{

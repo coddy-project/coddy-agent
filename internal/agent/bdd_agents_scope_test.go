@@ -109,6 +109,32 @@ func (s *agentsScopeFeatureState) projectWithNestedAgentsFiles(nested, sibling s
 	return os.WriteFile(filepath.Join(cwd, filepath.FromSlash(nested), "react.go"), []byte("package agent\n"), 0o644)
 }
 
+// projectWithoutNestedAgents prepares the root AGENTS.md and the folder the
+// model will read from, with no nested file yet: the scenario writes it after
+// the session exists, which a start-time walk would never see.
+func (s *agentsScopeFeatureState) projectWithoutNestedAgents(dir string) error {
+	cwd, err := s.tempDir()
+	if err != nil {
+		return err
+	}
+	s.cwd = cwd
+	if err := os.WriteFile(filepath.Join(cwd, "AGENTS.md"), []byte(bddRootAgentsToken), 0o644); err != nil {
+		return err
+	}
+	full := filepath.Join(cwd, filepath.FromSlash(dir))
+	if err := os.MkdirAll(full, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(full, "react.go"), []byte("package agent\n"), 0o644)
+}
+
+func (s *agentsScopeFeatureState) nestedAgentsAppearsAfterStart(dir string) error {
+	if s.st == nil {
+		return fmt.Errorf("the session must exist before the file appears")
+	}
+	return os.WriteFile(filepath.Join(s.cwd, filepath.FromSlash(dir), "AGENTS.md"), []byte(bddNestedAgentsToken), 0o644)
+}
+
 func (s *agentsScopeFeatureState) agentSessionInThatProject() error {
 	if s.cwd == "" {
 		return fmt.Errorf("no project prepared")
@@ -221,6 +247,8 @@ func initializeAgentsScopeScenario(sc *godog.ScenarioContext) {
 	})
 
 	sc.Step(`^a project with a root AGENTS\.md and nested AGENTS\.md files under "([^"]*)" and "([^"]*)"$`, s.projectWithNestedAgentsFiles)
+	sc.Step(`^a project with a root AGENTS\.md and a folder "([^"]*)" without one$`, s.projectWithoutNestedAgents)
+	sc.Step(`^a nested AGENTS\.md appears under "([^"]*)" after the session started$`, s.nestedAgentsAppearsAfterStart)
 	sc.Step(`^a coddy agent session in that project$`, s.agentSessionInThatProject)
 	sc.Step(`^the model reads "([^"]*)" and then answers$`, s.modelReadsFileThenAnswers)
 	sc.Step(`^the first request carries the root AGENTS\.md but neither nested one$`, s.firstRequestHasRootOnly)

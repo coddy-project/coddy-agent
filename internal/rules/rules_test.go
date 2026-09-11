@@ -98,49 +98,123 @@ func TestDiscoverPrecedence(t *testing.T) {
 	}
 }
 
-func TestDiscoverNestedAgentsMD(t *testing.T) {
+// agentsChainProject builds a root AGENTS.md and nested ones under a, a/b,
+// a/other, node_modules/pkg and .git/sub, plus the file a/b/c/f.go.
+func agentsChainProject(t *testing.T) string {
+	t.Helper()
 	tmp := t.TempDir()
-	// Root AGENTS.md is the unconditional project docs preamble, not a rule.
 	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("root preamble"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, dir := range []string{"internal/agent", "external/httpserver", ".git/sub", "node_modules/pkg"} {
+	for _, dir := range []string{"a", "a/b", "a/b/c", "a/other", "node_modules/pkg", ".git/sub"} {
 		if err := os.MkdirAll(filepath.Join(tmp, filepath.FromSlash(dir)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_ = os.WriteFile(filepath.Join(tmp, "internal", "agent", "AGENTS.md"), []byte("agent loop notes"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmp, "external", "httpserver", "AGENTS.md"), []byte("http notes"), 0o644)
-	// Hidden and dependency dirs must be skipped.
-	_ = os.WriteFile(filepath.Join(tmp, ".git", "sub", "AGENTS.md"), []byte("hidden"), 0o644)
-	_ = os.WriteFile(filepath.Join(tmp, "node_modules", "pkg", "AGENTS.md"), []byte("dep"), 0o644)
+	for _, dir := range []string{"a", "a/b", "a/other", "node_modules/pkg", ".git/sub"} {
+		if err := os.WriteFile(filepath.Join(tmp, filepath.FromSlash(dir), "AGENTS.md"), []byte("notes for "+dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "a", "b", "c", "f.go"), []byte("package c\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return tmp
+}
 
+func agentsNames(rs []*rules.Rule) []string {
+	var names []string
+	for _, r := range rs {
+		names = append(names, r.CanonicalName())
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestNestedAgentsMDAreNeverWalked(t *testing.T) {
+	tmp := agentsChainProject(t)
 	got, err := rules.DefaultFactory().Discover(tmp, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 nested AGENTS.md rules, got %d: %+v", len(got), got)
+	for _, r := range got {
+		if r.Source == rules.SourceAgents {
+			t.Fatalf("session start must not read nested AGENTS.md files, found %q", r.FilePath)
+		}
+	}
+}
+
+func TestAgentsForPathsReadsTheChainOfTheTouchedFolder(t *testing.T) {
+	tmp := agentsChainProject(t)
+
+	got := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "a", "b", "c", "f.go")}, nil)
+	if names := agentsNames(got); len(names) != 2 || names[0] != "a/AGENTS.md" || names[1] != "a/b/AGENTS.md" {
+		t.Fatalf("chain for a/b/c/f.go = %v, want a and a/b only", names)
 	}
 	for _, r := range got {
-		if r.Source != rules.SourceAgents {
-			t.Fatalf("source = %q, want agents", r.Source)
+		if r.Source != rules.SourceAgents || r.Format != rules.FormatAgentsMD {
+			t.Fatalf("source/format = %q/%q", r.Source, r.Format)
 		}
 		if !r.AlwaysApply || r.ApplyMode != rules.ApplyAuto || len(r.Globs) != 0 {
 			t.Fatalf("AGENTS.md rule must be an auto rule without globs: %+v", r)
 		}
-		if r.ScopeDir != filepath.Dir(r.FilePath) {
-			t.Fatalf("AGENTS.md rule must be scoped to its own directory: ScopeDir=%q FilePath=%q", r.ScopeDir, r.FilePath)
+		if r.ScopeDir != filepath.Dir(r.FilePath) || r.Root != tmp {
+			t.Fatalf("scope/root: ScopeDir=%q FilePath=%q Root=%q", r.ScopeDir, r.FilePath, r.Root)
+		}
+		if !strings.HasPrefix(r.Content, "notes for ") {
+			t.Fatalf("content = %q", r.Content)
 		}
 	}
-	names := []string{got[0].CanonicalName(), got[1].CanonicalName()}
-	sort.Strings(names)
-	if names[0] != "external/httpserver/AGENTS.md" || names[1] != "internal/agent/AGENTS.md" {
-		t.Fatalf("names = %v", names)
+
+	// A directory path includes its own AGENTS.md; a relative path resolves
+	// against root.
+	if names := agentsNames(rules.AgentsForPaths(tmp, []string{"a/other"}, nil)); len(names) != 2 || names[1] != "a/other/AGENTS.md" {
+		t.Fatalf("chain for the a/other directory = %v", names)
+	}
+	// A file that does not exist yet (a write) reads its parent chain.
+	if names := agentsNames(rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "a", "new.go")}, nil)); len(names) != 1 || names[0] != "a/AGENTS.md" {
+		t.Fatalf("chain for a file about to be written = %v", names)
 	}
 }
 
-func TestDiscoverNestedAgentsMDTruncatesOversizedFile(t *testing.T) {
+func TestAgentsForPathsSkipsWhatDiscoveryNeverEnters(t *testing.T) {
+	tmp := agentsChainProject(t)
+	for _, p := range []string{
+		filepath.Join(tmp, "node_modules", "pkg", "x.js"),
+		filepath.Join(tmp, ".git", "sub", "x"),
+		filepath.Join(tmp, "README.md"),          // root itself: the preamble, not a rule
+		filepath.Join(filepath.Dir(tmp), "x.go"), // outside the project
+		"",
+	} {
+		if got := rules.AgentsForPaths(tmp, []string{p}, nil); len(got) != 0 {
+			t.Fatalf("path %q must load no nested AGENTS.md, got %v", p, agentsNames(got))
+		}
+	}
+}
+
+func TestAgentsForPathsDoesNotReadActiveRulesAgain(t *testing.T) {
+	tmp := agentsChainProject(t)
+	first := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "a", "b", "c", "f.go")}, nil)
+	again := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "a", "b", "c", "f.go")}, first)
+	if len(again) != 0 {
+		t.Fatalf("rules already active must not come back, got %v", agentsNames(again))
+	}
+	deeper := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "a", "other", "y.go")}, first)
+	if names := agentsNames(deeper); len(names) != 1 || names[0] != "a/other/AGENTS.md" {
+		t.Fatalf("only the folder not yet entered is read, got %v", names)
+	}
+}
+
+func TestAgentsOnDemandFollowsRulesSystems(t *testing.T) {
+	if !rules.AgentsOnDemand(nil) || !rules.AgentsOnDemand([]rules.Source{rules.SourceCoddy, rules.SourceAgents}) {
+		t.Fatal("an empty list and a list naming agents both admit nested AGENTS.md")
+	}
+	if rules.AgentsOnDemand([]rules.Source{rules.SourceCoddy}) {
+		t.Fatal("a list without agents must switch the on-demand reading off")
+	}
+}
+
+func TestAgentsForPathsTruncatesOversizedFile(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "sub"), 0o755); err != nil {
 		t.Fatal(err)
@@ -151,10 +225,7 @@ func TestDiscoverNestedAgentsMDTruncatesOversizedFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "sub", "AGENTS.md"), []byte(big), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"agents"}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "sub", "x.go")}, nil)
 	if len(got) != 1 {
 		t.Fatalf("expected 1 rule, got %d", len(got))
 	}
@@ -173,19 +244,22 @@ func TestDiscoverAgentsMDSystemsFilter(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(tmp, "sub", "AGENTS.md"), []byte("sub notes"), 0o644)
 
-	got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"agents"}))
-	if err != nil {
-		t.Fatal(err)
+	// No system makes session start read a nested AGENTS.md: "agents" only
+	// admits the on-demand reading, "coddy" switches it off.
+	for _, system := range []string{"agents", "coddy"} {
+		got, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{system}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("%s filter: discovery must not read nested AGENTS.md, got %d", system, len(got))
+		}
 	}
-	if len(got) != 1 {
-		t.Fatalf("agents filter: expected 1 rule, got %d", len(got))
+	if !rules.AgentsOnDemand(rules.ParseSystems([]string{"agents"})) {
+		t.Fatal("agents must admit the on-demand reading")
 	}
-	got, err = rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"coddy"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("coddy filter must exclude agents rules, got %d", len(got))
+	if rules.AgentsOnDemand(rules.ParseSystems([]string{"coddy"})) {
+		t.Fatal("coddy alone must switch the on-demand reading off")
 	}
 }
 
@@ -691,13 +765,21 @@ func TestParseSystemsAgentsDir(t *testing.T) {
 	if len(only) != 1 || only[0].Source != rules.SourceAgentsDir {
 		t.Fatalf("agents-dir filter: %+v", only)
 	}
-	// The AGENTS.md convention keeps its own id: "agents" does not pull in the folder.
+	// The AGENTS.md convention keeps its own id: "agents" does not pull in the
+	// folder, and it has no provider to discover from. Nested files are read
+	// on demand (AgentsForPaths) while the system is admitted.
 	agentsOnly, err := rules.DefaultFactory().Discover(tmp, rules.ParseSystems([]string{"agents"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agentsOnly) != 1 || agentsOnly[0].Source != rules.SourceAgents {
-		t.Fatalf("agents filter: %+v", agentsOnly)
+	if len(agentsOnly) != 0 {
+		t.Fatalf("agents filter must discover nothing eagerly: %+v", agentsOnly)
+	}
+	if !rules.AgentsOnDemand(rules.ParseSystems([]string{"agents"})) || rules.AgentsOnDemand(rules.ParseSystems([]string{"agents-dir"})) {
+		t.Fatal("agents admits the on-demand AGENTS.md reading, agents-dir does not")
+	}
+	if got := rules.AgentsForPaths(tmp, []string{filepath.Join(tmp, "sub", "x.go")}, nil); len(got) != 1 || got[0].Source != rules.SourceAgents {
+		t.Fatalf("on-demand read of sub/AGENTS.md: %+v", got)
 	}
 }
 
@@ -752,10 +834,15 @@ func TestRenderCatalogShowsFormat(t *testing.T) {
 	if r := rows["style"]; len(r) < 5 || r[0] != "agents-dir" || r[1] != "claude" || r[3] != "auto" || r[4] != "true" {
 		t.Fatalf("style row = %v", r)
 	}
-	if r := rows["pkg/AGENTS.md"]; len(r) < 5 || r[0] != "agents" || r[1] != "agents.md" || r[4] != "false" {
-		t.Fatalf("AGENTS.md row = %v", r)
+	// The nested AGENTS.md is not walked for the listing either; the note
+	// says where it comes from instead.
+	if _, listed := rows["pkg/AGENTS.md"]; listed {
+		t.Fatalf("nested AGENTS.md must not be listed:\n%s", out)
 	}
-	if !strings.Contains(out, "4 rule(s) under") {
+	if !strings.Contains(out, "3 rule(s) under") {
 		t.Fatalf("summary line missing:\n%s", out)
+	}
+	if !strings.Contains(out, "Nested AGENTS.md files are not listed: they are read on demand") {
+		t.Fatalf("on-demand note missing:\n%s", out)
 	}
 }

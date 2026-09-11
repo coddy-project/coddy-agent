@@ -14,6 +14,16 @@ Launch: bare `coddy` on a terminal (both stdin and stdout must be ttys —
 pipes and CI keep the usage contract), explicitly `coddy cli [flags]`, or with
 flag-style shortcuts routed to the console: `coddy -c` continues the latest
 session in this folder and `coddy -p "..."` runs one non-interactive prompt.
+Startup runs before the terminal enters raw mode: the config, the session
+store, the skills, the rule folders and the configured MCP servers, then
+the first frame. Nothing reads the workspace tree: nested `AGENTS.md` files
+are read on demand, from the folders a tool enters (`docs/rules.md`), so a
+console opened in a home directory (a macOS `~/Library` alone runs to
+hundreds of thousands of entries) draws its frame at once instead of
+looking hung. The git branch in the footer is read with a three-second
+bound for the same reason. A first ctrl+c during startup cancels it; a
+second one ends the process the default way instead of being swallowed.
+
 Quitting the console (double ctrl+c, ctrl+d, `/quit`) prints a resume hint
 after the terminal is restored:
 
@@ -391,6 +401,13 @@ comparison, as described under **Visual model**.
   `SetProviderUsageClock`; `external/cli/usage_test.go` pins the footer
   wording, the drop order, the blocker copy, the sanitising of hub strings
   and the reset timer.
+- Real pty, no model: `examples/cli/cli_e2e_startup.py` opens the built
+  binary in a pty (pexpect + pyte), waits for the first frame, types into the
+  editor, clears it with ctrl+c and exits with the second one, then checks the
+  resume hint and the exit status. CI runs it in the `cli` job of the Linux test
+  matrix and on `macos-latest` (job `test-macos`, which also runs the platform packages and
+  the console suite on macOS), because the Go suite never opens a pty and the
+  console's terminal path is exactly what differs between hosts.
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty
   (pexpect + pyte, Linux-only) against `neuraldeep/qwen3.8-27b` by default —
   see `examples/README.md`.
