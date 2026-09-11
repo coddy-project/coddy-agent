@@ -22,9 +22,10 @@ type JoinSet struct {
 // StartJoins registers this process into every relay listed in swarm.join and
 // keeps those registrations alive until Stop.
 //
-// Both `coddy http` and `coddy swarm` call it: an agent joins a relay, and a
-// relay joins another relay exactly the same way. That symmetry is what makes a
-// chain of relays work without a second mechanism.
+// Every `coddy serve` process calls it, whether or not it runs a relay of its
+// own: an agent joins a relay, and a relay joins another relay exactly the same
+// way. That symmetry is what makes a chain of relays work without a second
+// mechanism.
 // StartJoinsOptions carries what every join in this process has in common.
 type StartJoinsOptions struct {
 	// Kind is what this process registers as: agent or relay.

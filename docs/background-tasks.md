@@ -168,14 +168,14 @@ See `tools.background` in `docs/config-reference.md`:
 ```yaml
 tools:
   background:
-    enabled: true
+    enable: true
     max_concurrent: 5
     default_timeout_seconds: 900
     max_timeout_seconds: 3600
     output_buffer_bytes: 262144
 ```
 
-Setting `enabled: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
+Setting `enable: false` removes the `background` option from `run_command` and does not register the background tools at all. Subagent runs (`docs/subagents.md`) live in the same pool, so `max_concurrent`, `max_timeout_seconds` and `output_buffer_bytes` bound them too; `subagents.*` adds the process-wide cap on child runs, the nesting depth and the default run timeout.
 
 ## Subagent runs
 

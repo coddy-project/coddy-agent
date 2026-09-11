@@ -536,7 +536,7 @@ Minimal config addition (`config.yaml`):
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [YOUR_USER_ID]
     default_access: "admins"   # all | admins | group:<name>

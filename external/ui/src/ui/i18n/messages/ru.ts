@@ -860,7 +860,7 @@ export const messagesRu: Record<string, string> = {
   "composer.atRangeTruncated": "Показаны первые {shown} строк из {total}",
   "composer.requestFailed": "ошибка запроса",
   "composer.env.ariaLabel": "Окружение",
-  "composer.env.title": "Окружение (локальный или удалённый coddy http)",
+  "composer.env.title": "Окружение (локальный или удалённый coddy serve)",
   "composer.env.local": "Локальное",
   "composer.env.localThisOrigin": "Локальное (этот origin)",
   "composer.env.groupEnvironment": "Окружение",
@@ -957,7 +957,7 @@ export const messagesRu: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "API планировщика недоступен в этой сборке (пересоберите с http,scheduler).",
   "scheduler.disabled":
-    "Планировщик отключён (включите scheduler.enabled или передайте -scheduler-enabled).",
+    "Планировщик отключён (включите scheduler.enable или запустите coddy serve --scheduler).",
   "scheduler.validation.required": "Обязательное поле",
   "scheduler.validation.tooLong": "Слишком длинное",
   "scheduler.validation.noSpaces":

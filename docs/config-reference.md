@@ -306,7 +306,7 @@ Bounds for background execution (`config.ToolBackground`). A backgrounded `run_c
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
+| `enable` | bool | no | `true` | Offer the `background` option on `run_command` and expose the background task tools. |
 | `max_concurrent` | int | no | `5` | Background tasks one session may run at once. Starting past the limit is refused, not queued. |
 | `default_timeout_seconds` | int | no | `900` | Hard limit for a task started without an explicit `timeout_seconds` and without `expected_seconds`. |
 | `max_timeout_seconds` | int | no | `3600` | Ceiling applied to any requested or estimate-derived timeout. |
@@ -318,7 +318,7 @@ Subagents (`config.Subagents`, `internal/config/subagents.go`): child agents the
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
+| `enable` | bool | no | `true` | Register `spawn_agent` and list the subagent catalog in the system prompt. |
 | `dirs` | string list | no | `["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]` | Definition directories, lowest priority first; later entries override earlier ones by name. `${CODDY_HOME}` expands at load time, `${CWD}` per session. A directory inside the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. |
 | `project_trust` | string | no | `ask` | Policy for project-scope definitions, which travel with the checkout. `ask` — load them, but refuse to spawn one until the operator approved that exact file for that workspace on the machine running coddy (`coddy agents trust <name>` there, or `POST /coddy/subagents/{name}/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own files; `deny` — never read them. |
 | `max_concurrent` | int | no | `4` | Subagent runs the whole process may have in flight at once, whatever session started them. Starting past the limit is refused, not queued; the per-session `tools.background.max_concurrent` still applies to the task count. |
@@ -334,7 +334,7 @@ Hooks (`config.Hooks`, `internal/config/hooks.go`): operator commands run at lif
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Load and run hooks at all. |
+| `enable` | bool | no | `true` | Load and run hooks at all. |
 | `files` | string list | no | `["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]` | Definition files, lowest priority first; every matching hook runs, priority orders the catalog and the run order. `${CODDY_HOME}` expands at load time, `${CWD}` per session; a relative entry resolves against the session cwd. A file at or under the workspace is **project scope** and follows `project_trust`; everything else is **user scope**. Only the `hooks` key of a Claude Code settings file is read. |
 | `project_trust` | string | no | `ask` | Policy for project-scope files, which travel with the checkout. `ask` — parse and list them, but run none of their hooks until the operator approved that exact file for that workspace on the machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust` with the session workspace as `cwd`); `allow` — treat them like the operator's own file; `deny` — never read them. |
 | `default_timeout_seconds` | int | no | `60` | Hard limit for one hook process whose definition gives no `timeout`; the whole process group is terminated past it. |
@@ -392,7 +392,7 @@ Context compaction (`config.Compaction`, `internal/config/compaction.go`): summa
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Master switch for compaction (manual command and automation). |
+| `enable` | bool | no | `true` | Master switch for compaction (manual command and automation). |
 | `threshold_percent` | int | no | `80` | Auto-compaction fires when the estimated context usage reaches this percent of the effective model's `max_context_tokens` (valid `1..100`). Models without `max_context_tokens` skip auto-compaction; the manual command still works. |
 | `keep_recent_turns` | int | no | `2` | How many most recent user turns (each with the agent replies and tool activity after it) stay verbatim; older history is folded into the summary. `0` summarizes the whole window. |
 | `model` | string | no | `""` (session model) | Exact `models[].model` id used for the summarization call. |
@@ -404,7 +404,7 @@ Collapses unmarked `read`/`grep` tool results to short placeholders when buildin
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Master switch for read/grep result eviction. |
+| `enable` | bool | no | `true` | Master switch for read/grep result eviction. |
 | `keep_recent` | int | no | `2` | How many most recent evictable results (read pages, grep dumps) stay intact as a working window. `0` keeps none. The default of `2` keeps a read *and* a grep live at once; with `1`, a model comparing two results keeps re-fetching whichever the other evicted. |
 | `min_result_bytes` | int | no | `2000` | Results at or below this size are never evicted. `0` makes every result a candidate. |
 
@@ -414,7 +414,7 @@ Long-term memory copilot (`config.MemoryConfig`, `internal/config/memory.go`; im
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `false` | Turn on the memory copilot. |
+| `enable` | bool | no | `false` | Turn on the memory copilot. |
 | `model` | string | no | `""` (agent model) | Exact `models[].model` id used only for recall/persist LLM calls. |
 | `dir` | string | no | `""` → `${CODDY_HOME}/memory` | Long-term memory root. Supports `${CODDY_HOME}` and `~`. |
 | `recall_max_turns` | int | no | `6` | Bounds recall-side LLM rounds. |
@@ -434,7 +434,7 @@ OpenAI-compatible HTTP API defaults (`config.HTTPServerConfig`, `internal/config
 | `auth_token` | string | no | `""` | Optional bearer credential. Empty means no auth (historical default). Enables auth on `/v1/*` and `/coddy/*`. Supports `${ENV}`. Never returned by `GET /coddy/config`. Prefer `--auth-token` / `CODDY_HTTP_TOKEN`. |
 | `public_docs` | bool | no | `false` | When auth is enabled, keep `/docs` and `/openapi.*` reachable without a token. |
 | `allow_insecure` | bool | no | `false` | Silence the startup warning about a non-loopback bind without authentication. |
-| `cors.enabled` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
+| `cors.enable` | bool | no | `false` | Handle CORS preflight and emit `Access-Control-*` headers so a browser UI on another origin can call this API. |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the API (e.g. `http://localhost:12345`). A single `*` allows any origin; bearer auth still applies. |
 | `remotes[].name` | string | yes* | - | Display label for a remote server offered in the UI environment selector (*required per entry). |
 | `remotes[].url` | string | yes* | - | Base URL of a remote `coddy serve` server (*required per entry). Tokens are kept client-side, not here. |
@@ -454,7 +454,7 @@ Stateless relay that nodes register into and that chains into other relays (`con
 | `allow_insecure` | bool | no | `false` | Permit binding off loopback without a client token. |
 | `insecure_open_registration` | bool | no | `false` | Let any caller register a node without a pairing token. Development only. |
 | `allow_private_upstreams` | []string | no | `[]` | Hosts a node may advertise even though they resolve into loopback or private ranges, which are otherwise refused so a registration cannot turn the relay into a probe of its own network. |
-| `cors.enabled` | bool | no | `false` | Handle CORS preflight. The SPA is cross-origin to a relay by construction, so this usually has to be on. |
+| `cors.enable` | bool | no | `false` | Handle CORS preflight. The SPA is cross-origin to a relay by construction, so this usually has to be on. |
 | `cors.allowed_origins` | []string | no | `[]` | Exact origins allowed to call the relay. `*` allows any; bearer auth still applies. |
 | `tls.cert_file` | string | no | `""` | PEM certificate chain. Set with `key_file` or neither. Minimum TLS 1.2; rotating certificates needs a restart. |
 | `tls.key_file` | string | no | `""` | PEM private key. |
@@ -481,7 +481,7 @@ Embedded web UI (`config.UIConfig`, `internal/config/ui.go`; only meaningful wit
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
+| `enable` | bool | no | `true` | Serve the embedded SPA at `GET /`. Set `false` to run an API-only server (the API still requires `httpserver.auth_token` when configured). Unset means enabled. |
 
 ## `scheduler`
 
@@ -489,7 +489,7 @@ Cron scheduler (`config.SchedulerConfig`, `internal/config/scheduler.go`; `sched
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `enabled` | bool | no | `false` | Run the scheduler daemon and expose `coddy_scheduler_*` tools. `coddy acp\|http -scheduler` forces it per process. |
+| `enable` | bool | no | `false` | Run the scheduler daemon and expose `coddy_scheduler_*` tools. `coddy serve --scheduler` (and `coddy acp -scheduler`) forces it on for that process. |
 | `dir` | string | no | `""` → `${CODDY_HOME}/scheduler` | Directory with flat `*.md` job definitions. |
 | `max_queue` | int | no | `10` | Concurrent scheduled runs; extra firings are skipped when saturated. |
 | `timeout` | string | no | `"30m"` | Per-run wall-clock limit (Go duration, e.g. `1h30m`). |
@@ -503,7 +503,7 @@ Messenger gateways (`config.GatewayConfig`, `internal/config/gateway.go`; `gatew
 
 | Field | Type | Required | Default | Env fallback | Description |
 |---|---|---|---|---|---|
-| `enabled` | bool | no | `false` | — | Activate the Telegram adapter. |
+| `enable` | bool | no | `false` | — | Activate the Telegram adapter. |
 | `token` | string | no | `""` | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather. Empty reads the env var (e.g. via `~/.coddy/.env`). |
 | `proxy` | string | no | direct | — | Outbound proxy: `http`, `https`, `socks5`, `socks5h`. Treated as a literal URL (no `${VAR}` references); a `$` in the userinfo is auto-escaped to `$$` when saved via the UI. |
 | `rich_messages` | bool | no | `false` | — | Bot API 10.1 Rich Messages; falls back to legacy formatting when unsupported. |

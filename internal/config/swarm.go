@@ -24,8 +24,8 @@ const (
 )
 
 // SwarmConfig is the YAML swarm section (key swarm). It describes both sides of
-// a relay: what this process serves when started as `coddy swarm`, and which
-// parent relays this process joins, whether it is an agent or a relay itself.
+// a relay: what this process serves under `swarm.enable`, and which parent
+// relays this process joins, whether it is an agent or a relay itself.
 type SwarmConfig struct {
 	// Enabled runs the relay in this process. It is independent of Join: an
 	// agent registering into a parent relay does not itself relay, and a relay
@@ -75,8 +75,9 @@ type SwarmConfig struct {
 	// an agent that cannot run the join loop.
 	Upstreams []SwarmUpstream `yaml:"upstreams"`
 
-	// Join lists parent relays this process registers into on startup. Both
-	// `coddy http` and `coddy swarm` honour it, which is what lets relays chain.
+	// Join lists parent relays this process registers into on startup. Every
+	// `coddy serve` process honours it, relay or not, which is what lets relays
+	// chain.
 	Join []SwarmJoin `yaml:"join"`
 }
 

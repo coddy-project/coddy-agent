@@ -903,7 +903,7 @@
     "memory": {
       "type": "object",
       "title": "Long-term memory copilot",
-      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enabled).",
+      "description": "Optional memory copilot (implementation in external/memory; enable at runtime with memory.enable).",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -1284,7 +1284,7 @@
       "properties": {
         "enable": {
           "type": "boolean",
-          "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy acp|http -scheduler-enabled.",
+          "description": "Run the scheduler daemon and expose the coddy_scheduler_* tools. Can also be forced per process with coddy serve --scheduler (or coddy acp -scheduler).",
           "default": false
         },
         "dir": {

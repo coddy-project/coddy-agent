@@ -534,7 +534,7 @@ memory:
 		t.Fatal(err)
 	}
 	if cfg.Memory.Enabled {
-		t.Fatal("expected memory.enabled false")
+		t.Fatal("expected memory.enable false")
 	}
 }
 
@@ -613,7 +613,7 @@ agent:
 	}
 	cfg.Scheduler.Enabled = true
 	if !cfg.SchedulerEffectiveEnabled() {
-		t.Fatal("scheduler.enabled should be observable")
+		t.Fatal("scheduler.enable should be observable")
 	}
 	if err := cfg.Scheduler.Validate(cfg); err != nil {
 		t.Fatal(err)

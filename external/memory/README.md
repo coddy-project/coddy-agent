@@ -1,6 +1,6 @@
 # Long-term memory (Memory Copilot)
 
-Implementation lives under **`external/memory`** and is linked only when you build with **`-tags memory`** (recommended together with **`http`** for REST routes under **`/coddy/sessions/{id}/memory/*`**). Turn behavior on or off at runtime with **`memory.enabled`** in **`config.yaml`** when the binary includes the **`memory`** tag.
+Implementation lives under **`external/memory`** and is linked only when you build with **`-tags memory`** (recommended together with **`http`** for REST routes under **`/coddy/sessions/{id}/memory/*`**). Turn behavior on or off at runtime with **`memory.enable`** in **`config.yaml`** when the binary includes the **`memory`** tag.
 
 ## Build
 
@@ -16,7 +16,7 @@ See root **README** and **[docs/build.md](../../docs/build.md)**.
 
 In the LLM sense, "memory" is whatever is injected into the context. Short-term memory is the chat history. **Long-term** memory here means markdown files on disk that are turned into a short block **before** the main model answers, merged into the same template slot as session notes (`{{.Memory}}` in **`agent.md`** / **`plan.md`** / **`ask.md`**). In **ask** mode the pass is recall-only: the copilot gets the search, list, and read tools and never saves, creates, or deletes a memory.
 
-When **`memory.enabled`** is true and the binary was built with **`memory`**, Coddy runs **one** memory copilot pass per user message **before** the main ReAct agent. That pass chooses either **RECALL** (read-only tools only) or **PERSIST** (may call mkdir/save/delete after reading), never both in the same turn. The final plain text from that pass is merged into **`{{.Memory}}`**; the main agent then answers with that context.
+When **`memory.enable`** is true and the binary was built with **`memory`**, Coddy runs **one** memory copilot pass per user message **before** the main ReAct agent. That pass chooses either **RECALL** (read-only tools only) or **PERSIST** (may call mkdir/save/delete after reading), never both in the same turn. The final plain text from that pass is merged into **`{{.Memory}}`**; the main agent then answers with that context.
 
 The memory copilot system prompt is **`prompts/copilot.md`** in this directory, embedded at compile time (`go:embed`). Edit that file and rebuild to change instructions.
 
@@ -41,7 +41,7 @@ Cross-links inside stored bodies should use **`scope:relative/path.md`** (or Mar
 
 See **`config.example.yaml`** and **`docs/config.md`**. Fields:
 
-- **`enabled`** - master switch at runtime (only effective when binary includes **`memory`**).
+- **`enable`** - master switch at runtime (only effective when binary includes **`memory`**).
 - **`model`** - optional exact **`models[].model`** id for the memory copilot only; does not change the main agent. Pin it when memory should stay on a fixed model regardless of **`agent.model`**. Empty uses the active session / **`agent.model`**.
 - **`dir`**, **`recall_max_turns`**, **`persist_max_turns`**, **`copilot_max_tokens`**, **`max_search_hits`** - see the example config comments. **Effective tool-round cap** for the unified pass is **max(`recall_max_turns`, `persist_max_turns`)** (see **`copilot.go`**).
 

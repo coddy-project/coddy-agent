@@ -150,14 +150,14 @@ sessions:
 # Context compaction: summarize older history so long sessions keep fitting the
 # model context window. Manual /compact command plus automatic trigger.
 # compaction:
-#   enabled: true            # master switch (manual command and automation)
+#   enable: true             # master switch (manual command and automation)
 #   threshold_percent: 80    # auto-compact at this percent of models[].max_context_tokens (1..100)
 #   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
 #   model: ""                # optional models[].model for the summarizer; empty = session model
 #   # Collapse superseded read/grep results to placeholders in the LLM request
 #   # (the persisted transcript stays complete). Only marked results survive.
 #   result_eviction:
-#     enabled: true          # master switch
+#     enable: true           # master switch
 #     keep_recent: 2         # most recent evictable results kept as a working window; 0 keeps none
 #     min_result_bytes: 2000 # results this size or smaller are never evicted
 
@@ -276,7 +276,7 @@ tools:
   # captured output stay in the session bundle, and a task interrupted by a
   # restart is reported as orphaned. 0 = use the built-in default.
   # background:
-  #   enabled: true
+  #   enable: true
   #   max_concurrent: 5             # concurrent background tasks per session
   #   default_timeout_seconds: 900  # hard limit without a timeout or an estimate
   #   max_timeout_seconds: 3600     # ceiling for any requested or estimated timeout
@@ -290,7 +290,7 @@ tools:
 # that file for that workspace on the machine running coddy (`coddy agents trust <name>`
 # there, or `POST /coddy/subagents/{name}/trust`). See docs/subagents.md.
 # subagents:
-#   enabled: true
+#   enable: true
 #   dirs:
 #     - "${CODDY_HOME}/agents"       # your own definitions (user scope)
 #     - "${CWD}/.claude/agents"      # project scope, Claude Code compatible
@@ -310,7 +310,7 @@ tools:
 # machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust`).
 # See docs/hooks.md.
 # hooks:
-#   enabled: true
+#   enable: true
 #   files:
 #     - "${CODDY_HOME}/hooks.json"                # your own file (user scope)
 #     - "${CWD}/.claude/settings.json"            # project scope, Claude Code compatible (hooks key only)
@@ -340,7 +340,7 @@ tools:
 #   # CORS lets a browser UI on another origin call this API (needed when the UI points here as a
 #   # remote). Bearer auth still applies. allowed_origins accepts exact origins or a single "*".
 #   cors:
-#     enabled: false
+#     enable: false
 #     allowed_origins: ["http://localhost:12345"]
 #   # Remote coddy serve servers offered in the UI environment selector. Tokens are NOT stored here;
 #   # the UI keeps them client-side per remote.
@@ -348,11 +348,11 @@ tools:
 #     - name: "prod box"
 #       url: "https://box.example:12345"
 
-# Embedded web UI (only with -tags http,ui). Set enabled: false to run an API-only server
+# Embedded web UI (only with -tags http,ui). Set enable: false to run an API-only server
 # (e.g. a remote box) — the SPA at GET / is replaced by a short notice, and the API keeps
 # requiring httpserver.auth_token when configured. Defaults to enabled when omitted.
 # ui:
-#   enabled: true
+#   enable: true
 
 # Cron scheduler (external/scheduler + lib/, tools/; build with: go build -tags=scheduler).
 # Jobs live under scheduler.dir (${CODDY_HOME}/scheduler when dir is empty or omitted): YAML frontmatter description, schedule
@@ -360,7 +360,7 @@ tools:
 # basename.lock during a run.
 # Enable with scheduler.enable, or per run with `coddy serve --scheduler`.
 # scheduler:
-#   enabled: false
+#   enable: false
 #   dir: ""              # empty = ${CODDY_HOME}/scheduler
 #   max_queue: 10        # concurrent scheduled runs (default); when saturated the daemon skips extras until slots free (see logs)
 #   timeout: "30m"       # per scheduled agent run
@@ -371,7 +371,7 @@ tools:
 # memory.model is used ONLY for recall + persist LLM calls. Set it to an exact models[].model id when you want memory
 # pinned independently of agent.model (example: "rpa/gpt-oss:120b"). Leave empty to reuse the session or agent default model.
 # memory:
-#   enabled: false
+#   enable: false
 #   model: ""
 #   dir: "" # default ${CODDY_HOME}/memory when empty
 #   recall_max_turns: 6
@@ -386,7 +386,7 @@ tools:
 # place. See docs/gateway.md.
 # gateways:
 #   telegram:
-#     enabled: false
+#     enable: false
 #     token: "${TELEGRAM_BOT_TOKEN}"   # optional: omit to read TELEGRAM_BOT_TOKEN from env/.env
 #     # proxy: "socks5h://127.0.0.1:1080"  # optional outbound proxy (http, https, socks5, socks5h)
 #     # proxy: "http://proxy.example.com:3128"
@@ -446,7 +446,7 @@ logger:
 #   pairing_tokens:
 #     - "${CODDY_SWARM_PAIRING_TOKEN}"
 #   cors:
-#     enabled: true
+#     enable: true
 #     allowed_origins: ["http://localhost:5173"]
 #   tls:
 #     cert_file: "/etc/coddy/relay.crt"

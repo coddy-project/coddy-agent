@@ -44,14 +44,14 @@ remote server must opt into CORS:
 httpserver:
   auth_token: "${CODDY_HTTP_TOKEN}"
   cors:
-    enabled: true
+    enable: true
     allowed_origins: ["http://localhost:12345", "https://my-ui.example"]   # or ["*"]
   remotes:                       # optional: offered in the UI environment selector
     - name: "prod box"
       url: "https://box.example:12345"
 ```
 
-When `cors.enabled` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
+When `cors.enable` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
 `Access-Control-Allow-Origin` (echoed origin, or `*` when configured) and
 `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
 receive no CORS headers. Bearer auth still applies to the actual request. Tokens for remotes are
