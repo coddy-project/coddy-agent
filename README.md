@@ -357,6 +357,7 @@ coddy serve --help     # subsystem flags; the surfaces themselves need their bui
 | **`-y`** / **`--yes`** | Install without confirmation. |
 | **`--version X.Y.Z`** | Install a specific release, not only "latest". |
 | **`--repo owner/name`** | Alternate GitHub repo (default **`coddy-project/coddy-agent`**). |
+| **`--no-notes`** | Skip the report of what changed after the install (also **`CODDY_UPDATE_NOTES=0`**). |
 
 **Installed from a `.deb`, an `.rpm` or Homebrew?**
 
@@ -372,6 +373,7 @@ brew upgrade coddy            # Homebrew formula (Cellar)
 
 - Update the same binary you intend to use. If **`which coddy`** points at **`~/.local/bin/coddy`**, run **`coddy update`** from that install, not a different copy on **`PATH`**.
 - **`$CODDY_HOME`** (config, sessions, skills) is untouched. The executable changes, and so do the man page and the shell completions the installer put beside it, so Tab completion keeps up with the command set.
+- Once the update is in, Coddy lists every release it skipped over with its notes and links the GitHub comparison for the whole range, so the answer to "what changed?" is on the screen rather than on the releases page.
 - To build from source or change tags, use **`make build`** instead. For containers, use **`docker compose pull`**. See **[docs/update.md](docs/update.md)** for platform tables, limitations, and other upgrade paths.
 
 ## Operating Modes

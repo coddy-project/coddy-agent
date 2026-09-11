@@ -24,6 +24,14 @@ type releaseAsset struct {
 type ghRelease struct {
 	TagName string         `json:"tag_name"`
 	Assets  []releaseAsset `json:"assets"`
+
+	// The fields below feed the report of what changed after an update.
+	Name        string `json:"name"`
+	Body        string `json:"body"`
+	HTMLURL     string `json:"html_url"`
+	PublishedAt string `json:"published_at"`
+	Draft       bool   `json:"draft"`
+	Prerelease  bool   `json:"prerelease"`
 }
 
 func fetchRelease(ctx context.Context, client *http.Client, apiBase, repo, tag string) (*ghRelease, error) {

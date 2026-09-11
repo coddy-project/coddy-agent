@@ -59,7 +59,8 @@ _coddy() {
                         '(-y --yes)'{-y,--yes}'[install without confirmation]' \
                         '--version[install a specific release tag]:tag:' \
                         '--repo[GitHub repository to take releases from]:repo:' \
-                        '--no-restart[Windows only: do not start Coddy again]'
+                        '--no-restart[Windows only: do not start Coddy again]' \
+                        '--no-notes[do not report what changed after the install]'
                     ;;
                 cli|acp)
                     _arguments \

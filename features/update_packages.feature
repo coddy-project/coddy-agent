@@ -22,6 +22,8 @@ Feature: Updating a Coddy installed from a system package
     Then Coddy downloads the release package for this platform
     And Coddy hands the package to the system package manager
     And Coddy reports the release it installed
+    And Coddy lists every release since the installed version with its notes
+    And Coddy links the full changelog between the two versions on GitHub
     And the installed executable is left untouched
 
   Scenario: A Homebrew cask install is sent back to brew

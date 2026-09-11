@@ -535,3 +535,339 @@ func TestFilesFromTarGz_returnsOnlyTheMembersAsked(t *testing.T) {
 		t.Error("a member nobody asked for was read")
 	}
 }
+
+// notesRelease is the JSON of one release the way GET /releases/latest and
+// /releases/tags/{tag} answer, with the notes and the page fields the report
+// reads and one linux/amd64 archive served from the same host.
+func notesRelease(host, tag, body string) string {
+	return fmt.Sprintf(`{"tag_name":%q,"name":%q,"html_url":"https://github.com/coddy-project/coddy-agent/releases/tag/%s","published_at":"2026-09-11T10:00:00Z","body":%q,"assets":[{"name":"coddy_%s_linux_amd64.tar.gz","browser_download_url":"http://%s/asset.tar.gz"}]}`,
+		tag, tag, tag, body, tag, host)
+}
+
+// notesServer serves a release for tag, its archive, and - when list is not
+// empty - the release history at /releases. An empty list answers 404 there,
+// which is what a rate-limited or offline API looks like to the report.
+func notesServer(t *testing.T, tag string, archive []byte, list string) *httptest.Server {
+	t.Helper()
+	body := "## What's Changed\n* fix(update): the change in " + tag + " by @EvilFreelancer in https://github.com/coddy-project/coddy-agent/pull/7\n\n**Full Changelog**: https://github.com/coddy-project/coddy-agent/compare/prev..." + tag
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
+	})
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/tags/"+tag, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(notesRelease(r.Host, tag, body)))
+	})
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+		if list == "" {
+			http.Error(w, `{"message":"API rate limit exceeded"}`, http.StatusForbidden)
+			return
+		}
+		_, _ = w.Write([]byte(list))
+	})
+	mux.HandleFunc("/asset.tar.gz", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func notesOptions(srv *httptest.Server, dest, current string) Options {
+	return Options{
+		APIBase:        srv.URL,
+		Repo:           "coddy-project/coddy-agent",
+		CurrentVersion: current,
+		GOOS:           "linux",
+		GOARCH:         "amd64",
+		InstallPath:    dest,
+		Yes:            true,
+	}
+}
+
+func TestRun_reportsTheComparisonWhenTheReleaseListIsUnavailable(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "coddy", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "coddy")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "0.9.2")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Installed 0.9.4") {
+		t.Fatalf("the update did not go through: %q", got)
+	}
+	if !strings.Contains(got, "Full changelog: https://github.com/coddy-project/coddy-agent/compare/0.9.2...0.9.4") {
+		t.Fatalf("output does not fall back to the comparison link: %q", got)
+	}
+	if strings.Contains(got, "Changes since") {
+		t.Fatalf("output opens a report it has no notes for: %q", got)
+	}
+}
+
+func TestRun_reportsTheInstalledReleaseNotesForADevBuild(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "coddy", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "coddy")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "dev")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"Release notes for 0.9.4:",
+		"- fix(update): the change in 0.9.4 (#7)",
+		"https://github.com/coddy-project/coddy-agent/releases/tag/0.9.4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "/compare/") {
+		t.Fatalf("a dev build has no release to compare from: %q", got)
+	}
+}
+
+func TestRun_reportsTheInstalledReleaseNotesOnADowngrade(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", mustTarGz(t, "coddy", []byte("release")), "")
+	dest := filepath.Join(t.TempDir(), "coddy")
+
+	var out bytes.Buffer
+	opts := notesOptions(srv, dest, "0.9.9")
+	opts.TargetVersion = "0.9.4"
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Release notes for 0.9.4:") {
+		t.Fatalf("output lacks the notes of the release installed: %q", got)
+	}
+	if strings.Contains(got, "/compare/") || strings.Contains(got, "Changes since") {
+		t.Fatalf("a downgrade has no range to report: %q", got)
+	}
+}
+
+func TestRun_reportsTheChangesBeforeTheWindowsHelperRuns(t *testing.T) {
+	t.Parallel()
+	list := `[{"tag_name":"0.9.4","published_at":"2026-09-11T10:00:00Z","body":"* feat(a): one by @x in https://github.com/coddy-project/coddy-agent/pull/1"},` +
+		`{"tag_name":"0.9.3","published_at":"2026-09-10T10:00:00Z","body":"* fix(b): two by @x in https://github.com/coddy-project/coddy-agent/pull/2"},` +
+		`{"tag_name":"0.9.2","published_at":"2026-09-09T10:00:00Z","body":"* fix(c): the running one by @x in https://github.com/coddy-project/coddy-agent/pull/3"}]`
+	archive := mustZip(t, "coddy.exe", []byte("release"))
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"tag_name":"0.9.4","assets":[{"name":"coddy_0.9.4_windows_amd64.zip","browser_download_url":"http://%s/asset.zip"}]}`, r.Host)
+	})
+	mux.HandleFunc("/repos/coddy-project/coddy-agent/releases", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(list))
+	})
+	mux.HandleFunc("/asset.zip", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archive)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	dest := filepath.Join(t.TempDir(), "coddy.exe")
+	var out bytes.Buffer
+	var staged string
+	err := Run(context.Background(), Options{
+		APIBase:        srv.URL,
+		Repo:           "coddy-project/coddy-agent",
+		CurrentVersion: "0.9.2",
+		GOOS:           "windows",
+		GOARCH:         "amd64",
+		InstallPath:    dest,
+		Yes:            true,
+		Stdout:         &out,
+		windowsInstaller: func(req windowsUpdateRequest) error {
+			staged = req.StagedPath
+			return nil
+		},
+	})
+	if staged != "" {
+		_ = os.Remove(staged)
+	}
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := out.String()
+	ready := strings.Index(got, "Update downloaded")
+	report := strings.Index(got, "Changes since 0.9.2:")
+	if ready < 0 || report < ready {
+		t.Fatalf("the report should follow the handoff line: %q", got)
+	}
+	for _, want := range []string{
+		"0.9.3 (2026-09-10)",
+		"  - fix(b): two (#2)",
+		"0.9.4 (2026-09-11)",
+		"  - feat(a): one (#1)",
+		"Full changelog: https://github.com/coddy-project/coddy-agent/compare/0.9.2...0.9.4",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output lacks %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "the running one") {
+		t.Fatalf("the running release is not news: %q", got)
+	}
+	if strings.Index(got, "0.9.3 (") > strings.Index(got, "0.9.4 (") {
+		t.Fatalf("releases should read oldest first: %q", got)
+	}
+}
+
+func TestRun_upToDatePrintsNoNotes(t *testing.T) {
+	t.Parallel()
+	srv := notesServer(t, "0.9.4", nil, "")
+	var out bytes.Buffer
+	opts := notesOptions(srv, filepath.Join(t.TempDir(), "coddy"), "0.9.4")
+	opts.Stdout = &out
+	if err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := out.String(); strings.Contains(got, "Release notes") || strings.Contains(got, "Changes since") || strings.Contains(got, "/compare/") {
+		t.Fatalf("nothing was installed, so nothing changed: %q", got)
+	}
+}
+
+func TestFetchReleasesBetween_walksThePagesAndKeepsTheRange(t *testing.T) {
+	t.Parallel()
+	// Two full pages of releases, newest first, the way GitHub pages them,
+	// with a draft and a prerelease inside the range that must not count.
+	page := func(from, to int) string {
+		var items []string
+		for n := from; n >= to; n-- {
+			extra := ""
+			switch n {
+			case 180:
+				extra = `,"draft":true`
+			case 170:
+				extra = `,"prerelease":true`
+			}
+			items = append(items, fmt.Sprintf(`{"tag_name":"0.9.%d","body":"change %d"%s}`, n, n, extra))
+		}
+		return "[" + strings.Join(items, ",") + "]"
+	}
+	var requests []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RawQuery)
+		switch r.URL.Query().Get("page") {
+		case "1":
+			_, _ = w.Write([]byte(page(200, 101)))
+		case "2":
+			_, _ = w.Write([]byte(page(100, 1)))
+		default:
+			_, _ = w.Write([]byte("[]"))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "coddy-project/coddy-agent", "0.9.150", "0.9.190")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, rel := range got {
+		tags = append(tags, rel.TagName)
+	}
+	if len(tags) != 38 || tags[0] != "0.9.151" || tags[len(tags)-1] != "0.9.190" {
+		t.Fatalf("tags = %v", tags)
+	}
+	for _, skipped := range []string{"0.9.150", "0.9.170", "0.9.180", "0.9.191"} {
+		if slices.Contains(tags, skipped) {
+			t.Fatalf("%s should not be listed: %v", skipped, tags)
+		}
+	}
+	if len(requests) != 1 {
+		t.Fatalf("the first page already reached the running release, requests = %v", requests)
+	}
+
+	got, err = fetchReleasesBetween(context.Background(), srv.Client(), srv.URL, "coddy-project/coddy-agent", "0.9.50", "0.9.52")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].TagName != "0.9.51" || got[1].TagName != "0.9.52" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(requests) != 3 {
+		t.Fatalf("the range on the second page takes two requests, got %v", requests)
+	}
+}
+
+func TestNotesLines(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "generated notes lose the heading, the author trailer and the footer",
+			body: "## What's Changed\r\n* feat(config): --dry-run probes what config.yaml points at by @EvilFreelancer in https://github.com/coddy-project/coddy-agent/pull/194\r\n\r\n\r\n**Full Changelog**: https://github.com/coddy-project/coddy-agent/compare/1.0.36...1.0.37",
+			want: []string{"- feat(config): --dry-run probes what config.yaml points at (#194)"},
+		},
+		{
+			name: "hand-written notes keep their sections as plain text",
+			body: "Coddy 1.1 is the week after 1.0.\n\n## One process for every surface\n\n- #174 feat(serve): run every enabled subsystem in one process\n- #178 feat(serve): keep the daemon alive\n\n### Swarm\n- #155 feat(swarm): a stateless relay\n",
+			want: []string{
+				"Coddy 1.1 is the week after 1.0.",
+				"One process for every surface:",
+				"- #174 feat(serve): run every enabled subsystem in one process",
+				"- #178 feat(serve): keep the daemon alive",
+				"Swarm:",
+				"- #155 feat(swarm): a stateless relay",
+			},
+		},
+		{
+			name: "an issue reference at the start of a line is not a heading",
+			body: "#123 is fixed\n* @newcomer made their first contribution in https://github.com/coddy-project/coddy-agent/pull/5",
+			want: []string{"#123 is fixed", "- @newcomer made their first contribution in https://github.com/coddy-project/coddy-agent/pull/5"},
+		},
+		{
+			name: "empty notes",
+			body: "\n\n  \n",
+			want: nil,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := notesLines(tc.body); !slices.Equal(got, tc.want) {
+				t.Fatalf("notesLines(%q)\n got %q\nwant %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCapLines(t *testing.T) {
+	t.Parallel()
+	lines := make([]string, 25)
+	for i := range lines {
+		lines[i] = strconv.Itoa(i)
+	}
+	kept, more := capLines(lines, 20)
+	if len(kept) != 20 || kept[19] != "19" || more != 5 {
+		t.Fatalf("kept %d (last %q), more %d", len(kept), kept[len(kept)-1], more)
+	}
+	kept, more = capLines(lines[:3], 20)
+	if len(kept) != 3 || more != 0 {
+		t.Fatalf("kept %d, more %d", len(kept), more)
+	}
+}
+
+func TestNotesDisabled(t *testing.T) {
+	t.Parallel()
+	for value, want := range map[string]bool{
+		"": false, "1": false, "true": false, "yes": false, "on": false,
+		"0": true, "false": true, "no": true, "off": true, " OFF ": true, "False": true,
+	} {
+		if got := notesDisabled(value); got != want {
+			t.Errorf("notesDisabled(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

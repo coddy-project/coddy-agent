@@ -44,7 +44,7 @@ _coddy() {
             [ "${COMP_CWORD}" -gt 2 ] && COMPREPLY=($(compgen -W "--cwd" -- "${cur}"))
             ;;
         update)
-            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart" -- "${cur}"))
+            COMPREPLY=($(compgen -W "--check -y --yes --version --repo --no-restart --no-notes" -- "${cur}"))
             ;;
         cli|acp)
             COMPREPLY=($(compgen -W "-t --test-config --dry-run --config --home --cwd --log-level --log-output --log-file --log-format --remote --remote-token" -- "${cur}"))

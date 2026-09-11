@@ -93,11 +93,39 @@ Install on Windows without starting Coddy again afterwards - useful from a scrip
 coddy update -y --no-restart
 ```
 
+Install without the report of what changed (see [What changed](#what-changed)), for a script that only wants the install lines:
+
+```bash
+coddy update -y --no-notes
+CODDY_UPDATE_NOTES=0 coddy update -y
+```
+
 All flags:
 
 ```bash
 coddy update --help
 ```
+
+## What changed
+
+Once the update is in, **`coddy update`** says what it brought. It lists every release between the version that was running and the one it installed, oldest first, each with the day it was published and its release notes, and ends with the GitHub comparison for the whole range ([issue #195](https://github.com/coddy-project/coddy-agent/issues/195)):
+
+```console
+Installed 1.0.37 (/home/user/.local/bin/coddy)
+
+Changes since 1.0.35:
+1.0.36 (2026-09-11)
+  - fix(update): refresh the man page and the shell completions beside the binary (#193)
+1.0.37 (2026-09-11)
+  - feat(config): --dry-run probes what config.yaml points at before anything starts (#194)
+Full changelog: https://github.com/coddy-project/coddy-agent/compare/1.0.35...1.0.37
+```
+
+The notes are the release bodies GitHub holds, trimmed for a terminal: the generated *What's Changed* heading, the author trailer and the *Full Changelog* footer of each release go, the pull request number stays as **`(#N)`**, and a hand-written body keeps its sections as plain titles. The report is capped at 20 lines, so a long gap ends in **`... N more lines`** and the comparison link, which covers every release at once.
+
+The report is printed on every route that installs something - the archive, the Windows helper handoff, and the **`.deb`** / **`.rpm`** route as root - and never on **`--check`** or when Coddy is already up to date. A build with no release to count from (**`coddy -v`** prints **`dev`**), and a **`--version`** that walks backwards, get the notes of the release just installed and the link to its page instead of a range.
+
+Fetching the list is a second request to the GitHub API, bounded to 15 seconds, and it cannot fail the update: offline, rate-limited or answered with anything but a list, the report shrinks to the **`Full changelog:`** line alone. **`--no-notes`** skips it entirely, and so does **`CODDY_UPDATE_NOTES=0`** (also **`false`**, **`no`** or **`off`**) in the environment, for scripts and CI steps that only want the install lines.
 
 ## Version comparison
 
