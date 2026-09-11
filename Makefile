@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check
+.PHONY: build build-acp test test-matrix test-matrix-lean test-matrix-http test-matrix-ui test-matrix-full test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -145,62 +145,49 @@ test-opencode-rules:
 # Two speeds. `make test` is the express run: one `go test` over the whole tree
 # with every optional module compiled in (FULL_TAGS, what the shipped binary
 # contains), after the UI assets it embeds are built. Run it locally before a
-# push. `make test-matrix` walks every tag combination in TEST_TAG_SETS - the
-# lean untagged build with its stubs, single tags, pairs, the shipped set - and
-# is what CI runs on every pull request, one job per combination
-# (.github/workflows/tests-on-pr.yaml reads the list through
-# print-test-tag-sets, so this variable is the only place it is written down).
-# Locally, reach for a single combination instead: go test -tags=<set> ./...
+# push. `make test-matrix` covers every tag combination - the lean untagged
+# build with its stubs, single tags, pairs, the shipped set - in four groups,
+# test-matrix-lean|http|ui|full. CI runs the groups as parallel jobs behind one
+# gate job on every pull request (.github/workflows/tests-on-pr.yaml); locally
+# `make -j4 test-matrix` does the same, or reach for a single combination:
+# go test -tags=<set> ./...
 empty :=
 space := $(empty) $(empty)
 comma := ,
 FULL_TAGS_CSV := $(subst $(space),$(comma),$(strip $(FULL_TAGS)))
 
-# Every tagged combination the tree is tested under, comma-joined. The untagged
-# build is implied and always runs first; the last entry must stay FULL_TAGS_CSV
-# so the express run and the matrix agree on what "everything" means. A ui
-# entry needs the embedded assets, so ui-build precedes the matrix and the CI
-# job builds them only for those entries.
-TEST_TAG_SETS := \
-	memory \
-	http \
-	http,memory \
-	scheduler \
-	scheduler,memory \
-	cli \
-	cli,scheduler,memory \
-	http,cli \
-	swarm \
-	http,ui \
-	http,ui,memory \
-	http,scheduler \
-	http,scheduler,memory \
-	http,scheduler,ui \
-	http,scheduler,ui,memory \
-	http,scheduler,ui,memory,cli \
-	gateway \
-	http,scheduler,ui,memory,cli,gateway \
-	http,scheduler,ui,memory,cli,swarm \
-	$(FULL_TAGS_CSV)
+# The tagged combinations, comma-joined, grouped by what they need: lean ones
+# build without npm, http ones add the REST surface, ui ones embed the SPA (so
+# ui-build must precede them), full ones are the shipped sets. The untagged
+# build runs first in the lean group; the last full entry must stay
+# FULL_TAGS_CSV so the express run and the matrix agree on what "everything"
+# means.
+TEST_TAG_SETS_LEAN := memory scheduler scheduler,memory cli cli,scheduler,memory swarm gateway
+TEST_TAG_SETS_HTTP := http http,memory http,cli http,scheduler http,scheduler,memory
+TEST_TAG_SETS_UI := http,ui http,ui,memory http,scheduler,ui http,scheduler,ui,memory http,scheduler,ui,memory,cli
+TEST_TAG_SETS_FULL := http,scheduler,ui,memory,cli,gateway http,scheduler,ui,memory,cli,swarm $(FULL_TAGS_CSV)
 
 # Express run: the whole tree once, with every optional module compiled in.
 test: test-opencode-rules ui-build
 	go test -tags=$(FULL_TAGS_CSV) ./...
 
-# Full matrix: every combination in TEST_TAG_SETS, in sequence. CI's job; run
-# it locally only when a build-tag boundary moved and one combination is not
-# enough.
-test-matrix: test-opencode-rules ui-build
-	go test ./...
-	@set -e; for tags in $(TEST_TAG_SETS); do \
-		echo "go test -tags=$$tags ./..."; \
-		go test -tags=$$tags ./...; \
-	done
+# Full matrix: every group. Sequential by default; -j4 runs the groups side by
+# side. CI's job; run it locally only when a build-tag boundary moved and one
+# combination is not enough.
+test-matrix: test-matrix-lean test-matrix-http test-matrix-ui test-matrix-full
 
-# The matrix as a JSON array for the CI workflow: [""] for the untagged build,
-# then every entry of TEST_TAG_SETS.
-print-test-tag-sets:
-	@printf '[""'; for tags in $(TEST_TAG_SETS); do printf ',"%s"' "$$tags"; done; printf ']\n'
+test-matrix-lean: test-opencode-rules
+	go test ./...
+	@set -e; for tags in $(TEST_TAG_SETS_LEAN); do echo "go test -tags=$$tags ./..."; go test -tags=$$tags ./...; done
+
+test-matrix-http:
+	@set -e; for tags in $(TEST_TAG_SETS_HTTP); do echo "go test -tags=$$tags ./..."; go test -tags=$$tags ./...; done
+
+test-matrix-ui: ui-build
+	@set -e; for tags in $(TEST_TAG_SETS_UI); do echo "go test -tags=$$tags ./..."; go test -tags=$$tags ./...; done
+
+test-matrix-full: ui-build
+	@set -e; for tags in $(TEST_TAG_SETS_FULL); do echo "go test -tags=$$tags ./..."; go test -tags=$$tags ./...; done
 
 # Type-check the Windows build without a Windows machine.
 #

@@ -206,7 +206,7 @@ Order does not matter for these tags.
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
 | **`swarm`** | Stateless relay that aggregates nodes, started by **`coddy serve`** under **`swarm.enable`** | [`docs/swarm.md`](swarm.md) · [`external/swarm/`](../external/swarm/) |
 
-**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../Makefile)); CI runs that matrix on every pull request, one job per combination.
+**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). **`make test-matrix`** covers every combination in four groups, **`test-matrix-lean|http|ui|full`** (the **`TEST_TAG_SETS_*`** lists in [`Makefile`](../Makefile)); CI runs the groups as parallel jobs behind one **All checks** gate on every pull request.
 
 ## Release binaries (CI)
 

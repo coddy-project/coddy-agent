@@ -657,7 +657,7 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli gateway swarm"`. Lean ACP-only binary: `make build` (no tags). |
 | `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
 | `make test` | Express run: `ui-build`, then one `go test` with every optional module compiled in (`http,ui,scheduler,memory,cli,gateway,swarm`). |
-| `make test-matrix` | Every tag combination in sequence (untagged, single tags, pairs, the full set) - what CI runs on each pull request, one job per combination. |
+| `make test-matrix` | Every tag combination (untagged, single tags, pairs, the full set) in four groups, `test-matrix-lean\|http\|ui\|full` - CI runs them as parallel jobs on each pull request; `make -j4 test-matrix` does the same locally. |
 | `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
 | `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory cli gateway swarm"` first if the binary is missing. |
 | `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
