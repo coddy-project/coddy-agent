@@ -21,7 +21,7 @@ import (
 // The flag every entrypoint offers.
 const (
 	FlagName  = "dry-run"
-	FlagUsage = "run the --test-config check, then probe what the file points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - and exit without starting anything; exit status 1 when a probe fails"
+	FlagUsage = "check config.yaml and probe what it points at - paths, model servers and their credentials, listen addresses, MCP commands, the Telegram token - then exit without starting anything; prints only problems and a status line (add --test-config for the full report); exit status 1 when a probe fails"
 )
 
 // AddFlag registers --dry-run on fs.
@@ -195,17 +195,28 @@ func (r *runner) subsystems() {
 
 // RunAndReport is the driver every entrypoint shares: the static check first,
 // then the probes, with the report printed to w and a non-nil error when the
-// dry run failed, so the process exits non-zero. customize applies the flags
-// the command would apply to a loaded configuration (--scheduler, --gateway,
-// ...); build shapes the request from the prepared configuration.
-func RunAndReport(w io.Writer, cli config.CLIPaths, customize func(*config.Config) error, build func(*Prepared) (Request, error)) error {
+// dry run failed, so the process exits non-zero.
+//
+// --dry-run on its own is quiet: it prints only what needs attention and one
+// status line at the end, so a healthy setup answers with a single line. With
+// --test-config alongside (verbose) it prints the config check report first
+// and then every probe, the ones that passed included. A file that fails the
+// static check is always shown: nothing else can be probed until it is fixed.
+//
+// customize applies the flags the command would apply to a loaded
+// configuration (--scheduler, --gateway, ...); build shapes the request from
+// the prepared configuration.
+func RunAndReport(w io.Writer, cli config.CLIPaths, verbose bool, customize func(*config.Config) error, build func(*Prepared) (Request, error)) error {
 	prep, rep, err := Prepare(cli)
 	if err != nil {
 		return err
 	}
-	rep.Write(w)
 	if prep == nil {
+		rep.Write(w)
 		return errors.New("dry run failed: fix the config file first")
+	}
+	if verbose {
+		rep.Write(w)
 	}
 	if customize != nil {
 		if err := customize(prep.Cfg); err != nil {
@@ -223,7 +234,11 @@ func RunAndReport(w io.Writer, cli config.CLIPaths, customize func(*config.Confi
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	report := Run(ctx, req)
-	report.Write(w)
+	if verbose {
+		report.Write(w)
+	} else {
+		report.WriteProblems(w)
+	}
 	if report.Errors() > 0 {
 		return errors.New("dry run failed")
 	}
@@ -232,8 +247,8 @@ func RunAndReport(w io.Writer, cli config.CLIPaths, customize func(*config.Confi
 
 // RunConsole is RunAndReport for the console and acp: no listeners, and the
 // --remote target probed when one is given.
-func RunConsole(w io.Writer, surface Surface, cli config.CLIPaths, remoteArg, remoteToken string, customize func(*config.Config) error) error {
-	return RunAndReport(w, cli, customize, func(prep *Prepared) (Request, error) {
+func RunConsole(w io.Writer, surface Surface, cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error {
+	return RunAndReport(w, cli, verbose, customize, func(prep *Prepared) (Request, error) {
 		ropts, err := remote.Resolve(prep.Cfg, remoteArg, remoteToken)
 		if err != nil {
 			return Request{}, err

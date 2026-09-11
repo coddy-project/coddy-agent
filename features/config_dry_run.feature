@@ -1,18 +1,27 @@
 Feature: A dry run checks that the configured world exists before anything starts
   A config.yaml can be valid to the letter and still describe a world that is not
   there: a model server that is down, a key the provider rejects, an MCP command that
-  is not installed, a Telegram token that was revoked, a prompts directory that was
-  renamed. Today each of those surfaces as a runtime error in whichever surface hits it
-  first. --dry-run on the console, on coddy acp and on coddy serve runs the --test-config
-  check, then probes what the file points at - paths, servers, credentials - and reports
-  every finding with the place in config.yaml it comes from. Nothing starts and nothing
-  is written.
+  is not installed, a revoked Telegram token, a prompts directory that was renamed. Today
+  each of those surfaces as a runtime error in whichever surface hits it first. --dry-run
+  on the console, on coddy acp and on coddy serve checks the file, then probes what it
+  points at - paths, servers, credentials - and reports every problem with the place in
+  config.yaml it comes from. On its own it is quiet: problems and one status line. With
+  --test-config alongside it shows the config check report and every probe, the ones
+  that passed included. Nothing starts and nothing is written.
 
-  Scenario: a provider that answers is reported together with its models
+  Scenario: a healthy setup answers with one status line
     Given a config.yaml whose provider "local" points at a model server listing "qwen"
     And the config uses model "local/qwen"
     When I run coddy with --dry-run
     Then the command succeeds
+    And the report is a single status line starting with "dry run: 0 errors, 0 warnings"
+
+  Scenario: with --test-config the passed probes are shown too
+    Given a config.yaml whose provider "local" points at a model server listing "qwen"
+    And the config uses model "local/qwen"
+    When I run coddy with --dry-run --test-config
+    Then the command succeeds
+    And the report says the config is valid
     And the report marks providers[local] as ok mentioning "1 model"
     And the report marks models[local/qwen] as ok
 
@@ -32,7 +41,7 @@ Feature: A dry run checks that the configured world exists before anything start
 
   Scenario: a Telegram token is checked against the Bot API
     Given a config.yaml enabling the Telegram gateway with a token the Bot API accepts as "coddy_dry_run_bot"
-    When I run coddy acp with --dry-run
+    When I run coddy acp with --dry-run --test-config
     Then the command succeeds
     And the report marks gateways.telegram as ok mentioning "@coddy_dry_run_bot"
 

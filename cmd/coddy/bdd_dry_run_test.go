@@ -199,15 +199,35 @@ func (s *dryRunState) httpOnHeldPort() error {
 	return s.write(dryRunModeline + fmt.Sprintf("httpserver:\n  host: 127.0.0.1\n  port: %d\n", port))
 }
 
-func (s *dryRunState) run(fn func([]string) error) error {
+func (s *dryRunState) run(fn func([]string) error, flags ...string) error {
 	s.out.Reset()
-	s.runErr = fn([]string{"--dry-run", "--home", s.home, "--config", s.cfgPath})
+	s.runErr = fn(append(flags, "--home", s.home, "--config", s.cfgPath))
 	return nil
 }
 
-func (s *dryRunState) runCLIDry() error   { return s.run(runCLI) }
-func (s *dryRunState) runACPDry() error   { return s.run(runACP) }
-func (s *dryRunState) runServeDry() error { return s.run(runServe) }
+func (s *dryRunState) runCLIDry() error        { return s.run(runCLI, "--dry-run") }
+func (s *dryRunState) runCLIDryVerbose() error { return s.run(runCLI, "--dry-run", "--test-config") }
+func (s *dryRunState) runACPDry() error        { return s.run(runACP, "--dry-run") }
+func (s *dryRunState) runACPDryVerbose() error { return s.run(runACP, "--dry-run", "--test-config") }
+func (s *dryRunState) runServeDry() error      { return s.run(runServe, "--dry-run") }
+func (s *dryRunState) runServeDryVerbose() error {
+	return s.run(runServe, "--dry-run", "--test-config")
+}
+
+func (s *dryRunState) reportSaysValid() error {
+	if !strings.Contains(s.out.String(), s.cfgPath+": valid") {
+		return fmt.Errorf("the report does not call %s valid:\n%s", s.cfgPath, s.out.String())
+	}
+	return nil
+}
+
+func (s *dryRunState) singleStatusLine(prefix string) error {
+	lines := strings.Split(strings.TrimRight(s.out.String(), "\n"), "\n")
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], prefix) {
+		return fmt.Errorf("want one status line starting with %q, got:\n%s", prefix, s.out.String())
+	}
+	return nil
+}
 
 func (s *dryRunState) commandSucceeds() error {
 	if s.runErr != nil {
@@ -298,8 +318,13 @@ func initializeDryRunScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^a config\.yaml with the HTTP API on a free port and a provider that answers$`, s.httpOnFreePort)
 	sc.Step(`^a config\.yaml with the HTTP API on a port another process holds$`, s.httpOnHeldPort)
 	sc.Step(`^I run coddy with --dry-run$`, s.runCLIDry)
+	sc.Step(`^I run coddy with --dry-run --test-config$`, s.runCLIDryVerbose)
 	sc.Step(`^I run coddy acp with --dry-run$`, s.runACPDry)
+	sc.Step(`^I run coddy acp with --dry-run --test-config$`, s.runACPDryVerbose)
 	sc.Step(`^I run coddy serve with --dry-run$`, s.runServeDry)
+	sc.Step(`^I run coddy serve with --dry-run --test-config$`, s.runServeDryVerbose)
+	sc.Step(`^the report says the config is valid$`, s.reportSaysValid)
+	sc.Step(`^the report is a single status line starting with "([^"]*)"$`, s.singleStatusLine)
 	sc.Step(`^the command succeeds$`, s.commandSucceeds)
 	sc.Step(`^the command fails$`, s.commandFails)
 	sc.Step(`^the report marks ([^ ]+) as ok$`, s.marksOK)

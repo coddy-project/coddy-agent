@@ -103,8 +103,9 @@ func runServe(args []string) error {
 		Config: strings.TrimSpace(*cfgPath),
 	}
 	// A config check reports on the file and leaves: nothing is created under
-	// the home and no subsystem starts.
-	if *testConfig {
+	// the home and no subsystem starts. Next to --dry-run it asks for the full
+	// report instead of the problems-only one.
+	if *testConfig && !*dryRun {
 		return runConfigTest(cli)
 	}
 
@@ -167,7 +168,7 @@ func runServe(args []string) error {
 	// A dry run resolves the subsystems and their addresses as a start would,
 	// probes them together with everything the file names, and leaves.
 	if *dryRun {
-		return runServeDryRun(cli, applyProcessOverrides, httpListenAddr, swarmListenAddr)
+		return runServeDryRun(cli, *testConfig, applyProcessOverrides, httpListenAddr, swarmListenAddr)
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {

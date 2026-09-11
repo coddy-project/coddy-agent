@@ -6,7 +6,7 @@ Feature: coddy serve --dry-run checks the addresses it would bind
 
   Scenario: the HTTP listen address is checked before the daemon starts
     Given a config.yaml with the HTTP API on a free port and a provider that answers
-    When I run coddy serve with --dry-run
+    When I run coddy serve with --dry-run --test-config
     Then the command succeeds
     And the report marks httpserver as ok mentioning "free"
 

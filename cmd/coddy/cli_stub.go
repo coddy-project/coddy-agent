@@ -18,7 +18,7 @@ import (
 func runCLI(args []string) error {
 	if req, ok := leanCheckRequestFrom(args); ok {
 		if req.dryRun {
-			return runConsoleDryRun(req.cli, req.remote, req.remoteToken, func(c *config.Config) error {
+			return runConsoleDryRun(req.cli, req.testConfig, req.remote, req.remoteToken, func(c *config.Config) error {
 				if req.scheduler {
 					c.Scheduler.Enabled = true
 				}
@@ -37,6 +37,7 @@ func runCLI(args []string) error {
 type leanCheckRequest struct {
 	cli         config.CLIPaths
 	dryRun      bool
+	testConfig  bool
 	remote      string
 	remoteToken string
 	scheduler   bool
@@ -63,6 +64,7 @@ func leanCheckRequestFrom(args []string) (leanCheckRequest, bool) {
 			Config: strings.TrimSpace(*cfgPath),
 		},
 		dryRun:      *dryRun,
+		testConfig:  *testConfig,
 		remote:      strings.TrimSpace(*remoteFlag),
 		remoteToken: strings.TrimSpace(*remoteToken),
 		scheduler:   *scheduler,

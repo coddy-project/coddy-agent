@@ -179,10 +179,11 @@ func printUsage(w io.Writer) {
   %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
         the schema and the loader's rules, print each problem with its line and
         how to fix it, then exit; cli, acp and serve take the same flag)
-  %[1]s --dry-run [--config PATH] [--home DIR] (the --test-config check, then probe
-        what the file points at: paths, model servers and credentials, MCP
-        commands, the Telegram token, and for serve the listen addresses; exit
-        without starting anything; cli, acp and serve take the same flag)
+  %[1]s --dry-run [--config PATH] [--home DIR] (check config.yaml and probe what it
+        points at: paths, model servers and credentials, MCP commands, the
+        Telegram token, and for serve the listen addresses; prints only the
+        problems and a status line, add --test-config for the full report;
+        exits without starting anything; cli, acp and serve take the same flag)
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s serve [flags] (run every subsystem enabled in config.yaml:
@@ -251,11 +252,11 @@ func runACP(args []string) error {
 		CWD:    strings.TrimSpace(*acpCWD),
 		Config: strings.TrimSpace(*cfgPath),
 	}
-	if *testConfig {
+	if *testConfig && !*dryRun {
 		return runConfigTest(cli)
 	}
 	if *dryRun {
-		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *remoteFlag, *remoteToken, func(c *config.Config) error {
+		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *testConfig, *remoteFlag, *remoteToken, func(c *config.Config) error {
 			if *schedulerEnabled {
 				c.Scheduler.Enabled = true
 			}

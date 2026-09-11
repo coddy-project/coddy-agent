@@ -34,8 +34,9 @@ type CommandDeps struct {
 	// TestConfig runs the -t / --test-config check; nil falls back to
 	// config.RunCheck on stdout.
 	TestConfig func(cli config.CLIPaths) error
-	// DryRun runs --dry-run; nil falls back to dryrun.RunConsole on stdout.
-	DryRun func(cli config.CLIPaths, remoteArg, remoteToken string, customize func(*config.Config) error) error
+	// DryRun runs --dry-run (verbose when --test-config is given as well);
+	// nil falls back to dryrun.RunConsole on stdout.
+	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
 }
 
 // Run parses flags, wires the manager, and drives the interactive console.
@@ -87,7 +88,7 @@ func Run(args []string, deps CommandDeps) error {
 	// A config check needs neither a terminal nor a session: it reports on
 	// the file and leaves. cmd/coddy supplies the runner so the report reads
 	// the same as from acp and serve.
-	if *testConfig {
+	if *testConfig && !*dryRun {
 		if deps.TestConfig != nil {
 			return deps.TestConfig(cli)
 		}
@@ -102,9 +103,9 @@ func Run(args []string, deps CommandDeps) error {
 			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
 		}
 		if deps.DryRun != nil {
-			return deps.DryRun(cli, *remoteFlag, *remoteToken, customize)
+			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, customize)
 		}
-		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *remoteFlag, *remoteToken, customize)
+		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, customize)
 	}
 
 	// One-shot print mode needs no terminal at all; only the interactive

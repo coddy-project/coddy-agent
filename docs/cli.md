@@ -225,7 +225,9 @@ lean builds without the `cli` tag as well. `--dry-run` goes one step further:
 after that check it probes what the file points at - the directories it
 names, every provider's model list (address and credential in one request),
 the MCP commands, the Telegram token, the `--remote` target when one is
-given - and exits with status 1 when a probe fails (see
+given - and exits with status 1 when a probe fails. Alone it prints only the
+problems and a status line; together with `--test-config` it prints the config
+check report and every probe (see
 [config.md](config.md#dry-run-probing-what-the-file-points-at)).
 `--session-id <id>` reopens (or creates) that session and replays its
 transcript. `-c/--continue` reopens the most recent session recorded for this

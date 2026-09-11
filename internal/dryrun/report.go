@@ -58,23 +58,43 @@ func (r *Report) count(status Status) int {
 	return n
 }
 
-// Write renders the report as one line per check - status, path, message -
-// with the place in the config file and the fix indented under a problem,
-// and a summary line last.
+// Write renders the whole report: one line per check - status, path,
+// message - with the place in the config file and the fix indented under a
+// problem, and the status line last.
 func (r *Report) Write(w io.Writer) {
 	for _, c := range r.Checks {
-		_, _ = fmt.Fprintf(w, "%-8s %s: %s\n", c.Status, c.Path, c.Message)
-		if c.Line > 0 && r.File != "" {
-			loc := r.File + ":" + strconv.Itoa(c.Line)
-			if c.Column > 0 {
-				loc += ":" + strconv.Itoa(c.Column)
-			}
-			_, _ = fmt.Fprintf(w, "         at %s\n", loc)
-		}
-		if c.Fix != "" {
-			_, _ = fmt.Fprintf(w, "         fix: %s\n", c.Fix)
+		r.writeCheck(w, c)
+	}
+	r.writeSummary(w)
+}
+
+// WriteProblems renders only what needs attention - the warnings and errors,
+// each with its place and fix - and the status line. A run where everything
+// passed is that one line.
+func (r *Report) WriteProblems(w io.Writer) {
+	for _, c := range r.Checks {
+		if c.Status == StatusError || c.Status == StatusWarning {
+			r.writeCheck(w, c)
 		}
 	}
+	r.writeSummary(w)
+}
+
+func (r *Report) writeCheck(w io.Writer, c Check) {
+	_, _ = fmt.Fprintf(w, "%-8s %s: %s\n", c.Status, c.Path, c.Message)
+	if c.Line > 0 && r.File != "" {
+		loc := r.File + ":" + strconv.Itoa(c.Line)
+		if c.Column > 0 {
+			loc += ":" + strconv.Itoa(c.Column)
+		}
+		_, _ = fmt.Fprintf(w, "         at %s\n", loc)
+	}
+	if c.Fix != "" {
+		_, _ = fmt.Fprintf(w, "         fix: %s\n", c.Fix)
+	}
+}
+
+func (r *Report) writeSummary(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "dry run: %s, %s, %d ok\n", plural(r.Errors(), "error"), plural(r.Warnings(), "warning"), r.OK())
 }
 

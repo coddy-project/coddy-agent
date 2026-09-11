@@ -211,10 +211,13 @@ stdio MCP servers and the reachability of remote ones, the Telegram bot token,
 the configured remotes and, for
 .BR serve ,
 the subsystems this binary can run and the listen addresses they would bind.
-Each finding is printed with its status, the config path it is about and the
-line in the file that set it. Nothing starts and nothing is written. Exit
-status 1 when a probe fails; warnings alone leave it at 0. Accepted before any
-command and by
+Alone it prints only the problems, each with its status, the config path it
+is about and the line in the file that set it, and one status line at the end;
+together with
+.B \-\-test\-config
+it prints the configuration report and every probe, the ones that passed
+included. Nothing starts and nothing is written. Exit status 1 when a probe
+fails; warnings alone leave it at 0. Accepted before any command and by
 .BR cli ", " acp " and " serve .
 .PP
 Flags shared by the long\-running commands
