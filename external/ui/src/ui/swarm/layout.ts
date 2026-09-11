@@ -84,8 +84,12 @@ const TIER_HEIGHT = 176;
 /* Wide enough that two cards side by side leave a peer link real room to
    cross: at 244 the gap was 76px and every bow across it read as a wedge. */
 const NODE_SPACING = 300;
-/** Room on the left for the spine and its hop captions. */
-const GUTTER = 124;
+/* Room on the left for the spine and its hop captions. The captions are
+   right-anchored at GUTTER - 40, so this is set by the widest of them across
+   the shipped locales rather than by the spine: Russian's "релей подключения"
+   measures 112px at 11px/500, and at 124 it started 28px outside the canvas
+   and was painted clipped. */
+const GUTTER = 164;
 const MARGIN_RIGHT = 28;
 /** How far outside the widest card a row-skipping link runs. */
 const LANE_GAP = 34;
