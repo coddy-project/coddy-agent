@@ -1,4 +1,4 @@
-# Run full test matrix and golangci-lint on pull requests.
+# Run the full test matrix (one job per tag combination) and golangci-lint on pull requests.
 
 name: Tests on PR
 
@@ -12,9 +12,43 @@ defaults:
     shell: bash
 
 jobs:
-  test:
-    name: Test suite
+  # The tag combinations are written down once, in the Makefile (TEST_TAG_SETS),
+  # and read from there so this file cannot drift from `make test-matrix`. The
+  # OpenCode rules plugin test rides along: it needs Node and nothing else.
+  plan:
+    name: Test matrix
     runs-on: ubuntu-latest
+    outputs:
+      sets: ${{ steps.sets.outputs.sets }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test the OpenCode rules plugin
+        run: make test-opencode-rules
+
+      - name: Read the tag combinations
+        id: sets
+        run: echo "sets=$(make -s print-test-tag-sets)" >> "$GITHUB_OUTPUT"
+
+  # One job per combination, none cancelled by another's failure, so a broken
+  # stub behind one tag is reported by name instead of hiding the combinations
+  # a sequential run never reached. Locally `make test` is the express run over
+  # the shipped tag set only; this matrix is where the partial builds are proven.
+  test:
+    name: Test suite (${{ matrix.tags || 'untagged' }})
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tags: ${{ fromJSON(needs.plan.outputs.sets) }}
 
     steps:
       - name: Checkout repository
@@ -26,18 +60,24 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The ui tag embeds assets that exist only after the SPA is bundled.
       - name: Set up Node.js
+        if: contains(matrix.tags, 'ui')
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: external/ui/package-lock.json
 
+      - name: Build the embedded UI
+        if: contains(matrix.tags, 'ui')
+        run: make ui-build
+
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Run tests
-        run: make test
+        run: go test -tags=${{ matrix.tags }} ./...
 
       # The console suite above drives the app over a fake terminal. This
       # step opens the real binary on a real pty and checks the first frame,

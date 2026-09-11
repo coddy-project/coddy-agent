@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// SkillsAutoDiscoveryFlagName is the CLI flag (on `coddy acp` / `coddy http`)
+// SkillsAutoDiscoveryFlagName is the CLI flag (on `coddy acp` / `coddy serve`)
 // that overrides skills.auto_discovery.
 const SkillsAutoDiscoveryFlagName = "skills-auto-discovery"
 

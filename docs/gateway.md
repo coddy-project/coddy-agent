@@ -115,7 +115,7 @@ In `~/.coddy/config.yaml` (or wherever your `config.yaml` lives), add:
 ```yaml
 gateways:
   telegram:
-    enabled: true
+    enable: true
     token: "${TELEGRAM_BOT_TOKEN}"
     admins: [98874093]           # your Telegram user ID
     default_access: "all"
@@ -140,7 +140,7 @@ All gateway config lives under the `gateways` key in `config.yaml`. When running
 ```yaml
 gateways:
   telegram:
-    enabled: false
+    enable: false
     # Bot token. Optional: leave empty (or omit) to read it from the TELEGRAM_BOT_TOKEN
     # environment variable (e.g. via .env), the same way provider api_key falls back to
     # NAME_API_KEY. When telegram is enabled but no token can be resolved, the gateway

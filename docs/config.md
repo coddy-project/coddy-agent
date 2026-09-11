@@ -165,7 +165,7 @@ sessions:
 # with the built-in /compact command (optional trailing summarizer instructions)
 # or automatically at threshold_percent of the model's max_context_tokens.
 compaction:
-  enabled: true            # master switch (manual command and automation)
+  enable: true             # master switch (manual command and automation)
   threshold_percent: 80    # auto-compact trigger, 1..100; needs models[].max_context_tokens
   keep_recent_turns: 2     # last N user turns stay verbatim; 0 summarizes everything
   model: ""                # models[].model for the summarizer; empty = session model
@@ -173,7 +173,7 @@ compaction:
 # Optional long-term memory copilot (Go: config.MemoryConfig, internal/config/memory.go; logic in external/memory).
 # Implementation is always linked; enable at runtime with memory.enable.
 memory:
-  enabled: false
+  enable: false
   # Exact id from models[]. Used only for recall and persist tool-calling passes, not for the main assistant model.
   # Example: "rpa/qwen3.6-35b-a3b". Empty means fall back to agent.model / session override.
   model: ""
@@ -237,7 +237,7 @@ tools:
 # Subagents (Go: config.Subagents, internal/config/subagents.go). Child agents the model spawns with spawn_agent
 # from markdown definitions; each run is a background task with its own child session. See docs/subagents.md.
 # subagents:
-#   enabled: true
+#   enable: true
 #   dirs: ["${CODDY_HOME}/agents", "${CWD}/.claude/agents", "${CWD}/.coddy/agents"]
 #   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
 #   max_concurrent: 4             # subagent runs in flight across the whole process
@@ -248,7 +248,7 @@ tools:
 # Hooks (Go: config.Hooks, internal/config/hooks.go). Your own commands at lifecycle points of a session,
 # defined in JSON files of Claude Code's shape; project files need a one-time approval. See docs/hooks.md.
 # hooks:
-#   enabled: true
+#   enable: true
 #   files: ["${CODDY_HOME}/hooks.json", "${CWD}/.claude/settings.json", "${CWD}/.claude/settings.local.json", "${CWD}/.coddy/hooks.json"]
 #   project_trust: ask            # ask (approve project files once per workspace) | allow | deny
 #   default_timeout_seconds: 60   # per hook process when the definition gives no timeout
@@ -262,7 +262,7 @@ tools:
 
 # Cron scheduler (only with go build -tags=scheduler). UTC crontab; flat *.md jobs under scheduler.dir.
 # scheduler:
-#   enabled: false
+#   enable: false
 #   dir: ""
 #   max_queue: 10
 #   timeout: "30m"
@@ -352,7 +352,7 @@ Requires a binary built with **`-tags gateway.telegram`** (Telegram only) or **`
 gateways:
   telegram:
     # Set to true to activate the Telegram adapter when coddy serve starts.
-    enabled: false
+    enable: false
 
     # Bot token from @BotFather. Never hard-code; always use an env reference.
     token: "${TELEGRAM_BOT_TOKEN}"
@@ -397,7 +397,7 @@ gateways:
     #     access: "admins"
 ```
 
-`token` is validated at startup when `enabled: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
+`token` is validated at startup when `enable: true`. `proxy` is optional (empty = direct connection). The other fields apply defaults if omitted: `default_access: "all"`, `default_isolation: "individual"`.
 
 See **[docs/gateway.md](gateway.md)** for the full configuration guide, running instructions, and how to add adapters for other messengers.
 

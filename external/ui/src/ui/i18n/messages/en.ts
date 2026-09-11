@@ -843,7 +843,7 @@ export const messagesEn: Record<string, string> = {
   "composer.atRangeTruncated": "Showing first {shown} of {total} lines",
   "composer.requestFailed": "request failed",
   "composer.env.ariaLabel": "Environment",
-  "composer.env.title": "Environment (local or remote coddy http)",
+  "composer.env.title": "Environment (local or remote coddy serve)",
   "composer.env.local": "Local",
   "composer.env.localThisOrigin": "Local (this origin)",
   "composer.env.groupEnvironment": "Environment",
@@ -940,7 +940,7 @@ export const messagesEn: Record<string, string> = {
   "scheduler.apiNotAvailable":
     "Scheduler API is not available in this build (rebuild with http,scheduler).",
   "scheduler.disabled":
-    "Scheduler is disabled (set scheduler.enabled or pass -scheduler-enabled).",
+    "Scheduler is disabled (set scheduler.enable or run coddy serve --scheduler).",
   "scheduler.validation.required": "Required",
   "scheduler.validation.tooLong": "Too long",
   "scheduler.validation.noSpaces":

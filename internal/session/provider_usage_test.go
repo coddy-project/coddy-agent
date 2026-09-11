@@ -922,7 +922,7 @@ func TestProviderUsageTwoSessionsShareOneSnapshot(t *testing.T) {
 	}
 }
 
-// usageNoopSender stands for coddy http's manager-wide sender: it drops
+// usageNoopSender stands for coddy serve's manager-wide sender: it drops
 // everything, so only the observers can carry a snapshot.
 type usageNoopSender struct{}
 
@@ -1285,7 +1285,7 @@ func TestProviderUsageReadyDeliversExactlyOnce(t *testing.T) {
 
 func TestProviderUsageDeferredTurnEndReachesObservers(t *testing.T) {
 	stand := newUsageStand(t)
-	// A no-op manager sender stands for coddy http, where only the
+	// A no-op manager sender stands for coddy serve, where only the
 	// observers listen.
 	m := newUsageManager(t, stand, usageNoopSender{}, nil)
 	clock := newFakeUsageClock()

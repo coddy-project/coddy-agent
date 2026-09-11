@@ -30,7 +30,7 @@ const (
 	compactTriggerAuto   = "auto"
 )
 
-// ErrCompactionDisabled is returned when compaction.enabled is false.
+// ErrCompactionDisabled is returned when compaction.enable is false.
 var ErrCompactionDisabled = errors.New("compaction is disabled (compaction.enable)")
 
 // CompactionResult reports what a successful compaction did.

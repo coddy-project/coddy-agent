@@ -21,4 +21,4 @@ logger:
   level: "warn"
   outputs: ["stderr"]
 scheduler:
-  enabled: false
+  enable: false

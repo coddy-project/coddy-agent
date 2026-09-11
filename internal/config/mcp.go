@@ -22,7 +22,7 @@ const (
 	ProjectTrustDeny = "deny"
 )
 
-// ProjectTrustFlagName is the CLI flag (on `coddy acp` / `coddy http`) that
+// ProjectTrustFlagName is the CLI flag (on `coddy acp` / `coddy serve`) that
 // overrides mcp.project_trust for one process, so a trusted checkout or a CI
 // job can opt in without editing config.yaml.
 const ProjectTrustFlagName = "mcp-project-trust"

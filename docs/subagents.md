@@ -253,7 +253,7 @@ All knobs are ordinary `config.yaml` keys under `subagents:`; the field table is
 
 ```yaml
 subagents:
-  enabled: true
+  enable: true
   dirs:
     - "${CODDY_HOME}/agents"
     - "${CWD}/.claude/agents"

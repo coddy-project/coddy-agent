@@ -643,7 +643,7 @@ func (m *Manager) HandleSessionPrompt(ctx context.Context, params acp.SessionPro
 // turn lock themselves - streaming ones before committing SSE headers, non-streaming ones
 // before opening a relay for watchers.
 type PromptRunOpts struct {
-	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy http SSE).
+	// SkipTurnLock when true means the caller already holds the composer turn lock (e.g. coddy serve SSE).
 	SkipTurnLock bool
 	// DetachFromRequest when true runs the turn on a context.WithoutCancel copy of ctx, so a
 	// client that drops the HTTP connection mid-turn does not kill it. A streaming composer

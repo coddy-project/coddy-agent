@@ -36,11 +36,11 @@ Swagger lives at **`/docs/`**, OpenAPI YAML at **`/openapi.yaml`**.
 
 ## Pre-commit gate
 
-A git **`pre-commit`** hook runs the linter before every commit, so nothing lands with lint errors. It is the single enforcement point for humans and coding agents alike. The full test matrix (**`make test`**) is slow, so it is **opt-in** on commit and belongs in CI / before push.
+A git **`pre-commit`** hook runs the linter before every commit, so nothing lands with lint errors. It is the single enforcement point for humans and coding agents alike. Tests are **opt-in** on commit: **`make test`** (the express run, every optional module compiled in once) belongs before the push, and the per-combination tag matrix (**`make test-matrix`**) runs on GitHub Actions for every pull request.
 
 - Enable once per clone: **`make hooks`** (sets **`core.hooksPath=.githooks`**; this is local config and is not committed, so every clone runs it once).
 - On commit, **`.githooks/pre-commit`** calls **`scripts/checks.sh`**, which runs **`make lint`** by default. Commits touching only non-code files (docs, etc.) skip the gate.
-- Scope knobs: **`CODDY_HOOK_TESTS=fast`** also runs a quick **`go test ./...`**, **`CODDY_HOOK_TESTS=full`** the whole matrix; **`CODDY_HOOK_LINT=0`** skips the linter; **`CODDY_HOOK_SKIP=1`** bypasses everything.
+- Scope knobs: **`CODDY_HOOK_TESTS=fast`** also runs a quick **`go test ./...`**, **`CODDY_HOOK_TESTS=full`** the express **`make test`**, **`CODDY_HOOK_TESTS=matrix`** every tag combination; **`CODDY_HOOK_LINT=0`** skips the linter; **`CODDY_HOOK_SKIP=1`** bypasses everything.
 - Emergency bypass for a single commit: **`git commit --no-verify`**.
 - Both gates compile the **host** platform only. Changing a file behind **`//go:build windows`**, or a signature it shares with the rest of the tree, needs **`make check-windows`** (cross-build plus **`go vet`** over every non-**`ui`** tag combination, test files included) and **`make lint-windows`**. CI runs both, and additionally runs **`go test`** on a real **`windows-latest`** runner for **`internal/platform`**, **`internal/bgtask`**, **`internal/tools/shell`**, **`internal/update`**, **`internal/hooks`**, **`internal/rules`** and the console TUI (**`external/cli`**, `-tags=cli`). The same packages run on a **`macos-latest`** runner (job **`test-macos`**), which also builds the console and drives the binary through a real pty with **`examples/cli/cli_e2e_startup.py`** (first frame, keys, exit); the Linux job runs that pty script too, after **`make test`**.
 
@@ -112,7 +112,7 @@ When changing behavior for the OpenAI-compatible HTTP gateway or bundled UI:
 - Keep `docs/http-api.md` aligned with the live behavior.
 - For UI changes, update sources under **`external/ui/src/`** and rebuild embedded assets via **`make build TAGS="http ui"`** (runs **npm** via **make ui-build**).
 - **Every** UI edit in a PR ships with a screenshot of the surface it changed (before/after when the surface already existed) — see step 5 of **`.claude/rules/workflow.md`**. If a surface cannot be captured, say so in the PR instead of omitting it.
-- Run full regression `make test`, then `make lint`.
+- Run `make test` (the express run over the shipped tag set), then `make lint`. The tag matrix runs in CI on the pull request; do not walk it locally.
 
 ## UI sources (`external/ui/`)
 

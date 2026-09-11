@@ -201,10 +201,12 @@ Order does not matter for these tags.
 | **`http`** | The OpenAI-shaped REST gateway `coddy serve` runs under **`httpserver.enable`**, **`/docs`**, **`/openapi.yaml`** | [`docs/http-api.md`](http-api.md) · [`external/httpserver/`](../external/httpserver/) |
 | **`ui`** | Embedded SPA on **`/`** (requires **`http`**; **`/`** returns **404** with **`http`** only) | [`docs/ui.md`](ui.md) · [`DESIGN.md`](../DESIGN.md) |
 | **`scheduler`** | Scheduler daemon hooks, **`coddy_scheduler_*`** tools; with **`http`**, **`/coddy/scheduler`** REST | [`docs/scheduler.md`](scheduler.md) · [`external/scheduler/README.md`](../external/scheduler/README.md) |
+| **`cli`** | Interactive console TUI: bare **`coddy`** on a terminal | [`docs/cli.md`](cli.md) · [`external/cli/`](../external/cli/) |
 | **`gateway.telegram`** | Telegram bot adapter, started by **`coddy serve`** under **`gateways.telegram.enable`**; per-user/group sessions, access control | [`docs/gateway.md`](gateway.md) · [`external/gateway/`](../external/gateway/) |
 | **`gateway`** | All messenger adapters (superset of **`gateway.telegram`**; includes future Discord, Slack adapters) | [`docs/gateway.md`](gateway.md) |
+| **`swarm`** | Stateless relay that aggregates nodes, started by **`coddy serve`** under **`swarm.enable`** | [`docs/swarm.md`](swarm.md) · [`external/swarm/`](../external/swarm/) |
 
-**`make test`** exercises tag combinations (see **`test`** target in [`Makefile`](../Makefile)).
+**`make test`** is the express run: the whole tree once with every optional module compiled in (**`http,ui,scheduler,memory,cli,gateway,swarm`**). **`make test-matrix`** walks every combination (the **`TEST_TAG_SETS`** list in [`Makefile`](../Makefile)); CI runs that matrix on every pull request, one job per combination.
 
 ## Release binaries (CI)
 

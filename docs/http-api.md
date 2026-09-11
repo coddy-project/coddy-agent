@@ -44,14 +44,14 @@ remote server must opt into CORS:
 httpserver:
   auth_token: "${CODDY_HTTP_TOKEN}"
   cors:
-    enabled: true
+    enable: true
     allowed_origins: ["http://localhost:12345", "https://my-ui.example"]   # or ["*"]
   remotes:                       # optional: offered in the UI environment selector
     - name: "prod box"
       url: "https://box.example:12345"
 ```
 
-When `cors.enabled` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
+When `cors.enable` is true, preflight `OPTIONS` requests for an allowed origin return `204` with
 `Access-Control-Allow-Origin` (echoed origin, or `*` when configured) and
 `Access-Control-Allow-Headers: Authorization, Content-Type, X-Coddy-Session-ID`; disallowed origins
 receive no CORS headers. Bearer auth still applies to the actual request. Tokens for remotes are
@@ -255,6 +255,6 @@ make build TAGS=http
 make build TAGS="http ui"
 ```
 
-`go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then **`http`** and **`http,ui`** and scheduler combinations).
+`go test ./...` skips **`external/httpserver`** unless **`go test -tags=http`**. SPA-specific tests compile under **`go test -tags=http,ui`** (Makefile **`make test`** runs **`ui-build`** once, then a single **`go test`** with every tag; the per-combination matrix is **`make test-matrix`**, which CI runs).
 
 For a manual gateway check against a disposable **`coddy serve`** process, **`examples/test_httpserver.sh`** runs the Python demos under **`examples/httpserver/`** (see **`examples/README.md`**). Steps that call chat or responses expect a working **`models`** backend.
