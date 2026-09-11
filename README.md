@@ -371,7 +371,7 @@ brew upgrade coddy            # Homebrew formula (Cellar)
 **Notes**
 
 - Update the same binary you intend to use. If **`which coddy`** points at **`~/.local/bin/coddy`**, run **`coddy update`** from that install, not a different copy on **`PATH`**.
-- **`$CODDY_HOME`** (config, sessions, skills) is untouched; only the executable changes.
+- **`$CODDY_HOME`** (config, sessions, skills) is untouched. The executable changes, and so do the man page and the shell completions the installer put beside it, so Tab completion keeps up with the command set.
 - To build from source or change tags, use **`make build`** instead. For containers, use **`docker compose pull`**. See **[docs/update.md](docs/update.md)** for platform tables, limitations, and other upgrade paths.
 
 ## Operating Modes

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,6 +26,14 @@ const (
 	featurePayload    = "the release build of Coddy"
 )
 
+// featureExtras are the files the release archive carries beside the binary,
+// keyed by their name inside the archive, with the body the release ships.
+var featureExtras = map[string]string{
+	"coddy.1":    "the release man page",
+	"coddy.bash": "the release bash completion",
+	"coddy.zsh":  "the release zsh completion",
+}
+
 type updateFeatureState struct {
 	archive   []byte
 	assetName string
@@ -32,6 +41,7 @@ type updateFeatureState struct {
 	goos      string
 	dest      string
 	dir       string
+	share     string
 	dropFirst bool
 	served    int
 	out       bytes.Buffer
@@ -60,7 +70,13 @@ func (s *updateFeatureState) releaseIsAvailable(goos, goarch string) error {
 	if goos == "windows" {
 		s.archive, err = zipArchive("coddy.exe", []byte(featurePayload))
 	} else {
-		s.archive, err = tarGzArchive(BinaryName(goos), []byte(featurePayload))
+		// The Linux and macOS archives carry the man page and the completions
+		// beside the binary, the way CI publishes them.
+		members := map[string][]byte{BinaryName(goos): []byte(featurePayload)}
+		for name, body := range featureExtras {
+			members[name] = []byte(body)
+		}
+		s.archive, err = tarGzArchiveOf(members)
 	}
 	if err != nil {
 		return err
@@ -134,6 +150,56 @@ func (s *updateFeatureState) newerWindowsReleaseIsAvailable() error {
 func (s *updateFeatureState) serverDropsTheFirstConnection() error {
 	s.dropFirst = true
 	return nil
+}
+
+// extrasSitBesideTheExecutable lays the installation out the way the install
+// script does: the binary in a bin directory, the man page and the completions
+// in the share directory of the same prefix, all from the release before this
+// one.
+func (s *updateFeatureState) extrasSitBesideTheExecutable() error {
+	bin := filepath.Join(s.dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		return err
+	}
+	installed, err := os.ReadFile(s.dest)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(s.dest); err != nil {
+		return err
+	}
+	s.dest = filepath.Join(bin, BinaryName(s.goos))
+	if err := os.WriteFile(s.dest, installed, 0o755); err != nil {
+		return err
+	}
+	s.share = filepath.Join(s.dir, "share")
+	for _, e := range extraFiles {
+		path := filepath.Join(s.share, filepath.FromSlash(e.Rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, []byte("the installed "+e.Label), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *updateFeatureState) extrasAreFromTheRelease() error {
+	for _, e := range extraFiles {
+		got, err := os.ReadFile(filepath.Join(s.share, filepath.FromSlash(e.Rel)))
+		if err != nil {
+			return err
+		}
+		if string(got) != featureExtras[e.Member] {
+			return fmt.Errorf("%s = %q, want %q", e.Label, got, featureExtras[e.Member])
+		}
+	}
+	return nil
+}
+
+func (s *updateFeatureState) reportsRefreshedExtras() error {
+	return s.reports("Refreshed the man page, the bash completion and the zsh completion under " + s.share)
 }
 
 func (s *updateFeatureState) options() Options {
@@ -256,6 +322,7 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^a newer Coddy release is available$`, s.newerReleaseIsAvailable)
 			sc.Step(`^a newer Windows Coddy release is available$`, s.newerWindowsReleaseIsAvailable)
 			sc.Step(`^the download server drops the first connection halfway$`, s.serverDropsTheFirstConnection)
+			sc.Step(`^the man page and the shell completions of the installed release sit beside the executable$`, s.extrasSitBesideTheExecutable)
 			sc.Step(`^Coddy installs the update$`, s.coddyInstallsTheUpdate)
 			sc.Step(`^Coddy prepares the Windows update$`, s.coddyPreparesTheWindowsUpdate)
 			sc.Step(`^Coddy prepares the Windows update with --no-restart$`, s.coddyPreparesTheWindowsUpdateWithoutRestart)
@@ -263,6 +330,8 @@ func TestUpdateFeature(t *testing.T) {
 			sc.Step(`^Coddy reports the release it installed$`, s.reportsTheInstalledRelease)
 			sc.Step(`^Coddy reports that it verified the archive against the published checksums$`, s.reportsAVerifiedArchive)
 			sc.Step(`^Coddy reports that it resumed the download$`, s.reportsAResumedDownload)
+			sc.Step(`^the man page and the shell completions are the ones from the release$`, s.extrasAreFromTheRelease)
+			sc.Step(`^Coddy reports that it refreshed the man page and the shell completions$`, s.reportsRefreshedExtras)
 			sc.Step(`^it reports that the update is ready$`, s.updateIsReady)
 			sc.Step(`^it schedules a helper that will restart Coddy$`, s.helperWillRestartCoddy)
 			sc.Step(`^it schedules a helper that will leave Coddy stopped$`, s.helperWillLeaveCoddyStopped)
@@ -294,14 +363,28 @@ func zipArchive(name string, body []byte) ([]byte, error) {
 }
 
 func tarGzArchive(name string, body []byte) ([]byte, error) {
+	return tarGzArchiveOf(map[string][]byte{name: body})
+}
+
+// tarGzArchiveOf builds a release-shaped archive holding every member given,
+// in a stable order so two calls with the same input hash the same.
+func tarGzArchiveOf(members map[string][]byte) ([]byte, error) {
+	names := make([]string, 0, len(members))
+	for name := range members {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
-		return nil, err
-	}
-	if _, err := tw.Write(body); err != nil {
-		return nil, err
+	for _, name := range names {
+		body := members[name]
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+			return nil, err
+		}
+		if _, err := tw.Write(body); err != nil {
+			return nil, err
+		}
 	}
 	if err := tw.Close(); err != nil {
 		return nil, err

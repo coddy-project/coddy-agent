@@ -1,6 +1,6 @@
 .\" Manual page for coddy.
 .\" Keep the command list in sync with printUsage() in cmd/coddy/main.go.
-.TH CODDY 1 "2026-09-10" "Coddy" "User Commands"
+.TH CODDY 1 "2026-09-11" "Coddy" "User Commands"
 .SH NAME
 coddy \- coding agent with a console, an editor protocol, an HTTP gateway and a messenger gateway
 .SH SYNOPSIS
@@ -221,7 +221,12 @@ server instead of a local agent.
 downloads the release assets published on GitHub, verifies them against the
 release
 .I SHA256SUMS
-list, and replaces the executable it is running.
+list, and replaces the executable it is running. The man page and the shell
+completions the installer put beside it, under the
+.I share
+directory of the same prefix, are refreshed with it, so Tab completion never
+offers a command set the binary does not have. Files that were never installed
+are not created.
 .TP
 .B \-\-check
 Report whether a newer release exists and exit

@@ -1,5 +1,5 @@
 ---
-description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI and config schema sync before lint, final checks
+description: BDD-style workflow, UI screenshots in the PR, HTTP OpenAPI, config schema and CLI packaging sync before lint, final checks
 paths:
   - "**/*.go"
   - "docs/**/*.md"
@@ -78,7 +78,19 @@ When adding or changing behavior (including words like feature, add, implement, 
    **`docs/plans/**`** and **`docs/remote-control.md`** are design records of decisions as they
    were taken; they are **not** rewritten to match a later rename.
 
-10. Run **`make lint`** (`golangci-lint`). Fix reported issues.
+10. **CLI command set** - if the change added, renamed or removed a subcommand, a **`serve`** verb
+    or a flag that **`printUsage`** (**`cmd/coddy/main.go`**) lists, carry the same change into
+    **`packaging/man/coddy.1`**, **`packaging/completions/coddy.bash`** and
+    **`packaging/completions/coddy.zsh`**, and into the **`topLevelCommands`** list of
+    **`cmd/coddy/usage_test.go`**. Those three files are what every install route ships as the
+    description of the command set - the release archive (**`install.sh`**, the Homebrew cask,
+    **`coddy update`**), the **`.deb`** and the **`.rpm`**, the Homebrew formula - and nothing
+    generates them from the code. The test asserts the top-level commands and the `serve` verbs
+    against the usage text, in both directions, but a flag lives in the completions and the man
+    page by hand only. A completer that offers **`http`** while the binary answers **`serve`** is a
+    user-visible bug (issue #188), so this belongs to the change, not to the release.
+
+11. Run **`make lint`** (`golangci-lint`). Fix reported issues.
 
 Then report briefly: goal, tests added or changed, `make test` and `make lint` outcome, files touched, and the CI matrix verdict once the pull request is up.
 
@@ -91,7 +103,8 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 5. If the bug or fix touches the HTTP API surface, complete step 6 (OpenAPI and docs) from the feature flow.
 6. If it touches **`internal/config`** yaml-tagged structs, complete steps 7 and 8 (config schema sync, and publishing it to the site) from the feature flow.
 7. If the fix renamed, removed or replaced anything an operator types - a config key, a subcommand, a flag - complete step 9 (documentation, examples, comments and bundled instructions) from the feature flow. A fix that leaves the old spelling standing in an example ships a second bug.
-8. Run **`make lint`**.
+8. If the fix touched what **`printUsage`** lists - a subcommand, a **`serve`** verb, a flag - complete step 10 (man page and completions) from the feature flow.
+9. Run **`make lint`**.
 
 ## Before calling work done
 
@@ -100,5 +113,6 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`internal/config/config.schema.json`**, **`docs/config-reference.md`**, and **`internal/skills/bundled/configure-coddy/SKILL.md`** updated when `internal/config` yaml fields changed, and **`make site-schema-check`** clean so the copy published at **`coddy.dev/config.schema.json`** is not stale.
 - **No stale spelling of anything renamed**: `git grep -nI '<old name>'` comes back empty outside **`docs/plans/**`** and **`docs/remote-control.md`** - docs, `config.example.yaml`, `examples/`, Go comments, every `external/ui/src/ui/i18n/messages/` dictionary and `internal/skills/bundled/` included.
+- **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
 - **`make lint`** clean.
 - **Rules sync** — if any `.claude/rules/*.md` file was added or changed, propagate to `.cursor/rules/`: copy the content body, replace `paths:` with Cursor-compatible `globs:`/`alwaysApply:`, rename to `.mdc`. Files without `paths:` get `alwaysApply: true`.

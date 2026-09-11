@@ -1,6 +1,9 @@
 Feature: Coddy self-update
   Coddy downloads an official release archive and replaces the executable it is
-  running with the binary inside it.
+  running with the binary inside it. The archive also carries the man page and
+  the shell completions, and where the installer put them beside the binary the
+  update refreshes them too, so a completer never offers commands the binary no
+  longer has.
 
   Scenario: Installing a newer release
     Given a newer Coddy release is available
@@ -19,6 +22,14 @@ Feature: Coddy self-update
     When Coddy installs the update
     Then the installed executable is the one from the release
     And Coddy reports that it resumed the download
+
+  Scenario: Refreshing the man page and the shell completions installed beside the binary
+    Given a newer Coddy release is available
+    And the man page and the shell completions of the installed release sit beside the executable
+    When Coddy installs the update
+    Then the installed executable is the one from the release
+    And the man page and the shell completions are the ones from the release
+    And Coddy reports that it refreshed the man page and the shell completions
 
   Scenario: Scheduling a downloaded Windows update
     Given a newer Windows Coddy release is available

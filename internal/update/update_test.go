@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -326,5 +327,211 @@ func TestDownloadProgress_drawsNoBarOutsideATerminal(t *testing.T) {
 	p.Complete(100)
 	if !strings.Contains(out.String(), "Downloaded") {
 		t.Fatalf("output = %q", out.String())
+	}
+}
+
+// writeExtras lays out the installer's share directory under prefix with the
+// given body in every extra, and returns that directory.
+func writeExtras(t *testing.T, prefix string, body string, only ...string) string {
+	t.Helper()
+	share := filepath.Join(prefix, "share")
+	for _, e := range extraFiles {
+		if len(only) > 0 && !slices.Contains(only, e.Member) {
+			continue
+		}
+		path := filepath.Join(share, filepath.FromSlash(e.Rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return share
+}
+
+func readExtra(t *testing.T, share string, member string) string {
+	t.Helper()
+	for _, e := range extraFiles {
+		if e.Member != member {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(share, filepath.FromSlash(e.Rel)))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Label, err)
+		}
+		return string(b)
+	}
+	t.Fatalf("no extra named %q", member)
+	return ""
+}
+
+func mustReleaseTarGz(t *testing.T, members map[string][]byte) []byte {
+	t.Helper()
+	data, err := tarGzArchiveOf(members)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestInstallRelease_refreshesOnlyTheExtrasThatAreInstalled(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	dest := filepath.Join(prefix, "bin", "coddy")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The user kept the zsh completion and nothing else - say, the install ran
+	// with --no-shell-setup and they wired one file up by hand.
+	share := writeExtras(t, prefix, "installed", "coddy.zsh")
+	archive := mustReleaseTarGz(t, map[string][]byte{
+		"coddy": []byte("release"), "coddy.1": []byte("man"), "coddy.bash": []byte("bash"), "coddy.zsh": []byte("zsh"),
+	})
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "coddy_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := readExtra(t, share, "coddy.zsh"); got != "zsh" {
+		t.Fatalf("zsh completion = %q, want the release copy", got)
+	}
+	for _, member := range []string{"coddy.1", "coddy.bash"} {
+		for _, e := range extraFiles {
+			if e.Member != member {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(share, filepath.FromSlash(e.Rel))); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("%s was created, but the update must only refresh what the installer put there (stat: %v)", e.Label, err)
+			}
+		}
+	}
+	want := "Refreshed the zsh completion under " + share
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output %q does not contain %q", out.String(), want)
+	}
+}
+
+func TestInstallRelease_keepsTheExtrasAReleaseDoesNotCarry(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	dest := filepath.Join(prefix, "bin", "coddy")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	share := writeExtras(t, prefix, "installed")
+	// A release from before the archives carried the extras: binary only.
+	archive := mustTarGz(t, "coddy", []byte("release"))
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "coddy_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "release" {
+		t.Fatalf("executable = %q, want the release copy", got)
+	}
+	for _, e := range extraFiles {
+		if got := readExtra(t, share, e.Member); got != "installed" {
+			t.Errorf("%s = %q, want the installed copy kept", e.Label, got)
+		}
+	}
+	want := "Kept the man page, the bash completion and the zsh completion under " + share + ": release 0.9.3 does not carry them"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("output %q does not contain %q", out.String(), want)
+	}
+}
+
+func TestInstallRelease_leavesAnExecutableOutsideBinAlone(t *testing.T) {
+	t.Parallel()
+	prefix := t.TempDir()
+	// A build tree: the binary is not under a bin directory, so no share
+	// directory pairs with it, whatever happens to sit next door.
+	dest := filepath.Join(prefix, "build", "coddy")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	share := writeExtras(t, prefix, "installed")
+	archive := mustReleaseTarGz(t, map[string][]byte{"coddy": []byte("release"), "coddy.1": []byte("man")})
+
+	var out bytes.Buffer
+	if err := installRelease(archive, "coddy_0.9.3_linux_amd64.tar.gz", dest, "0.9.3", &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := readExtra(t, share, "coddy.1"); got != "installed" {
+		t.Fatalf("man page = %q, want it untouched", got)
+	}
+	if strings.Contains(out.String(), "Refreshed") || strings.Contains(out.String(), "Kept") {
+		t.Fatalf("output mentions extras for an executable outside bin: %q", out.String())
+	}
+}
+
+func TestShareDirFor(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"/home/u/.local/bin/coddy": "/home/u/.local/share",
+		"/usr/local/bin/coddy":     "/usr/local/share",
+		"/opt/coddy/bin/coddy":     "/opt/coddy/share",
+		"/home/u/src/build/coddy":  "",
+		"/home/u/coddy":            "",
+	}
+	for dest, want := range cases {
+		got := shareDirFor(filepath.FromSlash(dest))
+		if want != "" {
+			want = filepath.FromSlash(want)
+		}
+		if got != want {
+			t.Errorf("shareDirFor(%q) = %q, want %q", dest, got, want)
+		}
+	}
+}
+
+func TestJoinLabels(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   []string
+		want string
+	}{
+		{nil, ""},
+		{[]string{"man page"}, "the man page"},
+		{[]string{"man page", "zsh completion"}, "the man page and the zsh completion"},
+		{[]string{"man page", "bash completion", "zsh completion"}, "the man page, the bash completion and the zsh completion"},
+	}
+	for _, c := range cases {
+		if got := joinLabels(c.in); got != c.want {
+			t.Errorf("joinLabels(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestFilesFromTarGz_returnsOnlyTheMembersAsked(t *testing.T) {
+	t.Parallel()
+	archive := mustReleaseTarGz(t, map[string][]byte{
+		"coddy": []byte("bin"), "coddy.1": []byte("man"), "README": []byte("notes"),
+	})
+	files, err := filesFromTarGz(archive, map[string]bool{"coddy": true, "coddy.zsh": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(files["coddy"]) != "bin" {
+		t.Errorf("coddy = %q", files["coddy"])
+	}
+	if _, ok := files["coddy.zsh"]; ok {
+		t.Error("a member the archive lacks must be absent, not empty")
+	}
+	if _, ok := files["coddy.1"]; ok {
+		t.Error("a member nobody asked for was read")
 	}
 }

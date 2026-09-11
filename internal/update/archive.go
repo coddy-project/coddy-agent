@@ -40,13 +40,30 @@ func runtimeGOOSFromArchive(name string) string {
 }
 
 func executableFromTarGz(data []byte, binName string) ([]byte, error) {
+	files, err := filesFromTarGz(data, map[string]bool{binName: true})
+	if err != nil {
+		return nil, err
+	}
+	body, ok := files[binName]
+	if !ok {
+		return nil, fmt.Errorf("archive missing %q", binName)
+	}
+	return body, nil
+}
+
+// filesFromTarGz reads the regular members whose base name is in want, keyed
+// by that name, and stops once every wanted name has been seen. A name the
+// archive does not carry is absent from the result rather than an error: the
+// caller decides whether it needed it.
+func filesFromTarGz(data []byte, want map[string]bool) (map[string][]byte, error) {
 	zr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = zr.Close() }()
 	tr := tar.NewReader(zr)
-	for {
+	found := make(map[string][]byte, len(want))
+	for len(found) < len(want) {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -58,16 +75,16 @@ func executableFromTarGz(data []byte, binName string) ([]byte, error) {
 			continue
 		}
 		base := filepath.Base(hdr.Name)
-		if base != binName {
+		if _, seen := found[base]; !want[base] || seen {
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(tr, 128<<20))
 		if err != nil {
 			return nil, err
 		}
-		return body, nil
+		found[base] = body
 	}
-	return nil, fmt.Errorf("archive missing %q", binName)
+	return found, nil
 }
 
 func executableFromZip(data []byte, binName string) ([]byte, error) {
@@ -94,7 +111,13 @@ func executableFromZip(data []byte, binName string) ([]byte, error) {
 }
 
 func writeExecutable(dest string, body []byte) error {
-	tmpName, err := stageExecutable(dest, body)
+	return writeFile(dest, body, 0o755)
+}
+
+// writeFile replaces dest with body atomically: staged beside it, then renamed
+// over it, so a reader never sees a half-written file.
+func writeFile(dest string, body []byte, mode os.FileMode) error {
+	tmpName, err := stageFile(dest, body, mode)
 	if err != nil {
 		return err
 	}
@@ -106,6 +129,10 @@ func writeExecutable(dest string, body []byte) error {
 }
 
 func stageExecutable(dest string, body []byte) (string, error) {
+	return stageFile(dest, body, 0o755)
+}
+
+func stageFile(dest string, body []byte, mode os.FileMode) (string, error) {
 	dir := filepath.Dir(dest)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
@@ -125,7 +152,7 @@ func stageExecutable(dest string, body []byte) (string, error) {
 		_ = tmp.Close()
 		return "", err
 	}
-	if err := tmp.Chmod(0o755); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return "", err
 	}

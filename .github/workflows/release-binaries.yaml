@@ -147,9 +147,9 @@ jobs:
               (cd "$bindir" && zip -q "$DIST/${stem}.zip" "$binname")
             else
               # The macOS archives are what the Homebrew cask installs, so the
-              # man page and the completions travel beside the binary. Every
-              # consumer that wants only the executable - `coddy update`, the
-              # install script - takes it out by name and ignores the rest.
+              # man page and the completions travel beside the binary. The
+              # install script and `coddy update` take all four out by name,
+              # so a member added here is invisible to them until they ask.
               cp packaging/man/coddy.1 "$bindir/coddy.1"
               cp packaging/completions/coddy.bash "$bindir/coddy.bash"
               cp packaging/completions/coddy.zsh "$bindir/coddy.zsh"
