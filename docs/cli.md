@@ -404,8 +404,8 @@ comparison, as described under **Visual model**.
 - Real pty, no model: `examples/cli/cli_e2e_startup.py` opens the built
   binary in a pty (pexpect + pyte), waits for the first frame, types into the
   editor, clears it with ctrl+c and exits with the second one, then checks the
-  resume hint and the exit status. CI runs it on `ubuntu-latest` and on
-  `macos-latest` (job `test-macos`, which also runs the platform packages and
+  resume hint and the exit status. CI runs it in the `cli` job of the Linux test
+  matrix and on `macos-latest` (job `test-macos`, which also runs the platform packages and
   the console suite on macOS), because the Go suite never opens a pty and the
   console's terminal path is exactly what differs between hosts.
 - Live e2e: `./examples/test_cli.sh` drives the real binary in a pty

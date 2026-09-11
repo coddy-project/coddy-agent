@@ -79,13 +79,16 @@ jobs:
       - name: Run tests
         run: go test -tags=${{ matrix.tags }} ./...
 
-      # The console suite above drives the app over a fake terminal. This
-      # step opens the real binary on a real pty and checks the first frame,
-      # the keyboard and the exit, so the tty path is proven on Linux too.
+      # The console suite drives the app over a fake terminal. In the one
+      # combination that is the console alone, this opens the real binary on a
+      # real pty and checks the first frame, the keyboard and the exit, so the
+      # tty path is proven on Linux too (test-macos does the same on macOS).
       - name: Build the console
+        if: matrix.tags == 'cli'
         run: make build TAGS=cli
 
       - name: Drive the console through a real pty
+        if: matrix.tags == 'cli'
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -r examples/cli/requirements.txt
