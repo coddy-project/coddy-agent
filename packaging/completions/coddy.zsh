@@ -64,6 +64,7 @@ _coddy() {
                 cli|acp)
                     _arguments \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \
@@ -76,6 +77,7 @@ _coddy() {
                         '1: :((status\:"report the background dispatcher" stop\:"stop the background dispatcher" restart\:"restart the background dispatcher"))' \
                         '(-d --daemon)'{-d,--daemon}'[run in the background under a dispatcher]' \
                         '(-t --test-config)'{-t,--test-config}'[check config.yaml against the schema and exit]' \
+                        '--dry-run[check config.yaml, then probe the paths, servers and credentials it names, and exit]' \
                         '--config[path to config.yaml]:file:_files' \
                         '--home[agent state directory]:directory:_files -/' \
                         '--cwd[default session working directory]:directory:_files -/' \

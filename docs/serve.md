@@ -105,6 +105,21 @@ when there are errors. Nothing starts and nothing is written, so it belongs in a
 right before `coddy serve restart`. The report format and what counts as a warning are
 described in [config.md](config.md#checking-the-file-from-the-command-line).
 
+```bash
+coddy serve --dry-run     # the same check, then probe what the file points at
+```
+
+`--dry-run` runs that check and then, when the file is clean, probes the world it describes:
+the subsystems the configuration and the typed flags enable (a surface this binary was not
+built with is reported, not started), the listen addresses they would bind (a port another
+process holds is named together with the line that set it), every provider's model list,
+the configured models against it, the executables of stdio MCP servers, the Telegram bot
+token against the Bot API, the relays in `swarm.join` and the upstreams a relay mounts, and
+the directories and files the configuration names. Exit status 1 when a probe fails. Alone
+it prints only the problems and one status line; `coddy serve --dry-run --test-config` prints
+the config check report and every probe. The report and its rules are described in
+[config.md](config.md#dry-run-probing-what-the-file-points-at).
+
 ## Picking up a configuration change
 
 The running process watches the file it loaded. A change made **outside** it lands the

@@ -12,6 +12,7 @@ func runCLI(args []string) error {
 		EnsureHome: ensureCoddyHomeLayout,
 		OpenStore:  openSessionStore,
 		TestConfig: runConfigTest,
+		DryRun:     runConsoleDryRun,
 	})
 }
 

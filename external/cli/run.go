@@ -20,6 +20,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
@@ -33,6 +34,9 @@ type CommandDeps struct {
 	// TestConfig runs the -t / --test-config check; nil falls back to
 	// config.RunCheck on stdout.
 	TestConfig func(cli config.CLIPaths) error
+	// DryRun runs --dry-run (verbose when --test-config is given as well);
+	// nil falls back to dryrun.RunConsole on stdout.
+	DryRun func(cli config.CLIPaths, verbose bool, remoteArg, remoteToken string, customize func(*config.Config) error) error
 }
 
 // Run parses flags, wires the manager, and drives the interactive console.
@@ -64,6 +68,7 @@ func Run(args []string, deps CommandDeps) error {
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of cli (interactive console, also the default for bare %s on a terminal):\n", os.Args[0])
 		fs.PrintDefaults()
@@ -83,11 +88,24 @@ func Run(args []string, deps CommandDeps) error {
 	// A config check needs neither a terminal nor a session: it reports on
 	// the file and leaves. cmd/coddy supplies the runner so the report reads
 	// the same as from acp and serve.
-	if *testConfig {
+	if *testConfig && !*dryRun {
 		if deps.TestConfig != nil {
 			return deps.TestConfig(cli)
 		}
 		return config.RunCheck(os.Stdout, cli)
+	}
+	if *dryRun {
+		customize := func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		}
+		if deps.DryRun != nil {
+			return deps.DryRun(cli, *testConfig, *remoteFlag, *remoteToken, customize)
+		}
+		return dryrun.RunConsole(os.Stdout, dryrun.SurfaceConsole, cli, *testConfig, *remoteFlag, *remoteToken, customize)
 	}
 
 	// One-shot print mode needs no terminal at all; only the interactive

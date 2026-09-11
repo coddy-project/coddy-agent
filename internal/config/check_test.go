@@ -449,3 +449,78 @@ func TestRunCheckFailsOnErrorsOnly(t *testing.T) {
 		t.Fatalf("an error must fail the run:\n%s", buf.String())
 	}
 }
+
+func TestLoadReadOnlyWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(path, []byte("agent:\n  max_turns: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, raw, err := LoadReadOnly(CLIPaths{Home: home, Config: path})
+	if err != nil {
+		t.Fatalf("LoadReadOnly: %v", err)
+	}
+	if cfg.Agent.MaxTurns != 3 || !strings.Contains(string(raw), "max_turns: 3") {
+		t.Fatalf("cfg %+v raw %q", cfg.Agent, raw)
+	}
+	if _, err := os.Stat(BackupPath(path)); !os.IsNotExist(err) {
+		t.Fatalf("a read-only load must not write config.yaml.bak (stat err %v)", err)
+	}
+
+	broken := "agent:\n  max_turns: \"many\"\n"
+	if err := os.WriteFile(path, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(BackupPath(path), []byte("agent:\n  max_turns: 3\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadReadOnly(CLIPaths{Home: home, Config: path}); err == nil {
+		t.Fatal("a broken file must fail instead of being recovered from the backup")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != broken {
+		t.Fatalf("config.yaml was rewritten:\n%s", got)
+	}
+}
+
+func TestLocatorResolvesPathsAndSelectors(t *testing.T) {
+	doc := `providers:
+  - name: a
+    type: openai
+  - name: b
+    type: openai
+    api_base: http://x
+httpserver:
+  port: 8080
+skills:
+  dirs: ["/one", "/two"]
+`
+	loc := NewLocator([]byte(doc))
+	cases := map[string][2]int{
+		"providers[b]":          {4, 5},
+		"providers[1].api_base": {6, 15},
+		"providers[0]":          {2, 5},
+		"httpserver.port":       {8, 9},
+		"skills.dirs[1]":        {10, 18},
+		"httpserver":            {7, 1},
+	}
+	for path, want := range cases {
+		line, col, ok := loc.Locate(path)
+		if !ok || line != want[0] || col != want[1] {
+			t.Errorf("%s: got %d:%d ok=%v, want %d:%d", path, line, col, ok, want[0], want[1])
+		}
+	}
+	if _, _, ok := loc.Locate("providers[zzz]"); ok {
+		t.Error("an entry that is not there must not resolve")
+	}
+	if _, _, ok := loc.Locate("logger.level"); ok {
+		t.Error("a key that is not there must not resolve")
+	}
+	var nilLoc *Locator
+	if _, _, ok := nilLoc.Locate("httpserver"); ok {
+		t.Error("a nil locator resolves nothing")
+	}
+}

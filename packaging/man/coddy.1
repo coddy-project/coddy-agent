@@ -200,6 +200,25 @@ before any command and by
 where
 .BR \-\-config " and " \-\-home
 pick the file exactly as they do for a start.
+.TP
+.B \-\-dry\-run
+Run the
+.B \-\-test\-config
+check and then probe what the file points at: the directories and files it
+names, every LLM provider (its model list, which exercises the address and the
+credential; the configured models are checked against it), the executables of
+stdio MCP servers and the reachability of remote ones, the Telegram bot token,
+the configured remotes and, for
+.BR serve ,
+the subsystems this binary can run and the listen addresses they would bind.
+Alone it prints only the problems, each with its status, the config path it
+is about and the line in the file that set it, and one status line at the end;
+together with
+.B \-\-test\-config
+it prints the configuration report and every probe, the ones that passed
+included. Nothing starts and nothing is written. Exit status 1 when a probe
+fails; warnings alone leave it at 0. Accepted before any command and by
+.BR cli ", " acp " and " serve .
 .PP
 Flags shared by the long\-running commands
 .RB ( cli ", " acp ", " serve )
@@ -349,6 +368,13 @@ Check the configuration a daemon would load before restarting it:
 .RS 4
 .B coddy serve \-t \-\-home /srv/coddy
 .RE
+.PP
+Also make sure the model servers answer, the credentials are accepted and
+the ports are free:
+.PP
+.RS 4
+.B coddy serve \-\-dry\-run \-\-home /srv/coddy
+.RE
 .SH EXIT STATUS
 .TP
 .B 0
@@ -357,7 +383,9 @@ Success.
 .B 1
 A command failed,
 .B coddy \-\-test\-config
-found errors in the configuration file, or
+found errors in the configuration file,
+.B coddy \-\-dry\-run
+found a probe failing, or
 .B coddy update \-\-check
 found a newer release.
 .SH SEE ALSO

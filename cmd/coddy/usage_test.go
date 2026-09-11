@@ -203,3 +203,22 @@ func TestPackagingFilesCarryTheConfigTestFlag(t *testing.T) {
 		t.Error("packaging/man/coddy.1 does not document --test-config")
 	}
 }
+
+// TestPackagingFilesCarryTheDryRunFlag does for --dry-run what the test above
+// does for --test-config.
+func TestPackagingFilesCarryTheDryRunFlag(t *testing.T) {
+	var buf bytes.Buffer
+	printUsage(&buf)
+	if !strings.Contains(buf.String(), "--dry-run") {
+		t.Error("usage does not mention --dry-run")
+	}
+	if strings.Count(readRepoFile(t, "../../packaging/completions/coddy.bash"), "--dry-run") < 2 {
+		t.Error("packaging/completions/coddy.bash must offer --dry-run for cli|acp and for serve")
+	}
+	if strings.Count(readRepoFile(t, "../../packaging/completions/coddy.zsh"), "--dry-run") < 2 {
+		t.Error("packaging/completions/coddy.zsh must offer --dry-run for cli|acp and for serve")
+	}
+	if !strings.Contains(readRepoFile(t, "../../packaging/man/coddy.1"), `\-\-dry\-run`) {
+		t.Error("packaging/man/coddy.1 does not document --dry-run")
+	}
+}
