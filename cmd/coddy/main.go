@@ -14,6 +14,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/agent"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/remote"
@@ -178,6 +179,10 @@ func printUsage(w io.Writer) {
   %[1]s -t | --test-config [--config PATH] [--home DIR] (check config.yaml against
         the schema and the loader's rules, print each problem with its line and
         how to fix it, then exit; cli, acp and serve take the same flag)
+  %[1]s --dry-run [--config PATH] [--home DIR] (the --test-config check, then probe
+        what the file points at: paths, model servers and credentials, MCP
+        commands, the Telegram token, and for serve the listen addresses; exit
+        without starting anything; cli, acp and serve take the same flag)
   %[1]s cli [flags] (interactive console TUI)
   %[1]s acp [flags] (Agent Client Protocol)
   %[1]s serve [flags] (run every subsystem enabled in config.yaml:
@@ -229,6 +234,7 @@ func runACP(args []string) error {
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of acp:\n")
 		fs.PrintDefaults()
@@ -247,6 +253,15 @@ func runACP(args []string) error {
 	}
 	if *testConfig {
 		return runConfigTest(cli)
+	}
+	if *dryRun {
+		return dryrun.RunConsole(configTestOutput, dryrun.SurfaceACP, cli, *remoteFlag, *remoteToken, func(c *config.Config) error {
+			if *schedulerEnabled {
+				c.Scheduler.Enabled = true
+			}
+			config.ApplySkillsAutoDiscoveryFlag(fs, c, skillsAutoDiscovery)
+			return config.ApplyProjectTrustFlag(fs, c, projectTrust)
+		})
 	}
 	paths, err := config.Resolve(cli)
 	if err != nil {

@@ -17,6 +17,7 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/external/scheduler"
 	"github.com/EvilFreelancer/coddy-agent/external/swarm"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/dryrun"
 	"github.com/EvilFreelancer/coddy-agent/internal/logger"
 	"github.com/EvilFreelancer/coddy-agent/internal/serve"
 	"github.com/EvilFreelancer/coddy-agent/internal/version"
@@ -83,6 +84,7 @@ func runServe(args []string) error {
 	skillsAutoDiscovery := fs.Bool(config.SkillsAutoDiscoveryFlagName, true, "model-driven skill auto-discovery (load_skill tool); pass =false to disable and override config")
 	projectTrust := fs.String(config.ProjectTrustFlagName, config.ProjectTrustAsk, config.ProjectTrustFlagUsage)
 	testConfig := config.AddCheckFlag(fs)
+	dryRun := dryrun.AddFlag(fs)
 
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "Usage of serve (runs every subsystem enabled in config.yaml):\n")
@@ -104,17 +106,6 @@ func runServe(args []string) error {
 	// the home and no subsystem starts.
 	if *testConfig {
 		return runConfigTest(cli)
-	}
-	paths, err := config.Resolve(cli)
-	if err != nil {
-		return err
-	}
-	if err := serve.EnsureHomeLayout(paths.Home); err != nil {
-		return err
-	}
-	cfg, err := config.LoadFromCLI(cli)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
 	}
 
 	// applyProcessOverrides re-applies everything the operator decided outside
@@ -159,16 +150,6 @@ func runServe(args []string) error {
 		c.Swarm.Host = firstNonEmpty(strings.TrimSpace(*swarmHost), c.Swarm.EffectiveHost())
 		return nil
 	}
-	if err := applyProcessOverrides(cfg); err != nil {
-		return err
-	}
-
-	log, logCloser, err := logger.New(cfg.Logger)
-	if err != nil {
-		return fmt.Errorf("log: %w", err)
-	}
-	defer func() { _ = logCloser.Close() }()
-
 	// The listen addresses are read from a configuration rather than captured,
 	// because the supervisor asks the same questions of a reloaded one: an
 	// address that moved is the one change a running process cannot adopt, and
@@ -183,6 +164,33 @@ func runServe(args []string) error {
 	swarmListenAddr := func(c *config.Config) string {
 		return net.JoinHostPort(c.Swarm.Host, firstNonEmpty(strings.TrimSpace(*swarmPort), strconv.Itoa(c.Swarm.EffectivePort())))
 	}
+	// A dry run resolves the subsystems and their addresses as a start would,
+	// probes them together with everything the file names, and leaves.
+	if *dryRun {
+		return runServeDryRun(cli, applyProcessOverrides, httpListenAddr, swarmListenAddr)
+	}
+	paths, err := config.Resolve(cli)
+	if err != nil {
+		return err
+	}
+	if err := serve.EnsureHomeLayout(paths.Home); err != nil {
+		return err
+	}
+	cfg, err := config.LoadFromCLI(cli)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if err := applyProcessOverrides(cfg); err != nil {
+		return err
+	}
+
+	log, logCloser, err := logger.New(cfg.Logger)
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
+	defer func() { _ = logCloser.Close() }()
+
 	httpAddr := httpListenAddr(cfg)
 	swarmAddr := swarmListenAddr(cfg)
 

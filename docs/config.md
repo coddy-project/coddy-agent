@@ -55,6 +55,50 @@ config test failed
 
 The exit status is 1 when the file has errors and 0 otherwise, so the flag fits a deploy script right before `coddy serve restart`. Warnings (marked `warning:`) never fail the check: they flag spellings the loader still reads but the schema and editors reject - `yes` for a boolean, `40.0` for an integer - and a file without the `# yaml-language-server:` header. A missing file is an error, since the flag exists to check the file a start would use. Values under secret-shaped keys (`api_key`, `auth_token`, `pairing_tokens`) are never echoed in a message.
 
+## Dry run: probing what the file points at
+
+`--dry-run` is `--test-config` plus a look at the world the file describes. Every command that takes `-t` takes it too: `coddy --dry-run`, `coddy cli --dry-run`, `coddy acp --dry-run`, `coddy serve --dry-run`, with `--config` and `--home` selecting the file as for a start. The static check runs first, and a file with errors stops there - probing what a broken file names would only bury the first mistake under its consequences. When the file is clean, the configuration is loaded without side effects (no `config.yaml.bak` written or restored) and probed:
+
+- **paths** - `sessions.dir`, `logger.file`, `scheduler.dir` and `memory.dir` are fine when missing as long as they can be created (the process makes them at start), and an error when a regular file stands in the way; `prompts.dir` has to exist, and a template missing from it is a warning; `skills.dirs`, `subagents.dirs` and `hooks.files` entries you wrote are warnings when missing, while absent defaults stay quiet; a hook file that exists has to parse; `swarm.tls` must load and every `dial.ca_file` must hold a certificate;
+- **LLM providers** - each provider is asked for its model list, which exercises the address, the proxy and the credential in one request (`coddy providers login` credentials included); a provider aimed at a vendor's official endpoint with nothing to present is reported without a request. Every `models[]` entry is then checked against that list: a model the server does not name is a warning, since some servers serve more than they list;
+- **MCP servers** from `config.yaml` - the executable of a stdio server is resolved in `PATH` the way the spawn would, without spawning it; a remote server is asked for any HTTP answer, with its headers. Project-local `.coddy/mcp.json` declarations are not contacted: they sit behind the workspace trust gate;
+- **Telegram** - when `gateways.telegram.enable` is true the token is checked against the Bot API (`getMe`), through `gateways.telegram.proxy` when set; the report names the bot;
+- **remotes** - each `httpserver.remotes[]` URL is asked for an answer (a warning when down, since it is used only on request), and the `--remote` target of a console or `acp` run has to accept the token;
+- **`coddy serve` only** - the subsystems the configuration and the typed flags enable are resolved as a start would (a surface this binary was not built with is an error, not a silent skip), each listen address is bound once and released, so a port another process holds is named together with the line that set it, and the relays in `swarm.join` and the upstreams a relay mounts are reached through their dial settings.
+
+Each probe prints one line - status, config path, message - with the place in the file and the fix indented under a problem:
+
+```text
+$ coddy --dry-run
+/home/me/.coddy/config.yaml: valid
+ok       sessions.dir: /home/me/.coddy/sessions will be created at first start
+warning  skills.dirs[0]: /home/me/.coddy/skills does not exist
+         at /home/me/.coddy/config.yaml:22:10
+         fix: create it or remove the entry; a ${CWD} entry is resolved per session, so a folder missing here may exist in another workspace
+warning  skills.dirs[1]: /opt/team-skills does not exist
+         at /home/me/.coddy/config.yaml:22:34
+         fix: create it or remove the entry; a ${CWD} entry is resolved per session, so a folder missing here may exist in another workspace
+ok       mcp_servers[context7]: command "npx" resolves to /usr/bin/npx
+         at /home/me/.coddy/config.yaml:17:14
+error    mcp_servers[tickets]: command "ticket-mcp" not found in PATH
+         at /home/me/.coddy/config.yaml:20:14
+         fix: install it or write an absolute path in mcp_servers[tickets].command
+ok       providers[local]: openai at http://127.0.0.1:18731/v1 lists 2 models
+         at /home/me/.coddy/config.yaml:3:5
+ok       models[local/qwen3.6-35b]: listed by provider local
+warning  models[local/llama-4]: not in the model list of provider local (the server may still serve it)
+         at /home/me/.coddy/config.yaml:11:5
+         fix: check the model id; the provider lists gpt-oss-20b, qwen3.6-35b
+error    providers[gpu]: cannot reach http://127.0.0.1:18732/v1: dial tcp 127.0.0.1:18732: connect: connection refused
+         at /home/me/.coddy/config.yaml:6:5
+         fix: check api_base and that the server is running
+skipped  models[gpu/qwen3.6-35b]: provider gpu failed
+dry run: 2 errors, 3 warnings, 4 ok
+dry run failed
+```
+
+`ok` and `skipped` lines carry no fix; a `warning` never fails the run; an `error` does, so the exit status is 1 and the last line says `dry run failed`. Network probes run concurrently and each is bounded to ten seconds, so a dead server costs one wait, not one per model. Secrets are not echoed: a Telegram token is masked in any error text and a provider key is never printed. `CODDY_TELEGRAM_API_BASE` points the Telegram probe at a stand-in Bot API (tests and self-hosted gateways).
+
 ## Full Configuration Schema
 
 Agent name, title, and build version are not configurable here. They are fixed in the binary and reported during ACP `initialize` (`internal/acp` and `internal/version`).

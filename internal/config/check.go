@@ -337,7 +337,7 @@ func loaderFinding(err error, body *yaml.Node, cfg *Config) Finding {
 	f := Finding{Severity: SeverityError, Message: msg, Fix: loaderFix(msg, cfg)}
 	paths := loaderPaths(msg)
 	for _, p := range paths {
-		if n := locatePath(body, p); n != nil {
+		if n := locatePath(body, p, true); n != nil {
 			f.Line, f.Column = n.Line, n.Column
 			break
 		}
@@ -390,10 +390,13 @@ func loaderPaths(msg string) []string {
 }
 
 // locatePath walks a dotted path with optional selectors ("providers[b]",
-// "logger.levels[0].component") through the document. It returns the value
-// the path names; when the last key is absent, the key that introduces the
-// section that should hold it; nil when the path does not fit the document.
-func locatePath(body *yaml.Node, path string) *yaml.Node {
+// "logger.levels[0].component") through the document and returns the node
+// that stands for it: a scalar value, a selected list entry, or - for a key
+// whose value is a block section or list - the key itself, which is the line
+// an operator looks for. In lenient mode an absent last key yields the key
+// that introduces the section that should hold it; nil when the path does
+// not fit the document.
+func locatePath(body *yaml.Node, path string, lenient bool) *yaml.Node {
 	cur := body
 	var parentKey *yaml.Node
 	segments := strings.Split(path, ".")
@@ -408,7 +411,7 @@ func locatePath(body *yaml.Node, path string) *yaml.Node {
 		}
 		k := mappingKey(cur, key)
 		if k == nil {
-			if i == len(segments)-1 {
+			if lenient && i == len(segments)-1 {
 				return parentKey
 			}
 			return nil
@@ -422,8 +425,17 @@ func locatePath(body *yaml.Node, path string) *yaml.Node {
 			if val = sequenceItem(val, sel); val == nil {
 				return nil
 			}
+			parentKey, cur = k, val
+			continue
 		}
 		parentKey, cur = k, val
+	}
+	if n := resolveAlias(cur); n != nil && (n.Kind == yaml.MappingNode || n.Kind == yaml.SequenceNode) && n.Style != yaml.FlowStyle && parentKey != nil && n.Line != parentKey.Line {
+		// A block section starts on the line after its key; the key is where
+		// the operator wrote it.
+		if len(segments) > 0 && !strings.HasSuffix(segments[len(segments)-1], "]") {
+			return parentKey
+		}
 	}
 	return cur
 }
@@ -560,4 +572,63 @@ func modelNames(cfg *Config) []string {
 		}
 	}
 	return out
+}
+
+// LoadReadOnly reads and validates the config file the flags select without
+// the side effects of a start: no backup is written and none is restored. It
+// returns the loaded configuration and the raw file bytes, so a caller can
+// locate its findings in the file the configuration came from (NewLocator).
+func LoadReadOnly(cli CLIPaths) (*Config, []byte, error) {
+	paths, err := resolveConfigFile(cli)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := os.ReadFile(paths.ConfigPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read config %s: %w", paths.ConfigPath, err)
+	}
+	cfg, err := parseValidateYAMLBytes(expandConfigBody(string(data), paths), paths)
+	if err != nil {
+		return nil, nil, fmt.Errorf("config %s: %w", paths.ConfigPath, err)
+	}
+	return cfg, data, nil
+}
+
+// Locator maps config paths ("providers[b]", "httpserver.port",
+// "skills.dirs[1]") to positions in a config file, so a report about a value
+// can point at the line that set it. A selector picks a list entry by index
+// or by the value of an identity key (name, model, url, ...). A path that is
+// not in the file - an applied default - resolves to nothing.
+type Locator struct {
+	body *yaml.Node
+}
+
+// NewLocator parses the raw file bytes - not the expanded document the
+// loader reads - so a column is the column in the file even on a line where
+// ${CODDY_HOME} or an environment reference grows when substituted. Values
+// are never read through a locator, only placed, so the unexpanded text is
+// the right one. Unparsable data yields a locator that resolves nothing.
+func NewLocator(data []byte) *Locator {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return &Locator{}
+	}
+	body := configDocumentRoot(&doc)
+	if body == nil || body.Kind != yaml.MappingNode {
+		return &Locator{}
+	}
+	return &Locator{body: body}
+}
+
+// Locate returns the 1-based line and column of path, or ok=false when the
+// path is not in the file.
+func (l *Locator) Locate(path string) (line, col int, ok bool) {
+	if l == nil || l.body == nil {
+		return 0, 0, false
+	}
+	n := locatePath(l.body, path, false)
+	if n == nil {
+		return 0, 0, false
+	}
+	return n.Line, n.Column, true
 }
