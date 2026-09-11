@@ -656,7 +656,8 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 | `make` / `make build` | Build `build/coddy` with the current `TAGS` (see [Build tags](#build-tags)). With `http`+`ui` it first runs `ui-build` (installs and bundles the embedded SPA). |
 | `make build TAGS="…"` | Same, choosing modules. Full binary (Docker defaults): `make build TAGS="http ui scheduler memory cli gateway swarm"`. Lean ACP-only binary: `make build` (no tags). |
 | `make ui-build` | Install `external/ui` deps and produce the embedded SPA assets consumed by the `ui` tag. |
-| `make test` | Run `go test` across the tag combinations (default, `http`, `scheduler`, `ui`, and mixes) plus `ui-build`. |
+| `make test` | Express run: `ui-build`, then one `go test` with every optional module compiled in (`http,ui,scheduler,memory,cli,gateway,swarm`). |
+| `make test-matrix` | Every tag combination in sequence (untagged, single tags, pairs, the full set) - what CI runs on each pull request, one job per combination. |
 | `make lint` | Run `golangci-lint run ./...` (requires `golangci-lint`). |
 | `make install` | Copy `build/coddy` to `~/.local/bin` (or `/usr/local/bin` for root); builds `TAGS="http ui scheduler memory cli gateway swarm"` first if the binary is missing. |
 | `make print-version` | Print the embedded version string (git tag/describe, else `dev`). |
@@ -674,7 +675,7 @@ The [`Makefile`](Makefile) is the entry point for local builds and tests. Its de
 ### Common commands
 
 ```bash
-# Run tests
+# Run tests: the lean untagged build, then the express run with every module compiled in
 go test ./...
 make test
 

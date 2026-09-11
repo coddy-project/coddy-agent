@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # checks.sh — the project's commit-time gate. By default it runs the linter
-# only (quick); the full test matrix is slow, so tests are opt-in here and
-# belong in CI / before push. Invoked by .githooks/pre-commit; also runnable
-# by hand. Exits non-zero when a requested check fails.
+# only (quick); tests are opt-in here - the express run belongs before the
+# push, the per-combination tag matrix in CI. Invoked by .githooks/pre-commit;
+# also runnable by hand. Exits non-zero when a requested check fails.
 #
 # Knobs (env vars) so the gate has one shared policy:
 #
 #   CODDY_HOOK_LINT   0|1              (default: 1)   run `make lint` (golangci-lint)
 #
-#   CODDY_HOOK_TESTS  off|fast|full    (default: off) additionally run tests:
-#       off   no tests (lint only — the quick default)
-#       fast  go test ./...            quick base-tag unit tests (~seconds)
-#       full  make test                every build-tag combo + UI (minutes)
+#   CODDY_HOOK_TESTS  off|fast|full|matrix  (default: off) additionally run tests:
+#       off     no tests (lint only — the quick default)
+#       fast    go test ./...          quick base-tag unit tests (~seconds)
+#       full    make test              express run: UI + every tag once (minutes)
+#       matrix  make test-matrix       every build-tag combination (what CI runs)
 #
 #   CODDY_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
@@ -60,12 +61,13 @@ if [ "$lint" = "1" ]; then
   fi
 fi
 
-# --- tests (opt-in; off by default because the full matrix is slow) ---
+# --- tests (opt-in; off by default because even the express run takes minutes) ---
 case "$tests" in
   off)  : ;;
   fast) log "tests: go test ./..." ; go test ./... || status=1 ;;
   full) log "tests: make test"     ; make test     || status=1 ;;
-  *)    log "unknown CODDY_HOOK_TESTS='$tests' (want off|fast|full)" ; exit 2 ;;
+  matrix) log "tests: make test-matrix" ; make test-matrix || status=1 ;;
+  *)    log "unknown CODDY_HOOK_TESTS='$tests' (want off|fast|full|matrix)" ; exit 2 ;;
 esac
 
 if [ "$status" -eq 0 ]; then
