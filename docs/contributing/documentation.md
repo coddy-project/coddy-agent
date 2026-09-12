@@ -11,7 +11,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
 | `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export | Feature pages |
 | `docs/reference/` | Complete lists: CLI, `config.yaml`, environment variables, slash commands, keyboard, tools, HTTP API, ACP | Reference pages, generated where the code is the source of truth |
-| `docs/recipes.md` | Task-shaped guides that combine features | Recipes |
+| `docs/tutorials/` | Task-shaped guides, one page per tutorial | Tutorials |
 | `docs/contributing/` | How Coddy is built, tested, designed and documented | Contributor pages |
 | `docs/plans/` | Design records, decisions as they were taken | Frozen: not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
@@ -32,7 +32,7 @@ Every page starts with `# <title>` (the title from `nav.yaml`), then one lead pa
 
 **Reference page** (`docs/reference/`): a lead paragraph and tables. Generated blocks sit between `<!-- docsgen:NAME:start -->` and `<!-- docsgen:NAME:end -->` markers; the prose around them is hand-written and survives regeneration. Never edit inside the markers.
 
-**Recipe** (`docs/recipes.md`): a goal, numbered steps with the exact commands and YAML, links to the feature pages for the details.
+**Tutorial** (`docs/tutorials/<name>.md`): one task from the goal to a working result. The page states the goal and the environment it assumes, numbers the steps with the exact commands and YAML to copy, ends with a check that proves the result, and lists what tends to go wrong; it links to the feature pages for the reasons and the reference for the details.
 
 ## What a change must carry
 

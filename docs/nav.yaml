@@ -136,13 +136,34 @@ groups:
       - path: reference/acp-protocol.md
         title: ACP protocol
         summary: How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests.
-  - id: recipes
-    title: Recipes
-    summary: Task-shaped guides that combine several features.
+  - id: tutorials
+    title: Tutorials
+    summary: Task-shaped guides, each a complete path from a goal to a working result, with the configs and commands to copy, the check that it worked and what tends to go wrong.
     pages:
-      - path: recipes.md
-        title: Recipes
-        summary: Coddy in CI, a Telegram bot for a team, a project set up for agents, a remote server driven from a laptop, a skill of your own.
+      - path: tutorials/coddy-in-ci.md
+        title: Coddy in CI
+        summary: A workflow file that runs coddy -p on every pull request, with the key in a secret and the answer in the job log.
+      - path: tutorials/telegram-bot-for-a-team.md
+        title: A Telegram bot for a team
+        summary: "One bot for a team with coddy serve: the token, who may talk to it, group isolation, and the same chat live in the browser."
+      - path: tutorials/project-set-up-for-agents.md
+        title: A project set up for agents
+        summary: "A repository that teaches any agent how it works: rules, AGENTS.md, skills, an MCP server and the trust receipts."
+      - path: tutorials/server-driven-from-a-laptop.md
+        title: A server driven from a laptop
+        summary: A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
+      - path: tutorials/a-skill-of-your-own.md
+        title: A skill of your own
+        summary: A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
+      - path: tutorials/swarm-relay-and-nodes.md
+        title: A relay and its nodes in Docker
+        summary: A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
+      - path: tutorials/swarm-multi-hop.md
+        title: A chain of relays
+        summary: A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
+      - path: tutorials/swarm-remote-nodes.md
+        title: Working with remote nodes
+        summary: Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what.
   - id: contributing
     title: Contributing
     summary: How Coddy is built, tested, documented and released.

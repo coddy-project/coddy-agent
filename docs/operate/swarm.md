@@ -344,3 +344,4 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
 - `docs/reference/config.md` - the `swarm:` block.
 - `features/swarm_*.feature` - the executable specifications.
 - `examples/swarm/` - a live stand: relays, agents, a ring, and a node that only dials out.
+- the tutorials: [a relay and its nodes in Docker](../tutorials/swarm-relay-and-nodes.md), [a chain of relays](../tutorials/swarm-multi-hop.md), [working with remote nodes](../tutorials/swarm-remote-nodes.md).
