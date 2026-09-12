@@ -99,23 +99,24 @@ make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh
 
 ## The site
 
-Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository:
+Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository, and nothing is duplicated there:
 
-| Address | What it is |
-|---------|------------|
-| `https://coddy.dev/docs/<slug>` | A redirect page that sends a person to the page on GitHub; a `#fragment` survives the hop |
-| `https://coddy.dev/docs/<slug>.md` | The Markdown of the page, unchanged except that image and out-of-tree links are absolute; what `llms.txt` points at and what an agent fetches |
-| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt` |
+| Address | What happens |
+|---------|--------------|
+| `https://coddy.dev/docs/<slug>` | The visitor lands on the page on GitHub; a `#fragment` survives the hop |
+| `https://coddy.dev/docs/<slug>.md` | The raw Markdown of the page on the main branch |
+| `https://coddy.dev/docs/` | The hub, `docs/README.md` on GitHub |
+| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt`; the index links the raw Markdown on `main` |
 | `https://coddy.dev/config.schema.json` | The config schema, published by `make site-schema` |
 
-The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). `internal/docsgen` renders the whole layer from `nav.yaml`:
+The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). GitHub Pages has no server-side redirects, but it serves `404.html` for every address that is not a file, so the site's `404.html` loads `docs-redirect.js`, one generated script that reads the path and forwards the browser (`window.coddyDocsTarget` is the pure mapping, testable without navigating). The answer carries a 404 status, which is fine for people and irrelevant to agents, who get the raw addresses from `llms.txt`; a redirect rule on the Cloudflare zone in front of the site turns the same mapping into a real 301 (Rules, Redirect Rules, dynamic: when the path starts with `/docs/`, redirect to `concat("https://github.com/coddy-project/coddy-agent/blob/main/docs/", substring(http.request.uri.path, 6), ".md")` with status 301, and a second rule for the `.md` suffix pointing at raw.githubusercontent.com). `internal/docsgen` renders the layer from `nav.yaml`:
 
 ```bash
-make site-docs        # render into the site checkout beside this one (SITE_REPO=... if elsewhere)
+make site-docs        # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout beside this one (SITE_REPO=... if elsewhere)
 make site-docs-check  # report drift without writing
 ```
 
-The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request, and the site commit follows the merge of the coddy-agent change: a redirect page for a page that is not on `main` yet lands on a 404. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
+The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request; the site commit follows the merge of the coddy-agent change, because `llms.txt` names pages by their path on `main`. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
 
 ## Design records
 

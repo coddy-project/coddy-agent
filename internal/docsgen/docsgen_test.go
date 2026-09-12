@@ -158,31 +158,35 @@ func TestFlattenDefaultsSkipsEmptyAndObjectLists(t *testing.T) {
 	}
 }
 
-func TestSiteSlugsAndTwinLinks(t *testing.T) {
+func TestSiteSlugsAndRedirectScript(t *testing.T) {
 	if got := SiteSlug("getting-started/install.md"); got != "getting-started/install" {
 		t.Errorf("slug = %q", got)
 	}
 	if got := SiteSlug("../CONTRIBUTING.md"); got != "CONTRIBUTING" {
 		t.Errorf("root slug = %q", got)
 	}
-	if got := SitePageURL("features/hooks.md"); got != "https://coddy.dev/docs/features/hooks.md" {
-		t.Errorf("twin url = %q", got)
+	if got := RawPageURL("../CONTRIBUTING.md"); got != GitHubRaw+"CONTRIBUTING.md" {
+		t.Errorf("raw url = %q", got)
 	}
-	twin := twinContent("docs/features/hooks.md", "![a](../assets/x.png) [b](../operate/serve.md#anchor) [c](../../DESIGN.md) [d](https://example.com) [e](../plans/hooks.md)")
+	if got := SiteRedirectURL("features/hooks.md"); got != "https://coddy.dev/docs/features/hooks" {
+		t.Errorf("redirect url = %q", got)
+	}
+	nav := &Nav{Groups: []Group{{ID: "g", Title: "G", Pages: []Page{{Path: "features/hooks.md", Title: "Hooks", Summary: "s"}, {Path: "../CONTRIBUTING.md", Title: "Contributing", Summary: "s"}}}}}
+	files := RenderSite(nav)
+	js, ok := files[SiteRedirectScript]
+	if !ok || len(files) != 1 {
+		t.Fatalf("site files: %v", files)
+	}
 	for _, want := range []string{
-		"![a](https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/assets/x.png)",
-		"[b](../operate/serve.md#anchor)",
-		"[c](https://github.com/coddy-project/coddy-agent/blob/main/DESIGN.md)",
-		"[d](https://example.com)",
-		"[e](../plans/hooks.md)",
+		`var ROOT = {"CONTRIBUTING":"CONTRIBUTING.md"};`,
+		`var BLOB = "https://github.com/coddy-project/coddy-agent/blob/main/";`,
+		`var RAW = "https://raw.githubusercontent.com/coddy-project/coddy-agent/main/";`,
+		"window.coddyDocsTarget = coddyDocsTarget;",
+		"window.location.replace(target)",
 	} {
-		if !strings.Contains(twin, want) {
-			t.Errorf("missing %q in %q", want, twin)
+		if !strings.Contains(js, want) {
+			t.Errorf("missing %q in the interceptor:\n%s", want, js)
 		}
-	}
-	page := redirectPage("Hooks", "https://github.com/coddy-project/coddy-agent/blob/main/docs/features/hooks.md", "hooks.md")
-	if !strings.Contains(page, `http-equiv="refresh"`) || !strings.Contains(page, "location.hash") || !strings.Contains(page, `name="robots" content="noindex"`) {
-		t.Errorf("redirect page:\n%s", page)
 	}
 }
 
@@ -192,8 +196,8 @@ func TestRenderHubAndLLMSIndex(t *testing.T) {
 	if !strings.Contains(hub, "## Getting started\n\nInstall.\n\n- [Install](getting-started/install.md) - How.\n- [Contributing](../CONTRIBUTING.md) - Why.") {
 		t.Fatalf("hub:\n%s", hub)
 	}
-	idx := RenderLLMSIndex(nav, "# Coddy documentation\n\nOne binary.\n\n<!-- docsgen:nav:start -->\n", "https://site.example/docs/")
-	if !strings.Contains(idx, "> One binary.") || !strings.Contains(idx, "(https://site.example/docs/getting-started/install.md): How.") || !strings.Contains(idx, "(https://site.example/docs/CONTRIBUTING.md): Why.") {
+	idx := RenderLLMSIndex(nav, "# Coddy documentation\n\nOne binary.\n\n<!-- docsgen:nav:start -->\n", "https://raw.example/main/")
+	if !strings.Contains(idx, "> One binary.") || !strings.Contains(idx, "(https://raw.example/main/docs/getting-started/install.md): How.") || !strings.Contains(idx, "(https://raw.example/main/CONTRIBUTING.md): Why.") {
 		t.Fatalf("llms index:\n%s", idx)
 	}
 }

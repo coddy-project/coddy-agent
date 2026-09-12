@@ -159,8 +159,8 @@ docs-check:
 docs-fast:
 	go run ./cmd/docsgen -write -skip-cli
 
-# The documentation layer of coddy.dev: a redirect page coddy.dev/docs/<slug>
-# and a Markdown twin coddy.dev/docs/<slug>.md for every page of docs/nav.yaml,
+# The documentation layer of coddy.dev: a stable address coddy.dev/docs/<slug>
+# for every page of docs/nav.yaml (one interceptor script behind the site 404 page),
 # plus llms.txt and llms-full.txt at the site root. The binary, the schema and
 # the bundled skill print those addresses. site-docs renders them into the
 # site checkout (SITE_REPO=... if it is elsewhere), site-docs-check reports

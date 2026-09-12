@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # sync-site-docs.sh — publish the documentation layer to the site repository.
 #
-# coddy.dev carries a stable address for every page of docs/nav.yaml:
-# coddy.dev/docs/<slug> redirects a person to the page on GitHub (the fragment
-# survives), coddy.dev/docs/<slug>.md is the Markdown itself for agents, and
-# llms.txt plus llms-full.txt at the site root index them. The binary, the
-# config schema and the bundled skill print those addresses, so they must
-# exist for every page and match the repository. internal/docsgen renders all
-# of them; this script points it at the site checkout.
+# coddy.dev carries a stable address for every page of docs/nav.yaml,
+# coddy.dev/docs/<slug>, and duplicates nothing: GitHub Pages serves 404.html
+# for every address that is not a file, and the script that page loads
+# (docs-redirect.js, generated here) turns /docs/<path> into the page on
+# GitHub and /docs/<path>.md into its raw Markdown, fragment kept. llms.txt
+# and llms-full.txt at the site root point straight at the raw Markdown on
+# main. The binary, the config schema and the bundled skill print those
+# addresses. internal/docsgen renders the three files; this script points
+# it at the site checkout.
 #
 #   SITE_REPO   path to the coddy-project.github.io checkout (default:
 #               coddy-project.github.io beside the main checkout - resolved
@@ -47,7 +49,7 @@ fi
 go run ./cmd/docsgen -skip-cli -site "$site_repo" -site-only -write || exit 2
 echo
 echo "Next, in $site_repo:"
-echo "  git add docs llms.txt llms-full.txt && git commit"
+echo "  git add docs-redirect.js llms.txt llms-full.txt && git commit"
 echo
-echo "Push it together with the coddy-agent change it belongs to: a redirect"
-echo "page for a page that is not on main yet lands on a 404."
+echo "Push it together with the coddy-agent change it belongs to: llms.txt"
+echo "names pages by their path on main, so the site follows the merge."

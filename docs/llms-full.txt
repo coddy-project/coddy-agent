@@ -5,7 +5,7 @@ Generated from docs/nav.yaml by make docs. Every section is one page of the repo
 
 # Getting started / Quickstart
 
-Source: https://coddy.dev/docs/getting-started/quickstart.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/quickstart.md
 
 # Quickstart
 
@@ -160,7 +160,7 @@ Then pick **Coddy** under *External Agents* in the agent panel's new-thread menu
 
 # Getting started / Install
 
-Source: https://coddy.dev/docs/getting-started/install.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/install.md
 
 # Install Coddy
 
@@ -393,7 +393,7 @@ See [build.md](../contributing/build.md) and the README section **Other installa
 
 # Getting started / Configuration
 
-Source: https://coddy.dev/docs/getting-started/configuration.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/configuration.md
 
 # Configuration Reference
 
@@ -989,7 +989,7 @@ Use **`type: openai`** and set **`api_base`** to an OpenAI-compatible base URL t
 
 # Getting started / Update
 
-Source: https://coddy.dev/docs/getting-started/update.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/update.md
 
 # Updating Coddy
 
@@ -1154,7 +1154,7 @@ Fetching the list is a second request to the GitHub API, bounded to 15 seconds, 
 
 # Getting started / Docker
 
-Source: https://coddy.dev/docs/getting-started/docker.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/docker.md
 
 # Docker
 
@@ -1424,7 +1424,7 @@ The script builds a temporary **`config.yaml`**, brings up **`coddy`** with **`d
 
 # Getting started / Homebrew
 
-Source: https://coddy.dev/docs/getting-started/homebrew.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/homebrew.md
 
 # Homebrew
 
@@ -1577,7 +1577,7 @@ already does.
 
 # Getting started / Troubleshooting
 
-Source: https://coddy.dev/docs/getting-started/troubleshooting.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/troubleshooting.md
 
 # Troubleshooting
 
@@ -1799,7 +1799,7 @@ The same settings persist under `logger` in `config.yaml` (`level`, `levels`, `o
 
 # Getting started / Changelog
 
-Source: https://coddy.dev/docs/getting-started/changelog.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/getting-started/changelog.md
 
 # Changelog
 
@@ -3302,7 +3302,7 @@ Every pull request merged after 1.0.0, in the order the release notes group them
 
 # Surfaces / Console (TUI)
 
-Source: https://coddy.dev/docs/surfaces/console.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/surfaces/console.md
 
 # Interactive console TUI (`coddy` / `coddy cli`)
 
@@ -3775,7 +3775,7 @@ Mario Zechner), commit `b1efcf7d7`. The Go implementation in
 
 # Surfaces / Web UI
 
-Source: https://coddy.dev/docs/surfaces/web-ui.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/surfaces/web-ui.md
 
 # Coddy embedded UI specification
 
@@ -4657,7 +4657,7 @@ For Playwright MCP against a live gateway, start **`make build TAGS="http ui"`**
 
 # Surfaces / Editors (ACP)
 
-Source: https://coddy.dev/docs/surfaces/editors.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/surfaces/editors.md
 
 # Editors (ACP)
 
@@ -4781,7 +4781,7 @@ More general failures - the binary missing from `PATH`, a provider rejecting the
 
 # Surfaces / Telegram gateway
 
-Source: https://coddy.dev/docs/surfaces/gateway.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/surfaces/gateway.md
 
 # Messenger Gateway
 
@@ -5376,7 +5376,7 @@ The old session files remain on disk under the old ID. Use `coddy sessions list`
 
 # Operate / coddy serve and the daemon
 
-Source: https://coddy.dev/docs/operate/serve.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/operate/serve.md
 
 # Running Coddy as a daemon
 
@@ -5560,7 +5560,7 @@ See [installation](../getting-started/install.md).
 
 # Operate / Remote mode
 
-Source: https://coddy.dev/docs/operate/remote.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/operate/remote.md
 
 # Remote mode
 
@@ -5675,7 +5675,7 @@ The design record, [Remote control design](../plans/remote-control.md), document
 
 # Operate / Swarm
 
-Source: https://coddy.dev/docs/operate/swarm.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/operate/swarm.md
 
 # Swarm: relays, nodes, and one list of everything
 
@@ -6025,7 +6025,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
 
 # Operate / Scheduler
 
-Source: https://coddy.dev/docs/operate/scheduler.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/operate/scheduler.md
 
 # Scheduler
 
@@ -6141,7 +6141,7 @@ See also **`docs/reference/http-api.md`** (scheduler table), **`docs/getting-sta
 
 # Operate / Security and trust
 
-Source: https://coddy.dev/docs/operate/security.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/operate/security.md
 
 # Security and trust
 
@@ -6250,7 +6250,7 @@ A `PreToolUse` hook runs before the permission prompt on every matching call, wh
 
 # Features / Operating modes
 
-Source: https://coddy.dev/docs/features/modes.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/modes.md
 
 # Operating modes
 
@@ -6337,7 +6337,7 @@ A one-shot run picks the mode the same way: `coddy --mode ask -p "..."` answers 
 
 # Features / Sessions
 
-Source: https://coddy.dev/docs/features/sessions.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/sessions.md
 
 # Sessions
 
@@ -6432,7 +6432,7 @@ coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] 
 
 # Features / Rules
 
-Source: https://coddy.dev/docs/features/rules.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/rules.md
 
 # Project rules
 
@@ -6574,7 +6574,7 @@ rules:
 
 # Features / Skills
 
-Source: https://coddy.dev/docs/features/skills.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/skills.md
 
 # Skills
 
@@ -6843,7 +6843,7 @@ ACP clients receive `available_commands_update` after `session/new` and `session
 
 # Features / Subagents
 
-Source: https://coddy.dev/docs/features/subagents.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/subagents.md
 
 # Subagents
 
@@ -7149,7 +7149,7 @@ Follow-ups, deliberately not part of this change: resuming or messaging a runnin
 
 # Features / Hooks
 
-Source: https://coddy.dev/docs/features/hooks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/hooks.md
 
 # Hooks
 
@@ -7471,7 +7471,7 @@ Shell-form commands go through the shell `run_command` detected (pwsh, PowerShel
 
 # Features / MCP servers
 
-Source: https://coddy.dev/docs/features/mcp.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/mcp.md
 
 # MCP Server Integration
 
@@ -7809,7 +7809,7 @@ confirm-then-commit workflow, and discovery safety checks.
 
 # Features / Background tasks
 
-Source: https://coddy.dev/docs/features/background-tasks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/background-tasks.md
 
 # Background tasks
 
@@ -8028,7 +8028,7 @@ Everything else in this document applies unchanged: timeouts (the run arrives wi
 
 # Features / Context compaction
 
-Source: https://coddy.dev/docs/features/compaction.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/compaction.md
 
 # Context compaction
 
@@ -8120,7 +8120,7 @@ The field table with types and validation is in the [config.yaml reference](../r
 
 # Features / Long-term memory
 
-Source: https://coddy.dev/docs/features/memory.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/memory.md
 
 # Long-term memory
 
@@ -8219,7 +8219,7 @@ Every user turn with memory on adds one copilot run - one model call at least, m
 
 # Features / Session export
 
-Source: https://coddy.dev/docs/features/session-export.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/session-export.md
 
 # Session export (`/export`)
 
@@ -8341,7 +8341,7 @@ coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] 
 
 # Reference / CLI reference
 
-Source: https://coddy.dev/docs/reference/cli.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/cli.md
 
 # CLI reference
 
@@ -8651,7 +8651,7 @@ Downloads release assets from https://github.com/coddy-project/coddy-agent/relea
 
 # Reference / config.yaml reference
 
-Source: https://coddy.dev/docs/reference/config.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/config.md
 
 # `config.yaml` reference
 
@@ -9267,7 +9267,7 @@ These control config discovery itself, not individual fields (see [Configuration
 
 # Reference / Environment variables
 
-Source: https://coddy.dev/docs/reference/environment-variables.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/environment-variables.md
 
 # Environment variables
 
@@ -9371,7 +9371,7 @@ None of these is read by a released binary. They exist for contributors and are 
 
 # Reference / Slash commands
 
-Source: https://coddy.dev/docs/reference/slash-commands.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/slash-commands.md
 
 # Slash commands
 
@@ -9446,7 +9446,7 @@ The console's client-side commands are dispatched before any of that: the first 
 
 # Reference / Keyboard
 
-Source: https://coddy.dev/docs/reference/keyboard.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/keyboard.md
 
 # Keyboard
 
@@ -9526,7 +9526,7 @@ Stopping a turn has no key: it is the Stop button in the composer bar. The `@` m
 
 # Reference / Tools
 
-Source: https://coddy.dev/docs/reference/tools.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/tools.md
 
 # Tools
 
@@ -9670,7 +9670,7 @@ A subagent's tool set is narrowed from the parent's ([Subagents](../features/sub
 
 # Reference / HTTP API
 
-Source: https://coddy.dev/docs/reference/http-api.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/http-api.md
 
 # OpenAI-compatible HTTP API
 
@@ -9936,7 +9936,7 @@ For a manual gateway check against a disposable **`coddy serve`** process, **`ex
 
 # Reference / ACP protocol
 
-Source: https://coddy.dev/docs/reference/acp-protocol.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/reference/acp-protocol.md
 
 # ACP Protocol Reference
 
@@ -10686,7 +10686,7 @@ The agent can call these methods on the client (if client supports them):
 
 # Recipes / Recipes
 
-Source: https://coddy.dev/docs/recipes.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/recipes.md
 
 # Recipes
 
@@ -11082,7 +11082,7 @@ A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it b
 
 # Contributing / Contributing guide
 
-Source: https://coddy.dev/docs/CONTRIBUTING.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/CONTRIBUTING.md
 
 # Contributing guide
 
@@ -11216,7 +11216,7 @@ The description says what the change is for, which tests were added or changed, 
 
 # Contributing / Writing documentation
 
-Source: https://coddy.dev/docs/contributing/documentation.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/documentation.md
 
 # Writing documentation
 
@@ -11319,23 +11319,24 @@ make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh
 
 ## The site
 
-Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository:
+Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository, and nothing is duplicated there:
 
-| Address | What it is |
-|---------|------------|
-| `https://coddy.dev/docs/<slug>` | A redirect page that sends a person to the page on GitHub; a `#fragment` survives the hop |
-| `https://coddy.dev/docs/<slug>.md` | The Markdown of the page, unchanged except that image and out-of-tree links are absolute; what `llms.txt` points at and what an agent fetches |
-| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt` |
+| Address | What happens |
+|---------|--------------|
+| `https://coddy.dev/docs/<slug>` | The visitor lands on the page on GitHub; a `#fragment` survives the hop |
+| `https://coddy.dev/docs/<slug>.md` | The raw Markdown of the page on the main branch |
+| `https://coddy.dev/docs/` | The hub, `docs/README.md` on GitHub |
+| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt`; the index links the raw Markdown on `main` |
 | `https://coddy.dev/config.schema.json` | The config schema, published by `make site-schema` |
 
-The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). `internal/docsgen` renders the whole layer from `nav.yaml`:
+The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). GitHub Pages has no server-side redirects, but it serves `404.html` for every address that is not a file, so the site's `404.html` loads `docs-redirect.js`, one generated script that reads the path and forwards the browser (`window.coddyDocsTarget` is the pure mapping, testable without navigating). The answer carries a 404 status, which is fine for people and irrelevant to agents, who get the raw addresses from `llms.txt`; a redirect rule on the Cloudflare zone in front of the site turns the same mapping into a real 301 (Rules, Redirect Rules, dynamic: when the path starts with `/docs/`, redirect to `concat("https://github.com/coddy-project/coddy-agent/blob/main/docs/", substring(http.request.uri.path, 6), ".md")` with status 301, and a second rule for the `.md` suffix pointing at raw.githubusercontent.com). `internal/docsgen` renders the layer from `nav.yaml`:
 
 ```bash
-make site-docs        # render into the site checkout beside this one (SITE_REPO=... if elsewhere)
+make site-docs        # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout beside this one (SITE_REPO=... if elsewhere)
 make site-docs-check  # report drift without writing
 ```
 
-The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request, and the site commit follows the merge of the coddy-agent change: a redirect page for a page that is not on `main` yet lands on a 404. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
+The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request; the site commit follows the merge of the coddy-agent change, because `llms.txt` names pages by their path on `main`. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
 
 ## Design records
 
@@ -11348,7 +11349,7 @@ The site repository is `coddy-project.github.io`. A change to a page, to `nav.ya
 
 # Contributing / Architecture
 
-Source: https://coddy.dev/docs/contributing/architecture.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/architecture.md
 
 # Architecture: Coddy Agent
 
@@ -11643,7 +11644,7 @@ Optional layers **`external/httpserver`**, **`external/ui`**, **`external/schedu
 
 # Contributing / Build from source
 
-Source: https://coddy.dev/docs/contributing/build.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/build.md
 
 # Building Coddy from source
 
@@ -11892,7 +11893,7 @@ That compiles whatever the module default is **without** your local **`TAGS`**. 
 
 # Contributing / Custom tools
 
-Source: https://coddy.dev/docs/contributing/custom-tools.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/custom-tools.md
 
 # Custom Tools Guide
 
@@ -12347,7 +12348,7 @@ MCP tools are registered at runtime with the prefix `serverName__toolName` and f
 
 # Contributing / ReAct agent
 
-Source: https://coddy.dev/docs/contributing/react-agent.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/react-agent.md
 
 # ReAct Agent: Design Specification
 
@@ -12668,7 +12669,7 @@ Plan entries are updated as the agent progresses:
 
 # Contributing / Web UI design
 
-Source: https://coddy.dev/docs/DESIGN.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/DESIGN.md
 
 # Coddy Agent UI Specification
 
@@ -13387,7 +13388,7 @@ npm --prefix external/ui run dev -- --host 127.0.0.1 --port 5173
 
 # Contributing / Codex hooks
 
-Source: https://coddy.dev/docs/contributing/codex-hooks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/codex-hooks.md
 
 # Codex hooks for project rules
 
@@ -13492,7 +13493,7 @@ Upstream reference: [Hooks](https://developers.openai.com/codex/hooks) and [Cust
 
 # Contributing / OpenCode hooks
 
-Source: https://coddy.dev/docs/contributing/opencode-hooks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/opencode-hooks.md
 
 # OpenCode hooks for project rules
 
@@ -13560,7 +13561,7 @@ Upstream references: [OpenCode rules](https://opencode.ai/docs/rules/) and [Open
 
 # Contributing / ZCode hooks
 
-Source: https://coddy.dev/docs/contributing/zcode-hooks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/zcode-hooks.md
 
 # ZCode hooks for project rules
 
@@ -13643,7 +13644,7 @@ Upstream reference: ZCode hooks and configuration live under `~/.zcode/cli/confi
 
 # Contributing / Syntax highlighting audit
 
-Source: https://coddy.dev/docs/contributing/syntax-highlighting-audit.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/contributing/syntax-highlighting-audit.md
 
 # NeuralDeep syntax highlighting audit
 
@@ -13767,7 +13768,7 @@ Captured from the running Vite build with the real ChatScreen and Markdown compo
 
 # Contributing / Agent notes
 
-Source: https://coddy.dev/docs/AGENTS.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/AGENTS.md
 
 # Agent Notes for Coddy
 
@@ -13821,7 +13822,7 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 
 The documentation is the tree under **`docs/`**, mapped by **`docs/nav.yaml`**: `getting-started/`, `surfaces/`, `operate/`, `features/`, `reference/`, `contributing/`, `plans/` (design records, never rewritten to match a later rename), `recipes.md`, and `docs/assets/` for everything a page embeds. **`docs/README.md`** (the hub), **`docs/llms.txt`**, **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`** are generated by **`internal/docsgen`** (`make docs`); **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for commits that touch the docs) fails on a stale generated block, a page missing from the map, a broken relative link or anchor, and an asset no page uses. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`** from the GitHub Releases. The full guide, page types included, is **`docs/contributing/documentation.md`**.
 
-A change to Coddy carries its documentation in the same pull request (workflow step 10 in **`.claude/rules/workflow.md`**): a new capability gets its page, its `nav.yaml` entry and its row in the reference of its kind (`tools.md`, `slash-commands.md`, `environment-variables.md`, `keyboard.md`); a changed behaviour updates the page that describes it (`git grep -n '<key or command>' docs/`); a web UI or console feature is shown with a screenshot of the real surface embedded on its page, Dark 1280 wide, named `<feature>-<state>-<theme>-<width>.png` under `docs/assets/<page>/`; a demo video goes to `docs/assets/video/` and is linked from the page. Screenshots that only prove a pull request stay in the pull request. A page that moves leaves a redirect stub at its old address (first line `<!-- docs-stub`). Every page of the map also has a stable address on **coddy.dev**: `coddy.dev/docs/<slug>` redirects to the page on GitHub, `coddy.dev/docs/<slug>.md` is its Markdown twin for agents, `llms.txt` and `llms-full.txt` at the site root index them; the binary, the schema and the bundled skill print those addresses and nothing else. **`make site-docs`** renders the layer into the site checkout and **`make site-docs-check`** reports drift - a change to a page, to `nav.yaml` or to the schema is published to the site with the same pull request (workflow step 8).
+A change to Coddy carries its documentation in the same pull request (workflow step 10 in **`.claude/rules/workflow.md`**): a new capability gets its page, its `nav.yaml` entry and its row in the reference of its kind (`tools.md`, `slash-commands.md`, `environment-variables.md`, `keyboard.md`); a changed behaviour updates the page that describes it (`git grep -n '<key or command>' docs/`); a web UI or console feature is shown with a screenshot of the real surface embedded on its page, Dark 1280 wide, named `<feature>-<state>-<theme>-<width>.png` under `docs/assets/<page>/`; a demo video goes to `docs/assets/video/` and is linked from the page. Screenshots that only prove a pull request stay in the pull request. A page that moves leaves a redirect stub at its old address (first line `<!-- docs-stub`). Every page of the map also has a stable address on **coddy.dev**: `coddy.dev/docs/<slug>` sends a person to the page on GitHub and `coddy.dev/docs/<slug>.md` to its raw Markdown (one generated script behind the site's `404.html`, nothing duplicated), while `llms.txt` and `llms-full.txt` at the site root index the raw Markdown on `main`; the binary, the schema and the bundled skill print those addresses and nothing else. **`make site-docs`** renders the layer into the site checkout and **`make site-docs-check`** reports drift - a change to a page, to `nav.yaml` or to the schema is published to the site with the same pull request (workflow step 8).
 
 Human prose for HTTP lives in **`docs/reference/http-api.md`**. Visual spec for SPA lives in **`DESIGN.md`** (this repo root). Architectural narrative remains under **`docs/contributing/architecture.md`**.
 
@@ -13920,7 +13921,7 @@ Example HTTP scripts that call completion endpoints expect a reachable provider 
 
 # Design records / Console TUI plan
 
-Source: https://coddy.dev/docs/plans/cli-tui.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/cli-tui.md
 
 # Plan: interactive console TUI (`coddy` with no arguments)
 
@@ -14298,7 +14299,7 @@ triggered `[rev]`.
 
 # Design records / File viewer plan
 
-Source: https://coddy.dev/docs/plans/file-viewer.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/file-viewer.md
 
 # Plan: workspace file viewer panel
 
@@ -14633,7 +14634,7 @@ SPA at a second `coddy http` and asserts an image actually renders.
 
 # Design records / Hooks plan
 
-Source: https://coddy.dev/docs/plans/hooks.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/hooks.md
 
 # Plan: hooks (operator commands at lifecycle points of a session)
 
@@ -15266,7 +15267,7 @@ per-instance mutex pattern that finding 4 fixed here.
 
 # Design records / NeuralDeep usage plan
 
-Source: https://coddy.dev/docs/plans/neuraldeep-usage.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/neuraldeep-usage.md
 
 # Plan: NeuralDeep usage in the status bar (issue #102)
 
@@ -16247,7 +16248,7 @@ through as a bogus deadline.
 
 # Design records / Subagents plan
 
-Source: https://coddy.dev/docs/plans/subagents.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/subagents.md
 
 # Plan: subagents (user-defined child agents on the background task pool)
 
@@ -17032,7 +17033,7 @@ shipped behaviour.
 
 # Design records / Remote control design
 
-Source: https://coddy.dev/docs/plans/remote-control.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/plans/remote-control.md
 
 # Remote Control & local/remote operation (design)
 

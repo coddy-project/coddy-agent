@@ -127,10 +127,7 @@ func Generate(o Options) (*Result, error) {
 	res.Files[LLMSFullFile] = full
 
 	if o.SiteDir != "" {
-		site, err := RenderSite(nav, o.Root, res.Files)
-		if err != nil {
-			return nil, err
-		}
+		site := RenderSite(nav)
 		site["llms.txt"] = res.Files[LLMSFile]
 		site["llms-full.txt"] = res.Files[LLMSFullFile]
 		res.SiteFiles = site

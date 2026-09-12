@@ -1,28 +1,33 @@
 package docsgen
 
 import (
+	"encoding/json"
 	"fmt"
-	"html"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 )
 
 // The documentation layer of coddy.dev. Every page of the map has a stable
-// address there: coddy.dev/docs/<slug> is a redirect page that sends a person
-// to the rendered page on GitHub (the fragment survives), and
-// coddy.dev/docs/<slug>.md is the Markdown itself, for agents and for
-// llms.txt, which lives at the site root with llms-full.txt. The binary, the
-// schema and the bundled skill print the stable addresses, so a page can move
-// in the repository without changing what users were told.
+// address there, coddy.dev/docs/<slug>, and nothing is duplicated: GitHub
+// Pages serves 404.html for every address that is not a file, so one script
+// on that page reads the path and sends the visitor to the page on GitHub
+// (the fragment survives); coddy.dev/docs/<slug>.md goes to the raw Markdown
+// the same way. llms.txt and llms-full.txt at the site root point straight
+// at the raw Markdown on the main branch. The binary, the schema and the
+// bundled skill print the stable addresses, so a page can move in the
+// repository without changing what users were told. A Cloudflare redirect
+// rule in front of the site turns the same mapping into a real 301 without
+// touching any of this (see docs/contributing/documentation.md).
 const (
 	SiteBase   = "https://coddy.dev/docs/"
 	GitHubBlob = "https://github.com/coddy-project/coddy-agent/blob/main/"
 	GitHubRaw  = "https://raw.githubusercontent.com/coddy-project/coddy-agent/main/"
+
+	// SiteRedirectScript is the file the site's 404.html loads.
+	SiteRedirectScript = "docs-redirect.js"
 )
 
 // SiteSlug is the address of a nav page under coddy.dev/docs/: the path
@@ -36,95 +41,67 @@ func SiteSlug(navPath string) string {
 	return p
 }
 
-// SitePageURL is the Markdown twin of a nav page on the site.
-func SitePageURL(navPath string) string { return SiteBase + SiteSlug(navPath) + ".md" }
-
 // SiteRedirectURL is the human address of a nav page on the site.
 func SiteRedirectURL(navPath string) string { return SiteBase + SiteSlug(navPath) }
 
-// githubPageURL is where the redirect page sends a person.
-func githubPageURL(navPath string) string { return GitHubBlob + RepoPath(navPath) }
+// RawPageURL is the Markdown of a nav page as agents fetch it.
+func RawPageURL(navPath string) string { return GitHubRaw + RepoPath(navPath) }
 
-// RenderSite renders the files of the documentation layer, keyed by their
-// path relative to the site checkout. pages overlays the repository files
-// with content generated in the same run.
-func RenderSite(nav *Nav, root string, pages map[string]string) (map[string]string, error) {
+// rootPages lists the map's pages that live outside docs/, keyed by slug, so
+// the interceptor knows that /docs/CONTRIBUTING is CONTRIBUTING.md at the
+// repository root and not docs/CONTRIBUTING.md.
+func rootPages(nav *Nav) map[string]string {
 	out := map[string]string{}
-	out["docs/index.html"] = redirectPage("Coddy documentation", GitHubBlob+"docs/README.md", "README.md")
-	for _, g := range nav.Groups {
-		for _, p := range g.Pages {
-			rel := RepoPath(p.Path)
-			content, ok := pages[rel]
-			if !ok {
-				data, err := os.ReadFile(filepath.Join(root, rel))
-				if os.IsNotExist(err) {
-					continue // CheckNav reports it
-				}
-				if err != nil {
-					return nil, err
-				}
-				content = string(data)
-			}
-			slug := SiteSlug(p.Path)
-			out["docs/"+slug+"/index.html"] = redirectPage(p.Title, githubPageURL(p.Path), slug+".md")
-			out["docs/"+slug+".md"] = twinContent(rel, content)
+	for _, p := range nav.Pages() {
+		if strings.HasPrefix(filepath.ToSlash(p.Path), "../") {
+			out[SiteSlug(p.Path)] = RepoPath(p.Path)
 		}
 	}
-	return out, nil
+	return out
 }
 
-// redirectPage is a static page that forwards to GitHub and keeps the
-// fragment, with the Markdown twin one link away.
-func redirectPage(title, target, twin string) string {
-	t := html.EscapeString(title)
-	u := html.EscapeString(target)
-	return fmt.Sprintf(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>%s</title>
-<meta name="robots" content="noindex">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="canonical" href="%s">
-<meta http-equiv="refresh" content="0; url=%s">
-<script>location.replace(%q + location.hash);</script>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#121212;color:#fff}p{max-width:36rem;padding:2rem;line-height:1.6}a{color:#c084fc}</style>
-</head>
-<body>
-<p>Taking you to <a href="%s">%s</a> on GitHub. The Markdown of this page, for agents and scripts, is <a href="%s">%s</a>.</p>
-</body>
-</html>
-`, t, u, u, target, u, t, html.EscapeString(twin), html.EscapeString(twin))
+// RenderSite renders the files of the documentation layer, keyed by their
+// path relative to the site checkout: the interceptor script. The llms files
+// are added by the caller.
+func RenderSite(nav *Nav) map[string]string {
+	return map[string]string{SiteRedirectScript: redirectScript(rootPages(nav))}
 }
 
-var twinLinkRE = regexp.MustCompile(`(\]\(|(?:src|href)=")([^)"\s#]+)(#[^)"\s]*)?([)"])`)
+// redirectScript is the interceptor 404.html loads. coddyDocsTarget is a pure
+// function of the path and the fragment so it can be tested in a browser
+// without navigating; the trailing call performs the redirect when the page
+// was reached under /docs.
+func redirectScript(root map[string]string) string {
+	rootJSON, _ := json.Marshal(root)
+	return fmt.Sprintf(`// Generated by make site-docs in coddy-project/coddy-agent from docs/nav.yaml.
+// GitHub Pages serves 404.html for every address that is not a file; this
+// script turns /docs/<path> into the page on GitHub and /docs/<path>.md into
+// its raw Markdown, keeping the fragment. Root pages of the repository that
+// the map includes are listed in ROOT.
+(function () {
+  var BLOB = %q;
+  var RAW = %q;
+  var ROOT = %s;
 
-// twinContent rewrites the relative links of a page for its copy on the
-// site: images and everything outside docs/ point at GitHub, other pages
-// stay relative because their twins sit at the same relative places.
-func twinContent(rel, content string) string {
-	dir := path.Dir(rel)
-	return twinLinkRE.ReplaceAllStringFunc(content, func(m string) string {
-		parts := twinLinkRE.FindStringSubmatch(m)
-		opener, target, frag, closer := parts[1], parts[2], parts[3], parts[4]
-		if u, err := url.Parse(target); err == nil && u.Scheme != "" {
-			return m
-		}
-		if strings.HasPrefix(target, "/") || strings.HasPrefix(target, "{{") {
-			return m
-		}
-		resolved := path.Clean(path.Join(dir, target))
-		switch {
-		case strings.HasPrefix(resolved, "docs/assets/"):
-			return opener + GitHubRaw + resolved + frag + closer
-		case strings.HasPrefix(resolved, "docs/") && strings.HasSuffix(resolved, ".md"):
-			return m // another twin, same relative place
-		case strings.HasPrefix(resolved, "docs/"):
-			return opener + GitHubBlob + resolved + frag + closer
-		default:
-			return opener + GitHubBlob + resolved + frag + closer
-		}
-	})
+  function coddyDocsTarget(pathname, hash) {
+    var m = /^\/docs(?:\/(.*))?$/.exec(pathname || "");
+    if (!m) return null;
+    var p = (m[1] || "").replace(/\/+$/, "");
+    hash = hash || "";
+    if (p === "") return BLOB + "docs/README.md" + hash;
+    var raw = /\.md$/.test(p);
+    var slug = raw ? p.slice(0, -3) : p;
+    var file = ROOT[slug] || ("docs/" + slug + ".md");
+    return (raw ? RAW : BLOB) + file + hash;
+  }
+
+  if (typeof window !== "undefined") {
+    window.coddyDocsTarget = coddyDocsTarget;
+    var target = coddyDocsTarget(window.location.pathname, window.location.hash);
+    if (target) window.location.replace(target);
+  }
+})();
+`, GitHubBlob, GitHubRaw, rootJSON)
 }
 
 // SiteStale compares the rendered site files with a checkout.

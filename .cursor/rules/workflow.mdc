@@ -51,14 +51,14 @@ When adding or changing behavior (including words like feature, add, implement, 
 
    Then commit in the site repository. **Do not push it ahead of the release** when the change **renamed or removed** a key: the schema sets **`additionalProperties: false`**, so the new file marks the old key as an error in every config already on disk. Adding an optional key is safe to publish immediately.
 
-   **The documentation layer.** Every page of **`docs/nav.yaml`** has a stable address on the site: **`coddy.dev/docs/<slug>`** redirects a person to the page on GitHub (fragment kept), **`coddy.dev/docs/<slug>.md`** is the Markdown twin for agents, and **`llms.txt`** plus **`llms-full.txt`** at the site root index them. The binary (`coddy -t` hints, `--dry-run` findings), the schema descriptions and the bundled `configure-coddy` skill print those addresses, so they must exist for every page and match the repository. **`internal/docsgen`** renders all of them; whenever a page, `nav.yaml`, the schema or anything a generated file depends on changes, publish the layer with the same pull request:
+   **The documentation layer.** Every page of **`docs/nav.yaml`** has a stable address on the site, **`coddy.dev/docs/<slug>`**, and nothing is duplicated there: the site's `404.html` loads the generated **`docs-redirect.js`**, which sends a person to the page on GitHub (fragment kept) and turns **`coddy.dev/docs/<slug>.md`** into the raw Markdown; **`llms.txt`** and **`llms-full.txt`** at the site root point at the raw Markdown on `main`. The binary (`coddy -t` hints, `--dry-run` findings), the schema descriptions and the bundled `configure-coddy` skill print those addresses. **`internal/docsgen`** renders the three files; whenever a page, `nav.yaml`, the schema or anything a generated file depends on changes, publish the layer with the same pull request:
 
    ```bash
-   make site-docs          # render the redirect pages, the twins and the llms files into the site checkout
+   make site-docs          # write docs-redirect.js, llms.txt and llms-full.txt into the site checkout
    make site-docs-check    # report drift without writing; non-zero when stale
    ```
 
-   A redirect page for a page that is not on `main` yet lands on a 404, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
+   `llms.txt` names pages by their path on `main`, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
 
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old
@@ -157,7 +157,7 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **Screenshots of every changed UI surface attached to the PR** when **`external/ui/**`** changed, or an explicit note saying why a surface could not be captured.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`internal/config/config.schema.json`**, **`docs/reference/config.md`**, and **`internal/skills/bundled/configure-coddy/SKILL.md`** updated when `internal/config` yaml fields changed, and **`make site-schema-check`** clean so the copy published at **`coddy.dev/config.schema.json`** is not stale.
-- **`make site-docs-check`** clean when a documentation page, **`docs/nav.yaml`** or the schema changed: the redirect pages, the Markdown twins and the llms files on coddy.dev follow the repository.
+- **`make site-docs-check`** clean when a documentation page, **`docs/nav.yaml`** or the schema changed: the interceptor script and the llms files on coddy.dev follow the repository.
 - **No stale spelling of anything renamed**: `git grep -nI '<old name>'` comes back empty outside **`docs/plans/**`** - docs, `config.example.yaml`, `examples/`, Go comments, every `external/ui/src/ui/i18n/messages/` dictionary and `internal/skills/bundled/` included.
 - **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
 - **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.

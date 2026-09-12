@@ -8,13 +8,12 @@ import (
 	"strings"
 )
 
-// DefaultRawBase is where the Markdown twins of the pages are served from:
-// the documentation layer of coddy.dev (see site.go).
-const DefaultRawBase = SiteBase
+// DefaultRawBase is where the Markdown of the main branch is served from.
+const DefaultRawBase = GitHubRaw
 
-// rawURL returns the address of a nav page's Markdown under base.
+// rawURL returns the raw address of a nav page under base.
 func rawURL(base, navPath string) string {
-	return strings.TrimRight(base, "/") + "/" + SiteSlug(navPath) + ".md"
+	return strings.TrimRight(base, "/") + "/" + RepoPath(navPath)
 }
 
 // mdLinkRE matches an inline markdown link; the blockquote keeps its text only.
@@ -47,7 +46,7 @@ func RenderLLMSIndex(nav *Nav, hub, base string) string {
 	for _, l := range hubIntro(hub) {
 		fmt.Fprintf(&b, "> %s\n", l)
 	}
-	b.WriteString("\nEvery page below is the Markdown kept in the repository, published here unchanged, so it always matches the code on the main branch; the same address without .md is the page for people. llms-full.txt next to this file holds the same pages concatenated. Source: https://github.com/coddy-project/coddy-agent\n")
+	b.WriteString("\nEvery page below is the Markdown kept in the repository, read straight from the main branch, so it always matches the code; the same page for people is https://coddy.dev/docs/<path without .md>. llms-full.txt next to this file holds the same pages concatenated. Source: https://github.com/coddy-project/coddy-agent\n")
 	b.WriteString("\n## Website\n\n")
 	b.WriteString("- [Install](https://coddy.dev/#install): one command per platform, the packages and the Docker image.\n")
 	b.WriteString("- [Compare](https://coddy.dev/compare/): Coddy against other agent harnesses, including where it loses.\n")
