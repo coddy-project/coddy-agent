@@ -14,7 +14,8 @@
 
 <p align="center">
   <strong>A general-purpose agent in one static Go binary.</strong><br />
-  ReAct loop, filesystem and shell tools, MCP, rules, skills, subagents, hooks, an OpenAI-compatible API with an embedded web UI, a Telegram gateway, a cron scheduler, long-term memory and context compaction.
+  A console TUI, an ACP server for editors, an OpenAI-compatible API with an embedded web UI, a Telegram gateway, a cron scheduler, a swarm relay for fleets of nodes and a remote mode, all over the same sessions.<br />
+  ReAct loop, filesystem and shell tools, MCP, rules, skills, subagents, hooks, background tasks, long-term memory, context compaction and project trust for what arrives with a checkout.
 </p>
 
 | Desktop (1920×1080) | Mobile (390×844) |
@@ -54,7 +55,7 @@ agent:
   model: "openai/gpt-5.6-terra"
 ```
 
-`coddy -t` checks the file and `coddy --dry-run` probes what it points at. Anthropic, NeuralDeep, ChatGPT sign-in through the Codex backend, Ollama, llama.cpp and any other OpenAI-compatible server are covered in [Configuration](docs/getting-started/configuration.md). The first five minutes on every surface are in [Quickstart](docs/getting-started/quickstart.md); upgrades are `coddy update -y` ([Update](docs/getting-started/update.md)).
+`coddy -t` checks the file and `coddy --dry-run` probes what it points at. Anthropic, NeuralDeep, ChatGPT sign-in through the Codex backend, Ollama, llama.cpp and any other OpenAI-compatible server are covered in [Configuration](docs/getting-started/configuration.md). The first five minutes on every surface are in [Quickstart](docs/getting-started/quickstart.md); upgrades are `coddy update -y`, which ends with the release notes of every version it skipped over ([Update](docs/getting-started/update.md)).
 
 ## Surfaces
 
@@ -82,7 +83,11 @@ agent:
 - **Context compaction and long-term memory**: `/compact` and automatic summarisation at a threshold, result eviction with `keep_result`, a memory copilot that recalls before a turn and saves after ([Compaction](docs/features/compaction.md), [Memory](docs/features/memory.md)).
 - **Self-configuration**: the agent edits its own YAML through staged `config_*` tools; nothing lands until you approve the commit ([config.yaml reference](docs/reference/config.md)).
 - **Sessions everywhere**: bundles on disk, resume from any surface, branches from an edited message, `/export` to Markdown, HTML or JSON ([Sessions](docs/features/sessions.md), [Session export](docs/features/session-export.md)).
-- **Any model**: OpenAI, Anthropic, NeuralDeep, ChatGPT through Codex, Ollama, llama.cpp, vLLM and every OpenAI-compatible API, with reasoning levels and multimodal attachments per model ([Configuration](docs/getting-started/configuration.md)).
+- **Any model**: OpenAI, Anthropic, NeuralDeep, ChatGPT through Codex, Ollama, llama.cpp, vLLM and every OpenAI-compatible API, with reasoning levels and multimodal attachments per model and retries that honour `Retry-After` ([Configuration](docs/getting-started/configuration.md)).
+- **Usage and limits**: the quota behind the current model in the console footer and in the web UI for providers that publish one (NeuralDeep today), and a turn that hits a limit can wait for the reset and resume by itself ([Console](docs/surfaces/console.md), [config.yaml reference](docs/reference/config.md)).
+- **Config check, dry run and hot reload**: `coddy -t` validates `config.yaml` against the embedded schema with `file:line:col` and a fix line, `--dry-run` probes paths, providers and models, ports, MCP servers, the Telegram token, remotes and swarm joins before anything starts, and a running `coddy serve` picks up an edited file without a restart ([Configuration](docs/getting-started/configuration.md), [coddy serve](docs/operate/serve.md)).
+- **Fleets**: a swarm relay lists and reaches many nodes, mounts their sessions into one list, routes across rings and pulls in nodes that can only dial out through a reverse tunnel; `--remote` drives a `coddy serve` on another machine from the console, an editor or the browser ([Swarm](docs/operate/swarm.md), [Remote mode](docs/operate/remote.md)).
+- **In the browser**: seven themes, English and Russian, `@` file mentions and multimodal attachments in the composer, a plan document card, a Tasks drawer, a scheduler editor and a swarm map with the topology ([Web UI](docs/surfaces/web-ui.md)).
 
 Project trust is one decision for MCP servers, hooks and subagents that arrive with a repository: nothing from a checkout runs until you approve that exact file ([Security and trust](docs/operate/security.md)).
 
