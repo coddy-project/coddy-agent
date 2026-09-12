@@ -718,6 +718,7 @@ func (s *Server) coddySessionsList(w http.ResponseWriter, r *http.Request) {
 	includeScheduler := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_scheduler")), "true")
 	includeSubagents := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_subagents")), "true")
 	rows, err := fs.ListSnapshotsWith(session.ListOptions{
+		CWD:                  strings.TrimSpace(r.URL.Query().Get("cwd")),
 		IncludeSchedulerRuns: includeScheduler,
 		IncludeSubagents:     includeSubagents,
 	})

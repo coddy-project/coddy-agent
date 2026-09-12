@@ -275,7 +275,11 @@ func (h *Handler) HandleSessionList(ctx context.Context, params acp.SessionListP
 	if params.Cursor != nil {
 		cursor = *params.Cursor
 	}
-	res, err := h.listSessions(ctx, cursor)
+	cwd := ""
+	if params.CWD != nil {
+		cwd = strings.TrimSpace(*params.CWD)
+	}
+	res, err := h.listSessions(ctx, cursor, cwd)
 	if err != nil {
 		return nil, err
 	}

@@ -3907,3 +3907,57 @@ func (p stopSayingToolProvider) Stream(ctx context.Context, m []llm.Message, t [
 	onChunk(llm.StreamChunk{ToolCall: &resp.ToolCalls[0]})
 	return resp, nil
 }
+
+// TestCoddySessionsListFiltersByWorkspace: the cwd query narrows the list to
+// one workspace, matching the folder however its path is spelled (an editor
+// sends the physical path of a checkout the console stored through a symlink).
+func TestCoddySessionsListFiltersByWorkspace(t *testing.T) {
+	mgr, srv, _ := testHTTPServerPersist(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	real := filepath.Join(root, "real", "project")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(root, "real"), filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	inWorkspace, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: filepath.Join(root, "link", "project")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	elsewhere, err := mgr.HandleSessionNew(ctx, acp.SessionNewParams{CWD: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	resHTTP, err := http.Get(ts.URL + "/coddy/sessions?cwd=" + url.QueryEscape(real))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := ioReadAllClose(resHTTP.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resHTTP.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resHTTP.StatusCode, b)
+	}
+	var parsed struct {
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(b, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(parsed.Sessions))
+	for _, row := range parsed.Sessions {
+		ids = append(ids, row.ID)
+	}
+	if len(ids) != 1 || ids[0] != inWorkspace.SessionID {
+		t.Fatalf("cwd=%q listed %v, want only %s (not %s)", real, ids, inWorkspace.SessionID, elsewhere.SessionID)
+	}
+}

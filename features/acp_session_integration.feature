@@ -29,3 +29,9 @@ Feature: ACP session integrations
     Given an active session without configured MCP servers
     When settings are reloaded with MCP server "settings-probe"
     Then the current session exposes MCP tool "settings-probe__probe"
+
+  Scenario: A workspace's sessions are listed whatever spelling of its path the client sends
+    Given Coddy ACP keeps its sessions on disk
+    And a session was created for the workspace through a symlinked path
+    When an ACP client lists the sessions of that workspace through its real path
+    Then the session list includes the created session

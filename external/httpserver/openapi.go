@@ -201,6 +201,12 @@ func openAPISpec() map[string]interface{} {
 						"Bundles created for **scheduler runs** (cron or manual) carry **schedulerRun** metadata and are **hidden** from this list unless **include_scheduler=true**. " +
 						"Child sessions of subagent runs (**subagentRun** metadata, **sub_** ids) are hidden unless **include_subagents=true**; an included child row carries **subagent** **`{parentSessionId, name, taskId}`** so a client can route back to the parent chat and to the task in its drawer.",
 					"parameters": append(coddyPagingParams(), map[string]interface{}{
+						"name":   "cwd",
+						"in":     "query",
+						"schema": map[string]string{"type": "string"},
+						"description": "Only the sessions of this workspace (an absolute path). The path names a folder rather than a string: it is cleaned, symlinks are resolved, and Windows and macOS compare case-insensitively, " +
+							"so a session the console stored under the logical path of a symlinked checkout is listed for the physical path an editor sends. Sessions of a parent or a child folder are not included.",
+					}, map[string]interface{}{
 						"name":        "include_scheduler",
 						"in":          "query",
 						"schema":      map[string]string{"type": "boolean"},

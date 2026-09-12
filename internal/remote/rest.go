@@ -212,10 +212,15 @@ type sessionListResponse struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 }
 
-func (h *Handler) listSessions(ctx context.Context, cursor string) (*sessionListResponse, error) {
+// listSessions reads one page of the server's session list; a non-empty cwd
+// narrows it to that workspace, the way ACP session/list does.
+func (h *Handler) listSessions(ctx context.Context, cursor, cwd string) (*sessionListResponse, error) {
 	q := url.Values{"limit": {"100"}}
 	if cursor != "" {
 		q.Set("cursor", cursor)
+	}
+	if cwd != "" {
+		q.Set("cwd", cwd)
 	}
 	var res sessionListResponse
 	if err := h.getJSON(ctx, "/coddy/sessions?"+q.Encode(), &res); err != nil {
