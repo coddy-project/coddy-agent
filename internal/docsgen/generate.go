@@ -183,7 +183,7 @@ func renderFullWithOverlay(nav *Nav, o Options, overlay map[string]string) (stri
 }
 
 // markdownToCheck lists the markdown files whose links are verified: the
-// documentation tree, stubs included, and the root documents.
+// documentation tree, generated files included, and the root documents.
 func markdownToCheck(root string) ([]string, error) {
 	files, err := DocsMarkdown(root, false)
 	if err != nil {

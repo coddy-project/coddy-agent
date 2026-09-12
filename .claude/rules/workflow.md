@@ -122,9 +122,8 @@ When adding or changing behavior (including words like feature, add, implement, 
       on an unused asset. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`**
       from the GitHub Releases.
     - **Design records** - **`docs/plans/**`** keep decisions as they were taken and are not rewritten
-      to match a later rename; only their link targets are repaired when a page moves. A page that
-      moves leaves a redirect stub at its old path (first line `<!-- docs-stub`), because the binary,
-      the schema and the site still print the old address.
+      to match a later rename; only their link targets are repaired when a page moves. A page that moves takes its address with it: there are no redirect stubs, an old link breaks, and
+      the coddy.dev address follows the map.
 
 11. **CLI command set** - if the change added, renamed or removed a subcommand, a **`serve`** verb
     or a flag that **`printUsage`** (**`cmd/coddy/main.go`**) lists, carry the same change into

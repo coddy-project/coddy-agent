@@ -18,7 +18,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 
 The map of all of it is [`docs/nav.yaml`](../nav.yaml): every page with its group, title and a one-line summary. [`docs/README.md`](../README.md) (the hub), [`docs/llms.txt`](../llms.txt) and [`docs/llms-full.txt`](../llms-full.txt) are generated from it, and the sidebar of the documentation site will be too. A page that is not in the map does not exist as far as readers and agents are concerned, and `make docs-check` says so.
 
-Files directly under `docs/` whose first line is `<!-- docs-stub` are redirect stubs at the addresses of the previous flat layout. The binary (`coddy -t` hints, `--dry-run` findings), the config schema descriptions, the bundled `configure-coddy` skill and the site still print those addresses, so a page that moves leaves a stub behind until the site has stable addresses of its own.
+A page that moves takes its address with it: there are no redirect stubs, so an old link breaks, and the coddy.dev address (`coddy.dev/docs/<slug>`) follows the map. Links that leave the repository use that form, and the binary, the schema and the bundled skill print the current addresses.
 
 ## Page types
 
