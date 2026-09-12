@@ -40,12 +40,15 @@ func TestStubBlockStepWaitsUntilTheTurnTakesTheDirective(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
+	// The consumer closes d.taken (which releases the step) before it reports
+	// on consumed, so the step may legitimately return a moment before the
+	// report lands: wait for it instead of peeking.
 	select {
 	case d := <-consumed:
 		if d.kind != "block" {
 			t.Fatalf("consumed directive kind = %q, want block", d.kind)
 		}
-	default:
+	case <-time.After(2 * time.Second):
 		t.Fatalf("the step returned after %v with the block directive still queued; "+
 			"a later turn would take it and wait on a channel nobody closes", elapsed)
 	}

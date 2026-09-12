@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://coddy.dev/config.schema.json
-# Full field reference: docs/config-reference.md
+# Full field reference: docs/reference/config.md
 
 # .env file support
 # If $CODDY_HOME/.env exists, it is loaded at startup before config.yaml is parsed.
@@ -165,10 +165,10 @@ prompts:
   # Directory containing prompt templates (Go text/template).
   # Leave empty to use built-in templates. Paths support ~ and ${CWD} (session cwd at render time).
   # Template fields: {{.CWD}}, {{.Tools}}, {{.Skills}}, {{.TodoList}}, {{.Memory}}, {{.UTCNow}}
-  # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/config.md)
+  # (use {{if .TodoList}} ... {{end}} for optional checklist injection; see docs/getting-started/configuration.md)
   # Coddy prepends its identity line ("You are Coddy, ...") to any template that does not
   # already open with it, so gateways can attribute the traffic. See internal/prompts/identity.go
-  # and docs/react-agent.md (Agent identity).
+  # and docs/contributing/react-agent.md (Agent identity).
   dir: ""
   # File names inside prompts.dir (defaults: agent.md, plan.md, ask.md)
   # agent_prompt: "agent.md"
@@ -288,7 +288,7 @@ tools:
 # the parent session with its own child session and transcript. Definitions found inside
 # the workspace travel with the checkout, so "ask" refuses to spawn one until you approve
 # that file for that workspace on the machine running coddy (`coddy agents trust <name>`
-# there, or `POST /coddy/subagents/{name}/trust`). See docs/subagents.md.
+# there, or `POST /coddy/subagents/{name}/trust`). See docs/features/subagents.md.
 # subagents:
 #   enable: true
 #   dirs:
@@ -308,7 +308,7 @@ tools:
 # Definitions use Claude Code's file shape. Files inside the workspace travel with the checkout,
 # so "ask" lists them but runs nothing until you approve that file for that workspace on the
 # machine running coddy (`coddy hooks trust <file>` there, or `POST /coddy/hooks/trust`).
-# See docs/hooks.md.
+# See docs/features/hooks.md.
 # hooks:
 #   enable: true
 #   files:
@@ -321,7 +321,7 @@ tools:
 #   stop_loop_limit: 5              # how many times per turn a Stop hook may keep the agent working
 #   max_output_chars: 10000         # cap on the context, messages and reasons one hook hands over
 
-# OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/http-api.md
+# OpenAI-compatible HTTP API (only when built with: go build -tags=http). Embedded SPA from GET / adds -tags=ui with http. See docs/reference/http-api.md
 # Run it with `coddy serve`, which starts every subsystem enabled below in one
 # process over one set of sessions.
 # httpserver:
@@ -383,7 +383,7 @@ tools:
 # The bot is not a command of its own: set enable: true and `coddy serve` polls
 # Telegram alongside whatever else is on. With httpserver.enable the chats are
 # live sessions in the web UI - watchable while they run, continuable in either
-# place. See docs/gateway.md.
+# place. See docs/surfaces/gateway.md.
 # gateways:
 #   telegram:
 #     enable: false
@@ -431,7 +431,7 @@ logger:
 # Server side needs -tags swarm and swarm.enable; the join list below is
 # honoured by every coddy serve process, which is what lets an ordinary agent be
 # reached through a relay.
-# Full reference: docs/swarm.md
+# Full reference: docs/operate/swarm.md
 # ----------------------------------------------------------------------------
 # swarm:
 #   enable: false        # run the relay here; independent of the join list below

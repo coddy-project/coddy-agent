@@ -1,125 +1,159 @@
-# UI reference images
+# Assets index
 
-This folder contains reference screenshots used to align the embedded UI with the target design.
+`docs/assets` holds what the documentation embeds and nothing else: the screenshots and videos the pages show, the brand files the README and the Docker image use. `make docs-check` lists every file here with the pages that reference it and fails on a file nothing references, so an asset is either used or deleted.
 
-## Navbar (RPA-style references, May 2026)
+## What belongs here
 
-Implementation note: **Coddy does not render a circle or logo glyph** before the **Coddy agent** brand in the embedded SPA. SVG logos under **`coddy-logo-*.svg`** are for README, **`logo-preview.html`**, and favicon (**`coddy-favicon.svg`** aliases **`coddy-logo-mark-flat.svg`**, same asset as [coddy.dev](https://coddy.dev/) **`assets/coddy-favicon.svg`**). Raster favicons **`favicon-32.png`**, **`favicon.ico`**, **`apple-touch-icon.png`** ship with the embedded SPA at the site root. **`coddy-logo-mark-icon.svg`** is square full-bleed plate fill with no rim stroke or corner radius; **`coddy-logo-mark-icon-2048.png`** is a 2048×2048 raster export; **`coddy-logo-social.svg`** (1280×640) is the GitHub repository social preview with wordmark and tagline, with **`coddy-logo-social-1280x640.png`** and **`coddy-logo-social-640x320.png`** raster exports; **`coddy-logo-mark.svg`** adds halo filters. Some references still show a circle, treat it as layout inspiration only.
+- An image or video that a page under `docs/`, the README, `DESIGN.md` or `CONTRIBUTING.md` embeds, or that the `Dockerfile` copies into the image.
+- One folder per feature or page when a page needs more than a couple of images (`subagents/`, `swarm/`, `ui-usage/`, `cli-tui/`, `video/`); one-off images stay at the top level with a descriptive kebab-case name that says what is shown and, for UI captures, the theme and the width: `settings-usage-panel-dark-1280.png`.
+- PNG for screenshots, SVG for logos, MP4 (H.264, no audio, 1280 px wide) for videos. Keep a screenshot under 1 MB and a video under 4 MB; crop to the surface that matters.
 
-- `ref-navbar-narrow-tooltips-accent.png` - narrow vertical rail, tooltips right, purple hover on icon
-- `ref-navbar-narrow-icons-only.png` - narrow rail, icons only (Coddy uses History + GitHub + API, not News or Projects)
-- `ref-navbar-wide-with-labels.png` - wide rail with text labels next to items
+Screenshots taken as evidence for a pull request do not belong here. Attach them to the pull request itself (drag and drop in the GitHub editor, which stores them under `user-attachments`), or push them to the orphan `screenshots` branch and link the raw file. Before and after pairs of a fix are pull request material; the documentation keeps only the after state, and only when a page shows it.
 
-## Playwright MCP (verification, May 2026)
+## Capture recipes
 
-Captured from local `vite` + `coddy serve` with `CODDY_UI_BACKEND`.
+**Web UI, Full HD tour.** `make build TAGS="http ui scheduler memory cli"`, then `coddy serve` on a disposable `CODDY_HOME` at a presentable path (the Skills tab prints the resolved `skills.dirs`) and Playwright at **1920x1080**, mobile at **390x844**, the default Dark theme, browser locale `en-US`. Never capture the provider detail pane: it renders `api_key` values in full; the provider list (names only) is safe. The current set was captured on 2026-08-17 (0.9.71): `screenshot-fullhd-*.png` and `screenshot-mobile-*.png`.
 
-- `pw-navbar-1440-narrow.png` - desktop under 1920px width, narrow rail (no widen toggle), no burger
-- `pw-navbar-1440-history-hover.png` - History hover / pressed accent and tooltip styling
-- `pw-navbar-1920-wide-labels.png` - min-width 1920px, wide rail (**rectangular panel**, rounded on the right only), header with **collapse** (stacked lines) plus **Coddy agent** text-only brand, full-width rows icon plus label
-- `pw-navbar-1920-github-hover.png` - wide rail, hover on **GitHub** row (label plus icon pick up accent)
-- `pw-navbar-390-mobile-topbar.png` - max-width 1199px shell, rail as top bar row
-- `pw-navbar-390-sessions-drawer.png` - History opens chats drawer overlay
+**Feature captures.** Playwright against `coddy serve` with the SPA embedded, one image per view and state, Dark 1280 wide as the default, Light and 390 wide when the page discusses them. Issue and pull request numbers do not belong in file names; name the surface and the state.
 
-## Full HD tour (README, re-captured August 2026)
+**Console.** A real Konsole window on an isolated Xvfb `:99`, staged by `demo-videos/rig/stage_konsole.sh` and driven with XTEST, 1920 px wide and cropped to the used rows because the TUI renders inline from the top. Deterministic pyte-rendered states of the usage footer live in `cli-tui/` and are produced by `examples/cli/capture_usage.py`. See [Console](../surfaces/console.md), section Captures.
 
-Captured at **1920×1080** through Playwright against the embedded SPA (`make build TAGS="http ui scheduler memory cli"` + `coddy serve` on a disposable `CODDY_HOME`), mobile at **390×844**, default **Dark** theme, browser locale **en-US** so no shot lands in another language. Re-captured **2026-08-17** on **0.9.71**: the composer carries the attach button and the improve-prompt wand, chips wrap individually on narrow viewports, Appearance holds the language picker, and the scheduler job editor uses the shared markdown line editor.
+**Videos.** Recorded with the demo rig in `demo-videos/rig` (scripted XTEST takes on Xvfb, post-production with `post.py`: zooms, captions, hotkey badges), then re-encoded for the repository with `ffmpeg -vf scale=1280:-2 -c:v libx264 -preset slow -crf 31 -pix_fmt yuv420p -movflags +faststart -an`. GitHub plays an `.mp4` on its file page, so a page links the video from a poster image; the documentation site can embed it directly.
 
-The disposable home lives at a presentable path (`/home/pasha/demo/coddy-home` at capture time) because the Skills tab prints the resolved `skills.dirs`. **Never capture the LLM provider detail pane**: it renders `api_key` values in full. The provider master list (names only) is safe, which is why the `providers` tab is not part of this set.
+## Brand
 
-- `screenshot-fullhd-start.png` - new chat / hero start screen (README, above fold)
-- `screenshot-fullhd-chat.png` - session transcript with an expanded `edit` tool call showing a real diff
-- `screenshot-fullhd-history.png` - History drawer over the start screen
-- `screenshot-fullhd-scheduler.png` - scheduler drawer, three jobs, one paused
-- `screenshot-fullhd-scheduler-job.png` - drawer plus the job editor (cron hint, mode/model, markdown body)
-- `screenshot-fullhd-settings.png` - settings sheet, tabbed nav, **ReAct agent** tab
-- `screenshot-fullhd-settings-skills.png` - settings Skills tab (dirs, remote sources, installed skills)
-- `screenshot-fullhd-settings-appearance.png` - settings Appearance tab (7 theme swatches plus language picker)
-- `screenshot-fullhd-settings-mcp.png` - settings MCP tab: a connected global server and a project-local one awaiting workspace approval
-- `screenshot-fullhd-tasks.png` - background tasks panel docked in a session, one task running
-- `screenshot-fullhd-branches.png` - `‹ 2/2 ›` branch navigator under an edited user message
-- `screenshot-mobile-start.png`, `screenshot-mobile-chat.png` - 390×844 top-bar shell
+`coddy-logo-wordmark.svg` (README header), `coddy-logo-wordmark-light.svg`, `coddy-logo-mark.svg` (with halo filters), `coddy-logo-mark-flat.svg` (aliased by `coddy-favicon.svg`, the same file coddy.dev serves), `coddy-logo-mark-icon.svg` (square, full-bleed plate, no rim), `coddy-logo-mark-light.svg`, `coddy-logo-social.svg` with its PNG exports `coddy-logo-social-1280x640.png` and `coddy-logo-social-640x320.png` (the GitHub social preview, uploaded in the repository settings). The `Dockerfile` copies `coddy-logo-mark-flat.svg`, `favicon-32.png`, `favicon.ico` and `apple-touch-icon.png` into the image for the embedded SPA. The embedded SPA renders the **Coddy agent** wordmark as text and no logo glyph; the logos are for the README, the site and the favicons.
 
-## Console TUI (README and coddy.dev, August 2026)
+## Inventory
 
-Captured **2026-08-17** from a real **Konsole** window on an isolated Xvfb `:99` (staged by `demo-videos/rig/stage_konsole.sh`, driven with XTEST), 1920 px wide and cropped to the used rows because the TUI renders inline from the top. Deterministic pyte-rendered counterparts live in `cli-tui/`; pi originals in `pi-tui-reference/`. See `docs/cli.md` (**Captures**).
+Generated by `make docs`. "Used by" lists the files that reference the asset.
 
-- `screenshot-console-start.png` - the `coddy` launch line plus header, `[Context]`, `[Skills]`, editor, footer
-- `screenshot-console-models.png` - `ctrl+l` model selector
-- `screenshot-console-chat.png` - finished turn: `read` tool box, thinking block, markdown answer, footer counters
+<!-- docsgen:assets:start -->
+86 files, 24.8 MB in total.
 
-## Tool approval previews (July 2026)
+### docs/assets
 
-Captured from the real permission-prompt and expanded transcript-card components
-with representative Coddy filesystem, search, shell, and patch tool payloads.
+| File | Size | Used by |
+|------|------|---------|
+| `apple-touch-icon.png` | 14 KB | Dockerfile, docs/assets/INDEX.md |
+| `coddy-favicon.svg` | 24 B | docs/assets/INDEX.md |
+| `coddy-logo-mark-flat.svg` | 1 KB | Dockerfile, docs/surfaces/web-ui.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `coddy-logo-mark-icon.svg` | 1 KB | external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `coddy-logo-mark-light.svg` | 992 B | external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `coddy-logo-mark.svg` | 2 KB | external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `coddy-logo-social-1280x640.png` | 109 KB | docs/assets/INDEX.md |
+| `coddy-logo-social-640x320.png` | 48 KB | docs/assets/INDEX.md |
+| `coddy-logo-social.svg` | 3 KB | docs/assets/INDEX.md |
+| `coddy-logo-wordmark-light.svg` | 1 KB | external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `coddy-logo-wordmark.svg` | 2 KB | README.md, external/ui/src/logo-preview.html, docs/assets/INDEX.md |
+| `composer-attachment-thumbnail-dark-1280.png` | 39 KB | docs/surfaces/web-ui.md |
+| `composer-improve-prompt.jpg` | 28 KB | docs/surfaces/web-ui.md |
+| `confirm-delete-chat-dark-1280.png` | 290 KB | docs/surfaces/web-ui.md |
+| `favicon-32.png` | 1 KB | Dockerfile, docs/assets/INDEX.md |
+| `favicon.ico` | 5 KB | Dockerfile, docs/assets/INDEX.md |
+| `localization-ru-wide.png` | 27 KB | docs/surfaces/web-ui.md |
+| `modes-menu-dark-1280.png` | 178 KB | docs/features/modes.md |
+| `modes-pill-hero-dark-1280.png` | 172 KB | docs/features/modes.md |
+| `nav-rail-wide-1920.png` | 288 KB | docs/surfaces/web-ui.md |
+| `nav-topbar-mobile-390.png` | 100 KB | docs/surfaces/web-ui.md |
+| `plan-exit-preview-dark.png` | 35 KB | docs/features/modes.md |
+| `reasoning-levels-dark-1280.png` | 275 KB | docs/surfaces/web-ui.md |
+| `ref-navbar-narrow-tooltips-accent.png` | 16 KB | DESIGN.md |
+| `screenshot-console-chat.png` | 151 KB | README.md, docs/getting-started/quickstart.md |
+| `screenshot-console-models.png` | 70 KB | docs/surfaces/console.md |
+| `screenshot-console-start.png` | 45 KB | docs/surfaces/console.md |
+| `screenshot-fullhd-branches.png` | 358 KB | docs/features/sessions.md, docs/surfaces/web-ui.md |
+| `screenshot-fullhd-chat.png` | 435 KB | docs/getting-started/quickstart.md |
+| `screenshot-fullhd-history.png` | 250 KB | docs/features/sessions.md |
+| `screenshot-fullhd-scheduler-job.png` | 294 KB | docs/operate/scheduler.md |
+| `screenshot-fullhd-scheduler.png` | 320 KB | docs/operate/scheduler.md |
+| `screenshot-fullhd-settings-appearance.png` | 211 KB | docs/surfaces/web-ui.md |
+| `screenshot-fullhd-settings-hooks.png` | 287 KB | docs/surfaces/web-ui.md |
+| `screenshot-fullhd-settings-mcp.png` | 313 KB | docs/operate/security.md, docs/surfaces/web-ui.md |
+| `screenshot-fullhd-settings-skills.png` | 306 KB | docs/features/skills.md |
+| `screenshot-fullhd-settings.png` | 277 KB | docs/surfaces/web-ui.md |
+| `screenshot-fullhd-start.png` | 346 KB | README.md |
+| `screenshot-fullhd-tasks.png` | 348 KB | docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-dark.png` | 280 KB | docs/features/hooks.md, docs/operate/security.md, docs/surfaces/web-ui.md |
+| `screenshot-hooks-notice-light.png` | 203 KB | docs/features/hooks.md |
+| `screenshot-mobile-chat.png` | 136 KB | docs/surfaces/web-ui.md |
+| `screenshot-mobile-start.png` | 104 KB | README.md |
+| `screenshot-tool-previews-dark.png` | 129 KB | docs/surfaces/web-ui.md |
+| `screenshot-tool-previews-overflow-dark.png` | 64 KB | docs/surfaces/web-ui.md |
+| `settings-model-stream-toggle-dark-1280.png` | 161 KB | docs/surfaces/web-ui.md |
+| `settings-neuraldeep-endpoint-mismatch-wide.png` | 208 KB | docs/surfaces/web-ui.md |
+| `settings-neuraldeep-signin-dark-1280.png` | 194 KB | docs/surfaces/web-ui.md |
+| `settings-switch-field-models-390.png` | 94 KB | DESIGN.md |
+| `settings-switch-field-models-rows-1280.png` | 39 KB | DESIGN.md |
+| `settings-switch-field-skills-rows-1280.png` | 22 KB | DESIGN.md |
+| `thinking-block-open-dark-1280.png` | 265 KB | docs/surfaces/web-ui.md |
+| `todo-tool-preview-dark.png` | 25 KB | docs/surfaces/web-ui.md |
+| `transcript-long-dialog-1280.png` | 458 KB | docs/surfaces/web-ui.md |
+| `update-report-dark-1920.png` | 199 KB | docs/getting-started/update.md |
 
-- `screenshot-tool-previews-light.png` - approval prompts and expanded tool cards in the Light theme
-- `screenshot-tool-previews-dark.png` - approval prompts and expanded tool cards in the Dark theme
-- `screenshot-tool-previews-overflow-light.png` - collapsed `More…` and expanded `Less` states in the Light theme
-- `screenshot-tool-previews-overflow-dark.png` - collapsed `More…` and expanded `Less` states in the Dark theme
+### docs/assets/cli-tui
 
-## Persisted image attachments (August 2026)
+| File | Size | Used by |
+|------|------|---------|
+| `09-usage-footer.png` | 156 KB | docs/surfaces/console.md |
+| `10-usage-warning.png` | 233 KB | docs/surfaces/console.md |
+| `11-usage-blocked.png` | 233 KB | docs/surfaces/console.md |
+| `12-usage-resuming.png` | 239 KB | docs/surfaces/console.md |
 
-Captured from the embedded SPA against a disposable NeuralDeep-backed session.
+### docs/assets/subagents
 
-- `pr-98-disabled-attachment-1280-dark.png` - wide Dark composer after switching an attached image to a non-multimodal model
-- `pr-98-disabled-attachment-390-dark.png` - narrow Dark variant
-- `pr-98-disabled-attachment-390-light.png` - narrow Light variant
-- `pr-98-persisted-thumbnail-1280-dark.png` - sent image thumbnail restored from the session backend after a full reload
+| File | Size | Used by |
+|------|------|---------|
+| `child-transcript-readonly-dark.png` | 240 KB | docs/features/subagents.md |
+| `settings-subagents-dark.png` | 195 KB | docs/features/subagents.md |
+| `spawn-agent-card-dark-1280.png` | 62 KB | docs/features/subagents.md |
+| `tasks-detail-agent-finished-dark.png` | 332 KB | docs/features/subagents.md |
+| `tasks-panel-agent-running-dark.png` | 250 KB | docs/contributing/documentation.md, docs/features/subagents.md |
 
-## Primary
+### docs/assets/swarm
 
-- `ref-home-1.png` - landing page with collapsed left rail and centered composer
-- `ref-home-composer.png` - expanded left menu and composer action area
-- `ref-chat.png` - in chat view with floating composer and left rail
-- `ref-wide-1.png` - wide desktop layout with expanded left nav and sessions list
-- `ref-wide-2.png` - wide desktop layout variant
-- `ref-wide-3.png` - wide desktop layout with session context menu
+| File | Size | Used by |
+|------|------|---------|
+| `map-dark-1280.png` | 85 KB | docs/surfaces/web-ui.md |
+| `map-live-dark-1280.png` | 79 KB | docs/operate/swarm.md |
+| `node-dark-1280.png` | 265 KB | docs/operate/swarm.md |
+| `permission-two-relays-dark-1280.png` | 262 KB | docs/operate/swarm.md |
+| `relay-needs-token-dark-1280.png` | 76 KB | docs/operate/swarm.md |
 
-## Mobile
+### docs/assets/syntax-highlighting
 
-- `ref-image-098475fd-f1e8-4722-9975-67890f85a2c8.png` - mobile rail states and expanded menu
+| File | Size | Used by |
+|------|------|---------|
+| `after-dark-1280.png` | 208 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-light-1280.png` | 170 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-midnight-1280.png` | 201 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-monokai-1280.png` | 186 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-nord-1280.png` | 224 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-rose-pine-1280.png` | 211 KB | docs/contributing/syntax-highlighting-audit.md |
+| `after-solarized-dark-1280.png` | 188 KB | docs/contributing/syntax-highlighting-audit.md |
 
-## Batch uploads
+### docs/assets/ui-folder-picker
 
-Files named `ref-image-*.png` are direct uploads from chat. They are kept as source of truth.
+| File | Size | Used by |
+|------|------|---------|
+| `folder-picker-after-dark-1280.png` | 119 KB | docs/surfaces/web-ui.md |
+| `folder-picker-new-row-dark-1280.png` | 121 KB | docs/surfaces/web-ui.md |
 
-## Open folder dialog scroll (issue #159, September 2026)
+### docs/assets/ui-usage
 
-Captured in **Playwright WebKit 26.6** - the engine build Safari 26.6 is cut from - against `coddy serve` with the SPA embedded, workspace `/home/pasha/demo/coddy-workspace` (30 subfolders, so the list overflows). `before-*` is `main`, `after-*` is the fix. The two short viewports carry the change; **1280x800** and **390x720** are there to show the dialog is untouched where it already fit.
+| File | Size | Used by |
+|------|------|---------|
+| `settings-usage-panel-dark-1280.png` | 203 KB | docs/surfaces/web-ui.md |
+| `usage-blocked-dark-1280.png` | 284 KB | docs/surfaces/web-ui.md |
+| `usage-popover-dark-1280.png` | 278 KB | docs/surfaces/web-ui.md |
 
-- `issue-159-folder-dialog-{before,after}-{dark,light}-786x420.png` - the reporter's viewport: before, the dialog's bottom padding is clipped and the buttons sit flush on the border; after, the list gives up those pixels instead
-- `issue-159-folder-dialog-{before,after}-{dark,light}-786x340.png` - shorter window: before, **Cancel** / **Open** are laid out past the height cap and clipped away entirely; after, they stay in the dialog
-- `issue-159-folder-dialog-{before,after}-{dark,light}-1280x800.png` - wide desktop, dialog unchanged (520px cap, 378px list)
-- `issue-159-folder-dialog-{before,after}-{dark,light}-390x720.png` - narrow shell, dialog unchanged
+### docs/assets/video
 
-## Open folder dialog: New folder (issue #157, September 2026)
-
-In `ui-folder-picker/`. Captured through Playwright against `coddy serve` with the SPA embedded
-(`make build TAGS="http ui"`), demo workspace holding `codex` and `tmp` so the listing matches the
-screenshot in the issue. `before-*` is the dialog built from the pre-change sources.
-
-- `folder-picker-before-dark-1280.png` - the footer before the change: only **Cancel** / **Open**
-- `folder-picker-after-dark-1280.png` - the same dialog with **New folder** leading the footer
-- `folder-picker-new-row-dark-1280.png` - the inline name row between the path field and the list, name typed
-- `folder-picker-created-dark-1280.png` - after **Enter**: the dialog is inside the folder it just made, so **Open** picks it
-- `folder-picker-exists-dark-1280.png` - a name already taken (**409**): the row keeps its text and the clash is reported inline
-- `folder-picker-new-row-light-1280.png` - the name row in the Light theme
-- `folder-picker-{after,new-row}-dark-390.png` - narrow shell: the three-button footer and the name row still fit
-- `folder-picker-new-row-dark-1024x300.png` - the shortest viewport `webkit-scroll-check.mjs` drives, name row open: the list has shrunk to nothing and the row plus all three buttons are still whole (issue #159's invariant, which is why the row is a sibling of the list rather than a child of it)
-
-
-## Scheduler disabled notice (rename sweep, September 2026)
-
-In `scheduler-disabled-notice/`. Captured through Playwright against `coddy serve`
-(`make build TAGS="http ui scheduler"`) with `scheduler.enable: false`, so the drawer renders its
-empty state. `before-*` is built from the pre-change sources.
-
-- `scheduler-disabled-{before,after}-en-dark-560x260.png` - before, the notice names `scheduler.enabled` and a `-scheduler-enabled` flag, neither of which exists; after, `scheduler.enable` and `coddy serve --scheduler`
-- `scheduler-disabled-{before,after}-ru-dark-560x260.png` - the same string in the Russian dictionary, which carried the same two errors
-
-## Self-update report (issue #195, September 2026)
-
-Captured **2026-09-12** from a real **Konsole** window on an isolated Xvfb `:99` (the same stand as the console captures above), 1920 px wide and cropped to the used rows. A binary labelled **1.0.29** in a disposable `~/demo/bin` ran `./coddy update -y` against the live GitHub releases, so every line is what the command printed.
-
-- `issue-195-update-notes-dark-1920x890.png` - the install lines, then the report: every release from 1.0.30 to 1.1.0 with its notes, the 20-line cap, and the comparison link
+| File | Size | Used by |
+|------|------|---------|
+| `console.mp4` | 3.3 MB | README.md, docs/surfaces/console.md |
+| `swarm.mp4` | 2.5 MB | README.md, docs/operate/swarm.md |
+| `vscode-acp.mp4` | 1.7 MB | README.md, docs/surfaces/editors.md |
+| `web-ui.mp4` | 1.5 MB | README.md, docs/surfaces/web-ui.md |
+| `zed-acp.mp4` | 2.8 MB | README.md, docs/surfaces/editors.md |
+<!-- docsgen:assets:end -->

@@ -69,3 +69,4 @@ Thumbs.db
 # (.zcode/config.json, .zcode/hooks/) is added to git explicitly.
 .zcode/plans/
 .zcode/sessions/
+/docsgen

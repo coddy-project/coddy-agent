@@ -20,7 +20,7 @@ type HTTPServerConfig struct {
 	// AuthToken is the optional bearer credential for the HTTP API. Empty means no authentication
 	// (historical "no login" behavior). "${ENV}" references are expanded at load. The HTTP layer
 	// never echoes it back through GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to
-	// keep the secret out of config.yaml. See docs/remote-control.md.
+	// keep the secret out of config.yaml. See docs/plans/remote-control.md.
 	AuthToken string `yaml:"auth_token"`
 	// PublicDocs keeps /docs and /openapi.* reachable without a token even when auth is enabled.
 	PublicDocs bool `yaml:"public_docs"`

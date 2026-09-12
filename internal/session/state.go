@@ -56,7 +56,7 @@ type State struct {
 	SelectedReasoning string
 
 	// HookContext is the context SessionStart hooks handed to the session;
-	// every system prompt of the session carries it (see docs/hooks.md).
+	// every system prompt of the session carries it (see docs/features/hooks.md).
 	HookContext string
 
 	// Messages is the conversation history.

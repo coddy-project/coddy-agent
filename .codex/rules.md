@@ -14,7 +14,7 @@ is their single source of truth. Codex does not read `.mdc` files on its own, so
 The hook parses `.mdc` frontmatter (`description`, `globs`, `alwaysApply`) directly, so a
 new rule file is picked up with no wiring. It fails open: a malformed rule exits quietly
 instead of blocking an edit. Configuration lives in `.codex/hooks.json`; the full guide,
-including trust, context budget, and debugging, is [docs/codex-hooks.md](../docs/codex-hooks.md).
+including trust, context budget, and debugging, is [docs/contributing/codex-hooks.md](../docs/contributing/codex-hooks.md).
 
 Codex tracks hooks by content hash and skips untrusted ones without a hard error. Run
 `/hooks` once per clone, and again after any edit to `attach_rules.py`. Project-local

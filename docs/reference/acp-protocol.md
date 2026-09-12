@@ -1,0 +1,744 @@
+# ACP Protocol Reference
+
+## Overview
+
+Coddy implements ACP as the **wire contract for the harness**. ACP standardizes how clients (for example editors, scripts, or orchestrators) talk to an agent process. The stock configuration presents a **coding agent**, but transports and RPC methods are generic harness surface area - initialize, session lifecycle, `session/prompt`, permission flows, and MCP-related options.
+
+Reference: https://agentclientprotocol.com/protocol/overview
+
+## Transport
+
+All messages are newline-delimited JSON objects sent via **stdin/stdout**.
+
+```
+stdin  -> messages from Client to Agent
+stdout -> messages from Agent to Client (responses + notifications)
+stderr -> agent logs (not protocol messages)
+```
+
+## Message Types
+
+### Request (Client to Agent)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "session/prompt",
+  "params": { ... }
+}
+```
+
+### Response (Agent to Client)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": { ... }
+}
+```
+
+### Error Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32600,
+    "message": "Invalid request"
+  }
+}
+```
+
+### Notification (Agent to Client, no response expected)
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "session/update",
+  "params": { ... }
+}
+```
+
+## Stdio clients (Coddy-specific)
+
+Hand-written scripts that drive **`coddy acp`** over a pipe should implement the following behaviors. Reference harness: **`examples/acp/acp_e2e_todo.py`**.
+
+1. **Nil `result` and `omitempty`** - JSON-RPC success payloads are produced with `result` omitted when the Go handler returns a **`nil`** pointer (for example **`session/set_mode`**). A response line may contain only **`jsonrpc`**, **`id`**, and neither **`result`** nor **`error`**. Treat any object with a matching **`id`** and no **`method`** as the completion of your outstanding request.
+2. **Interleaved `session/update`** - After **`session/prompt`**, the agent streams many notifications before the final response. Read stdout line by line until the line for your request **`id`** arrives; handle **`session/request_permission`** or **`session/request_question`** in between by writing a client response with the same **`id`**.
+3. **Stdout buffering** - When stdout is not a TTY, output can be block-buffered. Wrap the binary with **`stdbuf -oL -eL`** (or equivalent) so lines appear as they are written.
+4. **Concurrent request handlers** - Outstanding requests are dispatched asynchronously. Do not send a second RPC until you have consumed the response for the previous one if your client assumes strict ordering.
+
+## Protocol Flow
+
+```
+Client                          Agent
+  |                               |
+  |-------- initialize ---------->|
+  |<------- initialize resp ------|
+  |                               |
+  |-------- session/new --------->|
+  |<------- session/new resp -----|
+  |                               |
+  |-------- session/prompt ------>|
+  |<------- session/update -------|  (notifications: plan, available_commands_update, chunks, tool_calls)
+  |<------- session/update -------|
+  |<------- session/update -------|
+  |<------- session/prompt resp --|  (stopReason: end_turn)
+  |                               |
+```
+
+## Methods
+
+### `initialize`
+
+Negotiate protocol version and exchange capabilities.
+
+**Request params:**
+```json
+{
+  "protocolVersion": 1,
+  "clientCapabilities": {
+    "fs": {
+      "readTextFile": true,
+      "writeTextFile": true
+    },
+    "terminal": true
+  },
+  "clientInfo": {
+    "name": "example-acp-client",
+    "title": "Example ACP Client",
+    "version": "1.0.0"
+  }
+}
+```
+
+**Response result:**
+```json
+{
+  "protocolVersion": 1,
+  "agentCapabilities": {
+    "loadSession": true,
+    "sessionCapabilities": {
+      "list": {}
+    },
+    "promptCapabilities": {
+      "image": false,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": false
+    }
+  },
+  "agentInfo": {
+    "name": "coddy-agent",
+    "title": "Coddy Agent",
+    "version": "0.1.0"
+  },
+  "authMethods": []
+}
+```
+
+### `session/new`
+
+Create a new conversation session.
+
+**Request params:**
+```json
+{
+  "cwd": "/home/user/project",
+  "mcpServers": [
+    {
+      "name": "my-mcp",
+      "command": "/path/to/mcp-server",
+      "args": ["--stdio"],
+      "env": []
+    }
+  ]
+}
+```
+
+**Response result:**
+
+Coddy returns both **Session Config Options** (preferred by modern ACP clients) and the legacy **`modes`** field for compatibility. Clients that support `configOptions` should use them for mode and model selection.
+
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "configOptions": [
+    {
+      "id": "mode",
+      "name": "Session mode",
+      "description": "Agent runs tools; Plan focuses on design without execution.",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "agent",
+      "options": [
+        {
+          "value": "agent",
+          "name": "Agent",
+          "description": "Execute tasks with full tool access"
+        },
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Plan and design without code execution"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "description": "LLM used for this session.",
+      "category": "model",
+      "type": "select",
+      "currentValue": "openai/gpt-5.6-terra",
+      "options": [
+        {
+          "value": "openai/gpt-5.6-terra",
+          "name": "gpt-5.6-terra",
+          "description": "openai"
+        }
+      ]
+    },
+    {
+      "id": "permission_mode",
+      "name": "Permission mode",
+      "description": "Controls when the agent asks for user approval before running tools.",
+      "category": "permissions",
+      "type": "select",
+      "currentValue": "ask",
+      "options": [
+        {
+          "value": "ask",
+          "name": "Ask",
+          "description": "Always ask before running commands or writing files"
+        },
+        {
+          "value": "accept_edits",
+          "name": "Accept edits",
+          "description": "Auto-approve file writes; ask before running commands"
+        },
+        {
+          "value": "bypass",
+          "name": "Bypass",
+          "description": "Never ask for permission"
+        }
+      ]
+    }
+  ],
+  "modes": {
+    "currentModeId": "agent",
+    "availableModes": [
+      {
+        "id": "agent",
+        "name": "Agent",
+        "description": "Execute tasks with full tool access"
+      },
+      {
+        "id": "plan",
+        "name": "Plan",
+        "description": "Plan and design without code execution"
+      },
+      {
+        "id": "ask",
+        "name": "Ask",
+        "description": "Answer questions from the repository without changing anything"
+      }
+    ]
+  }
+}
+```
+
+The `model` option is present only when the `models` list in the agent config is non-empty. The effective default model is `agent.model` until the user picks another model in the client, as described in [Configuration](../getting-started/configuration.md). Each listed `value` matches the YAML `models[].model` string (`provider_name/api_model_id`).
+
+### `session/load`
+
+Reloads a persisted session by `sessionId`. The agent restores `session.json` and `messages.json`, rebuilds skills and MCP connections from the request, replays prior user and assistant turns (and tool call summaries) via `session/update`, sends a `plan` update if `todos/active.md` exists, and sends `available_commands_update` once the response is on the wire.
+
+The replay precedes the response here, as ACP requires, and that is safe because the client named the session itself. Reopening a bundle through **`session/new`** (`coddy acp --session-id <id>`) is the other way round: the client only learns the id from the response, so the replay waits for it. Anything written earlier would arrive for a session the client has not registered.
+
+**Request params** (per ACP, `cwd`, `sessionId`, and `mcpServers` are required):
+
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "cwd": "/home/user/project",
+  "mcpServers": []
+}
+```
+
+**Response result:** `modes` and `configOptions` like `session/new`.
+
+### `session/list`
+
+Lists persisted sessions found under the configured sessions root (see README). Optional `cwd` filters by the stored working directory. The response includes `sessionId`, `cwd`, `title`, and `updatedAt` per entry.
+
+### Disk layout (Coddy)
+
+When the process is started with a writable sessions root (default **`$CODDY_HOME/sessions`**), each bundle is `<root>/<sessionId>/` with:
+
+- `session.json` - id, cwd, mode, model override, permission mode override (`permissionMode`), agent memory, derived or pinned title (`titlePinned`), timestamps, optional **`activitySeq`** / **`readActivitySeq`** for composer unread sync across HTTP surfaces
+- `messages.json` - LLM message history (roles user, assistant, tool)
+- `assets/` - reserved for future session-scoped files
+- `todos/active.md` - current todo checklist synced from plan tools
+- `todos/archive/todo-<nanos>.md` - archived list when a completed list is replaced
+- `plans/<slug>.plan.md` - design plan files (YAML frontmatter + markdown body), written in plan mode via **`plan_write`**
+
+The server always advertises **`loadSession`** when a store is configured (`coddy acp` and **`coddy serve`** open a **`FileStore`** at startup).
+
+### Design plans (plan mode)
+
+Plan mode uses standard ACP only. The agent saves files with tools **`plan_write`** / **`plan_list`** (not JSON-RPC extensions).
+
+After **`plan_write`**, Coddy publishes:
+
+- **`session/update`** with `sessionUpdate: "plan"` and checklist **`entries`** from the file frontmatter (preview for any ACP client)
+- **`_meta`** on that update: `coddy.dev/planSlug`, `coddy.dev/planKind: "design"` (opt-in; distinguishes design plans from live todo checklist updates)
+- A persisted **`plan_document`** row in **`messages.json`** for the bundled UI (also visible as assistant markdown in chat when the model summarizes the plan)
+
+**Run plan** (start implementation) without a custom `_coddy/*` method:
+
+1. **Coddy-aware** - `session/prompt` with `_meta`:
+
+```json
+{
+  "sessionId": "sess_…",
+  "prompt": [{ "type": "text", "text": "Implement the plan." }],
+  "_meta": { "coddy.dev/runPlanSlug": "my-feature" }
+}
+```
+
+Coddy switches to **agent** mode, injects the plan body into the system prompt, and runs the turn. Session todo (`todos/active.md`) is **not** auto-filled from the design plan. In **ask** mode the hook is refused with an error and a `@plans/<slug>.plan.md` mention is only inlined as reading material: switch the mode first, then run.
+
+2. **Portable** - client sets `mode` to **agent**, then `session/prompt` referencing `@plans/<slug>.plan.md` or text like *implement the plan my-feature*.
+
+HTTP **`POST /v1/responses`** accepts the same hook via JSON **`metadata.runPlanSlug`** (bundled UI). CRUD for plan files is HTTP-only under **`/coddy/sessions/{id}/plans`** (not part of core ACP).
+
+### `session/prompt`
+
+Send a user message, starts the ReAct loop.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "prompt": [
+    {
+      "type": "text",
+      "text": "Refactor the auth module to use JWT"
+    }
+  ],
+  "_meta": {
+    "coddy.dev/runPlanSlug": "optional-slug-for-run-plan"
+  }
+}
+```
+
+**Response result:**
+```json
+{
+  "stopReason": "end_turn"
+}
+```
+
+Stop reasons: `end_turn` | `max_tokens` | `max_turns` | `agent_refused` | `cancelled`
+
+### Subagent runs and child sessions (Coddy-specific)
+
+Nothing protocol-level changes when the agent delegates to a subagent (`docs/features/subagents.md`). The parent's `tool_call` / `tool_call_update` rows carry the `spawn_agent` call and its result; the child runs in its own session (a `sub_…` id) and **its updates never reach the ACP client**: the child's progress goes to the background task's output log, so an editor is never sent `session/update` for a session id it did not create. The one message a client can receive on a child's behalf is a `session/request_permission` while the spawning turn is still in flight; it arrives with the **parent's** `sessionId` and a `toolCall.title` prefixed `[subagent <name>]`, and is answered like any other. After that turn has returned, a child's requests are denied without reaching the client.
+
+Child sessions are read-only transcripts. `session/list` omits them, `session/load` replays one like any other bundle, and `session/prompt` against a `sub_…` id returns an error naming the parent (`subagent sessions are read-only transcripts: sub_… belongs to sess_…`); the run-plan `_meta` hook is covered by the same guard.
+
+### `session/cancel`
+
+Cancel an ongoing prompt turn (notification).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "session/cancel",
+  "params": {
+    "sessionId": "sess_abc123def456"
+  }
+}
+```
+
+For a writable session bundle, Coddy also writes a small on-disk cancel signal so another **`coddy`** process (for example **`coddy serve`** while **`coddy acp`** runs the turn) can observe cooperative cancellation between poll ticks during the turn. The in-process turn still ends via the same **`TurnCtx`** cancel hook when the session is loaded in this process.
+
+### `session/set_mode`
+
+Switch between agent modes (legacy API). Prefer `session/set_config_option` with `configId` `mode` when the client supports Session Config Options.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "modeId": "plan"
+}
+```
+
+**Response result:** `null`
+
+When the mode changes, the agent also sends a `session/update` with `config_option_update` so clients using config options stay in sync (for example, the displayed default model may change if no session model override is set).
+
+### `session/set_config_option`
+
+Change a session configuration option (ACP Session Config Options). Supported options: **`mode`**, **`model`**, **`permission_mode`**.
+
+**Request params:**
+```json
+{
+  "sessionId": "sess_abc123def456",
+  "configId": "permission_mode",
+  "value": "accept_edits"
+}
+```
+
+Valid `permission_mode` values: `ask` | `accept_edits` | `bypass`. The override is session-scoped and persisted in `session.json`; it takes precedence over the `tools.permission_mode` config file value.
+
+**Response result:** full `configOptions` array with updated `currentValue` fields:
+
+```json
+{
+  "configOptions": [ ... ]
+}
+```
+
+Unknown `configId` or a `value` not listed under that option yields a JSON-RPC error (invalid params).
+
+## Notifications (Agent -> Client)
+
+All sent via `session/update` method with a `sessionUpdate` discriminator field.
+
+### `plan` - Agent execution plan
+
+```json
+{
+  "sessionUpdate": "plan",
+  "entries": [
+    { "content": "Read auth module", "priority": "high", "status": "pending" },
+    { "content": "Design JWT structure", "priority": "high", "status": "pending" },
+    { "content": "Implement changes", "priority": "medium", "status": "pending" }
+  ]
+}
+```
+
+### `available_commands_update` - Slash commands from skills
+
+After **`session/new`** and **`session/load`**, Coddy derives slash commands from the same **`ListSkills`** pipeline as **`GET /coddy/slash-commands`**. The built-in commands lead the list (**`compact`** while compaction is enabled, **`export`**, **`plugin`**; the same rows as **`GET /coddy/commands`**), followed by the skills. The response that registers the session is written before this notification, so clients do not discard the catalog as an update for an unknown session. Rows use ACP **`name`** and **`description`** only (matches [slash commands](https://agentclientprotocol.com/protocol/slash-commands); optional **`input.hint`** is omitted in this MVP). The agent may repeat this notification whenever the catalog changes.
+
+```json
+{
+  "sessionUpdate": "available_commands_update",
+  "availableCommands": [
+    { "name": "demo", "description": "Runs the demo checklist" }
+  ]
+}
+```
+
+### `agent_message_chunk` - Text response chunk
+
+```json
+{
+  "sessionUpdate": "agent_message_chunk",
+  "content": {
+    "type": "text",
+    "text": "I'll start by reading the current auth module..."
+  }
+}
+```
+
+### `tool_call` - Tool call started
+
+```json
+{
+  "sessionUpdate": "tool_call",
+  "toolCallId": "call_001",
+  "title": "Reading auth.go",
+  "kind": "read",
+  "status": "pending"
+}
+```
+
+### `tool_call_update` - Tool call status update
+
+```json
+{
+  "sessionUpdate": "tool_call_update",
+  "toolCallId": "call_001",
+  "status": "completed",
+  "content": [
+    {
+      "type": "content",
+      "content": { "type": "text", "text": "File contents: ..." }
+    }
+  ]
+}
+```
+
+Tool call statuses: `pending` | `in_progress` | `completed` | `failed` | `cancelled`
+
+### Coddy-specific session updates: `token_usage`, `usage_update`, `provider_usage`
+
+Coddy sends three `session/update` kinds the ACP specification does not
+define; a client that ignores unknown kinds keeps working.
+
+- **`token_usage`** after every completed model call: `inputTokens`,
+  `outputTokens` of that call and `totalTokens` accumulated over the turn.
+- **`usage_update`** when the context window occupancy changes (a model call,
+  manual or automatic compaction): `used` and `size` in tokens.
+- **`provider_usage`**: the account quota behind the session's model
+  provider, so a client can draw a status bar like the console's third footer
+  line. Sent at session ready and after every turn (never for a subagent
+  child), once the provider has a usage source and the row's panel is on
+  (`providers[].usage_limits_panel`, default true); today only `neuraldeep`
+  has a source (the hub's read-only `GET /v1/limits`). The snapshot is account-wide
+  and cached by the manager (20 s, a 15 s floor between reads); relative
+  durations (`resetInSec`, `retryInSec`, `rate.resetInSec`) are corrected for
+  the snapshot's age when it is delivered. No dollar figure and no credential
+  ever appear. HTTP clients read the same shape from
+  `GET /coddy/providers/{name}/usage` (see `docs/reference/http-api.md`). With
+  `agent.wait_for_limit_reset` on, a turn that hits a limit the retries
+  could never cover sends the same update itself every 20 s while it waits,
+  with `blocked`, `retryAt`, `retryInSec` and `resuming: true`; it then
+  re-issues the call, and the next turn-end snapshot replaces the update:
+  `{"sessionUpdate": "provider_usage", "provider": "neuraldeep",
+  "providerType": "neuraldeep", "blocked": true, "retryAt":
+  "2026-09-06T20:59:59Z", "retryInSec": 767, "resuming": true}`.
+
+```json
+{
+  "sessionUpdate": "provider_usage",
+  "provider": "neuraldeep",
+  "providerType": "neuraldeep",
+  "observedAt": "2026-09-06T17:47:02Z",
+  "fetchedAt": "2026-09-06T17:47:10Z",
+  "plan": "pro",
+  "keyName": "coddy",
+  "windows": [
+    {"id": "session", "label": "3h", "used": 407, "limit": 15000, "remaining": 14593,
+     "usedPercent": 2.71, "resetsAt": "2026-09-06T17:59:59Z", "resetInSec": 777},
+    {"id": "week", "label": "week", "used": 9981, "limit": 150000, "remaining": 140019,
+     "usedPercent": 6.65, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378},
+    {"id": "day", "label": "day", "usedPercent": 0, "resetsAt": "2026-09-07T00:00:00Z", "resetInSec": 22378}
+  ],
+  "rate": {"used": 2, "limit": 120, "remaining": 118, "resetInSec": 58},
+  "wallet": {"balanceRub": -1229.24, "spentRub30d": 2000.74},
+  "blocked": false,
+  "unlimitedModels": ["qwen3.6-35b-a3b"],
+  "blockedModels": [{"model": "kimi-k2.6", "blocker": "kimi_budget_exhausted",
+                     "retryAt": "2026-10-09T20:15:41Z", "retryInSec": 2860119}]
+}
+```
+
+`blocked: true` comes with `blockers` (`session_exhausted`, `week_exhausted`,
+`rpm_exhausted`, `session_cooldown`, `abuse_cooldown`,
+`daily_capacity_exhausted`, `key_blocked`, `key_cap_blocked`, `wallet_empty`,
+`user_blocked`) and, for the timed ones, `retryAt` / `retryInSec`.
+`unlimited: true` marks a key without volume windows; `unlimitedModels` lists
+upstream model ids that bypass them on a metered key (a client compares the
+part of the model selector after the first `/`). `blockedModels` is the mirror
+image: model ids the key may **not** call now, each with its `blocker` and,
+when the gate is timed, `retryAt` / `retryInSec`. Such a gate covers part of
+the catalogue rather than the chat class, so `blocked` stays `false` and the
+account answers for every other model - a client that reads `blocked` alone
+shows a healthy account while every request to the selected model is refused.
+Match the list the way `unlimitedModels` is matched. A failed read keeps the
+previous windows with `stale: true` and `error` (`unavailable`, `invalid`),
+except a rejected key: `error: unauthorized` comes without windows, since
+numbers read with a key the hub no longer honours are not the account's
+numbers any more. `unsupported: true` is answered by the REST route for a
+provider type without a source, and together with `disabled: true` for a row
+whose usage limits panel is switched off (`providers[].usage_limits_panel:
+false`); such a row is never read and the update is never sent for it.
+
+### `memory_phase` - Memory copilot phase boundary
+
+When `memory.enable` is true in config, the memory copilot runs **once per user message before** the main ReAct model, outside the main tool list. Clients may show a **memory** foldout (similar to thinking) using these markers.
+
+Current protocol uses a single phase name **`memory`** (starts before the main agent, finishes when the copilot text is ready). Legacy sessions may still replay **`recall`** / **`persist`** from older traces. Status: `started` | `completed`. `durationMs` is set on `completed`. When a note was written with **`coddy_memory_save`**, **`persistSaved`**, **`persistTitle`**, **`persistRelativePath`**, and optional **`persistSavedBody`** may be set on **`completed`**.
+
+```json
+{
+  "sessionUpdate": "memory_phase",
+  "memoryRowId": "mem-1",
+  "phase": "memory",
+  "status": "completed",
+  "userTurnIndex": 1,
+  "durationMs": 240
+}
+```
+
+### `memory_message_chunk` - Streamed memory copilot text
+
+Token deltas for the memory sub-agent only (not merged into `messages.json` for the main LLM). **`phase`** is **`memory`** for new runs; **`kind`** is **`text`** for assistant content streamed into the Session memory block (reasoning may still appear on the wire but the SPA only accumulates **`text`** for display).
+
+```json
+{
+  "sessionUpdate": "memory_message_chunk",
+  "memoryRowId": "mem-1",
+  "phase": "memory",
+  "kind": "text",
+  "delta": "- "
+}
+```
+
+See `external/memory/README.md` (including **Related work** and the link to [MemAgent](https://github.com/BytedTsinghua-SIA/MemAgent) for partial prompt and flow inspiration).
+
+
+### `current_mode_update` - Mode changed
+
+```json
+{
+  "sessionUpdate": "current_mode_update",
+  "currentModeId": "agent"
+}
+```
+
+### `config_option_update` - Session config options changed
+
+Sent after `session/set_config_option`, after `session/set_mode`, or whenever the agent updates session config options to match runtime state (so UI stays aligned).
+
+```json
+{
+  "sessionUpdate": "config_option_update",
+  "configOptions": [
+    {
+      "id": "mode",
+      "name": "Session mode",
+      "category": "mode",
+      "type": "select",
+      "currentValue": "agent",
+      "options": [ ... ]
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "openai/gpt-5.6-terra",
+      "options": [ ... ]
+    },
+    {
+      "id": "permission_mode",
+      "name": "Permission mode",
+      "category": "permissions",
+      "type": "select",
+      "currentValue": "accept_edits",
+      "options": [ ... ]
+    }
+  ]
+}
+```
+
+## Permission Requests (Agent -> Client, expects response)
+
+These requests are sent only when `permission_mode` is `ask` (commands and writes) or `accept_edits` (commands only). When `permission_mode` is `bypass`, the agent never sends `session/request_permission`. Set the mode via `session/set_config_option` or `tools.permission_mode` in `config.yaml`.
+
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "method": "session/request_permission",
+  "params": {
+    "sessionId": "sess_abc123def456",
+    "toolCall": {
+      "toolCallId": "call_002",
+      "title": "Run: go build ./...",
+      "kind": "run_command",
+      "status": "pending",
+      "content": [
+        { "type": "text", "text": "Execute: go build ./..." }
+      ]
+    },
+    "options": [
+      { "optionId": "allow", "name": "Allow", "kind": "allow_once" },
+      { "optionId": "allow_always", "name": "Allow always", "kind": "allow_always" },
+      { "optionId": "reject", "name": "Reject", "kind": "reject_once" }
+    ]
+  }
+}
+```
+
+**Response:** the protocol nests the outcome in its own object, which is what editors such as Zed send:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "outcome": { "outcome": "selected", "optionId": "allow" }
+  }
+}
+```
+
+A dismissed request answers `{ "outcome": { "outcome": "cancelled" } }`. Coddy also accepts the flat form its own surfaces and some editor extensions send (`{"outcome": "selected", "optionId": "allow"}`), and reads both the same way: the call proceeds unless the outcome is `cancelled` or the chosen `optionId` is `reject`. Picking `allow_always` (or the program-wide `allow_always_<program>` option) also stores a session grant, so the same command does not ask again.
+
+## Question Requests (Agent -> Client, expects response)
+
+Used by the **`question`** tool. Same inbound JSON-RPC pattern as permission requests (client must reply with the same **`id`**).
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "method": "session/request_question",
+  "params": {
+    "sessionId": "sess_abc123def456",
+    "requestId": "q_1730000000000",
+    "toolCallId": "call_003",
+    "questions": [
+      {
+        "question": "Pick a stack",
+        "options": [{ "label": "Go" }, { "label": "Rust" }]
+      }
+    ]
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "answers": [["Go"]]
+  }
+}
+```
+
+## Client Filesystem Methods
+
+The agent can call these methods on the client (if client supports them):
+
+### `fs/read_text_file`
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "fs/read_text_file",
+  "params": { "path": "/absolute/path/to/file.go" }
+}
+```
+
+### `fs/write_text_file`
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "fs/write_text_file",
+  "params": {
+    "path": "/absolute/path/to/file.go",
+    "content": "package main\n..."
+  }
+}
+```

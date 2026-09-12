@@ -3,7 +3,7 @@ package agent
 // Wiring of operator hooks (internal/hooks) into the ReAct loop: the runner is
 // built per turn from the configured definition files, and executeToolCall
 // consults it before the permission gate and after the tool ran. See
-// docs/hooks.md and docs/plans/hooks.md.
+// docs/features/hooks.md and docs/plans/hooks.md.
 
 import (
 	"context"
