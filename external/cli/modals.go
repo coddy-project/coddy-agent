@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -15,8 +16,9 @@ import (
 type permissionModal struct {
 	tui.Container
 
-	theme *tui.Theme
-	list  *tui.SelectList
+	theme  *tui.Theme
+	list   *tui.SelectList
+	queued *tui.Text
 
 	OnDone func(res *acp.PermissionResult)
 }
@@ -51,10 +53,36 @@ func newPermissionModal(theme *tui.Theme, params acp.PermissionRequestParams, re
 	}
 	m.AddChild(tui.NewSpacer(1))
 	m.AddChild(m.list)
+	m.queued = tui.NewText("", 1, 0, nil)
+	m.AddChild(m.queued)
 	m.AddChild(tui.NewText(th.Fg(roleDim, "↑↓ navigate · enter choose · esc reject"), 1, 0, nil))
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleWarning)))
 	_ = requestRender
 	return m
+}
+
+// SetQueued names how many further gates wait behind this one. A lone request
+// leaves the row empty, and an empty row renders nothing.
+func (m *permissionModal) SetQueued(n int) {
+	if m.queued == nil {
+		return
+	}
+	m.queued.SetText(queuedGateRow(m.theme, n))
+}
+
+// queuedGateRow is the shared wording for both gate modals. It returns the
+// bare empty string for none, uncoloured: tui.Text renders nothing only for
+// text that is whitespace all the way through, and colouring "" would leave a
+// blank row under every single prompt.
+func queuedGateRow(th *tui.Theme, n int) string {
+	switch {
+	case n <= 0:
+		return ""
+	case n == 1:
+		return th.Fg(roleMuted, "1 more prompt is waiting behind this one")
+	default:
+		return th.Fg(roleMuted, fmt.Sprintf("%d more prompts are waiting behind this one", n))
+	}
 }
 
 func permissionBody(params acp.PermissionRequestParams) string {
@@ -83,6 +111,9 @@ type questionModal struct {
 	inCustom bool
 	list     *tui.SelectList
 	render   func()
+	// queuedCount survives the per-question rebuilds, so the note stays on
+	// screen while the operator walks a multi-question prompt.
+	queuedCount int
 
 	OnDone func(res *acp.QuestionResult)
 }
@@ -143,6 +174,7 @@ func (m *questionModal) buildQuestion() {
 	}
 	m.AddChild(tui.NewText(th.Fg(roleAccent, th.Bold(tui.SanitizeText(q.Question))), 1, 0, nil))
 	m.AddChild(m.list)
+	m.AddChild(tui.NewText(queuedGateRow(th, m.queuedCount), 1, 0, nil))
 	hint := "↑↓ navigate · enter choose · esc cancel"
 	if q.Multiple {
 		hint = "↑↓ navigate · space toggle · enter confirm · esc cancel"
@@ -150,6 +182,42 @@ func (m *questionModal) buildQuestion() {
 	m.AddChild(tui.NewText(th.Fg(roleDim, hint), 1, 0, nil))
 	m.AddChild(tui.NewDynamicBorder(th.FgFn(roleBorderAccent)))
 	m.inCustom = false
+}
+
+// SetQueued names how many further gates wait behind this one. The note is a
+// child of the rebuilt block, so the cursor is carried across the rebuild: a
+// second prompt arriving must not move the operator's highlight.
+func (m *questionModal) SetQueued(n int) {
+	if m.queuedCount == n {
+		return
+	}
+	m.queuedCount = n
+	if m.inCustom {
+		return
+	}
+	keep := m.highlightedOption()
+	m.buildQuestion()
+	if keep >= 0 {
+		m.list.SetSelectedIndex(keep)
+	}
+}
+
+// highlightedOption is the index of the option under the cursor, or -1 when
+// the cursor is on the custom-answer row (which buildQuestion rebuilds last
+// anyway) or the list is empty. Item values carry the option index.
+func (m *questionModal) highlightedOption() int {
+	if m.list == nil {
+		return -1
+	}
+	it := m.list.SelectedItem()
+	if it == nil {
+		return -1
+	}
+	idx, err := strconv.Atoi(it.Value)
+	if err != nil {
+		return -1
+	}
+	return idx
 }
 
 func (m *questionModal) buildCustom() {

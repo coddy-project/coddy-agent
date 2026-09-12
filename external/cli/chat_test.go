@@ -323,6 +323,170 @@ func TestAssistantMessageStartsWithASeparatorRow(t *testing.T) {
 	}
 }
 
+// --- app.go: the modal slot and the operator gate queue ---
+
+// gateRequests are the two blocking prompts a console turn can raise. Both are
+// driven through the real sender so the test exercises the same channels the UI
+// loop reads.
+func questionGate(t *testing.T, a *App, id string) (chan *acp.QuestionResult, questRequest) {
+	t.Helper()
+	done := make(chan *acp.QuestionResult, 1)
+	go func() {
+		res, _ := a.Sender().RequestQuestion(context.Background(), acp.QuestionRequestParams{
+			SessionID: "s1", RequestID: id,
+			Questions: []acp.QuestionPrompt{{Question: "Pick " + id, Options: []acp.QuestionOption{{Label: "A"}}}},
+		})
+		done <- res
+	}()
+	select {
+	case req := <-a.questCh:
+		return done, req
+	case <-time.After(2 * time.Second):
+		t.Fatalf("question %s never reached the UI loop", id)
+	}
+	return nil, questRequest{}
+}
+
+func permissionGate(t *testing.T, a *App, ctx context.Context, id string) (chan *acp.PermissionResult, permRequest) {
+	t.Helper()
+	done := make(chan *acp.PermissionResult, 1)
+	go func() {
+		res, _ := a.Sender().RequestPermission(ctx, acp.PermissionRequestParams{
+			SessionID:               "s1",
+			EffectivePermissionMode: config.PermModeAsk,
+			ToolCall:                acp.PermissionToolCall{ToolCallID: id, Title: "Run: " + id},
+			Options:                 []acp.PermissionOption{{OptionID: "allow", Name: "Allow"}, {OptionID: "reject", Name: "Reject"}},
+		})
+		done <- res
+	}()
+	select {
+	case req := <-a.permCh:
+		return done, req
+	case <-time.After(2 * time.Second):
+		t.Fatalf("permission %s never reached the UI loop", id)
+	}
+	return nil, permRequest{}
+}
+
+// A gate is answered by exactly one modal, so a gate arriving while another
+// one is on screen has to wait: replacing the modal leaves the first worker
+// blocked on a reply nothing can send any more.
+func TestGatesQueueInsteadOfReplacingEachOther(t *testing.T) {
+	a := newTestApp(t)
+
+	first, firstReq := questionGate(t, a, "q_1")
+	a.openQuestionModal(firstReq)
+	second, secondReq := questionGate(t, a, "q_2")
+	a.openQuestionModal(secondReq)
+
+	if _, ok := a.modal.(*questionModal); !ok {
+		t.Fatalf("modal = %T, want the first question still holding the slot", a.modal)
+	}
+	if len(a.gateQueue) != 1 {
+		t.Fatalf("gateQueue = %d, want the second question queued", len(a.gateQueue))
+	}
+	if rows := renderedRows(a.modal, 80); !rows["1 more prompt is waiting behind this one"] {
+		t.Fatalf("the open gate does not say another one is waiting:\n%v", rows)
+	}
+
+	a.modal.(*questionModal).OnDone(&acp.QuestionResult{Answers: [][]string{{"A"}}})
+	if got := <-first; got == nil || len(got.Answers) == 0 {
+		t.Fatalf("first question answered with %+v", got)
+	}
+	if _, ok := a.modal.(*questionModal); !ok {
+		t.Fatalf("modal = %T, want the queued question promoted", a.modal)
+	}
+	a.modal.(*questionModal).OnDone(&acp.QuestionResult{Answers: [][]string{{"A"}}})
+	select {
+	case <-second:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the queued question was dropped and its turn can never finish")
+	}
+	if a.modal != nil || a.openGate != nil {
+		t.Fatalf("modal = %T / openGate = %v, want the slot free", a.modal, a.openGate)
+	}
+}
+
+// A queued gate whose turn ended in the meantime is forgotten rather than put
+// on screen: its worker stopped listening, so answering it would tell nobody.
+func TestAQueuedGateOfAFinishedTurnIsDropped(t *testing.T) {
+	a := newTestApp(t)
+
+	open, openReq := questionGate(t, a, "q_1")
+	a.openQuestionModal(openReq)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	_, queued := permissionGate(t, a, ctx, "call_1")
+	a.openPermissionModal(queued)
+	if len(a.gateQueue) != 1 {
+		t.Fatalf("gateQueue = %d, want the permission queued", len(a.gateQueue))
+	}
+	cancel()
+
+	a.modal.(*questionModal).OnDone(&acp.QuestionResult{Answers: [][]string{{"A"}}})
+	<-open
+	if a.modal != nil {
+		t.Fatalf("modal = %T, want the cancelled gate dropped instead of shown", a.modal)
+	}
+	if len(a.gateQueue) != 0 {
+		t.Fatalf("gateQueue = %d, want it drained", len(a.gateQueue))
+	}
+}
+
+// A picker is a convenience; a gate is a turn waiting for an answer. When the
+// two want the slot at the same time the gate keeps it.
+func TestAPickerDoesNotTakeTheSlotFromAGate(t *testing.T) {
+	a := newTestApp(t)
+
+	done, req := questionGate(t, a, "q_1")
+	a.openQuestionModal(req)
+
+	sel := newSelectorModal(a.theme, "Select model", []tui.SelectItem{{Value: "m", Label: "m"}}, 4, func() {})
+	if a.openOverlay(sel) {
+		t.Fatal("the picker took the slot from a gate")
+	}
+	if _, ok := a.modal.(*questionModal); !ok {
+		t.Fatalf("modal = %T, want the question still holding the slot", a.modal)
+	}
+
+	a.modal.(*questionModal).OnDone(&acp.QuestionResult{Answers: [][]string{{"A"}}})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the question was dropped")
+	}
+}
+
+// The gate of a background subagent outlives the turn that spawned it: the
+// child is still running, and the turn ending must not take its prompt away.
+func TestABackgroundGateSurvivesTheTurnThatSpawnedIt(t *testing.T) {
+	a := newTestApp(t)
+	a.turnActive = true
+	a.turnSessionID = "s1"
+	a.sessionID = "s1"
+
+	done, req := permissionGate(t, a, context.Background(), "child_call_1")
+	a.openPermissionModal(req)
+	if _, ok := a.modal.(*permissionModal); !ok {
+		t.Fatalf("modal = %T, want the child's permission on screen", a.modal)
+	}
+
+	a.applyLoopMessage(updateMsg{sessionID: "s1", update: turnDone{sessionID: "s1", stop: "end_turn"}})
+	if _, ok := a.modal.(*permissionModal); !ok {
+		t.Fatalf("modal = %T, want the still-waiting child gate left alone", a.modal)
+	}
+
+	a.modal.(*permissionModal).OnDone(&acp.PermissionResult{Outcome: "selected", OptionID: "allow"})
+	select {
+	case res := <-done:
+		if res == nil || res.OptionID != "allow" {
+			t.Fatalf("child permission = %+v, want allow", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the child's permission was dropped by the parent turn ending")
+	}
+}
+
 // --- run.go: the console turn agent and the staged config flow ---
 
 // stagedConfigBackend stands in for an OpenAI-compatible server answering

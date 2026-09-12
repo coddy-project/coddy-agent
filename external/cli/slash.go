@@ -94,7 +94,7 @@ func (a *App) openModeSelector() {
 		}
 		a.applyMode(item.Value)
 	}
-	a.openModal(sel)
+	a.openOverlay(sel)
 }
 
 func (a *App) openThemeSelector() {
@@ -113,7 +113,7 @@ func (a *App) openThemeSelector() {
 		}
 		a.screen.RequestRender()
 	}
-	a.openModal(sel)
+	a.openOverlay(sel)
 }
 
 // switchTheme rebuilds themed content in place, preserving the editor text.
@@ -223,7 +223,12 @@ func (a *App) openResumePicker(res *acp.SessionListResult) {
 		}
 		a.resumeInto(item.Value)
 	}
-	a.openModal(sel)
+	// The list is fetched asynchronously, so a permission prompt or a question
+	// can have taken the slot since /resume was typed. Say so instead of
+	// letting the command look like it did nothing.
+	if !a.openOverlay(sel) {
+		a.appendStatus(roleWarning, "Answer the open prompt first, then /resume again")
+	}
 }
 
 // resumeInto switches the transcript to an existing session, serialized the

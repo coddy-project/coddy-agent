@@ -123,6 +123,11 @@ type App struct {
 	workStop  context.CancelFunc
 
 	modal tui.Component
+	// openGate is the request the modal on screen is waiting on, when that
+	// modal is a gate; gateQueue holds the permission requests and questions
+	// that arrived while it had the slot, in arrival order.
+	openGate  *operatorGate
+	gateQueue []operatorGate
 
 	mdTheme tui.MarkdownTheme
 
@@ -584,6 +589,55 @@ func (a *App) appendStatus(role, msg string) {
 
 // --- modal management ---
 
+// operatorGate is one blocking prompt waiting for the modal slot: a permission
+// request or a question. Exactly one of the two is set.
+type operatorGate struct {
+	perm  *permRequest
+	quest *questRequest
+}
+
+// turnCtx returns the requesting turn's context.
+func (g operatorGate) turnCtx() context.Context {
+	switch {
+	case g.perm != nil:
+		return g.perm.ctx
+	case g.quest != nil:
+		return g.quest.ctx
+	}
+	return nil
+}
+
+// stale reports whether the worker behind the gate has already given up, so
+// showing it would ask the operator to answer nobody.
+func (g operatorGate) stale() bool {
+	ctx := g.turnCtx()
+	return ctx != nil && ctx.Err() != nil
+}
+
+// gateModal reports whether the slot is held by a prompt somebody is blocked
+// on. Those are the only modals that must never be replaced: a picker loses a
+// keystroke, a gate loses the answer its turn cannot continue without.
+func (a *App) gateModal() bool {
+	switch a.modal.(type) {
+	case *permissionModal, *questionModal:
+		return true
+	}
+	return false
+}
+
+// queuedGateNote tells the open gate how many more are behind it, so a second
+// prompt arriving during the first is visible instead of silent.
+func (a *App) queuedGateNote() {
+	switch m := a.modal.(type) {
+	case *permissionModal:
+		m.SetQueued(len(a.gateQueue))
+	case *questionModal:
+		m.SetQueued(len(a.gateQueue))
+	}
+}
+
+// openModal gives the slot to c. Callers that can lose their modal without
+// consequence go through openOverlay instead.
 func (a *App) openModal(c tui.Component) {
 	a.modal = c
 	a.editorWrap.Clear()
@@ -593,17 +647,75 @@ func (a *App) openModal(c tui.Component) {
 	}
 }
 
+// openOverlay shows a picker unless a gate holds the slot. A picker dropped
+// here costs the operator a keystroke; a gate dropped here hangs its turn with
+// nothing on screen to unblock it.
+func (a *App) openOverlay(c tui.Component) bool {
+	if a.gateModal() {
+		return false
+	}
+	a.openModal(c)
+	return true
+}
+
 func (a *App) closeModal() {
 	// The gate is answered; the status line goes back to the gated step itself
 	// (an approved tool only starts executing now, so its clock restarts too).
 	a.unblockStatus()
 	a.modal = nil
+	a.openGate = nil
 	a.editorWrap.Clear()
 	a.editorWrap.AddChild(a.editor)
 	a.screen.SetFocus(a.editor)
+	a.openNextGate()
 }
 
+// openNextGate hands the freed slot to the oldest gate still waiting for an
+// answer, dropping the ones whose turn has since ended.
+func (a *App) openNextGate() {
+	for len(a.gateQueue) > 0 {
+		next := a.gateQueue[0]
+		a.gateQueue = a.gateQueue[1:]
+		if next.stale() {
+			continue
+		}
+		switch {
+		case next.perm != nil:
+			a.showPermissionModal(*next.perm)
+		case next.quest != nil:
+			a.showQuestionModal(*next.quest)
+		default:
+			continue
+		}
+		return
+	}
+}
+
+// dropStaleGates forgets queued gates whose turn is gone, so the note on the
+// open gate counts only prompts that can still be answered.
+func (a *App) dropStaleGates() {
+	live := a.gateQueue[:0]
+	for _, g := range a.gateQueue {
+		if !g.stale() {
+			live = append(live, g)
+		}
+	}
+	a.gateQueue = live
+	a.queuedGateNote()
+}
+
+// openPermissionModal shows the request, or queues it behind the gate already
+// waiting for an answer.
 func (a *App) openPermissionModal(req permRequest) {
+	if a.gateModal() {
+		a.gateQueue = append(a.gateQueue, operatorGate{perm: &req})
+		a.queuedGateNote()
+		return
+	}
+	a.showPermissionModal(req)
+}
+
+func (a *App) showPermissionModal(req permRequest) {
 	a.blockStatus("Waiting for your approval")
 	m := newPermissionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.PermissionResult) {
@@ -612,9 +724,22 @@ func (a *App) openPermissionModal(req permRequest) {
 		a.screen.RequestRender()
 	}
 	a.openModal(m)
+	a.openGate = &operatorGate{perm: &req}
+	m.SetQueued(len(a.gateQueue))
 }
 
+// openQuestionModal shows the question, or queues it behind the gate already
+// waiting for an answer.
 func (a *App) openQuestionModal(req questRequest) {
+	if a.gateModal() {
+		a.gateQueue = append(a.gateQueue, operatorGate{quest: &req})
+		a.queuedGateNote()
+		return
+	}
+	a.showQuestionModal(req)
+}
+
+func (a *App) showQuestionModal(req questRequest) {
 	a.blockStatus("Waiting for your answer")
 	m := newQuestionModal(a.theme, req.params, a.screen.RequestRender)
 	m.OnDone = func(res *acp.QuestionResult) {
@@ -623,6 +748,8 @@ func (a *App) openQuestionModal(req questRequest) {
 		a.screen.RequestRender()
 	}
 	a.openModal(m)
+	a.openGate = &operatorGate{quest: &req}
+	m.SetQueued(len(a.gateQueue))
 }
 
 // --- submit / turn ---
@@ -755,7 +882,7 @@ func (a *App) openModelSelector() {
 		}
 		a.setModel(item.Value)
 	}
-	a.openModal(sel)
+	a.openOverlay(sel)
 }
 
 func (a *App) setModel(id string) {

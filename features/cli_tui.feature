@@ -111,6 +111,19 @@ Feature: Interactive console TUI
     Then the question modal shows the whole label of the first option
     And the question modal wraps the selected option's description below the list
 
+  Scenario: A prompt arriving during a question waits instead of taking the screen
+    When the console app starts
+    And the operator submits the prompt "ask me something"
+    And the stub turn asks a question titled "Pick or type" that allows a custom answer
+    And a background subagent asks permission while the question is open
+    Then the question is still the prompt on screen
+    And the question modal says another prompt is waiting behind it
+    When the operator answers the question without ending the turn
+    Then the stub turn observes the question answer "Option A"
+    And the subagent's permission is the prompt on screen
+    When the operator allows the subagent's command
+    Then the subagent receives its answer
+
   Scenario: An answered question renders as the question and the answer
     When the console app starts
     And the operator submits the prompt "ask me something"

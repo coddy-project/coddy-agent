@@ -19,10 +19,13 @@ func (a *App) applyLoopMessage(msg updateMsg) {
 			a.turnActive = false
 			a.stopSpinner()
 			a.stopUsageResume()
-			// A permission or question modal belonging to this turn is now
-			// orphaned (the worker already unblocked via ctx cancellation).
-			switch a.modal.(type) {
-			case *permissionModal, *questionModal:
+			// A permission or question modal whose worker already unblocked
+			// (via ctx cancellation) is orphaned, and so is anything queued
+			// behind it. Drop the queue first, so closing the modal does not
+			// promote a dead gate. A gate from a background subagent still
+			// running outlives the turn that spawned it and stays on screen.
+			a.dropStaleGates()
+			if a.openGate != nil && a.openGate.stale() {
 				a.closeModal()
 			}
 			if fn := a.pendingSwitch; fn != nil {

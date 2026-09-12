@@ -129,6 +129,10 @@ type cliTUIState struct {
 
 	prevSessionID string
 
+	// bgPerm carries the answer to the permission a background subagent asked
+	// for while the turn was parked in a question.
+	bgPerm chan *acp.PermissionResult
+
 	printOut  *syncBuffer
 	printDone chan error
 
@@ -174,6 +178,7 @@ func (s *cliTUIState) reset() {
 	s.toolSeq = 0
 	s.blockedCh = nil
 	s.prevSessionID = ""
+	s.bgPerm = nil
 	s.printOut = nil
 	s.printDone = nil
 	s.mgr = nil
@@ -1001,6 +1006,114 @@ func (s *cliTUIState) operatorChoosesHighlightedOption() error {
 	return fmt.Errorf("question answer never arrived")
 }
 
+// bddSubagentCommand is the command the background child asks to run while the
+// parent turn is parked in a question.
+const bddSubagentCommand = "rm -rf /tmp/scratch"
+
+// backgroundSubagentAsksPermission is what a `spawn_agent` child started with
+// background: true does in production: it runs on its own goroutine and relays
+// its permission request to the parent's surface, which may already be holding
+// a gate of its own.
+func (s *cliTUIState) backgroundSubagentAsksPermission() error {
+	snd := s.app.Sender()
+	reply := make(chan *acp.PermissionResult, 1)
+	s.mu.Lock()
+	s.bgPerm = reply
+	s.mu.Unlock()
+	go func() {
+		// The child carries its own effective mode, so a bypassed parent does
+		// not auto-allow it.
+		res, _ := snd.RequestPermission(context.Background(), acp.PermissionRequestParams{
+			SessionID:               s.app.sessionID,
+			EffectivePermissionMode: config.PermModeAsk,
+			ToolCall: acp.PermissionToolCall{
+				ToolCallID: "child_call_1",
+				Title:      "[subagent explore] Run: " + bddSubagentCommand,
+				Status:     "pending",
+			},
+			Options: []acp.PermissionOption{
+				{OptionID: "allow", Name: "Allow", Kind: "allow_once"},
+				{OptionID: "reject", Name: "Reject", Kind: "reject_once"},
+			},
+		})
+		reply <- res
+	}()
+	// Wait for the UI loop to have taken the request, whichever way it
+	// handles it: the queued note when it waits its turn, the permission
+	// modal when it takes the screen from the question. Which of the two
+	// happened is what the next steps assert, so the failure names the
+	// symptom rather than the missing hint.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		screen := s.screenText()
+		if strings.Contains(screen, "prompt is waiting behind this one") ||
+			strings.Contains(screen, "Permission required") {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("the subagent's permission never reached the UI loop; last frame:\n%s", s.screenText())
+}
+
+func (s *cliTUIState) questionIsStillThePromptOnScreen() error {
+	if _, ok := s.app.modal.(*questionModal); !ok {
+		return fmt.Errorf("modal = %T, want the question still holding the slot", s.app.modal)
+	}
+	return s.waitScreen("Pick or type", 2*time.Second)
+}
+
+func (s *cliTUIState) questionModalSaysAnotherPromptWaits() error {
+	return s.waitScreen("1 more prompt is waiting behind this one", 2*time.Second)
+}
+
+// operatorAnswersQuestionKeepingTurn confirms the highlighted option and leaves
+// the turn running, so the queued gate has somewhere to arrive.
+func (s *cliTUIState) operatorAnswersQuestionKeepingTurn() error {
+	s.press("\r")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		n := len(s.questionAns)
+		s.mu.Unlock()
+		if n > 0 {
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("question answer never arrived")
+}
+
+func (s *cliTUIState) subagentPermissionIsThePromptOnScreen() error {
+	if err := s.waitScreen("Permission required", 3*time.Second); err != nil {
+		return err
+	}
+	if _, ok := s.app.modal.(*permissionModal); !ok {
+		return fmt.Errorf("modal = %T, want the queued permission promoted", s.app.modal)
+	}
+	return s.waitScreen(bddSubagentCommand, 2*time.Second)
+}
+
+func (s *cliTUIState) operatorAllowsSubagentCommand() error {
+	s.press("\r")
+	return nil
+}
+
+func (s *cliTUIState) subagentReceivesItsAnswer() error {
+	s.mu.Lock()
+	reply := s.bgPerm
+	s.mu.Unlock()
+	select {
+	case res := <-reply:
+		if res == nil || res.OptionID != "allow" {
+			return fmt.Errorf("subagent permission = %+v, want allow", res)
+		}
+	case <-time.After(3 * time.Second):
+		return fmt.Errorf("the subagent never got an answer: its gate was dropped")
+	}
+	s.directives <- stubDirective{kind: "end"}
+	return s.waitTurnEnd(2 * time.Second)
+}
+
 func (s *cliTUIState) transcriptShowsQuestionAnswered(question, answer string) error {
 	if err := s.waitScreen(question, 3*time.Second); err != nil {
 		return err
@@ -1266,6 +1379,13 @@ func initializeCLITUIScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stub turn asks a question whose options carry long descriptions$`, s.stubAsksQuestionWithLongDescriptions)
 	sc.Step(`^the question modal shows the whole label of the first option$`, s.questionModalShowsWholeFirstLabel)
 	sc.Step(`^the question modal wraps the selected option's description below the list$`, s.questionModalWrapsSelectedDescription)
+	sc.Step(`^a background subagent asks permission while the question is open$`, s.backgroundSubagentAsksPermission)
+	sc.Step(`^the question is still the prompt on screen$`, s.questionIsStillThePromptOnScreen)
+	sc.Step(`^the question modal says another prompt is waiting behind it$`, s.questionModalSaysAnotherPromptWaits)
+	sc.Step(`^the operator answers the question without ending the turn$`, s.operatorAnswersQuestionKeepingTurn)
+	sc.Step(`^the subagent's permission is the prompt on screen$`, s.subagentPermissionIsThePromptOnScreen)
+	sc.Step(`^the operator allows the subagent's command$`, s.operatorAllowsSubagentCommand)
+	sc.Step(`^the subagent receives its answer$`, s.subagentReceivesItsAnswer)
 	sc.Step(`^the operator chooses the highlighted option$`, s.operatorChoosesHighlightedOption)
 	sc.Step(`^the transcript shows the question "([^"]*)" answered with "([^"]*)"$`, s.transcriptShowsQuestionAnswered)
 	sc.Step(`^the stub turn observes the question answer "([^"]*)"$`, s.stubObservesQuestionAnswer)

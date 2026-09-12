@@ -3523,6 +3523,14 @@ a column boundary. When the question is answered, its tool block shows the
 questions with the chosen answers (`→ answer`, `→ (no answer)` for a dismissed
 one) rather than the JSON the tool hands the model.
 
+A permission request and a question are prompts a turn is blocked on, so they
+queue for the modal slot rather than replace each other: the one on screen
+keeps it and says how many are waiting behind it, and each is shown in arrival
+order as the previous is answered. A selector never takes the slot from either
+of them - losing a picker costs a keystroke, losing a prompt would leave its
+turn waiting for an answer with nothing on screen to give it. A prompt whose
+turn ended while it waited is dropped instead of shown.
+
 ## Flags
 
 `--config --home --cwd --sessions-dir` mirror the other subcommands.
@@ -3634,9 +3642,11 @@ process working directory, resolved like `coddy mcp`. Under
 
 In the console a `spawn_agent` call shows as a tool box like any other, and the
 status line reads `Running subagent <name>` with its elapsed counter for as long
-as the child runs. A child's permission request, while its spawning turn is
-still alive, opens the usual modal in the parent chat with the title prefixed
-`[subagent <name>]`. Child sessions (`sub_…` ids) are read-only transcripts:
+as the child runs. A child's permission request opens the usual modal in the
+parent chat with the title prefixed `[subagent <name>]`, waiting its turn when
+the parent is itself holding a prompt. A child started in the background
+outlives its spawning turn, so its request stays on screen after that turn
+ends. Child sessions (`sub_…` ids) are read-only transcripts:
 `-c` never picks one, and a prompt sent to one is refused with a message naming
 the parent session.
 
