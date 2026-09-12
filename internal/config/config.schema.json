@@ -253,6 +253,22 @@
           "type": "string",
           "description": "File name inside prompts.dir for ask mode.",
           "default": "ask.md"
+        },
+        "per_provider": {
+          "type": "object",
+          "title": "Model-tuned prompts",
+          "description": "Tune the system prompt to the active model. The built-in templates add guidance for the model family (anthropic, openai, gemini, gpt-oss, qwen, gemma, neuraldeep) and for single models such as gpt-oss-20b; under prompts.dir a <mode>.<model-slug>.md or <mode>.<family>.md file next to the base one (agent.gemma.md) is picked most-specific first. See https://coddy.dev/docs/features/modes.",
+          "additionalProperties": false,
+          "properties": {
+            "enable": {
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "description": "Master switch for model-tuned prompts. false sends every model the shared prompt. Defaults to true.",
+              "default": true
+            }
+          }
         }
       }
     },

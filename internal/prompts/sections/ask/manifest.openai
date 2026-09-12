@@ -1,0 +1,13 @@
+# Ask mode structure for the openai family. Replaces the base ask manifest:
+# folds the interpret/facts pair into a single investigation section and drops
+# the injection-resistance section, whose rule moves into the footer's
+# invariant. Section IDs render in this order.
+header
+subagent_role
+mode
+notes
+model_notes
+investigation
+tools_policy
+response
+footer

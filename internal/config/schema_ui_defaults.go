@@ -44,6 +44,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AgentPrompt: "agent.md",
 			PlanPrompt:  "plan.md",
 			AskPrompt:   "ask.md",
+			PerProvider: PerProviderPromptsJSON{Enabled: boolPtr(true)},
 		},
 		Instructions: InstructionsJSON{
 			Files: DefaultInstructionFiles(),

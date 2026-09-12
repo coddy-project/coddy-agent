@@ -49,13 +49,14 @@ var sectionFS embed.FS
 
 // sectionSource reads a section fragment by its path within sections/ (for
 // example "agent/header") and returns it trimmed of surrounding whitespace.
-// Missing fragments return ("", false).
+// Line endings are normalised to LF, so a checkout with core.autocrlf does not
+// change what the model is sent. Missing fragments return ("", false).
 func sectionSource(name string) (string, bool) {
 	b, err := sectionFS.ReadFile("sections/" + name + ".md")
 	if err != nil {
 		return "", false
 	}
-	return strings.TrimSpace(string(b)), true
+	return strings.TrimSpace(strings.ReplaceAll(string(b), "\r\n", "\n")), true
 }
 
 // sectionExists reports whether a section fragment is present in the embed.

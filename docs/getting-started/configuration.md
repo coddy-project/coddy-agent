@@ -249,6 +249,14 @@ prompts:
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
   ask_prompt: "ask.md"         # optional; default ask.md
+  # Model-tuned prompts: the built-in templates add guidance for the session's model
+  # (families anthropic, openai, gemini, gpt-oss, qwen, gemma, neuraldeep; gpt-oss-20b/120b
+  # profiles). Under dir, <mode>.<model-slug>.md, <mode>.<api-model-slug>.md and
+  # <mode>.<family>.md are tried before the base file, e.g. for neuraldeep/gemma-4-31b:
+  # agent.neuraldeep-gemma-4-31b.md, agent.gemma-4-31b.md, agent.gemma.md, agent.md.
+  # See docs/features/modes.md (Model-tuned system prompts).
+  per_provider:
+    enable: true               # optional; default true, false sends every model the shared prompt
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:

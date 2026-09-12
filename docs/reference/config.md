@@ -105,6 +105,8 @@ Override the built-in system prompt templates (Go text/template).
 | `prompts.agent_prompt` | string | agent.md | File name inside prompts.dir for agent mode. |
 | `prompts.plan_prompt` | string | plan.md | File name inside prompts.dir for plan mode. |
 | `prompts.ask_prompt` | string | ask.md | File name inside prompts.dir for ask mode. |
+| `prompts.per_provider` | object |  | Tune the system prompt to the active model. The built-in templates add guidance for the model family (anthropic, openai, gemini, gpt-oss, qwen, gemma, neuraldeep) and for single models such as gpt-oss-20b; under prompts.dir a <mode>.<model-slug>.md or <mode>.<family>.md file next to the base one (agent.gemma.md) is picked most-specific first. See https://coddy.dev/docs/features/modes. |
+| `prompts.per_provider.enable` | boolean or null | true | Master switch for model-tuned prompts. false sends every model the shared prompt. Defaults to true. |
 
 ### `instructions`
 
@@ -461,7 +463,7 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 
 ### `prompts`
 
-System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`). Template fields are documented in [Configuration](../getting-started/configuration.md#full-configuration-schema).
+System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`). Template fields are documented in [Configuration](../getting-started/configuration.md#full-configuration-schema). `per_provider.enable` (default on) tunes the prompt to the session's model: variant sections in the built-in templates, `<mode>.<model-slug>.md` and `<mode>.<family>.md` files next to the base file under `dir`; the resolution order is in [Operating modes](../features/modes.md#model-tuned-system-prompts).
 
 ### `instructions`
 

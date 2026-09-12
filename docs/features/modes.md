@@ -28,7 +28,7 @@ Made for questions about the codebase, review, diagnosis and web research. The m
 
 ### What they share
 
-The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded `agent.md`, `plan.md` or `ask.md`, replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
+The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt, assembled from the built-in sections of that mode and tuned to the session's model ([Model-tuned system prompts](#model-tuned-system-prompts)), or read from `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
 
 ![The mode menu in the web UI composer](../assets/modes-menu-dark-1280.png)
 
@@ -66,6 +66,29 @@ The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/
 ![The composer in ask mode](../assets/modes-pill-hero-dark-1280.png)
 
 *The composer in ask mode: the pill takes the green outline of the mode, plan mode takes the orange one.*
+
+## Model-tuned system prompts
+
+Models read the same instructions differently, so the built-in system prompt of every mode is assembled per model. A manifest per mode (`internal/prompts/sections/<mode>/manifest`) lists the sections in order and each section is a Markdown fragment. Before every model call Coddy turns the session's model into prompt variants, most specific first:
+
+1. the model reference as a slug: `neuraldeep/gemma-4-31b` becomes `neuraldeep-gemma-4-31b`;
+2. the API model id alone, `gemma-4-31b`, so guidance written for one model applies whatever the provider row is called;
+3. the model family, read from the model id before the provider type because open models are served through OpenAI-compatible hubs: `gpt-oss`, `gemini`, `gemma`, `qwen`, `anthropic` (a `claude` id or an `anthropic` row), `openai` (a `gpt`, `o1`, `o3` or `o4` id, an `openai` or `codex` row), and `neuraldeep` for any other model on a NeuralDeep row.
+
+A variant fills the optional `notes` and `model_notes` slots, replaces a section with `<section>_<variant>.md`, or brings a structure of its own with `manifest.<variant>`. What ships:
+
+| Variant | `agent` | `plan` | `ask` |
+|---|---|---|---|
+| `anthropic`, `gemini`, `qwen`, `neuraldeep` | family notes | shared prompt | shared prompt |
+| `openai` | family notes | family notes, its own header, tool list and planning steps | its own structure: investigation policy, tool policy, response standard |
+| `gpt-oss`, with `gpt-oss-20b` and `gpt-oss-120b` profiles | family notes and the model profile | family notes and the model profile | its own structure: allowed research, evidence and answer, the model profile |
+| `gemma` | one tool call per message and nothing else in it, tool calls never as text, argument rules; its own "How to work" without the narrate-before-each-call rule | one tool call per message | one tool call per message |
+
+The Gemma rules come from measuring Gemma 4 on NeuralDeep with `internal/agent/live_tool_json_test.go`: the hub turns only the first tool call of a message into a structured call and hands a second one back as `<|tool_call>call:…` text, which reaches Coddy as part of the answer and never runs, and a message that announces its next call in words sometimes ends without the call. Asked for one bare call per message, the model waits for each result instead.
+
+With `prompts.dir` set, the same keys pick files next to the base template: a session on `neuraldeep/gemma-4-31b` in agent mode reads `agent.neuraldeep-gemma-4-31b.md`, else `agent.gemma-4-31b.md`, else `agent.gemma.md`, else `agent.md`. The key goes before the extension of the configured name, so `prompts.plan_prompt: my-plan.txt` looks for `my-plan.gemma.txt`. Whichever file wins still gets the identity line when it does not open with one.
+
+`prompts.per_provider.enable: false` switches the mechanism off: every model receives the shared prompt and only the base files under `prompts.dir` are read. The happy paths are `features/model_tuned_prompts.feature`; `internal/agent/live_tool_json_test.go` measures tool-call quality against a live NeuralDeep model and compares the two prompts (`CODDY_LIVE_PROMPTS=shared,tuned`).
 
 ## Switching on each surface
 

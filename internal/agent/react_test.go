@@ -642,7 +642,7 @@ func TestComputeContextBreakdownSystemPromptNonZero(t *testing.T) {
 	if b.ToolDefinitions <= 0 {
 		t.Fatalf("expected tool definition tokens > 0, got %+v", b)
 	}
-	// Sanity: system includes agent.md body text.
+	// Sanity: system includes the built-in agent prompt body.
 	if b.SystemPrompt < 100 {
 		t.Fatalf("system prompt estimate too small: %d", b.SystemPrompt)
 	}

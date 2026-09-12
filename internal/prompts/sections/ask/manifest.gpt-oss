@@ -1,0 +1,11 @@
+# Ask mode structure for the gpt-oss family. Replaces the base ask manifest:
+# collapses the tool policy into an allowed-research section and folds the
+# facts into an evidence-and-answer section. Section IDs render in this order.
+header
+subagent_role
+mode
+notes
+model_notes
+allowed
+evidence
+footer

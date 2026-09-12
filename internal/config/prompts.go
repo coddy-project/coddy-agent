@@ -14,13 +14,31 @@ const (
 
 // Prompts is the YAML prompts section (key prompts).
 type Prompts struct {
-	Dir         string `yaml:"dir" json:"dir"`
-	AgentPrompt string `yaml:"agent_prompt"`
-	PlanPrompt  string `yaml:"plan_prompt"`
-	AskPrompt   string `yaml:"ask_prompt"`
+	Dir         string             `yaml:"dir" json:"dir"`
+	AgentPrompt string             `yaml:"agent_prompt"`
+	PlanPrompt  string             `yaml:"plan_prompt"`
+	AskPrompt   string             `yaml:"ask_prompt"`
+	PerProvider PerProviderPrompts `yaml:"per_provider"`
+}
+
+// PerProviderPrompts selects the system prompt variant tuned to the active model
+// (model_notes and notes fragments of the built-in prompts, <mode>.<slug>.md and
+// <mode>.<family>.md files under prompts.dir), falling back to the shared prompt
+// when no variant exists.
+type PerProviderPrompts struct {
+	// Enabled is a pointer so an unset value defaults to true while an explicit
+	// false is preserved. Use PerProviderEnabled to read the effective value.
+	Enabled *bool `yaml:"enable"`
+}
+
+// PerProviderEnabled reports whether model-tuned prompt selection is active.
+// Unset (nil) defaults to true.
+func (c *Prompts) PerProviderEnabled() bool {
+	return c.PerProvider.Enabled == nil || *c.PerProvider.Enabled
 }
 
 // ApplyDefaults sets agent_prompt, plan_prompt, and ask_prompt when empty and trims when set.
+// per_provider.enable stays nil when omitted, so a saved config does not grow the key.
 func (c *Prompts) ApplyDefaults() {
 	if strings.TrimSpace(c.AgentPrompt) == "" {
 		c.AgentPrompt = defaultAgentPromptFile

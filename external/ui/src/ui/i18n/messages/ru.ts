@@ -410,6 +410,13 @@ export const messagesRu: Record<string, string> = {
   "settings.schema.system.prompts.ask_prompt.label": "Файл промпта вопросов",
   "settings.schema.system.prompts.ask_prompt.desc":
     "Имя файла системного промпта режима вопросов.",
+  "settings.schema.system.prompts.per_provider.label":
+    "Промпты под модель",
+  "settings.schema.system.prompts.per_provider.desc":
+    "Подстраивать системный промпт под активную модель: заметки для семейства во встроенных шаблонах, файлы <mode>.<model-slug>.md или <mode>.<family>.md в каталоге промптов.",
+  "settings.schema.system.prompts.per_provider.enable.label": "Включено",
+  "settings.schema.system.prompts.per_provider.enable.desc":
+    "Главный переключатель промптов под модель; если выключить, все модели получают общий промпт. По умолчанию включено.",
   "settings.schema.system.instructions.label": "Инструкции",
   "settings.schema.system.instructions.files.label": "Файлы инструкций",
   "settings.schema.system.instructions.files.desc":

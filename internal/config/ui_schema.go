@@ -562,8 +562,15 @@ func UISchemaMap() map[string]interface{} {
 				"agent_prompt": strProp("Agent prompt file", "Filename for the main agent system prompt."),
 				"plan_prompt":  strProp("Plan prompt file", "Filename for plan-mode system prompt."),
 				"ask_prompt":   strProp("Ask prompt file", "Filename for ask-mode system prompt."),
+				"per_provider": objectSchema("Model-tuned prompts",
+					"Tune the system prompt to the active model: family guidance in the built-in templates, <mode>.<model-slug>.md or <mode>.<family>.md files in the prompts directory.",
+					map[string]interface{}{
+						"enable": boolProp("Enabled", "Master switch for model-tuned prompts; off sends every model the shared prompt. Defaults to true."),
+					},
+					[]string{"enable"},
+					nil),
 			},
-			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt"},
+			[]string{"dir", "agent_prompt", "plan_prompt", "ask_prompt", "per_provider"},
 			nil),
 		"instructions": objectSchema("Instructions", "Files read from the session working directory and appended to the system prompt as project instructions (AGENTS.md-compatible).",
 			map[string]interface{}{

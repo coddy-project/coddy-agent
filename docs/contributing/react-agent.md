@@ -24,14 +24,20 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+The built-in template of each mode is assembled from Markdown section fragments under **`internal/prompts/sections/<mode>/`**, in the order its **`manifest`** lists (**`internal/prompts/sections.go`**); **`prompts.dir`** replaces it with **`agent.md`**, **`plan.md`** and **`ask.md`** of the operator's own. Both use Go **`text/template`**. With **`prompts.per_provider.enable`** on (the default) the session's model selects variants, most specific first: the slug of the model reference, the slug of the API model id, and the model family (**`prompts.Family`**, **`prompts.ModelSlug`**, **`Agent.promptVariants`**). A variant fills the optional **`notes`** / **`model_notes`** slots, replaces a fragment (**`<id>_<variant>.md`**) or ships its own **`manifest.<variant>`**; under **`prompts.dir`** it selects **`<mode>.<variant>.md`** before the base file. The table of shipped variants is in [Operating modes](../features/modes.md#model-tuned-system-prompts).
 
-Rendered order matches the markdown files roughly as follows:
+Rendered order of the agent manifest, roughly:
 
 ```
 [Identity line — see "Agent identity" below; absent when the template opens with it]
-[Intro + Mode + How to work / How to plan]
-Working directory: {{.CWD}}
+header         You are Coddy, ... / Working directory: {{.CWD}}
+subagent_role  {{if .SubagentRole}} ... {{end}}
+mode           ## Mode: Agent
+notes          [model-family notes, only when a variant supplies them]
+model_notes    [per-model profile, only when a variant supplies it]
+howto, todo_flow, code_quality, file_ops, read_search, shell_cmds, background_cmds, web_research
+subagents      {{if .Subagents}} ... {{end}}
+footer:
 
 {{if .Tools}}
 ## Available tools
@@ -172,7 +178,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
+The built-in agent sections (**`internal/prompts/sections/agent/`**) describe agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
 
 Representative builtins (excluding MCP-namespaced tools):
 
@@ -185,7 +191,7 @@ Representative builtins (excluding MCP-namespaced tools):
 
 ### Plan Mode
 
-Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
+The built-in plan sections (**`internal/prompts/sections/plan/`**) keep the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
 
 Representative builtins exposed to the LLM (registry allowlist):
 
@@ -197,7 +203,7 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+The built-in ask sections (**`internal/prompts/sections/ask/`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 

@@ -405,6 +405,12 @@ export const messagesEn: Record<string, string> = {
   "settings.schema.system.prompts.ask_prompt.label": "Ask prompt file",
   "settings.schema.system.prompts.ask_prompt.desc":
     "Filename for ask-mode system prompt.",
+  "settings.schema.system.prompts.per_provider.label": "Model-tuned prompts",
+  "settings.schema.system.prompts.per_provider.desc":
+    "Tune the system prompt to the active model: family guidance in the built-in templates, <mode>.<model-slug>.md or <mode>.<family>.md files in the prompts directory.",
+  "settings.schema.system.prompts.per_provider.enable.label": "Enabled",
+  "settings.schema.system.prompts.per_provider.enable.desc":
+    "Master switch for model-tuned prompts; off sends every model the shared prompt. Defaults to true.",
   "settings.schema.system.instructions.label": "Instructions",
   "settings.schema.system.instructions.files.label": "Instruction files",
   "settings.schema.system.instructions.files.desc":

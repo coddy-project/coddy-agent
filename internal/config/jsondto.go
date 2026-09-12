@@ -120,10 +120,17 @@ type AgentJSON struct {
 
 // PromptsJSON mirrors Prompts for JSON APIs.
 type PromptsJSON struct {
-	Dir         string `json:"dir,omitempty"`
-	AgentPrompt string `json:"agent_prompt,omitempty"`
-	PlanPrompt  string `json:"plan_prompt,omitempty"`
-	AskPrompt   string `json:"ask_prompt,omitempty"`
+	Dir         string                 `json:"dir,omitempty"`
+	AgentPrompt string                 `json:"agent_prompt,omitempty"`
+	PlanPrompt  string                 `json:"plan_prompt,omitempty"`
+	AskPrompt   string                 `json:"ask_prompt,omitempty"`
+	PerProvider PerProviderPromptsJSON `json:"per_provider,omitempty"`
+}
+
+// PerProviderPromptsJSON mirrors PerProviderPrompts. Enabled is a pointer so an
+// unset value (defaults to true) stays distinct from an explicit false.
+type PerProviderPromptsJSON struct {
+	Enabled *bool `json:"enable,omitempty"`
 }
 
 // SkillsJSON mirrors Skills for JSON APIs.
@@ -405,6 +412,7 @@ func ConfigToJSONDTO(c *Config) *ConfigJSON {
 	}
 	out.Prompts = PromptsJSON{
 		Dir: c.Prompts.Dir, AgentPrompt: c.Prompts.AgentPrompt, PlanPrompt: c.Prompts.PlanPrompt, AskPrompt: c.Prompts.AskPrompt,
+		PerProvider: PerProviderPromptsJSON{Enabled: cloneBoolPtr(c.Prompts.PerProvider.Enabled)},
 	}
 	out.Instructions = InstructionsJSON{Files: append([]string(nil), c.Instructions.Files...)}
 	out.Skills = SkillsJSON{
@@ -601,6 +609,7 @@ func JSONDTOToConfig(j *ConfigJSON, paths Paths) *Config {
 	}
 	cfg.Prompts = Prompts{
 		Dir: j.Prompts.Dir, AgentPrompt: j.Prompts.AgentPrompt, PlanPrompt: j.Prompts.PlanPrompt, AskPrompt: j.Prompts.AskPrompt,
+		PerProvider: PerProviderPrompts{Enabled: cloneBoolPtr(j.Prompts.PerProvider.Enabled)},
 	}
 	cfg.Instructions = Instructions{Files: append([]string(nil), j.Instructions.Files...)}
 	cfg.Skills = Skills{

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -93,6 +94,10 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	}
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
+	var promptVariants []string
+	if a.cfg.Prompts.PerProviderEnabled() {
+		promptVariants = a.promptVariants()
+	}
 	rulesMD := ""
 	// Project docs the rules block already carries: instructions.files names
 	// AGENTS.md too, and one system prompt does not need it twice. A template
@@ -102,12 +107,12 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	var embeddedDocs []string
 	if rs, ok := a.state.(rulesState); ok {
 		rulesMD, embeddedDocs = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
-		if !prompts.RendersRules(mode, nil, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
+		if !prompts.RendersRules(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
 			embeddedDocs = nil
 		}
 	}
 	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Paths.Home, a.cfg.Instructions.Files, embeddedDocs)
-	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
+	full := prompts.RenderWithFallbackForVariants(mode, promptVariants, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,
 		Rules:          rulesMD,
@@ -135,6 +140,26 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 		a.setContextBreakdown(computeContextBreakdown(full, skillsMD, toolsMD, rulesMD, a.prunedForLLM(session.MessagesForLLM(a.state.GetMessages())), toolDefs), false)
 	}
 	return full
+}
+
+// promptVariants returns the prompt variant keys of the session's model, most-specific
+// first: the slug of the model reference (neuraldeep/gemma-4-31b -> neuraldeep-gemma-4-31b),
+// the slug of the API model id alone (gemma-4-31b), so a built-in per-model variant works
+// whatever the provider row is called, and the model family (gemma). Empty and duplicate
+// keys are dropped; a model the config cannot resolve contributes its slug only.
+func (a *Agent) promptVariants() []string {
+	modelID := a.state.EffectiveModelID(a.cfg)
+	candidates := []string{prompts.ModelSlug(modelID)}
+	if rm, err := a.cfg.ResolveLLM(modelID); err == nil {
+		candidates = append(candidates, prompts.ModelSlug(rm.Model), prompts.Family(rm.ProviderType, rm.Model))
+	}
+	var variants []string
+	for _, v := range candidates {
+		if v != "" && !slices.Contains(variants, v) {
+			variants = append(variants, v)
+		}
+	}
+	return variants
 }
 
 func discardedPlansPromptBlock(slugs []string) string {

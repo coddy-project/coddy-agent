@@ -646,6 +646,14 @@ prompts:
   agent_prompt: "agent.md"     # optional; default agent.md
   plan_prompt: "plan.md"       # optional; default plan.md
   ask_prompt: "ask.md"         # optional; default ask.md
+  # Model-tuned prompts: the built-in templates add guidance for the session's model
+  # (families anthropic, openai, gemini, gpt-oss, qwen, gemma, neuraldeep; gpt-oss-20b/120b
+  # profiles). Under dir, <mode>.<model-slug>.md, <mode>.<api-model-slug>.md and
+  # <mode>.<family>.md are tried before the base file, e.g. for neuraldeep/gemma-4-31b:
+  # agent.neuraldeep-gemma-4-31b.md, agent.gemma-4-31b.md, agent.gemma.md, agent.md.
+  # See docs/features/modes.md (Model-tuned system prompts).
+  per_provider:
+    enable: true               # optional; default true, false sends every model the shared prompt
 
 # Session bundle storage (Go: config.Sessions, internal/config/sessions.go)
 sessions:
@@ -6301,7 +6309,7 @@ Made for questions about the codebase, review, diagnosis and web research. The m
 
 ### What they share
 
-The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt from the embedded `agent.md`, `plan.md` or `ask.md`, replaceable through `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
+The allowlists are fixed in `internal/agent.ToolSetForMode`; agent mode is unrestricted. `load_skill` exists only while `skills.auto_discovery` is on, and `spawn_agent` only while `subagents.enable` is; a subagent definition's own `mode` applies only under an agent-mode parent. Each mode renders its own system prompt, assembled from the built-in sections of that mode and tuned to the session's model ([Model-tuned system prompts](#model-tuned-system-prompts)), or read from `prompts.dir` with `prompts.agent_prompt`, `plan_prompt` and `ask_prompt` ([config reference](../reference/config.md#prompts)). The choice is stored with the session in `session.json`.
 
 ![The mode menu in the web UI composer](../assets/modes-menu-dark-1280.png)
 
@@ -6339,6 +6347,29 @@ The rest of the boundary follows from it. A `metadata.runPlanSlug` on `POST /v1/
 ![The composer in ask mode](../assets/modes-pill-hero-dark-1280.png)
 
 *The composer in ask mode: the pill takes the green outline of the mode, plan mode takes the orange one.*
+
+## Model-tuned system prompts
+
+Models read the same instructions differently, so the built-in system prompt of every mode is assembled per model. A manifest per mode (`internal/prompts/sections/<mode>/manifest`) lists the sections in order and each section is a Markdown fragment. Before every model call Coddy turns the session's model into prompt variants, most specific first:
+
+1. the model reference as a slug: `neuraldeep/gemma-4-31b` becomes `neuraldeep-gemma-4-31b`;
+2. the API model id alone, `gemma-4-31b`, so guidance written for one model applies whatever the provider row is called;
+3. the model family, read from the model id before the provider type because open models are served through OpenAI-compatible hubs: `gpt-oss`, `gemini`, `gemma`, `qwen`, `anthropic` (a `claude` id or an `anthropic` row), `openai` (a `gpt`, `o1`, `o3` or `o4` id, an `openai` or `codex` row), and `neuraldeep` for any other model on a NeuralDeep row.
+
+A variant fills the optional `notes` and `model_notes` slots, replaces a section with `<section>_<variant>.md`, or brings a structure of its own with `manifest.<variant>`. What ships:
+
+| Variant | `agent` | `plan` | `ask` |
+|---|---|---|---|
+| `anthropic`, `gemini`, `qwen`, `neuraldeep` | family notes | shared prompt | shared prompt |
+| `openai` | family notes | family notes, its own header, tool list and planning steps | its own structure: investigation policy, tool policy, response standard |
+| `gpt-oss`, with `gpt-oss-20b` and `gpt-oss-120b` profiles | family notes and the model profile | family notes and the model profile | its own structure: allowed research, evidence and answer, the model profile |
+| `gemma` | one tool call per message and nothing else in it, tool calls never as text, argument rules; its own "How to work" without the narrate-before-each-call rule | one tool call per message | one tool call per message |
+
+The Gemma rules come from measuring Gemma 4 on NeuralDeep with `internal/agent/live_tool_json_test.go`: the hub turns only the first tool call of a message into a structured call and hands a second one back as `<|tool_call>call:…` text, which reaches Coddy as part of the answer and never runs, and a message that announces its next call in words sometimes ends without the call. Asked for one bare call per message, the model waits for each result instead.
+
+With `prompts.dir` set, the same keys pick files next to the base template: a session on `neuraldeep/gemma-4-31b` in agent mode reads `agent.neuraldeep-gemma-4-31b.md`, else `agent.gemma-4-31b.md`, else `agent.gemma.md`, else `agent.md`. The key goes before the extension of the configured name, so `prompts.plan_prompt: my-plan.txt` looks for `my-plan.gemma.txt`. Whichever file wins still gets the identity line when it does not open with one.
+
+`prompts.per_provider.enable: false` switches the mechanism off: every model receives the shared prompt and only the base files under `prompts.dir` are read. The happy paths are `features/model_tuned_prompts.feature`; `internal/agent/live_tool_json_test.go` measures tool-call quality against a live NeuralDeep model and compares the two prompts (`CODDY_LIVE_PROMPTS=shared,tuned`).
 
 ## Switching on each surface
 
@@ -7221,6 +7252,7 @@ Follow-ups, deliberately not part of this change: resuming or messaging a runnin
 *The child session opened read-only from the task row*
 
 
+
 # Features / Hooks
 
 Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/hooks.md
@@ -7907,7 +7939,7 @@ Two extra `run_command` arguments drive the pool:
 - **`expected_seconds`** (int) — the model's own estimate of how long the work takes. It is **advisory**: it drives the status ticker the operator sees and, when `timeout_seconds` is omitted, the hard timeout. Guessing low only marks the task **overdue**; it never kills the task early.
 - **`notify_on_finish`** (bool) — wake the agent when this task ends (see below).
 
-The prompt (`internal/prompts/agent.md`, and the plan-mode equivalent) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
+The prompt (`internal/prompts/sections/agent/background_cmds.md`, and the plan-mode equivalent in `sections/plan/can.md`) tells the model when to background, to estimate honestly, to poll rather than busy-wait on `background_wait`, to stop servers and watchers it started, and to read the final status before summarising the outcome. Background execution is available in **both** agent and plan mode: a planner investigating a repo should not have to sit through a slow read-only command either.
 
 ## Waking the agent when a task finishes
 
@@ -8208,7 +8240,7 @@ When memory is on, every user message triggers one copilot run before the main R
 - **Recall** loads context for the main assistant: it searches the notes, lists folders and reads files, then answers with plain facts under `Already on disk` and, optionally, `Not in notes` - no paths, no file names - or exactly `(no memory hits)` when nothing matched. Recall is the default whenever the copilot is unsure, and it retries with English keywords and a folder listing when a first search finds nothing;
 - **Persist** updates the notes when you clearly ask to remember, save, forget or delete something, or when writing durable notes from what you said is the evident intent. It reads existing notes first to avoid duplicates, creates a folder before the first save into it, and reports what it verified, saved, skipped or deleted. Keys, tokens and passwords are never written.
 
-If you tell it not to consult the notes for this message, it skips recall and answers with one short line. The final text of the pass is merged into the `{{.Memory}}` slot of the system prompt template (`agent.md`, `plan.md`, `ask.md`) together with the session notes ([Configuration](../getting-started/configuration.md)); it lives for that turn only and is not written to `session.json`. The main ReAct loop does not receive the `coddy_memory_*` tool definitions and cannot call memory as a normal tool.
+If you tell it not to consult the notes for this message, it skips recall and answers with one short line. The final text of the pass is merged into the `{{.Memory}}` slot of the system prompt template (the built-in footer of every mode, or `agent.md`, `plan.md`, `ask.md` under `prompts.dir`) together with the session notes ([Configuration](../getting-started/configuration.md)); it lives for that turn only and is not written to `session.json`. The main ReAct loop does not receive the `coddy_memory_*` tool definitions and cannot call memory as a normal tool.
 
 ## When it runs
 
@@ -8835,6 +8867,8 @@ Override the built-in system prompt templates (Go text/template).
 | `prompts.agent_prompt` | string | agent.md | File name inside prompts.dir for agent mode. |
 | `prompts.plan_prompt` | string | plan.md | File name inside prompts.dir for plan mode. |
 | `prompts.ask_prompt` | string | ask.md | File name inside prompts.dir for ask mode. |
+| `prompts.per_provider` | object |  | Tune the system prompt to the active model. The built-in templates add guidance for the model family (anthropic, openai, gemini, gpt-oss, qwen, gemma, neuraldeep) and for single models such as gpt-oss-20b; under prompts.dir a <mode>.<model-slug>.md or <mode>.<family>.md file next to the base one (agent.gemma.md) is picked most-specific first. See https://coddy.dev/docs/features/modes. |
+| `prompts.per_provider.enable` | boolean or null | true | Master switch for model-tuned prompts. false sends every model the shared prompt. Defaults to true. |
 
 ### `instructions`
 
@@ -9191,7 +9225,7 @@ ReAct loop settings (`config.Agent`, `internal/config/agent.go`).
 
 ### `prompts`
 
-System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`). Template fields are documented in [Configuration](../getting-started/configuration.md#full-configuration-schema).
+System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`). Template fields are documented in [Configuration](../getting-started/configuration.md#full-configuration-schema). `per_provider.enable` (default on) tunes the prompt to the session's model: variant sections in the built-in templates, `<mode>.<model-slug>.md` and `<mode>.<family>.md` files next to the base file under `dir`; the resolution order is in [Operating modes](../features/modes.md#model-tuned-system-prompts).
 
 ### `instructions`
 
@@ -9436,7 +9470,8 @@ None of these is read by a released binary. They exist for contributors and are 
 |---|---|---|---|
 | `CODDY_HOOK_LINT`, `CODDY_HOOK_TESTS`, `CODDY_HOOK_SKIP` | `scripts/checks.sh`, run by `.githooks/pre-commit` | The commit gate: `CODDY_HOOK_LINT=0` skips the linter, `CODDY_HOOK_TESTS=fast|full|matrix` adds tests, `CODDY_HOOK_SKIP=1` bypasses the gate. | [Agent notes](../../AGENTS.md) |
 | `CODDY_UI_BACKEND` | `external/ui/vite.config.ts` | The `coddy serve` origin the Vite dev server proxies `/v1`, `/coddy`, `/swarm`, `/docs` and `/openapi.*` to while working on the SPA. | [Assets index](../assets/INDEX.md) |
-| `CODDY_LIVE_MODEL`, `NEURALDEEP_API_KEY` | `internal/agent/live_neuraldeep_test.go` | Enable the live probe against a NeuralDeep endpoint; the test is skipped without both. | the file header |
+| `CODDY_LIVE_MODEL`, `NEURALDEEP_API_KEY` | `internal/agent/live_neuraldeep_test.go`, `internal/agent/live_tool_json_test.go` | Enable the live probes against a NeuralDeep endpoint; the tests are skipped without both. | the file headers |
+| `CODDY_LIVE_REPEAT`, `CODDY_LIVE_SCENARIOS`, `CODDY_LIVE_PROMPTS` | `internal/agent/live_tool_json_test.go` | How many times each tool-call scenario runs, which scenarios run, and which prompt arms are compared (`tuned`, `shared`). | the file header, [Operating modes](../features/modes.md#model-tuned-system-prompts) |
 | `CODDY_BIN`, `CODDY_CONFIG`, `CODDY_HOME`, `CODDY_CWD`, `SESSION_ROOT`, `SESSION_ID`, `BASE_URL`, `MODEL`, `WORK_DIR`, `CODDY_CHAT_PROFILE`, `NEURALDEEP_API_KEY`, `RPA_API_KEY` | the harness scripts under `examples/` | Which binary, configuration, server and model an end-to-end script drives; each script's docstring lists its own. | [Examples](../../examples/README.md) |
 | `GITHUB_TOKEN` | `.github/workflows/*.yaml` | The GitHub Actions token used by the release, image and tag-on-merge jobs. The binary does not read it: `coddy update` talks to the releases API anonymously. | the workflow files |
 | `GO_WANT_MCP_HELPER`, `GO_WANT_MCP_MARKER`, `GO_WANT_TRUST_MARKER`, `GO_WANT_CONFIG_RELOAD_MCP`, `CODDY_MCP_MARKER_FILE`, `MCP_HELPER_TOKEN`, `TRUST_MARKER_FILE` | MCP and trust tests in `internal/mcp`, `internal/session` and `external/httpserver` | Make a test binary re-execute itself as a stub MCP server and report where it ran. | the test files |
@@ -12036,7 +12071,7 @@ Maintains the state for each conversation session:
 The core reasoning engine (**`react.go`**):
 
 1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`** (never in **`ask`** mode). In **`ask`** mode a call that names a filtered-out tool (for example one replayed from history) is also refused at execution time.
-2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+2. Builds the system prompt from **`internal/prompts.RenderWithFallbackForVariants`**: the built-in sections of the mode (**`internal/prompts/sections/<mode>/`**, assembled by its manifest) or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**), in both cases tuned to the session's model while **`prompts.per_provider.enable`** is on (model slug, API model slug and family, most specific first; **`Agent.promptVariants`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
 3. Prepends that system message to the session message list and appends the newest user turn.
 4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
 5. Streams the LLM response, executes tool calls (each one passing through the operator hooks of **`internal/hooks`**: `PreToolUse` before the permission gate, `PostToolUse` or `PostToolUseFailure` after the tool), appends assistant and tool messages.
@@ -12968,14 +13003,20 @@ Reference: https://arxiv.org/abs/2210.03629
 
 ### System Prompt Structure
 
-Templates are **`internal/prompts/agent.md`**, **`plan.md`**, and **`ask.md`** (embedded by default or overridden via **`prompts.dir`**). They use Go **`text/template`**.
+The built-in template of each mode is assembled from Markdown section fragments under **`internal/prompts/sections/<mode>/`**, in the order its **`manifest`** lists (**`internal/prompts/sections.go`**); **`prompts.dir`** replaces it with **`agent.md`**, **`plan.md`** and **`ask.md`** of the operator's own. Both use Go **`text/template`**. With **`prompts.per_provider.enable`** on (the default) the session's model selects variants, most specific first: the slug of the model reference, the slug of the API model id, and the model family (**`prompts.Family`**, **`prompts.ModelSlug`**, **`Agent.promptVariants`**). A variant fills the optional **`notes`** / **`model_notes`** slots, replaces a fragment (**`<id>_<variant>.md`**) or ships its own **`manifest.<variant>`**; under **`prompts.dir`** it selects **`<mode>.<variant>.md`** before the base file. The table of shipped variants is in [Operating modes](../features/modes.md#model-tuned-system-prompts).
 
-Rendered order matches the markdown files roughly as follows:
+Rendered order of the agent manifest, roughly:
 
 ```
 [Identity line — see "Agent identity" below; absent when the template opens with it]
-[Intro + Mode + How to work / How to plan]
-Working directory: {{.CWD}}
+header         You are Coddy, ... / Working directory: {{.CWD}}
+subagent_role  {{if .SubagentRole}} ... {{end}}
+mode           ## Mode: Agent
+notes          [model-family notes, only when a variant supplies them]
+model_notes    [per-model profile, only when a variant supplies it]
+howto, todo_flow, code_quality, file_ops, read_search, shell_cmds, background_cmds, web_research
+subagents      {{if .Subagents}} ... {{end}}
+footer:
 
 {{if .Tools}}
 ## Available tools
@@ -13116,7 +13157,7 @@ messages: [
 
 ### Agent Mode
 
-Embedded **`agent.md`** describes agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
+The built-in agent sections (**`internal/prompts/sections/agent/`**) describe agent behavior (quality, shells, todos). Todo-related instructions reference **`coddy_todo_plan_*`** and **`coddy_todo_item_*`** tools surfaced in **`Tools`**.
 
 Representative builtins (excluding MCP-namespaced tools):
 
@@ -13129,7 +13170,7 @@ Representative builtins (excluding MCP-namespaced tools):
 
 ### Plan Mode
 
-Embedded **`plan.md`** keeps the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
+The built-in plan sections (**`internal/prompts/sections/plan/`**) keep the default **registry** surface read-oriented (no built-in writes or **coddy** todo tools in the advertised set). **`run_command`** and all **MCP** tools from configured servers are still available for inspection.
 
 Representative builtins exposed to the LLM (registry allowlist):
 
@@ -13141,7 +13182,7 @@ Plus MCP tools (**`serverName__toolName`**). When ready to ship implementation w
 
 ### Ask Mode
 
-Embedded **`ask.md`** describes a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
+The built-in ask sections (**`internal/prompts/sections/ask/`**) describe a read-only assistant: it answers from the repository and the web and never mutates anything. The registry allowlist (**`internal/agent.ToolSetForMode("ask")`**) is **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`** and **`load_skill`**; there is no shell, no plan, todo or config tool, no **`spawn_agent`**, and **MCP** tools are never appended. Unlike plan mode the allowlist is also enforced at execution time, so a call replayed from history is refused with a read-only notice. A plan mention or **`runPlanSlug`** metadata never starts a plan run in ask mode, and the memory copilot runs recall-only. A subagent child never runs in ask mode unless its parent's turn was already in ask mode, which cannot spawn.
 
 ## Built-in Tools Specification
 
