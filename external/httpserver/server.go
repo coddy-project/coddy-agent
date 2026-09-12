@@ -327,6 +327,17 @@ type chatCompletionRequest struct {
 	MaxTok   int             `json:"max_tokens"`
 	Temp     float64         `json:"temperature"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// StreamOptions is OpenAI's stream_options; include_usage asks for the
+	// usage chunk after the choice finishes.
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+func (r chatCompletionRequest) includeUsage() bool {
+	return r.StreamOptions != nil && r.StreamOptions.IncludeUsage
 }
 
 type openAIMessage struct {
@@ -441,7 +452,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		defer s.endComposerRelay(sessionID, rel)
 		if req.Stream {
 			writeSSEHeaders(w)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+			// The caller reads the strict OpenAI contract; the relay keeps the
+			// whole coddy stream for whoever watches this turn.
+			client := newOpenAIStreamFilter(w, model, req.includeUsage())
+			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model)
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -509,7 +523,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), w, true, model)
+		bridge = NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}

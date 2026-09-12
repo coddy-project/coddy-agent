@@ -67,7 +67,7 @@ func openAPISpec() map[string]interface{} {
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`** and **`delta.reasoning_content`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (or **`length`** when the turn hit **`max_turns`** / **`max_tokens`**), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here; the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
@@ -93,7 +93,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion or streamed events. SSE may include **`event: coddy_meta`** (final metadata map) before **`data: [DONE]`**.",
+							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, the last one `stop`, an optional usage chunk, then `data: [DONE]`.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -104,7 +104,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type":        "string",
 										"format":      "binary",
-										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional coddy_meta).",
+										"description": "Server-Sent Events stream of OpenAI `chat.completion.chunk` lines; no coddy-specific `event:` frames.",
 									},
 								},
 							},
@@ -2658,6 +2658,13 @@ func openAPISpec() map[string]interface{} {
 							"items": map[string]interface{}{"$ref": "#/components/schemas/OpenAIMessage"},
 						},
 						"stream":      map[string]string{"type": "boolean"},
+						"stream_options": map[string]interface{}{
+							"type":        "object",
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",
+							"properties": map[string]interface{}{
+								"include_usage": map[string]string{"type": "boolean"},
+							},
+						},
 						"max_tokens":  map[string]string{"type": "integer"},
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
