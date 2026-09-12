@@ -315,7 +315,7 @@ func syntaxFix(msg string) string {
 	case strings.Contains(msg, "already defined"):
 		return "keep one of the two definitions"
 	case strings.Contains(msg, "cannot unmarshal"):
-		return "give the key a value of the shape the reference documents (docs/reference/config.md)"
+		return "give the key a value of the shape the reference documents (https://coddy.dev/docs/reference/config)"
 	default:
 		return "fix the YAML syntax at this line"
 	}

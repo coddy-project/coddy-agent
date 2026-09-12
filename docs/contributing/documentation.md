@@ -97,6 +97,26 @@ make docs-changelog  # also refresh the changelog from GitHub Releases (needs gh
 
 `make docs-check` runs in CI as the job **Documentation** and in the pre-commit hook for commits that touch `docs/`, the README, `AGENTS.md`, `DESIGN.md`, `CONTRIBUTING.md` or the config schema (there without the CLI build: `go run ./cmd/docsgen -skip-cli`). The link check resolves every relative link and image and every `#anchor` against the headings of the target page, GitHub style; fenced code blocks are ignored.
 
+## The site
+
+Every page of the map has a stable address on coddy.dev, so the binary, the schema, the bundled skill, posts and other people's links can name a page without naming a path in this repository:
+
+| Address | What it is |
+|---------|------------|
+| `https://coddy.dev/docs/<slug>` | A redirect page that sends a person to the page on GitHub; a `#fragment` survives the hop |
+| `https://coddy.dev/docs/<slug>.md` | The Markdown of the page, unchanged except that image and out-of-tree links are absolute; what `llms.txt` points at and what an agent fetches |
+| `https://coddy.dev/llms.txt`, `https://coddy.dev/llms-full.txt` | The same files as `docs/llms.txt` and `docs/llms-full.txt` |
+| `https://coddy.dev/config.schema.json` | The config schema, published by `make site-schema` |
+
+The slug is the page's path under `docs/` without `.md` (`getting-started/install`, `reference/config`); a page outside `docs/` is known by its file name (`CONTRIBUTING`). `internal/docsgen` renders the whole layer from `nav.yaml`:
+
+```bash
+make site-docs        # render into the site checkout beside this one (SITE_REPO=... if elsewhere)
+make site-docs-check  # report drift without writing
+```
+
+The site repository is `coddy-project.github.io`. A change to a page, to `nav.yaml` or to the schema is published there with the same pull request, and the site commit follows the merge of the coddy-agent change: a redirect page for a page that is not on `main` yet lands on a 404. Links that leave the repository use the `coddy.dev/docs/<slug>` form, never a GitHub path.
+
 ## Design records
 
 `docs/plans/` holds the plans and decisions behind the larger features as they were written, dates and all. They are read for the why, not for the how, and are not rewritten when the code moves on: a rename elsewhere leaves them alone, and only a link target is repaired when a page moves. A new plan is a new file named after the feature; when a plan carries a date, the date is the day the decision was taken.

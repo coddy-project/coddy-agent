@@ -126,7 +126,7 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See docs/rules.md.
+Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -190,7 +190,7 @@ Filesystem and shell policy for built-in tools.
 
 ### `subagents`
 
-User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.
+User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See https://coddy.dev/docs/features/subagents.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -204,7 +204,7 @@ User-defined child agents the model can delegate to with spawn_agent. Definition
 
 ### `hooks`
 
-Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See docs/hooks.md.
+Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See https://coddy.dev/docs/features/hooks.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -271,14 +271,14 @@ Optional memory copilot (implementation in external/memory; enable at runtime wi
 
 ### `httpserver`
 
-OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.
+OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See https://coddy.dev/docs/reference/http-api.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `httpserver.enable` | boolean or null | true | Serve the HTTP API (and the embedded SPA) in this process. Omitted means true; set false on a node that only polls a messenger or relays a swarm. |
 | `httpserver.host` | string | 127.0.0.1 | Bind address for the HTTP API. Empty means 127.0.0.1; set 0.0.0.0 to accept connections from other machines. |
 | `httpserver.port` | integer | 0 | Default listen port when coddy serve does not pass -P/--port. 0 falls back to 12345. |
-| `httpserver.auth_token` | string | "" | Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a "${ENV}" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See docs/remote-control.md. |
+| `httpserver.auth_token` | string | "" | Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a "${ENV}" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote. |
 | `httpserver.public_docs` | boolean | false | When auth is enabled, keep /docs and /openapi.* reachable without a token. |
 | `httpserver.allow_insecure` | boolean | false | Silence the startup warning about a non-loopback bind without authentication. |
 | `httpserver.cors` | object |  | Cross-origin access so a browser UI on another origin can call this API (e.g. the bundled UI pointed at a remote server). Bearer auth still applies. |
@@ -290,7 +290,7 @@ OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http
 
 ### `swarm`
 
-Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See docs/swarm.md.
+Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See https://coddy.dev/docs/operate/swarm.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -354,7 +354,7 @@ Cron-driven scheduled jobs (used only by binaries built with -tags scheduler). J
 
 ### `gateways`
 
-Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See docs/gateway.md.
+Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See https://coddy.dev/docs/surfaces/gateway.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|

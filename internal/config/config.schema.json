@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://coddy.dev/config.schema.json",
   "title": "Coddy config.yaml",
-  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: docs/config-reference.md. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
+  "description": "Configuration file for the Coddy agent (default location: ~/.coddy/config.yaml). Reference: https://coddy.dev/docs/reference/config. Any string value may reference environment variables with ${VAR_NAME}. ${CODDY_HOME} is expanded by the loader; ${CWD} stays in the value and is expanded per session by whatever reads the path (skills.dirs, subagents.dirs, hooks.files, prompts.dir, mcp_servers command/args/env/url/headers), except in the process-scoped sessions.dir, scheduler.dir, memory.dir and logger.file, where it means the default working directory.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -313,7 +313,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See docs/rules.md.",
+      "description": "Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -607,7 +607,7 @@
     "subagents": {
       "type": "object",
       "title": "Subagents",
-      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See docs/subagents.md.",
+      "description": "User-defined child agents the model can delegate to with spawn_agent. Definitions are markdown files with YAML frontmatter; each run is a background task of the parent session with its own child session and transcript. See https://coddy.dev/docs/features/subagents.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -668,7 +668,7 @@
     "hooks": {
       "type": "object",
       "title": "Hooks",
-      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See docs/hooks.md.",
+      "description": "Operator commands run at lifecycle points of a session: before and after a tool call, when a prompt is submitted, when the agent stops, on session start and around compaction. Definitions are JSON files in the Claude Code shape (~/.coddy/hooks.json, .coddy/hooks.json, .claude/settings*.json). See https://coddy.dev/docs/features/hooks.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -946,7 +946,7 @@
     "httpserver": {
       "type": "object",
       "title": "HTTP gateway",
-      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See docs/http-api.md.",
+      "description": "OpenAI-compatible HTTP API defaults (used only by binaries built with -tags http; the embedded SPA needs -tags http,ui). See https://coddy.dev/docs/reference/http-api.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -971,7 +971,7 @@
         },
         "auth_token": {
           "type": "string",
-          "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See docs/remote-control.md.",
+          "description": "Optional bearer credential for the HTTP API. Empty means no authentication (historical default). Use a \"${ENV}\" reference to keep the secret out of the file; never echoed back by GET /coddy/config. Prefer --auth-token / CODDY_HTTP_TOKEN to keep it out of config.yaml entirely. See https://coddy.dev/docs/operate/remote.",
           "default": ""
         },
         "public_docs": {
@@ -1029,7 +1029,7 @@
     "swarm": {
       "type": "object",
       "title": "Swarm relay",
-      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See docs/swarm.md.",
+      "description": "Stateless relay that nodes register into and that chains into other relays. The relay itself needs -tags swarm and swarm.enable; the join list below is honoured by any coddy serve process, which is what makes an ordinary agent reachable through a relay. See https://coddy.dev/docs/operate/swarm.",
       "additionalProperties": false,
       "properties": {
         "enable": {
@@ -1312,7 +1312,7 @@
     "gateways": {
       "type": "object",
       "title": "Messenger gateways",
-      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See docs/gateway.md.",
+      "description": "Messenger bot adapters (used only by binaries built with -tags gateway or -tags gateway.telegram; started by coddy serve alongside every other enabled subsystem). See https://coddy.dev/docs/surfaces/gateway.",
       "additionalProperties": false,
       "properties": {
         "telegram": {

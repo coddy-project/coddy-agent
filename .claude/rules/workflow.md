@@ -43,14 +43,25 @@ When adding or changing behavior (including words like feature, add, implement, 
 6. **HTTP OpenAPI narrative** - If you changed the optional OpenAI-compatible HTTP API (routes, methods, headers, request or response bodies, status codes, or anything reflected in the served spec), update **`external/httpserver/openapi.go`** (`openAPISpec`) so it matches **`external/httpserver/server.go`** handlers and tests. Align **`docs/reference/http-api.md`** (and **`README.md`** HTTP bullets) when user-facing descriptions change.
 7. **Config schema sync** - If you changed the YAML config surface (**`internal/config`** structs: added, renamed, retyped, or removed a yaml-tagged field, enum value, or default), update **`internal/config/config.schema.json`** (embedded into the binary: it is what `coddy -t` validates against and what the site publishes) and run **`make docs`**: the field tables of **`docs/reference/config.md`** are generated from the schema's `description` strings and the loader's defaults, so a key without a description ships an empty row. **`TestDocsConfigSchemaMatchesStructs`** (**`internal/config/docs_schema_test.go`**) catches key/type drift; the prose in the Notes section of that page and the guide **`docs/getting-started/configuration.md`** are kept by hand. Mirror user-facing fields in **`config.example.yaml`** and **`UISchemaMap()`** (**`internal/config/ui_schema.go`**) as well. The same change must also update the bundled self-configuration skill **`internal/skills/bundled/configure-coddy/SKILL.md`** (its "Configuration areas" catalog and command examples are the agent-facing view of the schema) - schema edits that skip the skill ship an agent that configures against a stale surface.
 
-8. **Publish the schema to the site** - **`internal/config/config.schema.json`** is served at **`https://coddy.dev/config.schema.json`**, the address Coddy writes as a modeline into every config it saves, out of the site repository **`coddy-project.github.io`** as a **verbatim copy**. A schema change that stops in this repository leaves every editor validating saved configs against a schema the binary no longer matches.
+8. **Publish to the site** - two things leave this repository for **`coddy-project.github.io`** and must be pushed there in step with the change that touched them.
+
+   **The schema.** **`internal/config/config.schema.json`** is served at **`https://coddy.dev/config.schema.json`**, the address Coddy writes as a modeline into every config it saves, as a **verbatim copy**. A schema change that stops in this repository leaves every editor validating saved configs against a schema the binary no longer matches.
 
    ```bash
    make site-schema        # copy into the site checkout (SITE_REPO=... if it is elsewhere)
    make site-schema-check  # report drift without writing; non-zero when stale
    ```
 
-   Then commit in the site repository. **Do not push it ahead of the release** when the change **renamed or removed** a key: the schema sets **`additionalProperties: false`**, so the new file marks the old key as an error in every config already on disk. Adding an optional key is safe to publish immediately. `gh pr create` returns 404 in that repository - commits go to `main`, or open a PR through a compare link.
+   Then commit in the site repository. **Do not push it ahead of the release** when the change **renamed or removed** a key: the schema sets **`additionalProperties: false`**, so the new file marks the old key as an error in every config already on disk. Adding an optional key is safe to publish immediately.
+
+   **The documentation layer.** Every page of **`docs/nav.yaml`** has a stable address on the site: **`coddy.dev/docs/<slug>`** redirects a person to the page on GitHub (fragment kept), **`coddy.dev/docs/<slug>.md`** is the Markdown twin for agents, and **`llms.txt`** plus **`llms-full.txt`** at the site root index them. The binary (`coddy -t` hints, `--dry-run` findings), the schema descriptions and the bundled `configure-coddy` skill print those addresses, so they must exist for every page and match the repository. **`internal/docsgen`** renders all of them; whenever a page, `nav.yaml`, the schema or anything a generated file depends on changes, publish the layer with the same pull request:
+
+   ```bash
+   make site-docs          # render the redirect pages, the twins and the llms files into the site checkout
+   make site-docs-check    # report drift without writing; non-zero when stale
+   ```
+
+   A redirect page for a page that is not on `main` yet lands on a 404, so the site commit follows the merge of the coddy-agent change, not the other way round. Links that leave the repository - the binary, the schema, the skill, the site, posts - use the **`coddy.dev/docs/<slug>`** form, never a GitHub path.
 
 9. **Documentation, examples, comments and bundled instructions** - a rename or a behavior
    change is not finished when `docs/` reads correctly. Nothing in the build catches the old
@@ -149,6 +160,7 @@ Then report briefly: goal, tests added or changed, `make test` and `make lint` o
 - **Screenshots of every changed UI surface attached to the PR** when **`external/ui/**`** changed, or an explicit note saying why a surface could not be captured.
 - OpenAPI and HTTP docs updated when the HTTP API changed.
 - **`internal/config/config.schema.json`**, **`docs/reference/config.md`**, and **`internal/skills/bundled/configure-coddy/SKILL.md`** updated when `internal/config` yaml fields changed, and **`make site-schema-check`** clean so the copy published at **`coddy.dev/config.schema.json`** is not stale.
+- **`make site-docs-check`** clean when a documentation page, **`docs/nav.yaml`** or the schema changed: the redirect pages, the Markdown twins and the llms files on coddy.dev follow the repository.
 - **No stale spelling of anything renamed**: `git grep -nI '<old name>'` comes back empty outside **`docs/plans/**`** - docs, `config.example.yaml`, `examples/`, Go comments, every `external/ui/src/ui/i18n/messages/` dictionary and `internal/skills/bundled/` included.
 - **Man page and completions match the usage text** when the CLI surface changed: `go test ./cmd/coddy -run 'TestUsage|TestPackaging'` green, and the flags of the changed command present in **`packaging/completions/*`** and **`packaging/man/coddy.1`**.
 - **`make docs-check`** clean: every new page in **`docs/nav.yaml`**, the generated pages regenerated with **`make docs`**, no broken relative link or anchor, no asset without a page. The page of every user-visible change updated, with a screenshot on the page when the change is visible in the web UI or the console.

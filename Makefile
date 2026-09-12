@@ -1,4 +1,4 @@
-.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast
+.PHONY: build build-acp test test-matrix print-test-tag-sets test-opencode-rules check-windows lint lint-windows clean install print-version hooks deb rpm brew brew-formula brew-check site-schema site-schema-check docs docs-check docs-changelog docs-fast site-docs site-docs-check
 
 # ---- Build options (extend when you add optional Go build tags) ----
 #   TAGS   optional extra `go build -tags` values (space-separated).
@@ -158,6 +158,18 @@ docs-check:
 # files, the config tables and the assets inventory.
 docs-fast:
 	go run ./cmd/docsgen -write -skip-cli
+
+# The documentation layer of coddy.dev: a redirect page coddy.dev/docs/<slug>
+# and a Markdown twin coddy.dev/docs/<slug>.md for every page of docs/nav.yaml,
+# plus llms.txt and llms-full.txt at the site root. The binary, the schema and
+# the bundled skill print those addresses. site-docs renders them into the
+# site checkout (SITE_REPO=... if it is elsewhere), site-docs-check reports
+# drift without writing.
+site-docs:
+	scripts/sync-site-docs.sh
+
+site-docs-check:
+	CHECK=1 scripts/sync-site-docs.sh
 
 docs-changelog:
 	$(MAKE) build TAGS="$(FULL_TAGS)"

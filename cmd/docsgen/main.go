@@ -21,6 +21,8 @@ func main() {
 	tags := flag.String("tags", "", "build tags of the coddy binary the CLI reference is generated from")
 	binary := flag.String("coddy", "", "path to a built coddy binary (built from source when empty)")
 	skipCLI := flag.Bool("skip-cli", false, "leave the CLI reference untouched (no binary is built or run)")
+	siteDir := flag.String("site", "", "checkout of coddy-project.github.io: render its docs layer (redirect pages, Markdown twins, llms files)")
+	siteOnly := flag.Bool("site-only", false, "with -site: touch only the site checkout, leave the repository files alone")
 	rawBase := flag.String("raw-base", docsgen.DefaultRawBase, "base URL of the raw Markdown for llms.txt")
 	changelog := flag.Bool("changelog", false, "refresh the changelog from GitHub Releases (needs gh and network)")
 	repo := flag.String("repo", "coddy-project/coddy-agent", "GitHub repository for the changelog")
@@ -43,19 +45,38 @@ func main() {
 			fmt.Printf("wrote %s (%d releases)\n", docsgen.ChangelogFile, len(releases))
 		}
 	}
-	res, err := docsgen.Generate(docsgen.Options{Root: abs, Binary: *binary, Tags: *tags, RawBase: *rawBase, SkipCLI: *skipCLI})
+	site := ""
+	if *siteDir != "" {
+		if site, err = filepath.Abs(*siteDir); err != nil {
+			fail(err)
+		}
+	}
+	res, err := docsgen.Generate(docsgen.Options{Root: abs, Binary: *binary, Tags: *tags, RawBase: *rawBase, SkipCLI: *skipCLI, SiteDir: site})
 	if err != nil {
 		fail(err)
 	}
 	if *write {
-		if err := res.Write(abs); err != nil {
-			fail(err)
+		if !*siteOnly {
+			if err := res.Write(abs); err != nil {
+				fail(err)
+			}
+			for rel := range res.Files {
+				fmt.Println("wrote", rel)
+			}
 		}
-		for rel := range res.Files {
-			fmt.Println("wrote", rel)
+		if site != "" {
+			if err := docsgen.WriteSite(site, res.SiteFiles); err != nil {
+				fail(err)
+			}
+			fmt.Printf("wrote %d site files under %s\n", len(res.SiteFiles), site)
 		}
 	} else {
-		res.Problems = append(res.Problems, res.Stale(abs)...)
+		if !*siteOnly {
+			res.Problems = append(res.Problems, res.Stale(abs)...)
+		}
+		if site != "" {
+			res.Problems = append(res.Problems, docsgen.SiteStale(site, res.SiteFiles)...)
+		}
 	}
 	for _, p := range res.Problems {
 		fmt.Fprintln(os.Stderr, p)

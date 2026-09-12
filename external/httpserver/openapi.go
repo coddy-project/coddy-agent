@@ -956,7 +956,7 @@ func openAPISpec() map[string]interface{} {
 					"summary": "Hook definition files visible from a workspace",
 					"description": "Lists the hook definition files a session with this **cwd** would load, in load order (**`hooks.files`**: the operator's **`${CODDY_HOME}/hooks.json`**, then the workspace's **`.claude/settings.json`**, **`.claude/settings.local.json`** and **`.coddy/hooks.json`**). " +
 						"Each item carries **file** (the name receipts use: the workspace-relative path for project scope, the absolute path otherwise), **path**, **scope** (**user**, **project**), **digest** (SHA-256 of the file), the trust decision for this workspace (**trust**, mirrored as **trusted** and **needs_approval**), **error** for a file that does not parse, **warnings**, and **hooks**: one row per handler with its event, matcher, command and flags. " +
-						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See **`docs/features/hooks.md`**.",
+						"Under **`hooks.project_trust: ask`** a project-scope file needs a receipt for its current content before any of its hooks runs; under **allow** it is trusted; under **deny** project files are not read at all. **workspace** is the canonical path the receipts are keyed by and **policy** the effective project trust policy. See https://coddy.dev/docs/features/hooks.",
 					"operationId": "listHooks",
 					"parameters": []interface{}{
 						map[string]interface{}{

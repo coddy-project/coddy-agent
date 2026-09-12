@@ -15,15 +15,18 @@ type Options struct {
 	Root    string // repository root
 	Binary  string // coddy binary for the CLI reference; built when empty
 	Tags    string // build tags for that build
-	RawBase string // base URL of the raw Markdown for llms.txt
+	RawBase string // base URL of the Markdown twins for llms.txt
 	SkipCLI bool   // leave the CLI reference as it is (no binary needed)
+	SiteDir string // checkout of coddy-project.github.io; renders its docs layer when set
 }
 
-// Result holds the generated files (repository-relative path to content) and
-// the problems the checks found.
+// Result holds the generated files (repository-relative path to content),
+// the files of the site layer (relative to the site checkout) and the
+// problems the checks found.
 type Result struct {
-	Files    map[string]string
-	Problems []Problem
+	Files     map[string]string
+	SiteFiles map[string]string
+	Problems  []Problem
 }
 
 // Generated files that carry a spliced block.
@@ -122,6 +125,16 @@ func Generate(o Options) (*Result, error) {
 		return nil, err
 	}
 	res.Files[LLMSFullFile] = full
+
+	if o.SiteDir != "" {
+		site, err := RenderSite(nav, o.Root, res.Files)
+		if err != nil {
+			return nil, err
+		}
+		site["llms.txt"] = res.Files[LLMSFile]
+		site["llms-full.txt"] = res.Files[LLMSFullFile]
+		res.SiteFiles = site
+	}
 
 	res.Problems = append(res.Problems, CheckNav(o.Root, nav)...)
 	res.Problems = append(res.Problems, CheckAssets(assets)...)
