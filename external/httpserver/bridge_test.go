@@ -323,6 +323,7 @@ func TestOpenAIStreamFilter_FramesSurviveArbitraryWriteBoundaries(t *testing.T) 
 	want := []string{
 		`data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
 		`data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		": token_usage",
 		`data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
 		"data: [DONE]",
 	}
@@ -340,17 +341,17 @@ func TestOpenAIStreamFilter_EmptyTurnStillFinishesOneChoice(t *testing.T) {
 	// A turn that produced no text must not leave the client with "no choices":
 	// the message is opened and finished all the same.
 	frames := openAIFilterFrames(t, false, "event: coddy_meta\ndata: {\"metadata\":{\"model\":\"local/m\"}}\n\n", "data: [DONE]\n\n")
-	if len(frames) != 3 {
-		t.Fatalf("got %d frames, want role, finish and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	if len(frames) != 4 {
+		t.Fatalf("got %d frames, want the meta comment, role, finish and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
 	}
-	if !strings.Contains(frames[0], `"role":"assistant"`) {
-		t.Fatalf("first frame must open the message: %s", frames[0])
+	if !strings.Contains(frames[1], `"role":"assistant"`) {
+		t.Fatalf("the message must be opened: %s", frames[1])
 	}
-	if !strings.Contains(frames[1], `"finish_reason":"stop"`) {
-		t.Fatalf("second frame must finish the choice: %s", frames[1])
+	if !strings.Contains(frames[2], `"finish_reason":"stop"`) {
+		t.Fatalf("the choice must be finished: %s", frames[2])
 	}
-	if frames[2] != "data: [DONE]" {
-		t.Fatalf("last frame = %s", frames[2])
+	if frames[3] != "data: [DONE]" {
+		t.Fatalf("last frame = %s", frames[3])
 	}
 }
 
@@ -375,10 +376,10 @@ func TestOpenAIStreamFilter_UsageChunkFollowsTheFinishedChoice(t *testing.T) {
 	frames := openAIFilterFrames(t, true,
 		"event: token_usage\ndata: {\"sessionUpdate\":\"token_usage\",\"inputTokens\":30,\"outputTokens\":12,\"totalTokens\":42}\n\n",
 		"data: [DONE]\n\n")
-	if len(frames) != 4 {
-		t.Fatalf("got %d frames, want role, finish, usage and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	if len(frames) != 5 {
+		t.Fatalf("got %d frames, want the usage comment, role, finish, usage and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
 	}
-	usage := frames[2]
+	usage := frames[3]
 	if !strings.Contains(usage, `"choices":[]`) || !strings.Contains(usage, `"usage":{"completion_tokens":12,"prompt_tokens":30,"total_tokens":42}`) {
 		t.Fatalf("usage frame = %s", usage)
 	}
@@ -515,5 +516,41 @@ func TestOpenAIStreamFilter_AFailedWriteReportsTheBytesItTookAndClosesTheStream(
 	// The stream is closed: a later frame is swallowed rather than retried.
 	if n, err := f.Write([]byte("data: [DONE]\n\n")); err != nil || n != len("data: [DONE]\n\n") {
 		t.Fatalf("after a failure Write = (%d, %v), want the bytes accepted silently", n, err)
+	}
+}
+
+func TestOpenAIStreamFilter_ASwallowedEventKeepsTheSocketBusy(t *testing.T) {
+	// The bridge's idle keepalive counts a named event as traffic, so a tool
+	// phase announcing progress never looks idle to it; the client, which no
+	// longer sees those frames, gets a comment for each so its socket carries
+	// exactly the traffic the turn produces.
+	frames := openAIFilterFrames(t, false,
+		"event: tool_call\ndata: {\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"c1\"}\n\n",
+		"event: tool_call_update\ndata: {\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"c1\",\"status\":\"in_progress\"}\n\n")
+	want := []string{": tool_call", ": tool_call_update"}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames = %q, want %q", frames, want)
+	}
+}
+
+func TestOpenAIStreamFilter_NothingButDoneFollowsAnError(t *testing.T) {
+	frames := openAIFilterFrames(t, false,
+		`data: {"error":{"message":"boom"}}`+"\n\n",
+		`data: {"choices":[{"index":0,"delta":{"content":"late"}}]}`+"\n\n",
+		"event: coddy_meta\ndata: {\"metadata\":{\"model\":\"local/m\"}}\n\n",
+		"data: [DONE]\n\n")
+	want := []string{`data: {"error":{"message":"boom"}}`, "data: [DONE]"}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames = %q, want %q", frames, want)
+	}
+}
+
+func TestOpenAIStreamFilter_CRLFFramesAreCutAllTheSame(t *testing.T) {
+	whole := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
+	// Split inside the CRLF pairs, the worst case for a byte-wise fold.
+	writes := []string{whole[:len(whole)-3], whole[len(whole)-3 : len(whole)-2], whole[len(whole)-2:]}
+	frames := openAIFilterFrames(t, false, writes...)
+	if len(frames) != 4 || frames[3] != "data: [DONE]" || !strings.Contains(frames[1], `"content":"Hi"`) {
+		t.Fatalf("frames:\n%s", strings.Join(frames, "\n"))
 	}
 }

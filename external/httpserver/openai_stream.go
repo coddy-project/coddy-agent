@@ -35,6 +35,13 @@ import (
 // with exactly one finish. Should a chunk ever arrive already finished, that
 // finish is the completion's and none is added; a chunk with no choice at all is
 // not a chunk and is dropped.
+//
+// A named event leaves an SSE comment in its place. The bridge's idle keepalive
+// counts every frame it writes as traffic, named events included, so a tool phase
+// that keeps announcing progress never looks idle to it - and the client's socket,
+// which no longer carries those frames, would sit silent for the whole phase
+// until a proxy in front of coddy dropped it. Every parser skips a comment, and
+// the socket stays exactly as busy as the turn.
 type openAIStreamFilter struct {
 	http.ResponseWriter
 
@@ -55,7 +62,7 @@ type openAIStreamFilter struct {
 	// completion is not finished a second time on [DONE].
 	finished bool
 	// errored is set once an error frame went to the client: the turn ended on
-	// that error, and [DONE] must not dress it up as a finished choice.
+	// that error, and nothing but [DONE] follows it.
 	errored bool
 	// done is set once [DONE] has been forwarded or a write failed; nothing
 	// follows either.
@@ -80,8 +87,9 @@ func newOpenAIStreamFilter(w http.ResponseWriter, model string, includeUsage boo
 }
 
 // Write consumes bridge bytes and emits the client's frames. The bridge writes one
-// frame per call today, but the filter never relies on it: frames are cut on the
-// blank line that ends them, whatever the write boundaries.
+// LF-terminated frame per call today, but the filter never relies on either:
+// CRLF is folded to LF, and frames are cut on the blank line that ends them,
+// whatever the write boundaries.
 //
 // Every byte of p is accepted into the pending buffer before anything is emitted,
 // so the count returned is always len(p): a failed emission is reported through
@@ -92,6 +100,11 @@ func (f *openAIStreamFilter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	f.pending.Write(p)
+	if bytes.Contains(f.pending.Bytes(), []byte("\r\n")) {
+		folded := bytes.ReplaceAll(f.pending.Bytes(), []byte("\r\n"), []byte("\n"))
+		f.pending.Reset()
+		f.pending.Write(folded)
+	}
 	for !f.done {
 		raw := f.pending.Bytes()
 		end := bytes.Index(raw, []byte("\n\n"))
@@ -120,7 +133,7 @@ var _ http.Flusher = (*openAIStreamFilter)(nil)
 
 // frame decides what one bridge frame becomes on the client's socket.
 func (f *openAIStreamFilter) frame(frame string) error {
-	frame = strings.TrimRight(frame, "\r\n")
+	frame = strings.TrimRight(frame, "\n")
 	if frame == "" {
 		return nil
 	}
@@ -130,16 +143,21 @@ func (f *openAIStreamFilter) frame(frame string) error {
 		return f.emit(frame)
 	}
 	event, data := splitSSEFrame(frame)
-	if event != "" {
-		f.named(event, data)
-		return nil
-	}
-	if data == "[DONE]" {
+	if data == "[DONE]" && event == "" {
 		if err := f.finish(); err != nil {
 			return err
 		}
 		f.done = true
 		return f.emit("data: [DONE]")
+	}
+	if f.errored {
+		// The turn ended on the error frame; whatever the bridge still writes
+		// before [DONE] would read as an answer that came after the failure.
+		return nil
+	}
+	if event != "" {
+		f.named(event, data)
+		return f.emit(": " + event)
 	}
 	if gjson.Get(data, "error").Exists() {
 		// An OpenAI client surfaces this as an API error; it is the one non-chunk
@@ -157,8 +175,8 @@ func (f *openAIStreamFilter) frame(frame string) error {
 	return f.chunk(data)
 }
 
-// named records what the terminal chunks need out of coddy's own events and drops
-// the frame: coddy_meta carries the ACP stop reason, token_usage the counters.
+// named records what the terminal chunks need out of coddy's own events: coddy_meta
+// carries the ACP stop reason, token_usage the counters.
 func (f *openAIStreamFilter) named(event, data string) {
 	switch event {
 	case "coddy_meta":
