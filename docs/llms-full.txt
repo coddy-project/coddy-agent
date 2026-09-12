@@ -9773,7 +9773,7 @@ header where the client can set one, since a query token reaches proxy access lo
 | GET | `/openapi.yaml`, `/openapi.json` | Spec. |
 | GET | `/docs`, `/docs/` | Swagger UI. |
 | GET | `/v1/models` | Merged list: **`agent`**, **`plan`**, **`ask`** (each **`owned_by`**: **`coddy`**), then every YAML **`models[].model`** row (**`id`** is the selector; **`owned_by`** is the provider prefix). Ordering is **`agent`**, **`plan`**, **`ask`**, then **`models`** in configuration order (same ordering the server emits). Use any returned **`id`** as **`model`** on POST. The JSON object also includes optional **`default_agent_model`**, the configured **`agent.model`** (**`models[].model`**), when set; the bundled UI uses it as the default **`metadata.model`** for ReAct (**`agent`** / **`plan`** / **`ask`**) requests. Each **`models[].model`** row also carries **`max_context_tokens`** (UI hint; 0 or absent for coddy-session profiles) and **`multimodal`** (**`true`** when **`models[].multimodal: true`** in YAML; the bundled UI shows a file attachment button in the composer when the selected model has **`multimodal: true`**). Reasoning models also carry **`reasoning_levels`** (array, e.g. **`["minimal","low","medium","high"]`**; absent for non-reasoning models) and optional **`reasoning_default`** (level pre-selected for new chats); the bundled UI shows a reasoning-level selector in the composer when **`reasoning_levels`** is non-empty. Models served by a **`type: codex`** provider report **`none`** where the model id alone would imply **`minimal`**, because the Codex backend rejects that tier. |
-| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**). **`409`** when another **agent**, **plan**, or **ask** turn already holds the session turn lock (exclusive per persisted bundle), and **`409`** when **`X-Coddy-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
+| POST | `/v1/chat/completions` | **`stream`**, **`messages`** (last **`user`**), optional **`stream_options.include_usage`**. With **`stream: true`** the body is the strict OpenAI **`chat.completion.chunk`** stream described under [Two stream dialects](#two-stream-dialects). **`409`** when another **agent**, **plan**, or **ask** turn already holds the session turn lock (exclusive per persisted bundle), and **`409`** when **`X-Coddy-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. |
 | POST | **`/v1/responses`** | **`model`**, **`input`**, optional **`stream`**, optional **`attachments`** ( **`path`** workspace-relative under session cwd, **`agent`** / **`plan`** / **`ask`** only; file bodies are hydrated as text - a file stored in another detected encoding, such as Windows-1251, is converted to UTF-8; server rejects traversal, oversized, non-text (binary or undetectable encoding), and folder **`path`**; optional **`source.startLine`** / **`source.endLine`** narrow a file to a 1-based inclusive line range that the model sees as **`lines="N-M"`**, and a range the file cannot honour is a **`400`**), optional **`inline_files`** (array of **`{name, data_url}`**; **`data_url`** is a `data:<mime>;base64,...` URI; works for all modes — direct YAML model and **`agent`** / **`plan`** / **`ask`**). For **`agent`** / **`plan`** / **`ask`**: each file is saved to the session **`assets/`** directory (`~/.coddy/sessions/<id>/assets/`) with **`0o444`** (read-only) permissions; the model receives a `<coddy_session_assets>` annotation in the user message so it can `read` or `cp` the files without re-transmitting their bytes over the API. For direct YAML model: each entry becomes an image content part on the user message so multimodal models receive the file inline. **`input`** remains the full composer text including **`@path`** echoes. Keeps history between turns when using headers. **`409`** when another **agent**, **plan**, or **ask** turn already holds the session turn lock, for streaming and non-streaming calls alike, and **`409`** when **`X-Coddy-Session-ID`** names a child session spawned by **`spawn_agent`** (**`sub_`** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. Every **agent** / **plan** / **ask** turn is published to the session's composer relay whatever **`stream`** is set to, so other clients can watch it over **`GET /coddy/sessions/{id}/composer-stream`**; with **`stream: false`** the response body is unchanged. A **`stream: false`** turn is cancelled when its HTTP request is dropped, a streamed one keeps running. A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so a turn on a YAML model with **`stream: false`** - silent on the wire until the whole answer is generated - is not dropped by an idle-timeout proxy. Note the two unrelated meanings of **`stream`**: this request field selects the response shape for the client, while **`models[].stream`** in **config.yaml** selects the transport coddy uses to reach the LLM. |
 | GET | `/v1/responses/{id}` | Session metadata snapshot. |
 | GET | **`/coddy/sessions`** | Pagination via **`limit`/`cursor`** (cursor is numeric offset token). Optional **`q`** substring filter (**case-insensitive**) over **`session.json` title OR the **first persisted `user`** message **`content`** in `messages.json` order (`system`, `assistant`, `tool`, etc. before that first `user` are ignored). **`q` is not full-text search** over the transcript. Pagination applies **after** filtering. Rows sort by **`session.json` `updatedAt`** (newest first), then **`id`** for stable ties; **`updatedAt`** moves forward on persistence (new turns, title pin, etc.), not when the server only loads a bundle to serve **GET** requests. **`include_scheduler=true`** includes session bundles created for **scheduler runs** (they set **`schedulerRun`** in **`session.json`** and are **omitted** from the default composer list). **`include_subagents=true`** includes child sessions spawned by **`spawn_agent`** (**`sub_`** ids with **`subagentRun`** in **`session.json`**, hidden by default); each such row carries **`subagent`** **`{parentSessionId, name, taskId}`** read from its bundle, and the default listing opens no child bundle. **`include_activity=true`** adds **`turnActive`**, **`activitySeq`**, **`readActivitySeq`**, and **`unreadComplete`** to each row for multi-tab UI. |
@@ -9857,6 +9857,12 @@ header where the client can set one, since a query token reaches proxy access lo
 | PATCH | **`/coddy/sessions/{id}/plans/{slug}`** | Body **`{"runPlan":true}`** runs **`RunPlan`** (sync), which switches the session to **`agent`** mode. Prefer **`POST /v1/responses`** with **`metadata.runPlanSlug`** for streaming. **`409`** while the session is in **`ask`** mode (read-only: switch the mode first, then run); the same request through **`metadata.runPlanSlug`** or an **`@plans/...`** mention is refused or read-only the same way. **`409`** also for a child session spawned by **`spawn_agent`** (read-only transcript). |
 
 After **`PUT`** **`/coddy/config`**, the next **`agent`**, **`plan`**, or **`ask`** turn uses the updated **`models`**, **`tools`**, and other fields from the swapped in-memory config. **`mcp_servers`** changes are applied to idle active sessions before the save response completes and to future sessions; a session running a turn is reconnected when that turn ends. A reconnect that runs past the save's deadline leaves that session on the servers it already has and retries on its next turn, so one hanging server cannot strip the others.
+
+### Two stream dialects
+
+The two streaming endpoints carry the same turn in two shapes, chosen by who reads them. **`POST /v1/chat/completions`** with **`stream: true`** is the surface a third-party client points at (VS Code Copilot through `chatLanguageModels.json`, the openai SDKs, anything that parses `chat.completion.chunk` literally), so it is the strict OpenAI contract and nothing else: a first chunk with **`delta.role`** `assistant`; **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas, each choice with **`finish_reason: null`**; a final chunk whose **`finish_reason`** is **`stop`**, **`length`** when the turn ended on **`max_turns`** / **`max_tokens`**, or **`tool_calls`** when a direct model called one of the client's tools; with **`stream_options.include_usage: true`** one more chunk with an empty **`choices`** array and the turn's **`usage`** (**`prompt_tokens`**, **`completion_tokens`**, **`total_tokens`**, from the provider's own counters, zero when it reported none); then **`data: [DONE]`**. No named **`event:`** frame appears on it - such a client would read one as a chunk without choices - though each leaves an SSE comment in its place, so the connection stays as busy as the turn through a tool phase; a turn that produced no text still opens and finishes one choice, because a stream that never finishes a choice is what VS Code reports as "Response contained no choices." **`POST /v1/responses`** is coddy's own channel, read by the SPA, the remote console (**`--remote`**, **`coddy acp --remote`**) and the swarm relay: the same chunks plus every named event below, **`coddy_meta`** last.
+
+  A direct **`models[].model`** id on **`POST /v1/chat/completions`** is coddy standing in for the provider, and the client brings what it would bring to the provider. Its **`tools`** (OpenAI function tools) are offered to the model as they are; **`tool_choice`** `none` withholds them, and any other value leaves the choice to the model, because the providers take no forcing parameter. A call the model makes comes back as **`delta.tool_calls`** chunks on the stream - one chunk per call, arguments complete, **`index`** counting the calls - and as **`message.tool_calls`** on a JSON answer, with **`finish_reason`** **`tool_calls`**; the client runs the tool, replays the assistant message with its **`tool_calls`** and answers with a **`tool`** message under the **`tool_call_id`**, and that request may end on the tool message. Message **`content`** may be a string, `null` or an array of parts: **`text`** parts are joined, **`image_url`** parts (a data URL or an https address) reach a model whose **`models[].multimodal`** is true as images and are dropped for any other model, never flattened into text; they are accepted on user messages only, as at OpenAI, and refused with **`400`** on any other role, as are other part types. What a client may hand over is bounded: at most 128 tools, a tool's **`parameters`** up to 256 KiB, 16 images per message and 20 MiB per image URL string (a data URL carries the picture itself), past which the request is refused with **`400`**; an https image address is handed to the provider as it is, coddy never fetches it. A JSON answer made of tool calls has **`content`** `null`, as OpenAI renders it. The **agent** / **plan** / **ask** profiles run coddy's own tools and never read the client's, and take no trailing **`tool`** message, though the pictures of the last user message reach a multimodal profile model. An **agent** / **plan** / **ask** turn started over either endpoint is published to the composer relay in the rich shape whatever the caller received, so a browser watching the session sees its tool calls either way.
 
 ### Session memory REST (**`-tags=http,memory`**)
 
@@ -11060,6 +11066,70 @@ Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tu
 4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `coddy serve` that served the page (`httpserver.remotes`) and `+ Add remote…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and the token stays in the browser, never in a config file. The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token ([Cross-origin access and the remote UI](../reference/http-api.md#cross-origin-access-and-the-remote-ui), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
 
 5. **Remember what stays on the server.** Sessions, the trust receipts and the child sessions of subagents are the server's, so a project file is approved there: `coddy mcp trust`, `coddy hooks trust` and `coddy agents trust` on the server itself, or `POST /coddy/mcp/{name}/trust`, `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` over the API. A dropped connection leaves the server turn running; `/resume` shows the outcome once it ends.
+
+
+# Tutorials / Coddy as a model in VS Code Copilot
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/coddy-as-a-model-in-vs-code.md
+
+# Coddy as a model in VS Code Copilot
+
+VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `chatLanguageModels.json` (Manage Models, then a custom endpoint). Pointing it at a running `coddy serve` puts coddy's models, and coddy's agent, in the model picker of Copilot Chat. The stream Copilot reads is the strict one described in [Two stream dialects](../reference/http-api.md#two-stream-dialects); the model ids are the ones `GET /v1/models` lists ([HTTP API](../reference/http-api.md)).
+
+1. **Serve on an address VS Code can reach.** The default bind is loopback on port 12345, enough for a VS Code on the same machine. For a VS Code elsewhere, bind and protect the server the way [A server driven from a laptop](server-driven-from-a-laptop.md) does, and hand the token to VS Code as `apiKey`.
+
+   ```bash
+   coddy serve
+   curl -s http://127.0.0.1:12345/v1/models | jq -r '.data[].id'   # the ids step 2 takes
+   ```
+
+2. **Register the endpoint.** One entry per model id. A `models[].model` id is coddy standing in for the provider: Copilot's own tools are offered to the model and its calls come back to Copilot, which runs them in the editor, so VS Code's Agent mode works the way it does against the provider directly; set `toolCalling` on, and `vision` when the entry has `multimodal: true` in `config.yaml`, which is what lets pictures through. The `agent` id is coddy's ReAct agent as a model: it reads and edits the workspace `coddy serve` was started in with its own tools, ignores the tools Copilot offers, and Copilot only sees the answer, so leave `toolCalling` off on that entry and use it from VS Code's Ask mode.
+
+   ```json
+   {
+     "name": "Coddy",
+     "vendor": "customendpoint",
+     "apiKey": "coddy",
+     "apiType": "chat-completions",
+     "models": [
+       {
+         "id": "neuraldeep/qwen3.8-27b",
+         "name": "Coddy · Qwen 3.8 27B",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": true,
+         "vision": true,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       },
+       {
+         "id": "agent",
+         "name": "Coddy · agent",
+         "url": "http://127.0.0.1:12345/v1/chat/completions",
+         "toolCalling": false,
+         "maxInputTokens": 128000,
+         "maxOutputTokens": 8192
+       }
+     ]
+   }
+   ```
+
+   Bearer auth is off by default, and any `apiKey` string satisfies VS Code's form; with `httpserver.auth_token` set, the `apiKey` is that token. Copilot sends the whole conversation with every request, so each request is a session of its own on the server unless a `requestHeaders` entry on the model sets `X-Coddy-Session-ID` to a fixed `sess_<hex>` id, which keeps the turns in one transcript.
+
+3. **Mind the agent's permission gate.** The `agent` model runs tools under `tools.permission_mode`, and a permission prompt cannot be answered from Copilot: the turn waits for an answer that never comes. Give the serving config `bypass` when the workspace is one you trust the agent with, or keep `ask` and answer the prompt in the web UI, where the turn is live under its session.
+
+   ```yaml
+   tools:
+     permission_mode: bypass
+   ```
+
+4. **Check that it worked.** Pick "Coddy · Qwen 3.8 27B" in Copilot Chat and ask anything: the answer streams in, and with a reasoning model the thinking shows in Copilot's own foldout, because `reasoning_content` is a field it reads. The same request from a terminal shows the stream Copilot consumed, one choice finished with `stop` before `[DONE]`:
+
+   ```bash
+   curl -sN http://127.0.0.1:12345/v1/chat/completions -H 'Content-Type: application/json' \
+     -d '{"model":"neuraldeep/qwen3.8-27b","messages":[{"role":"user","content":"hello"}],"stream":true}' | tail -4
+   ```
+
+   "Response contained no choices." in Copilot means the server did not finish a choice: check that `coddy serve` is the version that streams `finish_reason` (`coddy -v`, 1.1.5 or later), and that nothing between them rewrites the stream.
 
 
 # Tutorials / A skill of your own

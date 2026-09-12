@@ -3,6 +3,7 @@
 package httpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -327,6 +328,24 @@ type chatCompletionRequest struct {
 	MaxTok   int             `json:"max_tokens"`
 	Temp     float64         `json:"temperature"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
+	// StreamOptions is OpenAI's stream_options; include_usage asks for the
+	// usage chunk after the choice finishes.
+	StreamOptions *chatStreamOptions `json:"stream_options,omitempty"`
+	// Tools are the client's own function tools, offered to a direct model as
+	// they are; a profile turn runs coddy's tools and ignores them.
+	Tools json.RawMessage `json:"tools,omitempty"`
+	// ToolChoice is OpenAI's tool_choice. "none" withholds the tools; every
+	// other value leaves the choice to the model, since the providers take no
+	// forcing parameter.
+	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
+func (r chatCompletionRequest) includeUsage() bool {
+	return r.StreamOptions != nil && r.StreamOptions.IncludeUsage
 }
 
 type openAIMessage struct {
@@ -334,6 +353,61 @@ type openAIMessage struct {
 	Content    json.RawMessage `json:"content"`
 	ToolCallID string          `json:"tool_call_id"`
 	Name       string          `json:"name"`
+	// ToolCalls are the calls an assistant message made, replayed by a client
+	// that runs the tools itself.
+	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+}
+
+// openAIToolCall is one entry of an assistant message's tool_calls.
+type openAIToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name string `json:"name"`
+		// Arguments is the JSON string OpenAI specifies; a client that sends
+		// the object itself is taken as well.
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
+}
+
+// argumentsJSON returns the call's arguments as the JSON text the providers
+// replay: a string is taken as is, an object is kept as its own JSON.
+func (c openAIToolCall) argumentsJSON() (string, error) {
+	raw := bytes.TrimSpace(c.Function.Arguments)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	if !json.Valid(raw) {
+		return "", fmt.Errorf("tool call arguments must be a JSON string or object")
+	}
+	return string(raw), nil
+}
+
+// Bounds on what a client may hand a direct model. OpenAI itself takes up to
+// 128 tools; a schema or a picture past these sizes is not a request coddy
+// should carry to a provider or keep under the session's assets.
+const (
+	maxClientTools           = 128
+	maxClientToolSchemaBytes = 256 << 10
+	maxImagePartsPerMessage  = 16
+)
+
+// maxImagePartBytes bounds one image_url payload.
+const maxImagePartBytes = 20 << 20
+
+// dropImageParts strips the pictures off a history bound for a model that
+// takes none.
+func dropImageParts(msgs []llm.Message) {
+	for i := range msgs {
+		msgs[i].ImageParts = nil
+	}
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -369,11 +443,26 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	last := msgs[len(msgs)-1]
-	if last.Role != llm.RoleUser {
-		http.Error(w, `{"error":{"message":"last message must be user"}}`, http.StatusBadRequest)
+	if last.Role != llm.RoleUser && !(last.Role == llm.RoleTool && !httpModelIsCoddyProfile(model)) {
+		if httpModelIsCoddyProfile(model) {
+			http.Error(w, `{"error":{"message":"last message must be user"}}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, `{"error":{"message":"last message must be user or tool"}}`, http.StatusBadRequest)
+		}
 		return
 	}
 	prefix := msgs[:len(msgs)-1]
+	// A direct model takes the client's tools; they are checked here, before a
+	// session is created or touched, so a refused tool list leaves nothing
+	// behind. A profile turn never reads them.
+	var clientTools []llm.ToolDefinition
+	if !httpModelIsCoddyProfile(model) {
+		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+	}
 
 	ctx := r.Context()
 	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
@@ -419,6 +508,18 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var bridge *Sender
 	if httpModelIsCoddyProfile(model) {
+		// The client's tools are never read here: a profile turn runs coddy's
+		// own. Its pictures, history included, reach the model only when the
+		// profile's model takes them, so none turns into a base64 blob the model
+		// reads as text.
+		var promptImages []acp.ImagePartRef
+		if configuredModelMultimodal(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st)) {
+			for _, ip := range last.ImageParts {
+				promptImages = append(promptImages, acp.ImagePartRef{DataURL: ip.DataURL, Name: ip.Name})
+			}
+		} else {
+			dropImageParts(prefix)
+		}
 		st.ReplaceMessagesWithoutPersist(prefix)
 		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
@@ -441,7 +542,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		defer s.endComposerRelay(sessionID, rel)
 		if req.Stream {
 			writeSSEHeaders(w)
-			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: w, relay: rel}, true, model)
+			// The caller reads the strict OpenAI contract; the relay keeps the
+			// whole coddy stream for whoever watches this turn.
+			client := newOpenAIStreamFilter(w, model, req.includeUsage())
+			bridge = NewSender(s.activeCfg(), &teeSSEWriter{ResponseWriter: client, relay: rel}, true, model)
 		} else {
 			bridge = NewRelaySender(s.activeCfg(), rel, model)
 		}
@@ -453,9 +557,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
 		promptRes, err := s.mgr.HandleSessionPromptWithSender(ctx, acp.SessionPromptParams{
-			SessionID: sessionID,
-			Prompt:    prompt,
-			Meta:      sessionPromptMetaFromHTTP(req.Metadata),
+			SessionID:  sessionID,
+			Prompt:     prompt,
+			ImageParts: promptImages,
+			Meta:       sessionPromptMetaFromHTTP(req.Metadata),
 		}, bridge, promptOpts)
 		stopKeepalive()
 		if err != nil {
@@ -509,20 +614,34 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	if req.Stream {
 		writeSSEHeaders(w)
-		bridge = NewSender(s.activeCfg(), w, true, model)
+		bridge = NewSender(s.activeCfg(), newOpenAIStreamFilter(w, model, req.includeUsage()), true, model)
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
+	if !configuredModelMultimodal(s.activeCfg(), model) {
+		dropImageParts(prefix)
+		last.ImageParts = nil
+	}
+	if len(last.ImageParts) > 0 {
+		if err := session.SavePartsToAssets(last.ImageParts, st.GetPersistedSessionDir()); err != nil {
+			s.log.Error("chat completion image assets", "error", err)
+			http.Error(w, `{"error":{"message":"save image parts failed"}}`, http.StatusInternalServerError)
+			return
+		}
+	}
 	st.ReplaceMessagesWithoutPersist(prefix)
 	st.AddMessage(llm.Message{
-		Role:      llm.RoleUser,
-		Content:   last.Content,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role:       last.Role,
+		Content:    last.Content,
+		ImageParts: last.ImageParts,
+		ToolCallID: last.ToolCallID,
+		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 	})
 	turnCtx, cancelTurn := context.WithCancel(ctx)
 	st.SetCancel(cancelTurn)
 	defer cancelTurn()
-	if _, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge); err != nil {
+	directRes, err := s.runDirectYAMLCompletion(turnCtx, st, sessionID, model, bridge, clientTools)
+	if err != nil {
 		if errors.Is(err, context.Canceled) && req.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)
@@ -540,25 +659,35 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
+	if stop := directStopReason(directRes); stop != "" {
+		// The strict stream finishes its choice with this: tool_use becomes
+		// finish_reason tool_calls, max_tokens becomes length.
+		meta["stop_reason"] = stop
+	}
 	if req.Stream {
 		_ = bridge.FinishStreamWithMetadata(meta)
 		return
 	}
-	reply := lastAssistantContent(st)
+	message := map[string]interface{}{
+		"role":    "assistant",
+		"content": lastAssistantContent(st),
+	}
+	finish := openAIFinishReason(directStopReason(directRes))
+	if directRes != nil {
+		if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
+			message["tool_calls"] = calls
+			if message["content"] == "" {
+				message["content"] = nil
+			}
+		}
+	}
 	resp := map[string]interface{}{
 		"id":       bridge.ChatID(),
 		"object":   "chat.completion",
 		"created":  time.Now().Unix(),
 		"model":    model,
 		"metadata": meta,
-		"choices": []map[string]interface{}{{
-			"index": 0,
-			"message": map[string]string{
-				"role":    "assistant",
-				"content": reply,
-			},
-			"finish_reason": "stop",
-		}},
+		"choices":  []map[string]interface{}{{"index": 0, "message": message, "finish_reason": finish}},
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
@@ -596,29 +725,41 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 	out := make([]llm.Message, 0, len(messages))
 	for _, m := range messages {
 		role := strings.TrimSpace(m.Role)
+		txt, images, err := openAIContent(m.Content)
+		if err != nil {
+			return nil, err
+		}
+		if len(images) > 0 && role != "user" {
+			// Pictures ride on user messages only, the one place the providers
+			// take them; OpenAI refuses them elsewhere, and so does coddy rather
+			// than losing them on the way.
+			return nil, fmt.Errorf("image parts are only accepted on user messages")
+		}
 		switch role {
 		case "system":
-			txt, err := stringContent(m.Content)
-			if err != nil {
-				return nil, err
-			}
 			out = append(out, llm.Message{Role: llm.RoleSystem, Content: txt})
 		case "user":
-			txt, err := stringContent(m.Content)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, llm.Message{Role: llm.RoleUser, Content: txt})
+			out = append(out, llm.Message{Role: llm.RoleUser, Content: txt, ImageParts: images})
 		case "assistant":
-			txt, err := stringContent(m.Content)
-			if err != nil {
-				return nil, err
+			msg := llm.Message{Role: llm.RoleAssistant, Content: txt}
+			for _, tc := range m.ToolCalls {
+				if t := strings.TrimSpace(tc.Type); t != "" && t != "function" {
+					return nil, fmt.Errorf("unsupported tool call type %q", tc.Type)
+				}
+				id, name := strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Function.Name)
+				if id == "" || name == "" {
+					return nil, fmt.Errorf("assistant tool call requires an id and a function name")
+				}
+				args, err := tc.argumentsJSON()
+				if err != nil {
+					return nil, fmt.Errorf("tool call %q: %w", id, err)
+				}
+				msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{ID: id, Name: name, InputJSON: args})
 			}
-			out = append(out, llm.Message{Role: llm.RoleAssistant, Content: txt})
+			out = append(out, msg)
 		case "tool":
-			txt, err := stringContent(m.Content)
-			if err != nil {
-				return nil, err
+			if strings.TrimSpace(m.ToolCallID) == "" {
+				return nil, fmt.Errorf("tool message requires tool_call_id")
 			}
 			out = append(out, llm.Message{
 				Role:       llm.RoleTool,
@@ -626,24 +767,171 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 				ToolCallID: strings.TrimSpace(m.ToolCallID),
 			})
 		default:
-			return nil, fmt.Errorf("unsupported role %q", role)
+			return nil, fmt.Errorf("unsupported role %q", m.Role)
 		}
 	}
 	return out, nil
 }
 
-func stringContent(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 {
-		return "", nil
+// openAIContent reads a message's content: a string, null, or the array of
+// parts a multimodal client sends. Text parts are joined; image_url parts
+// become image parts (a data URL or an https address, as the providers take
+// them). Any other part type is refused rather than flattened into text the
+// model would read as noise.
+func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return "", nil, nil
 	}
-	if raw[0] == '"' {
+	if trimmed[0] == '"' {
 		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return "", err
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return "", nil, err
 		}
-		return s, nil
+		return s, nil, nil
 	}
-	return string(raw), nil
+	if trimmed[0] != '[' {
+		return "", nil, fmt.Errorf("message content must be a string or an array of parts")
+	}
+	var parts []struct {
+		Type     string          `json:"type"`
+		Text     string          `json:"text"`
+		ImageURL json.RawMessage `json:"image_url"`
+	}
+	if err := json.Unmarshal(trimmed, &parts); err != nil {
+		return "", nil, fmt.Errorf("invalid content parts: %w", err)
+	}
+	var texts []string
+	var images []llm.ImagePart
+	for _, p := range parts {
+		switch strings.TrimSpace(p.Type) {
+		case "text":
+			texts = append(texts, p.Text)
+		case "image_url":
+			url := ""
+			if len(p.ImageURL) > 0 {
+				if p.ImageURL[0] == '"' {
+					_ = json.Unmarshal(p.ImageURL, &url)
+				} else {
+					var obj struct {
+						URL string `json:"url"`
+					}
+					_ = json.Unmarshal(p.ImageURL, &obj)
+					url = obj.URL
+				}
+			}
+			url = strings.TrimSpace(url)
+			if url == "" {
+				return "", nil, fmt.Errorf("image_url part without a url")
+			}
+			if len(url) > maxImagePartBytes {
+				return "", nil, fmt.Errorf("image_url part exceeds %d bytes", maxImagePartBytes)
+			}
+			if len(images) >= maxImagePartsPerMessage {
+				return "", nil, fmt.Errorf("a message may carry at most %d images", maxImagePartsPerMessage)
+			}
+			images = append(images, llm.ImagePart{DataURL: url})
+		default:
+			return "", nil, fmt.Errorf("unsupported content part type %q", p.Type)
+		}
+	}
+	return strings.Join(texts, "\n"), images, nil
+}
+
+// openAIToolsToLLM reads the client's function tools. A tool_choice of "none"
+// withholds them, once they have been read - a broken tool list is refused
+// whatever the choice, so a client learns about it before it switches the
+// tools on; the providers take no forcing parameter, so any other value
+// leaves the choice to the model.
+func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
+	tools, err := parseOpenAITools(rawTools)
+	if err != nil {
+		return nil, err
+	}
+	if choice := bytes.TrimSpace(rawChoice); len(choice) > 0 && choice[0] == '"' {
+		var s string
+		if err := json.Unmarshal(choice, &s); err == nil && strings.TrimSpace(s) == "none" {
+			return nil, nil
+		}
+	}
+	return tools, nil
+}
+
+// parseOpenAITools reads an OpenAI tools array into the providers' definitions.
+func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
+	trimmed := bytes.TrimSpace(rawTools)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	var tools []struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		} `json:"function"`
+	}
+	if err := json.Unmarshal(trimmed, &tools); err != nil {
+		return nil, fmt.Errorf("invalid tools: %w", err)
+	}
+	if len(tools) > maxClientTools {
+		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	}
+	out := make([]llm.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if typ := strings.TrimSpace(t.Type); typ != "" && typ != "function" {
+			return nil, fmt.Errorf("unsupported tool type %q", t.Type)
+		}
+		name := strings.TrimSpace(t.Function.Name)
+		if name == "" {
+			return nil, fmt.Errorf("tool without a function name")
+		}
+		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
+			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
+		}
+		var schema interface{}
+		if len(bytes.TrimSpace(t.Function.Parameters)) > 0 {
+			if err := json.Unmarshal(t.Function.Parameters, &schema); err != nil {
+				return nil, fmt.Errorf("tool %q: invalid parameters: %w", name, err)
+			}
+		}
+		if schema == nil {
+			schema = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
+		}
+		out = append(out, llm.ToolDefinition{Name: name, Description: t.Function.Description, InputSchema: schema})
+	}
+	return out, nil
+}
+
+// directStopReason is why a direct completion ended. An answer that carries tool
+// calls ended on them whatever the provider called it - some servers say stop
+// next to their tool_calls - so a client never sees calls under a finish that
+// tells it not to run them.
+func directStopReason(resp *llm.Response) string {
+	if resp == nil {
+		return ""
+	}
+	if len(resp.ToolCalls) > 0 {
+		return "tool_use"
+	}
+	return resp.StopReason
+}
+
+// openAIToolCallsJSON renders a model's tool calls in the shape of an OpenAI
+// assistant message.
+func openAIToolCallsJSON(calls []llm.ToolCall) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(calls))
+	for _, tc := range calls {
+		out = append(out, map[string]interface{}{
+			"id":   tc.ID,
+			"type": "function",
+			"function": map[string]interface{}{
+				"name":      tc.Name,
+				"arguments": tc.InputJSON,
+			},
+		})
+	}
+	return out
 }
 
 // inlineFileJSON is a base64-encoded file sent from the browser file picker.
@@ -895,7 +1183,7 @@ func (s *Server) handleResponsesCreate(w http.ResponseWriter, r *http.Request) {
 	respTurnCtx, respCancelTurn := context.WithCancel(ctx)
 	st.SetCancel(respCancelTurn)
 	defer respCancelTurn()
-	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge); err != nil {
+	if _, err := s.runDirectYAMLCompletion(respTurnCtx, st, sid, model, bridge, nil); err != nil {
 		if errors.Is(err, context.Canceled) && body.Stream {
 			meta := metadataResponse(s.activeCfg(), model)
 			_ = bridge.FinishStreamWithMetadata(meta)

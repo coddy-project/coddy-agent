@@ -497,6 +497,10 @@ type closingBody struct {
 	data   []byte
 	off    int
 	closed chan struct{}
+	// closeOnce makes Close safe to call from two goroutines at once: the
+	// handler standing in for the inbound server closes the body by hand while
+	// net/http closes the same body as the response headers go out.
+	closeOnce sync.Once
 }
 
 func newClosingBody(data string) *closingBody {
@@ -527,11 +531,7 @@ func (b *closingBody) Read(p []byte) (int, error) {
 }
 
 func (b *closingBody) Close() error {
-	select {
-	case <-b.closed:
-	default:
-		close(b.closed)
-	}
+	b.closeOnce.Do(func() { close(b.closed) })
 	return nil
 }
 

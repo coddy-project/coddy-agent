@@ -23,7 +23,7 @@ func openAPISpec() map[string]interface{} {
 				"Classify POST **model** values: **agent** / **plan** / **ask** run the ReAct agent; a selector with **provider/rest** form (see config) that appears in **`models`** triggers a single direct LLM completion (no tools). " +
 				"**`metadata.model`** may appear only on agent/plan/ask requests to set the session **`SelectedModelID`**; it is **not** allowed on direct completion. " +
 				"**`metadata.reasoning`** (optional, agent/plan/ask only) sets the reasoning level; it must be one of the effective model's **`reasoning_levels`** (or null/empty to clear). Levels map to provider controls (**`reasoning_effort`**; **`qwen3*`** models on OpenAI-compatible providers also pin **`chat_template_kwargs.enable_thinking`** on). " +
-				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**. " +
+				"JSON and SSE responses include **`metadata`** with the effective YAML model selector (**`metadata.model`**); streamed runs over **`POST /v1/responses`** emit a final **`event: coddy_meta`** JSON payload with the same map before **`data: [DONE]`**, while **`POST /v1/chat/completions`** streams the plain OpenAI contract (see that operation). " +
 				"Optional header **X-Coddy-Session-ID** continues an existing session; omit it to create one according to project docs.",
 			"version": ver,
 		},
@@ -67,7 +67,8 @@ func openAPISpec() map[string]interface{} {
 					"description": "Chat completion in OpenAI-compatible shape. **`model`** must match an **`id`** from **`GET /v1/models`**: **`agent`** / **`plan`** / **`ask`** (ReAct) or a configured **`models[].model`** YAML selector (single direct completion). " +
 						"Optional **`metadata`** on agent/plan/ask only: **`metadata.model`** sets the backed LLM (**`models[].model`**); omit or omit the key to use session defaults. " +
 						"**`metadata`** must not carry **`model`** for direct-completion **`model`** values. " +
-						"When **stream** is true the response is **text/event-stream** (OpenAI-shaped chunks plus optional **`event: coddy_meta`** before **`[DONE]`**). Otherwise JSON. " +
+						"When **stream** is true the response is **text/event-stream** in the strict OpenAI **`chat.completion.chunk`** contract a third-party client parses literally (VS Code Copilot, the openai SDKs): a first chunk with **`delta.role`** `assistant`, **`delta.content`**, **`delta.reasoning_content`** and **`delta.tool_calls`** deltas with **`finish_reason: null`**, a final chunk whose **`finish_reason`** is **`stop`** (**`length`** when the turn hit **`max_turns`** / **`max_tokens`**, **`tool_calls`** when a direct model called one of the client's tools), a usage chunk with an empty **`choices`** array when **`stream_options.include_usage`** is true, then **`data: [DONE]`**. No named **`event:`** frame is sent here (each leaves an SSE comment in its place, so the connection stays busy through a tool phase); the coddy events (**`tool_call`**, **`token_usage`**, **`coddy_meta`**, ...) are the **`POST /v1/responses`** stream and the composer relay. Otherwise JSON. " +
+						"A direct **`models[].model`** id is coddy standing in for the provider: the client's **`tools`** are offered to the model as they are (**`tool_choice`** `none` withholds them, any other value leaves the choice to the model), a call the model makes comes back as **`delta.tool_calls`** chunks (streamed) or **`message.tool_calls`** (JSON) with **`finish_reason`** **`tool_calls`**, the client replays the assistant's **`tool_calls`** and answers with **`tool`** messages, which may end the request, and **`content`** parts of type **`image_url`** reach a model configured **`multimodal`** as images (dropped otherwise; an https address is handed to the provider, never fetched). Bounds: 128 tools, 256 KiB of **`parameters`** per tool, 16 images per message, 20 MiB per image URL string, else **400**. The **agent** / **plan** / **ask** profiles run coddy's own tools, never read the client's, and take no trailing **`tool`** message. " +
 						"**409** when **X-Coddy-Session-ID** names a child session spawned by **spawn_agent** (**sub_** ids): those transcripts are read-only for every model kind, and the error names the parent session to prompt instead. " +
 						"A streamed response that has produced no frame for 15s sends an SSE comment keepalive, so an idle-timeout proxy does not drop a turn whose model is answering slowly. " +
 						"This **`stream`** field selects the response shape for the client; **`models[].stream`** in **config.yaml** separately selects the transport coddy uses to reach the LLM. " +
@@ -93,7 +94,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion or streamed events. SSE may include **`event: coddy_meta`** (final metadata map) before **`data: [DONE]`**.",
+							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, or `length` for a turn cut by `max_turns` / `max_tokens`), an optional usage chunk, then `data: [DONE]`.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -104,7 +105,7 @@ func openAPISpec() map[string]interface{} {
 									"schema": map[string]interface{}{
 										"type":        "string",
 										"format":      "binary",
-										"description": "Server-Sent Events stream (OpenAI-compatible chunk lines, optional coddy_meta).",
+										"description": "Server-Sent Events stream of OpenAI `chat.completion.chunk` lines; no coddy-specific `event:` frames.",
 									},
 								},
 							},
@@ -2599,12 +2600,17 @@ func openAPISpec() map[string]interface{} {
 							"enum": []interface{}{"system", "user", "assistant", "tool"},
 						},
 						"content": map[string]interface{}{
-							"description": "JSON string or raw text/object per OpenAI client conventions.",
+							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and are accepted on user messages only, refused with 400 on any other role, as is any other part type.",
 							"oneOf": []interface{}{
 								map[string]string{"type": "string"},
-								map[string]interface{}{"type": "array"},
-								map[string]interface{}{"type": "object"},
+								map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "additionalProperties": true}},
+								map[string]string{"type": "null"},
 							},
+						},
+						"tool_calls": map[string]interface{}{
+							"type":        "array",
+							"description": "On an assistant message: the calls it made, replayed by a client that runs the tools itself (`id`, `type: function`, `function.name`, `function.arguments`).",
+							"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
 						},
 						"reasoning": map[string]interface{}{
 							"type":        "string",
@@ -2657,7 +2663,40 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/OpenAIMessage"},
 						},
-						"stream":      map[string]string{"type": "boolean"},
+						"stream": map[string]string{"type": "boolean"},
+						"stream_options": map[string]interface{}{
+							"type":        "object",
+							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",
+							"properties": map[string]interface{}{
+								"include_usage": map[string]string{"type": "boolean"},
+							},
+						},
+						"tools": map[string]interface{}{
+							"type":        "array",
+							"description": "The client's function tools in OpenAI shape (`type: function`, `function.name`, `function.description`, `function.parameters` JSON Schema). Offered as they are to a direct `models[].model`; ignored by agent, plan and ask, which run coddy's own tools. Any other tool type is refused with 400.",
+							"items": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"type": map[string]interface{}{"type": "string", "enum": []interface{}{"function"}},
+									"function": map[string]interface{}{
+										"type": "object",
+										"properties": map[string]interface{}{
+											"name":        map[string]string{"type": "string"},
+											"description": map[string]string{"type": "string"},
+											"parameters":  map[string]interface{}{"type": "object", "additionalProperties": true},
+										},
+										"required": []string{"name"},
+									},
+								},
+							},
+						},
+						"tool_choice": map[string]interface{}{
+							"description": "OpenAI tool_choice. `none` withholds the tools from the model; `auto`, `required` and a named function leave the choice to the model, since the providers take no forcing parameter.",
+							"oneOf": []interface{}{
+								map[string]string{"type": "string"},
+								map[string]interface{}{"type": "object", "additionalProperties": true},
+							},
+						},
 						"max_tokens":  map[string]string{"type": "integer"},
 						"temperature": map[string]interface{}{"type": "number", "format": "float"},
 						"metadata": map[string]interface{}{
@@ -2689,11 +2728,19 @@ func openAPISpec() map[string]interface{} {
 									"message": map[string]interface{}{
 										"type": "object",
 										"properties": map[string]interface{}{
-											"role":    map[string]string{"type": "string"},
-											"content": map[string]string{"type": "string"},
+											"role": map[string]string{"type": "string"},
+											"content": map[string]interface{}{
+												"description": "The answer text; null when the answer is made of tool calls, as OpenAI renders it.",
+												"oneOf":       []interface{}{map[string]string{"type": "string"}, map[string]string{"type": "null"}},
+											},
+											"tool_calls": map[string]interface{}{
+												"type":        "array",
+												"description": "Present when a direct model called one of the client's tools: `id`, `type: function`, `function.name`, `function.arguments`.",
+												"items":       map[string]interface{}{"type": "object", "additionalProperties": true},
+											},
 										},
 									},
-									"finish_reason": map[string]string{"type": "string"},
+									"finish_reason": map[string]interface{}{"type": "string", "enum": []interface{}{"stop", "length", "tool_calls"}},
 								},
 							},
 						},
