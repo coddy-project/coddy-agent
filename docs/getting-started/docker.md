@@ -43,7 +43,7 @@ Compose V2 merges an optional **`docker-compose.override.yml`** in the same dire
 | Setting | Default compose | Dev compose |
 |---------|-----------------|-------------|
 | **Image** | **`${CODDY_IMAGE:-ghcr.io/coddy-project/coddy-agent:latest}`** | **`coddy-agent:${CODDY_VERSION:-dev}`** (built locally) |
-| **Command** | Image **`CMD`**: **`http -H 0.0.0.0 -P 12345`**, overridable with **`CODDY_COMMAND`** | Same |
+| **Command** | Image **`CMD`**: **`serve -H 0.0.0.0 -P 12345`**, overridable with **`CODDY_COMMAND`** | Same |
 | **Published port** | **`${CODDY_HTTP_PORT:-12345}:12345`** | Same |
 | **Working dir** | **`/workspace`** (**`CODDY_CWD`**) | Same |
 
