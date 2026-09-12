@@ -3694,6 +3694,10 @@ func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
 	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`)); err != nil || tools != nil {
 		t.Fatalf("tool_choice none: tools = %+v, err = %v", tools, err)
 	}
+	// Withheld tools are still read: a broken list is refused whatever the choice.
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), json.RawMessage(`"none"`)); err == nil {
+		t.Fatal("tool_choice none must not hide a broken tool list")
+	}
 	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`)); err != nil || len(tools) != 1 {
 		t.Fatalf("tool_choice object: tools = %+v, err = %v", tools, err)
 	}

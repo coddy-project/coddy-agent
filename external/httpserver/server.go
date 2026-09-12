@@ -839,15 +839,26 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 }
 
 // openAIToolsToLLM reads the client's function tools. A tool_choice of "none"
-// withholds them; the providers take no forcing parameter, so any other value
+// withholds them, once they have been read - a broken tool list is refused
+// whatever the choice, so a client learns about it before it switches the
+// tools on; the providers take no forcing parameter, so any other value
 // leaves the choice to the model.
 func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition, error) {
+	tools, err := parseOpenAITools(rawTools)
+	if err != nil {
+		return nil, err
+	}
 	if choice := bytes.TrimSpace(rawChoice); len(choice) > 0 && choice[0] == '"' {
 		var s string
 		if err := json.Unmarshal(choice, &s); err == nil && strings.TrimSpace(s) == "none" {
 			return nil, nil
 		}
 	}
+	return tools, nil
+}
+
+// parseOpenAITools reads an OpenAI tools array into the providers' definitions.
+func parseOpenAITools(rawTools json.RawMessage) ([]llm.ToolDefinition, error) {
 	trimmed := bytes.TrimSpace(rawTools)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
