@@ -100,5 +100,3 @@ Plans and decisions as they were taken. They are not rewritten when the code mov
 - [Subagents plan](plans/subagents.md) - The design of subagent definitions, trust and child sessions.
 - [Remote control design](plans/remote-control.md) - The remote control and local/remote operation design, phases and resolved questions.
 <!-- docsgen:nav:end -->
-
-The Markdown files directly under `docs/` whose first heading is "Moved" are redirect stubs left at the addresses of the previous flat layout. They keep old links alive and are not part of the map.

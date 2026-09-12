@@ -75,7 +75,6 @@ func TestCheckNavListsEveryPageOnce(t *testing.T) {
 	write(t, root, NavFile, "groups:\n  - id: g\n    title: G\n    pages:\n      - path: one.md\n        title: One\n        summary: s\n      - path: missing.md\n        title: Missing\n        summary: s\n")
 	write(t, root, "docs/one.md", "# One\n")
 	write(t, root, "docs/orphan.md", "# Orphan\n")
-	write(t, root, "docs/old.md", "<!-- docs-stub: moved to docs/one.md -->\n# Moved\n")
 	write(t, root, "docs/noheading.md", "text\n")
 	nav, err := LoadNav(root)
 	if err != nil {
@@ -92,11 +91,6 @@ func TestCheckNavListsEveryPageOnce(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("missing problem %q in %v", w, problems)
-		}
-	}
-	for _, p := range problems {
-		if p.File == "docs/old.md" {
-			t.Errorf("stub reported: %v", p)
 		}
 	}
 }

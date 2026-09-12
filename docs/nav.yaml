@@ -3,7 +3,7 @@
 # This file is the single ordered list of the documentation: docs/README.md (the hub),
 # docs/llms.txt and docs/llms-full.txt are generated from it, and the sidebar of the
 # documentation site will be too. Every Markdown page under docs/ must appear here
-# (redirect stubs carry the `<!-- docs-stub` marker and are exempt); `make docs-check`
+# `make docs-check`
 # fails when the map and the tree drift apart. A summary is one sentence: it is what
 # the hub and llms.txt print next to the link, so write it for a reader who is deciding
 # whether to open the page.

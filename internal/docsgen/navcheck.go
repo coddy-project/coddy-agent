@@ -1,16 +1,11 @@
 package docsgen
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 )
-
-// StubMarker opens a redirect stub left at an old path. Stubs are exempt from
-// the navigation check and from llms.txt.
-const StubMarker = "<!-- docs-stub"
 
 // generatedFiles are fully generated and never part of the map.
 var generatedFiles = map[string]bool{
@@ -19,23 +14,9 @@ var generatedFiles = map[string]bool{
 	"docs/llms-full.txt": true,
 }
 
-// IsStub reports whether a markdown file is a redirect stub.
-func IsStub(path string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	if sc.Scan() {
-		return strings.HasPrefix(sc.Text(), StubMarker)
-	}
-	return false
-}
-
 // DocsMarkdown lists every markdown file under docs/ (relative to root),
-// assets excluded, stubs and generated files excluded when skipStubs is set.
-func DocsMarkdown(root string, skipStubs bool) ([]string, error) {
+// assets excluded, the generated files excluded when skipGenerated is set.
+func DocsMarkdown(root string, skipGenerated bool) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(filepath.Join(root, "docs"), func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -52,7 +33,7 @@ func DocsMarkdown(root string, skipStubs bool) ([]string, error) {
 		if !strings.HasSuffix(rel, ".md") {
 			return nil
 		}
-		if skipStubs && (generatedFiles[rel] || IsStub(path)) {
+		if skipGenerated && generatedFiles[rel] {
 			return nil
 		}
 		out = append(out, rel)
@@ -77,9 +58,6 @@ func CheckNav(root string, nav *Nav) []Problem {
 		}
 		if !strings.HasPrefix(string(data), "# ") {
 			problems = append(problems, Problem{rel, "must start with an H1 title"})
-		}
-		if IsStub(filepath.Join(root, rel)) {
-			problems = append(problems, Problem{NavFile, "page " + p.Path + " is a redirect stub"})
 		}
 	}
 	files, err := DocsMarkdown(root, true)
