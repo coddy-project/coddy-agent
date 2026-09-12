@@ -2600,7 +2600,7 @@ func openAPISpec() map[string]interface{} {
 							"enum": []interface{}{"system", "user", "assistant", "tool"},
 						},
 						"content": map[string]interface{}{
-							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and ride on user messages only; any other part type is refused with 400.",
+							"description": "A string, null, or an array of OpenAI content parts: `text` parts are joined, `image_url` parts (`{url}` object or a bare string, data URL or https) reach a multimodal direct model as images and are accepted on user messages only, refused with 400 on any other role, as is any other part type.",
 							"oneOf": []interface{}{
 								map[string]string{"type": "string"},
 								map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "object", "additionalProperties": true}},

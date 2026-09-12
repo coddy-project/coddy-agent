@@ -326,7 +326,7 @@ func splitSSEFrame(frame string) (event, data string) {
 // to have the caller's tools run is tool_calls, everything else stop.
 func openAIFinishReason(stop string) string {
 	switch stop {
-	case string(acp.StopReasonMaxTokens), string(acp.StopReasonMaxTurns):
+	case string(acp.StopReasonMaxTokens), string(acp.StopReasonMaxTurns), "length":
 		return "length"
 	case "tool_use", "tool_calls":
 		return "tool_calls"

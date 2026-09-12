@@ -554,3 +554,17 @@ func TestOpenAIStreamFilter_CRLFFramesAreCutAllTheSame(t *testing.T) {
 		t.Fatalf("frames:\n%s", strings.Join(frames, "\n"))
 	}
 }
+
+func TestOpenAIFinishReasonMapsEveryStopVocabulary(t *testing.T) {
+	// The ACP reasons of an agent turn, the providers' reasons of a direct
+	// completion, and OpenAI's own words when an adapter passes them through.
+	for stop, want := range map[string]string{
+		"end_turn": "stop", "cancelled": "stop", "agent_refused": "stop", "": "stop",
+		"max_tokens": "length", "max_turns": "length", "length": "length",
+		"tool_use": "tool_calls", "tool_calls": "tool_calls",
+	} {
+		if got := openAIFinishReason(stop); got != want {
+			t.Fatalf("openAIFinishReason(%q) = %q, want %q", stop, got, want)
+		}
+	}
+}

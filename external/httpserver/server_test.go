@@ -3766,6 +3766,8 @@ func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
 		"unknown tool":            {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`, `unsupported tool type "web_search"`},
 		"tool result for profile": {`{"model":"agent","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":"done"}]}`, "last message must be user"},
 		"tool result without id":  {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"tool","content":"done"}]}`, "tool message requires tool_call_id"},
+		"image on assistant":      {`{"model":"` + model + `","messages":[{"role":"assistant","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]},{"role":"user","content":"hi"}]}`, "image parts are only accepted on user messages"},
+		"assistant last (direct)": {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"yo"}]}`, "last message must be user or tool"},
 	} {
 		code, body := post(tc.body)
 		var payload struct {

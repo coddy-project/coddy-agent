@@ -444,7 +444,11 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	last := msgs[len(msgs)-1]
 	if last.Role != llm.RoleUser && !(last.Role == llm.RoleTool && !httpModelIsCoddyProfile(model)) {
-		http.Error(w, `{"error":{"message":"last message must be user"}}`, http.StatusBadRequest)
+		if httpModelIsCoddyProfile(model) {
+			http.Error(w, `{"error":{"message":"last message must be user"}}`, http.StatusBadRequest)
+		} else {
+			http.Error(w, `{"error":{"message":"last message must be user or tool"}}`, http.StatusBadRequest)
+		}
 		return
 	}
 	prefix := msgs[:len(msgs)-1]
@@ -725,12 +729,16 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 		if err != nil {
 			return nil, err
 		}
+		if len(images) > 0 && role != "user" {
+			// Pictures ride on user messages only, the one place the providers
+			// take them; OpenAI refuses them elsewhere, and so does coddy rather
+			// than losing them on the way.
+			return nil, fmt.Errorf("image parts are only accepted on user messages")
+		}
 		switch role {
 		case "system":
 			out = append(out, llm.Message{Role: llm.RoleSystem, Content: txt})
 		case "user":
-			// Pictures ride on user messages only, the one place the providers
-			// take them; on any other role they are dropped with the part.
 			out = append(out, llm.Message{Role: llm.RoleUser, Content: txt, ImageParts: images})
 		case "assistant":
 			msg := llm.Message{Role: llm.RoleAssistant, Content: txt}
