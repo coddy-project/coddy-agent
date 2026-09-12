@@ -34,6 +34,7 @@ echo '{"hook_event_name":"PreToolUse","session_id":"probe","tool_input":{"comman
 | [code-style.mdc](../.cursor/rules/code-style.mdc) | Go formatting, linting, code comments | always |
 | [testing.mdc](../.cursor/rules/testing.mdc) | Go test commands, tags, and conventions | always |
 | [workflow.mdc](../.cursor/rules/workflow.mdc) | BDD/TDD workflow, UI screenshots in the PR, final checks | always |
+| [russian-wording.mdc](../.cursor/rules/russian-wording.mdc) | Russian wording: `агентный`, never `агентский` | always |
 | [api-layer.mdc](../.cursor/rules/api-layer.mdc) | HTTP API handlers, OpenAPI, HTTP docs | `external/httpserver/**/*.go` |
 | [core-modules.mdc](../.cursor/rules/core-modules.mdc) | Main `internal/*` package boundaries | `internal/**/*.go` |
 | [gateway.mdc](../.cursor/rules/gateway.mdc) | Messenger gateway: session store, Telegram adapter, Sender streaming, proxy | `external/gateway/**/*.go`, `internal/config/gateway.go` |
