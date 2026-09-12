@@ -1,6 +1,10 @@
 # Coddy embedded UI specification
 
-This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract, with a screenshot of each surface next to the section that specifies it. A two-and-a-half-minute recording of the web UI, from the model picker through streamed tool calls and the permission card to the History drawer and the environment switch, is [web-ui.mp4](../assets/video/web-ui.mp4) (GitHub plays it on the file page). The visual tokens and component contracts are in [DESIGN.md](../../DESIGN.md).
+This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract, with a screenshot of each surface next to the section that specifies it. The visual tokens and component contracts are in [DESIGN.md](../../DESIGN.md).
+
+https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
+
+*A two-and-a-half-minute recording of the web UI, from the model picker through streamed tool calls and the permission card to the History drawer and the environment switch. The file is in the repository as [web-ui.mp4](../assets/video/web-ui.mp4).*
 
 ## Constraints
 

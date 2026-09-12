@@ -69,7 +69,9 @@ The five demos under `docs/assets/video/` (console, web UI, Zed and VS Code over
 ffmpeg -i take.mp4 -vf "scale=1280:-2" -c:v libx264 -preset slow -crf 31 -pix_fmt yuv420p -movflags +faststart -an docs/assets/video/<name>.mp4
 ```
 
-Keep a video under 4 MB and under four minutes; a feature clip is better at twenty seconds than at two minutes. GitHub plays an `.mp4` on its file page but not inline in Markdown, so a page links the video from a poster image (a screenshot of the same surface) or from a plain link; the documentation site can embed it. A video that shows a surface that changed is re-recorded or removed.
+Keep a video under 4 MB and under four minutes; a feature clip is better at twenty seconds than at two minutes. A video that shows a surface that changed is re-recorded or removed.
+
+GitHub renders an inline player only for a file uploaded as a GitHub attachment: a file committed to the repository stays a link on its file page, and a `<video>` tag is dropped by the sanitizer. So a page carries two things: the attachment URL (`https://github.com/user-attachments/assets/<uuid>`) on a line of its own, which GitHub turns into the player, and under it an italic caption with a link to the copy in `docs/assets/video/`, which is what the assets check counts and what the documentation site will embed. To get the URL, drag the file into the comment box of any issue or pull request of this repository, wait for the upload to finish, copy the URL it inserts, and post the comment: an attachment stays private until the comment it was uploaded for is public, so an unposted upload plays for its uploader and for nobody else.
 
 ## Assets index
 
