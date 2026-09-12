@@ -104,6 +104,28 @@ func TestBuildSystemPromptPerModelFileFromDir(t *testing.T) {
 	}
 }
 
+// A prompt that names a tool the registry does not have sends the model after
+// a call that can only fail; small models follow such a name literally.
+func TestBuiltInPromptsNameOnlyRegisteredTools(t *testing.T) {
+	a := variantAgent(t, "neuraldeep", "neuraldeep", "neuraldeep/gemma-4-31b")
+	for _, name := range []string{"edit", "apply_patch", "websearch", "webfetch", "keep_result", "run_command"} {
+		if _, ok := a.registry.Get(name); !ok {
+			t.Fatalf("%q is expected to be a registered tool", name)
+		}
+	}
+	for _, mode := range []string{"agent", "plan", "ask"} {
+		prompt := a.buildSystemPrompt(mode, nil, nil, "", nil)
+		for _, stale := range []string{"apply_diff", "search_web", "extract_page_content", "read_file", "list_dir", "search_files"} {
+			if _, ok := a.registry.Get(stale); ok {
+				t.Fatalf("%q is registered after all; drop it from this list", stale)
+			}
+			if strings.Contains(prompt, stale) {
+				t.Errorf("%s prompt names %q, which is not a tool", mode, stale)
+			}
+		}
+	}
+}
+
 // The dedupe of the project AGENTS.md follows the template that is actually
 // rendered: a variant file that drops {{.Rules}} must still carry the doc
 // through {{.Instructions}}.
