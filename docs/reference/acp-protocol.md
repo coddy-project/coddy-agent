@@ -276,7 +276,18 @@ The replay precedes the response here, as ACP requires, and that is safe because
 
 ### `session/list`
 
-Lists persisted sessions found under the configured sessions root (see README). Optional `cwd` filters by the stored working directory. The response includes `sessionId`, `cwd`, `title`, and `updatedAt` per entry.
+Lists persisted sessions found under the configured sessions root (see README), newest first. The response includes `sessionId`, `cwd`, `title`, and `updatedAt` per entry; child sessions of subagent runs and scheduler runs are omitted.
+
+The optional `cwd` narrows the list to one workspace. It names a folder, not a string: the path is cleaned, its symlinks are resolved when the folder exists, and Windows and macOS compare it case-insensitively. A session keeps the cwd its client gave it, and two clients often spell the same folder differently - the console stores the logical `$PWD` of a symlinked checkout while an editor sends the physical path it resolved, and a Windows client may lower-case the drive letter - so a session created by one is still listed for the other. Sessions of a parent or a child folder are not included: a console started in a subfolder of the workspace is not among the workspace's sessions. `coddy sessions list --cwd` and `GET /coddy/sessions?cwd=` apply the same rule.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "session/list",
+  "params": { "cwd": "/home/user/project" }
+}
+```
 
 ### Disk layout (Coddy)
 

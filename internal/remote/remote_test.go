@@ -625,3 +625,34 @@ func TestRemoteSessionNewRefusesAnUnknownReservedID(t *testing.T) {
 		t.Fatalf("an ordinary preferred id must still be accepted: %v", err)
 	}
 }
+
+// TestSessionListForwardsTheWorkspaceFilter: an editor lists the sessions of
+// the folder it has open, so the cwd it sends has to reach the server instead
+// of being dropped (which listed every session on the server).
+func TestSessionListForwardsTheWorkspaceFilter(t *testing.T) {
+	var gotCWD string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /coddy/sessions", func(w http.ResponseWriter, r *http.Request) {
+		gotCWD = r.URL.Query().Get("cwd")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sessions":[{"id":"sess_ws","cwd":"/work/project","title":"one"}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	h, err := NewHandler(Options{BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := "/work/project"
+	res, err := h.HandleSessionList(context.Background(), acp.SessionListParams{CWD: &cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCWD != cwd {
+		t.Fatalf("server received cwd=%q, want %q", gotCWD, cwd)
+	}
+	if len(res.Sessions) != 1 || res.Sessions[0].SessionID != "sess_ws" || res.Sessions[0].CWD != cwd {
+		t.Fatalf("sessions = %+v", res.Sessions)
+	}
+}

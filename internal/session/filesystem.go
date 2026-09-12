@@ -364,13 +364,18 @@ type ListOptions struct {
 // ListSnapshots scans Root for persisted sessions (requires session.json).
 // When includeSchedulerRuns is false, sessions marked schedulerRun in session.json (or folder id prefix sched_) are omitted (default composer list).
 // Subagent child sessions are always omitted here; use ListSnapshotsWith to include them.
+// A non-empty cwdFilter keeps the sessions of that folder, matched with
+// SameWorkspacePath rather than by the stored string.
 func (f *FileStore) ListSnapshots(cwdFilter string, includeSchedulerRuns bool) ([]SessionListEntry, error) {
 	return f.ListSnapshotsWith(ListOptions{CWD: cwdFilter, IncludeSchedulerRuns: includeSchedulerRuns})
 }
 
 // ListSnapshotsWith scans Root for persisted sessions matching opts.
 func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, error) {
-	cwdFilter := opts.CWD
+	// The filter names a folder, not a string: a session stored under one
+	// spelling of a workspace (a symlink, a trailing separator, the case of a
+	// Windows drive letter) is listed for any other spelling of it.
+	cwdFilter := CanonicalWorkspacePath(opts.CWD)
 	var out []SessionListEntry
 	if f.Root == "" {
 		return out, nil
@@ -397,7 +402,7 @@ func (f *FileStore) ListSnapshotsWith(opts ListOptions) ([]SessionListEntry, err
 		if !opts.IncludeSubagents && snap.Meta.IsSubagentRun(id) {
 			continue
 		}
-		if cwdFilter != "" && snap.Meta.CWD != cwdFilter {
+		if cwdFilter != "" && !matchesWorkspace(cwdFilter, snap.Meta.CWD) {
 			continue
 		}
 		out = append(out, SessionListEntry{

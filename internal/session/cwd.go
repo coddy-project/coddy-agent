@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -47,4 +48,43 @@ func (m *Manager) SetSessionWorkspace(st *State, dir string) error {
 	st.ReplaceRulesCatalog(DiscoverRules(cfg, abs))
 	m.sendAvailableSlashCommands(st.GetID(), st)
 	return nil
+}
+
+// caseInsensitivePaths marks the platforms whose default filesystems fold
+// case, so two spellings of a folder that differ only in case are one folder.
+var caseInsensitivePaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+// CanonicalWorkspacePath returns the form two spellings of one folder share:
+// absolute, cleaned, with symlinks resolved when the folder exists. Sessions
+// keep the cwd as the client gave it (the console stores the logical $PWD of
+// a symlinked checkout, an editor sends the physical path, a Windows client
+// may differ in the drive letter's case), so every workspace filter compares
+// this form rather than the stored string.
+func CanonicalWorkspacePath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	return filepath.Clean(abs)
+}
+
+// SameWorkspacePath reports whether two paths name the same folder.
+func SameWorkspacePath(a, b string) bool {
+	return matchesWorkspace(CanonicalWorkspacePath(a), b)
+}
+
+// matchesWorkspace compares an already canonical filter with a stored path.
+func matchesWorkspace(canonical, stored string) bool {
+	c := CanonicalWorkspacePath(stored)
+	if c == canonical {
+		return true
+	}
+	return caseInsensitivePaths && strings.EqualFold(c, canonical)
 }

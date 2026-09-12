@@ -49,6 +49,10 @@ type acpSessionFeatureState struct {
 	// sessionsRoot and preferredID drive the helper's --session-id reopen path.
 	sessionsRoot string
 	preferredID  string
+	// realProjectDir is the physical path of a workspace a session was created
+	// under through a symlink; listWire holds the session/list response.
+	realProjectDir string
+	listWire       []map[string]interface{}
 }
 
 func (s *acpSessionFeatureState) reset() error {
@@ -63,6 +67,8 @@ func (s *acpSessionFeatureState) reset() error {
 	s.newWireCount = 2
 	s.sessionsRoot = ""
 	s.preferredID = ""
+	s.realProjectDir = ""
+	s.listWire = nil
 	s.stderr.Reset()
 	return nil
 }
@@ -199,11 +205,15 @@ func (s *acpSessionFeatureState) anACPClientCreatesASession() error {
 }
 
 func (s *acpSessionFeatureState) createACPSession() error {
+	return s.createACPSessionAt(s.root)
+}
+
+func (s *acpSessionFeatureState) createACPSessionAt(cwd string) error {
 	request := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  "session/new",
-		"params":  map[string]interface{}{"cwd": s.root},
+		"params":  map[string]interface{}{"cwd": cwd},
 	}
 	if err := writeJSONLine(s.stdin, request); err != nil {
 		return err
@@ -359,6 +369,63 @@ func (s *acpSessionFeatureState) currentSessionExposesMCPTool(expected string) e
 	return fmt.Errorf("MCP tool %q not attached to current session", expected)
 }
 
+// coddyACPKeepsSessionsOnDisk starts the helper with a sessions root, so
+// session/list has bundles to read.
+func (s *acpSessionFeatureState) coddyACPKeepsSessionsOnDisk() error {
+	s.sessionsRoot = filepath.Join(s.root, "sessions")
+	if err := os.MkdirAll(s.sessionsRoot, 0o755); err != nil {
+		return err
+	}
+	return s.startACP("")
+}
+
+// sessionCreatedThroughSymlinkedPath creates a session the way a console
+// started inside a symlinked checkout stores it: the cwd carries the link's
+// spelling, while an editor opening the same folder sends the physical one.
+func (s *acpSessionFeatureState) sessionCreatedThroughSymlinkedPath() error {
+	real := filepath.Join(s.root, "real", "project")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink(filepath.Join(s.root, "real"), filepath.Join(s.root, "link")); err != nil {
+		return err
+	}
+	s.realProjectDir = real
+	return s.createACPSessionAt(filepath.Join(s.root, "link", "project"))
+}
+
+func (s *acpSessionFeatureState) clientListsSessionsThroughRealPath() error {
+	request := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      3,
+		"method":  "session/list",
+		"params":  map[string]interface{}{"cwd": s.realProjectDir},
+	}
+	if err := writeJSONLine(s.stdin, request); err != nil {
+		return err
+	}
+	wire, err := s.readMessages(1)
+	if err != nil {
+		return err
+	}
+	s.listWire = wire
+	return nil
+}
+
+func (s *acpSessionFeatureState) sessionListIncludesCreatedSession() error {
+	for _, msg := range s.listWire {
+		result, _ := msg["result"].(map[string]interface{})
+		rows, _ := result["sessions"].([]interface{})
+		for _, raw := range rows {
+			row, _ := raw.(map[string]interface{})
+			if row["sessionId"] == s.sessionID {
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("session %s missing from session/list: %#v", s.sessionID, s.listWire)
+}
+
 func findSessionUpdate(wire []map[string]interface{}, kind string) map[string]interface{} {
 	for _, msg := range wire {
 		params, _ := msg["params"].(map[string]interface{})
@@ -415,6 +482,10 @@ func initializeACPSessionScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^an active session without configured MCP servers$`, s.activeSessionWithoutMCP)
 	sc.Step(`^settings are reloaded with MCP server "([^"]+)"$`, s.settingsReloadedWithMCP)
 	sc.Step(`^the current session exposes MCP tool "([^"]+)"$`, s.currentSessionExposesMCPTool)
+	sc.Step(`^Coddy ACP keeps its sessions on disk$`, s.coddyACPKeepsSessionsOnDisk)
+	sc.Step(`^a session was created for the workspace through a symlinked path$`, s.sessionCreatedThroughSymlinkedPath)
+	sc.Step(`^an ACP client lists the sessions of that workspace through its real path$`, s.clientListsSessionsThroughRealPath)
+	sc.Step(`^the session list includes the created session$`, s.sessionListIncludesCreatedSession)
 }
 
 func TestACPSessionIntegrationFeature(t *testing.T) {
