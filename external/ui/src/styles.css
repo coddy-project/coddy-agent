@@ -2112,6 +2112,10 @@ a.rail-brand {
   min-height: 28px;
   width: 100%;
   align-self: stretch;
+  /* Mirror of the inset under assistant and system rows: the copy control and
+     the time keep the message card's horizontal padding from the bubble edge. */
+  padding-right: 14px;
+  box-sizing: border-box;
 }
 
 .msg-user-time {
