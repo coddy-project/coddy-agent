@@ -62,7 +62,7 @@ type openAIStreamFilter struct {
 	// completion is not finished a second time on [DONE].
 	finished bool
 	// errored is set once an error frame went to the client: the turn ended on
-	// that error, and nothing but [DONE] follows it.
+	// that error, and nothing but keepalive comments and [DONE] follows it.
 	errored bool
 	// done is set once [DONE] has been forwarded or a write failed; nothing
 	// follows either.
@@ -153,6 +153,8 @@ func (f *openAIStreamFilter) frame(frame string) error {
 	if f.errored {
 		// The turn ended on the error frame; whatever the bridge still writes
 		// before [DONE] would read as an answer that came after the failure.
+		// Comments have already passed above: a keepalive between the error and
+		// [DONE] is what keeps a slow finish from looking like a dead socket.
 		return nil
 	}
 	if event != "" {
