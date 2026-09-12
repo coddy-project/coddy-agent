@@ -1,9 +1,10 @@
 package rules
 
-// Provider loads rules from a well-known directory under the project root.
+// Provider loads rules from a well-known directory.
 type Provider interface {
 	ID() Source
-	// RulesRoot is relative to session CWD (e.g. ".cursor/rules").
+	// RulesRoot is relative to the session CWD (e.g. ".cursor/rules"), or
+	// absolute for a root outside the workspace such as ${CODDY_HOME}/rules.
 	RulesRoot() string
 	Load(root string) ([]*Rule, error)
 }

@@ -94,10 +94,19 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	skillsMD := buildSkillsPromptMarkdown(a.state.GetSkills(), activeSkills, a.cfg.Skills.AutoDiscoveryEnabled())
 	toolsMD := tools.FormatDefinitionsForPrompt(toolDefs)
 	rulesMD := ""
+	// Project docs the rules block already carries: instructions.files names
+	// AGENTS.md too, and one system prompt does not need it twice. A template
+	// under prompts.dir may render {{.Instructions}} and not {{.Rules}}, and
+	// then nothing carries them - so the skip list is taken only from a
+	// template that actually prints the block.
+	var embeddedDocs []string
 	if rs, ok := a.state.(rulesState); ok {
-		rulesMD = buildRulesPromptMarkdown(rs, contextFiles, userText, a.agentsOnDemand())
+		rulesMD, embeddedDocs = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
+		if !prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
+			embeddedDocs = nil
+		}
 	}
-	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Instructions.Files)
+	instructionsMD := session.LoadInstructions(a.state.GetCWD(), a.cfg.Paths.Home, a.cfg.Instructions.Files, embeddedDocs)
 	full := prompts.RenderWithFallback(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile(), prompts.TemplateData{
 		CWD:            a.state.GetCWD(),
 		Skills:         skillsMD,

@@ -108,11 +108,11 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention).
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `instructions.files` | list of strings | ["AGENTS.md"] | Filenames relative to the session CWD. |
+| `instructions.files` | list of strings | ["AGENTS.md","DESIGN.md"] | Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. |
 
 ### `skills`
 
@@ -126,12 +126,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
+Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean or null | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
 
 ### `mcp_servers`
 
@@ -465,7 +465,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 ### `instructions`
 
-Project instruction files (`config.Instructions`, `internal/config/instructions.go`).
+Instruction files appended to the prompt (`config.Instructions`, `internal/config/instructions.go`). The default list is the operator's own `${CODDY_HOME}/AGENTS.md`, read in every workspace, followed by the project's `AGENTS.md`; writing a list replaces it. See [rules.md](../features/rules.md#your-own-instructions-and-rules).
 
 ### `skills`
 
@@ -473,7 +473,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 
 ### `rules`
 
-Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules.md](../features/rules.md).
+Rules discovery (`config.Rules`, `internal/config/rules.go`), from the workspace folders and from the operator's own `${CODDY_HOME}/rules`. See [rules.md](../features/rules.md).
 
 ### `mcp_servers`
 
@@ -488,12 +488,12 @@ mcp_servers:
 ```
 
 Servers can also be declared in Cursor-compatible mcp.json files: the user-global
-`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
-`mcp_servers` list it forms the "global" scope) and the project-local
-`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`${CODDY_HOME}/mcp.json` (`~/.coddy/mcp.json` by default, like Cursor's
+`~/.cursor/mcp.json`; together with this `mcp_servers` list it forms the "global"
+scope) and the project-local `<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
 `mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
 per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. Entries from the
+name: `mcp_servers` < `${CODDY_HOME}/mcp.json` < `./.coddy/mcp.json`. Entries from the
 project-local file need a workspace approval before they are started - see
 [`mcp`](#mcp) and `docs/features/mcp.md`.
 

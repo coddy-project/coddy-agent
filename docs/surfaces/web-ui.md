@@ -716,8 +716,8 @@ a project-local one awaiting workspace approval):
 
 - `GET /coddy/mcp` backs the list: merged `config.yaml` + global `~/.coddy/mcp.json`
   + project `./.coddy/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project` — drives the badge
-  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
+  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`),

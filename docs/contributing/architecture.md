@@ -192,7 +192,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 ### MCP Client (`internal/mcp`)
 
 Connects to external MCP servers from three config levels (`config.yaml`
-`mcp_servers`, the global `~/.coddy/mcp.json`, the project `./.coddy/mcp.json`;
+`mcp_servers`, the global `${CODDY_HOME}/mcp.json`, the project `./.coddy/mcp.json`;
 later levels override by name) plus servers specified in `session/new`.
 Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 - stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
@@ -223,7 +223,7 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.coddy/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as coddy > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/features/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.coddy/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention), under session CWD, and from the operator's own **`${CODDY_HOME}/rules`** (system id `user`), which applies in every workspace; duplicates by file name resolve as coddy > agents-dir > cursor > claude > codex > agents > user. Injected into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair, and a nested folder's pair when a tool enters it. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
 
 The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 

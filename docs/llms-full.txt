@@ -691,14 +691,16 @@ skills:
     - "${CODDY_HOME}/skills"
     - "${CWD}/.coddy/skills"
 
-# Project rules (Go: config.Rules, internal/config/rules.go)
+# Rules (Go: config.Rules, internal/config/rules.go)
 # Discovered from .coddy/rules, the shared .agents/rules, .cursor/rules,
-# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD.
+# .claude/rules, .codex/rules, and nested **/AGENTS.md under session CWD, plus
+# your own ~/.coddy/rules, which applies in every workspace. Your own
+# ~/.coddy/AGENTS.md is read too, ahead of the project's, and has no key here.
 # .mdc files are read as Cursor rules, .md files as Claude Code rules.
 # Injected into {{.Rules}} in the system prompt (separate from skills). See docs/features/rules.md.
 rules:
   auto_discover: true
-  systems: []   # optional: coddy, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional: user, coddy, agents-dir, cursor, claude, codex, agents
 
 # MCP servers available to all sessions (Go: []config.MCPServerConfig, internal/config/mcp_servers.go)
 mcp_servers:
@@ -4497,8 +4499,8 @@ a project-local one awaiting workspace approval):
 
 - `GET /coddy/mcp` backs the list: merged `config.yaml` + global `~/.coddy/mcp.json`
   + project `./.coddy/mcp.json` servers, each with `source` (`global` / `local`
-  scope badge), `origin` (`config` / `home` / `project` — drives the badge
-  tooltip naming the owning file), `readonly` (config.yaml entries), probe
+  scope badge), `origin` (`config` / `home` / `project`) and `source_path` (the
+  real file, which is what the badge tooltip names), `readonly` (config.yaml entries), probe
   `status`, and its tool inventory.
 - Status dot per server: connected (green), error (red, tooltip shows the probe
   error), disabled (gray), unknown transport type (amber, `unsupported`),
@@ -6210,7 +6212,7 @@ Each policy takes `ask` (the default: parsed and listed, held until approved), `
 
 Your own files are not gated: `config.yaml`, `~/.coddy/mcp.json`, `~/.coddy/hooks.json` and `~/.coddy/agents` are operator-authored, and so is an MCP server an ACP client declares in `session/new`. `coddy acp` and `coddy serve` take `--mcp-project-trust ask|allow|deny` to set the MCP policy for one process, which is what a CI job or a container entrypoint uses instead of editing the file. Full detail: [MCP servers](../features/mcp.md#workspace-trust-for-project-local-servers), [Hooks](../features/hooks.md#project-files-and-trust), [Subagents](../features/subagents.md#scopes-and-project-trust).
 
-Rules and skills from a checkout are a different kind of content and carry no receipt: `.coddy/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.coddy/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
+Rules and skills from a checkout are a different kind of content and carry no receipt: `.coddy/rules`, the shared `.agents/rules`, `.cursor/rules`, `.claude/rules`, `.codex/rules`, nested `AGENTS.md` files and the skills under `${CWD}/.coddy/skills` are text that steers the model, loaded from the workspace as soon as a session opens there. (`~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` and `~/.coddy/rules` are read the same way but arrive from nowhere: they are your own files, next to your `config.yaml`, and no `git clone` writes them.) They can ask the model to run something; they cannot run it themselves, so whatever they ask for still meets the mode, the permission gate and your hooks. Read a checkout's rules the way you read its build scripts. See [Rules](../features/rules.md) and [Skills](../features/skills.md).
 
 ![A project-local MCP server awaiting approval in Settings](../assets/screenshot-fullhd-settings-mcp.png)
 
@@ -6447,13 +6449,18 @@ coddy sessions export <session-id> [--format md|html|json|jsonl] [--out <path>] 
 - Unit tests: `internal/session/filesystem_test.go` (the bundle layout and listing), `internal/session/branches_test.go` (fork slicing and `branches.json` bookkeeping), `external/cli/continue_test.go` (`-c` resolution), and in the SPA `external/ui/src/ui/chat/BranchNavigator.test.tsx`, `branchInject.test.ts` and `resolveLatestLeaf.test.ts`.
 
 
-# Features / Rules
+# Features / Rules and instructions
 
 Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/features/rules.md
 
-# Project rules
+# Rules and instructions
 
-Coddy discovers project rules from the session working directory and injects them into the system prompt via **`{{.Rules}}`**, separate from skills (**`{{.Skills}}`**).
+Coddy reads standing instructions from two places and injects them into the system prompt, separate from skills (**`{{.Skills}}`**).
+
+- The **workspace**: the rule folders of the session working directory and its `AGENTS.md`, which travel with the checkout and apply to whoever opens it;
+- your **agent home** (`~/.coddy`): `AGENTS.md`, `DESIGN.md` and `rules/` next to `config.yaml`, which belong to the person running Coddy and apply in every workspace.
+
+Nothing has to be configured for either: both `AGENTS.md` files and every rule folder reach the model through **`{{.Rules}}`**, yours first. **`{{.Instructions}}`** carries whatever else `instructions.files` names.
 
 ## Prompt order
 
@@ -6472,22 +6479,23 @@ When `rules.auto_discover` is true (default), Coddy scans:
 
 | System | Path | Notes |
 |--------|------|-------|
+| `user` | `~/.coddy/rules/` | **Yours**, not the project's: read in every workspace, never part of a checkout. Lowest precedence, so a project file of the same name overrides it |
 | `coddy` | `.coddy/rules/` | Coddy's own folder |
 | `agents-dir` | `.agents/rules/` | The tool-neutral `.agents/` tree, next to `.agents/skills`: rules meant for every agent that works on the project |
 | `cursor` | `.cursor/rules/` | |
 | `claude` | `.claude/rules/` | |
 | `codex` | `.codex/rules/` | Markdown only in v1; Codex's own `*.rules` policy files are not prompt rules |
-| `agents` | nested `**/AGENTS.md` | [agents.md](https://agents.md/) convention; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
+| `agents` | nested `**/AGENTS.md` and `**/DESIGN.md` | [agents.md](https://agents.md/) convention, plus the design note beside it; **read on demand**, only from the folders a tool enters, never walked (see Activation); hidden dirs, `node_modules`, `vendor` are not entered |
 
-Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **coddy > agents-dir > cursor > claude > codex > agents**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.coddy/rules/` overrides everything. Nested `AGENTS.md` files are keyed by full path, so they never collapse into each other.
+Every markdown root is scanned recursively for `.md` and `.mdc` files; those roots are small rule folders, and nothing else of the workspace is read at session start. Duplicate rule files (same file name, extension included) resolve with precedence: **coddy > agents-dir > cursor > claude > codex > agents > user**. A project that keeps its rules in `.agents/rules/` therefore overrides tool-specific copies of the same file, and `.coddy/rules/` overrides everything. Nested documents are keyed by full path, so they never collapse into each other.
 
-Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every `AGENTS.md` on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md`, and `a/b/c/AGENTS.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
+Nested `AGENTS.md` files are **read on demand**, the way Codex reads the `AGENTS.md` chain of the folder it works in, and a `DESIGN.md` beside one is read with it - a folder that describes itself is read whichever of the two it wrote, the same pair the workspace root and the agent home are read for. Nothing walks the tree to find them: the first time a filesystem tool call or an attached `file://` path targets a path, every such document on the chain of folders from the project root (exclusive) down to that path's directory is read and enters **`{{.Rules}}`** — then it **sticks** for the rest of the session. Reading `a/b/c/f.go` pulls in `a/AGENTS.md`, `a/b/AGENTS.md` and `a/b/c/AGENTS.md`, plus whichever of those folders also has a `DESIGN.md`; a sibling folder nobody enters is never opened, and a file written after the session started is picked up the moment a tool enters its folder. Hidden directories, `node_modules` and `vendor` end the chain. `run_command` does not activate anything: a shell string cannot be attributed to a directory reliably.
 
 This is what keeps a repo with vendored sibling checkouts usable — 45 nested files loaded unconditionally cost ~131k tokens of system prompt before the first question — and what keeps a session anchored on a home directory from stalling: a walk over `~` (a macOS home carries hundreds of thousands of entries under `~/Library` alone, read cold and behind folder-access prompts) once held the console before its first frame. Bodies over 256 KB are truncated, as with the project docs preamble.
 
 The **root** `AGENTS.md` is not part of this set — it already enters the prompt unconditionally as a project docs preamble (below).
 
-CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
+CLI: `coddy rules list [--cwd DIR]` prints the discovered catalog: the source folder (`SOURCE`), the dialect each file was read with (`FORMAT`), the activation mode (`APPLY`: `auto` or `mention`), whether the rule is in every prompt (`ALWAYS`: an auto rule with no patterns and no directory scope) and what activates the others (`ACTIVATES ON`). Nested `AGENTS.md` and `DESIGN.md` files are not in the table, since listing them would mean walking the workspace; a line under the table says they are read on demand from the folders a tool enters.
 
 ## Rule file formats
 
@@ -6549,18 +6557,58 @@ Rule files already on disk may change mode after this release; `coddy rules list
 | No `alwaysApply`, no patterns, `.mdc` | Mention-only (Cursor's default) |
 | No `alwaysApply`, no patterns, `.md` | Active immediately (Claude Code loads it unconditionally) |
 | No frontmatter | Active immediately |
-| Nested `AGENTS.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every `AGENTS.md` on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
+| Nested `AGENTS.md`, `DESIGN.md` | Read on demand. The first filesystem tool call or `file://` path inside its directory reads it (with every such document on the chain of folders above it) into **`{{.Rules}}`**, then it **sticks** for the session; nothing is read for folders no tool enters |
 
 Mention-only rules use **`@name`** (file stem). They are **not** slash commands and do not appear in the skills catalog. `run_command` activates nothing: a shell string cannot be attributed to a path reliably.
 
 ## Project docs preamble
 
-On every turn, if present in session CWD:
+Two directories describe themselves the same way, with the same pair of files, and both are read on every turn when present - yours first, so the operator speaks before the checkout:
 
-- **`AGENTS.md`** (subsection `### AGENTS.md`)
-- **`DESIGN.md`** (subsection `### DESIGN.md`)
+- **`~/.coddy/AGENTS.md`**, then **`~/.coddy/DESIGN.md`** - the agent home
+- **`AGENTS.md`**, then **`DESIGN.md`** - the session CWD
 
-These are unconditional; they do not use `alwaysApply` or `@mention`.
+Whichever of the four exists is read; a home with only a `DESIGN.md` contributes that one and nothing else.
+
+These are unconditional; they do not use `alwaysApply` or `@mention`, and none of them is named in `config.yaml`. A file that enters the prompt here is not sent a second time as an instruction file, so the default `instructions.files` can name `AGENTS.md` without paying for it twice.
+
+## Your own instructions and rules
+
+A checkout describes itself: how it is built, what its conventions are, which commands are dangerous *in it*. What you want from every session - the language to answer in, the style you carry between projects, the commands you never want run - is not the project's business and does not belong in its files. Those live in your agent home, `~/.coddy`, and are read in every workspace:
+
+| File | Reaches the prompt as | Read when |
+|------|-----------------------|-----------|
+| `~/.coddy/AGENTS.md`, `~/.coddy/DESIGN.md` | **`{{.Rules}}`**, the first preamble sections, above the project's own pair | every turn, in every workspace |
+| `~/.coddy/rules/*.md`, `*.mdc` | **`{{.Rules}}`**, like any project rule | per their own frontmatter (always on, glob-gated or `@mention`) |
+
+Nothing is configured for either. Writing the file is the switch, deleting it is the off switch, and no key in `config.yaml` mentions them:
+
+```bash
+mkdir -p ~/.coddy/rules
+$EDITOR ~/.coddy/AGENTS.md
+```
+
+Your pair is read first, so what you want is in front of the model before the checkout starts describing itself, and the project's own `AGENTS.md` and `DESIGN.md` follow below - they join, neither replaces the other. Write one of the two or both; the file that is not there costs nothing.
+
+Your rules are ordinary rule files and follow the same dialects, globs and activation modes as a project's - a `go.mdc` with `globs: **/*.go` under `~/.coddy/rules/` waits for a Go file in whichever project the session opened, because globs are anchored at the workspace, not at the folder the rule came from. `coddy rules list` shows them with source `user`, and names the folder under the table. The project still has the last word: when a project file and one of yours share a file name, the project's wins.
+
+Nothing here is trusted differently from a project file: both are text that steers the model, and neither can run anything by itself (see [Security](../operate/security.md)). The difference is who wrote it - your own folder needs no trust receipt because nothing arrives in it with a `git clone`.
+
+### More instruction files
+
+`instructions.files` names what else a session reads into **`{{.Instructions}}`**, on top of the preamble above. It defaults to `["AGENTS.md", "DESIGN.md"]` - the workspace's own pair, which the preamble already carries, so out of the box that block is empty - and a team or a machine can add its own:
+
+```yaml
+instructions:
+  files:
+    - "AGENTS.md"                   # the project's own, relative to the workspace
+    - "DESIGN.md"
+    - "/srv/agents/house-style.md"  # an absolute path, shared by a fleet
+    - "${CWD}/docs/conventions.md"  # this workspace
+    - "${CODDY_HOME}/team.md"       # next to your config.yaml
+```
+
+A leading `~` expands, and so do the two placeholders the config understands: `${CODDY_HOME}` is the agent home (`~/.coddy`) and `${CWD}` the workspace of the session reading the file. An absolute entry is read as it stands and a relative one resolves against the session working directory. Files are read in the order listed, and one that does not exist is silently skipped - which is how a single list can serve workspaces that do not all carry the same files. A file the preamble already carries is not read twice.
 
 ## Generating rules
 
@@ -6575,9 +6623,17 @@ After each agent turn, Coddy estimates tokens per category (`systemPrompt`, `too
 ## Configuration
 
 ```yaml
+instructions:
+  # Read in the order listed. ${CODDY_HOME}, ${CWD} and ~ expand;
+  # an absolute entry is read as it stands, a relative one resolves against the
+  # session working directory. This is the default.
+  files:
+    - "${CODDY_HOME}/AGENTS.md"
+    - "AGENTS.md"
+
 rules:
   auto_discover: true
-  systems: []   # optional filter: coddy, agents-dir, cursor, claude, codex, agents
+  systems: []   # optional filter: user, coddy, agents-dir, cursor, claude, codex, agents
 ```
 
 ## References
@@ -6585,8 +6641,9 @@ rules:
 - [Cursor Rules](https://cursor.com/docs/rules)
 - [Claude `.claude/rules`](https://code.claude.com/docs/en/memory#organize-rules-with-clauderules)
 - [Codex Rules](https://developers.openai.com/codex/rules)
-- Implementation: `internal/rules/*` (dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
-- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`
+- Implementation: `internal/rules/*` (roots in `factory.go`, dialects and glob matching in `markdown.go`, directory scoping in `scope.go`), instruction files in `internal/session/instructions_load.go`, wiring in `internal/session`, `internal/agent/system_prompt.go`; tool-path activation in `internal/agent/rules_activation.go` and `internal/tools/fs/toolpaths.go`
+- Specs: `features/rules_agents_dir.feature`, `features/agents_md_scoping.feature`, `features/global_instructions.feature`
+- End-to-end against a real model: `examples/cli/cli_e2e_rules.py` (a project glob rule through the console) and `examples/cli/cli_e2e_global_instructions.py` (an `AGENTS.md` and a rule in an isolated `CODDY_HOME`, a workspace with nothing in it)
 
 
 # Features / Skills
@@ -7498,8 +7555,9 @@ The agent supports connecting to external MCP (Model Context Protocol) servers, 
 additional tools and resources. MCP servers can be configured at these levels:
 
 1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
-   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
-   session; entries in `~/.coddy/mcp.json` override same-named `config.yaml` entries
+   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
+   so elsewhere if `CODDY_HOME` or `--home` moved it), connected for every
+   session; entries in that file override same-named `config.yaml` entries
 2. **Local** (scope `local`) - `<workspace>/.coddy/mcp.json`, merged over the global list for
    sessions in that workspace; a local entry with the same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters
@@ -8780,11 +8838,11 @@ Override the built-in system prompt templates (Go text/template).
 
 ### `instructions`
 
-Files read from the session working directory and appended to the system prompt (AGENTS.md convention).
+Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `instructions.files` | list of strings | ["AGENTS.md"] | Filenames relative to the session CWD. |
+| `instructions.files` | list of strings | ["AGENTS.md","DESIGN.md"] | Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. |
 
 ### `skills`
 
@@ -8798,12 +8856,12 @@ Directories scanned for skills (SKILL.md and root .md/.mdc files).
 
 ### `rules`
 
-Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
+Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `rules.auto_discover` | boolean or null | true | Scan the session CWD rule roots automatically. |
-| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all. |
+| `rules.systems` | list of strings | [] | Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all. |
 
 ### `mcp_servers`
 
@@ -9137,7 +9195,7 @@ System prompt template overrides (`config.Prompts`, `internal/config/prompts.go`
 
 ### `instructions`
 
-Project instruction files (`config.Instructions`, `internal/config/instructions.go`).
+Instruction files appended to the prompt (`config.Instructions`, `internal/config/instructions.go`). The default list is the operator's own `${CODDY_HOME}/AGENTS.md`, read in every workspace, followed by the project's `AGENTS.md`; writing a list replaces it. See [rules.md](../features/rules.md#your-own-instructions-and-rules).
 
 ### `skills`
 
@@ -9145,7 +9203,7 @@ Skill discovery (`config.Skills`, `internal/config/skills.go`).
 
 ### `rules`
 
-Project rules discovery (`config.Rules`, `internal/config/rules.go`). See [rules.md](../features/rules.md).
+Rules discovery (`config.Rules`, `internal/config/rules.go`), from the workspace folders and from the operator's own `${CODDY_HOME}/rules`. See [rules.md](../features/rules.md).
 
 ### `mcp_servers`
 
@@ -9160,12 +9218,12 @@ mcp_servers:
 ```
 
 Servers can also be declared in Cursor-compatible mcp.json files: the user-global
-`~/.coddy/mcp.json` (like Cursor's `~/.cursor/mcp.json`; together with this
-`mcp_servers` list it forms the "global" scope) and the project-local
-`<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
+`${CODDY_HOME}/mcp.json` (`~/.coddy/mcp.json` by default, like Cursor's
+`~/.cursor/mcp.json`; together with this `mcp_servers` list it forms the "global"
+scope) and the project-local `<workspace>/.coddy/mcp.json` ("local" scope). Each file holds a single
 `mcpServers` object keyed by server name (`env` and `headers` are JSON objects;
 per-tool switches use `disabledTools`). Later levels override earlier ones by
-name: `mcp_servers` < `~/.coddy/mcp.json` < `./.coddy/mcp.json`. Entries from the
+name: `mcp_servers` < `${CODDY_HOME}/mcp.json` < `./.coddy/mcp.json`. Entries from the
 project-local file need a workspace approval before they are started - see
 [`mcp`](#mcp) and `docs/features/mcp.md`.
 
@@ -10912,6 +10970,8 @@ my-project/
 
 2. **Rules in `.coddy/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.coddy/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](../features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
 
+   Everything in this tutorial is the project talking. What *you* want from every session, in every repository - the language to answer in, the commands you never want run - belongs to you rather than to this checkout: put it in `~/.coddy/AGENTS.md` and `~/.coddy/rules/` instead, where it applies everywhere and nobody else has to agree with it ([Your own instructions and rules](../features/rules.md#your-own-instructions-and-rules)).
+
    ```markdown
    ---
    description: Go coding standards
@@ -12077,7 +12137,7 @@ Some features live under **`external/`** and define tools that are **not** regis
 ### MCP Client (`internal/mcp`)
 
 Connects to external MCP servers from three config levels (`config.yaml`
-`mcp_servers`, the global `~/.coddy/mcp.json`, the project `./.coddy/mcp.json`;
+`mcp_servers`, the global `${CODDY_HOME}/mcp.json`, the project `./.coddy/mcp.json`;
 later levels override by name) plus servers specified in `session/new`.
 Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
 - stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
@@ -12108,7 +12168,7 @@ Loads operator **lifecycle hooks** - commands that read one JSON document on std
 
 ### Rules engine (`internal/rules`)
 
-Discovers `.mdc` / `.md` rules from `.coddy/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as coddy > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/features/rules.md`**.
+Discovers `.mdc` / `.md` rules from `.coddy/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` and `**/DESIGN.md` files ([agents.md](https://agents.md/) convention), under session CWD, and from the operator's own **`${CODDY_HOME}/rules`** (system id `user`), which applies in every workspace; duplicates by file name resolve as coddy > agents-dir > cursor > claude > codex > agents > user. Injected into **`{{.Rules}}`** separately from skills, together with the preamble documents: the agent home's **`AGENTS.md`** and **`DESIGN.md`** when they exist, first, then the workspace's pair, and a nested folder's pair when a tool enters it. The files of `instructions.files` go into **`{{.Instructions}}`**, minus whatever the preamble already carries. See **`docs/features/rules.md`**.
 
 The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
 
@@ -13293,12 +13353,12 @@ The **Settings** drawer (**`#/settings`**, **`Settings.tsx`**) is **tabbed**, no
   - **Scroll stability**: enable/disable and sync refresh the installed list **without unmounting it**. The **Loading…** placeholder renders **only** on the initial empty load (**`loadInstalled(firstLoad)`** gates the **`loading`** flag), so a refresh never collapses list height and the Settings scroll position is preserved across a toggle.
   - **Installed skills box**: the installed list sits inside a **`.settings-fieldset`** (legend **Installed skills**) so it matches the framed sections above; it also sets **`min-inline-size: 0`** (**`.skills-installed-box`**) because a **`<fieldset>`** defaults to **`min-content`** inline size and the **`white-space: nowrap`** skill descriptions would otherwise widen the box past the panel and add a horizontal scrollbar. At its top, an **install control** (**`.skills-install`**, **`position: relative`** anchor) is a filter input (**`.skills-install-input`**, 40px, full width) that lazily loads **`GET /coddy/skills/available`** on focus and, while a query is typed, shows a **floating** dropdown (**`.skills-install-results`**, **`position: absolute`** with the shared **`--coddy-glass-panel-*`** tokens) of matching **not-installed** marketplace plugins. The dropdown **floats over** the installed list — it never reflows the rows beneath it — and is **capped at 10 matches** (**`INSTALL_MENU_LIMIT`**, pure filter in **`installableMatches.ts`**); a broader query appends a muted **`+N more — refine your search`** hint (**`data-testid="skills-install-more"`**) rather than silently truncating. Each result carries a **Download/install** icon (**`IconDownload`**, tooltip **Install &lt;name&gt;**) that calls **`POST /coddy/skills/install`** **`{source,plugin}`** and then refreshes the list. The text field is not cleared after an install.
   - **After install (no scroll)**: the list is **not scrolled** to the newly installed skill — the floating menu leaves the scroll position untouched. The new row briefly **flashes** (**`.skills-list-item.is-just-installed`**, **`justInstalled`** for ~2.4s), the **`Installed &lt;name&gt;.`** status line confirms, and the skill is usable from the composer **`/`** menu immediately because the server drops its slash cache on install (**`invalidateSlashCache`**). A just-installed plugin is dropped from the available dropdown optimistically.
-- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/coddy/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.coddy/mcp.json`** (scope **`global`**), overlaid with the project **`./.coddy/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**, amber **`is-needs_approval`**, red **`is-denied`**; tooltip carries the probe error or the trust verdict), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel`** — config.yaml, `~/.coddy/mcp.json`, or `./.coddy/mcp.json`) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: a **shield trust button** for project-local rows only (**`gated: true`**, **`data-testid="mcp-trust-{name}"`**, **`.settings-btn-approve`** amber while unapproved) posting **`POST /coddy/mcp/{name}/trust|untrust`**, the shared **`Switch`** (server-level enable via **`POST /coddy/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
+- **MCP servers** tab (**`MCPSection`**, section kind **`mcp`** in **`settingsSections.ts`**) is **API-driven** (**`/coddy/mcp*`**), styled after Cursor's MCP settings; it never edits the settings document (**Save all** does not touch it). The list (**`.mcp-list`**) shows every merged server — **config.yaml `mcp_servers`** and the global **`~/.coddy/mcp.json`** (scope **`global`**), overlaid with the project **`./.coddy/mcp.json`** (scope **`local`**) — one row per server (**`.mcp-list-item`**): a **chevron** expander (**`.mcp-expand-btn`**, rotates 90° when open), a **status dot** (**`.mcp-status-dot`**: green **`is-connected`**, red **`is-error`**, gray **`is-disabled`**, amber **`is-unsupported`**, amber **`is-needs_approval`**, red **`is-denied`**; tooltip carries the probe error or the trust verdict), a server glyph, the name with a **scope badge** (**`global`** / **`local`**, reusing **`.skills-list-item-badge`**; the tooltip names the owning file via **`originLabel(row.origin, row.source_path)`**, which prints the **real path the API reported** (`source_path`) and falls back to the generic label — config.yaml, `~/.coddy/mcp.json`, or `./.coddy/mcp.json` — only when a row carries none) plus an uppercase transport badge for non-stdio entries, and a dimmed **monospace command line** (**`.mcp-command`**; shows the probe error text for error/unsupported rows). Trailing controls: a **shield trust button** for project-local rows only (**`gated: true`**, **`data-testid="mcp-trust-{name}"`**, **`.settings-btn-approve`** amber while unapproved) posting **`POST /coddy/mcp/{name}/trust|untrust`**, the shared **`Switch`** (server-level enable via **`POST /coddy/mcp/{name}/enable|disable`**), a **pencil Edit** and **trash Delete** — both **disabled for `readonly` rows** (config.yaml-defined servers are edited in the config sections; tooltips say so). All trailing controls are **`flex: 0 0 auto`** (**`.mcp-list-item-head > button`**) so long command/error text cannot squeeze the 40px icon buttons.
   - **Workspace trust**: a project-local declaration lives in the checkout, so a row with **`status: needs_approval`** is **reported, never probed** — it lists no tools, keeps its monospace command line visible (that is what gets approved), and renders a note (**`.mcp-trust-note`**, **`data-testid="mcp-trust-note-{name}"`**) naming the **`source_path`** it came from plus a **`<dl>`** of the declaration the approval covers (**`.mcp-trust-facts`**, built by **`declarationFacts`** in **`mcpServerJson.ts`**): **transport**, **`runs`** (command + args) or **`contacts`** (url), the **names** of env vars and headers, and the **workspace**. Values are never rendered - the decision is about which variables reach the child, not about what is in them. The shield button records the approval, bound to the workspace and the row's **`fingerprint`**; it flips to a withdraw action once **`trusted`**, and is **disabled** under **`status: denied`** (**`mcp.project_trust: deny`**). Global rows carry no shield at all.
   - **Per-tool switches**: expanding a row reveals **`.mcp-tools`** — indented rows (**`.mcp-tool-row`**, dashed separators) with the tool name in monospace, its description, and a **`Switch`** per tool (**`POST /coddy/mcp/{name}/tools/{tool}/enable|disable`**). Tool switches are disabled while the server itself is off. Disabled rows dim their text but keep the switch crisp (same rule as skills).
   - **MCP discovery fieldset**: the tab opens with a **second, separate** **`.settings-fieldset`** (**`.mcp-discovery-box`**, legend **MCP discovery**) sitting **above** the server list box. It explains why project-local entries are gated and carries the **`mcp.project_trust`** **`select`** (**`data-testid="mcp-project-trust"`**, **`ask`** / **`allow`** / **`deny`**, capped at **`420px`**) posting **`POST /coddy/mcp/project-trust`** on change. It lives **here**, next to the servers it governs, rather than as its own settings section; like the rest of the tab it is **not** part of **Save all**. Both fieldsets share the panel's inline edges. The per-server **shield renders only under `ask`** (**`showsTrustControl`** in **`mcpServerJson.ts`**): under **`allow`** every project server starts anyway and under **`deny`** none does, so an inert shield would imply a per-server choice the policy has already taken.
   - **Toolbar**: **Add server** (opens the editor card prefilled with **`MCP_SERVER_TEMPLATE`**) on the left, a **refresh** icon (**`GET /coddy/mcp?refresh=1`**, re-probes) on the right (**`.mcp-toolbar`**, space-between).
-  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.coddy/mcp.json`, global to `~/.coddy/mcp.json`; the footer note echoes the target file), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /coddy/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
+  - **JSON editor card** (**`.mcp-editor`**, **`MCPEditorCard`**): Cursor-style editing of one mcp.json entry — a name input (only when adding; names with **`__`**, spaces, or path separators are rejected client-side, mirroring the server), a **scope radio picker** (**`.mcp-editor-scope`**, only when adding, default **Local**: local saves to `./.coddy/mcp.json`, global to the agent home's `mcp.json`; the footer note echoes the target file, taking the global path from **`globalMCPPath(servers)`** - the `source_path` of a listed home-scope row, or the default `~/.coddy/mcp.json` when the agent home holds no server yet), a monospace **`<textarea>`** (**`.mcp-editor-json`**) holding the entry JSON (**`command`/`args`/`env` object/`disabled`/`disabledTools`**), validation via the pure helpers in **`mcpServerJson.ts`** (do **not** inline them), and **Save** (**`PUT /coddy/mcp/{name}?scope=`**) / **Cancel** actions. Editing an existing row renders the card inline beneath that row with the scope pinned to the row's owning file.
   - **Scroll stability**: same **`loadServers(firstLoad)`** gating as skills — refreshes never unmount the list.
 - **Boolean switch fields** (**`SwitchField`**, **`external/ui/src/ui/settings/SwitchField.tsx`**): every on/off setting in a settings form - the schema-driven **`SchemaForm`** booleans (**`models[].multimodal`**, **`models[].stream`**, **`tools.background.enable`**, **`memory.enable`**, gateway **`enable`** flags, ...) and the Skills **auto-discovery** row - renders through this one component, never as a bare **`Switch`** beside a **`<span>`**. It lays the shared **`Switch`** (**`.skill-switch`**, **38×22**, 16px thumb), the label (a real **`<label htmlFor>`**, **`.settings-switch-field-label`**, **0.9rem**, **`var(--text)`**, so clicking the text toggles the control) and the optional description (**`.settings-switch-field-desc`**, reusing **`.settings-field-desc`** typography) on a **two-column grid** (**`.settings-switch-field`**: **`grid-template-columns: auto minmax(0, 1fr)`**, **`column-gap: 8px`**, **`row-gap: 4px`**, **`align-items: center`**).
   - **Alignment contract**: the label's vertical centre matches the switch's centre (**within 1px**) and the label starts **8px** after the switch. The description lives in the **label column** (**`grid-column: 2`**), so its left edge equals the label's left edge at every viewport and never depends on the switch width or a hand-tuned indent. The checkbox-era **`padding-left: 28px`** rule (**`.settings-field-desc-below-checkbox`**) is gone and must not come back: an indent expressed as padding drifts the moment the control changes size, which is exactly how the description ended up under the switch instead of under its label.
@@ -14320,7 +14380,7 @@ Short map for automation-friendly contributors.
 | `internal/subagents` | Subagent definitions (markdown + YAML frontmatter from **`subagents.dirs`**, built-ins **`general`** and **`explore`**), canonical **scopes**, the **trust receipts** for project-scope files (**`trust.go`**; policy **`subagents.project_trust`**, receipts in **`<home>/subagents-trust.json`**), the process-wide **`Limiter`**, and the catalog (**`coddy agents list`**, **`GET /coddy/subagents`**, the prompt block). The runtime that spawns a child is **`internal/agent/subagent.go`**; child sessions (**`sub_`** ids) are owned by **`internal/session`**. Guide: **`docs/features/subagents.md`**. |
 | `internal/hooks` | Operator lifecycle hooks: definition files in Claude Code's shape (**`definition.go`**, **`matcher.go`** with tool-name aliases), the loader with canonical **scopes** (**`loader.go`**; policy **`hooks.project_trust`**), the **trust receipts** for project-scope files (**`trust.go`**; **`<home>/hooks-trust.json`**, keyed by canonical workspace, file and digest; surfaces **`coddy hooks list|trust|untrust`**, **`GET /coddy/hooks`**, **`POST /coddy/hooks/trust|untrust`**), the **catalog** (**`catalog.go`**), and the **runner** (**`runner.go`**: stdin JSON payload, exit-code and JSON answer, timeouts and process groups through **`internal/platform`**). **`internal/agent/hooks.go`** wires `PreToolUse` / `PostToolUse` / `PostToolUseFailure` into **`executeToolCall`**, `UserPromptSubmit` and `Stop` into the loop, `PreCompact` / `PostCompact` into **`CompactSession`**, `SubagentStart` / `SubagentStop` into the spawn runtime and `Notification` into the permission gate; **`internal/session/hooks.go`** fires `SessionStart` from the manager and keeps its context on the session. **`hooktest`** re-executes a test binary as the hook process. Guide: **`docs/features/hooks.md`**, design: **`docs/plans/hooks.md`**. |
 | `internal/session` | Session manager, Filesystem persistence, Acp hooks, rules catalog, and the **provider usage** cache and schedule (**`provider_usage.go`**: the account quota behind a session's model, fetched by **`internal/llm/neuraldeep_usage.go`** from the hub's `GET /v1/limits`, published as **`provider_usage`** at session ready and from every turn's release, served over **`GET /coddy/providers/{name}/usage`** and the events stream). Design: **`docs/plans/neuraldeep-usage.md`**. |
-| `internal/rules` | Project rules: discovery roots (`.coddy/rules`, the shared `.agents/rules` as system **`agents-dir`**, `.cursor/rules`, `.claude/rules`, `.codex/rules`), nested `AGENTS.md` files read on demand for the folders a tool enters and never walked for (**`agents.go`**, **`AgentsForPaths`**), the dialect chosen by extension in **`markdown.go`** (**`.mdc`** Cursor: `description` / `globs` / `alwaysApply`, default manual; **`.md`** Claude Code: `paths`, unconditional without them) with a lenient reader for Cursor's YAML-invalid `globs: **/*.go` headers, doublestar glob matching anchored at the session cwd (**`MatchGlob`**), sticky activation from `file://` attachments, `@mention` and filesystem tool paths (**`select.go`**, **`scope.go`**), and the catalog behind **`coddy rules list`**. Guide: **`docs/features/rules.md`**. |
+| `internal/rules` | Rules: discovery roots (`.coddy/rules`, the shared `.agents/rules` as system **`agents-dir`**, `.cursor/rules`, `.claude/rules`, `.codex/rules`, and the operator's own **`${CODDY_HOME}/rules`** as system **`user`**, which applies in every workspace and loses a name clash to the project), nested `AGENTS.md` and `DESIGN.md` files read on demand for the folders a tool enters and never walked for (**`agents.go`**, **`AgentsForPaths`**), the dialect chosen by extension in **`markdown.go`** (**`.mdc`** Cursor: `description` / `globs` / `alwaysApply`, default manual; **`.md`** Claude Code: `paths`, unconditional without them) with a lenient reader for Cursor's YAML-invalid `globs: **/*.go` headers, doublestar glob matching anchored at the session cwd (**`MatchGlob`**), sticky activation from `file://` attachments, `@mention` and filesystem tool paths (**`select.go`**, **`scope.go`**), and the catalog behind **`coddy rules list`**. The project docs preamble (**`project_docs.go`**) puts the agent home's **`AGENTS.md`** and **`DESIGN.md`** first, above the workspace's own pair, and no config key names them - the file existing is the switch; **`AgentsForPaths`** reads that same pair for a nested folder a tool enters. The instruction files of **`instructions.files`** are a separate block, read by **`internal/session/instructions_load.go`** into **`{{.Instructions}}`**; a file the preamble already carries is not sent twice. Guide: **`docs/features/rules.md`**. |
 | `external/httpserver` | The HTTP surface **`coddy serve`** runs under **`httpserver.enable`**, built with **`tags=http`** (SSE bridge, Swagger statics, `/coddy` REST, ServeMux wiring). **`Serve(ctx, Options)`** takes an already-built manager; **`turn_mirror.go`** implements **`session.TurnMirror`**, publishing a turn another surface started into that session's composer relay so a browser can watch it - session updates fan out, permission and question requests stay with the surface that has a human. |
 | `external/ui` | Embedded SPA (`go:embed`) when built with **`tags=http,ui`**. |
 | `external/memory` | Long-term memory copilot (**`-tags memory`**; see README there). |

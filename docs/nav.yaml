@@ -82,8 +82,8 @@ groups:
         title: Sessions
         summary: Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
       - path: features/rules.md
-        title: Rules
-        summary: Project rules from the .coddy, .agents, .cursor, .claude and .codex folders, nested AGENTS.md, dialects by extension, activation.
+        title: Rules and instructions
+        summary: Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
       - path: features/skills.md
         title: Skills
         summary: SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.

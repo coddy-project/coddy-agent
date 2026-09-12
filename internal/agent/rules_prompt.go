@@ -20,11 +20,13 @@ type rulesState interface {
 	SetLastContextBreakdown(*session.ContextBreakdown)
 }
 
-// buildRulesPromptMarkdown renders the {{.Rules}} block for one request. With
-// agentsOnDemand the nested AGENTS.md files on the chain down to every
-// attached file:// path are read here, the same way a filesystem tool call
-// reads them (activateScopedRulesForToolCall); both stick for the session.
-func buildRulesPromptMarkdown(st rulesState, contextFiles []string, userText string, agentsOnDemand bool) string {
+// buildRulesPromptMarkdown renders the {{.Rules}} block for one request and
+// reports the project docs it embedded, which the instructions block then
+// leaves alone. With agentsOnDemand the nested AGENTS.md files on the chain
+// down to every attached file:// path are read here, the same way a filesystem
+// tool call reads them (activateScopedRulesForToolCall); both stick for the
+// session.
+func buildRulesPromptMarkdown(st rulesState, home string, contextFiles []string, userText string, agentsOnDemand bool) (string, []string) {
 	catalog := st.GetRulesCatalog()
 	active := st.GetActiveAutoRules()
 	newAuto := rules.MatchAuto(catalog, contextFiles)
@@ -34,7 +36,7 @@ func buildRulesPromptMarkdown(st rulesState, contextFiles []string, userText str
 	sticky := rules.UnionStable(active, newAuto)
 	st.SetActiveAutoRules(sticky)
 	mentioned := rules.SelectMentioned(catalog, userText)
-	return rules.RenderPrompt(st.GetCWD(), sticky, mentioned)
+	return rules.RenderPrompt(home, st.GetCWD(), sticky, mentioned)
 }
 
 // computeContextBreakdown estimates category sizes for the context UI.

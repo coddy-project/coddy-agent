@@ -166,6 +166,22 @@ func loadSource(mode, promptsDir, agentFile, planFile, askFile string) (string, 
 	return string(data), nil
 }
 
+// RendersRules reports whether the template for mode puts the {{.Rules}} block
+// into the prompt at all. The cross-block dedupe depends on it: the project
+// docs preamble is dropped from {{.Instructions}} only because the rules block
+// carries it, and an operator's own template under prompts.dir is free to
+// render one block and not the other. A template that cannot be read falls
+// back to the built-in one, which does render the block. The field is looked
+// for by name, so {{if .Rules}} and {{ .Rules }} count too: answering yes when
+// in doubt keeps the file in one block rather than in none.
+func RendersRules(mode, promptsDir, agentFile, planFile, askFile string) bool {
+	src, err := loadSource(mode, promptsDir, agentFile, planFile, askFile)
+	if err != nil {
+		return true
+	}
+	return strings.Contains(src, ".Rules")
+}
+
 func fallbackPrompt(mode, cwd string) string {
 	return fmt.Sprintf(
 		"You are an AI coding assistant in %s mode.\nWorking directory: %s\n\n## Current UTC time\n\n%s\n",

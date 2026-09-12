@@ -43,7 +43,7 @@ What the agent can do and how each capability is configured.
 
 - [Operating modes](features/modes.md) - agent, plan and ask, which tools each mode allows and how to switch on every surface.
 - [Sessions](features/sessions.md) - Session bundles on disk, resuming, branches from an edited message, todo lists, the sessions CLI.
-- [Rules](features/rules.md) - Project rules from the .coddy, .agents, .cursor, .claude and .codex folders, nested AGENTS.md, dialects by extension, activation.
+- [Rules and instructions](features/rules.md) - Rules from the .coddy, .agents, .cursor, .claude and .codex folders, AGENTS.md and DESIGN.md of a folder the agent enters, your own pair and rules in the agent home, instruction files, dialects by extension, activation.
 - [Skills](features/skills.md) - SKILL.md packs as slash commands, skills.dirs, the registries and the plugin command.
 - [Subagents](features/subagents.md) - spawn_agent, definition files, the built-ins, project trust receipts, capability narrowing, child sessions.
 - [Hooks](features/hooks.md) - Lifecycle hooks in Claude Code's hooks.json shape, events, matchers, the stdin payload, exit codes and JSON answers, project trust.

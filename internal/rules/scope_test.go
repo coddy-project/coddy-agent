@@ -185,11 +185,11 @@ func TestPromptOmitsScopedRuleUntilMatched(t *testing.T) {
 	scope := filepath.Join(tmp, "internal", "agent")
 	catalog := []*rules.Rule{scopedRule("agents:a", scope, "SCOPED_BODY_TOKEN")}
 
-	out := rules.RenderPrompt(tmp, rules.MatchAuto(catalog, nil), nil)
+	out, _ := rules.RenderPrompt("", tmp, rules.MatchAuto(catalog, nil), nil)
 	if strings.Contains(out, "SCOPED_BODY_TOKEN") {
 		t.Fatalf("untouched scoped rule leaked into the prompt: %q", out)
 	}
-	out = rules.RenderPrompt(tmp, rules.MatchAuto(catalog, []string{filepath.Join(scope, "react.go")}), nil)
+	out, _ = rules.RenderPrompt("", tmp, rules.MatchAuto(catalog, []string{filepath.Join(scope, "react.go")}), nil)
 	if !strings.Contains(out, "SCOPED_BODY_TOKEN") {
 		t.Fatalf("touched scoped rule missing from the prompt: %q", out)
 	}

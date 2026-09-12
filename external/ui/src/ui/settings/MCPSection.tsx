@@ -7,6 +7,7 @@ import {
   MCP_SERVER_TEMPLATE,
   PROJECT_TRUST_OPTIONS,
   declarationFacts,
+  globalMCPPath,
   originLabel,
   parseServerEntryJson,
   serverRowToEntryJson,
@@ -197,7 +198,7 @@ type EditorState = {
 
 /**
  * MCPSection is the Settings -> MCP servers tab: the merged server list from
- * config.yaml, the global ~/.coddy/mcp.json, and the local ./.coddy/mcp.json
+ * config.yaml, the global mcp.json of the agent home, and the local ./.coddy/mcp.json
  * in the Cursor style — status dot, scope badge, server switch, expandable
  * per-tool switches, and a JSON editor for mcp.json entries of either scope.
  * All actions talk to /coddy/mcp* directly; nothing here touches the
@@ -336,7 +337,7 @@ export function MCPSection() {
   const openEdit = (row: MCPServerRow) => {
     setEditorError(null);
     // Editing writes back to the file that owns the row: origin home lives in
-    // the global ~/.coddy/mcp.json, project in the local ./.coddy/mcp.json.
+    // the agent home's mcp.json, project in the local ./.coddy/mcp.json.
     setEditor({
       name: row.name,
       text: serverRowToEntryJson(row),
@@ -432,6 +433,7 @@ export function MCPSection() {
             editor={editor}
             error={editorError}
             busy={editorBusy}
+            globalPath={globalMCPPath(servers)}
             onChange={setEditor}
             onSave={onEditorSave}
             onCancel={() => setEditor(null)}
@@ -489,7 +491,7 @@ export function MCPSection() {
                         <span
                           className="skills-list-item-badge"
                           title={t("mcp.badge.definedIn", {
-                            origin: originLabel(row.origin),
+                            origin: originLabel(row.origin, row.source_path),
                           })}
                         >
                           {row.source}
@@ -557,7 +559,7 @@ export function MCPSection() {
                       title={
                         editable
                           ? t("mcp.edit.title", {
-                              origin: originLabel(row.origin),
+                              origin: originLabel(row.origin, row.source_path),
                             })
                           : t("mcp.edit.readonlyTitle")
                       }
@@ -574,7 +576,7 @@ export function MCPSection() {
                       title={
                         editable
                           ? t("mcp.delete.title", {
-                              origin: originLabel(row.origin),
+                              origin: originLabel(row.origin, row.source_path),
                             })
                           : t("mcp.delete.readonlyTitle")
                       }
@@ -629,6 +631,7 @@ export function MCPSection() {
                       editor={editor}
                       error={editorError}
                       busy={editorBusy}
+                      globalPath={globalMCPPath(servers)}
                       onChange={setEditor}
                       onSave={onEditorSave}
                       onCancel={() => setEditor(null)}
@@ -704,11 +707,12 @@ function MCPEditorCard(props: {
   editor: EditorState;
   error: string | null;
   busy: boolean;
+  globalPath: string;
   onChange: (next: EditorState) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const { editor, error, busy, onChange, onSave, onCancel } = props;
+  const { editor, error, busy, globalPath, onChange, onSave, onCancel } = props;
   const { t } = useT();
   return (
     <div className="mcp-editor" data-testid="mcp-editor">
@@ -762,10 +766,7 @@ function MCPEditorCard(props: {
       />
       <p className="settings-field-desc">
         {t("mcp.editor.formatDescription", {
-          path:
-            editor.scope === "global"
-              ? "~/.coddy/mcp.json"
-              : "./.coddy/mcp.json",
+          path: editor.scope === "global" ? globalPath : "./.coddy/mcp.json",
         })}
       </p>
       {error ? <p className="settings-error">{error}</p> : null}

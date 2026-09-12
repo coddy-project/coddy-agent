@@ -570,7 +570,7 @@ func UISchemaMap() map[string]interface{} {
 				"files": map[string]interface{}{
 					"type":        "array",
 					"title":       "Instruction files",
-					"description": "Filenames relative to session CWD to read as instructions. Defaults to [\"AGENTS.md\"].",
+					"description": "Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD. Defaults to [\"AGENTS.md\", \"DESIGN.md\"]; the agent home has its own pair, read ahead of this list whenever it exists.",
 					"items":       map[string]interface{}{"type": "string"},
 				},
 			},

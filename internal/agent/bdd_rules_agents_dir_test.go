@@ -127,7 +127,7 @@ func (s *agentsDirRulesFeatureState) operatorListsCatalog() error {
 		return fmt.Errorf("no project prepared")
 	}
 	var buf bytes.Buffer
-	if err := rules.RenderCatalog(&buf, s.cwd, rules.DefaultFactory(), nil); err != nil {
+	if err := rules.RenderCatalog(&buf, s.cwd, rules.DefaultFactory(""), nil); err != nil {
 		return err
 	}
 	s.catalog = buf.String()

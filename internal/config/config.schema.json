@@ -259,14 +259,15 @@
     "instructions": {
       "type": "object",
       "title": "Project instructions",
-      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention).",
+      "description": "Files read from the session working directory and appended to the system prompt (AGENTS.md convention). The agent home's own AGENTS.md and DESIGN.md are read on top of this list whenever they exist, ahead of the project's pair, and are not named here. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "files": {
           "type": "array",
-          "description": "Filenames relative to the session CWD.",
+          "description": "Instruction files, read in the order listed. ${CODDY_HOME}, ${CWD} and a leading ~ expand; an absolute entry is read as it stands, a relative one resolves against the session CWD.",
           "default": [
-            "AGENTS.md"
+            "AGENTS.md",
+            "DESIGN.md"
           ],
           "items": {
             "type": "string"
@@ -313,7 +314,7 @@
     "rules": {
       "type": "object",
       "title": "Project rules",
-      "description": "Discovery of rule files from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules and nested AGENTS.md under the session CWD; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
+      "description": "Discovery of rule files from ${CODDY_HOME}/rules (the operator's own, applied in every workspace) and from .coddy/rules, .agents/rules, .cursor/rules, .claude/rules, .codex/rules under the session CWD, plus the AGENTS.md and DESIGN.md of a folder a tool enters; .mdc files are Cursor rules, .md files Claude Code rules. See https://coddy.dev/docs/features/rules.",
       "additionalProperties": false,
       "properties": {
         "auto_discover": {
@@ -326,7 +327,7 @@
         },
         "systems": {
           "type": "array",
-          "description": "Restrict which rule systems are loaded: coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md). Empty means all.",
+          "description": "Restrict which rule systems are loaded: user (${CODDY_HOME}/rules), coddy, agents-dir (.agents/rules), cursor, claude, codex, agents (nested AGENTS.md and DESIGN.md). Empty means all.",
           "default": [],
           "items": {
             "type": "string"
