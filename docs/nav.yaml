@@ -152,6 +152,9 @@ groups:
       - path: tutorials/server-driven-from-a-laptop.md
         title: A server driven from a laptop
         summary: A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
+      - path: tutorials/coddy-as-a-model-in-vs-code.md
+        title: Coddy as a model in VS Code Copilot
+        summary: A running coddy serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate.
       - path: tutorials/a-skill-of-your-own.md
         title: A skill of your own
         summary: A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.

@@ -74,6 +74,7 @@ Task-shaped guides, each a complete path from a goal to a working result, with t
 - [A Telegram bot for a team](tutorials/telegram-bot-for-a-team.md) - One bot for a team with coddy serve: the token, who may talk to it, group isolation, and the same chat live in the browser.
 - [A project set up for agents](tutorials/project-set-up-for-agents.md) - A repository that teaches any agent how it works: rules, AGENTS.md, skills, an MCP server and the trust receipts.
 - [A server driven from a laptop](tutorials/server-driven-from-a-laptop.md) - A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
+- [Coddy as a model in VS Code Copilot](tutorials/coddy-as-a-model-in-vs-code.md) - A running coddy serve registered in chatLanguageModels.json, so its models and its agent sit in Copilot's model picker, with sessions per request and the agent's permission gate.
 - [A skill of your own](tutorials/a-skill-of-your-own.md) - A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
 - [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
 - [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
