@@ -235,7 +235,7 @@ func TestDefaultSource(t *testing.T) {
 	if !strings.Contains(agentSrc, "{{.Skills}}") {
 		t.Error("agent source should contain {{.Skills}}")
 	}
-	if !strings.Contains(agentSrc, "{{if .TodoList}}") {
+	if !strings.Contains(agentSrc, "if .TodoList}}") {
 		t.Error("agent source should conditionalize TodoList injection")
 	}
 	if !strings.Contains(agentSrc, "{{.UTCNow}}") {

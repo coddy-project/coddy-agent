@@ -1,0 +1,20 @@
+# Agent mode prompt structure. Section IDs render in this order; each ID is
+# the fragment <id>.md, or <id>_<variant>.md when a variant supplies one.
+# "notes" and "model_notes" are optional slots: they render only when a
+# variant supplies notes_<variant>.md (model-family guidance) or
+# model_notes_<variant>.md (guidance for one model, e.g. gpt-oss-20b).
+header
+subagent_role
+mode
+notes
+model_notes
+howto
+todo_flow
+code_quality
+file_ops
+read_search
+shell_cmds
+background_cmds
+web_research
+subagents
+footer

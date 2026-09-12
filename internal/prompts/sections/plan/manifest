@@ -1,0 +1,16 @@
+# Plan mode prompt structure. Section IDs render in this order; each ID is
+# the fragment <id>.md, or <id>_<variant>.md when a variant supplies one.
+# "notes" and "model_notes" are optional slots filled only by a variant. The
+# DiscardedPlans conditional opens the howto fragment so it stays next to
+# its heading.
+header
+subagent_role
+mode
+notes
+model_notes
+can
+cannot
+howto
+output
+subagents
+footer

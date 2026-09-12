@@ -102,7 +102,7 @@ func (a *Agent) buildSystemPrompt(mode string, activeSkills []*skills.Skill, too
 	var embeddedDocs []string
 	if rs, ok := a.state.(rulesState); ok {
 		rulesMD, embeddedDocs = buildRulesPromptMarkdown(rs, a.cfg.Paths.Home, contextFiles, userText, a.agentsOnDemand())
-		if !prompts.RendersRules(mode, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
+		if !prompts.RendersRules(mode, nil, promptsDir, a.cfg.Prompts.AgentFile(), a.cfg.Prompts.PlanFile(), a.cfg.Prompts.AskFile()) {
 			embeddedDocs = nil
 		}
 	}

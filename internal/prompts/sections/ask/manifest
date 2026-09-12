@@ -1,0 +1,16 @@
+# Ask mode prompt structure. Section IDs render in this order; each ID is
+# the fragment <id>.md, or <id>_<variant>.md when a variant supplies one.
+# "notes" and "model_notes" are optional slots filled only by a variant.
+# A variant that restructures the body ships its own manifest.<variant>
+# (see manifest.openai and manifest.gpt-oss).
+header
+subagent_role
+mode
+notes
+model_notes
+interpret
+facts
+tools_policy
+injection
+response
+footer
