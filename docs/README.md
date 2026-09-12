@@ -66,11 +66,18 @@ Complete lists, generated from the code wherever the code is the source of truth
 - [HTTP API](reference/http-api.md) - The OpenAI-compatible endpoints and the /coddy REST surface, authentication, sessions and headers, the OpenAPI document.
 - [ACP protocol](reference/acp-protocol.md) - How coddy acp implements the Agent Client Protocol, methods, notifications, permission and question requests.
 
-## Recipes
+## Tutorials
 
-Task-shaped guides that combine several features.
+Task-shaped guides, each a complete path from a goal to a working result, with the configs and commands to copy, the check that it worked and what tends to go wrong.
 
-- [Recipes](recipes.md) - Coddy in CI, a Telegram bot for a team, a project set up for agents, a remote server driven from a laptop, a skill of your own.
+- [Coddy in CI](tutorials/coddy-in-ci.md) - A workflow file that runs coddy -p on every pull request, with the key in a secret and the answer in the job log.
+- [A Telegram bot for a team](tutorials/telegram-bot-for-a-team.md) - One bot for a team with coddy serve: the token, who may talk to it, group isolation, and the same chat live in the browser.
+- [A project set up for agents](tutorials/project-set-up-for-agents.md) - A repository that teaches any agent how it works: rules, AGENTS.md, skills, an MCP server and the trust receipts.
+- [A server driven from a laptop](tutorials/server-driven-from-a-laptop.md) - A coddy serve on a machine with the models and the workspace, driven from a laptop over the console, an editor and the browser.
+- [A skill of your own](tutorials/a-skill-of-your-own.md) - A SKILL.md that becomes a slash command on every surface, from the first file to a registry install.
+- [A relay and its nodes in Docker](tutorials/swarm-relay-and-nodes.md) - A Compose stand with a relay and nodes that dial out to it, the tokens, the checks, a mounted node from the console and the browser, scaling by adding nameless workers.
+- [A chain of relays](tutorials/swarm-multi-hop.md) - A second relay behind the first with its own nodes, two-hop mounts, the recursive session list, rings and alternates.
+- [Working with remote nodes](tutorials/swarm-remote-nodes.md) - Driving a node behind a relay from the console, an editor and the browser, what runs where, and which credential opens what.
 
 ## Contributing
 

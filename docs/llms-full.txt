@@ -6037,6 +6037,7 @@ relay, wrap in TLS, upgrade, invert roles. The HTTP/2 layer above is unaware of 
 - `docs/reference/config.md` - the `swarm:` block.
 - `features/swarm_*.feature` - the executable specifications.
 - `examples/swarm/` - a live stand: relays, agents, a ring, and a node that only dials out.
+- the tutorials: [a relay and its nodes in Docker](../tutorials/swarm-relay-and-nodes.md), [a chain of relays](../tutorials/swarm-multi-hop.md), [working with remote nodes](../tutorials/swarm-remote-nodes.md).
 
 
 # Operate / Scheduler
@@ -10700,19 +10701,15 @@ The agent can call these methods on the client (if client supports them):
 ```
 
 
-# Recipes / Recipes
+# Tutorials / Coddy in CI
 
-Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/recipes.md
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/coddy-in-ci.md
 
-# Recipes
+# Coddy in CI
 
-Each recipe below is one job done end to end: the commands to type, the YAML to write and the order to do it in. They combine features that have pages of their own, so every step links to the page that explains the feature in full instead of repeating it. The commands assume a release binary - the one-line installer, a package, the Docker image or `make build` with the full tag set - which carries every surface a recipe needs; a lean `make build` has neither the console nor the HTTP server.
+A pipeline step that asks the agent one question and reads the answer: a review of a pull request, a summary of a diff, a check that a document still matches the code. The console's print mode, `coddy -p` ([Console](../surfaces/console.md), "One-shot print mode"), runs one turn without a terminal, streams the assistant text to stdout and the diagnostics to stderr, and exits non-zero when something went wrong. The release binary carries the console; a lean build answers `-p` with a rebuild hint.
 
-## Coddy in CI
-
-A pipeline step that asks the agent one question and reads the answer: a review of a pull request, a summary of a diff, a check that a document still matches the code. The console's print mode, `coddy -p` ([Console](surfaces/console.md), "One-shot print mode"), runs one turn without a terminal, streams the assistant text to stdout and the diagnostics to stderr, and exits non-zero when something went wrong. The release binary carries the console; a lean build answers `-p` with a rebuild hint.
-
-1. **Install the binary on the runner.** The one-line installer ([Install](getting-started/install.md)) puts `coddy` into `~/.local/bin` and creates `~/.coddy/config.yaml` from the example file when there is none. Put that directory on `PATH` for the steps that follow.
+1. **Install the binary on the runner.** The one-line installer ([Install](../getting-started/install.md)) puts `coddy` into `~/.local/bin` and creates `~/.coddy/config.yaml` from the example file when there is none. Put that directory on `PATH` for the steps that follow.
 
    ```bash
    curl -fsSL https://coddy.dev/install.sh | bash
@@ -10726,7 +10723,7 @@ A pipeline step that asks the agent one question and reads the answer: a review 
    export CODDY_HOME="$(mktemp -d)"
    ```
 
-3. **Write a config whose key comes from the environment.** A provider's `api_key` may be a `${VAR}` reference, expanded when the file loads, or it may be left empty, in which case the key is read at call time from `NAME_API_KEY` - the provider name in upper case with hyphens turned into underscores, so `openai` reads `OPENAI_API_KEY` and `team-gateway` reads `TEAM_GATEWAY_API_KEY`. Either way the secret stays in the CI secret store and never in a file. Pin the model and the turn cap: `agent.max_turns` is what bounds the cost of one step. With no `config.yaml` at all, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` alone gives a default provider and model, but a job should pin its own. [Configuration](getting-started/configuration.md) has every key.
+3. **Write a config whose key comes from the environment.** A provider's `api_key` may be a `${VAR}` reference, expanded when the file loads, or it may be left empty, in which case the key is read at call time from `NAME_API_KEY` - the provider name in upper case with hyphens turned into underscores, so `openai` reads `OPENAI_API_KEY` and `team-gateway` reads `TEAM_GATEWAY_API_KEY`. Either way the secret stays in the CI secret store and never in a file. Pin the model and the turn cap: `agent.max_turns` is what bounds the cost of one step. With no `config.yaml` at all, `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` alone gives a default provider and model, but a job should pin its own. [Configuration](../getting-started/configuration.md) has every key.
 
    ```yaml
    providers:
@@ -10743,7 +10740,7 @@ A pipeline step that asks the agent one question and reads the answer: a review 
      max_turns: 20
    ```
 
-4. **Gate the config before spending a token.** `coddy -t` checks the file a start would load against the embedded schema and the loader's rules, prints each problem with its line and a `fix:` line, and exits 1 on errors without starting anything ([Checking the file from the command line](getting-started/configuration.md#checking-the-file-from-the-command-line)). `coddy --dry-run` runs the same check and then asks every provider for its model list, which exercises the address and the key in one request, so a wrong secret fails here on a named line instead of as a 401 in the middle of the review ([Dry run](getting-started/configuration.md#dry-run-probing-what-the-file-points-at)). Both flags work in every build.
+4. **Gate the config before spending a token.** `coddy -t` checks the file a start would load against the embedded schema and the loader's rules, prints each problem with its line and a `fix:` line, and exits 1 on errors without starting anything ([Checking the file from the command line](../getting-started/configuration.md#checking-the-file-from-the-command-line)). `coddy --dry-run` runs the same check and then asks every provider for its model list, which exercises the address and the key in one request, so a wrong secret fails here on a named line instead of as a 401 in the middle of the review ([Dry run](../getting-started/configuration.md#dry-run-probing-what-the-file-points-at)). Both flags work in every build.
 
    ```bash
    coddy -t          # the file: schema and loader rules
@@ -10769,7 +10766,7 @@ A pipeline step that asks the agent one question and reads the answer: a review 
 
    The status of `-p` reports the process, not the verdict: a turn that stopped at `agent.max_turns` still exits 0. Make the prompt end with an explicit line, as above, and let the pipeline grep for it.
 
-7. **Decide what a checkout may execute.** `.coddy/mcp.json`, `.coddy/hooks.json` and `.coddy/agents/` arrive with the repository and are held under the default `ask` policy until an operator approves them, which nobody does on a runner. For a repository you own, pass `--mcp-project-trust allow` (the console, `acp` and `serve` all take it) or set `mcp.project_trust`, `hooks.project_trust` and `subagents.project_trust` to `allow` in the job's config. Leave them at `ask`, or set `deny`, for jobs that run on pull requests from strangers, so a fork cannot choose what the runner executes. [MCP servers](features/mcp.md), [Hooks](features/hooks.md) and [Subagents](features/subagents.md) describe the three gates.
+7. **Decide what a checkout may execute.** `.coddy/mcp.json`, `.coddy/hooks.json` and `.coddy/agents/` arrive with the repository and are held under the default `ask` policy until an operator approves them, which nobody does on a runner. For a repository you own, pass `--mcp-project-trust allow` (the console, `acp` and `serve` all take it) or set `mcp.project_trust`, `hooks.project_trust` and `subagents.project_trust` to `allow` in the job's config. Leave them at `ask`, or set `deny`, for jobs that run on pull requests from strangers, so a fork cannot choose what the runner executes. [MCP servers](../features/mcp.md), [Hooks](../features/hooks.md) and [Subagents](../features/subagents.md) describe the three gates.
 
 Put together as a GitHub Actions job:
 
@@ -10819,9 +10816,14 @@ jobs:
           grep -q 'VERDICT: ok' review.md
 ```
 
-## A Telegram bot for a team
 
-One `coddy serve` process polls a bot, answers in the chats you allow, and keeps every conversation as an ordinary session that the web UI on the same process can watch and continue. The full reference is [Telegram gateway](surfaces/gateway.md); this recipe walks the setup for a team room.
+# Tutorials / A Telegram bot for a team
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/telegram-bot-for-a-team.md
+
+# A Telegram bot for a team
+
+One `coddy serve` process polls a bot, answers in the chats you allow, and keeps every conversation as an ordinary session that the web UI on the same process can watch and continue. The full reference is [Telegram gateway](../surfaces/gateway.md); this recipe walks the setup for a team room.
 
 1. **Get a binary with the gateway.** The release binaries, the packages and the image all carry the `gateway` tag. From source, build the Telegram adapter alone or the full set:
 
@@ -10839,7 +10841,7 @@ One `coddy serve` process polls a bot, answers in the chats you allow, and keeps
    TELEGRAM_BOT_TOKEN=8992982910:AAF...
    ```
 
-3. **Describe the team in the config** ([Configuration reference](surfaces/gateway.md#configuration-reference)).
+3. **Describe the team in the config** ([Configuration reference](../surfaces/gateway.md#configuration-reference)).
 
    ```yaml
    gateways:
@@ -10860,7 +10862,7 @@ One `coddy serve` process polls a bot, answers in the chats you allow, and keeps
 
    `default_access` says who may talk to the bot in a chat that has no override: `admins` answers only the listed ids, `all` answers anyone who can write to the chat, `group:<name>` answers the members of that `user_groups` entry (admins always pass). Denied messages are dropped silently. `default_isolation` applies to group chats only - a private chat is always one session per user - and picks the session scope: `individual` gives every member a session of their own, `shared` gives the room one session everybody continues, `admin` answers admins only and lets them share one session. `chats` overrides both per chat; a group's `chat_id` is negative. Add `rich_messages: true` for native Markdown and collapsible tool blocks on a Bot API 10.1 server.
 
-4. **Check the file, then start in the background** ([coddy serve and the daemon](operate/serve.md)).
+4. **Check the file, then start in the background** ([coddy serve and the daemon](../operate/serve.md)).
 
    ```bash
    coddy serve --dry-run   # checks the token against the Bot API and names the bot
@@ -10870,11 +10872,16 @@ One `coddy serve` process polls a bot, answers in the chats you allow, and keeps
 
    `--daemon` detaches and leaves a dispatcher behind that restarts the worker whenever it dies for any reason other than `coddy serve stop`. The command waits for the first worker before it returns, so a configuration that cannot start is reported in the terminal that typed the command. The record lives in `~/.coddy/serve.json`, the log in `~/.coddy/logs/serve.log`; `coddy serve restart` brings it back with the arguments it was started with. Under `systemd`, Docker or another supervisor that already owns process lifetimes, run `coddy serve` in the foreground instead and let that supervisor restart it. Run one process per bot token: Telegram hands each update to one long poll, so a second poller steals messages from the first. A bot and nothing else is `--http=false` or `httpserver.enable: false`.
 
-5. **Open the same chat in the browser** ([The same session in the chat and in the browser](surfaces/gateway.md#the-same-session-in-the-chat-and-in-the-browser)). With `httpserver.enable` on, which is the default, the same process serves the web UI at `http://127.0.0.1:12345/`. Chat conversations are sessions with a `gw_` prefix: they are listed in the session rail, a turn the bot is answering streams into a tab watching it, and a reply typed in the browser is in the chat's history on the next message. Permission prompts stay with the chat, and the gateway answers them itself so the bot works unattended - so give the process a workspace you can afford to let it change (`coddy serve --cwd DIR`, else the directory it was started from). Only one turn runs per session; a message that arrives while a browser turn is in flight gets a busy notice instead of interleaving. To reach the UI from another machine, bind `httpserver.host: "0.0.0.0"` and set a token as in the next recipe.
+5. **Open the same chat in the browser** ([The same session in the chat and in the browser](../surfaces/gateway.md#the-same-session-in-the-chat-and-in-the-browser)). With `httpserver.enable` on, which is the default, the same process serves the web UI at `http://127.0.0.1:12345/`. Chat conversations are sessions with a `gw_` prefix: they are listed in the session rail, a turn the bot is answering streams into a tab watching it, and a reply typed in the browser is in the chat's history on the next message. Permission prompts stay with the chat, and the gateway answers them itself so the bot works unattended - so give the process a workspace you can afford to let it change (`coddy serve --cwd DIR`, else the directory it was started from). Only one turn runs per session; a message that arrives while a browser turn is in flight gets a busy notice instead of interleaving. To reach the UI from another machine, bind `httpserver.host: "0.0.0.0"` and set a token as in the next recipe.
 
-6. **Use it from the chat** ([Bot interaction model](surfaces/gateway.md#group-chats)). In a private chat every message is answered. In a group the bot responds only when it is @mentioned, when a message replies to one of its own, or to `/clear`; under `admin` isolation it also ignores everyone outside `admins`. `/mode` and `/model` open inline keyboards for the session's mode and model, `/context` shows what fills the context window, and `/clear` starts a fresh session for that user or chat - the old bundle stays on disk and `coddy sessions list` still shows it. A changed token rebuilds the gateway in place and a flipped `enable` starts or stops it without a restart; when a tap seems to do nothing, raise one component: `coddy serve --log-level "info,gateway.telegram=debug"` ([Debugging a chat](surfaces/gateway.md#debugging-a-chat)).
+6. **Use it from the chat** ([Bot interaction model](../surfaces/gateway.md#group-chats)). In a private chat every message is answered. In a group the bot responds only when it is @mentioned, when a message replies to one of its own, or to `/clear`; under `admin` isolation it also ignores everyone outside `admins`. `/mode` and `/model` open inline keyboards for the session's mode and model, `/context` shows what fills the context window, and `/clear` starts a fresh session for that user or chat - the old bundle stays on disk and `coddy sessions list` still shows it. A changed token rebuilds the gateway in place and a flipped `enable` starts or stops it without a restart; when a tap seems to do nothing, raise one component: `coddy serve --log-level "info,gateway.telegram=debug"` ([Debugging a chat](../surfaces/gateway.md#debugging-a-chat)).
 
-## A project set up for agents
+
+# Tutorials / A project set up for agents
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/project-set-up-for-agents.md
+
+# A project set up for agents
 
 A repository can carry everything an agent needs to work in it well: the conventions, the workflows, the tool servers and the guard rails. All of it lives in files under the checkout, so it is versioned with the code and arrives with every clone. This is the tree the steps below produce, and what each file does:
 
@@ -10895,9 +10902,9 @@ my-project/
       reviewer.md                 # a subagent definition, held until approved
 ```
 
-1. **`AGENTS.md` at the root.** It is read into every prompt unconditionally, as the project docs preamble ([Project docs preamble](features/rules.md#project-docs-preamble)), and so is a `DESIGN.md` beside it. Keep it a short map: where things live, how to build and test, what a change must carry. Nested `AGENTS.md` files deeper in the tree are read on demand, the moment a tool enters their folder, and never walked for.
+1. **`AGENTS.md` at the root.** It is read into every prompt unconditionally, as the project docs preamble ([Project docs preamble](../features/rules.md#project-docs-preamble)), and so is a `DESIGN.md` beside it. Keep it a short map: where things live, how to build and test, what a change must carry. Nested `AGENTS.md` files deeper in the tree are read on demand, the moment a tool enters their folder, and never walked for.
 
-2. **Rules in `.coddy/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.coddy/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
+2. **Rules in `.coddy/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.coddy/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](../features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
 
    ```markdown
    ---
@@ -10912,9 +10919,9 @@ my-project/
 
    `coddy rules list` prints the catalog with the source folder, the dialect each file was read with, whether it is in every prompt and what activates the others.
 
-3. **A skill in `.coddy/skills/<name>/SKILL.md`.** `${CWD}/.coddy/skills` is the highest-priority entry of the default `skills.dirs`, so a project skill overrides one of the same name from `~/.coddy/skills` or `~/.agents/skills` ([Skills](features/skills.md)). The directory name is the slash command, `/release-notes` here; writing the file is the last recipe on this page. Run `coddy skills list` inside the project to see it listed for that directory.
+3. **A skill in `.coddy/skills/<name>/SKILL.md`.** `${CWD}/.coddy/skills` is the highest-priority entry of the default `skills.dirs`, so a project skill overrides one of the same name from `~/.coddy/skills` or `~/.agents/skills` ([Skills](../features/skills.md)). The directory name is the slash command, `/release-notes` here; writing the file is the last recipe on this page. Run `coddy skills list` inside the project to see it listed for that directory.
 
-4. **MCP servers in `.coddy/mcp.json`** ([MCP servers](features/mcp.md)). The file has Cursor's shape, one `mcpServers` object keyed by name; a URL-only entry is a streamable HTTP server, and `${CWD}` in `args` is the session workspace.
+4. **MCP servers in `.coddy/mcp.json`** ([MCP servers](../features/mcp.md)). The file has Cursor's shape, one `mcpServers` object keyed by name; a URL-only entry is a streamable HTTP server, and `${CWD}` in `args` is the session workspace.
 
    ```json
    {
@@ -10928,7 +10935,7 @@ my-project/
    }
    ```
 
-   Because the file arrives with the checkout, the repository - not the operator - would be choosing the command a session starts. Under the default `mcp.project_trust: ask` these entries stay cold until approved for that workspace ([Workspace trust for project-local servers](features/mcp.md#workspace-trust-for-project-local-servers)):
+   Because the file arrives with the checkout, the repository - not the operator - would be choosing the command a session starts. Under the default `mcp.project_trust: ask` these entries stay cold until approved for that workspace ([Workspace trust for project-local servers](../features/mcp.md#workspace-trust-for-project-local-servers)):
 
    ```bash
    coddy mcp list                # scope, trust state and the command of every merged server
@@ -10937,7 +10944,7 @@ my-project/
 
    The receipt in `~/.coddy/mcp-trust.json` is keyed by the workspace and a digest of the declaration, so rewriting the entry asks again; `config.yaml` and `~/.coddy/mcp.json` are yours and are never gated.
 
-5. **Hooks in `.coddy/hooks.json`** ([Hooks](features/hooks.md)). The file uses Claude Code's shape. This one runs `gofmt` after every edit and tells the model what it changed:
+5. **Hooks in `.coddy/hooks.json`** ([Hooks](../features/hooks.md)). The file uses Claude Code's shape. This one runs `gofmt` after every edit and tells the model what it changed:
 
    ```json
    {
@@ -10967,14 +10974,14 @@ my-project/
    exit 0
    ```
 
-   Hooks run with your permissions, before any permission prompt, so a file that came with a clone is parsed and listed but runs nothing until it is approved ([Project files and trust](features/hooks.md#project-files-and-trust)); the first turn that finds it records a notice in the session. Review the commands, then:
+   Hooks run with your permissions, before any permission prompt, so a file that came with a clone is parsed and listed but runs nothing until it is approved ([Project files and trust](../features/hooks.md#project-files-and-trust)); the first turn that finds it records a notice in the session. Review the commands, then:
 
    ```bash
    coddy hooks list
    coddy hooks trust .coddy/hooks.json
    ```
 
-6. **A subagent in `.coddy/agents/reviewer.md`** ([Definition files](features/subagents.md#definition-files)). Only `description` is required; `name` defaults to the file stem. `tools`, `disallowed_tools` and `permission_mode` can only narrow what the parent could do, and the body is the child's role.
+6. **A subagent in `.coddy/agents/reviewer.md`** ([Definition files](../features/subagents.md#definition-files)). Only `description` is required; `name` defaults to the file stem. `tools`, `disallowed_tools` and `permission_mode` can only narrow what the parent could do, and the body is the child's role.
 
    ```markdown
    ---
@@ -10988,7 +10995,7 @@ my-project/
    separate defects from style remarks, and end with a short verdict.
    ```
 
-   Project definitions follow `subagents.project_trust`, with receipts of their own ([Scopes and project trust](features/subagents.md#scopes-and-project-trust)):
+   Project definitions follow `subagents.project_trust`, with receipts of their own ([Scopes and project trust](../features/subagents.md#scopes-and-project-trust)):
 
    ```bash
    coddy agents list
@@ -10997,9 +11004,14 @@ my-project/
 
 7. **Approve once per clone, or set a policy.** The three approvals above are per workspace and per file digest, so a fresh clone or an edited file asks again. For a checkout you own, `mcp.project_trust`, `hooks.project_trust` and `subagents.project_trust` set to `allow` in `config.yaml` skip the receipts; `deny` never reads the project files at all. Under `--remote` the approvals belong to the server, where the code would run (next recipe).
 
-## A server driven from a laptop
 
-`coddy serve` on a server with a workspace and a model behind it; on the laptop only a client. The console, an editor over ACP and the web UI all speak to the same server, and the sessions stay there. The complete guide is [Remote mode](operate/remote.md); the sources for the flags below are [Console](surfaces/console.md), "Remote mode (`--remote`)", and [Authentication](reference/http-api.md#authentication-optional).
+# Tutorials / A server driven from a laptop
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/server-driven-from-a-laptop.md
+
+# A server driven from a laptop
+
+`coddy serve` on a server with a workspace and a model behind it; on the laptop only a client. The console, an editor over ACP and the web UI all speak to the same server, and the sessions stay there. The complete guide is [Remote mode](../operate/remote.md); the sources for the flags below are [Console](../surfaces/console.md), "Remote mode (`--remote`)", and [Authentication](../reference/http-api.md#authentication-optional).
 
 1. **Give the server a token and bind it off loopback.** Bearer auth is off by default. Set the token through the environment or `--auth-token` rather than writing it into the file; a `${ENV}` reference in `httpserver.auth_token` works too. `host` defaults to `127.0.0.1` because one process starts every enabled subsystem, so asking for a bot must not open the API to the network as a side effect. `cors` is for the browser in step 4.
 
@@ -11045,13 +11057,18 @@ my-project/
    coddy acp --remote box.example:12345
    ```
 
-4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `coddy serve` that served the page (`httpserver.remotes`) and `+ Add remote…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and the token stays in the browser, never in a config file. The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token ([Cross-origin access and the remote UI](reference/http-api.md#cross-origin-access-and-the-remote-ui), [Web UI](surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
+4. **Drive it from the browser.** The environment chip sits in the composer's workspace row and reads `Local` or the name of the remote in use. Its menu lists the remotes of the `coddy serve` that served the page (`httpserver.remotes`) and `+ Add remote…`, which takes a name, a URL and the bearer token; choosing an entry connects at once and reloads, and the token stays in the browser, never in a config file. The remote server has to allow the page's origin through `httpserver.cors`, which is what step 1 set; the dot on each entry turns green when a cross-origin `GET /v1/models` succeeds with the token ([Cross-origin access and the remote UI](../reference/http-api.md#cross-origin-access-and-the-remote-ui), [Web UI](../surfaces/web-ui.md)). Opening the server's own address instead loads the SPA shell without a token, since the shell is public, and the page asks for the token before it calls the API.
 
 5. **Remember what stays on the server.** Sessions, the trust receipts and the child sessions of subagents are the server's, so a project file is approved there: `coddy mcp trust`, `coddy hooks trust` and `coddy agents trust` on the server itself, or `POST /coddy/mcp/{name}/trust`, `POST /coddy/hooks/trust` and `POST /coddy/subagents/{name}/trust` over the API. A dropped connection leaves the server turn running; `/resume` shows the outcome once it ends.
 
-## A skill of your own
 
-A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it becomes a slash command on every surface and its body reaches the model only when invoked. The reference is [Skills](features/skills.md), in particular [Writing your own skill](features/skills.md#writing-your-own-skill) and [Supported file formats](features/skills.md#supported-file-formats).
+# Tutorials / A skill of your own
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/a-skill-of-your-own.md
+
+# A skill of your own
+
+A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it becomes a slash command on every surface and its body reaches the model only when invoked. The reference is [Skills](../features/skills.md), in particular [Writing your own skill](../features/skills.md#writing-your-own-skill) and [Supported file formats](../features/skills.md#supported-file-formats).
 
 1. **Create the pack.** One skill per directory under `~/.coddy/skills/`; the directory name is the slash command, so keep `name` equal to it. `description` is the line the catalog and the Settings page show, and an optional `version` is shown by `coddy skills list` and used to detect updates for skills installed from a source.
 
@@ -11094,6 +11111,433 @@ A skill is a `SKILL.md` file with a frontmatter and a body of instructions; it b
    ```
 
 6. **Share it.** Publish the directory in a GitHub repository. Others install it with `coddy skills add owner/repo` followed by `coddy skills sync`, or through `coddy plugin install owner/repo`, and a listing on [skills.sh](https://skills.sh) makes it findable with `npx skills find`.
+
+
+# Tutorials / A relay and its nodes in Docker
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/swarm-relay-and-nodes.md
+
+# A relay and its nodes in Docker
+
+**Goal.** Several Coddy nodes in containers, one relay in front of them, one place that lists every session of the fleet, and a path to any node from your laptop. Nothing is exposed but the relay's port: the nodes dial out to it, so they need no published port and no inbound route.
+
+**Environment.** Docker with Compose v2 on one machine (the same files work across machines once `RELAY_URL` points at a real address), the published image `ghcr.io/coddy-project/coddy-agent` (it carries the `swarm` tag), and a model the nodes can reach. The example gives the nodes an OpenAI key; any provider from [Configuration](../getting-started/configuration.md) works the same way, a local OpenAI-compatible server included. The background is in [Swarm](../operate/swarm.md); this page is the shortest path to a running one.
+
+## 1. The files
+
+Four files in one folder. Tokens are the whole security model of a relay ([Security](../operate/swarm.md#security)), so replace the three values in `.env` before anything leaves your machine.
+
+`.env`:
+
+```bash
+SWARM_CLIENT_TOKEN=change-me-client      # what a person or a client presents to the relay
+SWARM_PAIRING_TOKEN=change-me-pairing    # what a node presents to register
+NODE_A_TOKEN=change-me-node-a            # each node's own bearer, handed to the relay on join
+NODE_B_TOKEN=change-me-node-b
+WORKER_TOKEN=change-me-worker
+OPENAI_API_KEY=sk-...
+```
+
+`relay.yaml`, the relay's configuration. It runs nothing but the relay:
+
+```yaml
+httpserver:
+  enable: false
+
+swarm:
+  enable: true
+  host: "0.0.0.0"
+  port: 12346
+  name: "outer"
+  auth_token: "${SWARM_CLIENT_TOKEN}"
+  pairing_tokens: ["${SWARM_PAIRING_TOKEN}"]
+```
+
+`node.yaml`, shared by every node. A node is an ordinary `coddy serve` with a model, a bearer token on its own API, and a `swarm.join` entry. There is no `advertise_url`, so the node opens the connection to the relay itself and is driven back down it (the tunnel transport):
+
+```yaml
+providers:
+  - name: openai
+    type: openai
+    api_key: "${OPENAI_API_KEY}"
+
+models:
+  - model: "openai/gpt-5.6-terra"
+    max_tokens: 8192
+
+agent:
+  model: "openai/gpt-5.6-terra"
+
+httpserver:
+  enable: true
+  auth_token: "${NODE_TOKEN}"
+
+swarm:
+  join:
+    - url: "${RELAY_URL}"
+      name: "${NODE_NAME}"
+      pairing_token: "${SWARM_PAIRING_TOKEN}"
+      token: "${NODE_TOKEN}"
+```
+
+`docker-compose.yml`:
+
+```yaml
+x-node: &node
+  image: ghcr.io/coddy-project/coddy-agent:latest
+  command: serve -H 0.0.0.0 -P 12345
+  working_dir: /workspace
+  depends_on: [relay]
+
+services:
+  relay:
+    image: ghcr.io/coddy-project/coddy-agent:latest
+    command: serve
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      SWARM_CLIENT_TOKEN: ${SWARM_CLIENT_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+    ports: ["12346:12346"]
+    volumes:
+      - ./relay.yaml:/home/user/.coddy/config.yaml:ro
+      - relay_home:/home/user/.coddy
+
+  node-a:
+    <<: *node
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      CODDY_CWD: /workspace
+      RELAY_URL: http://relay:12346
+      NODE_NAME: node-a
+      NODE_TOKEN: ${NODE_A_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+    volumes:
+      - ./node.yaml:/home/user/.coddy/config.yaml:ro
+      - ./workspace/node-a:/workspace
+      - node_a_home:/home/user/.coddy
+
+  node-b:
+    <<: *node
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      CODDY_CWD: /workspace
+      RELAY_URL: http://relay:12346
+      NODE_NAME: node-b
+      NODE_TOKEN: ${NODE_B_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+    volumes:
+      - ./node.yaml:/home/user/.coddy/config.yaml:ro
+      - ./workspace/node-b:/workspace
+      - node_b_home:/home/user/.coddy
+
+volumes:
+  relay_home:
+  node_a_home:
+  node_b_home:
+```
+
+Two details carry weight. The config file is mounted read-only over a named volume for the home directory, because the home is where a node keeps its sessions and the per-lease secret that lets it reclaim its name after a restart. And the nodes publish no port: everything reaches them through the relay.
+
+## 2. Start it
+
+```bash
+mkdir -p workspace/node-a workspace/node-b
+docker compose up -d
+docker compose logs relay
+```
+
+The relay log ends with one `swarm node registered` and one `swarm tunnel established` line per node, within a few seconds of `serve` starting on them.
+
+## 3. Check it
+
+`/swarm/info` is open, everything else on the relay takes the client token:
+
+```bash
+export T=change-me-client
+curl -s http://127.0.0.1:12346/swarm/info
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/nodes
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/topology
+```
+
+`node_count` is 2, the node list names `node-a` and `node-b` with `"transport": "tunnel"` and `"online": true`, and the topology draws both under the relay.
+
+A node is mounted under `/swarm/nodes/<name>/`, so a node's own API is one path prefix away and the ordinary clients work unchanged:
+
+```bash
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/nodes/node-a/v1/models
+coddy --dry-run --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+coddy -p "Say hello in one line." --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+The dry run reports the models the node offers, and the one-shot prompt answers from `node-a`'s model. Afterwards the aggregated list shows that session with its route:
+
+```bash
+curl -s -H "Authorization: Bearer $T" 'http://127.0.0.1:12346/swarm/sessions'
+```
+
+Every row carries `node_path` (here `["node-a"]`) next to the session id, because ids are chosen per node and do collide.
+
+In a browser, `http://localhost:12346/` is the relay's own web UI: it asks for the client token, then opens on the swarm map with both nodes. Click a node and the History drawer, the composer and the settings are that node's, with the relay in the middle and nothing aware of it ([The UI](../operate/swarm.md#the-ui)).
+
+## 4. More nodes
+
+A node without a `name` registers under its host name, which in Compose is the container id, so a service without `NODE_NAME` scales:
+
+```yaml
+  worker:
+    <<: *node
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      CODDY_CWD: /workspace
+      RELAY_URL: http://relay:12346
+      NODE_TOKEN: ${WORKER_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+    volumes:
+      - ./worker.yaml:/home/user/.coddy/config.yaml:ro
+      - ./workspace/workers:/workspace
+```
+
+`worker.yaml` is `node.yaml` with the `name:` line removed. Then:
+
+```bash
+docker compose up -d --scale worker=3
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/nodes
+```
+
+Three more agents appear, named by their container ids. Workers that share a token and a workspace are interchangeable, which is what a scaled service is for; a node you address by name keeps its own service.
+
+A node on another machine is the same `node.yaml` with `RELAY_URL` pointing at the relay's public address, and nothing to open on that machine: the tunnel is opened from its side.
+
+## What tends to go wrong
+
+- **The relay exits at startup with a message about binding off loopback without a client token.** `SWARM_CLIENT_TOKEN` is empty. A relay on `0.0.0.0` refuses to run open; `swarm.allow_insecure` overrides that for a lab and nothing else.
+- **A node never appears.** Its pairing token does not match one of the relay's `pairing_tokens`; the node's log says the registration was refused. The token is compared exactly, spaces included.
+- **A node appears, but a request through its mount answers 401.** The `token` in the node's `swarm.join` entry is not the node's own `httpserver.auth_token`. The relay presents that token when it proxies, so the two values must be the same.
+- **`swarm tunnel established` never follows `swarm node registered`.** Something in front of the relay re-frames HTTP: a layer-7 proxy or an HTTP/2-only terminator. The tunnel needs a raw end-to-end connection ([Two transports](../operate/swarm.md#two-transports)); put the relay behind a TCP passthrough or give it TLS of its own with `swarm.tls`.
+- **Two containers claim the same name.** Only the first keeps it: a name is proven by a per-lease secret the relay mints, not by the shared pairing token. Give each named service its own `NODE_NAME`, or drop the name and let the host name stand.
+- **A node with `advertise_url` is refused.** In Docker the service name resolves into a private range, which the relay does not dial unless `swarm.allow_private_upstreams` names the host. Inside a Compose network the tunnel is the right transport anyway.
+- **After `docker compose restart relay` the list is empty for a while.** The registry lives in memory; `/swarm/info` reports `registry_warming: true` until the nodes check in again, which they do within a third of the lease (30 seconds by default).
+- **The models list is empty and a prompt fails.** The node has no provider it can reach: check `OPENAI_API_KEY` in its environment, or the address of a local server from inside the container.
+
+
+# Tutorials / A chain of relays
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/swarm-multi-hop.md
+
+# A chain of relays
+
+**Goal.** A second relay behind the first, with its own nodes, so that one client attached to the outer relay reaches and lists everything: the swarm as a tree, or a ring, of relays. This is how a fleet spread across networks is joined into one, each relay knowing only its direct children.
+
+**Environment.** The stand of [A relay and its nodes in Docker](swarm-relay-and-nodes.md), running. Two services are added to it. The mechanics are in [Rings and routes](../operate/swarm.md#rings-and-routes).
+
+## 1. The idea
+
+A relay is a node from its parent's point of view. A process that runs a relay (`swarm.enable`) and also lists a parent in `swarm.join` registers into that parent exactly the way an agent does, with `kind: relay`. That is all chaining requires: no second mechanism, and no hop that knows how deep the chain goes.
+
+## 2. The files
+
+`inner.yaml`, a relay that joins the outer one. The `token` in its join entry is its own client token, because that is what the outer relay presents when it proxies a request into it:
+
+```yaml
+httpserver:
+  enable: false
+
+swarm:
+  enable: true
+  host: "0.0.0.0"
+  port: 12346
+  name: "inner"
+  auth_token: "${INNER_CLIENT_TOKEN}"
+  pairing_tokens: ["${SWARM_PAIRING_TOKEN}"]
+  join:
+    - url: "http://relay:12346"
+      name: "inner"
+      pairing_token: "${SWARM_PAIRING_TOKEN}"
+      token: "${INNER_CLIENT_TOKEN}"
+```
+
+Two lines in `.env`:
+
+```bash
+INNER_CLIENT_TOKEN=change-me-inner
+NODE_C_TOKEN=change-me-node-c
+```
+
+Two services in `docker-compose.yml`, next to the existing ones. `node-c` is an ordinary node whose relay is `inner`:
+
+```yaml
+  inner:
+    image: ghcr.io/coddy-project/coddy-agent:latest
+    command: serve
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      INNER_CLIENT_TOKEN: ${INNER_CLIENT_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+    volumes:
+      - ./inner.yaml:/home/user/.coddy/config.yaml:ro
+      - inner_home:/home/user/.coddy
+    depends_on: [relay]
+
+  node-c:
+    <<: *node
+    environment:
+      CODDY_HOME: /home/user/.coddy
+      CODDY_CONFIG: /home/user/.coddy/config.yaml
+      CODDY_CWD: /workspace
+      RELAY_URL: http://inner:12346
+      NODE_NAME: node-c
+      NODE_TOKEN: ${NODE_C_TOKEN}
+      SWARM_PAIRING_TOKEN: ${SWARM_PAIRING_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY-}
+    volumes:
+      - ./node.yaml:/home/user/.coddy/config.yaml:ro
+      - ./workspace/node-c:/workspace
+      - node_c_home:/home/user/.coddy
+    depends_on: [inner]
+```
+
+and two more named volumes, `inner_home` and `node_c_home`. The inner relay publishes no port: it is reached through the outer one.
+
+## 3. Start and check
+
+```bash
+mkdir -p workspace/node-c
+docker compose up -d
+docker compose logs inner
+```
+
+The inner relay's log shows it listening, then `swarm: joining relay` towards `relay`, then `node-c` registering into it. From the outer relay, with the outer client token:
+
+```bash
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/nodes
+curl -s -H "Authorization: Bearer $T" http://127.0.0.1:12346/swarm/topology
+```
+
+The node list of the outer relay names `inner` with `"kind": "relay"`; the topology also carries `node-c` behind it, with a route of two hops, because a topology walk asks each child relay for its own children.
+
+A mount composes by writing the path out, and each hop strips its own prefix:
+
+```bash
+curl -s -H "Authorization: Bearer $T" \
+  http://127.0.0.1:12346/swarm/nodes/inner/swarm/nodes/node-c/v1/models
+coddy -p "Say hello in one line." \
+  --remote http://127.0.0.1:12346/swarm/nodes/inner/swarm/nodes/node-c --remote-token "$T"
+```
+
+The prompt answers from `node-c`, through two relays, with the outer relay's token only: the outer relay authenticates to `inner` with the token from `inner.yaml`, and `inner` to `node-c` with that node's own.
+
+The aggregated list recurses the same way. A child relay is asked for its own aggregate rather than its node list, so a session on `node-c` shows up on the outer relay with `"node_path": ["inner", "node-c"]`:
+
+```bash
+curl -s -H "Authorization: Bearer $T" 'http://127.0.0.1:12346/swarm/sessions'
+```
+
+In the outer relay's web UI the map draws the inner relay as a box with `node-c` under it; entering `node-c` drives it through both hops.
+
+## 4. A ring
+
+A node, or a relay, may join two parents. Add a second entry to `swarm.join` and it registers into both; the outer relay then knows two ways to it. That is a ring, and it is allowed: routes come from a breadth-first walk, so the shortest one is reported and the others appear as `alternates` on the node's topology entry, which is where a client fails over when the short hop dies. A request carries the ids of the relays it passed through, so a walk around a ring terminates instead of spinning.
+
+## What tends to go wrong
+
+- **The inner relay registers, but a request through `/swarm/nodes/inner/...` answers 401.** The `token` in the inner relay's own join entry is not the inner relay's `auth_token`. The outer relay presents that value when it forwards into the inner one; they must be the same.
+- **`node-c` registered into `inner`, but the outer relay's `/swarm/nodes` does not name it.** That is by design: a relay's node list is its direct children. `node-c` is in `/swarm/topology` and in `/swarm/sessions`, and reachable through the two-hop mount.
+- **The outer relay's topology reports a warning for the inner one.** The inner relay is known but cannot be reached right now: its tunnel dropped, or its lease went stale after a restart of `inner`. It re-registers within a third of the lease; a warning that stays is a network problem between the two.
+- **A mount path stops working after a few hops.** A hand-written path is capped at the same hop budget the fan-out uses, so a client cannot walk a ring indefinitely. Shorten the route: address the node from the relay closest to it.
+- **A ring shows a node once, not twice.** Correct: the swarm dedupes a node by identity (`agent_uuid`), keeps the shorter route and lists the other as an alternate.
+
+
+# Tutorials / Working with remote nodes
+
+Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/tutorials/swarm-remote-nodes.md
+
+# Working with remote nodes
+
+**Goal.** Drive a node that sits behind a relay, from the console, from an editor and from the browser, the way you drive a local `coddy serve`: prompts, permission prompts, sessions, the model picker. And know what stays on the node, what travels, and which credential opens what.
+
+**Environment.** A relay with at least one node, for example the stand of [A relay and its nodes in Docker](swarm-relay-and-nodes.md) at `http://127.0.0.1:12346` with the client token in `$T`. The general remote guide is [Remote mode](../operate/remote.md); this page is the swarm-specific part of it.
+
+## 1. What a mount is
+
+The relay mounts every node under `/swarm/nodes/<name>/`, and a mount carries the node's whole API: `/v1/*`, `/coddy/*`, the read-only swarm routes, and further `/swarm/nodes/*` hops. It is a plain base URL with a path prefix, which is exactly what `--remote` accepts, so every client that already speaks to a `coddy serve` speaks to a node through the relay without changes. The relay authenticates to the node on your behalf with the node's own token; you hold the relay's client token only.
+
+## 2. The console
+
+```bash
+export T=change-me-client
+coddy --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+The startup banner says `remote: <url>`; the session, its working directory and the model catalog are `node-a`'s. `-p` for a one-shot answer, `-c` to continue that node's latest session, and `/resume` operate on the node's session list:
+
+```bash
+coddy -p "List the files in the workspace." --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+coddy -c --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+A node behind a second relay is one longer path, nothing else: `--remote http://127.0.0.1:12346/swarm/nodes/inner/swarm/nodes/node-c` ([A chain of relays](swarm-multi-hop.md)).
+
+Before typing anything, the dry run tells whether the path is right and the node answers:
+
+```bash
+coddy --dry-run --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+The token can also come from `CODDY_REMOTE_TOKEN`, and a relay address you use often can be named once in your own `config.yaml` under `httpserver.remotes` and then addressed by name; the token is never stored in that file ([Naming a remote](../operate/remote.md#naming-a-remote)).
+
+## 3. An editor
+
+`coddy acp` takes the same two flags, so Zed, VS Code, Obsidian or a script drive the node from the editor's composer, with the node's modes, models, permission prompts and skills:
+
+```bash
+coddy acp --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+Configure the editor to run that command line instead of a bare `coddy acp` ([Editors](../surfaces/editors.md)).
+
+## 4. The browser
+
+Open the relay itself, `http://127.0.0.1:12346/`. A relay built with the `ui` tag (the published image is) serves the web UI at its own address; it asks for the client token and opens on the swarm map. Click a node: the History drawer lists that node's sessions, the composer shows its working directory and models, and a turn started there runs on the node. The **Swarm** entry stays in the rail while you are inside a node, so another node is one click away, and each node on the map says how many sessions it holds, how many turns are running and whether one of them is waiting for you.
+
+From a web UI served by some other `coddy serve`, the relay is one more environment: the chip in the composer, **+ Add remote...**, the relay's address and the client token. The token stays in that browser.
+
+![A permission prompt relayed through two relays](../assets/swarm/permission-two-relays-dark-1280.png)
+
+*A permission prompt from a node behind two relays, answered in the browser*
+
+## 5. What runs where
+
+The model calls, the tools, the workspace, the MCP servers, the hooks and the subagents run on the node, with the node's providers and keys. The client renders the transcript and answers the prompts. A permission or a question the node raises travels back through every hop to the client that started the turn and is answered there, in the console, the editor or the browser alike.
+
+Trust is decided on the node. A project MCP server, a hooks file or a subagent definition that arrives with a checkout on the node is approved on that host, with the CLI there (`coddy hooks trust ...`) or over the mount with the token (`POST /swarm/nodes/node-a/coddy/hooks/trust`); the local subcommands do not take `--remote` ([Security and trust](../operate/security.md)).
+
+## 6. Credentials and encryption
+
+One credential opens the fleet: whoever holds the relay's client token controls every node the relay reaches, transitively through every hop. There are no per-node client permissions in this version, so a client token is a fleet-wide door and is handled as one: minted per relay, rotated by restarting the relay with a new value, and never sent over plain HTTP outside a private network.
+
+The relay speaks TLS when `swarm.tls` names a certificate and a key ([Encryption and proxies](../operate/swarm.md#encryption-and-proxies)); a node never needs TLS of its own, because it is reached only through its tunnel to the relay. Without TLS, reach the relay through an SSH tunnel and keep the address on loopback:
+
+```bash
+ssh -N -L 12346:127.0.0.1:12346 relay-host      # in one terminal
+coddy --remote http://127.0.0.1:12346/swarm/nodes/node-a --remote-token "$T"
+```
+
+## What tends to go wrong
+
+- **`--remote` is refused before connecting.** The target must be a bare origin plus a path prefix: no query string, no fragment, no credentials in the URL. The token goes into `--remote-token` or `CODDY_REMOTE_TOKEN`.
+- **`401` on every request.** A node's own token was used where the relay's client token belongs. Through a mount you present the relay's token; the relay presents the node's.
+- **The status dot in a browser stays red with a correct token.** The web UI was opened from another `coddy serve`, and that relay does not list the page's origin in `swarm.cors.allowed_origins`. Open the relay's own address instead, or allow the origin.
+- **`/permissions` and `--permission-mode` are rejected.** The permission mode is the node's; a remote client cannot change it. `/mode` still picks agent, plan or ask per turn.
+- **The transcript stops mid-turn after the laptop lost the network.** The turn keeps running on the node; `/resume` or `-c` shows the outcome once it ends, and an answer to a prompt the node has already withdrawn is ignored.
+- **A second client gets `409` on the same session.** A session is one turn at a time; the first client holds the lock until its turn ends.
 
 
 # Contributing / Contributing guide
@@ -11247,7 +11691,7 @@ How the documentation under `docs/` is organised, what a change to Coddy must ca
 | `docs/operate/` | Running it as a service, remote mode, swarm, scheduler, security | Operator guides |
 | `docs/features/` | One page per capability: modes, sessions, rules, skills, subagents, hooks, MCP, background tasks, compaction, memory, export | Feature pages |
 | `docs/reference/` | Complete lists: CLI, `config.yaml`, environment variables, slash commands, keyboard, tools, HTTP API, ACP | Reference pages, generated where the code is the source of truth |
-| `docs/recipes.md` | Task-shaped guides that combine features | Recipes |
+| `docs/tutorials/` | Task-shaped guides, one page per tutorial | Tutorials |
 | `docs/contributing/` | How Coddy is built, tested, designed and documented | Contributor pages |
 | `docs/plans/` | Design records, decisions as they were taken | Frozen: not rewritten to match a later rename |
 | `docs/assets/` | What the pages embed: screenshots, videos, brand files | See [the assets index](../assets/INDEX.md) |
@@ -11268,7 +11712,7 @@ Every page starts with `# <title>` (the title from `nav.yaml`), then one lead pa
 
 **Reference page** (`docs/reference/`): a lead paragraph and tables. Generated blocks sit between `<!-- docsgen:NAME:start -->` and `<!-- docsgen:NAME:end -->` markers; the prose around them is hand-written and survives regeneration. Never edit inside the markers.
 
-**Recipe** (`docs/recipes.md`): a goal, numbered steps with the exact commands and YAML, links to the feature pages for the details.
+**Tutorial** (`docs/tutorials/<name>.md`): one task from the goal to a working result. The page states the goal and the environment it assumes, numbers the steps with the exact commands and YAML to copy, ends with a check that proves the result, and lists what tends to go wrong; it links to the feature pages for the reasons and the reference for the details.
 
 ## What a change must carry
 
@@ -13838,7 +14282,7 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 
 ## Documentation contract
 
-The documentation is the tree under **`docs/`**, mapped by **`docs/nav.yaml`**: `getting-started/`, `surfaces/`, `operate/`, `features/`, `reference/`, `contributing/`, `plans/` (design records, never rewritten to match a later rename), `recipes.md`, and `docs/assets/` for everything a page embeds. **`docs/README.md`** (the hub), **`docs/llms.txt`**, **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`** are generated by **`internal/docsgen`** (`make docs`); **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for commits that touch the docs) fails on a stale generated block, a page missing from the map, a broken relative link or anchor, and an asset no page uses. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`** from the GitHub Releases. The full guide, page types included, is **`docs/contributing/documentation.md`**.
+The documentation is the tree under **`docs/`**, mapped by **`docs/nav.yaml`**: `getting-started/`, `surfaces/`, `operate/`, `features/`, `reference/`, `contributing/`, `plans/` (design records, never rewritten to match a later rename), `tutorials/`, and `docs/assets/` for everything a page embeds. **`docs/README.md`** (the hub), **`docs/llms.txt`**, **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`** are generated by **`internal/docsgen`** (`make docs`); **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for commits that touch the docs) fails on a stale generated block, a page missing from the map, a broken relative link or anchor, and an asset no page uses. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`** from the GitHub Releases. The full guide, page types included, is **`docs/contributing/documentation.md`**.
 
 A change to Coddy carries its documentation in the same pull request (workflow step 10 in **`.claude/rules/workflow.md`**): a new capability gets its page, its `nav.yaml` entry and its row in the reference of its kind (`tools.md`, `slash-commands.md`, `environment-variables.md`, `keyboard.md`); a changed behaviour updates the page that describes it (`git grep -n '<key or command>' docs/`); a web UI or console feature is shown with a screenshot of the real surface embedded on its page, Dark 1280 wide, named `<feature>-<state>-<theme>-<width>.png` under `docs/assets/<page>/`; a demo video goes to `docs/assets/video/` and is embedded on the page as a GitHub attachment URL with the repository copy linked under it (Videos in `docs/contributing/documentation.md`). Screenshots that only prove a pull request stay in the pull request. A page that moves takes its address with it: there are no redirect stubs. Every page of the map also has a stable address on **coddy.dev**: `coddy.dev/docs/<slug>` sends a person to the page on GitHub and `coddy.dev/docs/<slug>.md` to its raw Markdown (one generated script behind the site's `404.html`, nothing duplicated), while `llms.txt` and `llms-full.txt` at the site root index the raw Markdown on `main`; the binary, the schema and the bundled skill print those addresses and nothing else. **`make site-docs`** renders the layer into the site checkout and **`make site-docs-check`** reports drift - a change to a page, to `nav.yaml` or to the schema is published to the site with the same pull request (workflow step 8).
 
