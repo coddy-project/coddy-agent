@@ -40,9 +40,9 @@ export const PROJECT_TRUST_OPTIONS: Array<{
 
 export type MCPServerRow = {
   name: string;
-  /** Scope: global (config.yaml or ~/.coddy/mcp.json) or local (./.coddy/mcp.json). */
+  /** Scope: global (config.yaml or the agent home's mcp.json) or local (./.coddy/mcp.json). */
   source: MCPScope;
-  /** Owning file: config (config.yaml), home (~/.coddy/mcp.json), project (./.coddy/mcp.json). */
+  /** Owning file: config (config.yaml), home (the agent home's mcp.json), project (./.coddy/mcp.json). */
   origin: "config" | "home" | "project";
   /** True for config.yaml entries: toggle-only here, edited in the config sections. */
   readonly?: boolean;
@@ -124,7 +124,16 @@ export function declarationFacts(
 }
 
 /** Human name of the file that owns a row's definition (badge tooltips). */
-export function originLabel(origin: MCPServerRow["origin"]): string {
+// The row carries the file the server was actually read from, so prefer it:
+// the agent home is CODDY_HOME, which is not always ~/.coddy (a container, a
+// shared account, a second home for a test stand). The generic label is the
+// fallback for a row the API answered without a path.
+export function originLabel(
+  origin: MCPServerRow["origin"],
+  sourcePath?: string,
+): string {
+  const path = sourcePath?.trim();
+  if (path) return path;
   switch (origin) {
     case "config":
       return translate("mcp.origin.config");
@@ -133,6 +142,20 @@ export function originLabel(origin: MCPServerRow["origin"]): string {
     default:
       return translate("mcp.origin.project");
   }
+}
+
+// globalMCPPath names the user-global mcp.json for a surface that has no row
+// to ask - the editor picking a scope for a server that does not exist yet.
+// One of the listed rows knows the real file when the agent home holds any
+// server; otherwise the default location is the answer, since the browser
+// cannot resolve CODDY_HOME itself. That fallback is the only place a path is
+// guessed, and a row with a source_path always wins over it.
+export function globalMCPPath(rows: MCPServerRow[]): string {
+  for (const row of rows) {
+    const path = row.origin === "home" ? row.source_path?.trim() : "";
+    if (path) return path;
+  }
+  return "~/.coddy/mcp.json";
 }
 
 // Prefill for the "Add server" editor, mirroring Cursor's snippet.

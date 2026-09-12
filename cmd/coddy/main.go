@@ -541,7 +541,7 @@ func runRules(args []string) error {
 		if len(args) >= 3 && args[1] == "--cwd" {
 			cwd = args[2]
 		}
-		return rules.ListCatalog(cwd, rules.DefaultFactory(), rules.ParseSystems(cfg.Rules.Systems))
+		return rules.ListCatalog(cwd, rules.DefaultFactory(cfg.Paths.Home), rules.ParseSystems(cfg.Rules.Systems))
 	}
 	return fmt.Errorf("usage: %s rules list [--cwd DIR]", os.Args[0])
 }

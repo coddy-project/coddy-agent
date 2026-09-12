@@ -23,6 +23,8 @@ my-project/
 
 2. **Rules in `.coddy/rules/`.** A `.md` file is a Claude Code rule (`paths` gates it, and it is unconditional without them); a `.mdc` file is a Cursor rule (`description`, `globs`, `alwaysApply`). Both dialects are accepted in every rule folder, and `.coddy/rules` wins over `.agents/rules`, `.cursor/rules`, `.claude/rules` and `.codex/rules` when two files share a name ([Rule file formats](../features/rules.md#rule-file-formats)). A gated rule enters the prompt the first time a matching file is attached or touched by a tool, then sticks for the session.
 
+   Everything in this tutorial is the project talking. What *you* want from every session, in every repository - the language to answer in, the commands you never want run - belongs to you rather than to this checkout: put it in `~/.coddy/AGENTS.md` and `~/.coddy/rules/` instead, where it applies everywhere and nobody else has to agree with it ([Your own instructions and rules](../features/rules.md#your-own-instructions-and-rules)).
+
    ```markdown
    ---
    description: Go coding standards

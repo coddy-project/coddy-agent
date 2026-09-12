@@ -2225,3 +2225,39 @@ func TestFirstTokenGuardDoesNotReplayAfterOutput(t *testing.T) {
 		t.Fatalf("provider called %d times, want %d", provider.calls, want)
 	}
 }
+
+// TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions is the
+// regression Codex found in review: the project AGENTS.md is dropped from
+// {{.Instructions}} because the rules block carries it, so a template under
+// prompts.dir that renders {{.Instructions}} and not {{.Rules}} would end up
+// with neither copy.
+func TestBuildSystemPromptCustomTemplateWithoutRulesKeepsInstructions(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "AGENTS.md"), []byte("PROJECT_DOC_TOKEN"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	promptsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(promptsDir, "agent.md"), []byte("You are Coddy.\n\n{{.Instructions}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	st := &session.State{ID: "t", CWD: tmp, Mode: session.ModeAgent}
+	st.ReplaceRulesCatalog(session.DiscoverRules(&config.Config{}, tmp))
+	cfg := &config.Config{Paths: config.Paths{CWD: tmp}}
+	cfg.Agent.ApplyDefaults()
+	cfg.Prompts.ApplyDefaults()
+	cfg.Instructions.ApplyDefaults()
+	cfg.Prompts.Dir = promptsDir
+	a := NewAgent(cfg, st, nil, nil)
+
+	prompt := a.buildSystemPrompt("agent", nil, nil, "", nil)
+	if n := strings.Count(prompt, "PROJECT_DOC_TOKEN"); n != 1 {
+		t.Fatalf("a template without {{.Rules}} carries the project AGENTS.md %d time(s), want 1:\n%s", n, prompt)
+	}
+
+	// With the built-in template the rules block carries it, exactly once.
+	cfg.Prompts.Dir = ""
+	if n := strings.Count(a.buildSystemPrompt("agent", nil, nil, "", nil), "PROJECT_DOC_TOKEN"); n != 1 {
+		t.Fatalf("the built-in template carries the project AGENTS.md %d time(s), want 1", n)
+	}
+}

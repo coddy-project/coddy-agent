@@ -6,8 +6,9 @@ The agent supports connecting to external MCP (Model Context Protocol) servers, 
 additional tools and resources. MCP servers can be configured at these levels:
 
 1. **Global** (scope `global`) - `mcp_servers` in `config.yaml` and the user-global
-   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`), connected for every
-   session; entries in `~/.coddy/mcp.json` override same-named `config.yaml` entries
+   `~/.coddy/mcp.json` (the analogue of Cursor's `~/.cursor/mcp.json`; in the agent home,
+   so elsewhere if `CODDY_HOME` or `--home` moved it), connected for every
+   session; entries in that file override same-named `config.yaml` entries
 2. **Local** (scope `local`) - `<workspace>/.coddy/mcp.json`, merged over the global list for
    sessions in that workspace; a local entry with the same name overrides the global definition
 3. **Per-session** - provided by the ACP client in `session/new` parameters

@@ -50,14 +50,16 @@ func (r *runner) paths() {
 		}
 	}
 
+	// ${CODDY_HOME} survives the load for the per-session consumers, so a
+	// probe that only expanded ${CWD} would stat a literal placeholder.
 	for i, d := range cfg.Skills.Dirs {
-		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), config.ExpandCWD(d, cwd))
+		r.readableDir(fmt.Sprintf("skills.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
 	}
 	for i, d := range cfg.Subagents.Dirs {
-		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), config.ExpandCWD(d, cwd))
+		r.readableDir(fmt.Sprintf("subagents.dirs[%d]", i), config.ExpandPathVars(d, r.req.Paths))
 	}
 	for i, f := range cfg.Hooks.Files {
-		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandCWD(f, cwd))
+		r.hookFile(fmt.Sprintf("hooks.files[%d]", i), config.ExpandPathVars(f, r.req.Paths))
 	}
 
 	if cfg.SchedulerEffectiveEnabled() && strings.TrimSpace(cfg.Scheduler.Dir) != "" {
