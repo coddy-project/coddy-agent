@@ -29,6 +29,12 @@ import (
 // the same turn as the contract those clients implement. It is a view, not a mode:
 // the bridge still writes the whole coddy stream, so a relay behind a teeSSEWriter -
 // and every watcher on it - sees exactly what it saw before.
+//
+// The bridge's own chunks carry a delta and nothing else - no finish_reason, no
+// empty choices, no role - and the filter is what turns them into a completion
+// with exactly one finish. Should a chunk ever arrive already finished, that
+// finish is the completion's and none is added; a chunk with no choice at all is
+// not a chunk and is dropped.
 type openAIStreamFilter struct {
 	http.ResponseWriter
 
@@ -45,7 +51,14 @@ type openAIStreamFilter struct {
 	pending bytes.Buffer
 	// opened is set once the assistant role chunk has been written.
 	opened bool
-	// done is set once [DONE] has been forwarded; nothing follows it.
+	// finished is set once a forwarded choice carried a finish_reason, so the
+	// completion is not finished a second time on [DONE].
+	finished bool
+	// errored is set once an error frame went to the client: the turn ended on
+	// that error, and [DONE] must not dress it up as a finished choice.
+	errored bool
+	// done is set once [DONE] has been forwarded or a write failed; nothing
+	// follows either.
 	done bool
 	// stopReason is the ACP stop reason read off coddy_meta, "" until then.
 	stopReason string
@@ -69,26 +82,30 @@ func newOpenAIStreamFilter(w http.ResponseWriter, model string, includeUsage boo
 // Write consumes bridge bytes and emits the client's frames. The bridge writes one
 // frame per call today, but the filter never relies on it: frames are cut on the
 // blank line that ends them, whatever the write boundaries.
+//
+// Every byte of p is accepted into the pending buffer before anything is emitted,
+// so the count returned is always len(p): a failed emission is reported through
+// err, closes the stream, and is never something a caller could retry by writing
+// the same bytes again.
 func (f *openAIStreamFilter) Write(p []byte) (int, error) {
 	if f.done {
 		return len(p), nil
 	}
 	f.pending.Write(p)
-	for {
+	for !f.done {
 		raw := f.pending.Bytes()
 		end := bytes.Index(raw, []byte("\n\n"))
 		if end < 0 {
-			return len(p), nil
+			break
 		}
 		frame := string(raw[:end])
 		f.pending.Next(end + 2)
 		if err := f.frame(frame); err != nil {
-			return 0, err
-		}
-		if f.done {
-			return len(p), nil
+			f.done = true
+			return len(p), err
 		}
 	}
+	return len(p), nil
 }
 
 // Flush lets the bridge flush after every frame, the way it does on a bare
@@ -126,11 +143,15 @@ func (f *openAIStreamFilter) frame(frame string) error {
 	}
 	if gjson.Get(data, "error").Exists() {
 		// An OpenAI client surfaces this as an API error; it is the one non-chunk
-		// data frame the contract allows.
+		// data frame the contract allows, and it is how the turn ends.
+		f.errored = true
 		return f.emit("data: " + data)
 	}
-	if !gjson.Get(data, "choices").IsArray() {
-		// Nothing an OpenAI client can do with a data frame that is not a chunk.
+	choices := gjson.Get(data, "choices")
+	if !choices.IsArray() || len(choices.Array()) == 0 {
+		// Nothing an OpenAI client can do with a data frame that carries no
+		// choice; the usage chunk, the one such frame the contract has, is the
+		// filter's own to write.
 		return nil
 	}
 	return f.chunk(data)
@@ -175,8 +196,11 @@ func (f *openAIStreamFilter) chunk(data string) error {
 		if !ok {
 			continue
 		}
-		if _, has := choice["finish_reason"]; !has {
+		reason, has := choice["finish_reason"]
+		if !has {
 			choice["finish_reason"] = nil
+		} else if reason != nil {
+			f.finished = true
 		}
 	}
 	line, err := json.Marshal(payload)
@@ -197,14 +221,22 @@ func (f *openAIStreamFilter) open() error {
 	return f.emitChunk(map[string]any{"role": "assistant", "content": ""}, nil)
 }
 
-// finish writes what precedes [DONE]: the chunk that finishes the choice, then the
-// usage chunk when the client asked for one.
+// finish writes what precedes [DONE]: the chunk that finishes the choice, unless
+// a forwarded chunk already did, then the usage chunk when the client asked for
+// one. A turn that ended on an error frame gets neither: the error is its end,
+// and a finished choice after it would read as a successful answer.
 func (f *openAIStreamFilter) finish() error {
+	if f.errored {
+		return nil
+	}
 	if err := f.open(); err != nil {
 		return err
 	}
-	if err := f.emitChunk(map[string]any{}, openAIFinishReason(f.stopReason)); err != nil {
-		return err
+	if !f.finished {
+		if err := f.emitChunk(map[string]any{}, openAIFinishReason(f.stopReason)); err != nil {
+			return err
+		}
+		f.finished = true
 	}
 	if !f.includeUsage {
 		return nil

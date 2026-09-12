@@ -17,6 +17,7 @@ Feature: POST /v1/chat/completions streams the contract an OpenAI client parses
     And the stream opens with an assistant role chunk
     And every chunk carries a finish_reason field
     And the last chunk before [DONE] finishes with "stop"
+    And exactly one chunk finishes the choice
     And the stream carries no named SSE events
     And the streamed reasoning "Thinking it over." survives as reasoning_content
 
@@ -25,6 +26,7 @@ Feature: POST /v1/chat/completions streams the contract an OpenAI client parses
     When an OpenAI client streams "agent" over POST /v1/chat/completions
     Then the client assembles the answer "Hi there."
     And the last chunk before [DONE] finishes with "stop"
+    And exactly one chunk finishes the choice
     And the stream carries no named SSE events
 
   Scenario: A client that asks for usage is given a final usage chunk

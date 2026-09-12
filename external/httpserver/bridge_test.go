@@ -5,6 +5,8 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -437,5 +439,81 @@ func TestOpenAIStreamFilter_RelayBehindTheTeeKeepsTheCoddyStream(t *testing.T) {
 	}
 	if got := client.Body.String(); strings.Contains(got, "event:") || !strings.Contains(got, `"finish_reason":"stop"`) {
 		t.Fatalf("client did not get the strict view:\n%s", got)
+	}
+}
+
+func TestOpenAIStreamFilter_AForwardedFinishIsTheOnlyFinish(t *testing.T) {
+	// The bridge never finishes a choice itself; should a chunk ever arrive
+	// already finished, the completion ends there and [DONE] adds no second finish.
+	frames := openAIFilterFrames(t, false,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":"stop"}]}`+"\n\n",
+		"data: [DONE]\n\n")
+	finished := 0
+	for _, fr := range frames {
+		if strings.Contains(fr, `"finish_reason":"stop"`) {
+			finished++
+		}
+	}
+	if finished != 1 {
+		t.Fatalf("%d finishing frames, want one:\n%s", finished, strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIStreamFilter_AFrameWithoutAChoiceIsNotAChunk(t *testing.T) {
+	// Empty choices is the shape of a provider's usage frame; the client's usage
+	// frame is the filter's own, so such a frame neither opens the message nor
+	// reaches the client.
+	frames := openAIFilterFrames(t, false,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`+"\n\n",
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m"}`+"\n\n",
+		"data: [DONE]\n\n")
+	for _, fr := range frames {
+		if strings.Contains(fr, `"usage"`) || strings.Contains(fr, `"choices":[]`) {
+			t.Fatalf("a frame without a choice reached the client: %s", fr)
+		}
+	}
+	if len(frames) != 3 {
+		t.Fatalf("got %d frames, want role, finish and [DONE]:\n%s", len(frames), strings.Join(frames, "\n"))
+	}
+}
+
+func TestOpenAIStreamFilter_AnErrorEndsTheTurnWithoutAFinishedChoice(t *testing.T) {
+	// The agent path writes an error frame and then [DONE]; a finished choice
+	// after the error would read as a successful answer to an OpenAI client.
+	frames := openAIFilterFrames(t, true,
+		`data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":7,"model":"local/m","choices":[{"index":0,"delta":{"content":"Hi"}}]}`+"\n\n",
+		`data: {"error":{"message":"boom"}}`+"\n\n",
+		"data: [DONE]\n\n")
+	want := []string{
+		`data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		`data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl-1","model":"local/m","object":"chat.completion.chunk"}`,
+		`data: {"error":{"message":"boom"}}`,
+		"data: [DONE]",
+	}
+	if strings.Join(frames, "|") != strings.Join(want, "|") {
+		t.Fatalf("frames:\n%s\nwant:\n%s", strings.Join(frames, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// failingResponseWriter fails every write, the way a client that hung up does.
+type failingResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (failingResponseWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestOpenAIStreamFilter_AFailedWriteReportsTheBytesItTookAndClosesTheStream(t *testing.T) {
+	f := newOpenAIStreamFilter(failingResponseWriter{httptest.NewRecorder()}, "local/m", false)
+	frame := []byte(`data: {"choices":[{"index":0,"delta":{"content":"Hi"}}]}` + "\n\n")
+	n, err := f.Write(frame)
+	if err == nil {
+		t.Fatal("a failed emission must surface as an error")
+	}
+	if n != len(frame) {
+		t.Fatalf("Write reported %d bytes, want the %d it consumed", n, len(frame))
+	}
+	// The stream is closed: a later frame is swallowed rather than retried.
+	if n, err := f.Write([]byte("data: [DONE]\n\n")); err != nil || n != len("data: [DONE]\n\n") {
+		t.Fatalf("after a failure Write = (%d, %v), want the bytes accepted silently", n, err)
 	}
 }

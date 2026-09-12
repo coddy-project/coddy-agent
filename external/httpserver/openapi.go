@@ -93,7 +93,7 @@ func openAPISpec() map[string]interface{} {
 					},
 					"responses": map[string]interface{}{
 						"200": map[string]interface{}{
-							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, the last one `stop`, an optional usage chunk, then `data: [DONE]`.",
+							"description": "Completion JSON, or the strict OpenAI SSE stream: `chat.completion.chunk` lines only, every choice carrying `finish_reason`, exactly one of them non-null (`stop`, or `length` for a turn cut by `max_turns` / `max_tokens`), an optional usage chunk, then `data: [DONE]`.",
 							"content": map[string]interface{}{
 								"application/json": map[string]interface{}{
 									"schema": map[string]interface{}{
@@ -2657,7 +2657,7 @@ func openAPISpec() map[string]interface{} {
 							"type":  "array",
 							"items": map[string]interface{}{"$ref": "#/components/schemas/OpenAIMessage"},
 						},
-						"stream":      map[string]string{"type": "boolean"},
+						"stream": map[string]string{"type": "boolean"},
 						"stream_options": map[string]interface{}{
 							"type":        "object",
 							"description": "OpenAI stream options. `include_usage: true` appends a chunk with an empty `choices` array and the turn's `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`) after the choice finishes. Streamed responses only.",

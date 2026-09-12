@@ -290,6 +290,19 @@ func (s *openAIStreamCompatState) lastChunkBeforeDoneFinishesWith(reason string)
 	return fmt.Errorf("no chunk with a choice on the stream: %s", s.sseBody)
 }
 
+func (s *openAIStreamCompatState) exactlyOneChunkFinishesTheChoice() error {
+	finished := 0
+	for _, c := range s.chunks() {
+		if gjson.Get(c, "choices.0.finish_reason").Type == gjson.String {
+			finished++
+		}
+	}
+	if finished != 1 {
+		return fmt.Errorf("%d chunks carry a non-null finish_reason, want exactly one:\n%s", finished, s.sseBody)
+	}
+	return nil
+}
+
 func (s *openAIStreamCompatState) streamCarriesNoNamedEvents() error {
 	for _, f := range s.frames {
 		if f.event != "" {
@@ -375,6 +388,7 @@ func initializeOpenAIStreamCompatScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the stream opens with an assistant role chunk$`, s.streamOpensWithAssistantRoleChunk)
 	sc.Step(`^every chunk carries a finish_reason field$`, s.everyChunkCarriesFinishReason)
 	sc.Step(`^the last chunk before \[DONE\] finishes with "([^"]+)"$`, s.lastChunkBeforeDoneFinishesWith)
+	sc.Step(`^exactly one chunk finishes the choice$`, s.exactlyOneChunkFinishesTheChoice)
 	sc.Step(`^the stream carries no named SSE events$`, s.streamCarriesNoNamedEvents)
 	sc.Step(`^the stream carries named SSE events$`, s.streamCarriesNamedEvents)
 	sc.Step(`^the stream ends with coddy_meta before \[DONE\]$`, s.streamEndsWithCoddyMeta)
