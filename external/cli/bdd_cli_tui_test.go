@@ -1080,12 +1080,39 @@ func (s *cliTUIState) localShellBlockShowsOutput(text string) error {
 	for time.Now().Before(deadline) {
 		for _, line := range s.app.screen.Snapshot() {
 			if strings.TrimSpace(tui.StripTerminalSequences(line)) == text {
-				return nil
+				return s.localShellCommandFinished(deadline)
 			}
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
 	return fmt.Errorf("no row held the command output %q; last frame:\n%s", text, s.screenText())
+}
+
+// localShellCommandFinished waits for the block's "running" row to go. The
+// output reaches the screen one poll before the exit does, and until the
+// localShellDone update lands the console still refuses a prompt with "A local
+// command is running" - which is how the next step of the `!!` scenario used
+// to fail on a slow runner. A clean exit paints no status row at all, so the
+// running label vanishing is the signal.
+func (s *cliTUIState) localShellCommandFinished(deadline time.Time) error {
+	const running = "running (escape to stop)"
+	for {
+		seen := false
+		for _, line := range s.app.screen.Snapshot() {
+			plain := tui.StripTerminalSequences(line)
+			if strings.Contains(plain, running) && !strings.Contains(plain, "A local command is running") {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the local command still shows %q; last frame:\n%s", running, s.screenText())
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
 }
 
 // noAgentTurnReceived proves the private half of the feature: no prompt the
