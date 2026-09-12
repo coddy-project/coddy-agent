@@ -25,6 +25,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tidwall/gjson"
+
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/bgtask"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
@@ -3853,10 +3855,49 @@ func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
 	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[` + parts + `]}]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 16 images") {
 		t.Fatalf("too many images: %d %s", code, body)
 	}
-	old := maxImagePartBytes
-	maxImagePartBytes = 16 // the test picture is 26 bytes of data URL
-	defer func() { maxImagePartBytes = old }()
-	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[` + image + `]}]}`); code != http.StatusBadRequest || !strings.Contains(body, "exceeds 16 bytes") {
-		t.Fatalf("huge image: %d %s", code, body)
+	// The picture bound is checked on the parser: a request that size is not
+	// worth building for the round trip.
+	huge := `[{"type":"image_url","image_url":{"url":"data:image/png;base64,` + strings.Repeat("A", maxImagePartBytes) + `"}}]`
+	if _, _, err := openAIContent(json.RawMessage(huge)); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("huge image: err = %v", err)
 	}
+}
+
+func TestChatCompletionsToolCallsFinishOnThemWhateverTheProviderSaid(t *testing.T) {
+	// Some servers say stop next to their tool_calls; the client must still
+	// see finish_reason tool_calls, or it would not run them.
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return stopSayingToolProvider{}, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	body := `{"model":"openai/gpt-4o","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather"}}],"stream":%v}`
+	res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(fmt.Sprintf(body, false)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := ioReadAllClose(res.Body)
+	if got := gjson.GetBytes(b, "choices.0.finish_reason").String(); got != "tool_calls" {
+		t.Fatalf("JSON finish_reason = %q: %s", got, b)
+	}
+	res, err = http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(fmt.Sprintf(body, true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = ioReadAllClose(res.Body)
+	if !strings.Contains(string(b), `"finish_reason":"tool_calls"`) {
+		t.Fatalf("stream never finished on tool_calls:\n%s", b)
+	}
+}
+
+// stopSayingToolProvider returns a tool call under a stop reason of end_turn.
+type stopSayingToolProvider struct{}
+
+func (stopSayingToolProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "get_weather", InputJSON: `{}`}}, StopReason: "end_turn"}, nil
+}
+
+func (p stopSayingToolProvider) Stream(ctx context.Context, m []llm.Message, t []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, _ := p.Complete(ctx, m, t)
+	onChunk(llm.StreamChunk{ToolCall: &resp.ToolCalls[0]})
+	return resp, nil
 }

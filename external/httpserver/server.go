@@ -399,9 +399,8 @@ const (
 	maxImagePartsPerMessage  = 16
 )
 
-// maxImagePartBytes bounds one image_url payload; a variable so a test can
-// lower it without building a 20 MiB request.
-var maxImagePartBytes = 20 << 20
+// maxImagePartBytes bounds one image_url payload.
+const maxImagePartBytes = 20 << 20
 
 // dropImageParts strips the pictures off a history bound for a model that
 // takes none.
@@ -449,6 +448,17 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prefix := msgs[:len(msgs)-1]
+	// A direct model takes the client's tools; they are checked here, before a
+	// session is created or touched, so a refused tool list leaves nothing
+	// behind. A profile turn never reads them.
+	var clientTools []llm.ToolDefinition
+	if !httpModelIsCoddyProfile(model) {
+		clientTools, err = openAIToolsToLLM(req.Tools, req.ToolChoice)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+			return
+		}
+	}
 
 	ctx := r.Context()
 	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
@@ -604,11 +614,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
-	clientTools, err := openAIToolsToLLM(req.Tools, req.ToolChoice)
-	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
-		return
-	}
 	if !configuredModelMultimodal(s.activeCfg(), model) {
 		dropImageParts(prefix)
 		last.ImageParts = nil
@@ -650,10 +655,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := metadataResponse(s.activeCfg(), model)
-	if directRes != nil && directRes.StopReason != "" {
+	if stop := directStopReason(directRes); stop != "" {
 		// The strict stream finishes its choice with this: tool_use becomes
 		// finish_reason tool_calls, max_tokens becomes length.
-		meta["stop_reason"] = directRes.StopReason
+		meta["stop_reason"] = stop
 	}
 	if req.Stream {
 		_ = bridge.FinishStreamWithMetadata(meta)
@@ -663,7 +668,7 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		"role":    "assistant",
 		"content": lastAssistantContent(st),
 	}
-	finish := "stop"
+	finish := openAIFinishReason(directStopReason(directRes))
 	if directRes != nil {
 		if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
 			message["tool_calls"] = calls
@@ -671,7 +676,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				message["content"] = nil
 			}
 		}
-		finish = openAIFinishReason(directRes.StopReason)
 	}
 	resp := map[string]interface{}{
 		"id":       bridge.ChatID(),
@@ -878,6 +882,20 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 		out = append(out, llm.ToolDefinition{Name: name, Description: t.Function.Description, InputSchema: schema})
 	}
 	return out, nil
+}
+
+// directStopReason is why a direct completion ended. An answer that carries tool
+// calls ended on them whatever the provider called it - some servers say stop
+// next to their tool_calls - so a client never sees calls under a finish that
+// tells it not to run them.
+func directStopReason(resp *llm.Response) string {
+	if resp == nil {
+		return ""
+	}
+	if len(resp.ToolCalls) > 0 {
+		return "tool_use"
+	}
+	return resp.StopReason
 }
 
 // openAIToolCallsJSON renders a model's tool calls in the shape of an OpenAI
