@@ -1,0 +1,289 @@
+# Architecture: Coddy Agent
+
+## Overview
+
+Coddy is a **distroless-friendly ACP harness** written in Go. At its core it is protocol plumbing
+(STDIO JSON-RPC server, sessions, configuration, MCP wiring) plus a **ReAct** execution loop backed
+by pluggable LLM providers. Ship it as one binary suitable for scratch or distroless images,
+sidecars, CI sandboxes, or local installs.
+
+The default toolset and prompts are tuned so the harness presents as an **interactive coding agent**
+(ACP clients spawn `coddy acp`; users get filesystem, commands, MCP, project rules from `.coddy`/`.cursor`/`.claude`/`.codex` rule trees plus nested `AGENTS.md` files under session cwd, and skills from `skills.dirs`).
+That coding-agent surface is **a productized profile on top of the harness**, not the only way to run Coddy.
+
+## High-Level Architecture
+
+```
+┌──────────────────────────┐   ┌──────────────────────────────────┐
+│   ACP client (editor)    │   │  Messenger (Telegram, …)         │
+│      Zed / scripts       │   │  (build tag: gateway.telegram    │
+└────────────┬─────────────┘   │             or gateway)          │
+             │ JSON-RPC 2.0    └─────────────┬────────────────────┘
+             │ over stdio                    │ long-polling
+             ▼                               ▼
+┌────────────────────────┐    ┌────────────────────────────────────┐
+│   ACP Server Layer     │    │  Gateway Hub (external/gateway/)   │
+│  initialize            │    │  one goroutine per adapter         │
+│  session/new           │    │  auto-restart on error             │
+│  session/prompt        │    └──────────────┬─────────────────────┘
+│  session/cancel        │                   │
+└────────────┬───────────┘                   │
+             │                               │
+             └──────────────┬────────────────┘
+                            │
+                            ▼
+            ┌───────────────────────────────┐
+            │        Session Manager        │
+            │  per-session state, mode,     │
+            │  history, rules, skills       │
+            └───────────────┬───────────────┘
+                            │
+                            ▼
+            ┌───────────────────────────────┐
+            │      ReAct Agent Loop         │
+            │  [THINK] → [ACT] → [OBSERVE]  │
+            │  → loop or [ANSWER]           │
+            └──────┬──────────┬─────────────┘
+                   │          │
+        ┌──────────┘    ┌─────┴──────┐   ┌─────────────┐
+        ▼               ▼            ▼   ▼             │
+   ┌─────────┐    ┌──────────┐ ┌──────────────┐        │
+   │   LLM   │    │  Tools   │ │  MCP Clients │        │
+   │Provider │    │Registry  │ │  (external)  │        │
+   └─────────┘    └──────────┘ └──────────────┘        │
+                                               ┌───────┘
+                                               │
+                                    ┌──────────▼────────────┐
+                                    │  optional external/   │
+                                    │  memory  scheduler    │
+                                    └───────────────────────┘
+```
+
+## Component Descriptions
+
+### ACP Server Layer (`internal/acp`)
+
+Implements the JSON-RPC 2.0 server that speaks the ACP protocol over stdio.
+Handles:
+- `initialize` - version negotiation, capability exchange
+- `session/new` - create session, connect MCP servers, return modes and Session Config Options (model + mode selectors)
+- `session/load` - restore a persisted bundle from disk (**`$CODDY_HOME/sessions`** by default, usually **`~/.coddy/sessions`**), replay history via `session/update`
+- `session/list` - enumerate persisted sessions (ACP `sessionCapabilities.list`)
+- `session/prompt` - receive user message, start ReAct loop
+- `session/cancel` - cancel in-progress turn
+- `session/set_mode` - switch between `agent`, `plan`, and `ask` modes (legacy, kept in sync with config options)
+- `session/set_config_option` - change mode or model for the session (preferred ACP API)
+
+### Session Manager (`internal/session`)
+
+Maintains the state for each conversation session:
+- Conversation history (messages, tool results)
+- Current operating mode (`agent` / `plan` / `ask`)
+- Optional model override per session (when the user selects a model via ACP)
+- Connected MCP server clients
+- Working directory
+- Active context (skills + project rules in separate prompt sections)
+- In-memory plan entries for todo tools (**`session.Plan`**), mirrored to **`todos/active.md`** when persistence is enabled (**`filesystem.go`**)
+- Child sessions for subagent runs (**`sub_<hex>`** ids, **`subagent.go`**): **`CreateSubagentSession`**, **`RunSubagentTurn`** and **`RetireSubagentSession`** implement **`agent.SubagentRuntime`**, so a child is created, run for its one turn and retired through the manager, never built inside the agent. Every other prompt path against a child answers **`ErrSubagentReadOnly`** (**409** over HTTP); **`ListSnapshotsWith(ListOptions{IncludeSubagents: true})`** is the only listing that shows children; **`SessionTree`** / **`DeleteSessionTree`** remove a parent together with its descendants, stopping their tasks first. See **`docs/features/subagents.md`**.
+
+### ReAct Agent Loop (`internal/agent`)
+
+The core reasoning engine (**`react.go`**):
+
+1. Loads tool definitions from **`internal/tooling.Registry.AllToolDefinitions`**, applies the session **`ToolSet`** from **`internal/agent/toolsets.go`** (empty set means no filter), then appends MCP tool definitions from connected servers when the mode is **`agent`** or **`plan`** (never in **`ask`** mode). In **`ask`** mode a call that names a filtered-out tool (for example one replayed from history) is also refused at execution time.
+2. Builds the system prompt from **`internal/prompts.Render`**: embedded defaults or files under **`prompts.dir`** named by **`prompts.agent_prompt`**, **`prompts.plan_prompt`**, and **`prompts.ask_prompt`** (defaults **`agent.md`**, **`plan.md`**, and **`ask.md`**). Template data includes **`CWD`**, tools markdown, skills markdown, rules markdown (**`{{.Rules}}`** via **`internal/rules`**), optional **`TodoList`** and **`Memory`**, plus **`UTCNow`** (RFC3339 UTC refreshed on every render). Coddy then appends an **`<environment_context>`** block containing **`<os>`**, **`<arch>`**, and the detected **`<shell>`**, even when a custom prompt template is used.
+3. Prepends that system message to the session message list and appends the newest user turn.
+4. **Before every LLM invocation** inside one **`session/prompt`**, refreshes the **`system` message content** so **`TodoList`** and other template fields match state after prior tool calls in the same episode.
+5. Streams the LLM response, executes tool calls (each one passing through the operator hooks of **`internal/hooks`**: `PreToolUse` before the permission gate, `PostToolUse` or `PostToolUseFailure` after the tool), appends assistant and tool messages.
+6. Loops until there are no tool calls, **`max_turns`** is exceeded, the loop guard stops a runaway turn, or cancellation.
+6a. Loop guard (**`agent.loop_guard`**, on by default, **`internal/agent/loopguard.go`**): a streamed channel that degenerates into repeating the same passage has its stream cancelled and the repeated run stripped from the stored message, and a tool call repeated with identical canonical arguments stops being executed. The model is nudged to change course up to **`agent.loop_nudge_max`** times, after which the turn ends with **`StopReasonRefused`** and a UI notice.
+6b. Lane replays (**`internal/agent/react.go`**): one model name at a proxy is usually a group of interchangeable deployments, and a sick member fails per attempt rather than per conversation. Two failures are therefore answered by re-issuing the identical request before anything else is tried. A streamed call the first-token guard cut with **nothing produced** is replayed once (**`maxFirstTokenRetries`**); the iteration is not counted, and the replay is safe by construction because no chunk reached the client and no message was appended. A turn that ends with neither answer text nor a tool call is replayed once as well (**`maxEmptyAssistantReissues`**), with the empty assistant turn dropped from the LLM-facing message slice so the request is byte for byte the one that failed - the transcript keeps it, because the user watched its reasoning stream in. Only after a replay has not helped does the model get the wording nudge (**`maxEmptyAssistantContinuations`**), and only after that does the turn end with **`StopReasonRefused`**. Both budgets reset once the model makes progress.
+7. On **`session/cancel`** (or HTTP **`POST /coddy/sessions/{id}/cancel`**) while the LLM stream is active, stream providers return **`context.Canceled`** together with any **`Response`** body accumulated so far; **`react.go`** appends that assistant **`content`** to session history when non-empty, then ends the turn with **`StopReasonCancelled`**. **`GET /coddy/sessions/{id}/messages`** can briefly trail that append until the filesystem bundle is read again.
+
+### LLM Provider (`internal/llm`)
+
+Abstracted interface for LLM backends. Configured via `config.yaml`.
+
+Every error a provider returns is prefixed with the **`providers[].name`** it came from and the address that request actually reached (**`provider_label.go`**), because the address is not always the one the user has in mind - **`type: openai`** with no **`api_base`** talks to **`https://api.openai.com/v1`**. The label sits outside the resilient wrapper, so retry classification still reads the untouched upstream error, and it wraps rather than replaces the cause, so **`errors.Is`** and **`errors.As`** keep working.
+
+Supported backends (see **`docs/getting-started/configuration.md`** for shapes):
+- OpenAI and OpenAI-compatible HTTP APIs (**`type: openai`**)
+- Anthropic (**`type: anthropic`**)
+- Ollama and other local OpenAI-compatible stacks (**`api_base`**)
+
+### Tools Registry (`internal/tools`)
+
+The **tool types and registry mechanics** live in **`internal/tooling`** (`Tool`, `Env`,
+`Registry`, JSON `ParseArgs`, **`AllToolDefinitions`**). The **`internal/tools`** package is the
+composition root (`NewRegistry` wires everything) and exposes the same APIs via type aliases so
+call sites such as **`internal/agent`** keep importing **`tools`** only.
+
+- **`internal/tools/web`** - **`websearch`** (DuckDuckGo text search) and **`webfetch`** (fetch public `http(s)` pages, readability + Markdown; SSRF guards)
+
+Built-in implementations are grouped in subfolders under **`internal/tools/`**:
+
+- **`internal/tools/fs`** - path helpers (`paths.go` with `ResolvePath`, `CheckInsideCWD`,
+  `PathEscapesCWD`, `ToolPathsEscapeCWD`) and tools (`read.go` **`read`**, **`glob.go`** **`glob`**,
+  **`grep.go`** **`grep`**, **`print_tree.go`** **`print_tree`** (directory tree, read-only),
+  **`write.go`** **`write`**, **`edit.go`** **`edit`**, **`patch.go`**
+  **`apply_patch`**, **`mkdir`**, **`rmdir`**, **`touch`**, **`rm`**, **`mv`**).
+  **`grep`** uses a system **`rg`** when one is available (the pattern is passed to it untouched)
+  and otherwise falls back to the built-in Go walker/matcher in **`search.go`**. **`glob`** uses
+  the same built-in walker when **`rg`** is unavailable, so filesystem discovery also works in
+  Windows and distroless binaries without sidecar executables.
+- **`internal/platform`** - shared host shell detection: **`pwsh` → `powershell` → `cmd`** on Windows and **`bash` → `sh`** elsewhere; also renders the prompt environment context.
+- **`internal/tools/shell`** - **`run_command`**, bound to the shared detected shell and documented to the model with platform-appropriate command examples.
+- **`internal/tools/todo`** - todo/plan list (**`coddy_todo_plan_read`**, **`coddy_todo_plan_replace`**,
+  **`coddy_todo_plan_archive`**, **`coddy_todo_item_add`**, **`coddy_todo_item_remove`**,
+  **`coddy_todo_item_update`**, **`coddy_todo_item_move`**)
+- **`internal/tools/spawn_agent.go`** - **`spawn_agent`**, delegation of a self-contained task to a subagent
+  (registered when **`subagents.enable`**). The tool only forwards to the **`tooling.Env.SpawnAgent`** hook
+  that **`internal/agent`** wires, so the registry stays below the session layer; the runtime, the project
+  trust check and the child session live in **`internal/agent/subagent.go`**, **`internal/subagents`** and
+  **`internal/session`**. See **`docs/features/subagents.md`**.
+
+**Tool exposure** - **`internal/agent/toolsets.go`** defines a **`ToolSet`** name allowlist per mode. An **empty** `ToolSet` means **no filtering** (all tools registered in the session registry, plus MCP definitions). **Plan** mode uses a fixed allowlist on **registry** builtins (**`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`**, and the read-only background, config, plan and skill tools listed in that file), then MCP tools from connected servers are appended the same way as in agent mode. **Ask** mode uses a smaller read-only allowlist with no shell, no plan, config or MCP tools and no **`spawn_agent`**. A session that is itself a subagent run is filtered once more to the tool set the runtime computed for it, in agent and plan mode alike.
+
+Agents see:
+
+- **`agent`** mode - every built-in registered by **`internal/tools.NewRegistryFor`** (filesystem, shell, todo, optional scheduler tools, **`websearch`**, **`webfetch`**, **`question`**, **`plan_exit`**, **`spawn_agent`**, etc.) plus MCP tools from connected servers.
+- **`plan`** mode - the allowlisted builtins above plus MCP tools. Built-in writes, todo tools, scheduler, and memory tools are not advertised to the LLM.
+
+`run_command`, optional write paths, out-of-tree paths, and interactive **`question`** flows still coordinate with the client (**`session/request_permission`** for destructive paths; HTTP streaming uses **`event: question`** plus **`POST /coddy/sessions/{id}/question`**).
+
+### Messenger Gateway (`external/gateway`)
+
+The gateway is a subsystem of `coddy serve` (`gateways.telegram.enable`) that lets messenger bots (Telegram today, others via the same interface) drive the same session manager and ReAct loop the HTTP API and `coddy acp` use. When the HTTP surface is on in the same process, a chat turn is also published into that session's composer relay, so a browser can watch it while it runs.
+
+Compiled only when built with **`-tags gateway.telegram`** (Telegram) or **`-tags gateway`** (all adapters). Without these tags, `gateways.telegram.enable: true` is a startup error naming the tag.
+
+**Key packages:**
+
+| Package | Role |
+|---------|------|
+| `external/gateway` | `Adapter` interface, `Hub`, `Start()` entry point |
+| `external/gateway/access` | Access control: `CanAccess`, `EffectiveAccess`, `EffectiveIsolation` |
+| `external/gateway/sessionstore` | `Store`: maps stable chat/user keys to Coddy session IDs; `Reset` on `/clear` |
+| `external/gateway/telegram` | `Bot` (polling, trigger rules, ACL), `Sender` (implements `acp.UpdateSender`) |
+
+**Data flow for one incoming message:**
+
+1. Adapter receives raw update, normalises it to `IncomingMessage`.
+2. `access.CanAccess` rejects the message if the user fails the configured access level.
+3. `sessionstore.SessionKey` derives a deterministic string key from gateway name, chat ID, user ID, and isolation mode.
+4. `store.Get(key)` returns the current Coddy session ID for that key (creating one on first use).
+5. `manager.EnsureHTTPSession` loads or creates the session bundle.
+6. `manager.HandleSessionPromptWithSender` runs the ReAct loop with the adapter's `Sender`.
+7. `sender.Flush()` sends accumulated text back to the chat.
+
+**Extending with a new adapter** — implement `gateway.Adapter`, add a `Sender` that satisfies `acp.UpdateSender`, tag files with `//go:build gateway || gateway.<name>`, append to `Start()`. See [`docs/surfaces/gateway.md`](../surfaces/gateway.md) for the full walkthrough.
+
+### Optional `external` tool packages (scheduler, memory)
+
+Some features live under **`external/`** and define tools that are **not** registered through **`internal/tools.NewRegistry`**, but still use the same **`internal/tooling.Tool`** shape as the core harness.
+
+**Contract (mirror `external/scheduler/tools/job_get.go`):**
+
+1. **One tool per file** - a package-local constructor returns **`*tooling.Tool`** with **`Definition`** (name, description, **`InputSchema`**) and **`Execute`** in one place. **`Execute`** takes **`context.Context`**, JSON args as a string, and **`*tooling.Env`** (use **`CWD`** or other fields when the tool needs session context; pass **`&tooling.Env{}`** when unused).
+2. **JSON schema maps** - prefer **`map[string]interface{}`** for **`InputSchema`** and **`[]interface{}`** for **`required`** and enum lists so OpenAI and Anthropic marshaling stay consistent with existing scheduler tools.
+3. **`register.go`** - collects constructors. **`external/scheduler/tools`** exposes **`RegisterTools`** for the main agent registry. **`external/memory/tools`** exposes **`PersistTools`**, **`RecallTools`**, **`ToolDefinitions`**, and **`Exec`** because the memory copilot runs a separate LLM loop in **`external/memory/copilot.go`**.
+4. **Naming** - scheduler files use the **`job_*.go`** prefix; memory tool bodies use the **`mem_*.go`** prefix; **`external/memory/tools`** keeps **`env.go`**, **`names.go`**, **`register.go`** without the **`mem_`** prefix.
+
+### MCP Client (`internal/mcp`)
+
+Connects to external MCP servers from three config levels (`config.yaml`
+`mcp_servers`, the global `~/.coddy/mcp.json`, the project `./.coddy/mcp.json`;
+later levels override by name) plus servers specified in `session/new`.
+Transports (dispatched by `mcp.Connect` over a shared `transport` interface):
+- stdio - local subprocess, newline-delimited JSON-RPC; the process lifetime is
+  transport-owned (the connect ctx only bounds the handshake)
+- streamable HTTP (`type: http`) - JSON-RPC POSTs answered as JSON or SSE
+  chunks, `Mcp-Session-Id` round-trip, automatic legacy-SSE fallback
+  (capability: `mcpCapabilities.http`)
+- legacy HTTP+SSE (`type: sse`) - GET event stream announcing the POST
+  endpoint (capability: `mcpCapabilities.sse`)
+
+`mcp.Probe` backs the `/coddy/mcp` management API (connect, `tools/list`,
+close); `manage.go` resolves which file owns a server for enable/disable
+persistence. Tools from MCP servers are appended to the LLM tool list in
+**`agent`** and **`plan`** modes (never in **`ask`** mode; see
+**`internal/agent/react.go`**), filtered per turn by the disable switches.
+
+### Skills loader (`internal/skills`)
+
+Loads `SKILL.md` from configured `skills.dirs` (see `docs/features/skills.md`). Default dirs (lowest → highest priority): **`~/.agents/skills`** (global, shared with `npx skills`/`npx skillsbd`), **`~/.coddy/skills`** (coddy-specific), **`${CWD}/.coddy/skills`** (project-local). Later dirs override earlier ones when the same skill name appears in multiple locations. Bundled **`/generate-rules`** is always prepended.
+
+### Subagents (`internal/subagents`)
+
+Loads subagent definitions - markdown files with YAML frontmatter whose body is a child agent's role - from **`subagents.dirs`** (defaults **`${CODDY_HOME}/agents`**, **`${CWD}/.claude/agents`**, **`${CWD}/.coddy/agents`**; later dirs override earlier ones by name, and the two built-ins **`general`** and **`explore`** sit below all of them), decides each file's **scope** on canonical paths (**`project`** inside the workspace, **`user`** elsewhere), holds the **trust receipts** for project-scope files (**`TrustStore`**, **`<home>/subagents-trust.json`**, keyed by canonical workspace, name and file digest; policy **`subagents.project_trust`**), bounds concurrent runs with a process-wide **`Limiter`**, and renders the **catalog** (the prompt block for the parent model, the table for **`coddy agents list`**, the rows for **`GET /coddy/subagents`**). It also owns the pure narrowing rules: permission mode never widens, the child's tool set is an intersection with the parent's, timeouts resolve like the pool's. The package knows nothing about sessions or the loop; **`internal/agent/subagent.go`** applies its decisions, runs the child through the session manager and registers the run in **`internal/bgtask`** with **`Pool.Launch`**. Guide: **`docs/features/subagents.md`**.
+
+### Hooks (`internal/hooks`)
+
+Loads operator **lifecycle hooks** - commands that read one JSON document on stdin and answer with an exit code plus optional JSON on stdout - from the files of **`hooks.files`** (defaults **`${CODDY_HOME}/hooks.json`**, the workspace's **`.claude/settings.json`** and **`.claude/settings.local.json`** for compatibility, **`${CWD}/.coddy/hooks.json`**), in Claude Code's file shape (**`definition.go`**: event -> matcher groups -> command handlers with `timeout`, `async`, `failClosed`, `args` for the exec form, `commandWindows`). **`matcher.go`** applies Claude Code's matcher rules (exact list or unanchored regex) with tool-name aliases, so `Bash` matches **`run_command`** and `mcp__server__tool` matches an MCP tool. **`loader.go`** decides each file's **scope** on canonical paths (**`project`** at or under the workspace, **`user`** elsewhere) and holds project files under **`hooks.project_trust`** the way MCP declarations and subagent definitions are held: **`trust.go`** keeps the receipts (**`<home>/hooks-trust.json`**, keyed by canonical workspace, workspace-relative file and digest; **`coddy hooks list|trust|untrust`**, **`GET /coddy/hooks`**, **`POST /coddy/hooks/trust|untrust`**), **`catalog.go`** renders the rows those surfaces show, and a held file is reported once per session as a `notice`-level UI log row. **`runner.go`** builds the payload (session fields plus event fields), runs the matching handlers one after another with the session cwd, the `CODDY_*` / `CLAUDE_PROJECT_DIR` environment, a timeout and a detached process group through **`internal/platform`**, and merges their answers into one **`Outcome`** (the most restrictive decision wins; `updatedInput` chains; every `additionalContext` is kept; a crash or timeout is a non-blocking error unless the handler fails closed). The package knows nothing about sessions or the loop; **`internal/agent/hooks.go`** builds the runner per turn and **`executeToolCall`** consults it: `PreToolUse` before the permission gate (deny, allow past the prompt, force the prompt, rewrite the arguments, add context), `PostToolUse` / `PostToolUseFailure` after the tool. **`Run`** fires `UserPromptSubmit` before the prompt becomes a message (a block rejects the prompt; context goes into the `## Hook context` block of the system prompt), the loop fires `Stop` before `end_turn` (a block submits the reason as the next user message, at most `hooks.stop_loop_limit` times per turn), **`CompactSession`** fires `PreCompact` (veto) and `PostCompact`, and **`session.Manager`** fires `SessionStart` on `session/new` and `session/load`, storing the returned context on the session (`hookContext` in `session.json`). **`subagent.go`** fires `SubagentStart` (a block refuses the spawn, context is prepended to the child's task) before a child starts and `SubagentStop` after its turn, and the permission gate fires `Notification` (`permission_prompt`) before asking the client. Guide: **`docs/features/hooks.md`**; design record: **`docs/plans/hooks.md`**.
+
+### Rules engine (`internal/rules`)
+
+Discovers `.mdc` / `.md` rules from `.coddy/rules`, the tool-neutral `.agents/rules` (system id `agents-dir`), `.cursor/rules`, `.claude/rules`, `.codex/rules`, plus nested `**/AGENTS.md` files ([agents.md](https://agents.md/) convention), under session CWD; duplicates by file name resolve as coddy > agents-dir > cursor > claude > codex > agents. Injected into **`{{.Rules}}`** separately from skills; see **`docs/features/rules.md`**.
+
+The extension selects the dialect (**`markdown.go`**): `.mdc` is read as a Cursor rule (`description`, `globs` as a comma-separated string or list, `alwaysApply`, default manual), `.md` as a Claude Code rule (`paths`; unconditional without them). Headers are read as YAML first, then by a lenient line reader, because Cursor's own `globs: **/*.go` is not valid YAML. Globs use doublestar syntax anchored at the session cwd (`Rule.Root`, **`MatchGlob`**).
+
+Activation uses globs, **`alwaysApply`**, **`@mention`**, sticky auto rules, and filesystem tool paths (`MatchScoped`: a `read`/`edit`/... targeting a matching path or a nested `AGENTS.md` subtree activates the rule); see **`docs/features/rules.md`**.
+
+### Config (`internal/config`)
+
+YAML-based configuration. Resolution uses **`CODDY_HOME`** (default **`~/.coddy`**), **`CODDY_CWD`**, **`CODDY_CONFIG`**, optional **`config.yaml`** in the process working directory when **`$CODDY_HOME/config.yaml`** is absent, and CLI flags (see **`docs/getting-started/configuration.md`** and **`README.md`**).
+
+## Session Modes
+
+### `agent` mode (default)
+- Full tool access (read, write, run commands)
+- Executes tasks end-to-end
+- Requests permission before destructive operations
+- Suitable for: code generation, refactoring, debugging
+
+### `plan` mode
+- Narrow **registry** tool surface enforced by **`internal/agent.ToolSetForMode("plan")`**
+- **`read`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`run_command`**, **`question`**, **`spawn_agent`** (a child of a plan-mode parent stays in plan mode), plus any **MCP** tools from configured servers
+- No built-in workspace writes or **coddy** todo tools in the advertised set (switch to **agent** for those)
+- Suitable for: design docs, specs, architecture planning, external research, and light shell or MCP inspection without offering full mutating builtins
+
+### `ask` mode
+- Read-only research surface enforced by **`internal/agent.ToolSetForMode("ask")`**
+- **`read`**, **`keep_result`**, **`glob`**, **`grep`**, **`print_tree`**, **`websearch`**, **`webfetch`**, **`question`**, **`load_skill`** — no shell, no plan or todo tools, no config tools, and no MCP tools
+- Unlike **plan**, the allowlist is also enforced at execution time: a tool call outside the set (for example replayed from history) is refused with a read-only notice instead of being executed; approving such a pending call with **allow always** records no grant either
+- A **`@plans/<slug>.plan.md`** mention or **`runPlanSlug`** metadata never starts a plan run in ask mode (the mention is inlined as reading material, the metadata shortcut is refused), and the memory copilot runs recall-only (no memory writes)
+- Suitable for: questions about the codebase, code review and diagnosis, and web research without any mutation surface
+
+Mode switching:
+- Client calls `session/set_config_option` with `configId` `mode` (preferred) or `session/set_mode` with `agent`, `plan`, or `ask`
+- Agent sends `current_mode_update` and `config_option_update` when mode changes
+
+## Directory Structure
+
+Top level after **`git clone`** (folder name is arbitrary; **`coddy-agent`** is common):
+
+```
+.
+├── cmd/coddy/                   # CLI entry (acp, http, sessions, skills)
+├── internal/                    # core harness (acp, session, agent, config, tools, …)
+├── external/
+│   ├── memory/                  # long-term memory copilot (`-tags memory`)
+│   ├── httpserver/              # optional REST gateway (build tag http)
+│   ├── ui/                      # Vite SPA sources (embedded when built with http+ui)
+│   ├── scheduler/               # optional cron runner (build tag scheduler)
+│   └── gateway/                 # messenger gateway (build tag gateway | gateway.telegram)
+│       ├── access/              # ACL: CanAccess, EffectiveIsolation
+│       ├── sessionstore/        # chat/user → session ID mapping
+│       └── telegram/            # Telegram bot adapter (tgbotapi v5)
+├── examples/                    # ACP and HTTP Python harnesses
+├── docs/                        # guides (see docs/README.md)
+├── Dockerfile
+├── docker-compose.yml
+├── docker-compose.dev.yml
+├── config.example.yaml
+├── go.mod
+├── go.sum
+└── README.md
+```
+
+Optional layers **`external/httpserver`**, **`external/ui`**, **`external/scheduler`**, and **`external/memory`** are omitted from the binary unless you pass the matching **Go build tags**; see **`docs/contributing/build.md`** and **`README.md`**. Long-term memory runtime behavior is toggled with **`memory.enable`** when the binary was built with **`memory`**.
