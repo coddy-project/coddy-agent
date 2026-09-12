@@ -1,6 +1,8 @@
 # Interactive console TUI (`coddy` / `coddy cli`)
 
-A four-minute recording of a console session, from launch and the model picker through file work with permission prompts to `coddy -c` and `--remote`, is [console.mp4](../assets/video/console.mp4) (GitHub plays it on the file page).
+https://github.com/user-attachments/assets/4d3a3632-004f-4014-909d-9f0275547be3
+
+*A four-minute recording of a console session, from launch and the model picker through file work with permission prompts to `coddy -c` and `--remote`. The file is in the repository as [console.mp4](../assets/video/console.mp4).*
 
 The console surface is a terminal UI over the same machinery every other
 surface uses: `session.Manager`, the agent runner, and ACP session updates.

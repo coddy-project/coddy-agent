@@ -1,6 +1,14 @@
 # Editors (ACP)
 
-Two recordings show an editor driving Coddy over ACP: [zed-acp.mp4](../assets/video/zed-acp.mp4) (Zed, three minutes) and [vscode-acp.mp4](../assets/video/vscode-acp.mp4) (VS Code with an ACP client extension, four minutes); GitHub plays them on the file page.
+Two recordings show an editor driving Coddy over ACP.
+
+https://github.com/user-attachments/assets/753944db-3b53-4889-8972-1f2dde2480cb
+
+*Zed, three minutes. The file is in the repository as [zed-acp.mp4](../assets/video/zed-acp.mp4).*
+
+https://github.com/user-attachments/assets/7bdba217-2adb-4863-8a8a-d697a157cea1
+
+*VS Code with an ACP client extension, four minutes. The file is in the repository as [vscode-acp.mp4](../assets/video/vscode-acp.mp4).*
 
 Coddy is an ACP server. `coddy acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$CODDY_HOME`. Nothing in Coddy is editor-specific - Zed, VS Code and a Python harness connect the same way.
 

@@ -105,7 +105,8 @@ When adding or changing behavior (including words like feature, add, implement, 
       embedded next to the paragraph that explains it, Dark theme 1280 px wide as the default, named
       `<feature>-<state>-<theme>-<width>.png`, under **`docs/assets/<page>/`** when the page needs
       several and at the top level of **`docs/assets/`** otherwise, with a one-line italic caption. A demo video goes to **`docs/assets/video/`** (H.264, 1280 px wide, no audio, under 4 MB)
-      and is linked from the page through a poster image.
+      and is embedded on the page as a GitHub attachment URL on a line of its own (uploaded through a comment box
+      and posted, see the Videos section of **`docs/contributing/documentation.md`**), with the repository copy linked under it.
     - **Assets** - every file under **`docs/assets/`** is referenced by a page, the README, **`DESIGN.md`**
       or the **`Dockerfile`**; **`make docs-check`** fails on one that is not, so a screenshot leaves
       together with the feature it showed. Screenshots that only prove a pull request go to the pull

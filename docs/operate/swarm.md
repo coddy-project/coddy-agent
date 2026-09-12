@@ -1,6 +1,8 @@
 # Swarm: relays, nodes, and one list of everything
 
-A four-minute recording of a relay, two nodes and the aggregated session list, in the console and in the browser, is [swarm.mp4](../assets/video/swarm.mp4) (GitHub plays it on the file page).
+https://github.com/user-attachments/assets/fd4837ae-23d0-400e-8e60-52706755bb4b
+
+*A four-minute recording of a relay, two nodes and the aggregated session list, in the console and in the browser. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*
 
 A **swarm** is a set of coddy nodes reached through one or more **relays**. A relay is a
 stateless meeting point: nodes register into it, it carries requests to them, and it merges

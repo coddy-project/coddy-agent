@@ -3306,7 +3306,9 @@ Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/su
 
 # Interactive console TUI (`coddy` / `coddy cli`)
 
-A four-minute recording of a console session, from launch and the model picker through file work with permission prompts to `coddy -c` and `--remote`, is [console.mp4](../assets/video/console.mp4) (GitHub plays it on the file page).
+https://github.com/user-attachments/assets/4d3a3632-004f-4014-909d-9f0275547be3
+
+*A four-minute recording of a console session, from launch and the model picker through file work with permission prompts to `coddy -c` and `--remote`. The file is in the repository as [console.mp4](../assets/video/console.mp4).*
 
 The console surface is a terminal UI over the same machinery every other
 surface uses: `session.Manager`, the agent runner, and ACP session updates.
@@ -3779,7 +3781,11 @@ Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/su
 
 # Coddy embedded UI specification
 
-This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract, with a screenshot of each surface next to the section that specifies it. A two-and-a-half-minute recording of the web UI, from the model picker through streamed tool calls and the permission card to the History drawer and the environment switch, is [web-ui.mp4](../assets/video/web-ui.mp4) (GitHub plays it on the file page). The visual tokens and component contracts are in [DESIGN.md](../../DESIGN.md).
+This page captures the original UI requirements and the intended end state. It is a functional spec and a design contract, with a screenshot of each surface next to the section that specifies it. The visual tokens and component contracts are in [DESIGN.md](../../DESIGN.md).
+
+https://github.com/user-attachments/assets/55e9e66f-8a8d-47be-af75-596b8b00fafa
+
+*A two-and-a-half-minute recording of the web UI, from the model picker through streamed tool calls and the permission card to the History drawer and the environment switch. The file is in the repository as [web-ui.mp4](../assets/video/web-ui.mp4).*
 
 ## Constraints
 
@@ -4661,7 +4667,15 @@ Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/su
 
 # Editors (ACP)
 
-Two recordings show an editor driving Coddy over ACP: [zed-acp.mp4](../assets/video/zed-acp.mp4) (Zed, three minutes) and [vscode-acp.mp4](../assets/video/vscode-acp.mp4) (VS Code with an ACP client extension, four minutes); GitHub plays them on the file page.
+Two recordings show an editor driving Coddy over ACP.
+
+https://github.com/user-attachments/assets/753944db-3b53-4889-8972-1f2dde2480cb
+
+*Zed, three minutes. The file is in the repository as [zed-acp.mp4](../assets/video/zed-acp.mp4).*
+
+https://github.com/user-attachments/assets/7bdba217-2adb-4863-8a8a-d697a157cea1
+
+*VS Code with an ACP client extension, four minutes. The file is in the repository as [vscode-acp.mp4](../assets/video/vscode-acp.mp4).*
 
 Coddy is an ACP server. `coddy acp` speaks the [Agent Client Protocol](https://agentclientprotocol.com/) over its own stdin and stdout, so an editor, a plugin or a script that implements the client side of ACP starts the binary and gets the same agent as the console and the web UI: the same modes and models, the same permission policy, the same skills, and the same session bundles under `$CODDY_HOME`. Nothing in Coddy is editor-specific - Zed, VS Code and a Python harness connect the same way.
 
@@ -5679,7 +5693,9 @@ Source: https://raw.githubusercontent.com/coddy-project/coddy-agent/main/docs/op
 
 # Swarm: relays, nodes, and one list of everything
 
-A four-minute recording of a relay, two nodes and the aggregated session list, in the console and in the browser, is [swarm.mp4](../assets/video/swarm.mp4) (GitHub plays it on the file page).
+https://github.com/user-attachments/assets/fd4837ae-23d0-400e-8e60-52706755bb4b
+
+*A four-minute recording of a relay, two nodes and the aggregated session list, in the console and in the browser. The file is in the repository as [swarm.mp4](../assets/video/swarm.mp4).*
 
 A **swarm** is a set of coddy nodes reached through one or more **relays**. A relay is a
 stateless meeting point: nodes register into it, it carries requests to them, and it merges
@@ -11289,7 +11305,9 @@ The five demos under `docs/assets/video/` (console, web UI, Zed and VS Code over
 ffmpeg -i take.mp4 -vf "scale=1280:-2" -c:v libx264 -preset slow -crf 31 -pix_fmt yuv420p -movflags +faststart -an docs/assets/video/<name>.mp4
 ```
 
-Keep a video under 4 MB and under four minutes; a feature clip is better at twenty seconds than at two minutes. GitHub plays an `.mp4` on its file page but not inline in Markdown, so a page links the video from a poster image (a screenshot of the same surface) or from a plain link; the documentation site can embed it. A video that shows a surface that changed is re-recorded or removed.
+Keep a video under 4 MB and under four minutes; a feature clip is better at twenty seconds than at two minutes. A video that shows a surface that changed is re-recorded or removed.
+
+GitHub renders an inline player only for a file uploaded as a GitHub attachment: a file committed to the repository stays a link on its file page, and a `<video>` tag is dropped by the sanitizer. So a page carries two things: the attachment URL (`https://github.com/user-attachments/assets/<uuid>`) on a line of its own, which GitHub turns into the player, and under it an italic caption with a link to the copy in `docs/assets/video/`, which is what the assets check counts and what the documentation site will embed. To get the URL, drag the file into the comment box of any issue or pull request of this repository, wait for the upload to finish, copy the URL it inserts, and post the comment: an attachment stays private until the comment it was uploaded for is public, so an unposted upload plays for its uploader and for nobody else.
 
 ## Assets index
 
@@ -13822,7 +13840,7 @@ A git **`pre-commit`** hook runs the linter before every commit, so nothing land
 
 The documentation is the tree under **`docs/`**, mapped by **`docs/nav.yaml`**: `getting-started/`, `surfaces/`, `operate/`, `features/`, `reference/`, `contributing/`, `plans/` (design records, never rewritten to match a later rename), `recipes.md`, and `docs/assets/` for everything a page embeds. **`docs/README.md`** (the hub), **`docs/llms.txt`**, **`docs/llms-full.txt`**, the field tables of **`docs/reference/config.md`**, the help screens of **`docs/reference/cli.md`** and the inventory of **`docs/assets/INDEX.md`** are generated by **`internal/docsgen`** (`make docs`); **`make docs-check`** (the CI job **Documentation**, and the pre-commit hook for commits that touch the docs) fails on a stale generated block, a page missing from the map, a broken relative link or anchor, and an asset no page uses. **`make docs-changelog`** refreshes **`docs/getting-started/changelog.md`** from the GitHub Releases. The full guide, page types included, is **`docs/contributing/documentation.md`**.
 
-A change to Coddy carries its documentation in the same pull request (workflow step 10 in **`.claude/rules/workflow.md`**): a new capability gets its page, its `nav.yaml` entry and its row in the reference of its kind (`tools.md`, `slash-commands.md`, `environment-variables.md`, `keyboard.md`); a changed behaviour updates the page that describes it (`git grep -n '<key or command>' docs/`); a web UI or console feature is shown with a screenshot of the real surface embedded on its page, Dark 1280 wide, named `<feature>-<state>-<theme>-<width>.png` under `docs/assets/<page>/`; a demo video goes to `docs/assets/video/` and is linked from the page. Screenshots that only prove a pull request stay in the pull request. A page that moves leaves a redirect stub at its old address (first line `<!-- docs-stub`). Every page of the map also has a stable address on **coddy.dev**: `coddy.dev/docs/<slug>` sends a person to the page on GitHub and `coddy.dev/docs/<slug>.md` to its raw Markdown (one generated script behind the site's `404.html`, nothing duplicated), while `llms.txt` and `llms-full.txt` at the site root index the raw Markdown on `main`; the binary, the schema and the bundled skill print those addresses and nothing else. **`make site-docs`** renders the layer into the site checkout and **`make site-docs-check`** reports drift - a change to a page, to `nav.yaml` or to the schema is published to the site with the same pull request (workflow step 8).
+A change to Coddy carries its documentation in the same pull request (workflow step 10 in **`.claude/rules/workflow.md`**): a new capability gets its page, its `nav.yaml` entry and its row in the reference of its kind (`tools.md`, `slash-commands.md`, `environment-variables.md`, `keyboard.md`); a changed behaviour updates the page that describes it (`git grep -n '<key or command>' docs/`); a web UI or console feature is shown with a screenshot of the real surface embedded on its page, Dark 1280 wide, named `<feature>-<state>-<theme>-<width>.png` under `docs/assets/<page>/`; a demo video goes to `docs/assets/video/` and is embedded on the page as a GitHub attachment URL with the repository copy linked under it (Videos in `docs/contributing/documentation.md`). Screenshots that only prove a pull request stay in the pull request. A page that moves leaves a redirect stub at its old address (first line `<!-- docs-stub`). Every page of the map also has a stable address on **coddy.dev**: `coddy.dev/docs/<slug>` sends a person to the page on GitHub and `coddy.dev/docs/<slug>.md` to its raw Markdown (one generated script behind the site's `404.html`, nothing duplicated), while `llms.txt` and `llms-full.txt` at the site root index the raw Markdown on `main`; the binary, the schema and the bundled skill print those addresses and nothing else. **`make site-docs`** renders the layer into the site checkout and **`make site-docs-check`** reports drift - a change to a page, to `nav.yaml` or to the schema is published to the site with the same pull request (workflow step 8).
 
 Human prose for HTTP lives in **`docs/reference/http-api.md`**. Visual spec for SPA lives in **`DESIGN.md`** (this repo root). Architectural narrative remains under **`docs/contributing/architecture.md`**.
 
