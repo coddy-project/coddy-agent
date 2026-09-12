@@ -373,6 +373,15 @@ func (s *openAIPassthroughState) toolCallsDelta(name, args string) error {
 	return fmt.Errorf("no tool_calls delta for %q on the stream:\n%s", name, s.sseBody)
 }
 
+func (s *openAIPassthroughState) everyChunkCarriesFinishReason() error {
+	for _, c := range s.chunks() {
+		if gjson.Get(c, "choices.#").Int() > 0 && !gjson.Get(c, "choices.0.finish_reason").Exists() {
+			return fmt.Errorf("chunk without finish_reason: %s", c)
+		}
+	}
+	return nil
+}
+
 func (s *openAIPassthroughState) lastChunkFinishesWith(reason string) error {
 	chunks := s.chunks()
 	for i := len(chunks) - 1; i >= 0; i-- {
@@ -437,6 +446,7 @@ func initializeOpenAIPassthroughScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the upstream request carried the tool result "([^"]+)" under call "([^"]+)"$`, s.upstreamCarriedToolResult)
 	sc.Step(`^the upstream request carried the image as an image_url part$`, s.upstreamCarriedTheImage)
 	sc.Step(`^a tool_calls delta calls "([^"]+)" with arguments (\{.*\})$`, s.toolCallsDelta)
+	sc.Step(`^every chunk carries a finish_reason field$`, s.everyChunkCarriesFinishReason)
 	sc.Step(`^the last chunk before \[DONE\] finishes with "([^"]+)"$`, s.lastChunkFinishesWith)
 	sc.Step(`^the client assembles the answer "([^"]+)"$`, s.clientAssembles)
 	sc.Step(`^the JSON answer calls "([^"]+)" with arguments (\{.*\})$`, s.jsonAnswerCalls)

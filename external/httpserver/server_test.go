@@ -3777,3 +3777,86 @@ func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
 		}
 	}
 }
+
+// toolCallingProvider answers every request with one call of the client's tool.
+type toolCallingProvider struct{}
+
+func (toolCallingProvider) Complete(context.Context, []llm.Message, []llm.ToolDefinition) (*llm.Response, error) {
+	return &llm.Response{ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "get_weather", InputJSON: `{"city":"Paris"}`}}, StopReason: "tool_use"}, nil
+}
+
+func (p toolCallingProvider) Stream(ctx context.Context, m []llm.Message, t []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, _ := p.Complete(ctx, m, t)
+	onChunk(llm.StreamChunk{ToolCall: &resp.ToolCalls[0]})
+	return resp, nil
+}
+
+func TestChatCompletionsPassthroughToolAnswerAndBounds(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return toolCallingProvider{}, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	const model = "openai/gpt-4o"
+	post := func(body string) (int, string) {
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	weather := `{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}`
+
+	// A JSON answer made of tool calls has no content, the way OpenAI renders it.
+	code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + weather + `],"stream":false}`)
+	if code != http.StatusOK {
+		t.Fatalf("tool answer: %d %s", code, body)
+	}
+	var answer struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content   *string          `json:"content"`
+				ToolCalls []map[string]any `json:"tool_calls"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if len(answer.Choices) != 1 || answer.Choices[0].FinishReason != "tool_calls" || len(answer.Choices[0].Message.ToolCalls) != 1 || answer.Choices[0].Message.Content != nil {
+		t.Fatalf("tool answer = %s", body)
+	}
+
+	// A replayed call may carry its arguments as an object; it still needs an id and a name.
+	replay := func(call string) string {
+		return `{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[` + call + `]},{"role":"tool","tool_call_id":"call_1","content":"18"}],"stream":false}`
+	}
+	if code, body := post(replay(`{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":{"city":"Paris"}}}`)); code != http.StatusOK {
+		t.Fatalf("object arguments: %d %s", code, body)
+	}
+	if code, body := post(replay(`{"id":"","type":"function","function":{"name":"get_weather","arguments":"{}"}}`)); code != http.StatusBadRequest || !strings.Contains(body, "requires an id and a function name") {
+		t.Fatalf("nameless call: %d %s", code, body)
+	}
+
+	// Bounds: the tool count, a schema's size, the pictures per message and a picture's size.
+	tools := strings.Repeat(weather+",", maxClientTools) + weather
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + tools + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 128 tools") {
+		t.Fatalf("too many tools: %d %s", code, body)
+	}
+	big := `{"type":"function","function":{"name":"big","parameters":{"type":"object","description":"` + strings.Repeat("x", maxClientToolSchemaBytes) + `"}}}`
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + big + `]}`); code != http.StatusBadRequest || !strings.Contains(body, "parameters exceed") {
+		t.Fatalf("huge schema: %d %s", code, body)
+	}
+	image := `{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}`
+	parts := strings.Repeat(image+",", maxImagePartsPerMessage) + image
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[` + parts + `]}]}`); code != http.StatusBadRequest || !strings.Contains(body, "at most 16 images") {
+		t.Fatalf("too many images: %d %s", code, body)
+	}
+	old := maxImagePartBytes
+	maxImagePartBytes = 16 // the test picture is 26 bytes of data URL
+	defer func() { maxImagePartBytes = old }()
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[` + image + `]}]}`); code != http.StatusBadRequest || !strings.Contains(body, "exceeds 16 bytes") {
+		t.Fatalf("huge image: %d %s", code, body)
+	}
+}

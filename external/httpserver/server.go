@@ -363,9 +363,52 @@ type openAIToolCall struct {
 	ID       string `json:"id"`
 	Type     string `json:"type"`
 	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
+		Name string `json:"name"`
+		// Arguments is the JSON string OpenAI specifies; a client that sends
+		// the object itself is taken as well.
+		Arguments json.RawMessage `json:"arguments"`
 	} `json:"function"`
+}
+
+// argumentsJSON returns the call's arguments as the JSON text the providers
+// replay: a string is taken as is, an object is kept as its own JSON.
+func (c openAIToolCall) argumentsJSON() (string, error) {
+	raw := bytes.TrimSpace(c.Function.Arguments)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", err
+		}
+		return s, nil
+	}
+	if !json.Valid(raw) {
+		return "", fmt.Errorf("tool call arguments must be a JSON string or object")
+	}
+	return string(raw), nil
+}
+
+// Bounds on what a client may hand a direct model. OpenAI itself takes up to
+// 128 tools; a schema or a picture past these sizes is not a request coddy
+// should carry to a provider or keep under the session's assets.
+const (
+	maxClientTools           = 128
+	maxClientToolSchemaBytes = 256 << 10
+	maxImagePartsPerMessage  = 16
+)
+
+// maxImagePartBytes bounds one image_url payload; a variable so a test can
+// lower it without building a 20 MiB request.
+var maxImagePartBytes = 20 << 20
+
+// dropImageParts strips the pictures off a history bound for a model that
+// takes none.
+func dropImageParts(msgs []llm.Message) {
+	for i := range msgs {
+		msgs[i].ImageParts = nil
+	}
 }
 
 func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -406,11 +449,6 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prefix := msgs[:len(msgs)-1]
-	clientTools, err := openAIToolsToLLM(req.Tools, req.ToolChoice)
-	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
-		return
-	}
 
 	ctx := r.Context()
 	st, sessionID, createdNew, err := s.resolveSession(ctx, r)
@@ -456,14 +494,20 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	var bridge *Sender
 	if httpModelIsCoddyProfile(model) {
-		st.ReplaceMessagesWithoutPersist(prefix)
-		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
+		// The client's tools are never read here: a profile turn runs coddy's
+		// own. Its pictures, history included, reach the model only when the
+		// profile's model takes them, so none turns into a base64 blob the model
+		// reads as text.
 		var promptImages []acp.ImagePartRef
 		if configuredModelMultimodal(s.activeCfg(), effectiveYAMLModel(s.activeCfg(), st)) {
 			for _, ip := range last.ImageParts {
 				promptImages = append(promptImages, acp.ImagePartRef{DataURL: ip.DataURL, Name: ip.Name})
 			}
+		} else {
+			dropImageParts(prefix)
 		}
+		st.ReplaceMessagesWithoutPersist(prefix)
+		prompt := []acp.ContentBlock{{Type: "text", Text: last.Content}}
 		// Every profile turn publishes to a relay, whatever shape the caller asked its own
 		// answer to take: a script POSTing stream:false is exactly the turn someone wants to
 		// watch from a browser. The lock is taken first in both branches - beginComposerRelay
@@ -560,10 +604,13 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	} else {
 		bridge = NewSender(s.activeCfg(), nil, false, model)
 	}
+	clientTools, err := openAIToolsToLLM(req.Tools, req.ToolChoice)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":{"message":%q}}`, err.Error()), http.StatusBadRequest)
+		return
+	}
 	if !configuredModelMultimodal(s.activeCfg(), model) {
-		for i := range prefix {
-			prefix[i].ImageParts = nil
-		}
+		dropImageParts(prefix)
 		last.ImageParts = nil
 	}
 	if len(last.ImageParts) > 0 {
@@ -620,6 +667,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if directRes != nil {
 		if calls := openAIToolCallsJSON(directRes.ToolCalls); len(calls) > 0 {
 			message["tool_calls"] = calls
+			if message["content"] == "" {
+				message["content"] = nil
+			}
 		}
 		finish = openAIFinishReason(directRes.StopReason)
 	}
@@ -684,11 +734,15 @@ func openAIMessagesToLLM(messages []openAIMessage) ([]llm.Message, error) {
 				if t := strings.TrimSpace(tc.Type); t != "" && t != "function" {
 					return nil, fmt.Errorf("unsupported tool call type %q", tc.Type)
 				}
-				msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{
-					ID:        strings.TrimSpace(tc.ID),
-					Name:      strings.TrimSpace(tc.Function.Name),
-					InputJSON: tc.Function.Arguments,
-				})
+				id, name := strings.TrimSpace(tc.ID), strings.TrimSpace(tc.Function.Name)
+				if id == "" || name == "" {
+					return nil, fmt.Errorf("assistant tool call requires an id and a function name")
+				}
+				args, err := tc.argumentsJSON()
+				if err != nil {
+					return nil, fmt.Errorf("tool call %q: %w", id, err)
+				}
+				msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{ID: id, Name: name, InputJSON: args})
 			}
 			out = append(out, msg)
 		case "tool":
@@ -758,6 +812,12 @@ func openAIContent(raw json.RawMessage) (string, []llm.ImagePart, error) {
 			if url == "" {
 				return "", nil, fmt.Errorf("image_url part without a url")
 			}
+			if len(url) > maxImagePartBytes {
+				return "", nil, fmt.Errorf("image_url part exceeds %d bytes", maxImagePartBytes)
+			}
+			if len(images) >= maxImagePartsPerMessage {
+				return "", nil, fmt.Errorf("a message may carry at most %d images", maxImagePartsPerMessage)
+			}
 			images = append(images, llm.ImagePart{DataURL: url})
 		default:
 			return "", nil, fmt.Errorf("unsupported content part type %q", p.Type)
@@ -791,6 +851,9 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 	if err := json.Unmarshal(trimmed, &tools); err != nil {
 		return nil, fmt.Errorf("invalid tools: %w", err)
 	}
+	if len(tools) > maxClientTools {
+		return nil, fmt.Errorf("at most %d tools may be offered", maxClientTools)
+	}
 	out := make([]llm.ToolDefinition, 0, len(tools))
 	for _, t := range tools {
 		if typ := strings.TrimSpace(t.Type); typ != "" && typ != "function" {
@@ -799,6 +862,9 @@ func openAIToolsToLLM(rawTools, rawChoice json.RawMessage) ([]llm.ToolDefinition
 		name := strings.TrimSpace(t.Function.Name)
 		if name == "" {
 			return nil, fmt.Errorf("tool without a function name")
+		}
+		if len(t.Function.Parameters) > maxClientToolSchemaBytes {
+			return nil, fmt.Errorf("tool %q: parameters exceed %d bytes", name, maxClientToolSchemaBytes)
 		}
 		var schema interface{}
 		if len(bytes.TrimSpace(t.Function.Parameters)) > 0 {

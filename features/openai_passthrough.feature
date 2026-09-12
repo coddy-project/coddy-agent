@@ -13,6 +13,7 @@ Feature: POST /v1/chat/completions passes a client's tools and images through to
     When an OpenAI client streams "local/qwen3-1.7b" with a "get_weather" tool
     Then the upstream request offered the tool "get_weather"
     And a tool_calls delta calls "get_weather" with arguments {"city":"Paris"}
+    And every chunk carries a finish_reason field
     And the last chunk before [DONE] finishes with "tool_calls"
 
   Scenario: The client answers the tool call and receives the final answer
