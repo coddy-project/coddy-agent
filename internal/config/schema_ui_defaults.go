@@ -46,7 +46,7 @@ func SchemaExampleConfigJSON() *ConfigJSON {
 			AskPrompt:   "ask.md",
 		},
 		Instructions: InstructionsJSON{
-			Files: []string{"AGENTS.md"},
+			Files: DefaultInstructionFiles(),
 		},
 		Skills: SkillsJSON{
 			Dirs: []string{
