@@ -28,7 +28,7 @@ import (
 const backgroundReapSessionID = "bdd-background-reap"
 
 // taskMetaPath is the record a task mirrors into the session bundle. The layout
-// is part of the documented on-disk contract (docs/background-tasks.md), which
+// is part of the documented on-disk contract (docs/features/background-tasks.md), which
 // is why a harness outside internal/bgtask may read it.
 func taskMetaPath(sessionDir, taskID string) string {
 	return filepath.Join(sessionDir, "background", taskID, "meta.json")

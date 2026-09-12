@@ -67,7 +67,7 @@ Enabled per-bot with `gateways.telegram.rich_messages: true` (`config.TelegramGa
 
 The adapter's logger arrives tagged with the `gateway.telegram` component (`internal/logger.Component`, applied in `external/gateway/start.go`; the hub itself is `gateway`), so `logger.levels` can raise one bot to `debug` while the rest of the process stays at `info`. Tag once, at construction - `Component` on an already-tagged logger prints two `component` attributes.
 
-The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context` menus with the session they belong to, and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/gateway.md` (Debugging a chat).
+The whole command path logs at `debug`: `telegram: update` per arriving message or callback, `telegram: update ignored`/`update rejected` with a `reason` for every silent drop, `telegram: command`, the `mode`/`model`/`context` menus with the session they belong to, and `telegram: callback` with the resolved value. A switch that lands is `info` (`telegram: model applied`, `telegram: mode applied`), matching `telegram: session cleared`; a failure is `warn`. Nothing in the adapter may log through `slog.Default` - a record that skips `b.log` misses the configured sink and carries no component. Operator guide: `docs/surfaces/gateway.md` (Debugging a chat).
 
 Inline-keyboard payloads must survive the round trip. `callback_data` is capped at 64 bytes, so `modelCallbackValue` sends a model id verbatim when it fits and a digest when it does not (never a truncated id, which resolves to nothing), and `resolveModelCallback` maps the payload back against the configured models. The keyboard also outlives the process that sent it, so `handleCallback` calls `ensureSession` before configuring anything: after a restart the session is on disk, and the manager only configures live ones.
 
@@ -86,6 +86,6 @@ Inline-keyboard payloads must survive the round trip. `callback_data` is capped 
 
 ## References
 
-@docs/gateway.md
+@docs/surfaces/gateway.md
 @architecture.md
 @internal/config/gateway.go

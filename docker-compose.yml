@@ -1,5 +1,5 @@
 # Run the published image from GitHub Container Registry (no local Dockerfile build).
-# See docs/docker.md and https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent
+# See docs/getting-started/docker.md and https://github.com/coddy-project/coddy-agent/pkgs/container/coddy-agent
 #
 #   export CODDY_IMAGE=ghcr.io/coddy-project/coddy-agent:TAG   # optional
 #   docker compose pull

@@ -143,7 +143,7 @@ def wait_for_session_update(
 
     Coddy writes ``available_commands_update`` only after the ``session/new`` (or
     ``session/load``) response is on the wire, so the catalog is never part of that
-    call's backlog (see ``docs/acp-protocol.md``). Returns every line read, the
+    call's backlog (see ``docs/reference/acp-protocol.md``). Returns every line read, the
     matching notification last, so callers can fold it into the earlier backlog.
     """
     assert proc.stdout is not None

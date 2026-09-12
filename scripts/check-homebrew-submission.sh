@@ -68,7 +68,7 @@ echo
 echo "Target repository"
 ok "homebrew/core, as a formula built from source (open-source, command-line only)"
 note "homebrew/cask takes native applications and binary-only software"
-note "our own prebuilt cask stays on the release asset - see docs/homebrew.md"
+note "our own prebuilt cask stays on the release asset - see docs/getting-started/homebrew.md"
 echo
 
 # --- Token availability -----------------------------------------------------
@@ -183,7 +183,7 @@ note "then push the branch to your fork of Homebrew/homebrew-core and open the p
 echo
 note "Homebrew requires an AI/LLM disclosure in the pull request body, forbids an"
 note "AI/LLM authorship trailer, and expects the submitter to answer review"
-note "comments themselves - docs/homebrew.md quotes the whole list."
+note "comments themselves - docs/getting-started/homebrew.md quotes the whole list."
 echo
 
 if [ "$fail" != 0 ]; then

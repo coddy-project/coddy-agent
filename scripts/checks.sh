@@ -14,6 +14,13 @@
 #       full    make test              express run: UI + every tag once (minutes)
 #       matrix  make test-matrix       every build-tag combination (what CI runs)
 #
+#   CODDY_HOOK_DOCS   0|1              (default: 1)   when the commit touches the documentation
+#                                      (docs/, README.md, AGENTS.md, DESIGN.md, CONTRIBUTING.md,
+#                                      the config schema), check the generated pages, the
+#                                      links and the assets with `go run ./cmd/docsgen -skip-cli`
+#                                      (the CLI reference needs a full-tag build and is left
+#                                      to `make docs-check` in CI)
+#
 #   CODDY_HOOK_SKIP   1                bypass the whole gate (prints a warning)
 #
 # Exit code: 0 = everything requested passed (or skipped), non-zero = a failure.
@@ -70,8 +77,22 @@ case "$tests" in
   *)    log "unknown CODDY_HOOK_TESTS='$tests' (want off|fast|full|matrix)" ; exit 2 ;;
 esac
 
+# --- documentation (when the commit touches it) ---
+docs="${CODDY_HOOK_DOCS:-1}"
+docs_ran=0
+if [ "$docs" = "1" ]; then
+  # grep without -q: under pipefail an early exit would fail the pipeline
+  # through git's SIGPIPE and skip the check.
+  if git diff --cached --name-only --diff-filter=ACMRD 2>/dev/null \
+       | grep -E '^(docs/|README\.md$|AGENTS\.md$|DESIGN\.md$|CONTRIBUTING\.md$|internal/config/config\.schema\.json$|internal/docsgen/|cmd/docsgen/)' >/dev/null; then
+    docs_ran=1
+    log "docs: go run ./cmd/docsgen -skip-cli (nav, links, assets, generated pages)"
+    go run ./cmd/docsgen -skip-cli || { status=1; log "docs: run 'make docs' to regenerate, then re-stage"; }
+  fi
+fi
+
 if [ "$status" -eq 0 ]; then
-  log "PASS (lint=$lint, tests=$tests)"
+  log "PASS (lint=$lint, tests=$tests, docs=$docs_ran)"
 else
   log "FAIL — fix the reported issues before committing (bypass once: git commit --no-verify)."
 fi

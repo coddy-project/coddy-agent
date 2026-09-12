@@ -45,7 +45,7 @@ Every `config_commit` snapshots the previous file to `config.yaml.prev` next to 
 
 ## Configuration areas
 
-The active YAML file covers these areas (full field tables: `docs/config-reference.md`):
+The active YAML file covers these areas (full field tables: `docs/reference/config.md`):
 
 - `providers` - LLM backends: name, wire type (`openai`, `anthropic`, `neuraldeep`, `codex`), base URL, API key or key command, per-provider proxy, optional `timeout_ms` request bound, optional `usage_limits_panel` (default true; `false` hides the row's account usage panel on every surface and stops the usage reads behind it, meaningful for `neuraldeep` rows). `neuraldeep` and `codex` support browser sign-in instead of a pasted key (`coddy providers login <name>` in a terminal, or the Sign In button on the provider row in Settings); the credential lands under `$CODDY_HOME/providers/<name>/`, never in config.yaml, and an explicit api_key wins over a stored login. The terminal logins (not the Settings button) also add the provider row, the models the account can use, and an `agent.model` when it is empty, unless `--no-config` is given; nothing already in the file is rewritten. For `neuraldeep`, `api_base` selects the deployment - `https://api.neuraldeep.ru/v1` (Russia, used when empty) or `https://api.neuraldeep.tech/v1` (the international mirror); any other value falls back to the first, and the choice also decides which hub signs the user in, so set it before login (`coddy providers login neuraldeep --api-base <url>`, which also moves an existing row to that endpoint). `codex` ignores api_base entirely;
 - `models` - logical model entries (`provider/model`), token limits, reasoning options, and `stream` (set it to `false` when a backend or proxy cannot serve SSE: Coddy then sends one blocking request and shows the whole answer at once, which also means Stop during that call loses the answer; codex models reject it); `default_agent_model` picks the default. `reasoning_levels` has three states: key absent auto-detects the levels from the model id (the default), an explicit `[]` hides the reasoning selector, and a non-empty list offers exactly those levels; `delete models.N.reasoning_levels` returns an entry to auto-detection, `set models.N.reasoning_levels=[]` opts out;
@@ -78,7 +78,7 @@ logged as needing a restart where it cannot (the HTTP and relay listeners).
 
 Fields behind a build tag are parsed and ignored by binaries built without it; process-level listener changes (HTTP port, gateway tokens) may still need the relevant command restarted. The hot reload is guaranteed for the current session's agent configuration, skills, rules, built-in tools, and configured MCP clients.
 
-Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and `docs/config-reference.md` (see the workflow rules).
+Maintenance contract: this catalog and the command examples must be updated in the same change as any `internal/config` schema edit, together with `internal/config/config.schema.json` (embedded into the binary; `coddy -t` checks a file against it) and `docs/reference/config.md` (see the workflow rules).
 
 ## MCP servers
 

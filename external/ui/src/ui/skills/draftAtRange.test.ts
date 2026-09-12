@@ -30,10 +30,10 @@ test("a partially typed range reports the start only", () => {
 });
 
 test("a complete range reports both ends", () => {
-  const d = draftAtEnd("see @docs/ui.md:10-20");
+  const d = draftAtEnd("see @docs/surfaces/web-ui.md:10-20");
   expect(d.open).toBe(true);
   if (!d.open) return;
-  expect(d.path).toBe("docs/ui.md");
+  expect(d.path).toBe("docs/surfaces/web-ui.md");
   expect(d.start).toBe(10);
   expect(d.end).toBe(20);
 });

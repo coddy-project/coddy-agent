@@ -73,7 +73,7 @@ func TestScopedAgentsRuleStaysActiveOnLaterTurns(t *testing.T) {
 		t.Fatal("rule missing right after activation")
 	}
 	// A later turn working elsewhere must not drop it.
-	a.activateScopedRulesForToolCall("read", `{"path":"docs/rules.md"}`, tmp)
+	a.activateScopedRulesForToolCall("read", `{"path":"docs/features/rules.md"}`, tmp)
 	later := a.buildSystemPrompt("agent", nil, nil, "", []string{filepath.Join(tmp, "docs", "rules.md")})
 	if !strings.Contains(later, nestedToken("internal/agent")) {
 		t.Fatal("activation must stick for the rest of the session")

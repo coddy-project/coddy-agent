@@ -206,6 +206,31 @@ jobs:
       - name: Parse the Homebrew templates
         run: ruby -c packaging/homebrew/coddy.rb.tmpl && ruby -c packaging/homebrew/coddy-formula.rb.tmpl
 
+  # The documentation follows the code: docs/nav.yaml, the config schema and the
+  # --help screens drive the generated pages, every relative link and anchor must
+  # resolve, and every asset must be used. `make docs-check` is the same gate the
+  # pre-commit hook runs for documentation commits (there without the CLI build).
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check the generated pages, the links and the assets
+        run: make docs-check
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

@@ -264,8 +264,8 @@ func TestConfigSchemaURLIsCanonical(t *testing.T) {
 	}
 	for _, rel := range []string{
 		"../../config.example.yaml",
-		"../../docs/config.md",
-		"../../docs/config-reference.md",
+		"../../docs/getting-started/configuration.md",
+		"../../docs/reference/config.md",
 	} {
 		data, err := os.ReadFile(filepath.Clean(rel))
 		if err != nil {

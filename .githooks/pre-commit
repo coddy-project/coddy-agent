@@ -5,13 +5,16 @@
 # Emergency bypass:        git commit --no-verify
 #
 # Runs the shared gate only when the commit touches code, so docs-only commits
-# stay fast. Scope follows CODDY_HOOK_TESTS / CODDY_HOOK_LINT (see scripts/checks.sh).
+# stay fast: they get the documentation check alone (nav map, links, assets,
+# generated pages), without the linter. Scope follows CODDY_HOOK_TESTS /
+# CODDY_HOOK_LINT / CODDY_HOOK_DOCS (see scripts/checks.sh).
 set -uo pipefail
 
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 
-# Any staged path that affects build/test output?
+# Any staged path that affects build/test output? Any documentation?
 code_changed=0
+docs_changed=0
 while IFS= read -r -d '' f; do
   case "$f" in
     *.go | go.mod | go.sum | Makefile | \
@@ -19,11 +22,20 @@ while IFS= read -r -d '' f; do
     features/* | scripts/checks.sh | .githooks/pre-commit)
       code_changed=1 ;;
   esac
-done < <(git diff --cached --name-only -z --diff-filter=ACMR)
+  case "$f" in
+    docs/* | README.md | AGENTS.md | DESIGN.md | CONTRIBUTING.md | internal/config/config.schema.json)
+      docs_changed=1 ;;
+  esac
+done < <(git diff --cached --name-only -z --diff-filter=ACMRD)
+
+if [ "$code_changed" -eq 0 ] && [ "$docs_changed" -eq 0 ]; then
+  echo "pre-commit: no code or documentation changes staged — skipping checks." >&2
+  exit 0
+fi
 
 if [ "$code_changed" -eq 0 ]; then
-  echo "pre-commit: no code changes staged — skipping checks." >&2
-  exit 0
+  # Documentation only: the docs check, not the linter.
+  CODDY_HOOK_LINT=0 exec "$root/scripts/checks.sh"
 fi
 
 exec "$root/scripts/checks.sh"

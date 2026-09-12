@@ -4,7 +4,7 @@
 # A formula pins the checksum of the source archive it builds, so this needs the
 # tag to exist on GitHub: the archive is fetched and hashed rather than guessed.
 # The rendered file is what a homebrew/core pull request carries as
-# Formula/c/coddy.rb - see docs/homebrew.md.
+# Formula/c/coddy.rb - see docs/getting-started/homebrew.md.
 #
 # Usage:
 #   scripts/build-homebrew-formula.sh [options]

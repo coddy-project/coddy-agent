@@ -2,7 +2,7 @@ package session
 
 // SessionStart hooks: the manager fires them when a session is created or
 // restored and keeps the context they hand over on the state, so every system
-// prompt of the session carries it. See docs/hooks.md.
+// prompt of the session carries it. See docs/features/hooks.md.
 
 import (
 	"context"

@@ -1,5 +1,5 @@
 # Build Coddy from the local Dockerfile (for development and smoke tests).
-# See docs/docker.md
+# See docs/getting-started/docker.md
 #
 #   docker compose -f docker-compose.dev.yml build
 #   docker compose -f docker-compose.dev.yml up -d --build
