@@ -106,5 +106,6 @@ Plans and decisions as they were taken. They are not rewritten when the code mov
 - [Hooks plan](plans/hooks.md) - The design of lifecycle hooks and project trust.
 - [NeuralDeep usage plan](plans/neuraldeep-usage.md) - The design of the provider usage panel and the limit wait.
 - [Subagents plan](plans/subagents.md) - The design of subagent definitions, trust and child sessions.
+- [Session bus plan](plans/session-bus.md) - The design of the per-session event bus, with every surface and every inference executor attached as a client, and the work to get there.
 - [Remote control design](plans/remote-control.md) - The remote control and local/remote operation design, phases and resolved questions.
 <!-- docsgen:nav:end -->

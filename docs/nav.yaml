@@ -226,6 +226,9 @@ groups:
       - path: plans/subagents.md
         title: Subagents plan
         summary: The design of subagent definitions, trust and child sessions.
+      - path: plans/session-bus.md
+        title: Session bus plan
+        summary: The design of the per-session event bus, with every surface and every inference executor attached as a client, and the work to get there.
       - path: plans/remote-control.md
         title: Remote control design
         summary: The remote control and local/remote operation design, phases and resolved questions.
