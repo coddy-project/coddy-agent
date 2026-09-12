@@ -233,7 +233,7 @@ test("localizes the plan-to-agent transition preview", () => {
   setLocale("ru");
 
   expect(buildToolCallPreview({ title: "plan_exit" })).toMatchObject({
-    header: "Агентский режим",
+    header: "Агентный режим",
     kind: "plan_exit",
   });
 });

@@ -1,0 +1,13 @@
+---
+description: Russian wording for agent-related text (UI dictionaries, documentation, answers)
+alwaysApply: true
+---
+
+# Russian wording
+
+The Russian adjective for "agent" / "agentic" is **агентный** (агентный режим, агентная сессия,
+агентные инструменты). Never write **агентский**: it is the wrong word for this meaning. This applies
+to everything written in Russian for this project: the `ru` dictionary under
+`external/ui/src/ui/i18n/messages/`, Russian documentation and screenshots of the Russian interface,
+commit messages, issue comments and answers to the operator. Before finishing a change that touches
+Russian text, run `git grep -n -i 'агентск'` and expect no hits.
