@@ -320,13 +320,16 @@ func splitSSEFrame(frame string) (event, data string) {
 	return event, strings.Join(lines, "\n")
 }
 
-// openAIFinishReason maps the ACP stop reason of a turn to the finish_reason an
-// OpenAI client understands. A direct completion carries none and finished
-// normally; a turn cut by its budget is what OpenAI calls length.
+// openAIFinishReason maps the stop reason of a turn - the ACP one of an agent
+// turn, the provider's of a direct completion - to the finish_reason an OpenAI
+// client understands: a turn cut by its budget is length, a model that stopped
+// to have the caller's tools run is tool_calls, everything else stop.
 func openAIFinishReason(stop string) string {
-	switch acp.StopReason(stop) {
-	case acp.StopReasonMaxTokens, acp.StopReasonMaxTurns:
+	switch stop {
+	case string(acp.StopReasonMaxTokens), string(acp.StopReasonMaxTurns):
 		return "length"
+	case "tool_use", "tool_calls":
+		return "tool_calls"
 	default:
 		return "stop"
 	}

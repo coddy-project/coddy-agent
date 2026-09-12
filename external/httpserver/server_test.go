@@ -3629,3 +3629,151 @@ func bddFailingAuthCommand() string {
 	}
 	return "echo 'git@github.com: Permission denied (publickey).' >&2; exit 1"
 }
+
+// POST /v1/chat/completions as a passthrough for a direct model (the happy path is
+// features/openai_passthrough.feature): the boundaries of what the client may send.
+
+func TestOpenAIContentReadsStringsNullAndParts(t *testing.T) {
+	for name, tc := range map[string]struct {
+		raw    string
+		text   string
+		images int
+		err    string
+	}{
+		"string":         {raw: `"hello"`, text: "hello"},
+		"null":           {raw: `null`},
+		"empty":          {raw: ``},
+		"text parts":     {raw: `[{"type":"text","text":"a"},{"type":"text","text":"b"}]`, text: "a\nb"},
+		"image object":   {raw: `[{"type":"text","text":"see"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]`, text: "see", images: 1},
+		"image string":   {raw: `[{"type":"image_url","image_url":"https://example.test/a.png"}]`, images: 1},
+		"image without":  {raw: `[{"type":"image_url","image_url":{}}]`, err: "image_url part without a url"},
+		"unknown part":   {raw: `[{"type":"input_audio","input_audio":{}}]`, err: `unsupported content part type "input_audio"`},
+		"object content": {raw: `{"text":"x"}`, err: "message content must be a string or an array of parts"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			text, images, err := openAIContent(json.RawMessage(tc.raw))
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("err = %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if text != tc.text || len(images) != tc.images {
+				t.Fatalf("got text %q, %d images; want %q, %d", text, len(images), tc.text, tc.images)
+			}
+		})
+	}
+}
+
+func TestOpenAIToolsToLLMReadsFunctionToolsAndToolChoice(t *testing.T) {
+	weather := `[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]`
+	tools, err := openAIToolsToLLM(json.RawMessage(weather), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 1 || tools[0].Name != "get_weather" || tools[0].Description != "Weather" {
+		t.Fatalf("tools = %+v", tools)
+	}
+	if schema, _ := tools[0].InputSchema.(map[string]interface{}); schema["type"] != "object" {
+		t.Fatalf("schema = %#v", tools[0].InputSchema)
+	}
+	// No parameters: an empty object schema, which every provider accepts.
+	tools, err = openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{"name":"ping"}}]`), nil)
+	if err != nil || len(tools) != 1 {
+		t.Fatalf("tools = %+v, err = %v", tools, err)
+	}
+	if schema, _ := tools[0].InputSchema.(map[string]interface{}); schema["type"] != "object" {
+		t.Fatalf("default schema = %#v", tools[0].InputSchema)
+	}
+	// tool_choice "none" withholds the tools; anything else leaves them offered.
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`"none"`)); err != nil || tools != nil {
+		t.Fatalf("tool_choice none: tools = %+v, err = %v", tools, err)
+	}
+	if tools, err := openAIToolsToLLM(json.RawMessage(weather), json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`)); err != nil || len(tools) != 1 {
+		t.Fatalf("tool_choice object: tools = %+v, err = %v", tools, err)
+	}
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"web_search"}]`), nil); err == nil || !strings.Contains(err.Error(), `unsupported tool type "web_search"`) {
+		t.Fatalf("unknown tool type: err = %v", err)
+	}
+	if _, err := openAIToolsToLLM(json.RawMessage(`[{"type":"function","function":{}}]`), nil); err == nil || !strings.Contains(err.Error(), "tool without a function name") {
+		t.Fatalf("nameless tool: err = %v", err)
+	}
+}
+
+// passthroughCaptureProvider records what a direct completion offered the model.
+type passthroughCaptureProvider struct {
+	seen  []llm.Message
+	tools []llm.ToolDefinition
+}
+
+func (p *passthroughCaptureProvider) Complete(_ context.Context, messages []llm.Message, tools []llm.ToolDefinition) (*llm.Response, error) {
+	p.seen, p.tools = append([]llm.Message(nil), messages...), append([]llm.ToolDefinition(nil), tools...)
+	return &llm.Response{Content: "ok", StopReason: "end_turn"}, nil
+}
+
+func (p *passthroughCaptureProvider) Stream(ctx context.Context, messages []llm.Message, tools []llm.ToolDefinition, onChunk func(llm.StreamChunk)) (*llm.Response, error) {
+	resp, err := p.Complete(ctx, messages, tools)
+	onChunk(llm.StreamChunk{TextDelta: "ok"})
+	return resp, err
+}
+
+func TestChatCompletionsPassthroughBoundaries(t *testing.T) {
+	_, srv, _ := testHTTPServerPersist(t)
+	capture := &passthroughCaptureProvider{}
+	srv.makeLLMFromYAML = func(*config.Config, string) (llm.Provider, error) { return capture, nil }
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	const model = "openai/gpt-4o"
+	post := func(body string) (int, string) {
+		res, err := http.Post(ts.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := ioReadAllClose(res.Body)
+		return res.StatusCode, string(b)
+	}
+	weather := `{"type":"function","function":{"name":"get_weather","parameters":{"type":"object"}}}`
+
+	// tool_choice "none" keeps the tools from the model.
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[` + weather + `],"tool_choice":"none","stream":false}`); code != http.StatusOK {
+		t.Fatalf("tool_choice none: %d %s", code, body)
+	}
+	if len(capture.tools) != 0 {
+		t.Fatalf("tool_choice none still offered %+v", capture.tools)
+	}
+
+	// A picture reaches the model only when the model is configured multimodal;
+	// otherwise the text goes and the picture is dropped rather than flattened.
+	if code, body := post(`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"text","text":"look"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}],"stream":false}`); code != http.StatusOK {
+		t.Fatalf("image: %d %s", code, body)
+	}
+	last := capture.seen[len(capture.seen)-1]
+	if last.Content != "look" {
+		t.Fatalf("user text = %q, want the text part alone", last.Content)
+	}
+	if want := configuredModelMultimodal(srv.activeCfg(), model); (len(last.ImageParts) > 0) != want {
+		t.Fatalf("image parts = %d, multimodal = %v", len(last.ImageParts), want)
+	}
+
+	// What the endpoint refuses, and why.
+	for name, tc := range map[string]struct{ body, want string }{
+		"unknown part":            {`{"model":"` + model + `","messages":[{"role":"user","content":[{"type":"input_audio"}]}]}`, `unsupported content part type "input_audio"`},
+		"unknown tool":            {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`, `unsupported tool type "web_search"`},
+		"tool result for profile": {`{"model":"agent","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":null,"tool_calls":[{"id":"c1","type":"function","function":{"name":"f","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":"done"}]}`, "last message must be user"},
+		"tool result without id":  {`{"model":"` + model + `","messages":[{"role":"user","content":"hi"},{"role":"tool","content":"done"}]}`, "tool message requires tool_call_id"},
+	} {
+		code, body := post(tc.body)
+		var payload struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal([]byte(body), &payload)
+		if code != http.StatusBadRequest || !strings.Contains(payload.Error.Message, tc.want) {
+			t.Fatalf("%s: %d %s, want 400 with %q", name, code, body, tc.want)
+		}
+	}
+}

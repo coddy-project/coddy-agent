@@ -9,7 +9,7 @@ VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `ch
    curl -s http://127.0.0.1:12345/v1/models | jq -r '.data[].id'   # the ids step 2 takes
    ```
 
-2. **Register the endpoint.** One entry per model id. A `models[].model` id is coddy as a plain model proxy: the provider's answer streamed back, reasoning included, no tools. The `agent` id is coddy's ReAct agent as a model: it reads and edits the workspace `coddy serve` was started in with its own tools, and Copilot only sees the answer. Copilot's `toolCalling` is for tools the client runs itself, which coddy never returns, so leave it off for both.
+2. **Register the endpoint.** One entry per model id. A `models[].model` id is coddy standing in for the provider: Copilot's own tools are offered to the model and its calls come back to Copilot, which runs them in the editor, so VS Code's Agent mode works the way it does against the provider directly; set `toolCalling` on, and `vision` when the entry has `multimodal: true` in `config.yaml`, which is what lets pictures through. The `agent` id is coddy's ReAct agent as a model: it reads and edits the workspace `coddy serve` was started in with its own tools, ignores the tools Copilot offers, and Copilot only sees the answer, so leave `toolCalling` off on that entry and use it from VS Code's Ask mode.
 
    ```json
    {
@@ -22,7 +22,8 @@ VS Code Copilot takes any OpenAI-compatible endpoint as a chat model through `ch
          "id": "neuraldeep/qwen3.8-27b",
          "name": "Coddy · Qwen 3.8 27B",
          "url": "http://127.0.0.1:12345/v1/chat/completions",
-         "toolCalling": false,
+         "toolCalling": true,
+         "vision": true,
          "maxInputTokens": 128000,
          "maxOutputTokens": 8192
        },

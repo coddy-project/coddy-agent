@@ -14,6 +14,7 @@ import (
 
 	"github.com/EvilFreelancer/coddy-agent/internal/acp"
 	"github.com/EvilFreelancer/coddy-agent/internal/config"
+	"github.com/EvilFreelancer/coddy-agent/internal/llm"
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
@@ -234,6 +235,45 @@ func (s *Sender) forwardTextChunk(u acp.MessageChunkUpdate) error {
 		}},
 	}
 	line, err := json.Marshal(delta)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", line); err != nil {
+		return err
+	}
+	s.flushLocked()
+	return nil
+}
+
+// SendToolCall writes a tool call the model made as the OpenAI delta.tool_calls
+// chunk a client running its own tools expects: one chunk per call, arguments
+// complete, index counting the calls of this answer. No-op when not streaming.
+func (s *Sender) SendToolCall(index int, tc llm.ToolCall) error {
+	if !s.emit || s.w == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	line, err := json.Marshal(map[string]interface{}{
+		"id":      s.chatID,
+		"object":  "chat.completion.chunk",
+		"created": s.created,
+		"model":   s.model,
+		"choices": []map[string]interface{}{{
+			"index": 0,
+			"delta": map[string]interface{}{
+				"tool_calls": []map[string]interface{}{{
+					"index": index,
+					"id":    tc.ID,
+					"type":  "function",
+					"function": map[string]interface{}{
+						"name":      tc.Name,
+						"arguments": tc.InputJSON,
+					},
+				}},
+			},
+		}},
+	})
 	if err != nil {
 		return err
 	}

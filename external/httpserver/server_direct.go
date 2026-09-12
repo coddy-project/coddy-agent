@@ -13,8 +13,12 @@ import (
 	"github.com/EvilFreelancer/coddy-agent/internal/session"
 )
 
-// runDirectYAMLCompletion runs one non-ReAct LLM call for a configured models[].model selector and appends the assistant message.
-func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender) (*llm.Response, error) {
+// runDirectYAMLCompletion runs one non-ReAct LLM call for a configured models[].model
+// selector and appends the assistant message. toolDefs are the caller's own tools,
+// offered to the model as they are: a call the model makes is streamed back as an
+// OpenAI tool_calls delta and kept on the assistant message, and running it is the
+// caller's business.
+func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State, sessionID, yamlSel string, bridge *Sender, toolDefs []llm.ToolDefinition) (*llm.Response, error) {
 	mk := s.makeLLMFromYAML
 	if mk == nil {
 		mk = defaultMakeLLMFromYAML
@@ -24,7 +28,6 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		return nil, err
 	}
 	msgs := st.GetMessages()
-	var toolDefs []llm.ToolDefinition
 	// emit still means "the client asked for a stream" here: this path only ever receives
 	// senders built by NewSender. A relay-only sender must not reach it, or a request that
 	// asked for a plain JSON body would silently switch to the provider's streaming API.
@@ -35,7 +38,12 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 		// arms; harmless for a model that is actually streaming.
 		stopKeepalive := bridge.StartIdleKeepalive()
 		defer stopKeepalive()
+		toolCallIndex := 0
 		resp, err := provider.Stream(ctx, msgs, toolDefs, func(chunk llm.StreamChunk) {
+			if chunk.ToolCall != nil {
+				_ = bridge.SendToolCall(toolCallIndex, *chunk.ToolCall)
+				toolCallIndex++
+			}
 			if chunk.TextDelta != "" {
 				_ = bridge.SendSessionUpdate(sessionID, acp.MessageChunkUpdate{
 					SessionUpdate: acp.UpdateTypeAgentMessageChunk,
@@ -60,27 +68,28 @@ func (s *Server) runDirectYAMLCompletion(ctx context.Context, st *session.State,
 				TotalTokens:   resp.InputTokens + resp.OutputTokens,
 			})
 		}
-		out := strings.TrimSpace(resp.Content)
-		st.AddMessage(llm.Message{
-			Role:      llm.RoleAssistant,
-			Content:   out,
-			Model:     yamlSel,
-			CreatedAt: time.Now().UTC().Format(time.RFC3339),
-		})
+		st.AddMessage(directAssistantMessage(resp, yamlSel))
 		return resp, nil
 	}
 	resp, err := provider.Complete(ctx, msgs, toolDefs)
 	if err != nil {
 		return nil, err
 	}
-	out := strings.TrimSpace(resp.Content)
-	st.AddMessage(llm.Message{
+	st.AddMessage(directAssistantMessage(resp, yamlSel))
+	return resp, nil
+}
+
+// directAssistantMessage is the transcript row of a direct completion: the text
+// and, when the model called the caller's tools, those calls, so the tool result
+// the caller sends next has its call to answer.
+func directAssistantMessage(resp *llm.Response, yamlSel string) llm.Message {
+	return llm.Message{
 		Role:      llm.RoleAssistant,
-		Content:   out,
+		Content:   strings.TrimSpace(resp.Content),
+		ToolCalls: resp.ToolCalls,
 		Model:     yamlSel,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
-	})
-	return resp, nil
+	}
 }
 
 // resolveDirectYAMLMaxTokens returns the max_tokens value to send to the LLM
