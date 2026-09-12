@@ -1513,3 +1513,57 @@ agent:
 		t.Fatalf("usage_limits_panel missing from the providers field order: %v", order)
 	}
 }
+
+// TestInstructionsDefaultMatchesTheSchema is the guard against the drift this
+// test was written for: the loader, the UI defaults and the embedded schema all
+// have to name the same pair, or a config.yaml validates against a default the
+// binary does not apply.
+func TestInstructionsDefaultMatchesTheSchema(t *testing.T) {
+	want := []string{"AGENTS.md", "DESIGN.md"}
+	assertFiles := func(what string, got []string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s = %v, want %v", what, got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("%s = %v, want %v", what, got, want)
+			}
+		}
+	}
+
+	// An absent key and an explicit empty list are the same thing, as they are
+	// for skills.dirs and hooks.files.
+	for _, tc := range []struct {
+		name  string
+		start config.Instructions
+	}{
+		{"key absent", config.Instructions{}},
+		{"files: []", config.Instructions{Files: []string{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := tc.start
+			c.ApplyDefaults()
+			assertFiles("instructions.files", c.Files)
+		})
+	}
+
+	assertFiles("the loader defaults", config.DocDefaults(config.Paths{Home: filepath.FromSlash("/agent/home")}).Instructions.Files)
+	assertFiles("the UI example config", config.SchemaExampleConfigJSON().Instructions.Files)
+
+	var schema struct {
+		Properties struct {
+			Instructions struct {
+				Properties struct {
+					Files struct {
+						Default []string `json:"default"`
+					} `json:"files"`
+				} `json:"properties"`
+			} `json:"instructions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(config.ConfigSchemaJSON(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	assertFiles("the embedded schema default", schema.Properties.Instructions.Properties.Files.Default)
+}
